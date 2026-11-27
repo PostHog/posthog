@@ -2,9 +2,10 @@ import { MakeLogicType, actions, connect, kea, key, listeners, path, props, redu
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
+import type { TraceSpansTreeQueryResponse } from '~/queries/schema/schema-general'
 import { NodeKind, RetentionQuery } from '~/queries/schema/schema-general'
 import type {
     DataNode,
@@ -72,8 +73,8 @@ export interface retentionPeopleLogicActions {
             | TraceSpansAggregationQueryResponse
             | TraceSpansAttributeBreakdownQueryResponse
             | TraceSpansQueryResponse
-            | null
-            | import('~/queries/schema').TraceSpansTreeQueryResponse,
+            | TraceSpansTreeQueryResponse
+            | null,
         payload?:
             | {
                   overrideQuery: DataNode<Record<string, any>> | undefined
@@ -103,8 +104,8 @@ export interface retentionPeopleLogicActions {
             | TraceSpansAggregationQueryResponse
             | TraceSpansAttributeBreakdownQueryResponse
             | TraceSpansQueryResponse
+            | TraceSpansTreeQueryResponse
             | null
-            | import('~/queries/schema').TraceSpansTreeQueryResponse
     } // insightVizDataLogic
     clearPeople: () => {
         value: true

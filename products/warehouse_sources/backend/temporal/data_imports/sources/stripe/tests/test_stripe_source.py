@@ -3,7 +3,7 @@ import functools
 import threading
 import contextvars
 from collections.abc import Callable
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Optional, cast
@@ -38,6 +38,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     scripted_network,
     source_inputs,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_event_columns import (
+    EVENT_ID_COLUMN,
+    EVENT_RANK_COLUMN,
+    EVENT_TIME_COLUMN,
+    WEBHOOK_EVENT_COLUMNS,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_events import latest_event_per_key
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.stripe import (
     StripeAuthMethodConfig,
@@ -72,6 +79,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     INVOICE_ITEM_RESOURCE_NAME,
     INVOICE_PAYMENT_RESOURCE_NAME,
     INVOICE_RESOURCE_NAME,
+    OUTBOUND_PAYMENT_RESOURCE_NAME,
     PAYMENT_INTENT_RESOURCE_NAME,
     PAYMENT_LINK_RESOURCE_NAME,
     PAYMENT_METHOD_HISTORY_MAPPING_KEY,
@@ -86,6 +94,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     SETUP_INTENT_RESOURCE_NAME,
     SHIPPING_RATE_RESOURCE_NAME,
     STRIPE_API_VERSION_ACACIA,
+    STRIPE_API_VERSION_ENDIVE,
     SUBSCRIPTION_ITEM_RESOURCE_NAME,
     SUBSCRIPTION_RESOURCE_NAME,
     SUBSCRIPTION_SCHEDULE_RESOURCE_NAME,
@@ -108,10 +117,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.sou
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe import (
     DEFAULT_LIMIT,
     SUBSCRIPTION_PAGE_LIMIT,
+    V2_LIST_PAGE_LIMIT,
     StripeAuthenticationError,
     StripeNestedResource,
+    StripePermissionError,
     StripeResource,
     StripeTransientError,
+    StripeUnsupportedVersionError,
     StripeValidationError,
     _all_known_webhook_events,
     _coerce_incremental_cursor,
@@ -263,6 +275,101 @@ def _stripe_list_api(objects: list[dict[str, Any]], field: str) -> Callable[[Rec
         return ScriptedResponse(json={"object": "list", "url": "/v1/list", "data": page, "has_more": has_more})
 
     return respond
+
+
+def _v2_list_api(pages: dict[str | None, dict[str, Any]]) -> Callable[[RecordedRequest], ScriptedResponse]:
+    def respond(request: RecordedRequest) -> ScriptedResponse:
+        return ScriptedResponse(json=pages[request.param("page")])
+
+    return respond
+
+
+class TestStripeApiVersionDispatch:
+    def _driver(self) -> SourceDriver:
+        return SourceDriver(
+            StripeSource(),
+            StripeSourceConfig(auth_method=StripeAuthMethodConfig(selection="api_key", stripe_secret_key="sk_test")),
+        )
+
+    @parameterized.expand(
+        [
+            ("acacia_pin", STRIPE_API_VERSION_ACACIA, STRIPE_API_VERSION_ACACIA),
+            ("endive_pin", STRIPE_API_VERSION_ENDIVE, STRIPE_API_VERSION_ENDIVE),
+            ("unpinned_takes_default", None, STRIPE_API_VERSION_ENDIVE),
+        ]
+    )
+    def test_v1_list_sends_the_resolved_version(self, _name, pin, expected_header):
+        result = self._driver().run(
+            CHARGE_RESOURCE_NAME, _stripe_list_api([{"id": "ch_1", "created": NOW}], "created"), api_version=pin
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/v1/charges"]
+        assert {request.headers["stripe-version"] for request in result.requests} == {expected_header}
+
+    def test_v2_list_follows_next_page_url_under_endive(self):
+        path = "/v2/money_management/outbound_payments"
+        pages: dict[str | None, dict[str, Any]] = {
+            None: {
+                "data": [{"id": "obp_2", "created": "2026-10-29T10:00:00.000Z"}],
+                "next_page_url": f"{path}?page=tok_2",
+                "previous_page_url": None,
+            },
+            "tok_2": {
+                "data": [{"id": "obp_1", "created": "2026-10-28T10:00:00.000Z"}],
+                "next_page_url": None,
+                "previous_page_url": f"{path}?page=tok_1",
+            },
+        }
+
+        with mock.patch.object(stripe_module, "STRIPE_CHUNK_SIZE", 1):
+            result = self._driver().run(
+                OUTBOUND_PAYMENT_RESOURCE_NAME, _v2_list_api(pages), api_version=STRIPE_API_VERSION_ENDIVE
+            )
+
+        assert result.raised is None
+        assert [row["id"] for table in result.rows for row in table.to_pylist()] == ["obp_2", "obp_1"]
+        assert result.paths == [path, path]
+        assert {request.headers["stripe-version"] for request in result.requests} == {STRIPE_API_VERSION_ENDIVE}
+        # The v2 Money Management list endpoints reject DEFAULT_LIMIT (100) with "Limit must be
+        # between 1 and 50" — the first request must ask for the v2-specific page size instead.
+        assert result.requests[0].param("limit") == str(V2_LIST_PAGE_LIMIT)
+        # A saved cursor would mark the next attempt as resumed, and a resumed full refresh appends.
+        assert result.saved_states == []
+
+    def test_v2_page_without_data_fails_instead_of_ending_the_list(self):
+        pages: dict[str | None, dict[str, Any]] = {
+            None: {"data": [{"id": "obp_2"}], "next_page_url": "/v2/money_management/outbound_payments?page=tok_2"},
+            "tok_2": {},
+        }
+
+        result = self._driver().run(
+            OUTBOUND_PAYMENT_RESOURCE_NAME, _v2_list_api(pages), api_version=STRIPE_API_VERSION_ENDIVE
+        )
+
+        assert isinstance(result.raised, stripe_lib.APIError)
+
+    def test_v2_table_under_acacia_pin_fails_without_a_request(self):
+        result = self._driver().run(
+            OUTBOUND_PAYMENT_RESOURCE_NAME, _v2_list_api({}), api_version=STRIPE_API_VERSION_ACACIA
+        )
+
+        assert isinstance(result.raised, StripeUnsupportedVersionError)
+        assert result.requests == []
+
+    @parameterized.expand(
+        [
+            ("acacia", STRIPE_API_VERSION_ACACIA, False),
+            ("endive", STRIPE_API_VERSION_ENDIVE, True),
+            ("unpinned", None, True),
+        ]
+    )
+    def test_discovery_lists_v2_tables_only_where_the_pin_serves_them(self, _name, pin, listed):
+        config = StripeSourceConfig(auth_method=StripeAuthMethodConfig(selection="api_key", stripe_secret_key="sk"))
+        names = {schema.name for schema in StripeSource().get_schemas(config, team_id=1, api_version=pin)}
+
+        assert (OUTBOUND_PAYMENT_RESOURCE_NAME in names) is listed
+        assert CHARGE_RESOURCE_NAME in names
 
 
 class TestStripeLatestObjectsOldestFirst:
@@ -444,6 +551,9 @@ class TestStripeSource:
             # The key belongs to a connected account, so Stripe refuses to nest Connect access two
             # levels deep when an "Account id" is also configured — a customer misconfiguration.
             "Request req_abc123: You cannot access the connected accounts of your platform's connected accounts.",
+            # An Organization API key was used — Stripe rejects every request that omits the
+            # Stripe-Context header these keys require, matched on the stable boilerplate text.
+            "Please include the Stripe-Context header with your target account when using an Organization API key.",
         ],
     )
     def test_non_retryable_errors_match_permission_failures(self, observed_error):
@@ -483,6 +593,22 @@ class TestStripeSource:
         assert messages
         assert messages[0] is not None
         assert "Account id" in messages[0]
+
+    def test_organization_api_key_rejection_has_actionable_message(self):
+        # Stripe's own text doesn't say which key type the customer should use instead, so the
+        # guidance has to name it — every call with an Organization key fails identically, since
+        # it never carries the Stripe-Context header these keys require.
+        observed_error = (
+            "Please include the Stripe-Context header with your target account when using an Organization API key."
+        )
+        messages = [
+            message
+            for pattern, message in self.source.get_non_retryable_errors().items()
+            if error_message_matches(observed_error, [pattern])
+        ]
+        assert messages
+        assert messages[0] is not None
+        assert "secret or restricted API key" in messages[0]
 
     @pytest.mark.parametrize(
         "other_error",
@@ -608,6 +734,49 @@ class TestStripeSource:
         assert "try again" in message.lower()
         assert "one of our backends" not in message
         assert "validation failed" not in message.lower()
+
+    @pytest.mark.parametrize(
+        "missing_permissions,expected_message",
+        [
+            (
+                {
+                    "Event": "The provided key 'rk_live_***abc' does not have the required permissions for this "
+                    "endpoint on account 'acct_123'. Having the 'rak_event_read' permission would allow this "
+                    "request to continue."
+                },
+                "Stripe credentials lack permissions for Event. In Stripe, add these permissions to your "
+                "restricted API key: rak_event_read.",
+            ),
+            (
+                {
+                    "Quote": "Having the 'rak_quote_read' permission would allow this request to continue.",
+                    "Event": "Having the 'rak_event_read' permission would allow this request to continue.",
+                    "SubscriptionItem (Subscription)": "Having the 'rak_subscription_read' permission would allow "
+                    "this request to continue.",
+                },
+                "Stripe credentials lack permissions for Quote, Event, SubscriptionItem (Subscription). In Stripe, "
+                "add these permissions to your restricted API key: rak_event_read, rak_quote_read, "
+                "rak_subscription_read.",
+            ),
+            (
+                {"Event": "This application does not have the required permissions for this endpoint."},
+                "Stripe credentials lack permissions for Event.",
+            ),
+        ],
+    )
+    def test_validate_credentials_permission_error_names_stripe_scopes(self, missing_permissions, expected_message):
+        config = StripeSourceConfig(
+            auth_method=StripeAuthMethodConfig(selection="api_key", stripe_secret_key="rk_live_x")
+        )
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.validate_stripe_credentials",
+            side_effect=StripePermissionError(missing_permissions),
+        ):
+            ok, message = self.source.validate_credentials(config, team_id=1)
+
+        assert ok is False
+        assert message == expected_message
 
     @pytest.mark.parametrize(
         "stripe_error,expected_start",
@@ -1136,6 +1305,152 @@ def test_balance_history_switch_decides_which_customers_are_swept(_name, enabled
     assert sorted(row["customer"] for row in rows) == expected_customers
 
 
+_HAS_PAYMENT_METHOD_EXPAND = "data.has_payment_method"
+_EXPAND_REFUSED = ScriptedResponse(
+    status=400,
+    json={
+        "error": {
+            "type": "invalid_request_error",
+            "message": "This property cannot be included (data.has_payment_method)",
+        }
+    },
+)
+
+
+def _payment_method_api(
+    customer_pages: list[list[dict[str, Any]]],
+    refuse_expand_on_page: Optional[int] = None,
+    error: Optional[ScriptedResponse] = None,
+) -> Callable[[RecordedRequest], ScriptedResponse]:
+    """A Stripe account whose customer listing serves `has_payment_method` only on an expand request.
+
+    `refuse_expand_on_page` answers an expand request for that page with Stripe's refusal, the way an
+    account without access, or one whose access Stripe removed mid-sweep, is answered."""
+    customers = [customer for page in customer_pages for customer in page]
+    page_starts: dict[str | None, int] = {None: 0}
+    page_starts.update({customer_pages[i - 1][-1]["id"]: i for i in range(1, len(customer_pages))})
+
+    def respond(request: RecordedRequest) -> ScriptedResponse:
+        if request.path == "/v1/customers":
+            page_index = page_starts[request.param("starting_after")]
+            expanded = request.param("expand[]") == _HAS_PAYMENT_METHOD_EXPAND
+            if expanded and page_index == refuse_expand_on_page:
+                return error or _EXPAND_REFUSED
+            page = [
+                {k: v for k, v in customer.items() if expanded or k != "has_payment_method"}
+                for customer in customer_pages[page_index]
+            ]
+            has_more = page_index < len(customer_pages) - 1
+            return ScriptedResponse(json={"object": "list", "data": page, "has_more": has_more, "url": request.path})
+        customer_id = request.path.split("/")[3]
+        attached = next(c for c in customers if c["id"] == customer_id).get("has_payment_method") is not False
+        payment_methods = (
+            [{"id": f"pm_{customer_id}", "object": "payment_method", "created": 1700000000, "customer": customer_id}]
+            if attached
+            else []
+        )
+        return ScriptedResponse(
+            json={"object": "list", "data": payment_methods, "has_more": False, "url": request.path}
+        )
+
+    return respond
+
+
+_CUSTOMERS_WITH_SIGNAL: list[list[dict[str, Any]]] = [
+    [
+        {"id": "cus_none", "has_payment_method": False},
+        {"id": "cus_card", "has_payment_method": True},
+    ],
+    [
+        {"id": "cus_unknown"},
+        {"id": "cus_none_2", "has_payment_method": False},
+    ],
+]
+
+
+class TestPaymentMethodSweepHasPaymentMethodExpand:
+    def _run(self, endpoint: str, script: Any, flag_on: bool = True) -> tuple[DriveResult, MagicMock]:
+        config = StripeSourceConfig(
+            auth_method=StripeAuthMethodConfig(selection="api_key", stripe_secret_key="sk_test")
+        )
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.is_team_flag_enabled",
+            return_value=flag_on,
+        ) as flag:
+            return SourceDriver(StripeSource(), config).run(endpoint, script), flag
+
+    @staticmethod
+    def _swept_customers(result: DriveResult) -> list[str]:
+        return [path.split("/")[3] for path in result.paths if path.endswith("/payment_methods")]
+
+    @staticmethod
+    def _customer_list_expands(result: DriveResult) -> list[str | None]:
+        return [request.param("expand[]") for request in result.requests if request.path == "/v1/customers"]
+
+    @parameterized.expand([(CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,), (CUSTOMER_PAYMENT_METHOD_HISTORY_RESOURCE_NAME,)])
+    def test_granted_account_skips_customers_without_payment_methods(self, endpoint):
+        result, _ = self._run(endpoint, _payment_method_api(_CUSTOMERS_WITH_SIGNAL))
+
+        assert result.raised is None
+        assert self._swept_customers(result) == ["cus_card", "cus_unknown"]
+        assert self._customer_list_expands(result) == [_HAS_PAYMENT_METHOD_EXPAND, _HAS_PAYMENT_METHOD_EXPAND]
+        rows = [row for table in result.rows for row in table.to_pylist()]
+        assert sorted(row["customer"] for row in rows) == ["cus_card", "cus_unknown"]
+        assert all("has_payment_method" not in row for row in rows)
+
+    @parameterized.expand(
+        [
+            # An account without access is refused on the first page.
+            ("refused_on_first_page", 0, [None, "cus_card"], ["cus_none", "cus_card", "cus_unknown", "cus_none_2"]),
+            # Stripe removed the account's access after the first page. The listing continues after
+            # the last customer it handed over, and the first page keeps its skips.
+            ("refused_mid_sweep", 1, ["cus_card"], ["cus_card", "cus_unknown", "cus_none_2"]),
+        ]
+    )
+    def test_refused_expand_falls_back_to_sweeping_every_customer(
+        self, _name, refused_page, relist_cursors, expected_swept
+    ):
+        result, _ = self._run(
+            CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
+            _payment_method_api(_CUSTOMERS_WITH_SIGNAL, refuse_expand_on_page=refused_page),
+        )
+
+        assert result.raised is None
+        listings = [request for request in result.requests if request.path == "/v1/customers"]
+        relists = listings[refused_page + 1 :]
+        assert [request.param("expand[]") for request in listings[: refused_page + 1]] == [
+            _HAS_PAYMENT_METHOD_EXPAND
+        ] * (refused_page + 1)
+        assert [(request.param("expand[]"), request.param("starting_after")) for request in relists] == [
+            (None, cursor) for cursor in relist_cursors
+        ]
+        assert self._swept_customers(result) == expected_swept
+
+    def test_other_customer_list_errors_still_fail_the_sync(self):
+        error = ScriptedResponse(
+            status=400, json={"error": {"type": "invalid_request_error", "message": "Invalid limit"}}
+        )
+        result, _ = self._run(
+            CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
+            _payment_method_api(_CUSTOMERS_WITH_SIGNAL, refuse_expand_on_page=0, error=error),
+        )
+
+        assert isinstance(result.raised, stripe_lib.InvalidRequestError)
+        assert len([path for path in result.paths if path == "/v1/customers"]) == 1
+
+    def test_flag_off_sends_no_expand_and_sweeps_every_customer(self):
+        result, _ = self._run(CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME, _payment_method_api(_CUSTOMERS_WITH_SIGNAL), False)
+
+        assert result.raised is None
+        assert self._customer_list_expands(result) == [None, None]
+        assert self._swept_customers(result) == ["cus_none", "cus_card", "cus_unknown", "cus_none_2"]
+
+    def test_other_tables_skip_the_flag_check(self):
+        _, flag = self._run(CHARGE_RESOURCE_NAME, _stripe_list_api([{"id": "ch_1", "created": NOW}], "created"))
+
+        flag.assert_not_called()
+
+
 class TestScrubClientSecrets:
     @parameterized.expand(
         [
@@ -1475,6 +1790,54 @@ class TestWebhookOnlyResponseWiring:
         assert response.webhook_only is False
         manager.webhook_enabled.assert_awaited_once_with(webhook_only=False)
 
+    @parameterized.expand(
+        [
+            ("listing_without_cursor", CUSTOMER_RESOURCE_NAME, False, True, False, None, "full_refresh"),
+            ("incremental_without_value", CUSTOMER_RESOURCE_NAME, False, True, True, None, "full_refresh"),
+            ("cursor_poll", CUSTOMER_RESOURCE_NAME, False, True, True, 1700000000, "incremental"),
+            (
+                "nested_lists_every_parent",
+                CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
+                False,
+                True,
+                True,
+                1700000000,
+                "full_refresh",
+            ),
+            ("webhook_only_endpoint", DISCOUNT_RESOURCE_NAME, False, True, False, None, None),
+            ("webhook_present_or_poll_by_design", CUSTOMER_RESOURCE_NAME, False, False, False, None, None),
+            ("webhook_active", CUSTOMER_RESOURCE_NAME, True, False, False, None, None),
+        ]
+    )
+    def test_records_webhook_fallback(
+        self,
+        _name: str,
+        endpoint: str,
+        enabled: bool,
+        webhook_missing: bool,
+        should_use_incremental_field: bool,
+        last_value: int | None,
+        expected: str | None,
+    ) -> None:
+        manager = self._make_manager(enabled=enabled)
+        manager.webhook_missing = webhook_missing
+        stripe_module.stripe_source(
+            api_key="sk_test_123",
+            account_id=None,
+            endpoint=endpoint,
+            db_incremental_field_last_value=last_value,
+            db_incremental_field_earliest_value=last_value,
+            logger=MagicMock(adebug=mock.AsyncMock()),
+            resumable_source_manager=MagicMock(can_resume=MagicMock(return_value=False)),
+            webhook_source_manager=manager,
+            api_version=STRIPE_API_VERSION_ACACIA,
+            should_use_incremental_field=should_use_incremental_field,
+        )
+        if expected is None:
+            manager.record_webhook_fallback.assert_not_awaited()
+        else:
+            manager.record_webhook_fallback.assert_awaited_once_with(expected)
+
     def test_discount_partitions_on_start_not_created(self) -> None:
         # Discount objects carry `start`/`end`, not `created`. If the incremental-field entry is
         # dropped the partition key falls back to "created" and the Delta partitioner KeyErrors on
@@ -1749,6 +2112,73 @@ class TestWebhookUpsertCollapse:
         assert [row["status"] for row in rows] == [expected_status]
 
 
+class TestWebhookEventRows:
+    _FILES = [
+        [_event_row("evt_paid", "invoice.paid", 1700000100, {"id": "in_1", "object": "invoice", "status": "paid"})],
+        [
+            _event_row(
+                "evt_open", "invoice.finalized", 1700000100, {"id": "in_1", "object": "invoice", "status": "open"}
+            ),
+            _event_row("evt_paid", "invoice.paid", 1700000100, {"id": "in_1", "object": "invoice", "status": "paid"}),
+        ],
+    ]
+
+    def _rows(self, *, webhook_history: bool) -> pa.Table:
+        config = StripeSourceConfig(
+            auth_method=StripeAuthMethodConfig(selection="api_key", stripe_secret_key="sk_test")
+        )
+        result = SourceDriver(StripeSource(), config, webhook_files=self._FILES).run(
+            INVOICE_RESOURCE_NAME, [], webhook_history=webhook_history
+        )
+        assert result.raised is None
+        return pa.concat_tables(result.items)
+
+    def test_history_read_keeps_every_event_once(self) -> None:
+        rows = self._rows(webhook_history=True)
+
+        assert [
+            (row[EVENT_ID_COLUMN], row["status"], row[EVENT_TIME_COLUMN], row[EVENT_RANK_COLUMN])
+            for row in rows.to_pylist()
+        ] == [
+            ("evt_open", "open", datetime.fromtimestamp(1700000100, UTC), 2),
+            ("evt_paid", "paid", datetime.fromtimestamp(1700000100, UTC), 4),
+        ]
+        assert latest_event_per_key(rows, ["id"]).column("status").to_pylist() == ["paid"]
+
+    def test_history_read_reads_a_truncated_invoice_once_for_all_its_events(self) -> None:
+        files = [
+            [
+                _event_row("evt_open", "invoice.finalized", 1700000100, {**_INCOMPLETE_INVOICE, "status": "open"}),
+                _event_row("evt_paid", "invoice.paid", 1700000200, _INCOMPLETE_INVOICE),
+            ]
+        ]
+        config = StripeSourceConfig(
+            auth_method=StripeAuthMethodConfig(selection="api_key", stripe_secret_key="sk_test")
+        )
+
+        result = SourceDriver(StripeSource(), config, webhook_files=files).run(
+            INVOICE_RESOURCE_NAME,
+            lambda request: ScriptedResponse(json=_stripe_list(_ALL_LINES, request.path)),
+            webhook_history=True,
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/v1/invoices/in_1/lines"]
+        assert [
+            (row[EVENT_ID_COLUMN], row[EVENT_TIME_COLUMN], row["status"], len(orjson.loads(row["lines"])["data"]))
+            for row in pa.concat_tables(result.items).to_pylist()
+        ] == [
+            ("evt_open", datetime.fromtimestamp(1700000100, UTC), "open", len(_ALL_LINES)),
+            ("evt_paid", datetime.fromtimestamp(1700000200, UTC), "paid", len(_ALL_LINES)),
+        ]
+
+    def test_read_without_history_keeps_the_latest_object_only(self) -> None:
+        rows = self._rows(webhook_history=False)
+
+        assert rows.column("status").to_pylist() == ["paid"]
+        assert not set(WEBHOOK_EVENT_COLUMNS) & set(rows.column_names)
+
+
 def _stripe_list(data: list[dict[str, Any]], url: str, has_more: bool = False) -> dict[str, Any]:
     return {"object": "list", "data": data, "has_more": has_more, "url": url}
 
@@ -1767,6 +2197,18 @@ _INCOMPLETE_INVOICE = {
     "status": "paid",
     "lines": _stripe_list(_FIRST_PAGE, "/v1/invoices/in_1/lines", True),
 }
+
+
+def _subscription_is(
+    *, status: str, discounts: list[Any], items: list[dict[str, Any]]
+) -> Callable[[dict[str, Any]], bool]:
+    def check(row: dict[str, Any]) -> bool:
+        assert row["status"] == status
+        assert orjson.loads(row["discounts"]) == discounts
+        assert orjson.loads(row["items"])["data"] == items
+        return True
+
+    return check
 
 
 class TestWebhookRefetch:
@@ -1811,9 +2253,9 @@ class TestWebhookRefetch:
                 lambda row: len(orjson.loads(row["lines"])["data"]) == len(_ALL_LINES),
             ),
             (
-                "tiers of a tiered price",
+                "tiers of a price archived since the event",
                 PRICE_RESOURCE_NAME,
-                {"id": "price_1", "object": "price", "billing_scheme": "tiered"},
+                {"id": "price_1", "object": "price", "billing_scheme": "tiered", "active": True},
                 {
                     "/v1/prices/price_1": (
                         {"expand[0]": "tiers"},
@@ -1821,27 +2263,58 @@ class TestWebhookRefetch:
                             "id": "price_1",
                             "object": "price",
                             "billing_scheme": "tiered",
+                            "active": False,
                             "tiers": [{"up_to": 10, "unit_amount": 5}, {"up_to": None, "unit_amount": 3}],
                         },
                     )
                 },
-                lambda row: len(orjson.loads(row["tiers"])) == 2,
+                lambda row: row["active"] is True and len(orjson.loads(row["tiers"])) == 2,
             ),
             (
-                "expanded subscription discounts",
+                "discounts of a subscription changed since the event",
                 SUBSCRIPTION_RESOURCE_NAME,
-                {"id": "sub_1", "object": "subscription", "discounts": ["di_1"]},
+                {
+                    "id": "sub_1",
+                    "object": "subscription",
+                    "status": "active",
+                    "discounts": ["di_1", "di_removed"],
+                    "items": {
+                        "object": "list",
+                        "data": [{"id": "si_1", "discounts": ["di_2"]}, {"id": "si_2", "discounts": []}],
+                    },
+                },
                 {
                     "/v1/subscriptions/sub_1": (
                         {"expand[0]": "discounts", "expand[1]": "items.data.discounts"},
                         {
                             "id": "sub_1",
                             "object": "subscription",
-                            "discounts": [{"id": "di_1", "object": "discount", "coupon": {"id": "co_1"}}],
+                            "status": "canceled",
+                            "discounts": [
+                                {"id": "di_1", "object": "discount", "coupon": {"id": "co_1"}},
+                                {"id": "di_added", "object": "discount", "coupon": {"id": "co_3"}},
+                            ],
+                            "items": {
+                                "object": "list",
+                                "data": [
+                                    {
+                                        "id": "si_1",
+                                        "discounts": [{"id": "di_2", "object": "discount", "coupon": {"id": "co_2"}}],
+                                    },
+                                    {"id": "si_2", "discounts": []},
+                                ],
+                            },
                         },
                     )
                 },
-                lambda row: orjson.loads(row["discounts"])[0]["coupon"]["id"] == "co_1",
+                _subscription_is(
+                    status="active",
+                    discounts=[{"id": "di_1", "object": "discount", "coupon": {"id": "co_1"}}, "di_removed"],
+                    items=[
+                        {"id": "si_1", "discounts": [{"id": "di_2", "object": "discount", "coupon": {"id": "co_2"}}]},
+                        {"id": "si_2", "discounts": []},
+                    ],
+                ),
             ),
         ]
     )
@@ -1905,6 +2378,24 @@ class TestWebhookRefetch:
     ) -> None:
         with scripted_network([answer]), pytest.raises(error):
             self._transform(INVOICE_RESOURCE_NAME, _INCOMPLETE_INVOICE)
+
+    def test_events_of_one_object_share_one_read(self) -> None:
+        refetcher = WebhookObjectRefetcher(
+            stripe_module.WEBHOOK_REFETCH[INVOICE_RESOURCE_NAME],
+            MagicMock(),
+            client_factory_provider=lambda: stripe_module._refetch_client_factory(
+                "sk_test", None, STRIPE_API_VERSION_ACACIA
+            ),
+        )
+
+        with scripted_network(lambda request: ScriptedResponse(json=_stripe_list(_ALL_LINES, request.path))) as network:
+            rows = refetcher.complete([{**_INCOMPLETE_INVOICE, "status": "open"}, _INCOMPLETE_INVOICE])
+
+        assert len(network.requests_log) == 1
+        assert [(row["status"], len(row["lines"]["data"])) for row in rows] == [
+            ("open", len(_ALL_LINES)),
+            ("paid", len(_ALL_LINES)),
+        ]
 
     def test_webhook_sync_completes_invoice_lines(self) -> None:
         source = StripeSource()
@@ -2364,6 +2855,24 @@ class TestStripeAppManifestCoversSourcePermissions:
 
         assert required, "PERMISSIONS is empty, so this assertion would pass vacuously"
         assert required - granted == set()
+
+    def test_every_app_read_permission_is_asked_of_a_restricted_key(self):
+        # The reverse drift: a table's scope reached the OAuth grant but not the key form (Event and
+        # twelve other read scopes), so key users got a 403 the moment they enabled the table.
+        manifest_path = Path(settings.BASE_DIR) / "services" / "stripe-app" / "stripe-app.json"
+        granted = {entry["permission"] for entry in orjson.loads(manifest_path.read_bytes())["permissions"]}
+        key_scopes = {permission.removeprefix("rak_") for permission in PERMISSIONS}
+
+        # A write scope on a restricted key includes the matching read scope.
+        missing = {
+            permission
+            for permission in granted
+            if permission.endswith("_read")
+            and permission not in key_scopes
+            and permission.replace("_read", "_write") not in key_scopes
+        }
+
+        assert missing == set()
 
     def test_manifest_omits_every_disallowed_permission(self):
         manifest_path = Path(settings.BASE_DIR) / "services" / "stripe-app" / "stripe-app.json"

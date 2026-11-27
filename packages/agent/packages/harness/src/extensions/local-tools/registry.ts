@@ -30,7 +30,13 @@ export interface LocalToolCtx {
   requestFinish?: (
     status: "completed" | "failed",
     message?: string,
+    report?: string,
   ) => Promise<void>;
+  /**
+   * A later workflow step reads this run's final message, so `finish` refuses to
+   * end the run without a report.
+   */
+  finishReportRequired?: boolean;
 }
 
 /** Minimal session-meta shape needed to gate tools (e.g. cloud-only). */
@@ -46,14 +52,8 @@ export interface LocalToolGateMeta {
    * human ends.
    */
   background?: boolean;
-  taskOriginProduct?: string;
-  /**
-   * Workflow-action opt-in (run state `end_run_when_done`): exposes the `finish`
-   * tool to a workflow-origin run, ending it the moment the agent is done.
-   * Without it the run stays live for its idle window so its Slack reply can
-   * relay and thread replies still reach the agent.
-   */
-  endRunWhenDone?: boolean;
+  finishTool?: boolean;
+  reportActivityTool?: boolean;
 }
 
 /**

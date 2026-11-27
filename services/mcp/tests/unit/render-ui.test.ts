@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
 import { toMcpInputSchema } from '@/hono/tool-catalog'
@@ -6,6 +6,7 @@ import { isToolCallPayload, type ToolResultPayload } from '@/lib/build-tool-resu
 import { RENDER_UI_RESOURCE_URI, URI_MAP } from '@/resources/ui-apps.generated'
 import { createRenderUiTool, getRenderableToolNames, RENDER_UI_TOOL_NAME } from '@/tools/render-ui'
 import { type Context, type Tool, type ZodObjectAny } from '@/tools/types'
+import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
 const mockContext = {
     getDistinctId: async () => 'test-distinct-id',
@@ -124,7 +125,36 @@ describe('render-ui tool', () => {
         expect((result.structuredContent as Record<string, unknown>).tool_input).toEqual({})
     })
 
-    it('does not execute the inner tool — it only emits a render directive', async () => {
+    it.each([
+        { host: 'a host that passes _meta to the app', appDataInStructuredContent: false },
+        { host: 'a host whose apps never receive _meta', appDataInStructuredContent: true },
+    ])(
+        'carries preloaded data on app-only _meta, or in the directive for $host',
+        async ({ appDataInStructuredContent }) => {
+            const data = { id: 'abc', name: 'NPS' }
+            const loadAppData = vi.fn().mockResolvedValue(data)
+            const tool = createRenderUiTool([surveyTool], mockContext, undefined, loadAppData, {
+                appDataInStructuredContent,
+            })!
+            const result = (await tool.handler(mockContext, {
+                tool_name: 'survey-get',
+                tool_input: { surveyId: 'abc' },
+            })) as ToolResultPayload
+
+            expect(loadAppData).toHaveBeenCalledExactlyOnceWith('survey-get', { surveyId: 'abc' }, 'survey')
+            expect(JSON.stringify(result.content)).not.toContain('NPS')
+            expect(result._meta?.[APP_DATA_META_KEY]).toEqual(appDataInStructuredContent ? undefined : data)
+            expect(result.structuredContent?.[APP_DATA_META_KEY]).toEqual(appDataInStructuredContent ? data : undefined)
+        }
+    )
+
+    it('leaves the app to fetch its own data when nothing was preloaded', async () => {
+        const tool = createRenderUiTool([surveyTool], mockContext, undefined, async () => undefined)!
+        const result = (await tool.handler(mockContext, { tool_name: 'survey-get' })) as ToolResultPayload
+        expect(result._meta).not.toHaveProperty(APP_DATA_META_KEY)
+    })
+
+    it('never runs the inner tool handler itself', async () => {
         let innerCalled = false
         const spyTool = makeTool('survey-get', URI_MAP['survey'])
         spyTool.handler = async () => {

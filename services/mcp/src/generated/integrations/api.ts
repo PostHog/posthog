@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 11 enabled ops
+ * PostHog API - MCP 16 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -32,6 +32,7 @@ export const IntegrationsListQueryParams = () => zod.object({
             'customerio-webhook',
             'databricks',
             'email',
+            'email_sandbox',
             'firebase',
             'github',
             'gitlab',
@@ -51,6 +52,7 @@ export const IntegrationsListQueryParams = () => zod.object({
             'linear',
             'linkedin-ads',
             'meta-ads',
+            'motherduck',
             'pardot',
             'pinterest-ads',
             'postgresql',
@@ -72,11 +74,25 @@ export const IntegrationsListQueryParams = () => zod.object({
         ])
         .optional()
         .describe(
-            '\* `anthropic` - Anthropic\n\* `apple-ads` - Apple Ads\n\* `apns` - Apple Push\n\* `aws-redshift` - Aws Redshift\n\* `aws-s3` - Aws S3\n\* `azure-blob` - Azure Blob\n\* `bing-ads` - Bing Ads\n\* `clickup` - Clickup\n\* `customerio-app` - Customerio App\n\* `customerio-track` - Customerio Track\n\* `customerio-webhook` - Customerio Webhook\n\* `databricks` - Databricks\n\* `email` - Email\n\* `firebase` - Firebase\n\* `github` - Github\n\* `gitlab` - Gitlab\n\* `google-ads` - Google Ads\n\* `google-analytics` - Google Analytics\n\* `google-calendar` - Google Calendar\n\* `google-cloud-service-account` - Google Cloud Service Account\n\* `google-cloud-storage` - Google Cloud Storage\n\* `google-pubsub` - Google Pubsub\n\* `google-search-console` - Google Search Console\n\* `google-sheets` - Google Sheets\n\* `helpscout` - Helpscout\n\* `hubspot` - Hubspot\n\* `instagram` - Instagram\n\* `intercom` - Intercom\n\* `jira` - Jira\n\* `linear` - Linear\n\* `linkedin-ads` - Linkedin Ads\n\* `meta-ads` - Meta Ads\n\* `pardot` - Pardot\n\* `pinterest-ads` - Pinterest Ads\n\* `postgresql` - Postgresql\n\* `posthog` - Posthog\n\* `reddit-ads` - Reddit Ads\n\* `twitter-ads` - Twitter Ads\n\* `resend` - Resend\n\* `s3-compatible` - S3 Compatible\n\* `salesforce` - Salesforce\n\* `slack` - Slack\n\* `slack-posthog-code` - Slack Posthog Code\n\* `snapchat` - Snapchat\n\* `snowflake` - Snowflake\n\* `stripe` - Stripe\n\* `tiktok-ads` - Tiktok Ads\n\* `twilio` - Twilio\n\* `vercel` - Vercel\n\* `youtube-analytics` - Youtube Analytics'
+            '\* `anthropic` - Anthropic\n\* `apple-ads` - Apple Ads\n\* `apns` - Apple Push\n\* `aws-redshift` - Aws Redshift\n\* `aws-s3` - Aws S3\n\* `azure-blob` - Azure Blob\n\* `bing-ads` - Bing Ads\n\* `clickup` - Clickup\n\* `customerio-app` - Customerio App\n\* `customerio-track` - Customerio Track\n\* `customerio-webhook` - Customerio Webhook\n\* `databricks` - Databricks\n\* `email` - Email\n\* `email_sandbox` - Email Sandbox\n\* `firebase` - Firebase\n\* `github` - Github\n\* `gitlab` - Gitlab\n\* `google-ads` - Google Ads\n\* `google-analytics` - Google Analytics\n\* `google-calendar` - Google Calendar\n\* `google-cloud-service-account` - Google Cloud Service Account\n\* `google-cloud-storage` - Google Cloud Storage\n\* `google-pubsub` - Google Pubsub\n\* `google-search-console` - Google Search Console\n\* `google-sheets` - Google Sheets\n\* `helpscout` - Helpscout\n\* `hubspot` - Hubspot\n\* `instagram` - Instagram\n\* `intercom` - Intercom\n\* `jira` - Jira\n\* `linear` - Linear\n\* `linkedin-ads` - Linkedin Ads\n\* `meta-ads` - Meta Ads\n\* `motherduck` - Motherduck\n\* `pardot` - Pardot\n\* `pinterest-ads` - Pinterest Ads\n\* `postgresql` - Postgresql\n\* `posthog` - Posthog\n\* `reddit-ads` - Reddit Ads\n\* `twitter-ads` - Twitter Ads\n\* `resend` - Resend\n\* `s3-compatible` - S3 Compatible\n\* `salesforce` - Salesforce\n\* `slack` - Slack\n\* `slack-posthog-code` - Slack Posthog Code\n\* `snapchat` - Snapchat\n\* `snowflake` - Snowflake\n\* `stripe` - Stripe\n\* `tiktok-ads` - Tiktok Ads\n\* `twilio` - Twilio\n\* `vercel` - Vercel\n\* `youtube-analytics` - Youtube Analytics'
         ),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
+
+export const IntegrationsCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const IntegrationsCreateBody = () => zod
+    .object({
+        config: zod.unknown().optional(),
+    })
+    .describe('The request schema of a create. A create accepts only the public kinds, so the schema lists them.')
 
 export const IntegrationsRetrieveParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this integration.'),
@@ -143,6 +159,61 @@ export const IntegrationsChannelsRetrieveQueryParams = () => zod.object({
         .string()
         .default(integrationsChannelsRetrieveQuerySearchDefault)
         .describe('Optional case-insensitive channel name or ID search query.'),
+})
+
+/**
+ * @summary Update an email sender
+ */
+export const IntegrationsEmailPartialUpdateParams = () => zod.object({
+    id: zod.number().describe('A unique integer value identifying this integration.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const integrationsEmailPartialUpdateBodyConfigOneReplyToTwoMax = 0
+
+export const IntegrationsEmailPartialUpdateBody = () => zod.object({
+    config: zod
+        .object({
+            email: zod
+                .email()
+                .describe(
+                    'Sender address, for example `hello@mail.example.com`. Its domain is the sending domain that needs DNS records. Free and disposable mailbox domains such as gmail.com are rejected. Cannot be changed after creation; send the current address when updating.'
+                ),
+            name: zod.string().describe('Sender display name recipients see in their inbox, for example `Acme`.'),
+            provider: zod
+                .enum(['ses', 'maildev'])
+                .describe('\* `ses` - Amazon SES\n\* `maildev` - Maildev (local development only)')
+                .describe(
+                    'Sending provider. Always `ses`. `maildev` is only accepted in local development.\n\n\* `ses` - Amazon SES\n\* `maildev` - Maildev (local development only)'
+                ),
+            mail_from_subdomain: zod
+                .string()
+                .optional()
+                .describe(
+                    'Subdomain of the sending domain used as the custom MAIL FROM (bounce) domain. `feedback` gives `feedback.mail.example.com`. Defaults to `feedback`. Pick another value if that subdomain already has MX records.'
+                ),
+            reply_to: zod
+                .union([zod.email(), zod.string().max(integrationsEmailPartialUpdateBodyConfigOneReplyToTwoMax)])
+                .optional()
+                .describe(
+                    'Reply-to address for emails from this sender when the email step sets none. Blank clears it.'
+                ),
+            setup_method: zod
+                .enum(['auto', 'manual'])
+                .describe('\* `auto` - Domain Connect\n\* `manual` - Manual DNS records')
+                .optional()
+                .describe(
+                    'How the DNS records are being published: `auto` through Domain Connect, `manual` by hand. Reported on the verification event.\n\n\* `auto` - Domain Connect\n\* `manual` - Manual DNS records'
+                ),
+        })
+        .optional()
+        .describe(
+            'The full sender config. Only `name`, `mail_from_subdomain` and `reply_to` change; `email` must stay the same.'
+        ),
 })
 
 /**
@@ -240,6 +311,63 @@ export const IntegrationsLinearTeamsRetrieveParams = () => zod.object({
         ),
 })
 
+/**
+ * Register existing device tokens, for example exported from another provider, on this push channel. Each token is stored encrypted on its person, as the mobile SDK stores it. A row fails when no person has its distinct ID, unless create_missing_persons is set, or when the token is the wrong kind for the channel. Send dry_run first to see every failure without storing anything.
+ * @summary Import push device tokens
+ */
+export const IntegrationsPushTokensCreateParams = () => zod.object({
+    id: zod.number().describe('A unique integer value identifying this integration.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const integrationsPushTokensCreateBodySubscriptionsItemDistinctIdMax = 200
+
+export const integrationsPushTokensCreateBodySubscriptionsItemDeviceTokenMax = 4096
+
+export const integrationsPushTokensCreateBodyDryRunDefault = false
+export const integrationsPushTokensCreateBodyCreateMissingPersonsDefault = false
+
+export const IntegrationsPushTokensCreateBody = () => zod.object({
+    subscriptions: zod
+        .array(
+            zod.object({
+                distinct_id: zod
+                    .string()
+                    .max(integrationsPushTokensCreateBodySubscriptionsItemDistinctIdMax)
+                    .describe("The person's distinct ID in this project: the ID your app passes to `identify`."),
+                device_token: zod
+                    .string()
+                    .max(integrationsPushTokensCreateBodySubscriptionsItemDeviceTokenMax)
+                    .describe(
+                        'The token of one device. An APNs channel takes the hex APNs device token. A Firebase channel takes the FCM registration token. Expo push tokens are not accepted.'
+                    ),
+            })
+        )
+        .describe('Up to 1000 devices to register on this push channel. List a person once per device.'),
+    dry_run: zod
+        .boolean()
+        .default(integrationsPushTokensCreateBodyDryRunDefault)
+        .describe(
+            'Check every row and report what would fail, without storing anything. Run this first and fix the failed rows before importing.'
+        ),
+    import_id: zod
+        .string()
+        .nullish()
+        .describe(
+            'A new UUID for each batch. Send the same value when you retry that batch, so a retried batch can be recognized as a repeat.'
+        ),
+    create_missing_persons: zod
+        .boolean()
+        .default(integrationsPushTokensCreateBodyCreateMissingPersonsDefault)
+        .describe(
+            "Create a person for a distinct ID that has none. Off by default, because a distinct ID that does not match your app's identify call creates a person that never gets a push."
+        ),
+})
+
 export const IntegrationsUsersRetrieveParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this integration.'),
     project_id: zod
@@ -286,6 +414,51 @@ export const IntegrationsUsersRetrieveQueryParams = () => zod.object({
         .default(integrationsUsersRetrieveQueryUserIdDefault)
         .describe(
             'Look up one member directly by Slack member ID (e.g. U0123ABC). When set, `search`, `limit`, and `offset` are ignored and the response holds at most that member.'
+        ),
+})
+
+/**
+ * Build the signed URL that sends a person to their DNS host to approve the records for an email sending domain or a reverse proxy domain.
+ * @summary Generate a Domain Connect apply URL
+ */
+export const IntegrationsDomainConnectApplyUrlCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const IntegrationsDomainConnectApplyUrlCreateBody = () => zod.object({
+    integration_id: zod
+        .number()
+        .nullish()
+        .describe('ID of the email integration (sender). Required when `context` is `email`.'),
+    provider_endpoint: zod
+        .string()
+        .nullish()
+        .describe(
+            "Provider endpoint from `available_providers` in the domain-connect check. Omit it to use the provider detected from the domain's DNS."
+        ),
+})
+
+export const IntegrationsDomainConnectCheckRetrieveParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const integrationsDomainConnectCheckRetrieveQueryIncludeEmailSetupDefault = false
+
+export const IntegrationsDomainConnectCheckRetrieveQueryParams = () => zod.object({
+    domain: zod.string().min(1).describe('Domain to check, such as mail.example.com. Its root domain is checked.'),
+    include_email_setup: zod
+        .boolean()
+        .default(integrationsDomainConnectCheckRetrieveQueryIncludeEmailSetupDefault)
+        .describe(
+            'Also look up the DNS host and the email tools that already send for the domain. Email domain setup needs these. Leave it off for other setups, because the lookups add DNS queries.'
         ),
 })
 

@@ -24,10 +24,17 @@ pub const SYMBOL_SET_FETCH_RETRY: &str = "cymbal_symbol_set_fetch_retry";
 pub const FRAME_RESOLVED: &str = "cymbal_frame_resolved";
 // Source-map ignore-list matches, labelled by `runtime` (`browser` / `node`).
 pub const SOURCEMAP_IGNORED_FRAME: &str = "cymbal_sourcemap_ignored_frame";
+pub const DART2JS_LOOKBACK: &str = "cymbal_dart2js_lookback";
 pub const FRAME_CACHE_HITS: &str = "cymbal_frame_cache_hits";
 pub const FRAME_CACHE_MISSES: &str = "cymbal_frame_cache_misses";
 pub const FRAME_DB_HITS: &str = "cymbal_frame_db_hits";
 pub const FRAME_DB_MISSES: &str = "cymbal_frame_db_misses";
+// Labelled by `commit` (`async` / `sync`), pool wait included.
+pub const FRAME_SAVE_TIME: &str = "cymbal_frame_save_ms";
+// Labelled by `mode` and `team_id`. It counts opens only, so few teams get a series.
+pub const FRAME_MISS_BREAKER_OPENED: &str = "cymbal_frame_miss_breaker_opened";
+// Misses while a breaker is open, by `mode`. In `log` they still use Postgres.
+pub const FRAME_MISS_BREAKER_SKIPPED: &str = "cymbal_frame_miss_breaker_skipped";
 pub const FRAME_NOT_RESOLVED: &str = "cymbal_frame_not_resolved";
 pub const RELEASE_ID_CACHE_HITS: &str = "cymbal_release_id_cache_hits";
 pub const RELEASE_ID_CACHE_MISSES: &str = "cymbal_release_id_cache_misses";
@@ -57,6 +64,9 @@ pub const SYMBOL_SET_DECOMPRESSED_BYTES: &str = "cymbal_symbol_set_decompressed_
 // Time a large symbol set parse waits for a `ParseLimiter` permit, in milliseconds.
 pub const SYMBOL_SET_LARGE_PARSE_WAIT_MS: &str = "cymbal_symbol_set_large_parse_wait_ms";
 pub const SYMBOL_SET_PARSE_INPUT_BYTES: &str = "cymbal_symbol_set_parse_input_bytes";
+// Parses that failed on a size limit, by `kind` and `limit`: `container` is
+// `SYMBOL_SET_MAX_DECOMPRESSED_BYTES`, `extracted` is `SYMBOL_SET_MAX_EXTRACTED_BYTES`.
+pub const SYMBOL_SET_SIZE_LIMIT_EXCEEDED: &str = "cymbal_symbol_set_size_limit_exceeded";
 
 // Histogram buckets for the byte-shaped metrics above. The default
 // `common_metrics` buckets are tuned for milliseconds of latency and saturate
@@ -78,6 +88,11 @@ pub const BYTE_HISTOGRAM_BUCKETS: &[f64] = &[
     536_870_912.0,   // 512 MiB
     1_073_741_824.0, // 1 GiB
 ];
+
+// A healthy frame save takes under 1 ms, below the lowest default bucket.
+pub const FRAME_SAVE_TIME_BUCKETS: &[f64] = &[
+    0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 1000.0, 5000.0,
+];
 pub const ISSUE_CREATED: &str = "cymbal_issue_created";
 pub const ISSUE_CREATED_EVENT_PROPERTIES_STORED: &str =
     "cymbal_issue_created_event_properties_stored";
@@ -88,6 +103,7 @@ pub const ISSUE_CREATED_EVENT_PROPERTIES_STORE_SKIPPED: &str =
 pub const ISSUE_CREATED_EVENT_PROPERTIES_BYTES: &str =
     "cymbal_issue_created_event_properties_bytes";
 pub const ISSUE_REOPENED: &str = "cymbal_issue_reopened";
+pub const INGESTION_NOTIFICATION_SKIPPED: &str = "cymbal_ingestion_notification_skipped";
 pub const FRAME_RESOLUTION_RESULTS_DELETED: &str = "cymbal_frame_resolution_results_deleted";
 pub const CHUNK_ID_NOT_FOUND: &str = "cymbal_chunk_id_not_found";
 pub const CHUNK_ID_FAILURE_FETCHED: &str = "cymbal_chunk_id_failure_fetched";
@@ -119,11 +135,24 @@ pub const PROCESS_REQUESTS_TOTAL: &str = "cymbal_process_requests_total";
 pub const PROCESS_REQUEST_DURATION_MS: &str = "cymbal_process_request_duration_ms";
 pub const PROCESS_BATCH_EVENTS: &str = "cymbal_process_batch_events";
 pub const PROCESS_IN_FLIGHT: &str = "cymbal_process_in_flight";
+pub const EVENT_PROCESSING_FAILURES: &str = "cymbal_event_processing_failures";
+
+// Per-team database slots (see `team_db_slots`)
+pub const TEAM_DB_SLOTS_CALLS: &str = "cymbal_team_db_slots_calls_total";
+pub const TEAM_DB_SLOTS_IN_FLIGHT: &str = "cymbal_team_db_slots_in_flight";
+pub const TEAM_DB_SLOTS_HOT_EVENTS: &str = "cymbal_team_db_slots_hot_events_total";
+pub const TEAM_DB_SLOTS_TEAMS: &str = "cymbal_team_db_slots_teams";
+// The default `common_metrics` buckets go 1, 5, 10, 50, which is too coarse to compare an
+// in-flight count with a limit of a few slots.
+pub const TEAM_DB_SLOTS_IN_FLIGHT_BUCKETS: &[f64] = &[
+    1.0, 2.0, 3.0, 4.0, 6.0, 8.0, 12.0, 16.0, 24.0, 32.0, 48.0, 64.0, 128.0,
+];
 
 // Spike detection metrics
 pub const SPIKE_INCREMENT_ISSUE_BUCKETS_TIME: &str = "cymbal_spike_increment_issue_buckets_time";
 pub const SPIKE_INCREMENT_TEAM_BUCKETS_TIME: &str = "cymbal_spike_increment_team_buckets_time";
 pub const SPIKE_GET_SPIKING_ISSUES_TIME: &str = "cymbal_spike_get_spiking_issues_time";
+pub const SPIKE_FETCH_BUCKETS_ERRORS: &str = "cymbal_spike_fetch_buckets_errors";
 pub const SPIKE_ACQUIRE_LOCKS_TIME: &str = "cymbal_spike_acquire_locks_time";
 pub const SPIKE_ISSUES_CHECKED: &str = "cymbal_spike_issues_checked";
 pub const SPIKE_ISSUES_SPIKING: &str = "cymbal_spike_issues_spiking";
@@ -141,6 +170,8 @@ pub const GROUPING_STAGE: &str = "cymbal_exception_grouping_stage";
 pub const ALERTING_STAGE: &str = "cymbal_exception_alerting_stage";
 pub const RATE_LIMITING_STAGE: &str = "cymbal_rate_limiting_stage";
 pub const RATE_LIMIT_OUTCOMES: &str = "cymbal_error_tracking_rate_limiter_outcomes";
+pub const ADAPTIVE_INGESTION_STAGE: &str = "cymbal_adaptive_ingestion_stage";
+pub const ADAPTIVE_INGESTION_EVENTS: &str = "cymbal_adaptive_ingestion_events_total";
 pub const RATE_LIMIT_FAIL_OPEN: &str = "cymbal_error_tracking_rate_limiter_fail_open";
 pub const RATE_LIMIT_METRIC_EMIT: &str = "cymbal_error_tracking_rate_limiter_metric_emit";
 pub const SPIKE_ALERT_STAGE: &str = "cymbal_spike_detection_time";

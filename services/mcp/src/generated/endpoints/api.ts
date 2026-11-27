@@ -187,6 +187,9 @@ export const EndpointsLogsRetrieveParams = () => zod.object({
 export const endpointsLogsRetrieveQueryLimitDefault = 50
 export const endpointsLogsRetrieveQueryLimitMax = 500
 
+export const endpointsLogsRetrieveQueryOffsetDefault = 0
+export const endpointsLogsRetrieveQueryOffsetMin = 0
+
 export const EndpointsLogsRetrieveQueryParams = () => zod.object({
     after: zod.iso
         .datetime({ offset: true })
@@ -212,6 +215,11 @@ export const EndpointsLogsRetrieveQueryParams = () => zod.object({
         .max(endpointsLogsRetrieveQueryLimitMax)
         .default(endpointsLogsRetrieveQueryLimitDefault)
         .describe('Maximum number of log entries to return (1-500, default 50).'),
+    offset: zod
+        .number()
+        .min(endpointsLogsRetrieveQueryOffsetMin)
+        .default(endpointsLogsRetrieveQueryOffsetDefault)
+        .describe('Number of log entries to skip before the first returned entry (default 0).'),
     search: zod.string().min(1).optional().describe('Case-insensitive substring search across log messages.'),
 })
 

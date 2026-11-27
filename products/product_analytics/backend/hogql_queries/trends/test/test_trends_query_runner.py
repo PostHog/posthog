@@ -19,7 +19,7 @@ from posthog.test.base import (
     flush_persons_and_events,
     materialized,
 )
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 from django.test import override_settings
 
@@ -71,6 +71,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.client.execute import sync_execute
+from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.hogql_queries.utils.breakdowns import (
     BREAKDOWN_NULL_DISPLAY,
     BREAKDOWN_NULL_STRING_LABEL,
@@ -82,9 +83,14 @@ from posthog.models.team.team import Team, WeekStartDay
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.cohorts.backend.models.cohort import Cohort
-from products.event_definitions.backend.models.property_definition import PropertyDefinition
+from products.event_definitions.backend.facade.enums import PropertyDefinitionType, PropertyType
+from products.event_definitions.backend.facade.testing import (
+    create_property_definition,
+    property_definition_exists,
+    set_property_type,
+)
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 from products.product_analytics.backend.hogql_queries.trends.trends_query_runner import TrendsQueryRunner
@@ -98,7 +104,7 @@ def _flag_call_event_series(team: Team, flag_keys: list[str]) -> EventsNode:
 
 
 def _flag_call_action_series(team: Team, flag_keys: list[str]) -> ActionsNode:
-    action = Action.objects.create(
+    action = create_action(
         team=team,
         name="called a flag",
         steps_json=[
@@ -144,18 +150,18 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def _create_events(self, data: list[SeriesFixture]):
         person_result = []
-        properties_to_create: dict[str, str] = {}
+        properties_to_create: dict[str, PropertyType] = {}
         for person in data:
             first_timestamp = person.events[0].timestamps[0]
 
             for key, value in person.properties.items():
                 if key not in properties_to_create:
                     if isinstance(value, bool):
-                        type = "Boolean"
+                        type = PropertyType.Boolean
                     elif isinstance(value, int):
-                        type = "Numeric"
+                        type = PropertyType.Numeric
                     else:
-                        type = "String"
+                        type = PropertyType.String
                     properties_to_create[key] = type
 
             with time_machine.travel(first_timestamp, tick=False):
@@ -180,7 +186,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     )
 
         for key, value in properties_to_create.items():
-            PropertyDefinition.objects.create(team=self.team, name=key, property_type=value)
+            create_property_definition(team_id=self.team.id, name=key, property_type=value)
 
         return person_result
 
@@ -254,23 +260,23 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         if props is not None:
             for key, value in props.items():
-                prop_def_exists = PropertyDefinition.objects.filter(team=self.team, name=key).exists()
+                prop_def_exists = property_definition_exists(team_id=self.team.id, name=key)
                 if prop_def_exists is False:
                     if isinstance(value, str):
-                        type = "String"
+                        type = PropertyType.String
                     elif isinstance(value, bool):
-                        type = "Boolean"
+                        type = PropertyType.Boolean
                     elif isinstance(value, int):
-                        type = "Numeric"
+                        type = PropertyType.Numeric
                     else:
-                        type = "String"
+                        type = PropertyType.String
 
-                    PropertyDefinition.objects.create(
-                        team=self.team,
+                    create_property_definition(
+                        team_id=self.team.id,
                         name=key,
                         property_type=type,
                         group_type_index=index,
-                        type=PropertyDefinition.Type.GROUP,
+                        type=PropertyDefinitionType.GROUP,
                     )
 
     def _create_test_groups(self):
@@ -471,19 +477,28 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             limit_context=limit_context,
         ).calculate()
 
-    def test_trends_label(self):
+    @parameterized.expand(
+        [
+            ("unnamed", {}, None),
+            ("custom_name_wins_over_name", {"name": "Views", "custom_name": "Page views"}, "Page views"),
+            ("name_override", {"name": "Views"}, "Views"),
+            ("name_matching_the_event", {"name": "$pageview"}, None),
+        ]
+    )
+    def test_trends_label(self, _name: str, rename: dict[str, str], expected_custom_name: str | None):
         self._create_test_events()
 
         response = self._run_trends_query(
             self.default_date_from,
             self.default_date_to,
             IntervalType.DAY,
-            None,
+            [EventsNode(event="$pageview", **rename)],
             None,
             None,
         )
 
         self.assertEqual("$pageview", response.results[0]["label"])
+        self.assertEqual(expected_custom_name, response.results[0]["custom_name"])
 
     def test_multi_series_builds_database_once(self):
         self._create_test_events()
@@ -498,29 +513,6 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert len(response.results) == 2
         assert mock_create_for.call_count == 1
-
-    @parameterized.expand(
-        [
-            ("custom_name set via rename modal", EventsNode(event="$pageview", custom_name="Renamed"), "Renamed"),
-            ("name set via query editor / API", EventsNode(event="$pageview", name="Renamed"), "Renamed"),
-            ("custom_name wins over name", EventsNode(event="$pageview", name="A", custom_name="B"), "B"),
-            ("name echoing the event is not a rename", EventsNode(event="$pageview", name="$pageview"), None),
-            ("no override", EventsNode(event="$pageview"), None),
-        ]
-    )
-    def test_trends_series_custom_name(self, _name, series, expected_custom_name):
-        self._create_test_events()
-
-        response = self._run_trends_query(
-            self.default_date_from,
-            self.default_date_to,
-            IntervalType.DAY,
-            [series],
-            None,
-            None,
-        )
-
-        self.assertEqual(expected_custom_name, response.results[0]["action"]["custom_name"])
 
     def test_trends_count(self):
         self._create_test_events()
@@ -746,7 +738,6 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # Formula queries return only the formula result
         assert len(response.results) == 1
         formula_result = response.results[0]
-        assert formula_result["action"] is None
         # 11 days Thu-Sun, weekend buckets removed leaves 7 weekdays
         assert formula_result["days"] == [
             "2020-01-09",  # Thu
@@ -1107,6 +1098,93 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(1, len(response.results))
         self.assertNotIn("compare_label", response.results[0])
 
+    def test_metric_display_total_counts_unique_users_across_the_range(self):
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            "2020-01-15",
+            "2020-01-19",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview", math=BaseMathType.DAU)],
+            TrendsFilter(display=ChartDisplayType.METRIC),
+        )
+
+        self.assertEqual([2, 0, 1, 0, 1], response.results[0]["data"])
+        self.assertEqual(
+            [("current", 2), ("previous", 3)],
+            [(result["compare_label"], result["count"]) for result in response.results],
+        )
+
+    def test_metric_display_total_skips_the_excluded_incomplete_week(self):
+        self._create_test_events()
+        self._create_events(
+            [
+                SeriesFixture(
+                    distinct_id="p5",
+                    events=[Series(event="$pageview", timestamps=["2020-01-20T12:00:00Z"])],
+                    properties={},
+                )
+            ]
+        )
+
+        with time_machine.travel("2020-01-21T12:00:00Z", tick=False):
+            query = TrendsQuery(
+                series=[EventsNode(event="$pageview", math=BaseMathType.DAU)],
+                dateRange=DateRange(date_from="-9d", excludeIncompletePeriods=True),
+                interval=IntervalType.WEEK,
+                trendsFilter=TrendsFilter(display=ChartDisplayType.METRIC),
+            )
+            response = TrendsQueryRunner(team=self.team, query=query).calculate()
+
+        self.assertEqual((["2020-01-12"], 4), (response.results[0]["days"], response.results[0]["count"]))
+
+    def test_metric_display_formula_totals_cover_the_breakdown_values_of_the_sparklines(self):
+        # Chrome has more daily users in sum, and Safari has more unique users across the range
+        self._create_events(
+            [
+                SeriesFixture(
+                    distinct_id="p1",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=["2020-01-15T12:00:00Z", "2020-01-16T12:00:00Z", "2020-01-17T12:00:00Z"],
+                        ),
+                        Series(event="$pageleave", timestamps=["2020-01-15T12:00:00Z"]),
+                    ],
+                    properties={"$browser": "Chrome"},
+                ),
+                *[
+                    SeriesFixture(
+                        distinct_id=distinct_id,
+                        events=[Series(event="$pageview", timestamps=["2020-01-15T12:00:00Z"])],
+                        properties={"$browser": "Safari"},
+                    )
+                    for distinct_id in ("p2", "p3", "p4")
+                ],
+            ]
+        )
+
+        response = self._run_trends_query(
+            "2020-01-15",
+            "2020-01-19",
+            IntervalType.DAY,
+            [
+                EventsNode(event="$pageview", math=BaseMathType.DAU),
+                EventsNode(event="$pageleave", math=BaseMathType.DAU),
+            ],
+            TrendsFilter(display=ChartDisplayType.METRIC, formula="A+B"),
+            BreakdownFilter(breakdown_type=BreakdownType.EVENT, breakdown="$browser", breakdown_limit=1),
+        )
+
+        self.assertCountEqual(
+            [("Chrome", 2), ("$$_posthog_breakdown_other_$$", 3)],
+            [
+                (result["breakdown_value"], result["count"])
+                for result in response.results
+                if result["compare_label"] == "current"
+            ],
+        )
+
     def test_formula_with_compare_to_week(self):
         self._create_test_events()
 
@@ -1224,7 +1302,6 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         # response shape
         assert response.results[0]["label"] == "Formula (A+2*B)"
-        assert response.results[0]["action"] is None  # action needs to be unset to display custom label
 
     def test_formula_with_breakdown_and_compare(self):
         self._create_test_events()
@@ -1439,9 +1516,6 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.results[1]["label"] == "Formula (A+B)"
         assert response.results[1]["breakdown_value"] == cohort2.pk
         assert response.results[1]["count"] == 3
-
-        # action needs to be unset to display custom label
-        assert response.results[0]["action"] is None
 
     def test_cohort_breakdown_does_not_leak_series_filter_cohort(self):
         # Regression: when a trends series has a `person is in cohort` property filter AND the
@@ -1707,9 +1781,6 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.results[1]["count"] == 16
         assert response.results[1]["data"] == [1, 0, 2, 4, 4, 0, 2, 1, 1, 0, 1, 0]
 
-        # action needs to be unset to display custom label
-        assert response.results[0]["action"] is None
-
     def test_multiple_formula_with_multi_cohort_all_breakdown(self):
         self._create_test_events()
         cohort1 = Cohort.objects.create(
@@ -1769,8 +1840,9 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.results[3]["count"] == 16
         assert response.results[3]["data"] == [1, 0, 2, 4, 4, 0, 2, 1, 1, 0, 1, 0]
 
-        # action needs to be unset to display custom label
-        assert response.results[0]["action"] is None
+        assert [result["custom_name"] for result in response.results] == [
+            result["label"] for result in response.results
+        ]
 
     def test_formula_with_multi_cohort_all_breakdown_with_compare(self):
         self._create_test_events()
@@ -1834,9 +1906,6 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.results[3]["breakdown_value"] == "all"
         assert response.results[3]["count"] == 11
         assert response.results[3]["data"] == [1.0, 0.0, 2.0, 4.0, 4.0, 0.0]
-
-        # action needs to be unset to display custom label
-        assert response.results[0]["action"] is None
 
     def test_formula_with_breakdown_and_no_data(self):
         self._create_test_events()
@@ -1936,7 +2005,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             limit_context=LimitContext.QUERY_ASYNC,
         )
 
-        self.assertEqual(mock_sync_execute.call_count, 2)
+        self.assertEqual(mock_sync_execute.call_count, 3)
         for mock_execute_call_args in mock_sync_execute.call_args_list:
             self.assertIn(f" max_execution_time={HOGQL_INCREASED_MAX_EXECUTION_TIME},", mock_execute_call_args[0][0])
 
@@ -2945,7 +3014,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         ]
 
     def test_breakdown_values_limit(self):
-        PropertyDefinition.objects.create(team=self.team, name="breakdown_value", property_type="String")
+        create_property_definition(team_id=self.team.id, name="breakdown_value", property_type=PropertyType.String)
 
         for value in list(range(30)):
             _create_event(
@@ -3033,7 +3102,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response.results), 10)
 
     def test_multiple_breakdowns_values_limit(self):
-        PropertyDefinition.objects.create(team=self.team, name="breakdown_value", property_type="String")
+        create_property_definition(team_id=self.team.id, name="breakdown_value", property_type=PropertyType.String)
 
         for value in list(range(30)):
             _create_event(
@@ -3155,7 +3224,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response.results), 11)
 
     def test_breakdown_values_world_map_limit(self):
-        PropertyDefinition.objects.create(team=self.team, name="breakdown_value", property_type="String")
+        create_property_definition(team_id=self.team.id, name="breakdown_value", property_type=PropertyType.String)
 
         for value in list(range(250)):
             _create_event(
@@ -3592,6 +3661,26 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             str(e.exception),
             "Error thrown inside thread",
         )
+
+    @parameterized.expand([("without_callback", False, 3), ("with_callback", True, 1)])
+    @patch("products.product_analytics.backend.hogql_queries.trends.trends_query_runner.execute_hogql_query")
+    def test_on_series_error_stops_the_queued_series_queries(
+        self, _name: str, with_callback: bool, expected_queries: int, patch_execute: MagicMock
+    ) -> None:
+        error = ClickHouseQueryTimeOut()
+        patch_execute.side_effect = error
+        runner = self._create_query_runner(
+            "2020-01-09", "2020-01-20", IntervalType.DAY, [EventsNode(event=event) for event in ("a", "b", "c")]
+        )
+        callback = MagicMock()
+        if with_callback:
+            runner.on_series_error = callback
+
+        with self.assertRaises(ClickHouseQueryTimeOut):
+            runner.calculate()
+
+        assert patch_execute.call_count == expected_queries
+        assert callback.call_args_list == ([call(error)] if with_callback else [])
 
     def test_to_actors_query_options(self):
         self._create_test_events()
@@ -6311,7 +6400,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             properties={"$browser": "Safari"},
         )
 
-        PropertyDefinition.objects.create(team=self.team, name="$browser", property_type="String")
+        create_property_definition(team_id=self.team.id, name="$browser", property_type=PropertyType.String)
 
         # has data
         response = self._run_trends_query(
@@ -6420,7 +6509,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             properties={"$browser": "Firefox"},
         )
 
-        PropertyDefinition.objects.create(team=self.team, name="$browser", property_type="String")
+        create_property_definition(team_id=self.team.id, name="$browser", property_type=PropertyType.String)
 
         response = self._run_trends_query(
             "2020-01-10",
@@ -6601,7 +6690,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self._create_test_events()
         flush_persons_and_events()
 
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="viewed from chrome and left",
             steps_json=[
@@ -6628,7 +6717,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.results[0]["count"] == 1
         assert response.results[0]["data"] == [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="viewed from chrome or firefox",
             steps_json=[
@@ -6683,7 +6772,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ),
         ]
     )
-    def test_flag_call_series_reads_flag_evaluations_when_the_rewrite_is_on(
+    def test_flag_call_series_reads_flag_evaluations_when_the_org_reads_flag_evaluations(
         self,
         _name: str,
         series: Callable[[Team, list[str]], EventsNode | ActionsNode],
@@ -6709,28 +6798,62 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         if math is not None:
             node = node.model_copy(update={"math": math})
 
-        with patch(
-            "posthog.hogql.database.database.feature_enabled_or_false",
-            side_effect=lambda key, *args, **kwargs: key == "hogql-flag-calls-from-flag-evaluations",
-        ):
-            # Mode 2 raises when the swapped query reads people differently, so the persons-on-events mode is fixed.
-            # Mode 1 reads events on the native-JSON events table, so the events table is fixed too.
-            response = self._run_trends_query(
-                "-7d",
-                None,
-                IntervalType.DAY,
-                [node],
-                breakdown=breakdown,
-                filter_test_accounts=filter_test_accounts,
-                hogql_modifiers=HogQLQueryModifiers(
-                    personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
-                    useNewEventsSchema=False,
-                ),
-            )
+        # Mode 2 raises when the swapped query reads people differently, so the persons-on-events mode is fixed.
+        # Mode 1 reads events on the native-JSON events table, so the events table is fixed too.
+        response = self._run_trends_query(
+            "-7d",
+            None,
+            IntervalType.DAY,
+            [node],
+            breakdown=breakdown,
+            filter_test_accounts=filter_test_accounts,
+            hogql_modifiers=HogQLQueryModifiers(
+                personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
+                useNewEventsSchema=False,
+            ),
+        )
 
         assert response.results[0]["count"] == expected_count
         if breakdown is not None:
             assert response.results[0]["breakdown_value"] == "true"
+
+    def test_flag_call_series_broken_down_by_two_cohorts_reads_flag_evaluations_once_events_gets_no_flag_calls(self):
+        OrganizationFeatureFlagsConfig.objects.update_or_create(
+            organization=self.organization,
+            defaults={"flag_evaluations_mode": FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY},
+        )
+        cohorts = []
+        for name, calls in (("p1", 2), ("p2", 1)):
+            person = _create_person(team=self.team, distinct_ids=[name], properties={"name": name})
+            _create_flag_evaluations(self.team.pk, "probe-flag", count=calls, distinct_id=name, person_id=person.uuid)
+            cohort = Cohort.objects.create(
+                team=self.team,
+                groups=[{"properties": [{"key": "name", "value": name, "type": "person"}]}],
+                name=f"cohort {name}",
+            )
+            cohort.calculate_people_ch(pending_version=0)
+            cohorts.append(cohort)
+
+        with patch(
+            "posthog.hogql.database.database.feature_enabled_or_false",
+            side_effect=lambda key, *args, **kwargs: key == "hogql-flag-calls-from-flag-evaluations",
+        ):
+            # Two cohorts make the runner join `__in_cohort`, and the series pin compares `event` without a table name.
+            response = self._run_trends_query(
+                "-7d",
+                None,
+                IntervalType.DAY,
+                [_flag_call_event_series(self.team, ["probe-flag"])],
+                breakdown=BreakdownFilter(breakdown_type=BreakdownType.COHORT, breakdown=[c.pk for c in cohorts]),
+                hogql_modifiers=HogQLQueryModifiers(
+                    personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
+                ),
+            )
+
+        assert {result["breakdown_value"]: result["count"] for result in response.results} == {
+            cohorts[0].pk: 2,
+            cohorts[1].pk: 1,
+        }
 
     def test_multiple_breakdowns_work_with_formula(self):
         self._create_test_events()
@@ -6790,7 +6913,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         ]
 
     def test_trends_with_formula_and_multiple_breakdowns_hide_other_breakdowns(self):
-        PropertyDefinition.objects.create(team=self.team, name="breakdown_value", property_type="String")
+        create_property_definition(team_id=self.team.id, name="breakdown_value", property_type=PropertyType.String)
 
         for value in list(range(30)):
             _create_event(
@@ -6897,11 +7020,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         # need to let property be inferred as a different type first and then override
         # to get the `toFloat` cast
-        nullable_prop = PropertyDefinition.objects.get(name="nullable_prop")
-        nullable_prop.property_type = "Numeric"
-        nullable_prop.save()
-
-        nullable_prop = PropertyDefinition.objects.get(name="nullable_prop")
+        set_property_type(team_id=self.team.id, name="nullable_prop", property_type=PropertyType.Numeric)
 
         response = self._run_trends_query(
             "2020-01-08",
@@ -7554,8 +7673,8 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         Test that the "Other" breakdown correctly sums values across all breakdown values
         that didn't make the top list, rather than taking the maximum.
         """
-        PropertyDefinition.objects.create(team=self.team, name="category", property_type="String")
-        PropertyDefinition.objects.create(team=self.team, name="ram_mb", property_type="Numeric")
+        create_property_definition(team_id=self.team.id, name="category", property_type=PropertyType.String)
+        create_property_definition(team_id=self.team.id, name="ram_mb", property_type=PropertyType.Numeric)
 
         # Create events with many distinct breakdown values to trigger "Other"
         # We'll make sure top 3 categories by sum are A, B, C
@@ -7685,8 +7804,8 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         Test that the "Other" breakdown with histogram bins and MAX aggregation correctly
         takes the maximum, not sums values.
         """
-        PropertyDefinition.objects.create(team=self.team, name="vcpu", property_type="Numeric")
-        PropertyDefinition.objects.create(team=self.team, name="ram_mb", property_type="Numeric")
+        create_property_definition(team_id=self.team.id, name="vcpu", property_type=PropertyType.Numeric)
+        create_property_definition(team_id=self.team.id, name="ram_mb", property_type=PropertyType.Numeric)
 
         # Create events with various vcpu values that will be binned
         # We'll use MAX aggregation on ram_mb
@@ -7787,8 +7906,8 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         Test that the "Other" breakdown with histogram bins correctly sums values,
         not takes the maximum.
         """
-        PropertyDefinition.objects.create(team=self.team, name="vcpu", property_type="Numeric")
-        PropertyDefinition.objects.create(team=self.team, name="ram_mb", property_type="Numeric")
+        create_property_definition(team_id=self.team.id, name="vcpu", property_type=PropertyType.Numeric)
+        create_property_definition(team_id=self.team.id, name="ram_mb", property_type=PropertyType.Numeric)
 
         # We'll create events with various vcpu values that will be binned
         # and have different ram_mb values to aggregate
@@ -7966,7 +8085,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         # Create an action for pageview
-        page_action = Action.objects.create(
+        page_action = create_action(
             team=self.team,
             name="Pageview Action",
             steps_json=[
@@ -8090,7 +8209,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         # Page Action combines both pageview and pageleave events
-        page_action = Action.objects.create(
+        page_action = create_action(
             team=self.team,
             name="Page Action",
             steps_json=[
@@ -8099,7 +8218,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        pageview_action = Action.objects.create(
+        pageview_action = create_action(
             team=self.team,
             name="Pageview Action",
             steps_json=[
@@ -8147,17 +8266,17 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(16, response.results[0]["count"])
         self.assertIn("$pageleave", response.results[0]["label"])
         self.assertIn("Page Action", response.results[0]["label"])
-        self.assertEqual(0, response.results[0]["action"]["order"])
+        self.assertEqual(0, response.results[0]["order"])
 
         # Second result: EventsNode (pageview only)
         self.assertEqual(10, response.results[1]["count"])
         self.assertEqual("$pageview", response.results[1]["label"])
-        self.assertEqual(1, response.results[1]["action"]["order"])
+        self.assertEqual(1, response.results[1]["order"])
 
         # Third result: ActionsNode (Pageview Action - matches only $pageview)
         self.assertEqual(10, response.results[2]["count"])
         self.assertEqual("Pageview Action", response.results[2]["label"])
-        self.assertEqual(2, response.results[2]["action"]["order"])
+        self.assertEqual(2, response.results[2]["order"])
 
         # Verify all series have proper data arrays
         for result in response.results:

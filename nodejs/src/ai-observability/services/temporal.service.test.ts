@@ -1,5 +1,6 @@
 import { Client, Connection, WorkflowExecutionAlreadyStartedError } from '@temporalio/client'
 
+import { getDefaultAIObservabilityConfig } from '~/ai-observability/config'
 import { EncryptionCodec } from '~/common/temporal/codec'
 import { RawKafkaEvent } from '~/types'
 
@@ -98,26 +99,78 @@ describe('TemporalService', () => {
             })
         })
 
-        it('configures an encryption codec when a secret key is set', async () => {
-            config.TEMPORAL_SECRET_KEY = 'test-secret-key-for-codec-000000'
-            config.TEMPORAL_FALLBACK_SECRET_KEYS = 'fallback-key-one-000000000000000,fallback-key-two-000000000000000'
+        it.each([
+            {
+                name: 'configures an encryption codec when a temporal secret key is set',
+                env: {
+                    CLOUD_DEPLOYMENT: 'US',
+                    TEMPORAL_SECRET_KEY: 'test-secret-key-for-codec-000000',
+                    TEMPORAL_FALLBACK_SECRET_KEYS: 'fallback-key-one-000000000000000,fallback-key-two-000000000000000',
+                },
+                expected: { encryptionCodecs: [true] },
+            },
+            {
+                name: 'sends payloads unencrypted when no secret key is set',
+                env: {},
+                expected: { encryptionCodecs: undefined },
+            },
+            {
+                name: 'does not use SECRET_KEY as the codec key on self-hosted',
+                env: { NODE_ENV: 'production', SECRET_KEY: 'app-secret-key-not-for-temporal-00' },
+                expected: { encryptionCodecs: undefined },
+            },
+            {
+                name: 'refuses to start on cloud without a temporal secret key',
+                env: { CLOUD_DEPLOYMENT: 'US', SECRET_KEY: 'app-secret-key-not-for-temporal-00' },
+                expected: { error: expect.stringContaining('TEMPORAL_SECRET_KEY is required') },
+            },
+        ])('$name', async ({ env, expected }) => {
+            const names = [
+                'CLOUD_DEPLOYMENT',
+                'SECRET_KEY',
+                'TEMPORAL_SECRET_KEY',
+                'TEMPORAL_FALLBACK_SECRET_KEYS',
+                ...Object.keys(env),
+            ]
+            const original = Object.fromEntries(names.map((name) => [name, process.env[name]]))
+            for (const name of names) {
+                delete process.env[name]
+            }
+            Object.assign(process.env, env)
 
-            const newService = new TemporalService(config)
-            await newService.startEvaluationRunWorkflow('test', createMockEvent({ uuid: 'test-uuid' }), 'llm_judge')
+            try {
+                const startWorkflow = async (): Promise<boolean[] | undefined> => {
+                    const { TEMPORAL_SECRET_KEY, TEMPORAL_FALLBACK_SECRET_KEYS } = getDefaultAIObservabilityConfig()
+                    const newService = new TemporalService({
+                        ...config,
+                        TEMPORAL_SECRET_KEY,
+                        TEMPORAL_FALLBACK_SECRET_KEYS,
+                    })
+                    await newService.startEvaluationRunWorkflow(
+                        'test',
+                        createMockEvent({ uuid: 'test-uuid' }),
+                        'llm_judge'
+                    )
+                    const clientOptions = (Client as unknown as jest.Mock).mock.calls[0][0]
+                    return clientOptions.dataConverter?.payloadCodecs.map(
+                        (codec: unknown) => codec instanceof EncryptionCodec
+                    )
+                }
+                const outcome = await startWorkflow().then(
+                    (encryptionCodecs) => ({ encryptionCodecs }),
+                    (error: Error) => ({ error: error.message })
+                )
 
-            const clientOptions = (Client as unknown as jest.Mock).mock.calls[0][0]
-            expect(clientOptions.dataConverter.payloadCodecs).toHaveLength(1)
-            expect(clientOptions.dataConverter.payloadCodecs[0]).toBeInstanceOf(EncryptionCodec)
-        })
-
-        it('sends payloads unencrypted when no secret key is set', async () => {
-            config.TEMPORAL_SECRET_KEY = undefined
-
-            const newService = new TemporalService(config)
-            await newService.startEvaluationRunWorkflow('test', createMockEvent({ uuid: 'test-uuid' }), 'llm_judge')
-
-            const clientOptions = (Client as unknown as jest.Mock).mock.calls[0][0]
-            expect(clientOptions.dataConverter).toBeUndefined()
+                expect(outcome).toEqual(expected)
+            } finally {
+                for (const name of names) {
+                    if (original[name] === undefined) {
+                        delete process.env[name]
+                    } else {
+                        process.env[name] = original[name]
+                    }
+                }
+            }
         })
 
         it('disconnects client properly', async () => {
@@ -218,32 +271,11 @@ describe('TemporalService', () => {
             ).rejects.toThrow('Temporal unavailable')
         })
 
-        it('starts tagger run workflow with correct parameters', async () => {
-            const mockEvent = createMockEvent({ properties: { $ai_input: 'test', $ai_output: 'response' } as any })
-
-            await service.startTaggerRunWorkflow('tagger-123', mockEvent)
-
-            expect(mockClient.workflow.start).toHaveBeenCalledWith('run-tagger', {
-                taskQueue: 'llm-analytics-evals-task-queue',
-                workflowId: 'llma-tagger-tagger-123-event-456-ingestion',
-                workflowIdConflictPolicy: 'USE_EXISTING',
-                workflowIdReusePolicy: 'ALLOW_DUPLICATE_FAILED_ONLY',
-                workflowTaskTimeout: '2 minutes',
-                args: [
-                    {
-                        tagger_id: 'tagger-123',
-                        event_data: mockEvent,
-                    },
-                ],
-            })
-        })
-
         it.each([
             [
                 'run-evaluation',
                 (event: RawKafkaEvent) => service.startEvaluationRunWorkflow('eval-123', event, 'llm_judge'),
             ],
-            ['run-tagger', (event: RawKafkaEvent) => service.startTaggerRunWorkflow('tagger-123', event)],
         ])(
             'starts %s with a delayed reference when the worker would encode the event over the payload limit',
             async (workflow, start) => {
@@ -281,45 +313,6 @@ describe('TemporalService', () => {
                 expect(calls[3][1]).not.toHaveProperty('startDelay')
             }
         )
-
-        it('generates deterministic tagger workflow IDs', async () => {
-            const mockEvent = createMockEvent()
-
-            await service.startTaggerRunWorkflow('tagger-123', mockEvent)
-            await service.startTaggerRunWorkflow('tagger-123', mockEvent)
-
-            const calls = (mockClient.workflow.start as jest.Mock).mock.calls
-            expect(calls[0][1].workflowId).toEqual(calls[1][1].workflowId)
-            expect(calls[0][1].workflowId).toBe('llma-tagger-tagger-123-event-456-ingestion')
-        })
-
-        it('generates different tagger workflow IDs for different events', async () => {
-            const mockEvent1 = createMockEvent({ uuid: 'event-1' })
-            const mockEvent2 = createMockEvent({ uuid: 'event-2' })
-
-            await service.startTaggerRunWorkflow('tagger-123', mockEvent1)
-            await service.startTaggerRunWorkflow('tagger-123', mockEvent2)
-
-            const calls = (mockClient.workflow.start as jest.Mock).mock.calls
-            expect(calls[0][1].workflowId).toBe('llma-tagger-tagger-123-event-1-ingestion')
-            expect(calls[1][1].workflowId).toBe('llma-tagger-tagger-123-event-2-ingestion')
-        })
-
-        it('tagger and evaluation share the same task queue', async () => {
-            await service.startEvaluationRunWorkflow('eval-1', createMockEvent({ uuid: 'e1' }), 'llm_judge')
-            await service.startTaggerRunWorkflow('tagger-1', createMockEvent({ uuid: 'e2' }))
-
-            const calls = (mockClient.workflow.start as jest.Mock).mock.calls
-            expect(calls[0][1].taskQueue).toEqual(calls[1][1].taskQueue)
-        })
-
-        it('throws on tagger workflow start failure', async () => {
-            ;(mockClient.workflow.start as jest.Mock).mockRejectedValue(new Error('Temporal unavailable'))
-
-            await expect(service.startTaggerRunWorkflow('tagger-123', createMockEvent())).rejects.toThrow(
-                'Temporal unavailable'
-            )
-        })
     })
 
     describe('aggregate evaluation workflows', () => {

@@ -41,9 +41,10 @@ from posthog.models import Team
 from posthog.models.group.util import create_group
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.cohorts.backend.models.cohort import Cohort
-from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
+from products.event_definitions.backend.facade.enums import PropertyType
+from products.event_definitions.backend.facade.testing import create_property_definition
 
 
 def get_actors(
@@ -300,7 +301,7 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
             properties={"some_property": 20},
             team=self.team,
         )
-        PropertyDefinition.objects.create(team=self.team, name="some_property", property_type=PropertyType.Numeric)
+        create_property_definition(team_id=self.team.id, name="some_property", property_type=PropertyType.Numeric)
 
     def test_trends_single_series_persons(self):
         self._create_events()
@@ -986,7 +987,7 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
             result = self._get_actors(trends_query=source_query, day="2023-05-01", breakdown=["[{},{}]"])
 
     def test_trends_breakdown_by_boolean(self):
-        PropertyDefinition.objects.create(team=self.team, name="bool", property_type=PropertyType.Boolean)
+        create_property_definition(team_id=self.team.id, name="bool", property_type=PropertyType.Boolean)
 
         _create_person(
             team_id=self.team.pk,
@@ -1698,7 +1699,7 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
     def test_trends_math_first_time_for_user_actions(self):
         self._create_events()
 
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="viewed from chrome or safari",
             steps_json=[
@@ -1729,7 +1730,7 @@ class TestTrendsPersons(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(get_distinct_id(result[0]), "person3")
         self.assertEqual(get_event_count(result[0]), 1)
 
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="viewed from chrome and left",
             steps_json=[

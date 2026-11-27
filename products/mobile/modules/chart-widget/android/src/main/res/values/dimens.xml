@@ -1,0 +1,7 @@
+<resources>
+  <dimen name="chart_widget_padding_small">12dp</dimen>
+  <dimen name="chart_widget_padding">14dp</dimen>
+  <dimen name="chart_widget_tile_padding">10dp</dimen>
+  <dimen name="chart_widget_tile_gap">8dp</dimen>
+  <dimen name="chart_widget_tile_sparkline_height">28dp</dimen>
+</resources>

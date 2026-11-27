@@ -4,6 +4,8 @@ import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
+
 from posthog.hogql.errors import QueryError
 
 from posthog.caching.warming import (
@@ -14,15 +16,19 @@ from posthog.caching.warming import (
     warm_insight_cache_task,
 )
 from posthog.constants import AvailableFeature
+from posthog.errors import unknown_type_error
 from posthog.exceptions import ClickHouseAtCapacity
-from posthog.models import PropertyDefinition, User
+from posthog.models import User
+from posthog.query_cache import QueryCache
 from posthog.query_cache.freshness_index import update_target_age
+from posthog.query_cache.read_history import record_read
 from posthog.scheduling.jitter import deterministic_offset
 
 from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.event_definitions.backend.models import PropertyDefinition
 from products.product_analytics.backend.facade.api import record_insight_views
 from products.product_analytics.backend.facade.models import Insight, InsightVariable
 
@@ -134,6 +140,25 @@ class TestWarming(APIBaseTest):
         ]
         self.assertEqual(insights, expected_results)
 
+    @parameterized.expand([("read_on_one_day", 1, []), ("read_on_two_days", 2, [(2345, None), (3456, 7890)])])
+    @patch("posthog.caching.warming.get_stale_insights")
+    def test_time_of_day_rule_keeps_insights_read_at_this_time_on_enough_days(
+        self, _name: str, days_with_a_read: int, expected: list[tuple[int, int | None]], mock_get_stale_insights
+    ):
+        mock_get_stale_insights.return_value = ["2345:", "3456:7890"]
+        for days_ago in range(1, days_with_a_read + 1):
+            for insight_id, dashboard_id in [(2345, None), (3456, 7890)]:
+                record_read(
+                    team_id=self.team.pk,
+                    insight_id=insight_id,
+                    dashboard_id=dashboard_id,
+                    at=datetime.now(UTC) - timedelta(days=days_ago),
+                )
+
+        insights = list(insights_to_keep_fresh(self.team, read_at_this_time_only=True))
+
+        self.assertEqual(insights, expected)
+
 
 class TestScheduleWarmingForTeamsTask(APIBaseTest):
     def setUp(self) -> None:
@@ -215,6 +240,67 @@ class TestScheduleWarmingForTeamsTask(APIBaseTest):
             self.assertNotIn("eta", remaining_tasks[0].options)
             self.assertEqual(remaining_tasks[0].options["expires"], expected_start + WARMING_CHAIN_LIFETIME)
 
+    @parameterized.expand(
+        [
+            ("flags_on", True),
+            ("flags_off", False),
+        ]
+    )
+    def test_warming_keeps_the_pre_dashboard_v2_policy_with_no_viewer(self, _name: str, flag_on: bool) -> None:
+        dispatched_at = datetime.now(UTC)
+        self.team1.extra_settings = {"insights_cache_warming": True}
+        self.team1.save(update_fields=["extra_settings"])
+        dashboard = Dashboard.objects.create(team=self.team1, last_accessed_at=dispatched_at)
+        # (last compute age, last read age) per tile; None means no compute recorded or never read.
+        tiles: dict[str, tuple[timedelta | None, timedelta | None]] = {
+            "never_computed_read": (None, timedelta(hours=2)),
+            "unread": (None, None),
+            "read_after_compute": (timedelta(hours=3), timedelta(hours=1)),
+            "read_only_before_compute": (timedelta(hours=2), timedelta(hours=5)),
+        }
+        insight_ids: dict[str, int] = {}
+        for name, (compute_age, read_age) in tiles.items():
+            insight = Insight.objects.create(team=self.team1)
+            insight_ids[name] = insight.pk
+            DashboardTile.objects.create(insight=insight, dashboard=dashboard)
+            target_age = dispatched_at - timedelta(minutes=1)
+            if compute_age is None:
+                update_target_age(
+                    team_id=self.team1.pk, insight_id=insight.pk, dashboard_id=dashboard.pk, target_age=target_age
+                )
+            else:
+                QueryCache(
+                    team_id=self.team1.pk, cache_key=f"warming_{name}", insight_id=insight.pk, dashboard_id=dashboard.pk
+                ).store_result(
+                    response={"results": [], "last_refresh": (dispatched_at - compute_age).isoformat()},
+                    target_age=target_age,
+                )
+            if read_age is not None:
+                record_read(
+                    team_id=self.team1.pk, insight_id=insight.pk, dashboard_id=dashboard.pk, at=dispatched_at - read_age
+                )
+
+        with (
+            time_machine.travel(dispatched_at, tick=False),
+            patch("posthog.caching.utils.sync_execute", return_value=[]),
+            patch(
+                "posthog.caching.warming.posthoganalytics.feature_enabled",
+                side_effect=lambda flag, *args, **kwargs: flag_on and flag in ("dashboard-v2", "dashboard-v2-users"),
+            ),
+            patch("posthog.caching.warming.warm_insight_cache_task.si") as warm_task,
+            patch("posthog.caching.warming.chain") as warm_chain,
+        ):
+            schedule_warming_for_teams_task()
+
+        self.assertCountEqual(
+            [call.args for call in warm_task.call_args_list],
+            [(insight_ids[name], dashboard.pk) for name in tiles],
+        )
+        self.assertEqual(
+            warm_chain.return_value.apply_async.call_args.kwargs["eta"],
+            dispatched_at + deterministic_offset(str(self.team1.pk), WARMING_START_WINDOW),
+        )
+
 
 class TestWarmInsightCacheTask(APIBaseTest):
     def test_warms_the_cache_key_a_dashboard_with_variables_reads(self):
@@ -290,12 +376,19 @@ class TestWarmInsightCacheTask(APIBaseTest):
         assert capture_ph_event.call_args.kwargs["properties"]["reason"] == "left_org"
         assert capture_ph_event.call_args.kwargs["properties"]["insight_id"] == insight.pk
 
+    @parameterized.expand(
+        [
+            ("hogql", QueryError("no timestamp binding"), "hogql_query_error"),
+            ("clickhouse_user_safe", unknown_type_error("Variant(Int64, UInt64)", code=50), "unknown_type"),
+        ]
+    )
     @patch("posthog.caching.warming.capture_exception")
     @patch("posthog.caching.warming.ph_scoped_capture")
-    @patch("posthog.caching.warming.calculate_for_query_based_insight", side_effect=QueryError("no timestamp binding"))
+    @patch("posthog.caching.warming.calculate_for_query_based_insight")
     def test_query_errors_are_reported_as_an_event_instead_of_being_captured(
-        self, mock_calculate, mock_ph_scoped_capture, mock_capture_exception
+        self, _name, error, expected_error_code, mock_calculate, mock_ph_scoped_capture, mock_capture_exception
     ):
+        mock_calculate.side_effect = error
         insight = Insight.objects.create(team=self.team, query={"kind": "HogQLQuery", "query": "select 1"})
         capture_ph_event = mock_ph_scoped_capture.return_value.__enter__.return_value
 
@@ -305,4 +398,4 @@ class TestWarmInsightCacheTask(APIBaseTest):
         capture_ph_event.assert_called_once()
         assert capture_ph_event.call_args.kwargs["event"] == "cache warming - insight query error"
         assert capture_ph_event.call_args.kwargs["properties"]["insight_id"] == insight.pk
-        assert capture_ph_event.call_args.kwargs["properties"]["error_code"] == "hogql_query_error"
+        assert capture_ph_event.call_args.kwargs["properties"]["error_code"] == expected_error_code

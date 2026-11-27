@@ -14,7 +14,7 @@ describe('posthog create task template', () => {
         prompt: 'Investigate the error spike in checkout',
         title: 'Checkout error spike',
         model: { model: 'claude-sonnet-5', reasoning_effort: 'high' },
-        repository: 'example-org/example-repo',
+        repository: ['example-org/example-repo', 'example-org/example-docs'],
         connectors: ['0198c9f1-aaaa-0000-0000-000000000001'],
         skills: ['error-triage', 'db-runbook'],
         posthog_mcp_scopes: 'full',
@@ -77,7 +77,7 @@ describe('posthog create task template', () => {
             title: 'Checkout error spike',
             model: 'claude-sonnet-5',
             reasoning_effort: 'high',
-            repository: 'example-org/example-repo',
+            repositories: ['example-org/example-repo', 'example-org/example-docs'],
             connectors: ['0198c9f1-aaaa-0000-0000-000000000001'],
             skills: ['error-triage', 'db-runbook'],
             posthog_mcp_scopes: 'full',
@@ -111,6 +111,12 @@ describe('posthog create task template', () => {
         })
     })
 
+    it('sends a repository saved as a single string as a one-item list', async () => {
+        const { params } = await invokeAndGetFetch({ prompt: 'Do the thing', repository: 'example-org/example-repo' })
+
+        expect(parseJSON(params.body!).repositories).toEqual(['example-org/example-repo'])
+    })
+
     it('asks the agent for the fields the output variables read from the output', async () => {
         const hogFlow = {
             ...workflowOptions.hogFlow,
@@ -128,9 +134,9 @@ describe('posthog create task template', () => {
         const response = await tester.invoke({ prompt: 'Judge the PR' }, undefined, { ...workflowOptions, hogFlow })
 
         expect(response.error).toBeUndefined()
-        expect(parseJSON((response.invocation.queueParameters as any).body).output_fields).toEqual({
-            verdict: 'string',
-        })
+        const body = parseJSON((response.invocation.queueParameters as any).body)
+        expect(body.output_fields).toEqual({ verdict: 'string' })
+        expect(body.output_field_descriptions).toEqual({ verdict: 'ship or hold' })
     })
 
     it.each([

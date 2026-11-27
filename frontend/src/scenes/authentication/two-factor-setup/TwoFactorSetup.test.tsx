@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render } from '@testing-library/react'
 import { Provider } from 'kea'
 import { expectLogic } from 'kea-test-utils'
 
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { twoFactorLogic } from './twoFactorLogic'
@@ -11,6 +12,9 @@ import { TwoFactorSetup } from './TwoFactorSetup'
 
 describe('TwoFactorSetup', () => {
     beforeEach(() => {
+        useMocks({
+            get: { '/api/users/@me/two_factor_start_setup/': () => [200, { success: true, secret: 'SECRET' }] },
+        })
         initKeaTests()
     })
 
@@ -18,7 +22,11 @@ describe('TwoFactorSetup', () => {
         cleanup()
     })
 
-    function renderSetup(): HTMLInputElement {
+    async function renderSetup(): Promise<HTMLInputElement> {
+        twoFactorLogic.mount()
+        await expectLogic(twoFactorLogic, () => {
+            twoFactorLogic.actions.openTwoFactorSetupModal()
+        }).toDispatchActions(['loadStartSetupSuccess'])
         const { container } = render(
             <Provider>
                 <TwoFactorSetup onSuccess={jest.fn()} />
@@ -35,7 +43,7 @@ describe('TwoFactorSetup', () => {
     ]
 
     it.each(commitTriggers)('syncs a password-manager autofill into the form on %s', async (_label, commit) => {
-        const input = renderSetup()
+        const input = await renderSetup()
 
         // Set the DOM value directly to mimic the autofill, then commit without a change event.
         input.value = '123 456'
@@ -45,7 +53,7 @@ describe('TwoFactorSetup', () => {
     })
 
     it('strips non-digits as the user types', async () => {
-        const input = renderSetup()
+        const input = await renderSetup()
 
         fireEvent.change(input, { target: { value: '12 34 56' } })
 

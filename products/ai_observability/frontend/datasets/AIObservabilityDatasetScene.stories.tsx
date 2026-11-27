@@ -19,11 +19,14 @@ const dataset: DatasetReadApi = {
     metadata: { owner: 'support', language: 'en' },
     tags: [],
     archived: false,
+    expires_at: '2024-04-01T12:00:00Z',
+    expiring_soon: false,
     current_revision: 1,
     current_revision_id: 'example-revision',
     created_at: '2024-01-01T00:00:00Z',
     updated_at: '2024-01-01T00:00:00Z',
     created_by: null,
+    created_by_project_key_id: 'example-project-key-12345678',
     team_id: 997,
     user_access_level: 'editor',
 }
@@ -45,10 +48,12 @@ const item: DatasetItemReadApi = {
     source_timestamp: null,
     source_event_id: null,
     created_by: null,
+    created_by_project_key_id: 'example-project-key-12345678',
     created_at: dataset.created_at,
     updated_at: dataset.created_at,
     version_created_at: dataset.created_at,
     version_created_by: null,
+    version_created_by_project_key_id: 'example-project-key-12345678',
     team_id: 997,
 }
 
@@ -58,7 +63,7 @@ const meta: Meta<typeof AIObservabilityDatasetScene> = {
     parameters: {
         mockDate: '2024-01-02T12:00:00Z',
         pageUrl: urls.aiObservabilityDataset(dataset.id),
-        featureFlags: [FEATURE_FLAGS.LLM_ANALYTICS_DATASETS, FEATURE_FLAGS.AI_OBSERVABILITY_OFFLINE_EVALUATIONS],
+        featureFlags: [FEATURE_FLAGS.LLM_ANALYTICS_DATASETS],
     },
     decorators: [
         mswDecorator({
@@ -66,6 +71,13 @@ const meta: Meta<typeof AIObservabilityDatasetScene> = {
                 '/api/projects/:team/datasets/:id/': dataset,
                 '/api/projects/:team/datasets/:id/revisions/': { count: 0, results: [], next: null, previous: null },
                 '/api/projects/:team/dataset_items/': { count: 1, results: [item], next: null, previous: null },
+                '/api/projects/:team/dataset_items/:id/': item,
+                '/api/projects/:team/dataset_items/:id/versions/': {
+                    count: 1,
+                    results: [item],
+                    next: null,
+                    previous: null,
+                },
             },
         }),
         (Story, { parameters }) => (
@@ -94,21 +106,6 @@ export const NewDataset: Story = {
             }
         })
     },
-}
-export const DatasetsOnlyNarrow: Story = {
-    parameters: {
-        featureFlags: {
-            [FEATURE_FLAGS.LLM_ANALYTICS_DATASETS]: true,
-            [FEATURE_FLAGS.AI_OBSERVABILITY_OFFLINE_EVALUATIONS]: false,
-        },
-    },
-    decorators: [
-        (Story) => (
-            <div className="w-[520px]">
-                <Story />
-            </div>
-        ),
-    ],
 }
 export const ReadOnly: Story = {
     decorators: [

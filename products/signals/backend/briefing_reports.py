@@ -19,7 +19,7 @@ from products.signals.backend.artefact_schemas import ActionabilityChoice
 from products.signals.backend.implementation_pr import fetch_implementation_pr_state_for_reports
 from products.signals.backend.models import SignalReport, SignalReportAssignment
 from products.signals.backend.report_charts import ReportChartSnapshot, saved_charts
-from products.signals.backend.report_claims import reports_with_active_claim
+from products.signals.backend.report_claims import reports_claimed_for_user, reports_with_active_claim
 from products.signals.backend.report_content_gates import team_report_monitoring_enabled
 from products.signals.backend.report_lifecycle import effective_report_status
 from products.signals.backend.report_metric_access import ReportMetricAccessPolicy
@@ -119,6 +119,14 @@ def _relation_to_person(team_id: int, user: User) -> Case:
     return Case(*branches, default=Value(None), output_field=CharField())
 
 
+def reports_needing_person(team_id: int, user: User) -> Q:
+    """Reports waiting on this person's input or claimed by them: the personal ranking's `needs you` facts
+    other than suggested reviewer, for the list's `needs_you` filter."""
+    return (_names_person(team_id, user) & Q(status=SignalReport.Status.PENDING_INPUT)) | reports_claimed_for_user(
+        team_id=team_id, user_id=user.id
+    )
+
+
 def reports_for_person(team_id: int, user: User) -> QuerySet[SignalReport]:
     """The open reports that are for this person: the set the inbox list returns for `view=for_you`."""
     return (
@@ -128,7 +136,7 @@ def reports_for_person(team_id: int, user: User) -> QuerySet[SignalReport]:
     )
 
 
-def _pull_request_state(state: str, merged: bool) -> str | None:
+def implementation_pull_request_state(state: str, merged: bool) -> str | None:
     if merged:
         return SignalReportAssignment.PrState.MERGED
     return state if state in IMPLEMENTATION_PR_STATES else None
@@ -199,7 +207,7 @@ def report_details(
                 status=effective_report_status(report.status, team_id=team_id, monitoring_enabled=monitoring_enabled),
                 priority=priorities.get(report_id),
                 summary=summary_lead(report.summary, SUMMARY_LEAD_LIMIT),
-                pull_request_state=_pull_request_state(pull_request.state, pull_request.merged)
+                pull_request_state=implementation_pull_request_state(pull_request.state, pull_request.merged)
                 if pull_request
                 else None,
                 pull_request_url=pull_request.url if pull_request else None,

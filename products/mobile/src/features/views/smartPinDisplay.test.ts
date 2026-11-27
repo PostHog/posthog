@@ -19,11 +19,9 @@ function pin(id: number): PinView {
         href: null,
         shortcutId: `pin-${id}`,
         shortcutIds: [`pin-${id}`],
-        type: 'dashboard',
         serverOrder: id,
         rank: null,
         display: { mode: 'row' },
-        native: true,
     }
 }
 

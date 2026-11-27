@@ -3,7 +3,7 @@ import asyncio
 import datetime as dt
 import dataclasses
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 
 from django.conf import settings
 
@@ -21,7 +21,7 @@ from posthog.models.integration.azure_blob import EndpointNotAllowedError, valid
 from posthog.security.pinned_aiohttp import pinned_session
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import get_write_only_logger
+from posthog.temporal.common.logger import get_logger, get_write_only_logger
 
 from products.batch_exports.backend.facade.enums import AZURE_BLOB_SUPPORTED_COMPRESSIONS as SUPPORTED_COMPRESSIONS
 from products.batch_exports.backend.service import (
@@ -39,7 +39,7 @@ from products.batch_exports.backend.temporal.batch_exports import (
     start_batch_export_run,
 )
 from products.batch_exports.backend.temporal.destinations.constants import FILE_FORMAT_EXTENSIONS
-from products.batch_exports.backend.temporal.destinations.utils import EXTERNAL_LOGGER, get_manifest_key, get_object_key
+from products.batch_exports.backend.temporal.destinations.utils import get_manifest_key, get_object_key
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
 from products.batch_exports.backend.temporal.pipeline.producer import Producer as ProducerFromInternalStage
@@ -52,6 +52,7 @@ from products.batch_exports.backend.temporal.queue import RecordBatchQueue, wait
 from products.batch_exports.backend.temporal.utils import handle_non_retryable_errors
 
 NON_RETRYABLE_ERROR_TYPES = (
+    "InvalidKeyError",
     "AzureBlobIntegrationError",
     "AzureBlobIntegrationNotFoundError",
     "ClientAuthenticationError",
@@ -65,6 +66,7 @@ NON_RETRYABLE_ERROR_TYPES = (
 )
 
 LOGGER = get_write_only_logger(__name__)
+EXTERNAL_LOGGER = get_logger("EXTERNAL")
 
 
 class UnsupportedFileFormatError(Exception):
@@ -346,7 +348,7 @@ async def insert_into_azure_blob_activity_from_stage(inputs: AzureBlobInsertInpu
         blob_key,
     )
 
-    async with Heartbeater():
+    async with Heartbeater(), AsyncExitStack() as cleanup:
         queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_AZURE_BLOB_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
         producer = ProducerFromInternalStage()
 
@@ -359,6 +361,7 @@ async def insert_into_azure_blob_activity_from_stage(inputs: AzureBlobInsertInpu
             max_record_batch_size_bytes=1024 * 1024 * 60,  # 60MB
             stage_folder=inputs.stage_folder,
         )
+        cleanup.push_async_callback(producer.stop)
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
         if record_batch_schema is None:

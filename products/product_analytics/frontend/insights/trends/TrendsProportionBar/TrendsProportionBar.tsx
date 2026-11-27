@@ -1,10 +1,10 @@
 import { ProportionBar } from '@posthog/quill-charts'
 import type { ProportionBarConfig } from '@posthog/quill-charts'
 
+import { makeChartErrorHandler } from 'lib/charts/chartErrorHandler'
 import { useChartConfig } from 'lib/charts/hooks'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 
-import { makeChartErrorHandler } from '../shared/chartErrorHandler'
 import type { TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
 import { type TrendsPartOfWholeChartProps, useTrendsPartOfWholeChart } from '../shared/useTrendsPartOfWholeChart'
 

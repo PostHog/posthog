@@ -39,7 +39,7 @@ _NOTIFICATION_TYPES: Final[dict[AlertEventKind, NotificationType]] = {
 
 
 def body_for(message: AlertMessage) -> str:
-    return "; ".join([*(f"{detail.label}: {detail.value}" for detail in message.details), *message.context])
+    return "; ".join([*(f"{detail.label}: {detail.value}" for detail in message.all_details), *message.context])
 
 
 class InAppTransport:
@@ -59,7 +59,7 @@ class InAppTransport:
         user_ids = target.get("in_app_user_ids") or []
         if not user_ids:
             raise DeliveryError("This in-app destination has no recipients.")
-        notification_type = _NOTIFICATION_TYPES.get(message.transition.kind)
+        notification_type = _NOTIFICATION_TYPES.get(message.transition.kind.delivered_as)
         if notification_type is None:
             raise DeliveryError(f"In-app notifications have no type for {message.transition.kind.value} alerts.")
         key = transition_delivery_key(message)

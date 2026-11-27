@@ -17,8 +17,87 @@ from products.product_analytics.backend.presentation.insight import (
     BARE_RENDERED_INSIGHT_VIZ_SOURCE_KINDS,
     MCPInsightSerializer,
 )
+from products.product_analytics.backend.presentation.metrics_sql_insight import sql_insight_for_metrics_sql
 
 from ee.api.test.base import LicensedTestMixin
+
+
+class TestMetricsSqlInsight(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.client.post(
+            f"/api/environments/{self.team.pk}/dashboards/",
+            {
+                "name": "Services",
+                "filters": {
+                    "metricVariables": [{"name": "service", "source": "textbox"}, {"name": "2xx", "source": "textbox"}]
+                },
+            },
+            format="json",
+        )
+
+    @parameterized.expand(
+        [
+            ("metrics_table", "SELECT now() AS time, count() AS value FROM posthog.metrics", None),
+            ("interval_placeholder", "SELECT toStartOfInterval(timestamp, {interval}) AS time FROM events", None),
+            ("variable", "SELECT count() FROM events WHERE event = $event", None),
+            (
+                "quoted_variable_starting_with_a_digit",
+                "SELECT count() FROM events WHERE properties.status = '$2xx'",
+                None,
+            ),
+            ("quoted_query_variable", "SELECT count() FROM events WHERE event = '$event'", None),
+            ("quoted_dashboard_variable", "SELECT count() FROM events WHERE properties.service = '$service'", None),
+            (
+                "quoted_dashboard_variable_with_a_format",
+                "SELECT count() FROM events WHERE properties.service = '${service:raw}'",
+                None,
+            ),
+            (
+                "quoted_unbraced_variable_with_a_format",
+                "SELECT count() FROM events WHERE properties.service = '$service:raw'",
+                None,
+            ),
+            ("quoted_built_in_variable", "SELECT count() FROM events WHERE timestamp > '$__from'", None),
+            (
+                "quoted_text",
+                "SELECT count() FROM events WHERE event = '$pageview'",
+                "SELECT count() FROM events WHERE event = '$pageview'",
+            ),
+            ("invalid_sql", "SELECT FROM WHERE", None),
+            ("unknown_placeholder", "SELECT count() FROM events WHERE event = {unknown}", None),
+            (
+                "other_table",
+                "SELECT count() FROM events WHERE properties.$browser = 'Chrome' AND timestamp >= { date_from }",
+                "SELECT count() FROM events WHERE properties.$browser = 'Chrome' AND timestamp >= {filters.dateRange.from}",
+            ),
+        ]
+    )
+    def test_sql_over_other_tables_becomes_a_sql_insight(self, _name: str, sql: str, expected: str | None) -> None:
+        converted = sql_insight_for_metrics_sql(
+            self.team,
+            {
+                "kind": "MetricsQuery",
+                "language": "sql",
+                "sql": sql,
+                "clauses": [],
+                "display": {"type": "table"},
+                "variables": {"event": {"values": ["$pageleave"]}},
+            },
+        )
+
+        if expected is None:
+            assert converted is None
+        else:
+            assert converted is not None
+            source = converted["source"]
+            assert (converted["kind"], converted["display"], source["kind"], source["query"]) == (
+                "DataVisualizationNode",
+                "ActionsTable",
+                "HogQLQuery",
+                expected,
+            )
+            assert source["filters"]["dateRange"]["date_from"] == "-24h"
 
 
 class TestMCPInsightSerializer(SimpleTestCase):
@@ -121,10 +200,30 @@ class TestMCPInsightSerializer(SimpleTestCase):
                 },
             ),
             ("metrics_histogram_query", {"kind": "MetricsHistogramQuery", "metricName": "http_request_duration"}),
+            (
+                "promql_without_clauses",
+                {"kind": "MetricsQuery", "language": "promql", "promql": "sum(rate(http_requests_total[5m]))"},
+            ),
+            (
+                "sql_without_clauses",
+                {"kind": "MetricsQuery", "language": "sql", "sql": "SELECT now() AS time, 1 AS value"},
+            ),
         ]
     )
     def test_keeps_metrics_queries_bare(self, _name: str, query: dict[str, Any]) -> None:
-        assert MCPInsightSerializer().validate_query(query)["kind"] == query["kind"]
+        normalized_query = MCPInsightSerializer().validate_query(query)
+
+        assert normalized_query["kind"] == query["kind"]
+        assert normalized_query.get("promql") == query.get("promql")
+
+    @parameterized.expand([("list_kind", ["MetricsQuery"]), ("object_kind", {"kind": "MetricsQuery"})])
+    def test_rejects_a_kind_that_is_not_a_string(self, _name: str, kind: Any) -> None:
+        with self.assertRaises(serializers.ValidationError):
+            MCPInsightSerializer().validate_query({"kind": kind})
+
+    def test_explains_an_invalid_metrics_query_in_its_own_terms(self) -> None:
+        with self.assertRaisesRegex(serializers.ValidationError, r"clauses: Field required"):
+            MCPInsightSerializer().validate_query({"kind": "MetricsQuery", "dateRange": {"date_from": "-1h"}})
 
     def test_assistant_schema_accepts_sql_box_plots(self) -> None:
         query = schema.AssistantDataVisualizationNode.model_validate(
@@ -393,6 +492,12 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                 },
                 "InsightVizNode",
                 "WebStatsTableQuery",
+            ),
+            (
+                "sql_metrics_query_over_events",
+                {"kind": "MetricsQuery", "language": "sql", "clauses": [], "sql": "SELECT count() FROM events"},
+                "DataVisualizationNode",
+                "HogQLQuery",
             ),
         ]
     )

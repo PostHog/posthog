@@ -6,6 +6,7 @@ from datetime import timedelta
 import structlog
 from temporalio import activity, common, workflow
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
@@ -25,13 +26,15 @@ class RunQuotaLimitingAllOrgsInputs:
     pass
 
 
-@dataclasses.dataclass
+@frozen
 class QuotaLimitingResult:
     duration_s: float = 0.0
     orgs_total: int = 0
     orgs_processed: int = 0
     orgs_limited: int = 0
     orgs_suspended: int = 0
+    ai_overage_teams: int = 0
+    ai_overage_mb: int = 0
 
 
 @activity.defn(name="run-quota-limiting-all-orgs")
@@ -48,7 +51,15 @@ async def run_quota_limiting_all_orgs(
 
             @database_sync_to_async(thread_sensitive=True)
             def async_update_all_orgs_billing_quotas():
-                return update_all_orgs_billing_quotas(progress_callback=progress_callback)
+                run_result = update_all_orgs_billing_quotas(progress_callback=progress_callback)
+                try:
+                    # Loaded and called after the run, so the comparison can neither skip the run nor fail it.
+                    from posthog.quota_spine_comparison import compare_with_spine
+
+                    compare_with_spine(run_result)
+                except Exception as error:
+                    capture_exception(error)
+                return run_result
 
             run_result = await async_update_all_orgs_billing_quotas()
             result = QuotaLimitingResult(**run_result.stats)

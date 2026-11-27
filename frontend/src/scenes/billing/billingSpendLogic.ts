@@ -9,9 +9,10 @@ import sortBy from 'lodash.sortby'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { dateMapping } from 'lib/utils/dateFilters'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Params } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -20,18 +21,17 @@ import { DateMappingOption, OrganizationType } from '~/types'
 import type {
     BillingSpendExportDownloadParams,
     BillingSpendTimeseriesRetrieveParams,
+    PaginatedBillingSpendTimeSeriesListApi,
 } from 'products/billing/frontend/generated/api.schemas'
 
 import type { BillingPeriod, BillingType } from '../../types'
 import {
     buildSpendTrackingProperties,
-    calculateBillingPeriodMarkers,
     filterSpendUsageTypes,
     selectionCoversEveryProject,
     syncBillingSearchParams,
     updateBillingSearchParams,
 } from './billing-utils'
-import { billingLogic } from './billingLogic'
 import type { BillingPeriodMarker } from './BillingPeriodMarkers'
 import { BillingReads, billingReadsLogic } from './billingReads'
 import {
@@ -51,10 +51,7 @@ export enum BillingSpendResponseBreakdownType {
     MULTIPLE = 'multiple',
 }
 
-export interface BillingSpendResponse {
-    count: number
-    next: string | null
-    previous: string | null
+export interface BillingSpendResponse extends Omit<PaginatedBillingSpendTimeSeriesListApi, 'results'> {
     results: Array<{
         id: number
         label: string
@@ -108,11 +105,11 @@ export interface billingSpendLogicValues {
     emptySeriesIDs: number[]
     excludeEmptySeries: boolean
     filters: {
-        breakdowns?: ('team' | 'type')[] | undefined
-        interval?: 'day' | 'month' | 'week' | undefined
-        team_ids?: number[] | undefined
-        top_projects?: number | null | undefined
-        usage_types?: string[] | undefined
+        breakdowns?: ('team' | 'type')[]
+        interval?: 'day' | 'month' | 'week'
+        team_ids?: number[]
+        top_projects?: number | null
+        usage_types?: string[]
     }
     finalHiddenSeries: number[]
     heading: string
@@ -229,11 +226,11 @@ export interface billingSpendLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         effectiveTeamIds: (
             filters: {
-                breakdowns?: ('team' | 'type')[] | undefined
-                interval?: 'day' | 'month' | 'week' | undefined
-                team_ids?: number[] | undefined
-                top_projects?: number | null | undefined
-                usage_types?: string[] | undefined
+                breakdowns?: ('team' | 'type')[]
+                interval?: 'day' | 'month' | 'week'
+                team_ids?: number[]
+                top_projects?: number | null
+                usage_types?: string[]
             },
             teamOptions: {
                 key: string
@@ -242,11 +239,11 @@ export interface billingSpendLogicMeta {
         ) => number[] | undefined
         spendExportUrl: (
             filters: {
-                breakdowns?: ('team' | 'type')[] | undefined
-                interval?: 'day' | 'month' | 'week' | undefined
-                team_ids?: number[] | undefined
-                top_projects?: number | null | undefined
-                usage_types?: string[] | undefined
+                breakdowns?: ('team' | 'type')[]
+                interval?: 'day' | 'month' | 'week'
+                team_ids?: number[]
+                top_projects?: number | null
+                usage_types?: string[]
             },
             dateFrom: string,
             dateTo: string | null,
@@ -255,11 +252,11 @@ export interface billingSpendLogicMeta {
         ) => string
         spendChartExportUrl: (
             filters: {
-                breakdowns?: ('team' | 'type')[] | undefined
-                interval?: 'day' | 'month' | 'week' | undefined
-                team_ids?: number[] | undefined
-                top_projects?: number | null | undefined
-                usage_types?: string[] | undefined
+                breakdowns?: ('team' | 'type')[]
+                interval?: 'day' | 'month' | 'week'
+                team_ids?: number[]
+                top_projects?: number | null
+                usage_types?: string[]
             },
             dateFrom: string,
             dateTo: string | null,
@@ -276,11 +273,7 @@ export interface billingSpendLogicMeta {
         }[]
         dates: (billingSpendResponse: BillingSpendResponse | null) => string[]
         dateOptions: (billingPeriodUTC: BillingPeriod) => DateMappingOption[]
-        billingPeriodMarkers: (
-            billingPeriodUTC: BillingPeriod,
-            dateFrom: string,
-            dateTo: string | null
-        ) => BillingPeriodMarker[]
+        billingPeriodMarkers: (billingSpendResponse: BillingSpendResponse | null) => BillingPeriodMarker[]
         emptySeriesIDs: (
             series: {
                 breakdown_type: BillingSpendResponseBreakdownType | null
@@ -292,11 +285,11 @@ export interface billingSpendLogicMeta {
             }[]
         ) => number[]
         defaultChartType: (filters: {
-            breakdowns?: ('team' | 'type')[] | undefined
-            interval?: 'day' | 'month' | 'week' | undefined
-            team_ids?: number[] | undefined
-            top_projects?: number | null | undefined
-            usage_types?: string[] | undefined
+            breakdowns?: ('team' | 'type')[]
+            interval?: 'day' | 'month' | 'week'
+            team_ids?: number[]
+            top_projects?: number | null
+            usage_types?: string[]
         }) => BillingChartType
         effectiveChartType: (
             chartType: BillingChartType | null,
@@ -321,11 +314,11 @@ export interface billingSpendLogicMeta {
         ) => boolean
         showEmptyState: (showSeries: boolean, billingSpendResponse: BillingSpendResponse | null) => boolean
         heading: (filters: {
-            breakdowns?: ('team' | 'type')[] | undefined
-            interval?: 'day' | 'month' | 'week' | undefined
-            team_ids?: number[] | undefined
-            top_projects?: number | null | undefined
-            usage_types?: string[] | undefined
+            breakdowns?: ('team' | 'type')[]
+            interval?: 'day' | 'month' | 'week'
+            team_ids?: number[]
+            top_projects?: number | null
+            usage_types?: string[]
         }) => string
         headingTooltip: (dateTo: string | null) => string | null
         teamOptions: (
@@ -611,14 +604,9 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
             },
         ],
         billingPeriodMarkers: [
-            (s) => [s.billingPeriodUTC, s.dateFrom, s.dateTo],
-            (
-                currentPeriod: import('~/types').BillingPeriod,
-                dateFrom: string,
-                dateTo: string | null
-            ): BillingPeriodMarker[] => {
-                return calculateBillingPeriodMarkers(currentPeriod, dateFrom, dateTo)
-            },
+            (s) => [s.billingSpendResponse],
+            (response: BillingSpendResponse | null): BillingPeriodMarker[] =>
+                (response?.pricing_reset_dates ?? []).map((date) => ({ date: dayjs.utc(date) })),
         ],
         emptySeriesIDs: [
             (s) => [s.series],

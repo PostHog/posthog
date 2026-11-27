@@ -4,34 +4,26 @@ import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
-import { LogsAlertConfigurationThresholdOperatorEnumApi } from 'products/logs/frontend/generated/api.schemas'
-
 import { logsAlertFormLogic } from './logsAlertFormLogic'
-import { GROUP_BY_LABELS, GROUPING_NEEDS_ABOVE, LogsAlertGroupBy, MAX_INSTANCES_LIMIT } from './logsAlertGrouping'
-
-const GROUP_BY_HELP: Record<LogsAlertGroupBy, string> = {
-    none: 'Split the count by service or severity to alert on each one separately.',
-    service:
-        'Each service fires and notifies on its own, so several services over the threshold send several notifications.',
-    severity:
-        'Each severity fires and notifies on its own, so several severities over the threshold send several notifications.',
-    service_and_severity:
-        'Each service and severity pair fires and notifies on its own, so several pairs over the threshold send several notifications.',
-}
+import {
+    GROUP_BY_HELP,
+    GROUP_BY_LABELS,
+    groupByOptionDisabledReason,
+    LogsAlertGroupBy,
+    MAX_INSTANCES_LIMIT,
+} from './logsAlertGrouping'
 
 export function LogsAlertGroupByField(): JSX.Element | null {
-    const { alertForm, alertFormValidationErrors, canGroup } = useValues(logsAlertFormLogic)
+    const { alertForm, alertFormValidationErrors, canGroup, lockedGroupBy } = useValues(logsAlertFormLogic)
     const { setGroupBy, setAlertFormValue } = useActions(logsAlertFormLogic)
 
     if (!canGroup) {
         return null
     }
 
-    const groupingDisabledReason =
-        alertForm.thresholdOperator === LogsAlertConfigurationThresholdOperatorEnumApi.Above
-            ? undefined
-            : GROUPING_NEEDS_ABOVE
     const isGrouped = alertForm.groupBy !== 'none'
+    const disabledReasonFor = (groupBy: LogsAlertGroupBy): string | undefined =>
+        groupByOptionDisabledReason(groupBy, alertForm.thresholdOperator, lockedGroupBy)
 
     return (
         <LemonField.Pure
@@ -46,7 +38,7 @@ export function LogsAlertGroupByField(): JSX.Element | null {
                     options={(Object.keys(GROUP_BY_LABELS) as LogsAlertGroupBy[]).map((groupBy) => ({
                         value: groupBy,
                         label: GROUP_BY_LABELS[groupBy],
-                        disabledReason: groupBy === 'none' ? undefined : groupingDisabledReason,
+                        disabledReason: disabledReasonFor(groupBy),
                     }))}
                     size="small"
                     data-attr="logs-alert-group-by"

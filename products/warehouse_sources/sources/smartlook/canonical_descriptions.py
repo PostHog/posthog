@@ -1,0 +1,81 @@
+from products.warehouse_sources.sources.sdk import CanonicalDescriptions
+
+CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "event_visitors": {
+        "description": "Visitors who triggered each event definition in the last 30 days.",
+        "docs_url": "https://integrations.smartlook.com/reference/geteventvisitors",
+        "columns": {
+            "id": "The visitor identifier.",
+            "event_id": "The event definition identifier from the parent event list.",
+            "eventMatchedCount": "The number of times the visitor triggered the event in the last 30 days.",
+            "firstSeen": "The time when Smartlook first saw the visitor.",
+            "lastSeen": "The time when Smartlook last saw the visitor.",
+            "numberOfVisits": "The number of visits by the visitor.",
+            "identification": "The user identifier and custom identification properties.",
+        },
+    },
+    "events": {
+        "description": "Saved event definitions in the Smartlook project.",
+        "docs_url": "https://integrations.smartlook.com/reference/geteventslist",
+        "columns": {
+            "id": "The event definition identifier.",
+            "name": "The event definition name.",
+            "categoryId": "The event category identifier.",
+            "categoryName": "The event category name.",
+        },
+    },
+    "funnel_step_visitors": {
+        "description": "Visitors who reached each step of a funnel in the last 30 days.",
+        "docs_url": "https://integrations.smartlook.com/reference/getfunnelvisitorsdropofflist",
+        "columns": {
+            "funnel_id": "The funnel identifier.",
+            "step": "The funnel step that the visitor reached, where 0 is the first step.",
+            "event_id": "The event definition identifier for the funnel step.",
+            "visitor_id": "The visitor identifier.",
+        },
+    },
+    "funnels": {
+        "description": "Saved funnels and their ordered event definitions.",
+        "docs_url": "https://integrations.smartlook.com/reference/getfunnelslist",
+        "columns": {
+            "id": "The funnel identifier.",
+            "name": "The funnel name.",
+            "events": "The event definitions that form the funnel.",
+        },
+    },
+    "sessions": {
+        "description": "Session recording metadata and links to the Smartlook player.",
+        "docs_url": "https://integrations.smartlook.com/reference/searchsessions",
+        "columns": {
+            "id": "The session identifier.",
+            "visitorId": "The visitor identifier for the session.",
+            "startedAt": "The time when the session started.",
+            "endedAt": "The time when the session ended.",
+            "duration": "The session duration.",
+            "dashboardURL": "The link to the session in Smartlook.",
+        },
+    },
+    "visitor_events": {
+        "description": "Recorded interactions for each visitor, including custom events, clicks, and errors.",
+        "docs_url": "https://integrations.smartlook.com/reference/getvisitorevents",
+        "columns": {
+            "id": "The recorded event identifier.",
+            "visitor_id": "The visitor identifier from the parent search result.",
+            "visitorId": "The visitor identifier returned with the event.",
+            "sessionId": "The session identifier for the event.",
+            "startedAt": "The time when the event started.",
+            "type": "The interaction type.",
+            "eventName": "The event name.",
+        },
+    },
+    "visitors": {
+        "description": "Visitors with identification properties and the times of their first and last visits.",
+        "docs_url": "https://integrations.smartlook.com/reference/searchvisitors",
+        "columns": {
+            "id": "The visitor identifier.",
+            "firstSeen": "The time when Smartlook first saw the visitor.",
+            "lastSeen": "The time when Smartlook last saw the visitor.",
+            "identification": "The user identifier and custom identification properties.",
+        },
+    },
+}

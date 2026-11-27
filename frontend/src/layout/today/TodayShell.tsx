@@ -1,49 +1,102 @@
 import './TodayShell.scss'
 
-import { useActions, useValues } from 'kea'
-import { Suspense, useEffect, useRef } from 'react'
+import { useActions, useMountedLogic, useValues } from 'kea'
+import { ComponentType, Suspense, useEffect, useRef } from 'react'
 
 import { Skeleton, ToastProvider } from '@posthog/quill'
 
 import 'scenes/project-homepage/today/Today.scss'
-import { Resizer } from 'lib/components/Resizer/Resizer'
-import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { useShortcut } from 'lib/components/Shortcuts/useShortcut'
+import { Resizer } from 'lib/lemon-ui/Resizer/Resizer'
+import { ResizerLogicProps, resizerLogic } from 'lib/lemon-ui/Resizer/resizerLogic'
 import { cn } from 'lib/utils/css-classes'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 
 import { QuillSceneHeader } from '~/layout/scenes/components/QuillSceneHeader'
 
+import { TodayCustomizeRailDialog } from './TodayCustomizeRailDialog'
+import { TodayDesignChangelogCard } from './TodayDesignChangelogCard'
+import { TodayNavSwitchDialog } from './TodayNavSwitchDialog'
+import { TodayPaneIntro } from './TodayPaneIntro'
 import { TodayPhoneHeader } from './TodayPhoneHeader'
 import { TodayPreviewCardProvider } from './TodayPreviewCardProvider'
 import { TodayRail } from './TodayRail'
+import { TodayRailCustomizeDemo } from './TodayRailCustomizeDemo'
 import { TODAY_PANES } from './todayRailItems'
-import { TODAY_RAIL_WIDTH, TODAY_SIDEBAR_CLOSE_THRESHOLD, clampSidebarWidth, todayShellLogic } from './todayShellLogic'
+import { todayRecentsLogic } from './todayRecentsLogic'
+import {
+    TODAY_RAIL_WIDTH,
+    TODAY_SIDEBAR_CLOSE_THRESHOLD,
+    TodayRailPane,
+    clampSidebarWidth,
+    todayShellLogic,
+} from './todayShellLogic'
 import { TodaySidebarCollapseButton } from './TodaySidebarCollapseButton'
 import { TodaySidebarFooter } from './TodaySidebarFooter'
 import { TodaySidebarPinButton } from './TodaySidebarPinButton'
 import { TodayTabBar } from './TodayTabBar'
+import { TodayTour } from './TodayTour'
+import { useTodayPaneTransition } from './useTodayPaneTransition'
 
 const TodaySpacesPane = lazyWithRetry(() => import('./TodaySpacesPane').then((m) => ({ default: m.TodaySpacesPane })))
 const TodayAnalyticsSidebar = lazyWithRetry(() =>
-    import('./TodayAnalyticsSidebar').then((m) => ({ default: m.TodayAnalyticsSidebar }))
+    import('products/today/frontend/analytics/TodayAnalyticsSidebar').then((m) => ({
+        default: m.TodayAnalyticsSidebar,
+    }))
+)
+const TodayProductPaneSidebar = lazyWithRetry(() =>
+    import('products/today/frontend/pane/TodayProductPaneSidebar').then((m) => ({
+        default: m.TodayProductPaneSidebar,
+    }))
+)
+const TodayMonitorSidebar = (): JSX.Element => <TodayProductPaneSidebar pane="monitor" />
+const TodayAutomateSidebar = (): JSX.Element => <TodayProductPaneSidebar pane="automate" />
+const TodayDataSidebar = (): JSX.Element => <TodayProductPaneSidebar pane="data" />
+const TodayHomeSidebar = lazyWithRetry(() =>
+    import('products/today/frontend/home/TodayHomeSidebar').then((m) => ({
+        default: m.TodayHomeSidebar,
+    }))
+)
+const TodayPeopleSidebar = lazyWithRetry(() =>
+    import('./TodayPeopleSidebar').then((m) => ({ default: m.TodayPeopleSidebar }))
 )
 const TodayProductsPane = lazyWithRetry(() =>
     import('./TodayProductsPane').then((m) => ({ default: m.TodayProductsPane }))
 )
+const ReleaseSidebar = lazyWithRetry(() =>
+    import('products/release/frontend/ReleaseSidebar').then((m) => ({ default: m.ReleaseSidebar }))
+)
 const TodaySettingsSidebar = lazyWithRetry(() =>
     import('./TodaySettingsSidebar').then((m) => ({ default: m.TodaySettingsSidebar }))
 )
+const PANE_SIDEBARS: Record<TodayRailPane, { Sidebar: ComponentType; previews?: boolean }> = {
+    home: { Sidebar: TodayHomeSidebar, previews: true },
+    spaces: { Sidebar: TodaySpacesPane },
+    analytics: { Sidebar: TodayAnalyticsSidebar, previews: true },
+    monitor: { Sidebar: TodayMonitorSidebar, previews: true },
+    people: { Sidebar: TodayPeopleSidebar, previews: true },
+    release: { Sidebar: ReleaseSidebar, previews: true },
+    automate: { Sidebar: TodayAutomateSidebar, previews: true },
+    data: { Sidebar: TodayDataSidebar, previews: true },
+    settings: { Sidebar: TodaySettingsSidebar },
+    products: { Sidebar: TodayProductsPane },
+}
+
 const NewSpaceDialog = lazyWithRetry(() =>
-    import('products/tasks/frontend/spaces/NewSpaceDialog').then((m) => ({ default: m.NewSpaceDialog }))
+    import('products/today/frontend/spaces/NewSpaceDialog').then((m) => ({ default: m.NewSpaceDialog }))
 )
 
 /** The left navigation under the Today layout: the rail, then the sidebar for the pane the rail has open. */
 export function TodayShell({ className }: { className?: string }): JSX.Element {
-    const { activePane, mobileLayout, phoneLayout, sidebarVisible, sidebarWidth, phoneHeaderHidden } =
+    const { activePane, mobileLayout, paneHasSidebar, phoneLayout, sidebarVisible, sidebarWidth, phoneHeaderHidden } =
         useValues(todayShellLogic)
     const { setMobileSidebarOpen, setSidebarOpen, setSidebarWidth, toggleSidebar } = useActions(todayShellLogic)
+    const paneRef = useRef<HTMLDivElement>(null)
+    // The phone drawer has its own motion, and a hidden pane has nothing to show.
+    useTodayPaneTransition(activePane, paneRef, { animatePane: sidebarVisible && !phoneLayout })
+    // Mounted with the shell rather than the shell logic, so its code loads with the lazy shell, not on every page.
+    useMountedLogic(todayRecentsLogic)
     useShortcut({
         name: 'ToggleLeftNav',
         keybind: [keyBinds.toggleLeftNav, keyBinds.toggleLeftNavFallback],
@@ -88,46 +141,66 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
         }
     }, [mobileLayout, sidebarVisible])
 
+    const paneSidebar = paneHasSidebar ? PANE_SIDEBARS[activePane] : null
     const paneContent = (
         <Suspense fallback={<Skeleton className="m-4 h-24" />}>
-            {activePane === 'home' ? null : activePane === 'spaces' ? (
-                <TodaySpacesPane />
-            ) : activePane === 'analytics' ? (
-                <TodayPreviewCardProvider disabled={phoneLayout}>
-                    <TodayAnalyticsSidebar />
-                </TodayPreviewCardProvider>
-            ) : activePane === 'settings' ? (
-                <TodaySettingsSidebar />
-            ) : (
-                <TodayProductsPane />
-            )}
+            {paneSidebar &&
+                (paneSidebar.previews ? (
+                    <TodayPreviewCardProvider disabled={phoneLayout}>
+                        <paneSidebar.Sidebar />
+                    </TodayPreviewCardProvider>
+                ) : (
+                    <paneSidebar.Sidebar />
+                ))}
         </Suspense>
     )
 
     const { title: paneTitle, action: PaneAction } = TODAY_PANES[activePane]
     const pane = (
-        <div className="TodayShell__pane">
+        <div ref={paneRef} className="TodayShell__pane">
             <QuillSceneHeader
                 // Transparent, not removed: the scene header keeps its border inside the same height, so both headers
                 // center their buttons on the same line.
                 className="group/header border-b-transparent"
                 back={<TodaySidebarCollapseButton />}
                 title={
-                    <div className="flex min-w-0 items-center gap-1">
+                    // The header gap puts the title 2px to the right of the pane row labels. Pull it back so they line up.
+                    <div className="-ms-0.5 flex min-w-0 items-center gap-1">
                         <h2 className="m-0 min-w-0 truncate text-base font-bold text-foreground">{paneTitle}</h2>
                         <TodaySidebarPinButton />
                     </div>
                 }
-                actions={PaneAction && <PaneAction />}
+                actions={
+                    <div className="-me-2 flex items-center gap-2">
+                        {/* Keyed by pane, so one pane's open popover never carries over to the next pane. */}
+                        <TodayPaneIntro key={activePane} pane={activePane} />
+                        {PaneAction && <PaneAction />}
+                    </div>
+                }
             />
             {paneContent}
         </div>
     )
 
-    const newSpaceDialog = activePane === 'spaces' && (
-        <Suspense fallback={null}>
-            <NewSpaceDialog />
-        </Suspense>
+    const overlays = (
+        <>
+            {/* Mounted here so the sidebar and the spaces page open the same dialog. */}
+            {activePane === 'spaces' && (
+                <Suspense fallback={null}>
+                    <NewSpaceDialog />
+                </Suspense>
+            )}
+            <TodayNavSwitchDialog />
+            <TodayTour />
+            {/* The phone layout has no rail, so nothing here has a rail to talk about. */}
+            {!phoneLayout && (
+                <>
+                    <TodayCustomizeRailDialog />
+                    <TodayDesignChangelogCard />
+                    <TodayRailCustomizeDemo />
+                </>
+            )}
+        </>
     )
 
     if (phoneLayout) {
@@ -148,7 +221,7 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
                         <TodaySidebarFooter />
                     </aside>
                     <TodayTabBar />
-                    {newSpaceDialog}
+                    {overlays}
                 </div>
             </ToastProvider>
         )
@@ -200,8 +273,7 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
                         </aside>
                     )
                 )}
-                {/* Mounted here so the sidebar and the spaces page open the same dialog. */}
-                {newSpaceDialog}
+                {overlays}
             </div>
         </ToastProvider>
     )

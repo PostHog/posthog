@@ -1,3 +1,5 @@
+import type { IntegrationType } from '~/types'
+
 import {
     CREATABLE_DESTINATION_TYPES,
     WAREHOUSE_DESTINATIONS,
@@ -100,6 +102,41 @@ describe('warehouse destination definitions', () => {
             const formValues = { ...definition.defaults(), database: 'DB', warehouse: 'WH' }
 
             expect(validateDestinationFields(definition, { isNew: true, formValues })).toEqual({})
+        })
+
+        it.each([
+            ['a username and password connection', { host: 'my-cluster.example.com', user: 'posthog' }, false],
+            [
+                'an IAM role connection',
+                { aws_role_arn: 'arn:aws:iam::123456789012:role/posthog', user: 'posthog' },
+                true,
+            ],
+            ['an access key connection', { name: 'keys', user: 'posthog' }, true],
+            ['no connection picked yet', null, false],
+        ])('Redshift asks for a host only when it needs one, with %s', (_label, config, needsHost) => {
+            const selectedIntegration = config ? ({ id: 1, kind: 'aws-redshift', config } as IntegrationType) : null
+
+            const errors = validateDestinationFields(WAREHOUSE_DESTINATIONS.Redshift, {
+                isNew: true,
+                formValues: { database: 'dev', schema: 'public' },
+                selectedIntegration,
+            })
+
+            expect(errors.host).toEqual(needsHost ? 'This field is required' : undefined)
+        })
+
+        it.each([
+            ['my_db', false],
+            ['db-1.v2$', false],
+            ['my db', true],
+            ['db;drop', true],
+        ])('MotherDuck database %j is checked against the allowed characters', (database, rejected) => {
+            const errors = validateDestinationFields(WAREHOUSE_DESTINATIONS.MotherDuck, {
+                isNew: true,
+                formValues: { database },
+            })
+
+            expect(!!errors.database).toEqual(rejected)
         })
 
         it('treats a whitespace-only value as missing', () => {

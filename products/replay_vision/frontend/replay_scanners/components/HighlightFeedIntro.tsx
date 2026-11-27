@@ -1,6 +1,6 @@
 import { VisionDocsLink } from '../../components/DocsLink'
 import { CreateScannerButton } from './CreateScannerButton'
-import { ExampleObservations } from './ExampleObservations'
+import { HighlightFeedExampleCards } from './HighlightFeedExampleCards'
 
 /**
  * What the Highlights tab shows a reader who has no scanners: what the feed is for, an example of
@@ -27,7 +27,7 @@ export function HighlightFeedIntro(): JSX.Element {
                 </div>
             </div>
 
-            <ExampleObservations />
+            <HighlightFeedExampleCards />
         </div>
     )
 }

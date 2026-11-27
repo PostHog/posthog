@@ -3,12 +3,14 @@ from urllib.parse import quote
 from uuid import UUID
 
 from django.conf import settings
+from django.db import DEFAULT_DB_ALIAS
 from django.db.models import Count, Q, QuerySet
 
 from posthog.models.event_filter_config import EventFilterPipelineOverride
 from posthog.models.event_ingestion_restriction_config import IngestionPipeline
 from posthog.models.utils import UUIDT
 
+from products.error_tracking.backend.logic.ids import parse_uuid
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
@@ -36,10 +38,12 @@ SPIKE_EVENT_ORDER_FIELDS = (
 )
 
 SETTINGS_FIELDS = (
+    "adaptive_ingestion_enabled",
     "project_rate_limit_value",
     "project_rate_limit_bucket_size_minutes",
     "per_issue_rate_limit_value",
     "per_issue_rate_limit_bucket_size_minutes",
+    "ai_issue_summaries_enabled",
 )
 
 SPIKE_DETECTION_CONFIG_FIELDS = (
@@ -66,7 +70,7 @@ def get_issue_detail_queryset(team_id: int) -> QuerySet[ErrorTrackingIssue]:
     return (
         ErrorTrackingIssue.objects.with_first_seen()
         .select_related("assignment")
-        .prefetch_related("external_issues__integration")
+        .prefetch_related("external_issues")
         .prefetch_related("cohorts__cohort")
         .filter(team_id=team_id)
     )
@@ -205,19 +209,31 @@ def count_issues_created_since(team_id: int, since: datetime) -> int:
     return ErrorTrackingIssue.objects.filter(team_id=team_id, created_at__gte=since).count()
 
 
+def read_database() -> str:
+    """The database for expensive reads that can tolerate replica lag."""
+    return "replica" if "replica" in settings.DATABASES else DEFAULT_DB_ALIAS
+
+
 def get_issue_counts_by_team() -> list[tuple[int, int]]:
     return list(
-        ErrorTrackingIssue.objects.values("team_id")
+        ErrorTrackingIssue.objects.using(read_database())
+        .values("team_id")
         .annotate(total=Count("id"))
         .order_by("team_id")
         .values_list("team_id", "total")
     )
 
 
-def get_symbol_set_counts_by_team(*, resolved_only: bool = False) -> list[tuple[int, int]]:
-    queryset = ErrorTrackingSymbolSet.objects.all()
+def _symbol_set_counts_queryset(*, resolved_only: bool) -> QuerySet[ErrorTrackingSymbolSet]:
+    # These counts scan the whole table and the usage report runs them every 30 minutes, so keep them off the writer.
+    queryset = ErrorTrackingSymbolSet.objects.using(read_database()).all()
     if resolved_only:
         queryset = queryset.filter(storage_ptr__isnull=False)
+    return queryset
+
+
+def get_symbol_set_counts_by_team(*, resolved_only: bool = False) -> list[tuple[int, int]]:
+    queryset = _symbol_set_counts_queryset(resolved_only=resolved_only)
 
     return list(
         queryset.values("team_id").annotate(total=Count("id")).order_by("team_id").values_list("team_id", "total")
@@ -274,7 +290,7 @@ def update_spike_detection_config(team_id: int, fields: dict[str, int]) -> Error
 
 def list_spike_events(
     team_id: int,
-    issue_ids: list[str] | None = None,
+    issue_ids: list[UUID] | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
     order_by: str | None = None,
@@ -306,7 +322,10 @@ def stack_frame_queryset(team_id: int) -> QuerySet[ErrorTrackingStackFrame]:
 
 
 def get_stack_frame(team_id: int, frame_id: str) -> ErrorTrackingStackFrame | None:
-    return stack_frame_queryset(team_id).filter(id=frame_id).first()
+    parsed_id = parse_uuid(frame_id)
+    if parsed_id is None:
+        return None
+    return stack_frame_queryset(team_id).filter(id=parsed_id).first()
 
 
 def batch_get_stack_frames(
@@ -329,7 +348,10 @@ def list_releases(team_id: int) -> QuerySet[ErrorTrackingRelease]:
 
 
 def get_release(team_id: int, release_id: str) -> ErrorTrackingRelease | None:
-    return ErrorTrackingRelease.objects.filter(team_id=team_id, id=release_id).first()
+    parsed_id = parse_uuid(release_id)
+    if parsed_id is None:
+        return None
+    return ErrorTrackingRelease.objects.filter(team_id=team_id, id=parsed_id).first()
 
 
 def get_release_by_hash(team_id: int, hash_id: str) -> ErrorTrackingRelease | None:
@@ -432,5 +454,8 @@ def update_release(
 
 
 def delete_release(team_id: int, release_id: str) -> bool:
-    deleted, _ = ErrorTrackingRelease.objects.filter(team_id=team_id, id=release_id).delete()
+    parsed_id = parse_uuid(release_id)
+    if parsed_id is None:
+        return False
+    deleted, _ = ErrorTrackingRelease.objects.filter(team_id=team_id, id=parsed_id).delete()
     return deleted > 0

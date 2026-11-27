@@ -6,41 +6,20 @@ import { LemonBanner, LemonButton, LemonCard, LemonCollapse, LemonInput, LemonTa
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
 import { EmailForwardingAddress } from '../../components/EmailForwardingAddress/EmailForwardingAddress'
+import { QuillEmailSection } from '../../components/QuillEmailSection/QuillEmailSection'
 import { TrustedRelaySenderSettings } from '../../components/TrustedRelaySenderSettings/TrustedRelaySenderSettings'
+import {
+    confirmDisconnectEmail,
+    defaultEmailDisabledReason,
+    DnsRecord,
+    trustedRelaySenderValue,
+} from './emailSettingsHelpers'
 import { EmailConfigStatus, supportSettingsLogic } from './supportSettingsLogic'
-
-interface DnsRecord {
-    record_type: string
-    name: string
-    value: string
-    valid: string
-}
-
-function defaultEmailDisabledReason(
-    adminRestrictionReason: string | null | undefined,
-    config: EmailConfigStatus,
-    isSettingAnyDefault: boolean
-): string | undefined {
-    if (adminRestrictionReason) {
-        return adminRestrictionReason
-    }
-    if (config.is_default) {
-        return 'This is already the primary email address'
-    }
-    if (isSettingAnyDefault) {
-        return 'Updating the primary address…'
-    }
-    return undefined
-}
-
-function trustedRelaySenderValue(config: EmailConfigStatus, trustedRelaySenderDrafts: Record<string, string>): string {
-    return trustedRelaySenderDrafts[config.id] ?? config.trusted_relay_sender ?? ''
-}
 
 function DnsRecordsTable({ records }: { records: DnsRecord[] }): JSX.Element | null {
     if (!records || records.length === 0) {
@@ -184,19 +163,7 @@ function EmailConfigContent({ config }: { config: EmailConfigStatus }): JSX.Elem
                     status="danger"
                     size="small"
                     disabledReason={adminRestrictionReason}
-                    onClick={() => {
-                        LemonDialog.open({
-                            title: `Disconnect ${config.from_email}?`,
-                            description:
-                                'This will stop creating tickets from this email and may remove the sending domain. Existing tickets will not be affected.',
-                            primaryButton: {
-                                status: 'danger',
-                                children: 'Disconnect',
-                                onClick: () => disconnectEmail(config.id),
-                            },
-                            secondaryButton: { children: 'Cancel' },
-                        })
-                    }}
+                    onClick={() => confirmDisconnectEmail(config, disconnectEmail)}
                 >
                     Disconnect
                 </LemonButton>
@@ -297,6 +264,11 @@ function configHeader(config: EmailConfigStatus): JSX.Element {
 export function EmailSection(): JSX.Element {
     const { emailConfigs } = useValues(supportSettingsLogic)
     const [expandedKeys, setExpandedKeys] = useState<string[]>([])
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav) {
+        return <QuillEmailSection emailConfigs={emailConfigs} />
+    }
 
     return (
         <SceneSection

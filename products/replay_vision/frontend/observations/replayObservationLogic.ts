@@ -142,7 +142,7 @@ export function observationParentBreadcrumb(
 }
 
 /** Canonical link to an observation's detail page, carrying list filters so prev/next honors them. */
-export function observationDetailUrl(id: string, filterParams: Record<string, string | number>): string {
+export function observationDetailUrl(id: string, filterParams: Record<string, string | number | boolean>): string {
     return combineUrl(urls.replayVisionObservation(id), filterParams).url
 }
 

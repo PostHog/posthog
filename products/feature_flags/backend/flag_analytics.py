@@ -16,15 +16,15 @@ from posthog.clickhouse.materialized_columns import get_materialized_column_for_
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.constants import FlagRequestType
 from posthog.exceptions_capture import capture_exception
-from posthog.helpers.dashboard_templates import add_enriched_insights_to_feature_flag_dashboard
 from posthog.models import Team
 from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_TABLE
 from posthog.redis import get_client, redis
 from posthog.usage_ingestion.client import UsageRecord, report_usage
 
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
-from products.feature_flags.backend.facade.flags import get_flag_evaluations_read_mode
+from products.feature_flags.backend.facade.flags import get_flag_evaluations_read_config
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.feature_flags.backend.usage_dashboard import add_enriched_insights_to_feature_flag_dashboard
 
 if TYPE_CHECKING:
     from posthoganalytics import Posthog
@@ -33,6 +33,7 @@ logger = structlog.get_logger(__name__)
 
 REDIS_LOCK_TOKEN = "posthog:decide_analytics:lock"
 CACHE_BUCKET_SIZE = 60 * 2  # duration in seconds
+TEAM_KEY_CHECK_BATCH_SIZE = 1000
 
 # Per-team counts of the local evaluation requests that Django served, held until the next usage report.
 # The legacy local evaluation counter also holds requests that the Rust definitions service counted
@@ -55,6 +56,7 @@ SDK_LIBRARIES = [
     "posthog-go-mcp",
     "posthog-ruby-mcp",
     "posthog-php",
+    "posthog-laravel",
     "posthog-ruby",
     "posthog-rails",
     "posthog-go",
@@ -71,6 +73,7 @@ SDK_LIBRARIES = [
     "posthog-unity",
     "posthog-godot",
     "posthog-unreal",
+    "posthog-electron",
     "posthog-server",
     "other",
 ]
@@ -79,19 +82,37 @@ SDK_LIBRARIES = [
 # locally. It's not included in CI because of tricky patching freeze time in thread issues.
 
 
-# Remote config requests are tracked for telemetry only; billing consumes just the decide and
+# Remote config requests are tracked for telemetry only; billing consumes the decide and
 # local evaluation events (see usage_report.py), so the remote config event never bills.
+# Local evaluation 304s get their own counter because they bill at the decide rate.
 _REQUEST_BUCKET_PREFIXES = {
     FlagRequestType.DECIDE: "decide_requests",
     FlagRequestType.LOCAL_EVALUATION: "local_evaluation_requests",
+    FlagRequestType.LOCAL_EVALUATION_NOT_MODIFIED: "local_evaluation_not_modified_requests",
     FlagRequestType.REMOTE_CONFIG: "remote_config_requests",
 }
+
+EXPORTED_REQUEST_TYPES = (
+    FlagRequestType.DECIDE,
+    FlagRequestType.LOCAL_EVALUATION,
+    FlagRequestType.LOCAL_EVALUATION_NOT_MODIFIED,
+    FlagRequestType.REMOTE_CONFIG,
+)
 
 USAGE_EVENT_NAMES = {
     FlagRequestType.DECIDE: "decide usage",
     FlagRequestType.LOCAL_EVALUATION: "local evaluation usage",
+    FlagRequestType.LOCAL_EVALUATION_NOT_MODIFIED: "local evaluation not modified usage",
     FlagRequestType.REMOTE_CONFIG: "remote config usage",
 }
+
+# A full local evaluation response costs ten decide requests. A 304 costs one, because it
+# sends no definitions.
+LOCAL_EVALUATION_BILLING_WEIGHT = 10
+
+
+def billable_feature_flag_requests(*, decide: int, local_evaluation: int, local_evaluation_not_modified: int) -> int:
+    return decide + local_evaluation * LOCAL_EVALUATION_BILLING_WEIGHT + local_evaluation_not_modified
 
 
 def _request_bucket_prefix(request_type: FlagRequestType) -> str:
@@ -113,6 +134,8 @@ def get_team_request_library_key(team_id: int, request_type: FlagRequestType, li
 def increment_request_count(
     team_id: int, count: int = 1, request_type: FlagRequestType = FlagRequestType.DECIDE
 ) -> None:
+    if not settings.FLAGS_BILLING_COUNTERS_ENABLED:
+        return
     try:
         client = get_client()
         time_bucket = str(int(time.time() / CACHE_BUCKET_SIZE))
@@ -123,6 +146,8 @@ def increment_request_count(
 
 
 def increment_local_evaluation_request_counts(team_id: int) -> None:
+    if not settings.FLAGS_BILLING_COUNTERS_ENABLED:
+        return
     # One round trip for both counters, so a Redis stall delays the flag list request once.
     try:
         pipe = get_client().pipeline(transaction=False)
@@ -234,8 +259,23 @@ def _extract_sdk_breakdown_from_redis(
 
 
 def capture_usage_for_all_teams(ph_client: "Posthog") -> None:
-    for team in Team.objects.exclude(Q(organization__for_internal_metrics=True) | Q(is_demo=True)).only("id", "uuid"):
-        capture_team_decide_usage(ph_client, team.id, team.uuid)
+    client = get_client()
+    teams = Team.objects.exclude(Q(organization__for_internal_metrics=True) | Q(is_demo=True)).only("id", "uuid")
+    # Most teams have no flag requests, so one pipelined key check per batch skips them in bulk.
+    for batch in batched(teams, TEAM_KEY_CHECK_BATCH_SIZE, strict=False):
+        pipe = client.pipeline(transaction=False)
+        for team in batch:
+            pipe.exists(*(get_team_request_key(team.id, request_type) for request_type in EXPORTED_REQUEST_TYPES))
+        try:
+            key_counts = pipe.execute()
+        except redis.exceptions.RedisError as error:
+            # Export the whole batch so that one failed check does not stop the pass.
+            # The per-team export catches its own Redis errors.
+            capture_exception(error)
+            key_counts = [len(EXPORTED_REQUEST_TYPES)] * len(batch)
+        for team, existing_keys in zip(batch, key_counts):
+            if existing_keys:
+                capture_team_decide_usage(ph_client, team.id, team.uuid)
 
 
 def _capture_team_usage_for_request_type(
@@ -277,11 +317,7 @@ def capture_team_decide_usage(ph_client: "Posthog", team_id: int, team_uuid: str
 
         with client.lock(f"{REDIS_LOCK_TOKEN}:{team_id}", timeout=60, blocking=False):
             billing_token = settings.DECIDE_BILLING_ANALYTICS_TOKEN
-            for request_type in (
-                FlagRequestType.DECIDE,
-                FlagRequestType.LOCAL_EVALUATION,
-                FlagRequestType.REMOTE_CONFIG,
-            ):
+            for request_type in EXPORTED_REQUEST_TYPES:
                 _capture_team_usage_for_request_type(ph_client, client, team_id, team_uuid, request_type, billing_token)
 
     except redis.exceptions.LockError:
@@ -341,8 +377,8 @@ def find_flags_with_enriched_analytics(begin: datetime, end: datetime):
                 with transaction.atomic():
                     flag.has_enriched_analytics = True
                     flag.save()
-                    if flag.usage_dashboard and not flag.usage_dashboard_has_enriched_insights:
-                        add_enriched_insights_to_feature_flag_dashboard(flag, flag.usage_dashboard)
+                    if flag.usage_dashboard_id and not flag.usage_dashboard_has_enriched_insights:
+                        add_enriched_insights_to_feature_flag_dashboard(flag, flag.usage_dashboard_id)
         except (Team.DoesNotExist, FeatureFlag.DoesNotExist):
             pass
         except Exception as e:
@@ -427,7 +463,9 @@ def get_cached_evaluations_7d_by_team(
     if not team_ids:
         return {}
 
-    from_flag_evaluations = get_flag_evaluations_read_mode(organization_id) != FlagEvaluationsMode.EVENTS
+    from_flag_evaluations = (
+        get_flag_evaluations_read_config(organization_id, team_id=team_ids[0]).mode != FlagEvaluationsMode.EVENTS
+    )
     # The key names the source table, so a mode change cannot serve a count read from the other table.
     source = FLAG_EVALUATIONS_TABLE if from_flag_evaluations else "events"
     cache_key = f"flag_analytics:evals_7d:{source}:{flag_key}:" + ",".join(str(t) for t in sorted(team_ids))

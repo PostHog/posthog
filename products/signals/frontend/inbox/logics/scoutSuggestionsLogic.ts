@@ -14,6 +14,7 @@ import {
     signalsScoutSuggestionsRefresh,
 } from 'products/signals/frontend/generated/api'
 import type { ScoutSuggestionItemApi, ScoutSuggestionSetApi } from 'products/signals/frontend/generated/api.schemas'
+import type { PatchedSignalScoutConfigUpdateApi } from 'products/signals/frontend/generated/api.schemas'
 import { llmSkillsNameRetrieve } from 'products/skills/frontend/generated/api'
 
 import type { SignalScoutConfigApi } from '../../generated/api.schemas'
@@ -68,6 +69,7 @@ const scanFromBatch = (suggestionSet: ScoutSuggestionSetApi | null): ScoutSugges
 export interface scoutSuggestionsLogicValues {
     aiConsentDisabledReason: string | null // scoutFleetLogic
     runningChatType: ScoutChatType | null // scoutFleetLogic
+    scoutChatDisabledReason: string | null // scoutFleetLogic
     scoutConfigs: SignalScoutConfig[] | null // scoutFleetLogic
     currentProjectId: number | string // teamLogic
     currentTeamId: number | null // teamLogic
@@ -117,10 +119,10 @@ export interface scoutSuggestionsLogicActions {
     } // scoutFleetLogic
     updateScoutConfig: (
         configId: string,
-        updates: import('products/signals/frontend/generated/api.schemas').PatchedSignalScoutConfigUpdateApi
+        updates: PatchedSignalScoutConfigUpdateApi
     ) => {
         configId: string
-        updates: import('products/signals/frontend/generated/api.schemas').PatchedSignalScoutConfigUpdateApi
+        updates: PatchedSignalScoutConfigUpdateApi
     } // scoutFleetLogic
     askForSuggestions: () => {
         value: true
@@ -259,7 +261,7 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
     connect(() => ({
         values: [
             scoutFleetLogic,
-            ['scoutConfigs', 'aiConsentDisabledReason', 'runningChatType'],
+            ['scoutConfigs', 'aiConsentDisabledReason', 'scoutChatDisabledReason', 'runningChatType'],
             teamLogic,
             ['currentTeamId', 'currentProjectId'],
         ],

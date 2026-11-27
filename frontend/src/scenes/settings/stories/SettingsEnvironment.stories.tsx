@@ -4,19 +4,18 @@ import type { Meta, StoryObj } from '@storybook/react'
 import { within } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
 import { useActions } from 'kea'
-import { router } from 'kea-router'
 import { useEffect, useState } from 'react'
 
 import { FEATURE_FLAGS, STORYBOOK_FEATURE_FLAGS } from 'lib/constants'
-import { App } from 'scenes/App'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 import { billingJson } from '~/mocks/fixtures/_billing'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 
 import { SettingSectionId } from '../types'
+import { SETTINGS_STORY_TEST_OPTIONS, SettingsStoryApp } from './SettingsStoryApp'
+import { withTodayRailNav } from './withTodayRailNav'
 
 interface StoryProps {
     sectionId: SettingSectionId
@@ -30,6 +29,7 @@ const meta: Meta<StoryProps> = {
         viewMode: 'story',
         mockDate: '2023-05-25',
         featureFlags: STORYBOOK_FEATURE_FLAGS,
+        testOptions: SETTINGS_STORY_TEST_OPTIONS,
     },
     decorators: [
         mswDecorator({
@@ -82,25 +82,26 @@ const meta: Meta<StoryProps> = {
             },
         }),
     ],
-    render: ({ sectionId }: StoryProps) => {
-        // Navigate synchronously before <App /> mounts so it renders the settings scene directly,
-        // never the project homepage. A useEffect push fires after the first paint, so the snapshot
-        // can race and capture the homepage frame instead.
-        router.actions.push(urls.settings(sectionId))
-
-        return <App />
-    },
+    render: ({ sectionId }: StoryProps) => <SettingsStoryApp sectionId={sectionId} />,
 }
 export default meta
 
 // -- Environment --
 export const SettingsEnvironmentDetails: Story = { args: { sectionId: 'environment-details' } }
 
+export const SettingsEnvironmentDetailsQuill: Story = withTodayRailNav(SettingsEnvironmentDetails)
+
 export const SettingsEnvironmentCustomization: Story = { args: { sectionId: 'environment-customization' } }
+
+export const SettingsEnvironmentCustomizationQuill: Story = withTodayRailNav(SettingsEnvironmentCustomization)
 
 export const SettingsEnvironmentAutocapture: Story = { args: { sectionId: 'environment-autocapture' } }
 
+export const SettingsEnvironmentAutocaptureQuill: Story = withTodayRailNav(SettingsEnvironmentAutocapture)
+
 export const SettingsEnvironmentHeatmaps: Story = { args: { sectionId: 'environment-heatmaps' } }
+
+export const SettingsEnvironmentHeatmapsQuill: Story = withTodayRailNav(SettingsEnvironmentHeatmaps)
 
 export const SettingsEnvironmentHeatmapsScreenshotCookie: Story = {
     args: { sectionId: 'environment-heatmaps' },
@@ -117,28 +118,38 @@ export const SettingsEnvironmentHeatmapsScreenshotCookie: Story = {
     ],
     render: ({ sectionId }: StoryProps) => {
         const { loadCurrentTeamSuccess } = useActions(teamLogic)
-        const [initializedSection, setInitializedSection] = useState<SettingSectionId | null>(null)
+        const [teamOverridden, setTeamOverridden] = useState(false)
         useEffect(() => {
             loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, heatmaps_screenshot_secret: 'phh_example1234abcd' })
-            router.actions.push(urls.settings(sectionId))
-            setInitializedSection(sectionId)
-        }, [loadCurrentTeamSuccess, sectionId])
-        return <>{initializedSection === sectionId && <App />}</>
+            setTeamOverridden(true)
+        }, [loadCurrentTeamSuccess])
+        return <>{teamOverridden && <SettingsStoryApp sectionId={sectionId} />}</>
     },
 }
 
 export const SettingsEnvironmentProductAnalytics: Story = { args: { sectionId: 'environment-product-analytics' } }
 
+export const SettingsEnvironmentProductAnalyticsQuill: Story = withTodayRailNav(SettingsEnvironmentProductAnalytics)
+
 export const SettingsEnvironmentRevenueAnalytics: Story = { args: { sectionId: 'environment-revenue-analytics' } }
+
+export const SettingsEnvironmentRevenueAnalyticsQuill: Story = withTodayRailNav(SettingsEnvironmentRevenueAnalytics)
 
 export const SettingsEnvironmentMarketingAnalytics: Story = {
     args: { sectionId: 'environment-marketing-analytics' },
     parameters: {
         featureFlags: [...STORYBOOK_FEATURE_FLAGS, 'advance-marketing-analytics-settings'],
+        msw: {
+            mocks: { post: { '/api/environments/:team_id/query/DatabaseSchemaQuery/': { tables: {}, joins: [] } } },
+        },
     },
 }
 
+export const SettingsEnvironmentMarketingAnalyticsQuill: Story = withTodayRailNav(SettingsEnvironmentMarketingAnalytics)
+
 export const SettingsEnvironmentWebAnalytics: Story = { args: { sectionId: 'environment-web-analytics' } }
+
+export const SettingsEnvironmentWebAnalyticsQuill: Story = withTodayRailNav(SettingsEnvironmentWebAnalytics)
 
 const EXPERIMENTS_CONFIG_MOCK = {
     experiment_recalculation_times: ['02:00:00'],
@@ -168,6 +179,8 @@ export const SettingsEnvironmentExperiments: Story = {
     ],
 }
 
+export const SettingsEnvironmentExperimentsQuill: Story = withTodayRailNav(SettingsEnvironmentExperiments)
+
 export const SettingsEnvironmentExperimentsMultipleRecalculationTimes: Story = {
     args: { sectionId: 'environment-experiments' },
     decorators: [
@@ -184,11 +197,34 @@ export const SettingsEnvironmentExperimentsMultipleRecalculationTimes: Story = {
 
 export const SettingsEnvironmentReplay: Story = { args: { sectionId: 'environment-replay' } }
 
+export const SettingsEnvironmentReplayQuill: Story = withTodayRailNav(SettingsEnvironmentReplay)
+
 export const SettingsEnvironmentSurveys: Story = { args: { sectionId: 'environment-surveys' } }
+
+export const SettingsEnvironmentSurveysQuill: Story = withTodayRailNav(SettingsEnvironmentSurveys)
 
 export const SettingsEnvironmentFeatureFlags: Story = { args: { sectionId: 'environment-feature-flags' } }
 
-export const SettingsEnvironmentErrorTracking: Story = { args: { sectionId: 'environment-error-tracking' } }
+export const SettingsEnvironmentFeatureFlagsQuill: Story = withTodayRailNav(SettingsEnvironmentFeatureFlags)
+
+export const SettingsEnvironmentErrorTracking: Story = {
+    args: { sectionId: 'environment-error-tracking' },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/error_tracking/settings/retrieve_settings/': {
+                    project_rate_limit_value: null,
+                    project_rate_limit_bucket_size_minutes: null,
+                    per_issue_rate_limit_value: null,
+                    per_issue_rate_limit_bucket_size_minutes: null,
+                    ingestion_enabled: true,
+                },
+            },
+        }),
+    ],
+}
+
+export const SettingsEnvironmentErrorTrackingQuill: Story = withTodayRailNav(SettingsEnvironmentErrorTracking)
 
 export const SettingsEnvironmentErrorTrackingConfiguration: Story = {
     args: { sectionId: 'environment-error-tracking-configuration' },
@@ -207,17 +243,33 @@ export const SettingsEnvironmentErrorTrackingConfiguration: Story = {
     ],
 }
 
+export const SettingsEnvironmentErrorTrackingConfigurationQuill: Story = withTodayRailNav(
+    SettingsEnvironmentErrorTrackingConfiguration
+)
+
 export const SettingsEnvironmentCSPReporting: Story = { args: { sectionId: 'environment-csp-reporting' } }
+
+export const SettingsEnvironmentCSPReportingQuill: Story = withTodayRailNav(SettingsEnvironmentCSPReporting)
 
 export const SettingsEnvironmentDataQuality: Story = { args: { sectionId: 'environment-data-quality' } }
 
+export const SettingsEnvironmentDataQualityQuill: Story = withTodayRailNav(SettingsEnvironmentDataQuality)
+
 export const SettingsEnvironmentPrivacy: Story = { args: { sectionId: 'environment-privacy' } }
+
+export const SettingsEnvironmentPrivacyQuill: Story = withTodayRailNav(SettingsEnvironmentPrivacy)
 
 export const SettingsEnvironmentMax: Story = { args: { sectionId: 'environment-max' } }
 
+export const SettingsEnvironmentMaxQuill: Story = withTodayRailNav(SettingsEnvironmentMax)
+
 export const SettingsEnvironmentIntegrations: Story = { args: { sectionId: 'environment-integrations' } }
 
+export const SettingsEnvironmentIntegrationsQuill: Story = withTodayRailNav(SettingsEnvironmentIntegrations)
+
 export const SettingsEnvironmentAccessControl: Story = { args: { sectionId: 'environment-access-control' } }
+
+export const SettingsEnvironmentAccessControlQuill: Story = withTodayRailNav(SettingsEnvironmentAccessControl)
 
 export const SettingsEnvironmentActivityLogs: Story = {
     args: { sectionId: 'environment-activity-logs' },
@@ -226,7 +278,11 @@ export const SettingsEnvironmentActivityLogs: Story = {
     decorators: [mswDecorator({ get: { '/api/billing/': billingJson } })],
 }
 
+export const SettingsEnvironmentActivityLogsQuill: Story = withTodayRailNav(SettingsEnvironmentActivityLogs)
+
 export const SettingsEnvironmentDangerZone: Story = { args: { sectionId: 'environment-danger-zone' } }
+
+export const SettingsEnvironmentDangerZoneQuill: Story = withTodayRailNav(SettingsEnvironmentDangerZone)
 
 export const SettingsEnvironmentBusinessKnowledge: Story = {
     args: { sectionId: 'environment-business-knowledge' },
@@ -247,6 +303,8 @@ export const SettingsEnvironmentBusinessKnowledge: Story = {
         }),
     ],
 }
+
+export const SettingsEnvironmentBusinessKnowledgeQuill: Story = withTodayRailNav(SettingsEnvironmentBusinessKnowledge)
 
 export const SettingsEnvironmentBusinessKnowledgeSupportOff: Story = {
     args: { sectionId: 'environment-business-knowledge' },
@@ -288,11 +346,48 @@ export const SettingsEnvironmentBusinessKnowledgeLearningOnSupportOff: Story = {
     ],
 }
 
+export const SettingsEnvironmentBusinessKnowledgeLearningFromPastTickets: Story = {
+    args: { sectionId: 'environment-business-knowledge' },
+    parameters: { testOptions: { snapshotBrowsers: [] } },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/business_knowledge/settings/': {
+                    learn_from_support_enabled: true,
+                    support_enabled: true,
+                    learning_backfill: {
+                        status: 'running',
+                        started_at: '2023-05-24T22:00:00Z',
+                        finished_at: null,
+                        tickets_read: 42,
+                        tickets_in_progress: 3,
+                        knowledge_created: 7,
+                    },
+                },
+                '/api/projects/:id/business_knowledge/repositories/status/': {
+                    connected: false,
+                    integration_id: null,
+                    integration_name: '',
+                    repos: [],
+                },
+            },
+        }),
+    ],
+}
+
 const codexSubscriptionMocks = (codex: Record<string, unknown>): Record<string, Record<string, unknown>> => ({
     get: {
         '/api/users/@me/integrations/codex/': codex,
     },
 })
+
+export const SettingsEnvironmentAiSubscriptionsUnavailable: Story = {
+    args: { sectionId: 'environment-ai-subscriptions' },
+    parameters: {
+        featureFlags: STORYBOOK_FEATURE_FLAGS.filter((flag) => flag !== FEATURE_FLAGS.PHAI_SANDBOX_MODE),
+        testOptions: { snapshotBrowsers: [] },
+    },
+}
 
 export const SettingsEnvironmentAiSubscriptionsCodexConnected: Story = {
     args: { sectionId: 'environment-ai-subscriptions' },
@@ -307,6 +402,10 @@ export const SettingsEnvironmentAiSubscriptionsCodexConnected: Story = {
         },
     },
 }
+
+export const SettingsEnvironmentAiSubscriptionsCodexConnectedQuill: Story = withTodayRailNav(
+    SettingsEnvironmentAiSubscriptionsCodexConnected
+)
 
 export const SettingsEnvironmentAiSubscriptionsCodexReauthRequired: Story = {
     args: { sectionId: 'environment-ai-subscriptions' },
@@ -358,3 +457,35 @@ export const SettingsEnvironmentAgentInstructions: Story = {
         }),
     ],
 }
+
+export const SettingsEnvironmentAgentInstructionsQuill: Story = withTodayRailNav(SettingsEnvironmentAgentInstructions)
+
+export const SettingsMcpAnalyticsCustomHarnesses: Story = {
+    args: { sectionId: 'mcp-analytics' },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/mcp_analytics/custom_harnesses/': [
+                    {
+                        id: '0193f2a1-0000-7000-8000-000000000001',
+                        name: 'Acme agent',
+                        match_pattern: 'acme-agent',
+                        icon: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAApUlEQVR42tWX3Q2AMAiEW+IaOpDOqwPpIPXVmGJpQX54VXrcV6K5lIwrYw/mtRRJoevImTSAtHBrENAUr2mApnhNC6yXELTdvymwCZy7AAGuOGcIHzsggX6UQkwCmNsRCvEItFz2UohFgOquh0IcAr13S30/BoHRrxylzz8B7u+21e+bANc95Zzpq3HZlAhgoUEjH/jZAU0KTy2g5Lc/o5l5ODWvGwdJQtrvVp3WAAAAAElFTkSuQmCC',
+                        created_at: '2023-05-20T10:00:00Z',
+                        updated_at: '2023-05-20T10:00:00Z',
+                    },
+                    {
+                        id: '0193f2a1-0000-7000-8000-000000000002',
+                        name: 'Support bot',
+                        match_pattern: 'support-bot',
+                        icon: '',
+                        created_at: '2023-05-21T10:00:00Z',
+                        updated_at: '2023-05-21T10:00:00Z',
+                    },
+                ],
+            },
+        }),
+    ],
+}
+
+export const SettingsMcpAnalyticsCustomHarnessesQuill: Story = withTodayRailNav(SettingsMcpAnalyticsCustomHarnesses)

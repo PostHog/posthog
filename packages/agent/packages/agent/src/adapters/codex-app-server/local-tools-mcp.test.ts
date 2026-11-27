@@ -62,6 +62,7 @@ describe("buildLocalToolsServer", () => {
         taskId: "task-1",
         taskRunId: "run-1",
         baseBranch: "master",
+        finishReportRequired: true,
       },
     );
 
@@ -96,6 +97,7 @@ describe("buildLocalToolsServer", () => {
     expect(ctx.taskId).toBe("task-1");
     expect(ctx.taskRunId).toBe("run-1");
     expect(ctx.baseBranch).toBe("master");
+    expect(ctx.finishReportRequired).toBe(true);
   });
 
   it("returns a server but omits token env vars when no token is present", () => {

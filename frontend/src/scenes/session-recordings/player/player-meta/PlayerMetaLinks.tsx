@@ -32,7 +32,12 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { PlayerMetaBreakpoints } from './PlayerMeta'
 
-export function PinToPlaylistButton(): JSX.Element {
+export function PinToPlaylistButton({
+    size = 'xsmall',
+    type,
+    labelled = false,
+    iconOnly = false,
+}: Pick<LemonButtonProps, 'size' | 'type'> & { labelled?: boolean; iconOnly?: boolean } = {}): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
 
     const tooltip = logicProps.pinned ? 'Remove from collection' : 'Add to collection'
@@ -40,14 +45,17 @@ export function PinToPlaylistButton(): JSX.Element {
 
     return logicProps.setPinned && !logicProps.pinned ? (
         <LemonButton
-            size="xsmall"
+            size={size}
+            type={type}
             onClick={() => {
                 logicProps.setPinned?.(true)
             }}
             tooltip={tooltip}
             data-attr="pin-to-this-list"
             icon={<IconPlusSmall />}
-        />
+        >
+            {labelled ? description : null}
+        </LemonButton>
     ) : (
         <AccessControlAction
             resourceType={AccessControlResourceType.SessionRecording}
@@ -57,9 +65,10 @@ export function PinToPlaylistButton(): JSX.Element {
                 tooltip={tooltip}
                 setPinnedInCurrentPlaylist={logicProps.setPinned}
                 icon={logicProps.pinned ? <IconMinusSmall /> : <IconPlusSmall />}
-                size="xsmall"
+                size={size}
+                type={type}
             >
-                {description}
+                {iconOnly ? null : description}
             </PlaylistPopoverButton>
         </AccessControlAction>
     )

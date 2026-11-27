@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
+from typing import Any
 
 from django.conf import settings
 from django.db import connection, transaction
@@ -15,7 +16,7 @@ from temporalio import activity
 
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
-from posthog.models import Integration
+from posthog.integrations import IntegrationManager
 from posthog.models.integration import GitHubIntegration
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 from posthog.temporal.common.activity_context import current_activity_attempt
@@ -25,7 +26,8 @@ from posthog.temporal.common.utils import asyncify, retry_on_db_connection_drop
 from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.mcp_store.backend.facade.contracts import UnmountedInstallation
-from products.tasks.backend.constants import SUBSCRIPTION_PLAN_NAMES
+from products.tasks.backend.agent_run_policy import task_agent_run_policy
+from products.tasks.backend.constants import DEV_STACK_IMAGE_NAME, SUBSCRIPTION_PLAN_NAMES
 from products.tasks.backend.exceptions import (
     OAuthTokenError,
     ProcessTaskError,
@@ -69,6 +71,7 @@ from products.tasks.backend.temporal.observability import (
     log_activity_execution,
     log_with_activity_context,
 )
+from products.tasks.backend.temporal.process_task.ai_gateway_token import resolve_sandbox_ai_product
 from products.tasks.backend.temporal.process_task.organization import guard_organization_execution
 from products.tasks.backend.temporal.process_task.utils import (
     McpServerConfig,
@@ -78,9 +81,11 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_sandbox_ph_mcp_configs,
     get_task_run_credential_user,
     get_user_mcp_server_configs,
+    include_personal_mcp_for_task,
     loop_mcp_installation_allowlist,
     mark_sandbox_mcp_session,
-    mcp_exclude_tools_from_state,
+    mcp_exclude_tools_for_task,
+    posthog_code_keeps_bundled_skills,
     unmounted_mcp_installations_log_fields,
     unmounted_mcp_installations_notice,
 )
@@ -153,7 +158,7 @@ def _resolve_protected_base_branch(ctx: TaskProcessingContext) -> str | None:
         integration: GitHubIntegration | UserGitHubIntegration
         if ctx.github_integration_id:
             integration = GitHubIntegration(
-                Integration.objects.get(id=ctx.github_integration_id),
+                IntegrationManager.github.oauth.get(ctx.team_id, ctx.github_integration_id),
                 source="tasks_sandbox",
                 priority=Priority.CRITICAL,
             )
@@ -387,6 +392,21 @@ class _LaunchParams:
     task_run_session_token: str | None = field(repr=False)
     codex_run_token: str | None = field(repr=False)
     event_ingest_url: str | None
+    run_policy: str
+
+
+def _launch_run_policy(task: Task, run_id: str, run_state: dict[str, Any] | None) -> str:
+    profile = task.stored_profile
+    # The agent splits a Signals product by the run's stage itself, so it needs the product before that split.
+    billing_product = resolve_sandbox_ai_product(
+        task.origin_product,
+        None,
+        internal=task.internal,
+        billing_product=(run_state or {}).get("billing_product"),
+        profile_billing_product=profile.billing_product if profile else None,
+    )
+    policy = asdict(task_agent_run_policy(task, run_state))
+    return json.dumps({**policy, "billing_product": billing_product, "run_id": run_id}, separators=(",", ":"))
 
 
 def _agentsh_domains_for(ctx: TaskProcessingContext) -> list[str] | None:
@@ -422,17 +442,6 @@ def _report_unmounted_mcp_installations(ctx: TaskProcessingContext, unmounted: S
     notice = unmounted_mcp_installations_notice(unmounted)
     if notice:
         emit_agent_log(ctx.run_id, "warn", notice)
-
-
-def _include_personal_mcp_for_task(task: Task) -> bool:
-    """Whether a run may pull the task creator's *personal* MCP installations.
-
-    Internal/autonomous runs (support reply, signals) must never pull a
-    resolved member's personal creds. Agent-specific grant filtering happens
-    in the MCP Store facade.
-    User-initiated Code runs get shared + the creator's personal installs.
-    """
-    return not task.internal
 
 
 def _start_protected_base_branch_lookup(
@@ -533,9 +542,10 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
         slack_reply_context=ctx.slack_reply_context,
         task_id=str(ctx.task_id),
         origin_product=task.origin_product,
-        exclude_tools=mcp_exclude_tools_from_state(ctx.state),
+        exclude_tools=mcp_exclude_tools_for_task(task, ctx.state),
+        bundled_skills=posthog_code_keeps_bundled_skills(task_run),
     )
-    include_personal = _include_personal_mcp_for_task(task)
+    include_personal = include_personal_mcp_for_task(task, ctx.state)
     user_mcp = get_user_mcp_server_configs(
         token=access_token,
         team_id=ctx.team_id,
@@ -548,6 +558,7 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
         task_agent_key=task.mcp_builtin_agent_key,
         credential_owner_id=task.mcp_credential_owner_id,
         allowed_gateway_server_ids=task.mcp_gateway_server_allowlist,
+        profile=task.stored_profile,
     )
     if user_mcp.configs:
         mcp_configs = mcp_configs + user_mcp.configs
@@ -607,6 +618,7 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
         task_run_session_token=task_run_session_token,
         codex_run_token=codex_run_token,
         event_ingest_url=event_ingest_url,
+        run_policy=_launch_run_policy(task, str(ctx.run_id), task_run.state),
     )
 
 
@@ -623,22 +635,26 @@ def _record_agent_startup_attempt(ctx: TaskProcessingContext, runtime: str) -> N
         },
         remove_keys=["startup_failure", "startup_completed_at", "startup_provider"],
     )
+    TaskRun.objects.filter(id=ctx.run_id, team_id=ctx.team_id).update(agent_status=TaskRun.AgentStatus.STARTING)
 
 
 def _record_agent_startup_success(ctx: TaskProcessingContext) -> None:
     with transaction.atomic():
-        state = TaskRun.objects.filter(id=ctx.run_id, team_id=ctx.team_id).values_list("state", flat=True).first()
-        attempt = (state or {}).get("agent_startup_attempt")
-        TaskRun.update_state_atomic(
-            ctx.run_id,
-            updates={"agent_startup_success": {**attempt, "completed_at": datetime.now(UTC).isoformat()}}
-            if isinstance(attempt, dict)
-            else {},
-            remove_keys=["startup_failure"],
+        run = TaskRun.objects.select_for_update().only("id", "state", "status").get(id=ctx.run_id, team_id=ctx.team_id)
+        state = dict(run.state or {})
+        attempt = state.get("agent_startup_attempt")
+        state.pop("startup_failure", None)
+        if isinstance(attempt, dict):
+            state["agent_startup_success"] = {**attempt, "completed_at": datetime.now(UTC).isoformat()}
+        run.state = state
+        update_fields = ["state", "updated_at"]
+        if not run.is_terminal:
+            run.error_message = None
+            update_fields.append("error_message")
+        run.save(update_fields=update_fields)
+        TaskRun.objects.filter(id=ctx.run_id, team_id=ctx.team_id, agent_status=TaskRun.AgentStatus.STARTING).update(
+            agent_status=TaskRun.AgentStatus.READY
         )
-        TaskRun.objects.filter(id=ctx.run_id, team_id=ctx.team_id).exclude(
-            status__in=[TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskRun.Status.CANCELLED]
-        ).update(error_message=None)
 
 
 def _invoke_start_agent_server(
@@ -689,6 +705,7 @@ def _invoke_start_agent_server(
             sandbox_runtime=sandbox_runtime_label(ctx.use_modal_vm_sandbox)
             if isinstance(sandbox, ModalSandbox)
             else None,
+            run_policy=params.run_policy,
         )
         return health_duration_ms if isinstance(health_duration_ms, int) else None
 
@@ -749,6 +766,10 @@ def _spawn_post_ready_diagnostics(
 ) -> None:
     def _run() -> None:
         try:
+            _restore_native_git_stat_checks(ctx, sandbox)
+        except Exception:
+            logger.warning("restore_native_git_stat_checks_failed", run_id=ctx.run_id, exc_info=True)
+        try:
             if agentsh_domains is not None:
                 emit_agent_log(ctx.run_id, "debug", "agentsh policy initialized successfully")
                 _emit_agentsh_log_tail(ctx, sandbox)
@@ -762,6 +783,17 @@ def _spawn_post_ready_diagnostics(
                 pass
 
     threading.Thread(target=_run, name=f"post-ready-diag-{ctx.run_id}", daemon=True).start()
+
+
+def _restore_native_git_stat_checks(ctx: TaskProcessingContext, sandbox: SandboxBase) -> None:
+    if not ctx.baked_repo_clone_enabled or ctx.custom_image_name != DEV_STACK_IMAGE_NAME or not ctx.repositories:
+        return
+    unset_commands = [
+        f"git -C {shlex.quote(sandbox_repo_path(repository))} config --unset {setting}"
+        for repository in ctx.repositories
+        for setting in ("core.checkStat", "core.trustctime")
+    ]
+    sandbox.execute("; ".join([*unset_commands, "true"]), timeout_seconds=30)
 
 
 def _record_boot_total(input: StartAgentServerInput) -> int | None:

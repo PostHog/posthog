@@ -75,8 +75,6 @@ function makeProtoPerson(
         uuid: string
         teamId: bigint
         properties: Uint8Array
-        propertiesLastUpdatedAt: Uint8Array
-        propertiesLastOperation: Uint8Array
         createdAt: bigint
         version: bigint
         isIdentified: boolean
@@ -89,8 +87,6 @@ function makeProtoPerson(
         uuid: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
         teamId: 1n,
         properties: jsonBytes({ name: 'Test User', email: 'test@example.com' }),
-        propertiesLastUpdatedAt: jsonBytes({ name: '2024-06-15T12:00:00Z' }),
-        propertiesLastOperation: jsonBytes({ name: 'set' }),
         createdAt: CREATED_AT_MS,
         version: 3n,
         isIdentified: true,
@@ -131,6 +127,7 @@ const SERVICE_DEFAULTS: ServiceImpl<typeof PersonHogService> = {
     countCohortMembers: () => ({ count: 0n }),
     deleteCohortMember: () => ({ deleted: false }),
     deleteCohortMembersBulk: () => ({ deletedCount: 0n }),
+    deleteCohortMembersByPersonIds: () => ({ deletedCount: 0n }),
     insertCohortMembers: () => ({ insertedCount: 0n }),
     listCohortMemberIds: () => ({ personIds: [], nextCursor: 0n }),
     updatePersonProperties: () => ({}),
@@ -160,6 +157,7 @@ const SERVICE_DEFAULTS: ServiceImpl<typeof PersonHogService> = {
     releaseFence: () => ({}),
     releaseFences: () => ({}),
     foldPersonDocument: () => ({}),
+    raisePersonVersion: () => ({ raised: false }),
 }
 
 function createMockClient(overrides: Partial<ServiceImpl<typeof PersonHogService>> = {}): PersonHogClient {
@@ -846,8 +844,6 @@ describe('PersonHogClient', () => {
                         uuid: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
                         team_id: 1,
                         properties: { name: 'Test User', email: 'test@example.com' },
-                        properties_last_updated_at: { name: '2024-06-15T12:00:00Z' },
-                        properties_last_operation: { name: 'set' },
                         created_at: DateTime.fromISO('2024-06-15T12:00:00.000Z', { zone: 'utc' }),
                         version: 3,
                         is_identified: true,
@@ -901,8 +897,6 @@ describe('PersonHogClient', () => {
                                 key: { teamId: 1n, distinctId: 'user' },
                                 person: makeProtoPerson({
                                     properties: new Uint8Array(0),
-                                    propertiesLastUpdatedAt: new Uint8Array(0),
-                                    propertiesLastOperation: new Uint8Array(0),
                                 }),
                             },
                         ],
@@ -912,8 +906,6 @@ describe('PersonHogClient', () => {
                 const result = await client.persons.fetchPersonsByDistinctIds([{ teamId: 1, distinctId: 'user' }])
 
                 expect(result[0].properties).toEqual({})
-                expect(result[0].properties_last_updated_at).toEqual({})
-                expect(result[0].properties_last_operation).toBeNull()
             })
 
             it('converts is_user_id correctly', async () => {
@@ -1018,8 +1010,6 @@ describe('PersonHogClient', () => {
                         uuid: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
                         team_id: 1,
                         properties: { name: 'Test User', email: 'test@example.com' },
-                        properties_last_updated_at: { name: '2024-06-15T12:00:00Z' },
-                        properties_last_operation: { name: 'set' },
                         created_at: DateTime.fromISO('2024-06-15T12:00:00.000Z', { zone: 'utc' }),
                         version: 3,
                         is_identified: true,

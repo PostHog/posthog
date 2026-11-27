@@ -2,6 +2,8 @@
 //! [`fold_session`].
 
 use super::features::SurfacingFeatures;
+use super::json_ld::MAX_JSON_LD_ROOT_TYPES;
+use super::sketch::DistinctSketch;
 
 /// Fingerprints a block or session row keeps. A session row with this many has visited this many pages or more.
 pub const MAX_URL_FINGERPRINTS: usize = 10;
@@ -28,6 +30,9 @@ pub struct BlockStats {
     /// left as it arrived, and a full snapshot or mutation that inspection could not decode or walk. Each event counts
     /// once. A message that does not read at all is skipped before it reaches a block, so it does not count here.
     pub decode_failures: u32,
+    /// Why the recorder could not read the block in full, so a URL in the part it did not read went unchecked and stays
+    /// in the stored block. A session row keeps the reason of its first such block.
+    pub unread_reason: Option<String>,
     /// The largest time between two events. When blocks overlap in time, [`BlockStats::merge`] cannot see how their
     /// events interleave, so the folded value is an upper bound.
     pub max_gap_ms: i64,
@@ -82,6 +87,10 @@ pub struct BlockStats {
     pub image_bytes: u64,
     pub images_inline: u32,
     pub image_urls: u32,
+    /// The distinct image references in the block that can have bytes: its inline images, which the recorder
+    /// stores, and its remote image URLs that the policy accepts, which the fetcher may store. A sketch, so that a
+    /// fold counts each image once however many events, blocks or sessions hold it, as the image scrub does.
+    pub image_ref_sketch: DistinctSketch,
 
     /// The bytes of the block's lines as the writer stores them before compression, with `cv` values expanded and
     /// images moved out.
@@ -89,7 +98,10 @@ pub struct BlockStats {
     /// The longest of those lines.
     pub max_written_event_bytes: u64,
 
-    /// What ingestion's surfacing feature recorder records for the block's events as one batch.
+    pub json_ld_events: u32,
+    pub json_ld_root_types: Vec<String>,
+
+    /// The surfacing features of the block's events.
     pub surfacing: SurfacingFeatures,
 }
 
@@ -104,7 +116,7 @@ impl BlockStats {
         self.viewport_height = height.or(self.viewport_height);
     }
 
-    /// Folds the next block in time into this one: sums, minimum and maximum times, the first host, the latest
+    /// Folds the next block in time into this one: sums, minimum and maximum times, the first host and unread reason, the latest
     /// viewport and the pages in the order the session first saw them.
     /// The blocks must come in [`fold_session`] order.
     pub fn merge(&mut self, later: &BlockStats) {
@@ -114,6 +126,10 @@ impl BlockStats {
         self.first_ts_ms = min_option(self.first_ts_ms, later.first_ts_ms);
         self.last_ts_ms = self.last_ts_ms.max(later.last_ts_ms);
         self.host = self.host.take().or_else(|| later.host.clone());
+        self.unread_reason = self
+            .unread_reason
+            .take()
+            .or_else(|| later.unread_reason.clone());
         self.max_gap_ms = self.max_gap_ms.max(later.max_gap_ms);
         self.dom_nodes = self.dom_nodes.max(later.dom_nodes);
         self.dom_text_chars = self.dom_text_chars.max(later.dom_text_chars);
@@ -129,6 +145,12 @@ impl BlockStats {
             MAX_URL_FINGERPRINTS,
         );
         union(&mut self.window_ids, &later.window_ids, MAX_WINDOW_IDS);
+        union(
+            &mut self.json_ld_root_types,
+            &later.json_ld_root_types,
+            MAX_JSON_LD_ROOT_TYPES,
+        );
+        self.image_ref_sketch.merge(&later.image_ref_sketch);
         self.surfacing.merge(&later.surfacing);
         self.touch_input |= later.touch_input;
         self.set_viewport(
@@ -176,7 +198,8 @@ impl BlockStats {
             image_bytes,
             images_inline,
             image_urls,
-            written_jsonl_bytes
+            written_jsonl_bytes,
+            json_ld_events
         );
     }
 }
@@ -193,7 +216,7 @@ pub fn fold_session(mut blocks: Vec<BlockStats>) -> BlockStats {
 }
 
 /// Appends the values of `later` that `values` does not hold, up to `cap` values in all.
-fn union(values: &mut Vec<String>, later: &[String], cap: usize) {
+pub(crate) fn union(values: &mut Vec<String>, later: &[String], cap: usize) {
     for value in later {
         if values.len() >= cap {
             break;
@@ -231,6 +254,7 @@ mod tests {
             viewport_ts_ms: Some(first),
             decode_failures: 1,
             moments_truncated: first == 3_000,
+            unread_reason: (first >= 3_000).then(|| format!("reason at {first}")),
             mouse_interactions: 2,
             touch_moves: 3,
             url_fingerprints: pages.collect(),
@@ -239,6 +263,8 @@ mod tests {
                 .collect(),
             written_jsonl_bytes: 500,
             max_written_event_bytes: first as u64 / 10,
+            json_ld_events: 1,
+            json_ld_root_types: vec!["WebSite".to_owned(), format!("Page{}", first / 1_000)],
             ..BlockStats::default()
         }
     }
@@ -261,6 +287,7 @@ mod tests {
         }
         assert_eq!(session.max_gap_ms, 60_000);
         assert_eq!(session.host.as_deref(), Some("first.example.com"));
+        assert_eq!(session.unread_reason.as_deref(), Some("reason at 3000"));
         assert_eq!(session.viewport_width, Some(64_000));
         assert_eq!(session.events_before_first_full_snapshot, 6);
         assert_eq!(
@@ -283,6 +310,11 @@ mod tests {
         // Windows 1 to 20, 3 to 22 and 64 to 83: the first 32 distinct, in the order the session first saw them.
         let windows: Vec<String> = (1..=22).chain(64..=73).map(|w| format!("w{w}")).collect();
         assert_eq!(session.window_ids, windows);
+        assert_eq!(session.json_ld_events, 3);
+        assert_eq!(
+            session.json_ld_root_types,
+            ["WebSite", "Page1", "Page3", "Page64"]
+        );
         assert_eq!(
             (session.first_ts_ms, session.last_ts_ms),
             (Some(1_000), Some(65_000))

@@ -2,6 +2,8 @@
 
 This product is designed so other teams can add their own workflow trigger types, action nodes, and any backend functionality that those nodes need.
 
+Before you open a PR, read [REVIEW.md](REVIEW.md). It lists the problems that reviewers catch most often in this code.
+
 At a high level:
 
 - **Frontend (workflows editor)** uses registries to discover which trigger types and action nodes to show.
@@ -336,6 +338,8 @@ Things to know when reading these numbers:
 - **Conversions are the exception: they follow the message, not the step that happened to run.** A conversion can land days after the send, so it can't be attributed at match time — the published version by then may be one that never reached this person. The run carries `flowVersion` in its state, seeded at run start and re-pinned by each email or push step to the version that sent, so a conversion is credited to the same version its `email_sent` was. A run that converts without ever sending keeps the run-start version, and one parked before this shipped has none at all and lands only in the version-agnostic series.
 - **Engagement metrics carry the sending version, which is not always the live one.** `email_delivered`, `email_opened`, `email_link_clicked`, the bounce metrics and complaints (`email_blocked`) arrive from an SES webhook long after the send, by which time the workflow may have been republished. The version rides on the tracking code minted at send time (`ph_id`, and the `X-PostHog-Tracking-Code` header) rather than being read off the flow when the webhook lands — reading it on arrival would blame the newest version for the previous one's sends. A message whose only surviving carrier is the short SES `EmailTags` value has no version and lands in the version-agnostic series alone.
 - **Engagement versions only exist for sends made after the marker shipped.** The tracking-code layouts are compatible in one direction only, so this rolled out in two phases: the marker-aware parser first, then `EMIT_VERSIONED_PAYLOAD` once that parser was fleet-wide. Emitting earlier would have shifted every field for a pod still on the old parser and dropped the metric for the length of a rolling deploy. Codes minted before the flip carry no marker, parse under the original layout, and land in the version-agnostic series alone — so engagement rates only split by version from the flip onward.
+
+- **`conversion_by_start` is the conversion to divide by `triggered`.** It carries the same run attribution as `conversion`, but sits at the top of the UTC hour the run started, so a rate over a range compares the same runs. Read it on hour boundaries, because `triggered` keeps its own time inside the hour, and only past the conversion window, because the rate of a newer run is still rising. Self-driving reads it this way when a suggestion aims at conversion. Webhook, tracking pixel and manual starts have carried a version since `REQUEST_STARTS_VERSIONED_SINCE` in `backend/metrics.py`, so start their reads there.
 
 When adding a metric for a hog flow, set `app_source_version` on the `MinimalAppMetric` if you're calling `queueAppMetric` directly.
 Metrics pushed onto a `result.metrics` array need nothing: `HogFunctionMonitoringService.queueInvocationResults` stamps the version for the whole result.

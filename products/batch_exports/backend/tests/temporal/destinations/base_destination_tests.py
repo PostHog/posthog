@@ -9,6 +9,7 @@ import uuid
 import typing as t
 import datetime as dt
 import operator
+import dataclasses
 from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator, Callable
 
@@ -25,6 +26,7 @@ from posthog.models.integration import Integration
 from posthog.models.team import Team
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import BATCH_EXPORT_WORKFLOW_TYPES as LOGGER_BATCH_EXPORT_WORKFLOW_TYPES
+from posthog.temporal.tests.utils.events import insert_event_values_in_clickhouse
 
 from products.batch_exports.backend.models.batch_export import BatchExport
 from products.batch_exports.backend.service import (
@@ -34,6 +36,7 @@ from products.batch_exports.backend.service import (
     BatchExportEventsCustomModel,
     BatchExportEventsModel,
     BatchExportField,
+    BatchExportHogQLModel,
     BatchExportPersonsModel,
     BatchExportSchema,
     BatchExportSessionsModel,
@@ -43,7 +46,10 @@ from products.batch_exports.backend.temporal.batch_exports import finish_batch_e
 from products.batch_exports.backend.temporal.metrics import BATCH_EXPORT_ACTIVITY_TYPES, BATCH_EXPORT_WORKFLOW_TYPES
 from products.batch_exports.backend.temporal.pipeline.internal_stage import insert_into_internal_stage_activity
 from products.batch_exports.backend.temporal.queue import RecordBatchQueue
-from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
+from products.batch_exports.backend.temporal.record_batch_model import (
+    HogQLQueryRecordBatchModel,
+    SessionsRecordBatchModel,
+)
 from products.batch_exports.backend.tests.temporal.utils.clickhouse_test_producer import ClickHouseTestProducer
 from products.batch_exports.backend.tests.temporal.utils.models import (
     acreate_batch_export,
@@ -249,6 +255,12 @@ async def _get_records_from_clickhouse(
     queue = RecordBatchQueue()
     if model_name == "sessions":
         producer = ClickHouseTestProducer(model=SessionsRecordBatchModel(team_id))
+    elif isinstance(batch_export_model, BatchExportHogQLModel):
+        producer = ClickHouseTestProducer(
+            model=HogQLQueryRecordBatchModel(
+                team_id=team_id, hogql_query=batch_export_model.query, user_id=batch_export_model.user_id
+            )
+        )
     else:
         producer = ClickHouseTestProducer()
 
@@ -403,6 +415,16 @@ class CommonWorkflowTests:
         ),
         BatchExportPersonsModel(),
         BatchExportSessionsModel(),
+        # `user_id` must be a member of the test team, so the test replaces this placeholder.
+        # `0.1` has no exact float value, so a DOUBLE column instead of a DECIMAL fails the comparison.
+        BatchExportHogQLModel(
+            query=(
+                "SELECT DISTINCT toString(uuid) AS uuid, toDate(timestamp) AS day, toDecimal(0.1, 2) AS amount "
+                "FROM events WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}"
+            ),
+            user_id=0,
+            modifiers={},
+        ),
         {
             "fields": [
                 {"expression": "uuid", "alias": "uuid"},
@@ -492,6 +514,8 @@ class CommonWorkflowTests:
         data_interval_start: dt.datetime,
         data_interval_end: dt.datetime,
         ateam,
+        auser,
+        clickhouse_client,
         batch_export_for_destination,  # This fixture needs to be provided by destination-specific tests
         integration,
         setup_destination,
@@ -503,6 +527,15 @@ class CommonWorkflowTests:
         if isinstance(model, AnyBatchExportModel) and model.name != "events" and exclude_events is not None:
             pytest.skip(
                 f"Unnecessary test case as batch export model '{model.name}' is not affected by 'exclude_events'"
+            )
+
+        if isinstance(model, BatchExportHogQLModel):
+            model = dataclasses.replace(model, user_id=auser.pk)
+            # The HogQL `events` table reads `sharded_events`, but the fixture writes a recent
+            # interval to `events_recent` only.
+            events_to_export_created, _ = generate_test_data
+            await insert_event_values_in_clickhouse(
+                client=clickhouse_client, events=events_to_export_created, table="sharded_events"
             )
 
         batch_export_model: AnyBatchExportModel | None = None

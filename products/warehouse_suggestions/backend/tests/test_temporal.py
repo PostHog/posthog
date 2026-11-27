@@ -1,8 +1,14 @@
 import uuid
+import dataclasses
+from collections.abc import Mapping
+from typing import Any
 
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.test import override_settings
+
+from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
@@ -12,18 +18,19 @@ from posthog.models.team import Team
 
 from products.warehouse_suggestions.backend.facade.contracts import CertifyPayload
 from products.warehouse_suggestions.backend.facade.enums import WarehouseSuggestionKind, WarehouseSuggestionStatus
+from products.warehouse_suggestions.backend.logic.candidates.base import MeasurementRequest
 from products.warehouse_suggestions.backend.logic.candidates.registry import CANDIDATES
 from products.warehouse_suggestions.backend.logic.job import TeamRunResult, TeamRunStatus
 from products.warehouse_suggestions.backend.logic.reads import RollupDays
 from products.warehouse_suggestions.backend.logic.rules import RULES
 from products.warehouse_suggestions.backend.logic.suggestions import upsert_suggestions
 from products.warehouse_suggestions.backend.logic.view_costs import MeasurementOutcome
-from products.warehouse_suggestions.backend.models import WarehouseSuggestion
+from products.warehouse_suggestions.backend.models import WarehouseSuggestion, WarehouseSuggestionTeamConfig
 from products.warehouse_suggestions.backend.temporal import (
     ACTIVITIES as WAREHOUSE_SUGGESTIONS_ACTIVITIES,
     WORKFLOWS,
 )
-from products.warehouse_suggestions.backend.temporal.activities import team_batches
+from products.warehouse_suggestions.backend.temporal.activities import run_batch, team_batches
 from products.warehouse_suggestions.backend.temporal.contracts import (
     WAREHOUSE_SUGGESTIONS_WORKFLOW_NAME,
     BatchOutcome,
@@ -32,6 +39,10 @@ from products.warehouse_suggestions.backend.temporal.contracts import (
 from products.warehouse_suggestions.backend.tests.factories import context, team_reads, view_subject
 
 ACTIVITIES = "products.warehouse_suggestions.backend.temporal.activities"
+READS = "products.warehouse_suggestions.backend.logic.reads"
+TIMEOUT_EXCEEDED = 159
+TEAM_MEMORY_LIMIT = 1_000_000
+WORKFLOWS_MODULE = "products.warehouse_suggestions.backend.temporal.workflows"
 
 
 class TestTeamBatches(BaseTest):
@@ -41,7 +52,7 @@ class TestTeamBatches(BaseTest):
             ("kill_switch_on", KillSwitchLevel.LIGHT, False),
         ]
     )
-    def test_picks_flagged_main_environments_skips_demo_teams_and_stops_under_the_kill_switch(
+    def test_picks_main_environments_without_the_flag_skips_demo_teams_and_stops_under_the_kill_switch(
         self, _name: str, kill_switch: KillSwitchLevel, expect_team: bool
     ) -> None:
         demo_team = Team.objects.create(organization=self.organization, is_demo=True)
@@ -49,11 +60,10 @@ class TestTeamBatches(BaseTest):
         child_environment = Team.objects.create(
             organization=self.organization, project=self.project, parent_team=self.team
         )
-        flagged = {self.team.pk, demo_team.pk, child_environment.pk}
 
         with (
             patch(f"{ACTIVITIES}.get_kill_switch_level", return_value=kill_switch),
-            patch(f"{ACTIVITIES}.is_warehouse_suggestions_enabled", side_effect=lambda team: team.pk in flagged),
+            patch("posthoganalytics.feature_enabled", return_value=False),
         ):
             batches = team_batches(
                 WarehouseSuggestionsInputs(
@@ -61,7 +71,7 @@ class TestTeamBatches(BaseTest):
                 )
             )
 
-        assert batches == ([[self.team.pk]] if expect_team else [])
+        assert batches == ([[self.team.pk, unflagged_team.pk]] if expect_team else [])
 
     def test_picks_an_idle_team_that_still_has_an_accepted_suggestion(self) -> None:
         dismissed_team = Team.objects.create(organization=self.organization)
@@ -82,20 +92,92 @@ class TestTeamBatches(BaseTest):
         with (
             patch(f"{ACTIVITIES}.get_kill_switch_level", return_value=KillSwitchLevel.OFF),
             patch(f"{ACTIVITIES}._teams_with_reads", return_value=[]),
-            patch(f"{ACTIVITIES}.is_warehouse_suggestions_enabled", return_value=True),
         ):
             batches = team_batches(WarehouseSuggestionsInputs())
 
         assert batches == [[self.team.pk]]
 
 
-async def test_a_worker_runs_a_nonempty_batch_and_measures_the_views_a_team_asked_for() -> None:
+class FakeClickHouse:
+    def __init__(self, *, shared_read_fails: bool = False) -> None:
+        self.reads: list[tuple[tuple[int, ...], Mapping[str, Any], int | None]] = []
+        self._shared_read_fails = shared_read_fails
+
+    def __call__(
+        self, sql: str, params: Mapping[str, Any], *, settings: Mapping[str, Any], team_id: int | None = None
+    ) -> list[tuple[Any, ...]]:
+        if "team_ids" not in params:
+            return [(RULES.window_days, RULES.lifecycle.expire_after_days)]
+        self.reads.append((params["team_ids"], settings, team_id))
+        if self._shared_read_fails and len(params["team_ids"]) > 1:
+            raise ServerException("Timeout exceeded", code=TIMEOUT_EXCEEDED)
+        return []
+
+    @property
+    def team_groups(self) -> set[tuple[int, ...]]:
+        return {team_ids for team_ids, _, _ in self.reads}
+
+
+class TestRunBatch(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.team_ids = [self.team.pk, *(Team.objects.create(organization=self.organization).pk for _ in range(2))]
+
+    def _run_batch(self, clickhouse: FakeClickHouse) -> BatchOutcome:
+        with patch(f"{READS}.sync_execute", clickhouse):
+            return run_batch(self.team_ids, run_id="run-1")
+
+    def test_reads_each_enabled_team_alone_when_the_shared_read_fails(self) -> None:
+        *enabled_team_ids, disabled_team_id = self.team_ids
+        WarehouseSuggestionTeamConfig.objects.create(team_id=disabled_team_id, enabled=False)
+        clickhouse = FakeClickHouse(shared_read_fails=True)
+
+        outcome = self._run_batch(clickhouse)
+
+        assert (outcome.not_eligible, outcome.disabled, outcome.failed) == (2, 1, 0)
+        assert clickhouse.team_groups == {tuple(self.team_ids), *((team_id,) for team_id in enabled_team_ids)}
+
+    def test_reads_a_team_with_its_own_query_limits_alone_under_those_limits(self) -> None:
+        *shared_team_ids, limited_team_id = self.team_ids
+        clickhouse = FakeClickHouse()
+
+        with override_settings(
+            CLICKHOUSE_PER_TEAM_QUERY_SETTINGS={str(limited_team_id): {"max_memory_usage": TEAM_MEMORY_LIMIT}}
+        ):
+            outcome = self._run_batch(clickhouse)
+
+        limited_team_settings = {
+            settings["max_memory_usage"] for team_ids, settings, _ in clickhouse.reads if team_ids == (limited_team_id,)
+        }
+        assert (clickhouse.team_groups, limited_team_settings, outcome.not_eligible) == (
+            {tuple(shared_team_ids), (limited_team_id,)},
+            {TEAM_MEMORY_LIMIT},
+            3,
+        )
+        assert {team_id for _, _, team_id in clickhouse.reads} == {None}
+
+
+async def test_a_worker_measures_the_most_recomputed_views_across_teams_first() -> None:
     task_queue = str(uuid.uuid4())
-    unmeasured_view = uuid.uuid4()
-    measurement_requests = {1: (view_subject(unmeasured_view),), 2: ()}
+    rarely_recomputed_view = uuid.uuid4()
+    often_recomputed_view = uuid.uuid4()
+    measurement_requests = {
+        1: (MeasurementRequest(subject=view_subject(rarely_recomputed_view), consumer_runs_per_month=10),),
+        2: (MeasurementRequest(subject=view_subject(often_recomputed_view), consumer_runs_per_month=100),),
+        3: (),
+    }
+    one_measurement_per_run = dataclasses.replace(
+        RULES, measurement=dataclasses.replace(RULES.measurement, max_per_run=1)
+    )
     with (
-        patch(f"{ACTIVITIES}.team_batches", return_value=[[1, 2]]),
+        patch(f"{ACTIVITIES}.team_batches", return_value=[[1, 2, 3]]),
+        patch(f"{ACTIVITIES}.RULES", one_measurement_per_run),
+        patch(f"{WORKFLOWS_MODULE}.RULES", one_measurement_per_run),
         patch(f"{ACTIVITIES}.read_rollup_days", return_value=RollupDays(days_with_data=30, recent_days_with_data=7)),
+        patch(
+            f"{ACTIVITIES}.read_teams_reads",
+            side_effect=lambda team_ids, *_: {team_id: team_reads({}) for team_id in team_ids},
+        ),
         patch(
             f"{ACTIVITIES}.run_team",
             side_effect=lambda team_id, **_: TeamRunResult(
@@ -122,5 +204,5 @@ async def test_a_worker_runs_a_nonempty_batch_and_measures_the_views_a_team_aske
                     result_type=BatchOutcome,
                 )
 
-    assert outcome.processed == 2
-    measure_view_cost.assert_called_once_with(1, unmeasured_view, RULES.measurement)
+    assert outcome.processed == 3
+    measure_view_cost.assert_called_once_with(2, often_recomputed_view, one_measurement_per_run.measurement)

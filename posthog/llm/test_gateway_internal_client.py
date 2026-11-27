@@ -7,11 +7,16 @@ from posthog.llm.gateway_internal_client import (
     ADMIN_ACTOR,
     IDEMPOTENCY_KEY_HEADER,
     INTERNAL_ACTOR_HEADER,
+    USAGE_REPORT_TIMEOUT_SECONDS,
     AIGatewayInternalError,
     AIGatewayNotConfigured,
     add_credit,
+    get_usage_report,
+    get_usage_report_rows,
     get_wallet,
 )
+
+ORG_ID = "0190b3a1-1111-7000-8000-000000000001"
 
 
 def _response(status: int, payload: dict | None = None) -> httpx.Response:
@@ -104,10 +109,10 @@ class TestAddCredit:
             "duplicate": False,
         }
         with patch("posthog.llm.gateway_internal_client.httpx.post", return_value=_response(200, payload)) as mock_post:
-            result = add_credit(42, "25.00", "topping up", "key-123")
+            result = add_credit(42, ORG_ID, "25.00", "topping up", "key-123")
 
         url = mock_post.call_args.args[0]
-        assert url == "http://gw/internal/teams/42/credits"
+        assert url == f"http://gw/internal/accounts/{ORG_ID}/credits"
         assert mock_post.call_args.kwargs["json"] == {"amount_usd": "25.00", "reason": "topping up"}
         assert mock_post.call_args.kwargs["headers"][IDEMPOTENCY_KEY_HEADER] == "key-123"
         assert mock_post.call_args.kwargs["headers"][INTERNAL_ACTOR_HEADER] == ADMIN_ACTOR
@@ -121,7 +126,7 @@ class TestAddCredit:
         _configured(mock_settings)
         payload = {"team_id": 42, "entry_id": "entry-1", "amount_usd": "25", "balance_usd": "35", "duplicate": True}
         with patch("posthog.llm.gateway_internal_client.httpx.post", return_value=_response(200, payload)):
-            result = add_credit(42, "25", "again", "key-123")
+            result = add_credit(42, ORG_ID, "25", "again", "key-123")
         assert result.duplicate is True
 
     @patch("posthog.llm.gateway_internal_client.settings")
@@ -130,7 +135,7 @@ class TestAddCredit:
         body = {"error": "amount_usd: must be positive"}
         with patch("posthog.llm.gateway_internal_client.httpx.post", return_value=_response(400, body)):
             with pytest.raises(AIGatewayInternalError, match="amount_usd: must be positive"):
-                add_credit(42, "-1", "bad", "key-123")
+                add_credit(42, ORG_ID, "-1", "bad", "key-123")
 
     @patch("posthog.llm.gateway_internal_client.settings")
     def test_raises_on_non_json_success_body(self, mock_settings):
@@ -138,22 +143,84 @@ class TestAddCredit:
         non_json = httpx.Response(200, text="<html>not json</html>", request=httpx.Request("POST", "http://gw"))
         with patch("posthog.llm.gateway_internal_client.httpx.post", return_value=non_json):
             with pytest.raises(AIGatewayInternalError, match="not valid JSON"):
-                add_credit(42, "10", "x", "key-123")
+                add_credit(42, ORG_ID, "10", "x", "key-123")
 
     @patch("posthog.llm.gateway_internal_client.settings")
     def test_raises_on_success_body_missing_required_fields(self, mock_settings):
         _configured(mock_settings)
         with patch("posthog.llm.gateway_internal_client.httpx.post", return_value=_response(200, {"team_id": 42})):
             with pytest.raises(AIGatewayInternalError, match="missing required fields"):
-                add_credit(42, "10", "x", "key-123")
+                add_credit(42, ORG_ID, "10", "x", "key-123")
 
     @patch("posthog.llm.gateway_internal_client.settings")
     def test_accepts_zero_balance(self, mock_settings):
         _configured(mock_settings)
         body = {"team_id": 42, "entry_id": "e1", "amount_usd": "10", "balance_usd": "0", "duplicate": False}
         with patch("posthog.llm.gateway_internal_client.httpx.post", return_value=_response(200, body)):
-            result = add_credit(42, "10", "x", "key-123")
+            result = add_credit(42, ORG_ID, "10", "x", "key-123")
         assert result.balance_usd == "0"
+
+
+class TestGetUsageReport:
+    @patch("posthog.llm.gateway_internal_client.settings")
+    def test_parses_a_page_and_uses_the_report_timeout(self, mock_settings):
+        _configured(mock_settings)
+        payload = {"rows": [{"keys": {"obo": "1"}}], "truncated": False}
+        with patch("posthog.llm.gateway_internal_client.httpx.get", return_value=_response(200, payload)) as mock_get:
+            page = get_usage_report({"group_by": "obo"})
+
+        assert page.rows == [{"keys": {"obo": "1"}}]
+        assert page.truncated is False
+        assert page.next_cursor is None
+        assert mock_get.call_args.kwargs["timeout"] == USAGE_REPORT_TIMEOUT_SECONDS
+
+    @patch("posthog.llm.gateway_internal_client.settings")
+    def test_follows_the_cursor_to_the_last_page(self, mock_settings):
+        _configured(mock_settings)
+        first = _response(200, {"rows": [{"keys": {"obo": "1"}}], "truncated": True, "next_cursor": "c1"})
+        second = _response(200, {"rows": [{"keys": {"obo": "2"}}], "truncated": False})
+        with patch("posthog.llm.gateway_internal_client.httpx.get", side_effect=[first, second]) as mock_get:
+            rows = get_usage_report_rows({"group_by": "obo", "team_id": "2"})
+
+        assert [row["keys"]["obo"] for row in rows] == ["1", "2"]
+        first_params = mock_get.call_args_list[0].kwargs["params"]
+        second_params = mock_get.call_args_list[1].kwargs["params"]
+        assert first_params["order_by"] == "key"
+        assert "cursor" not in first_params
+        assert second_params["order_by"] == "key"
+        assert second_params["cursor"] == "c1"
+        assert second_params["team_id"] == "2"
+
+    @patch("posthog.llm.gateway_internal_client.settings")
+    def test_raises_when_truncated_without_a_cursor(self, mock_settings):
+        _configured(mock_settings)
+        payload = {"rows": [], "truncated": True}
+        with patch("posthog.llm.gateway_internal_client.httpx.get", return_value=_response(200, payload)):
+            with pytest.raises(AIGatewayInternalError, match="truncated but returned no cursor"):
+                get_usage_report_rows({"group_by": "obo"})
+
+    @patch("posthog.llm.gateway_internal_client.settings")
+    def test_raises_on_a_repeated_cursor(self, mock_settings):
+        _configured(mock_settings)
+        page = _response(200, {"rows": [], "truncated": True, "next_cursor": "c1"})
+        with patch("posthog.llm.gateway_internal_client.httpx.get", side_effect=[page, page]):
+            with pytest.raises(AIGatewayInternalError, match="repeated cursor"):
+                get_usage_report_rows({"group_by": "obo"})
+
+    @patch("posthog.llm.gateway_internal_client.settings")
+    def test_raises_when_the_gateway_rejects_the_page_params(self, mock_settings):
+        _configured(mock_settings)
+        body = {"error": 'unknown query parameter "order_by"'}
+        with patch("posthog.llm.gateway_internal_client.httpx.get", return_value=_response(400, body)):
+            with pytest.raises(AIGatewayInternalError, match="unknown query parameter"):
+                get_usage_report_rows({"group_by": "obo"})
+
+    @patch("posthog.llm.gateway_internal_client.settings")
+    def test_raises_without_a_truncated_flag(self, mock_settings):
+        _configured(mock_settings)
+        with patch("posthog.llm.gateway_internal_client.httpx.get", return_value=_response(200, {"rows": []})):
+            with pytest.raises(AIGatewayInternalError, match="no truncated flag"):
+                get_usage_report({"group_by": "obo"})
 
 
 class TestNotConfigured:
@@ -170,4 +237,4 @@ class TestNotConfigured:
         mock_settings.AI_GATEWAY_INTERNAL_URL = ""
         mock_settings.AI_GATEWAY_INTERNAL_TOKEN = ""
         with pytest.raises(AIGatewayNotConfigured):
-            add_credit(42, "10", "x", "key")
+            add_credit(42, ORG_ID, "10", "x", "key")

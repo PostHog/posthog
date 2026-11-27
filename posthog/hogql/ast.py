@@ -183,10 +183,14 @@ class Program(AST):
     declarations: list[Declaration]
 
 
-@dataclass(kw_only=True, slots=True)
+@dataclass(kw_only=True, slots=True, frozen=False)
 class FieldAliasType(Type):
     alias: str
     type: Type
+    # The type the alias projects when a property conversion changes it.
+    # `type` keeps the original PropertyType because property lowering still reads it.
+    constant_type: Optional[ConstantType] = None
+    cte_source_field: DatabaseField | None = field(default=None, init=False, compare=False, repr=False)
 
     def get_child(self, name: str, context: HogQLContext) -> Type:
         return self.type.get_child(name, context)
@@ -195,6 +199,8 @@ class FieldAliasType(Type):
         return self.type.has_child(name, context)
 
     def resolve_constant_type(self, context: HogQLContext) -> ConstantType:
+        if self.constant_type is not None:
+            return self.constant_type
         return self.type.resolve_constant_type(context)
 
     def resolve_database_field(self, context: HogQLContext):
@@ -361,7 +367,7 @@ class VirtualTableType(BaseTableType):
         return self.get_child(self.field, context).resolve_constant_type(context)
 
 
-@dataclass(kw_only=True, slots=True)
+@dataclass(frozen=False, kw_only=True, slots=True)
 class SelectQueryType(Type):
     """Type and new enclosed scope for a select query. Contains information about all tables and columns in the query."""
 
@@ -378,6 +384,14 @@ class SelectQueryType(Type):
     parent: Optional[Union["SelectQueryType", "SelectSetQueryType"]] = None
     # whether this type is related to a lambda scope
     is_lambda_type: bool = False
+
+    implicit_table_aliases: set[str] | None = field(default=None, compare=False, repr=False)
+
+    def register_implicit_table_alias(self, alias: str) -> str:
+        if self.implicit_table_aliases is None:
+            self.implicit_table_aliases = set()
+        self.implicit_table_aliases.add(alias)
+        return alias
 
     def get_alias_for_table_type(self, table_type: TableOrSelectType) -> Optional[str]:
         for key, value in self.tables.items():
@@ -465,7 +479,7 @@ class SelectViewType(BaseTableType):
         return UnknownType()
 
 
-@dataclass(kw_only=True, slots=True)
+@dataclass(kw_only=True, slots=True, frozen=False)
 class CTETableType(BaseTableType):
     name: str
     select_query_type: SelectQueryType | SelectSetQueryType
@@ -482,6 +496,8 @@ class CTETableType(BaseTableType):
 
     def resolve_column_constant_type(self, name: str, context: HogQLContext) -> ConstantType:
         field = self.resolve_database_table(context).get_field(name)
+        if isinstance(field, UnknownDatabaseField):
+            return self.select_query_type.resolve_column_constant_type(name, context)
         if isinstance(field, DatabaseField):
             return field.get_constant_type()
         return UnknownType()
@@ -499,10 +515,12 @@ class CTETableAliasType(BaseTableType):
         return self.cte_table_type.resolve_column_constant_type(name, context)
 
 
-@dataclass(kw_only=True, slots=True)
+@dataclass(kw_only=True, slots=True, frozen=False)
 class SelectQueryAliasType(Type):
     alias: str
     select_query_type: SelectQueryType | SelectSetQueryType
+    # The lazy table that this subquery stands for, when lazy table resolution built it.
+    lazy_table: Optional[LazyTable] = field(default=None, repr=False, compare=False)
 
     def get_child(self, name: str, context: HogQLContext) -> Type:
         if name == "*":
@@ -691,7 +709,7 @@ class ExpressionFieldType(Type):
         return UnknownType()
 
 
-@dataclass(kw_only=True, slots=True)
+@dataclass(kw_only=True, slots=True, frozen=False)
 class FieldType(Type):
     name: str
     table_type: TableOrSelectType
@@ -714,7 +732,9 @@ class FieldType(Type):
         return True
 
     def resolve_constant_type(self, context: HogQLContext) -> ConstantType:
-        if not isinstance(self.table_type, BaseTableType):
+        if not isinstance(self.table_type, BaseTableType) or isinstance(
+            self.table_type, (CTETableType, CTETableAliasType)
+        ):
             return self.table_type.resolve_column_constant_type(self.name, context)
 
         table: Table = self.table_type.resolve_database_table(context)
@@ -768,14 +788,19 @@ class UnresolvedFieldType(Type):
         return UnknownType()
 
 
-@dataclass(kw_only=True, slots=True)
+@dataclass(kw_only=True, slots=True, frozen=False)
 class PropertyType(Type):
     chain: list[str | int]
     field_type: FieldType
 
+    # The read yields the property's JSON text, as the document holds it, so no property-type conversion applies.
+    as_json: bool = False
+
     # The property has been moved into a field we query from a joined subquery
     joined_subquery: Optional[SelectQueryAliasType] = field(default=None, init=False)
     joined_subquery_field_name: Optional[str] = field(default=None, init=False)
+    # That field holds the property's JSON text, serialized inside the subquery, so the printer must not serialize it again.
+    joined_subquery_json_text: bool = field(default=False, init=False)
 
     def get_child(self, name: str | int, context: HogQLContext) -> Type:
         return PropertyType(chain=[*self.chain, name], field_type=self.field_type)
@@ -786,6 +811,8 @@ class PropertyType(Type):
     def resolve_constant_type(self, context: HogQLContext) -> ConstantType:
         if self.joined_subquery is not None and self.joined_subquery_field_name is not None:
             return self.joined_subquery.resolve_column_constant_type(self.joined_subquery_field_name, context)
+        if self.as_json:
+            return StringType(nullable=True)
 
         database_field = self.field_type.resolve_database_field(context)
         if isinstance(database_field, StructDatabaseField):
@@ -999,7 +1026,7 @@ class Tuple(Expr):
     exprs: list[Expr]
 
 
-@dataclass(kw_only=True, slots=True)
+@dataclass(frozen=False, kw_only=True, slots=True)
 class PropertyAccess(Expr):
     """The lowered form of a `properties.X` read: "read this key path from this properties field."
 
@@ -1027,20 +1054,25 @@ class PropertyAccess(Expr):
 
     expr: Expr
     keys: list[str | int]
+    # Carried over from `PropertyType.as_json`: a JSON function rewrite asked for the key's JSON text.
+    as_json: bool = False
 
 
-@dataclass(kw_only=True, slots=True)
+@dataclass(frozen=False, kw_only=True, slots=True)
 class JsonSubcolumnAccess(Expr):
     """ClickHouse JSON subcolumn read emitted after property lowering.
 
     This is ClickHouse-specific and is only created by the physical property-resolution pass. The logical
     `PropertyAccess` node stays dialect-neutral; this node exists so the ClickHouse printer can emit
     `events.properties.`foo`` rather than pretending `properties.foo` is one escaped column name.
+
+    `map_subcolumn` names a subcolumn of a Map path, such as `keys` or `key_<map key>`. It is one identifier segment
+    with the map key as stored, so a dot in the key does not separate path segments there.
     """
 
     expr: Expr
     keys: list[str]
-    access_type: Literal["path", "sub_object"] = "path"
+    map_subcolumn: str | None = None
 
 
 @dataclass(kw_only=True, slots=True)
@@ -1193,7 +1225,7 @@ class PivotExpr(Expr):
     group_by: Optional[list[Expr]] = None
 
 
-@dataclass(kw_only=True, slots=True)
+@dataclass(kw_only=True, slots=True, frozen=False)
 class JoinExpr(Expr):
     # :TRICKY: When adding new fields, make sure they're handled in visitor.py and resolver.py
     type: Optional[TableOrSelectType] = None
@@ -1211,6 +1243,8 @@ class JoinExpr(Expr):
             "Field",
         ]
     ] = None
+    table_schema: Optional[Table] = None
+    cte_name: Optional[str] = None
     table_args: Optional[list[Expr]] = None
     alias: Optional[str] = None
     column_aliases: Optional[list[str]] = None

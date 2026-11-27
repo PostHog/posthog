@@ -16,6 +16,7 @@ import type {
     ChannelFeedMessageWriteApi,
     ChannelInstructionsDTOApi,
     ChannelInstructionsWriteApi,
+    ChannelListResponseApi,
     ChannelMembersWriteApi,
     ChannelSetupWriteApi,
     ChannelStarWriteApi,
@@ -28,7 +29,6 @@ import type {
     OnboardingSessionApi,
     OnboardingSessionTestApi,
     OnboardingSessionTestResponseApi,
-    PaginatedChannelDTOListApi,
     PaginatedChannelFeedMessageDTOListApi,
     PaginatedChannelInstructionsDTOListApi,
     PaginatedSandboxCustomImageDTOListApi,
@@ -592,8 +592,8 @@ export const taskChannelsList = async (
     projectId: string,
     params?: TaskChannelsListParams,
     options?: RequestInit
-): Promise<PaginatedChannelDTOListApi> => {
-    return apiMutator<PaginatedChannelDTOListApi>(getTaskChannelsListUrl(projectId, params), {
+): Promise<ChannelListResponseApi> => {
+    return apiMutator<ChannelListResponseApi>(getTaskChannelsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -1223,6 +1223,25 @@ export const tasksArtifactsList = async (
     return apiMutator<TaskArtifactsResponseApi>(getTasksArtifactsListUrl(projectId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getTasksCloseCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${id}/close/`
+}
+
+/**
+ * Mark an idle task as done. A done task refuses new runs and follow-up messages, so start a new task to keep working on it.
+ * @summary Close a task
+ */
+export const tasksCloseCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TaskDetailDTOApi> => {
+    return apiMutator<TaskDetailDTOApi>(getTasksCloseCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 
@@ -2012,6 +2031,26 @@ export const tasksRunsConnectionTokenRetrieve = async (
     })
 }
 
+export const getTasksRunsHeartbeatCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/heartbeat/`
+}
+
+/**
+ * Tell the server that a local run is still alive. The client that drives a local run calls this about every 5 minutes while it holds the run open. A heartbeat reopens a local run that the server had completed. Cloud runs report their own heartbeats, so this endpoint refuses them, along with failed and cancelled runs and runs of a finished task.
+ * @summary Record a local run heartbeat
+ */
+export const tasksRunsHeartbeatCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getTasksRunsHeartbeatCreateUrl(projectId, taskId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getTasksRunsPreviewRetrieveUrl = (projectId: string, taskId: string, id: string) => {
     return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/preview/`
 }
@@ -2777,7 +2816,7 @@ export const getTasksModelsRetrieveUrl = (projectId: string) => {
 }
 
 /**
- * Return the models a task run may use, with the reasoning efforts each one supports. Derived from the live LLM gateway catalogue, so a newly released model appears without a client change. An empty list means the gateway is unreachable — clients should fall back to their own default rather than treating it as 'no models exist'.
+ * Return the models a task run may use, with the reasoning efforts each one supports. Read from the PostHog model catalog, narrowed to the models a PostHog Code token may call. Each model is marked with whether the project's plan allows it.
  * @summary List available models
  */
 export const tasksModelsRetrieve = async (

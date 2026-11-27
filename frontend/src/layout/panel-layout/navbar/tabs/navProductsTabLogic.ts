@@ -8,14 +8,15 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
 import { withTimeout } from 'lib/utils/async'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
+import { inStorybook } from 'lib/utils/dom'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { fileSystemShortcutBulkUpdateCreate } from '~/generated/core/api'
+import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
 import type { PreflightStatus, TeamPublicType, TeamType } from '~/types'
 
@@ -38,6 +39,7 @@ export const SUGGESTED_GROUP_LABEL = 'Suggested'
 export interface navProductsTabLogicValues {
     dataProcessingAccepted: boolean // aiConsentLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
+    isAdminOrOwner: boolean | null // organizationLogic
     preflight: PreflightStatus | null // preflightLogic
     shortcutData: FileSystemEntry[] // projectTreeDataLogic
     shortcutDataHasLoaded: boolean // projectTreeDataLogic
@@ -226,7 +228,7 @@ export interface navProductsTabLogicMeta {
             appRecommendationQuery: string,
             appRecommendationsEnabled: boolean
         ) => AppMatchGroups | null
-        allItems: (featureFlags: FeatureFlagsSet, currentTeam: TeamPublicType | TeamType | null) => FileSystemImport[]
+        allItems: (featureFlags: FeatureFlagsSet, isAdminOrOwner: boolean | null) => FileSystemImport[]
         pinnedItems: (allItems: FileSystemImport[], search: string) => FileSystemImport[]
         groupedItems: (allItems: FileSystemImport[], search: string) => ProductsItemGroup[]
         configurableProducts: (allItems: FileSystemImport[]) => FileSystemImport[]
@@ -275,6 +277,8 @@ export const navProductsTabLogic = kea<navProductsTabLogicType>([
             ['preflight'],
             featureFlagLogic,
             ['featureFlags'],
+            organizationLogic,
+            ['isAdminOrOwner'],
             aiConsentLogic,
             ['dataProcessingAccepted'],
             projectTreeDataLogic,
@@ -421,11 +425,7 @@ export const navProductsTabLogic = kea<navProductsTabLogicType>([
         ],
         // pinned: persisted under this logic's path, so renaming the reducer resets everyone's choice.
         // Storybook starts open so visual snapshots cover the full list.
-        allProductsOpen: [
-            inStorybook() || inStorybookTestRunner(),
-            { persist: true },
-            { setAllProductsOpen: (_, { open }) => open },
-        ],
+        allProductsOpen: [inStorybook(), { persist: true }, { setAllProductsOpen: (_, { open }) => open }],
         // The browser's find-in-page opened the list to show a match. Not persisted, so the list
         // closes again on the next navigation instead of staying open for good.
         allProductsRevealedByFind: [
@@ -475,9 +475,9 @@ export const navProductsTabLogic = kea<navProductsTabLogicType>([
                     : null,
         ],
         allItems: [
-            (s) => [s.featureFlags, s.currentTeam],
-            (featureFlags: FeatureFlagsSet, currentTeam: TeamPublicType | TeamType | null): FileSystemImport[] =>
-                getNavProductItems(featureFlags, currentTeam?.created_at),
+            (s) => [s.featureFlags, s.isAdminOrOwner],
+            (featureFlags: FeatureFlagsSet, isAdminOrOwner: boolean | null): FileSystemImport[] =>
+                getNavProductItems(featureFlags, !!isAdminOrOwner),
         ],
         pinnedItems: [
             (s) => [s.allItems, s.search],

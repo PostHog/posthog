@@ -40,15 +40,15 @@ function CohortMembers({ cohort }: { cohort: AudienceCohort }): JSX.Element {
 /** The cohorts in a broadcast's audience, each with its size and a link to the full cohort. */
 export function BroadcastAudienceCohorts(): JSX.Element | null {
     const { props } = useMountedLogic(broadcastWizardLogic)
-    const { cohortIds, audienceCohorts } = useValues(broadcastAudienceCohortsLogic(props))
+    const { includedCohortIds, audienceCohorts } = useValues(broadcastAudienceCohortsLogic(props))
 
-    if (cohortIds.length === 0) {
+    if (includedCohortIds.length === 0) {
         return null
     }
 
     return (
         <div className="flex flex-col gap-1" data-attr="broadcast-audience-cohorts">
-            {cohortIds.map((id) => {
+            {includedCohortIds.map((id) => {
                 const cohort = audienceCohorts[id]
                 return (
                     <div

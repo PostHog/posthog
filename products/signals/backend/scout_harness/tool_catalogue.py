@@ -59,9 +59,11 @@ SCOUT_RUN_CONTEXT_TOOLS = frozenset(
         "scout-scratchpad-remember",
         "scout-scratchpad-forget",
         "scout-notes-list",
+        "scout-report-discussions-list",
         "scout-metadata-get",
         "scout-project-profile-get",
         "scout-record-output",
+        "scout-send-message",
         "scout-check-record-result",
         "scout-monitoring-result-submit",
     }

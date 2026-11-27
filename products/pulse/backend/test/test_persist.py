@@ -1,12 +1,14 @@
+import uuid
+
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
 from posthog.models.scoping import team_scope
-from posthog.schema_enums import AlertState
 
-from products.alerts.backend.models import AlertConfiguration
+from products.experiments.backend.facade.testing import create_experiment
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.facade.models import Insight
 from products.pulse.backend.generation.persist import _fingerprint, persist_brief_output
 from products.pulse.backend.generation.schemas import BriefOut, BriefSectionOut, OpportunityOut
@@ -197,23 +199,23 @@ class TestPersistBriefOutput(BaseTest):
         brief = persist_brief_output(brief=self._brief(), out=out, items=[_item()])
         assert brief.status == ProductBrief.Status.READY
 
-    def test_alert_and_subscription_refs_resolve_to_typed_links(self) -> None:
-        # Alerts (UUID pk) and subscriptions (int pk) are first-class evidence types with their own
-        # FKs; a "fix" opportunity citing both must persist links with each FK resolved.
+    def test_alert_subscription_and_experiment_refs_resolve_to_typed_links(self) -> None:
+        # Subscriptions and experiments resolve to their FKs. An alert can have no insight row, so its
+        # link keeps only the cited id.
+        alert_id = uuid.uuid4()
         with team_scope(self.team.pk, canonical=True):
-            insight = Insight.objects.create(team=self.team, name="Signups")
-            alert = AlertConfiguration.objects.create(
-                team=self.team, insight=insight, name="a", state=AlertState.ERRORED, enabled=True
-            )
             subscription_id = create_subscription(team_id=self.team.id, title="s")
+        flag = FeatureFlag.objects.create(team=self.team, key="experiment-flag", created_by=self.user)
+        experiment_id = create_experiment(team_id=self.team.id, feature_flag_id=flag.id)
         item = SourceItem(
             source="resource_health",
             kind=SourceItemKind.HEALTH,
             title="t",
             description="d",
             evidence=[
-                EvidenceRef(type=EvidenceType.ALERT, ref=str(alert.id), label="a", url=""),
+                EvidenceRef(type=EvidenceType.ALERT, ref=str(alert_id), label="a", url=""),
                 EvidenceRef(type=EvidenceType.SUBSCRIPTION, ref=str(subscription_id), label="s", url=""),
+                EvidenceRef(type=EvidenceType.EXPERIMENT, ref=str(experiment_id), label="e", url=""),
             ],
             fingerprint_hint="alert:x",
         )
@@ -225,7 +227,7 @@ class TestPersistBriefOutput(BaseTest):
                     title="t",
                     summary="s",
                     suggested_action="a",
-                    evidence_refs=["c1", "c2"],
+                    evidence_refs=["c1", "c2", "c3"],
                     fingerprint_hint="alert:x",
                     confidence=0.9,
                 )
@@ -233,5 +235,6 @@ class TestPersistBriefOutput(BaseTest):
         )
         persist_brief_output(brief=self._brief(), out=out, items=[item])
         links = {link.resource_type: link for link in self._links()}
-        assert links[ResourceType.ALERT].alert_id == alert.id
+        assert (links[ResourceType.ALERT].ref, links[ResourceType.ALERT].alert_id) == (str(alert_id), None)
         assert links[ResourceType.SUBSCRIPTION].subscription_id == subscription_id
+        assert links[ResourceType.EXPERIMENT].experiment_id == experiment_id

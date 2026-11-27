@@ -1,4 +1,3 @@
-import base64
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -9,6 +8,7 @@ import structlog
 
 from posthog.session_recordings.recordings.errors import (
     BlockFetchError,
+    BlockNotFoundError,
     RecordingApiConfigurationError,
     RecordingDeletedError,
 )
@@ -20,6 +20,19 @@ from posthog.session_recordings.recordings.recording_api_jwt import (
 logger = structlog.get_logger(__name__)
 
 
+async def _recording_deleted_error(response: aiohttp.ClientResponse) -> RecordingDeletedError:
+    # A 410 means deleted whatever its body says, so a body that is not JSON must not hide the deletion.
+    try:
+        data = await response.json(content_type=None)
+    except ValueError:
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    return RecordingDeletedError(
+        "Recording has been deleted", deleted_at=data.get("deleted_at"), deleted_by=data.get("deleted_by")
+    )
+
+
 class RecordingApiClient:
     """
     Async client for fetching recording blocks via the Recording API.
@@ -28,9 +41,12 @@ class RecordingApiClient:
     decrypted using KMS, while unencrypted sessions pass through unchanged.
     """
 
-    def __init__(self, session: aiohttp.ClientSession, base_url: str):
+    def __init__(self, session: aiohttp.ClientSession, base_url: str, recycle_connection_every: int = 0):
         self.session = session
         self.base_url = base_url.rstrip("/")
+        # Kube-proxy balances per connection, so a pooled connection stays on one pod for good unless it is closed.
+        self._recycle_connection_every = recycle_connection_every
+        self._block_requests = 0
 
     async def fetch_block(
         self, key: str, start_byte: int, end_byte: int, session_id: str, team_id: int, *, decompress: bool = False
@@ -39,27 +55,25 @@ class RecordingApiClient:
         params: dict[str, str | int] = {"key": key, "start_byte": start_byte, "end_byte": end_byte}
         if decompress:
             params["decompress"] = "true"
+        headers = recording_api_auth_headers(team_id, "read")
+        self._block_requests += 1
+        if self._recycle_connection_every and self._block_requests % self._recycle_connection_every == 0:
+            headers = {**headers, "Connection": "close"}
 
         try:
-            async with self.session.get(
-                url, params=params, headers=recording_api_auth_headers(team_id, "read")
-            ) as response:
+            async with self.session.get(url, params=params, headers=headers) as response:
                 if response.status == 404:
-                    raise BlockFetchError("Block not found")
+                    raise BlockNotFoundError("Block not found")
                 if response.status == 410:
-                    data = await response.json()
-                    deleted_at = data.get("deleted_at")
-                    deleted_by = data.get("deleted_by")
+                    error = await _recording_deleted_error(response)
                     logger.info(
                         "recording_api_client.recording_deleted",
                         session_id=session_id,
                         team_id=team_id,
-                        deleted_at=deleted_at,
-                        deleted_by=deleted_by,
+                        deleted_at=error.deleted_at,
+                        deleted_by=error.deleted_by,
                     )
-                    raise RecordingDeletedError(
-                        "Recording has been deleted", deleted_at=deleted_at, deleted_by=deleted_by
-                    )
+                    raise error
                 response.raise_for_status()
                 return await response.read()
         except (RecordingDeletedError, BlockFetchError):
@@ -82,6 +96,8 @@ class RecordingApiClient:
             async with self.session.get(url, headers=recording_api_auth_headers(team_id, "read")) as response:
                 if response.status == 404:
                     return []
+                if response.status == 410:
+                    raise await _recording_deleted_error(response)
                 response.raise_for_status()
                 data = await response.json()
             return data.get("blocks", [])
@@ -95,28 +111,6 @@ class RecordingApiClient:
                 exc_info=False,
             )
             raise
-
-    async def encrypt_blocks(
-        self, session_id: str, team_id: int, blocks: list[bytes], retention_days: int
-    ) -> list[bytes]:
-        """Encrypt compressed blocks with the session's key, minting it on first call.
-
-        Raises RecordingDeletedError if the session's key was shredded.
-        """
-        url = f"{self.base_url}/api/projects/{team_id}/recordings/{session_id}/encrypt"
-        body = {
-            "blocks": [base64.b64encode(block).decode("ascii") for block in blocks],
-            "retention_days": retention_days,
-        }
-        async with self.session.post(url, json=body, headers=recording_api_auth_headers(team_id, "write")) as response:
-            if response.status == 410:
-                data = await response.json()
-                raise RecordingDeletedError(
-                    "Recording has been deleted", deleted_at=data.get("deleted_at"), deleted_by=data.get("deleted_by")
-                )
-            response.raise_for_status()
-            data = await response.json()
-        return [base64.b64decode(block) for block in data["blocks"]]
 
     async def delete_recordings(self, session_ids: list[str], team_id: int, deleted_by: str) -> list[str]:
         """
@@ -148,7 +142,9 @@ class RecordingApiClient:
 
 
 @asynccontextmanager
-async def recording_api_client() -> AsyncIterator[RecordingApiClient]:
+async def recording_api_client(
+    connection_limit: int = 100, *, base_url: str | None = None, recycle_connection_every: int = 0
+) -> AsyncIterator[RecordingApiClient]:
     """
     Async context manager for creating a RecordingApiClient instance.
 
@@ -156,17 +152,19 @@ async def recording_api_client() -> AsyncIterator[RecordingApiClient]:
         async with recording_api_client() as client:
             content = await client.fetch_block(key, start, end, session_id, team_id, decompress=True)
     """
-    if not settings.RECORDING_API_URL:
+    base_url = settings.RECORDING_API_URL if base_url is None else base_url
+    if not base_url:
         raise RecordingApiConfigurationError("RECORDING_API_URL is not configured")
 
-    # Without a credential every request is sent unauthenticated and comes back 401, which the tolerant
-    # handlers flatten into an empty listing exactly as a missing URL used to. The delete-recordings
-    # activity already treats both settings as the same permanent fault.
-    if not settings.INTERNAL_API_SECRET and not recording_api_jwt_enabled():
-        raise RecordingApiConfigurationError("Neither INTERNAL_API_SECRET nor RECORDING_API_JWT_SECRET is configured")
+    # Every request mints a token with this secret. Check it once here, so a missing secret raises the
+    # same configuration error as a missing URL. The delete-recordings activity treats both settings
+    # as the same permanent fault.
+    if not recording_api_jwt_enabled():
+        raise RecordingApiConfigurationError("RECORDING_API_JWT_SECRET is not configured")
 
     timeout = aiohttp.ClientTimeout(total=30, connect=5)
     # Authorization is per-request (a team + operation scoped JWT), so no session-level auth header.
+    connector = aiohttp.TCPConnector(limit=connection_limit)
     # nosemgrep: aiohttp-missing-trust-env -- internal service call to recording API
-    async with aiohttp.ClientSession(timeout=timeout, trust_env=False) as session:
-        yield RecordingApiClient(session, settings.RECORDING_API_URL)
+    async with aiohttp.ClientSession(timeout=timeout, trust_env=False, connector=connector) as session:
+        yield RecordingApiClient(session, base_url, recycle_connection_every)

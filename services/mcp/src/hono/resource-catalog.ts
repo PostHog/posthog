@@ -19,6 +19,7 @@ import {
     type ContextMillCacheResult,
     type SlimManifestEntry,
 } from './cache/ContextMillResourceCache'
+import type { OmnibusSkillsCache } from './cache/OmnibusSkillsCache'
 import type { RedisLike } from './cache/RedisCache'
 import {
     contextMillManifestEntries,
@@ -27,6 +28,15 @@ import {
 } from './metrics'
 
 export type ContextMillRevalidationSource = 'warmup' | 'initialize' | 'discover'
+
+// A skill (`posthog://skills/<category>/…`) is in `skills` and its category, so clients can keep one category.
+function resourceGroups(uri: string): string[] {
+    if (uri.startsWith('ui://')) {
+        return ['apps']
+    }
+    const [kind = '', category] = uri.replace(/^posthog:\/\//, '').split('/')
+    return kind === 'skills' && category ? [kind, category] : [kind]
+}
 
 export class ResourceCatalog {
     private readonly env: Env
@@ -40,10 +50,13 @@ export class ResourceCatalog {
     private allResources: Resource[] = []
     private contextMillEntriesByUri = new Map<string, SlimManifestEntry>()
 
-    constructor(env: Env, redis: RedisLike) {
+    constructor(env: Env, redis: RedisLike, omnibusSkills?: OmnibusSkillsCache) {
         this.env = env
         const localUrl = this.contextMillLocalUrl()
-        this.contextMillCache = new ContextMillResourceCache(redis, localUrl ? { localUrl } : {})
+        this.contextMillCache = new ContextMillResourceCache(redis, {
+            ...(localUrl ? { localUrl } : {}),
+            ...(omnibusSkills ? { omnibusSkills } : {}),
+        })
     }
 
     get contextMillEntries(): readonly SlimManifestEntry[] {
@@ -68,8 +81,15 @@ export class ResourceCatalog {
         this.allResources = [...this.resources, ...this.uiAppResources]
     }
 
-    getResourcesList(): ListResourcesResult {
-        return { resources: this.allResources }
+    getResourcesList(groups?: readonly string[]): ListResourcesResult {
+        if (!groups) {
+            return { resources: this.allResources }
+        }
+        return {
+            resources: this.allResources.filter((resource) =>
+                resourceGroups(resource.uri).some((group) => groups.includes(group))
+            ),
+        }
     }
 
     async readResource(params: Record<string, unknown> | undefined): Promise<ReadResourceResult> {

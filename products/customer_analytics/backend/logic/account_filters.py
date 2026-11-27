@@ -62,7 +62,7 @@ ACCOUNT_DIRECT_FIELDS = {
 
 def parse_email_search(query: str) -> str | None:
     normalized = query.strip().lower()
-    local_part, separator, domain = normalized.partition("@")
+    local_part, separator, domain = normalized.rpartition("@")
     if not separator or not local_part or "." not in domain:
         return None
     try:

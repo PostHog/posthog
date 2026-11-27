@@ -20,16 +20,32 @@ _ACTION_REQUIRED_MESSAGES = {
     "shell_tool_missing": "A shell required by the agent is unavailable. Update the sandbox image to include a supported shell, then retry.",
     "cli_version_too_old": "The agent's provider runtime is too old. Update the provider runtime in the sandbox image, then retry.",
     "bypass_root": "The provider rejected the agent's permission configuration. Run the agent as a non-root user or update its permission settings, then retry.",
+    "sandbox_required_unavailable": "The repository's Claude Code settings require a sandbox that is not available in this environment. Remove the sandbox requirement from the repository settings, then retry.",
+    "provider_not_allowed": "The agent's managed settings do not allow the configured provider. Use an allowed provider, then retry.",
+    "org_config_refused": "The provider refused the organization's configuration for this sign-in. Sign in again or ask an organization admin to restore access, then retry.",
 }
 _ACTION_REQUIRED_REASONS = frozenset({"credential_unavailable", *_ACTION_REQUIRED_MESSAGES})
 _TRANSIENT_REASONS = frozenset({"credential_service_unavailable", "session_held_by_background", "worktree_unverified"})
 
 
-def read_startup_failure(state: Mapping[str, object] | None) -> AgentStartupFailure | None:
+def _validate_startup_failure(value: object) -> AgentStartupFailure | None:
     try:
-        return _startup_failure_adapter.validate_python((state or {}).get("startup_failure"))
+        return _startup_failure_adapter.validate_python(value)
+    except ValidationError:
+        pass
+    if not isinstance(value, Mapping):
+        return None
+    reason = value.get("reason")
+    if not isinstance(reason, str) or not reason:
+        return None
+    try:
+        return _startup_failure_adapter.validate_python({**value, "reason": None})
     except ValidationError:
         return None
+
+
+def read_startup_failure(state: Mapping[str, object] | None) -> AgentStartupFailure | None:
+    return _validate_startup_failure((state or {}).get("startup_failure"))
 
 
 class AgentServerStartupError(SandboxExecutionError):
@@ -57,9 +73,8 @@ def raise_startup_failure(stdout: str, sandbox_id: str) -> None:
         run_id = payload.get("runId")
         if not isinstance(run_id, str) or not run_id:
             continue
-        try:
-            failure = _startup_failure_adapter.validate_python(payload.get("startupFailure"))
-        except ValidationError:
+        failure = _validate_startup_failure(payload.get("startupFailure"))
+        if failure is None:
             continue
         reason = (
             failure.reason

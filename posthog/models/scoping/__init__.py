@@ -29,30 +29,47 @@ from contextlib import contextmanager
 from contextvars import ContextVar, Token
 from typing import ParamSpec, TypeVar
 
+from posthog.dataclasses import frozen
+
 P = ParamSpec("P")
 R = TypeVar("R")
 
 
+@frozen
+class _TeamScope:
+    team_id: int
+    resolved_from_team_id: int | None
+
+
 # The current canonical team_id, or None if no scope is set.
-_current_team_id: ContextVar[int | None] = ContextVar("current_team_id", default=None)
+_current_team_scope: ContextVar[_TeamScope | None] = ContextVar("current_team_scope", default=None)
 
 
 def get_current_team_id() -> int | None:
     """Get the current canonical team_id, or None if no scope is set."""
-    return _current_team_id.get()
+    scope = _current_team_scope.get()
+    return scope.team_id if scope else None
 
 
-def set_current_team_id(team_id: int | None) -> Token[int | None]:
+def get_resolved_team_id(team_id: int) -> int | None:
+    """The current canonical team_id if the scope was resolved from `team_id`, otherwise None."""
+    scope = _current_team_scope.get()
+    return scope.team_id if scope and scope.resolved_from_team_id == team_id else None
+
+
+def set_current_team_id(team_id: int | None, *, resolved_from_team_id: int | None = None) -> Token[_TeamScope | None]:
     """Set the current canonical team_id. Returns a token to reset it later.
 
     Pass `None` to clear context (used by `unscoped()`).
+    Pass `resolved_from_team_id` only when `team_id` was computed from that team's `parent_team_id`.
     """
-    return _current_team_id.set(team_id)
+    scope = None if team_id is None else _TeamScope(team_id=team_id, resolved_from_team_id=resolved_from_team_id)
+    return _current_team_scope.set(scope)
 
 
-def reset_current_team_id(token: Token[int | None]) -> None:
+def reset_current_team_id(token: Token[_TeamScope | None]) -> None:
     """Reset the current team_id to its previous value."""
-    _current_team_id.reset(token)
+    _current_team_scope.reset(token)
 
 
 @contextmanager
@@ -69,6 +86,8 @@ def team_scope(team_id: int, *, canonical: bool = False) -> Generator[None]:
     a synthetic id in tests). Skipping resolution silently scopes queries
     to whatever id was passed; if it isn't actually canonical, reads will
     return zero rows from the wrong scope.
+
+    The lookup is skipped for the team that the current scope was resolved from.
 
     Example:
         # Production: caller may have a child id, framework resolves
@@ -181,6 +200,7 @@ def with_team_scope(
 
 __all__ = [
     "get_current_team_id",
+    "get_resolved_team_id",
     "set_current_team_id",
     "reset_current_team_id",
     "team_scope",

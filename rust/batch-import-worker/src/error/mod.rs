@@ -28,11 +28,15 @@ impl<T, E: std::error::Error + Send + Sync + 'static> ToUserError<T> for Result<
 const DEFAULT_USER_ERROR_MESSAGE: &str = "An unknown error occurred";
 
 pub fn get_user_message(error: &anyhow::Error) -> String {
+    get_user_message_or(error, DEFAULT_USER_ERROR_MESSAGE)
+}
+
+pub fn get_user_message_or(error: &anyhow::Error, default: &str) -> String {
     // Get the shallowest UserError in the chain
     // To provide the user with all the error context they need, we concatenate the user errors together at call site
     match error.downcast_ref::<UserError>() {
         Some(user_error) => user_error.msg.clone(),
-        None => DEFAULT_USER_ERROR_MESSAGE.to_string(),
+        None => default.to_string(),
     }
 }
 
@@ -126,6 +130,15 @@ pub fn is_transient_network_error(error: &anyhow::Error) -> bool {
         err.downcast_ref::<reqwest::Error>()
             .is_some_and(|re| !re.is_timeout() && !re.is_builder() && re.status().is_none())
     })
+}
+
+/// Returns true if the error chain carries a refusal from the shared DNS resolver, because the
+/// host is on the out-of-band domain denylist. The refusal is permanent, so a retry always fails
+/// the same way, and the caller must pause rather than treat it as a transient network error.
+pub fn is_oob_domain_error(error: &anyhow::Error) -> bool {
+    error
+        .chain()
+        .any(|err| err.downcast_ref::<common_dns::OobDomainError>().is_some())
 }
 
 /// Returns true if the error chain contains a reqwest::Error with HTTP 502/503/504.

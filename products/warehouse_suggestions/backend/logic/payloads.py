@@ -19,6 +19,7 @@ from ..facade.contracts import (
 )
 from ..facade.enums import (
     WarehouseSuggestionKind,
+    WarehouseSuggestionMainSaving,
     WarehouseSuggestionRefreshIntervalBasis,
     WarehouseSuggestionRefreshMode,
 )
@@ -36,13 +37,14 @@ def payload_from_json(
     if payload_version != PAYLOAD_VERSION:
         raise UnsupportedPayloadVersionError(payload_version)
     if kind == WarehouseSuggestionKind.CERTIFY:
-        return CertifyPayload(**data)
+        return CertifyPayload(**_declared(CertifyPayload, data))
     if kind == WarehouseSuggestionKind.DEPRECATE:
-        return DeprecatePayload(**data)
+        return DeprecatePayload(**_declared(DeprecatePayload, data))
     if kind == WarehouseSuggestionKind.UNMATERIALIZE:
-        return UnmaterializePayload(**data)
-    sources = {field: tuple(_source_ref(source) for source in data[field]) for field in SOURCE_FIELDS}
-    return MaterializePayload(**{**data, **sources, **_refresh_fields(data)})
+        return UnmaterializePayload(**_declared(UnmaterializePayload, data))
+    declared = _declared(MaterializePayload, data)
+    sources = {field: tuple(_source_ref(source) for source in declared[field]) for field in SOURCE_FIELDS}
+    return MaterializePayload(**{**declared, **sources, **_refresh_fields(declared)})
 
 
 def source_table_ids(payloads: Iterable[SuggestionPayload]) -> set[UUID]:
@@ -75,6 +77,11 @@ def _visible_sources(sources: tuple[SourceRef, ...], readable_table_ids: Collect
     return VisibleSources(names=names, hidden_count=len(sources) - len(names))
 
 
+def _declared(payload_type: type, data: Mapping[str, Any]) -> dict[str, Any]:
+    names = {field.name for field in fields(payload_type)}
+    return {key: value for key, value in data.items() if key in names}
+
+
 def _source_ref(source: Mapping[str, Any]) -> SourceRef:
     table_id = source["warehouse_table_id"]
     return SourceRef(name=source["name"], warehouse_table_id=UUID(table_id) if table_id else None)
@@ -82,8 +89,10 @@ def _source_ref(source: Mapping[str, Any]) -> SourceRef:
 
 def _refresh_fields(data: Mapping[str, Any]) -> dict[str, Any]:
     basis = data.get("refresh_interval_basis")
+    main_saving = data.get("main_saving")
     return {
         "refresh_mode": WarehouseSuggestionRefreshMode(data.get("refresh_mode", WarehouseSuggestionRefreshMode.FULL)),
         "unique_key": tuple(data.get("unique_key", ())),
         "refresh_interval_basis": WarehouseSuggestionRefreshIntervalBasis(basis) if basis else None,
+        "main_saving": WarehouseSuggestionMainSaving(main_saving) if main_saving else None,
     }

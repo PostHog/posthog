@@ -423,6 +423,42 @@ def test_can_patch_config(
             "Higher frequency batch exports are not enabled for this team.",
             id="Cannot update to high frequency batch exports without feature flag",
         ),
+        pytest.param(
+            {
+                "interval": "day",
+                "timezone": "Europe/Berlin",
+                "offset_day": None,
+                "offset_hour": 1,
+            },
+            {"offset_hour": 5},
+            {
+                "interval": "day",
+                "timezone": "Europe/Berlin",
+                "offset_day": None,
+                "offset_hour": 5,
+                "interval_offset": 5 * 3600,
+            },
+            None,
+            id="Patching only the offset of a daily export",
+        ),
+        pytest.param(
+            {
+                "interval": "week",
+                "timezone": "UTC",
+                "offset_day": 3,
+                "offset_hour": 2,
+            },
+            {"offset_hour": 5},
+            {
+                "interval": "week",
+                "timezone": "UTC",
+                "offset_day": 3,  # the saved day stays
+                "offset_hour": 5,
+                "interval_offset": 3 * 86400 + 5 * 3600,
+            },
+            None,
+            id="Patching only the hour offset of a weekly export",
+        ),
     ],
 )
 def test_can_patch_schedule_configuration(
@@ -657,7 +693,7 @@ def test_put_rejects_destination_type_change(
 
 
 @pytest.mark.parametrize(
-    "grandfathered_batch_export", [True, False], indirect=True, ids=["grandfathered", "other-team"]
+    "grandfathered_batch_export", ["same-team", "same-organization", "other-organization"], indirect=True
 )
 def test_can_patch_hogql_query(
     client: HttpClient,
@@ -685,7 +721,7 @@ def test_can_patch_hogql_query(
     }
 
     response = patch_batch_export(client, team.pk, batch_export["id"], new_batch_export_data)
-    if grandfathered_batch_export.team_id != team.pk:
+    if grandfathered_batch_export.team.organization_id != team.organization_id:
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["attr"] == "hogql_query"
         assert get_batch_export_ok(client, team.pk, batch_export["id"])["schema"] is None
@@ -742,15 +778,16 @@ def test_can_patch_hogql_query(
             ],
             "values": {"hogql_val_0": "test", "hogql_val_1": "Int64"},
             "hogql_query": "SELECT toString(uuid) AS uuid, 'test' AS test, toInt(plus(1, 1)) AS n FROM events",
+            "restricted_properties": [],
         },
         "primary_key": [],
         "version_key": [],
         "incremental_mode": "APPEND",
     }
 
-    for patch_data, expected_schema in [
-        ({"name": "renamed"}, response_data["schema"]),
-        ({"hogql_query": None}, None),
+    for patch_data, expected_schema, expected_schedule_schema in [
+        ({"name": "renamed"}, response_data["schema"], args["batch_export_model"]["schema"]),
+        ({"hogql_query": None}, None, None),
     ]:
         response = patch_batch_export(client, team.pk, batch_export["id"], patch_data)
         assert response.status_code == status.HTTP_200_OK, response.json()
@@ -758,7 +795,7 @@ def test_can_patch_hogql_query(
         schedule = describe_schedule(temporal, batch_export["id"])
         decoded_payload = async_to_sync(encryption_codec.decode)(schedule.schedule.action.args)
         args = json.loads(decoded_payload[0].data)
-        assert args["batch_export_model"].get("schema") == expected_schema
+        assert args["batch_export_model"].get("schema") == expected_schedule_schema
 
 
 @pytest.mark.usefixtures("grandfathered_batch_export")
@@ -1192,3 +1229,28 @@ def test_updating_legacy_postgres_batch_export_keeps_inline_credentials(
     assert response.status_code == status.HTTP_200_OK, response.json()
     updated = get_batch_export_ok(client, team.pk, batch_export.id)
     assert updated["destination"]["config"]["table_name"] == "my_new_events"
+
+
+def test_updating_redshift_batch_export_without_integration_is_rejected(
+    client: HttpClient, temporal, organization, team, user
+):
+    destination = BatchExportDestination.objects.create(
+        type=BatchExportDestination.Destination.REDSHIFT,
+        config={"database": "my-db", "host": "8.8.8.8", "schema": "public", "table_name": "my_events"},
+    )
+    batch_export = BatchExport.objects.create(
+        name="export-without-integration", team=team, destination=destination, interval="hour"
+    )
+
+    client.force_login(user)
+    response = patch_batch_export(
+        client,
+        team.pk,
+        batch_export.id,
+        {"destination": {"type": "Redshift", "config": {"table_name": "my_new_events"}}},
+    )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+    assert response.json()["detail"] == "Integration is required for Redshift batch exports"
+    destination.refresh_from_db()
+    assert destination.config["table_name"] == "my_events"

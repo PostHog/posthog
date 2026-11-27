@@ -6,12 +6,12 @@ import { LemonButton, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { pluralize } from 'lib/utils/strings'
-import { urls } from 'scenes/urls'
 
 import { captureScoutAction } from '../../../inboxAnalytics'
 import { scoutDetailLogic } from '../../../logics/scoutDetailLogic'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import { SignalScoutRunSummary } from '../../../types'
+import { useInboxReportDetailUrl } from '../../../utils/inboxReportUrls'
 import {
     deriveRunFailureKind,
     formatRunDuration,
@@ -30,6 +30,7 @@ import {
     SCOUT_RUN_HISTORY_UNAVAILABLE,
     SCOUT_RUNS_PER_SCOUT_LABEL,
 } from '../../../utils/scoutRunsWindow'
+import { RecordedSpend } from '../../spend/RecordedSpend'
 import { ScoutTimestamp } from './ScoutTimestamp'
 
 // This pill matches any run that produced output, either a signal finding or report activity, so its
@@ -198,6 +199,9 @@ function FailedRunGroup({ runs, skillName }: { runs: SignalScoutRunSummary[]; sk
                         <span className="whitespace-nowrap text-[11px] text-warning">· timed out</span>
                     )}
                     <span className="min-w-0 flex-1 text-secondary">{scoutRunFailureLine(run, now)}</span>
+                    <span className="text-[11px] text-muted">
+                        <RecordedSpend amount={run.total_spend} />
+                    </span>
                     <RunOutputTag run={run} />
                     {run.task_url && (
                         <Link
@@ -244,6 +248,7 @@ const ScoutRunRow = memo(function ScoutRunRow({
     const emitted = run.emitted_count ?? 0
     const { authored: authoredReportIds, edited: editedReportIds } = runReportActivity(run)
     const hasBody = Boolean(run.summary) || status === 'failed' || expanded
+    const reportUrl = useInboxReportDetailUrl()
 
     return (
         <div className="flex flex-col border-b border-primary last:border-b-0">
@@ -265,6 +270,9 @@ const ScoutRunRow = memo(function ScoutRunRow({
                 <RunGlyph run={run} />
                 <ScoutTimestamp time={run.started_at} />
                 {duration && <span className="whitespace-nowrap text-[11px] text-muted">· {duration}</span>}
+                <span className="text-[11px] text-muted">
+                    <RecordedSpend amount={run.total_spend} />
+                </span>
                 {/* One colour per failure kind, matching the glyph — a red glyph next to amber text
                     read as two different states of the same run. */}
                 {failureKind && (
@@ -306,7 +314,7 @@ const ScoutRunRow = memo(function ScoutRunRow({
                             {authoredReportIds.map((reportId) => (
                                 <Link
                                     key={reportId}
-                                    to={urls.inboxReport('reports', reportId)}
+                                    to={reportUrl(reportId)}
                                     className="flex items-center gap-1 font-medium shrink-0"
                                     onClick={() => captureOpenLinkedReport(skillName, reportId, 'authored')}
                                 >
@@ -316,7 +324,7 @@ const ScoutRunRow = memo(function ScoutRunRow({
                             {editedReportIds.map((reportId) => (
                                 <Link
                                     key={reportId}
-                                    to={urls.inboxReport('reports', reportId)}
+                                    to={reportUrl(reportId)}
                                     className="flex items-center gap-1 font-medium shrink-0"
                                     onClick={() => captureOpenLinkedReport(skillName, reportId, 'edited')}
                                 >

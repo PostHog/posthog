@@ -6,17 +6,17 @@ from dataclasses import dataclass
 from typing import Any
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from temporalio import activity, workflow
 from temporalio.client import Client, WorkflowFailureError
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError, CancelledError
-from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+from temporalio.worker import ExecuteActivityInput, UnsandboxedWorkflowRunner, Worker
 
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.exceptions_capture import bind_exception_context
-from posthog.temporal.common.errors import NonReportableError
+from posthog.temporal.common.errors import NonReportableApplicationError, NonReportableError
 from posthog.temporal.common.posthog_client import PostHogClientInterceptor
 from posthog.temporal.common.shutdown import WorkerShuttingDownError
 
@@ -24,6 +24,7 @@ from posthog.temporal.common.shutdown import WorkerShuttingDownError
 @dataclass
 class OptionallyFailingInputs:
     fail: bool
+    non_reportable: bool = False
 
 
 @workflow.defn
@@ -212,7 +213,7 @@ class DirectlyFailingWorkflow:
     @workflow.run
     async def run(self, inputs: OptionallyFailingInputs) -> None:
         if inputs.fail:
-            raise ApplicationError("Workflow failed!")
+            raise (NonReportableApplicationError if inputs.non_reportable else ApplicationError)("Workflow failed!")
 
 
 @pytest.mark.parametrize("fail", [True, False])
@@ -467,7 +468,8 @@ async def test_expected_control_flow_application_error_is_not_captured(temporal_
 
 
 @pytest.mark.asyncio
-async def test_workflow_only_error_is_captured(temporal_client: Client):
+@pytest.mark.parametrize("non_reportable", [False, True])
+async def test_workflow_only_error_is_captured(non_reportable: bool, temporal_client: Client):
     task_queue = "TEST-TASK-QUEUE"
     workflow_id = str(uuid.uuid4())
 
@@ -483,14 +485,49 @@ async def test_workflow_only_error_is_captured(temporal_client: Client):
             with pytest.raises(WorkflowFailureError):
                 await temporal_client.execute_workflow(
                     "DirectlyFailingWorkflow",
-                    OptionallyFailingInputs(fail=True),
+                    OptionallyFailingInputs(fail=True, non_reportable=non_reportable),
                     id=workflow_id,
                     task_queue=task_queue,
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
 
+        if non_reportable:
+            mock_ph_capture.assert_not_called()
+            return
         assert mock_ph_capture.call_count == 1
         workflow_call = mock_ph_capture.call_args_list[0]
         assert isinstance(workflow_call[0][0], ApplicationError)
         assert workflow_call[1]["properties"]["temporal.execution_type"] == "workflow"
         assert workflow_call[1]["properties"]["temporal.workflow.id"] == workflow_id
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "error,expected_captures",
+    [
+        (ApplicationError("Task spend is still settling", type="TaskSpendPending"), 0),
+        (ApplicationError("Spend task run no longer exists", non_retryable=True), 1),
+        (ApplicationError("Task workflow did not complete settlement", non_retryable=True), 1),
+    ],
+    ids=["pending", "missing_run", "failed_settlement"],
+)
+async def test_task_spend_failure_reporting(error: ApplicationError, expected_captures: int) -> None:
+    next_interceptor = AsyncMock()
+    next_interceptor.execute_activity.side_effect = error
+    interceptor = PostHogClientInterceptor().intercept_activity(next_interceptor)
+    activity_input = MagicMock(spec=ExecuteActivityInput)
+    activity_input.args = []
+    activity_input.fn = failing_activity
+
+    with (
+        patch("posthog.temporal.common.posthog_client.api_key", "phc_test"),
+        patch("posthog.temporal.common.posthog_client.activity.info", return_value=MagicMock()),
+        patch("posthog.temporal.common.posthog_client.capture_exception") as capture,
+    ):
+        with pytest.raises(ApplicationError) as raised:
+            await interceptor.execute_activity(activity_input)
+
+    assert raised.value is error
+    assert capture.call_count == expected_captures
+    if expected_captures:
+        assert capture.call_args.args[0] is error

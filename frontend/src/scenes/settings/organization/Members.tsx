@@ -2,107 +2,53 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
 import { IconInfo } from '@posthog/icons'
-import { LemonBanner, LemonInput, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonInput, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
 
 import { projectDataFreshnessLogic } from 'lib/components/Account/projectDataFreshnessLogic'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import {
-    getReasonForAccessLevelChangeProhibition,
-    membershipLevelToName,
-    organizationMembershipLevelIntegers,
-} from 'lib/utils/permissioning'
+import { preflightLogic } from 'lib/logic/preflightLogic'
+import { membershipLevelToName } from 'lib/utils/permissioning'
 import { capitalizeFirstLetter, fullName, fullNameOrEmail } from 'lib/utils/strings'
 import { twoFactorLogic } from 'scenes/authentication/two-factor-setup/twoFactorLogic'
 import { membersExportLogic } from 'scenes/organization/membersExportLogic'
-import { membersLogic } from 'scenes/organization/membersLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { membersLogic } from '~/models/membersLogic'
 import { AvailableFeature, OrganizationMemberType } from '~/types'
 
+import { changeMemberLevelWithConfirmation, memberActionOptions, memberLevelChangeLabel } from './memberActions'
+import { memberOffboardingLogic } from './memberOffboardingLogic'
+import { MemberOffboardingModal } from './MemberOffboardingModal'
 import { accessibleProjects, orderByActivity } from './memberProjectAccess'
 import { memberProjectAccessLogic } from './memberProjectAccessLogic'
 import { MemberProjectAccessModal } from './MemberProjectAccessModal'
-
-function RemoveMemberModal({ member }: { member: OrganizationMemberType }): JSX.Element {
-    const { user } = useValues(userLogic)
-    const { scopedApiKeys } = useValues(membersLogic)
-
-    return (
-        <div className="max-w-xl">
-            <p>
-                {member.user.uuid === user?.uuid
-                    ? 'Are you sure you want to leave this organization? This cannot be undone. If you leave, you will no longer have access to this organization.'
-                    : 'Are you sure you want to remove this member? This cannot be undone. They will no longer have access to this organization.'}
-            </p>
-            {scopedApiKeys?.keys && scopedApiKeys.keys.length > 0 && (
-                <div className="mt-4">
-                    <LemonBanner type="warning" className="mb-2">
-                        The following personal API keys which belong to{' '}
-                        {member.user.uuid == user?.uuid ? 'you' : 'this member'} will lose access to this organization
-                        and will stop working immediately. Please confirm they will not affect any services that depend
-                        on them before removing {member.user.uuid == user?.uuid ? 'yourself' : 'this member'}.
-                    </LemonBanner>
-                    <LemonTable
-                        dataSource={scopedApiKeys.keys}
-                        columns={[
-                            {
-                                title: 'Name',
-                                dataIndex: 'name',
-                                key: 'name',
-                            },
-                            {
-                                title: 'Last used',
-                                dataIndex: 'last_used_at',
-                                key: 'last_used_at',
-                                render: (last_used_at) => (last_used_at ? <TZLabel time={last_used_at} /> : 'Never'),
-                            },
-                        ]}
-                    />
-                </div>
-            )}
-        </div>
-    )
-}
+import { QuillMembers } from './QuillMembers'
 
 function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element | null {
     const { user } = useValues(userLogic)
     const { currentOrganization } = useValues(organizationLogic)
-    const { removeMember, changeMemberAccessLevel, loadMemberScopedApiKeys } = useActions(membersLogic)
+    const { changeMemberAccessLevel } = useActions(membersLogic)
+    const { open: openOffboarding } = useActions(memberOffboardingLogic)
     const { openProjectAccessModal } = useActions(memberProjectAccessLogic)
 
     if (!user) {
         return null
     }
 
-    const currentMembershipLevel = currentOrganization?.membership_level ?? -1
-
-    const allowDeletion =
-        // higher-ranked users cannot be removed, at the same time the currently logged-in user can leave any time
-        ((currentMembershipLevel >= OrganizationMembershipLevel.Admin && member.level <= currentMembershipLevel) ||
-            member.user.uuid === user.uuid) &&
-        // unless that user is the organization's owner, in which case they can't leave
-        member.level !== OrganizationMembershipLevel.Owner
-
-    const myMembershipLevel = currentOrganization ? currentOrganization.membership_level : null
-
-    const allowedLevels = organizationMembershipLevelIntegers.filter(
-        (listLevel) => !getReasonForAccessLevelChangeProhibition(myMembershipLevel, user, member, listLevel)
-    )
-    const disallowedReason = getReasonForAccessLevelChangeProhibition(myMembershipLevel, user, member, allowedLevels)
+    const { allowDeletion, allowedLevels, disallowedReason } = memberActionOptions(user, currentOrganization, member)
 
     return (
         <More
@@ -125,34 +71,11 @@ function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element |
                                     if (!user) {
                                         throw Error
                                     }
-                                    if (listLevel === OrganizationMembershipLevel.Owner) {
-                                        LemonDialog.open({
-                                            title: `Add additional owner to ${user.organization?.name}?`,
-                                            description: `Please confirm that you would like to make ${fullName(
-                                                member.user
-                                            )} an owner of ${user.organization?.name}.`,
-                                            primaryButton: {
-                                                status: 'danger',
-                                                children: `Make ${fullName(member.user)} an owner`,
-                                                onClick: () => changeMemberAccessLevel(member, listLevel),
-                                            },
-                                            secondaryButton: {
-                                                children: 'Cancel',
-                                            },
-                                        })
-                                    } else {
-                                        changeMemberAccessLevel(member, listLevel)
-                                    }
+                                    changeMemberLevelWithConfirmation(user, member, listLevel, changeMemberAccessLevel)
                                 }}
                                 data-test-level={listLevel}
                             >
-                                {listLevel === OrganizationMembershipLevel.Owner ? (
-                                    <>Make owner</>
-                                ) : listLevel > member.level ? (
-                                    <>Upgrade to {membershipLevelToName.get(listLevel)}</>
-                                ) : (
-                                    <>Downgrade to {membershipLevelToName.get(listLevel)}</>
-                                )}
+                                {memberLevelChangeLabel(member, listLevel)}
                             </LemonButton>
                         ))}
                     {allowDeletion && (
@@ -160,28 +83,7 @@ function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element |
                             <LemonButton
                                 status="danger"
                                 data-attr="delete-org-membership"
-                                onClick={() => {
-                                    if (!user) {
-                                        throw Error
-                                    }
-                                    loadMemberScopedApiKeys(member)
-                                    LemonDialog.open({
-                                        title: `${
-                                            member.user.uuid == user.uuid
-                                                ? 'Leave'
-                                                : `Remove ${fullName(member.user)} from`
-                                        } organization ${user.organization?.name}?`,
-                                        primaryButton: {
-                                            children: member.user.uuid == user.uuid ? 'Leave' : 'Remove',
-                                            status: 'danger',
-                                            onClick: () => removeMember(member),
-                                        },
-                                        secondaryButton: {
-                                            children: 'Cancel',
-                                        },
-                                        content: <RemoveMemberModal member={member} />,
-                                    })
-                                }}
+                                onClick={() => openOffboarding(member)}
                                 fullWidth
                             >
                                 {member.user.uuid !== user.uuid ? 'Remove from organization' : 'Leave organization'}
@@ -256,9 +158,18 @@ export function Members(): JSX.Element | null {
 
     const adminRestrictionReason = useRestrictedArea({ minimumAccessLevel: OrganizationMembershipLevel.Admin })
     const hasHiddenMembers =
-        (members?.length ?? 0) > 0 && (members?.length ?? 0) < (currentOrganization?.member_count ?? 0)
+        currentOrganization?.members_can_see_org_members === false &&
+        !!adminRestrictionReason &&
+        !!members?.length &&
+        members.length < currentOrganization.member_count
+
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     useOnMountEffect(ensureAllMembersLoaded)
+
+    if (todayRailNav) {
+        return <QuillMembers />
+    }
 
     if (!user) {
         return null
@@ -408,6 +319,7 @@ export function Members(): JSX.Element | null {
             </div>
 
             <MemberProjectAccessModal />
+            <MemberOffboardingModal />
             <LemonTable
                 dataSource={filteredMembers ?? []}
                 columns={columns}

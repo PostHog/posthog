@@ -104,13 +104,13 @@ impl ServiceProcess {
         &self.spec.log_path
     }
 
-    /// Whether the process has exited. Returns the exit description if so.
-    pub fn exited(&mut self) -> Option<String> {
-        match self.child.try_wait() {
-            Ok(Some(status)) => Some(status.to_string()),
-            Ok(None) => None,
-            Err(e) => Some(format!("unknown ({e})")),
-        }
+    pub fn exited(&mut self) -> Option<std::io::Result<std::process::ExitStatus>> {
+        self.child.try_wait().transpose()
+    }
+
+    pub fn restart_exited(&mut self) -> Result<()> {
+        self.child = self.spec.spawn()?;
+        Ok(())
     }
 
     /// Kill the current process (if still running) and start a fresh one

@@ -30,7 +30,8 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.sync import database_sync_to_async
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import get_action
+from products.actions.backend.facade.contracts import Action, ActionNotFound
 from products.marketing_analytics.backend.services.native_integrations import (
     NativeIntegration,
     build_combined_alias_map,
@@ -457,8 +458,8 @@ def _resolve_action(team: Team, goal_id: str) -> tuple[Action | None, str | None
     except (TypeError, ValueError):
         return None, f"Goal id '{goal_id}' is not a valid integer for ActionsNode"
     try:
-        return Action.objects.get(id=action_id_int, team_id=team.pk, deleted=False), None
-    except Action.DoesNotExist:
+        return get_action(action_id=action_id_int, team_id=team.pk, include_deleted=False), None
+    except ActionNotFound:
         return None, f"Action {goal_id} does not exist or is deleted"
 
 

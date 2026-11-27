@@ -1,6 +1,8 @@
 import type { App } from '@modelcontextprotocol/ext-apps'
+import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 
 import type { UiAppKey } from '../../resources/ui-apps.generated'
+import { EXEC_READ_TOOL_NAME, EXEC_TOOL_NAME } from '../../tools/exec-names'
 import { APP_DATA_META_KEY } from '../types'
 
 interface RenderUiDataResult {
@@ -8,19 +10,33 @@ interface RenderUiDataResult {
     isError?: boolean
 }
 
-export async function loadRenderUiData(
-    app: Pick<App, 'callServerTool'>,
+export interface RenderUiDataRequest {
+    name: string
+    arguments: Record<string, unknown>
+}
+
+/**
+ * The render-ui result's `_meta` app data is the rendered tool's payload, not the render-ui
+ * envelope, so the envelope only travels in `structuredContent`. The generic parser prefers
+ * `_meta` and would hand the app chart data with no `app_key` to dispatch on.
+ */
+export function readRenderUiEnvelope(structuredContent: unknown, _meta?: Record<string, unknown>): unknown {
+    return structuredContent ?? null
+}
+
+/** The `tools/call` that fetches a visualization's data; the server preloads with the same call. */
+export function renderUiDataRequest(
     toolName: string,
     input: Record<string, unknown>,
     appKey: UiAppKey
-): Promise<RenderUiDataResult> {
-    const useExec = appKey === 'query-results'
-    const result = await app.callServerTool(
-        useExec
-            ? { name: 'exec', arguments: { command: `call --json ${toolName} ${JSON.stringify(input)}` } }
-            : { name: toolName, arguments: input }
-    )
-    if (!useExec || result.isError) {
+): RenderUiDataRequest {
+    return appKey === 'query-results'
+        ? { name: EXEC_READ_TOOL_NAME, arguments: { command: `call --json ${toolName} ${JSON.stringify(input)}` } }
+        : { name: toolName, arguments: input }
+}
+
+export function readRenderUiData(result: CallToolResult, appKey: UiAppKey): RenderUiDataResult {
+    if (appKey !== 'query-results' || result.isError) {
         return result
     }
     const data = result.structuredContent ?? result._meta?.[APP_DATA_META_KEY]
@@ -29,4 +45,27 @@ export async function loadRenderUiData(
     }
     const text = result.content.find((item) => item.type === 'text')?.text
     return { structuredContent: text === undefined ? undefined : JSON.parse(text) }
+}
+
+export async function loadRenderUiData(
+    app: Pick<App, 'callServerTool'>,
+    toolName: string,
+    input: Record<string, unknown>,
+    appKey: UiAppKey,
+    resultMeta?: Record<string, unknown> | null
+): Promise<RenderUiDataResult> {
+    const preloaded = resultMeta?.[APP_DATA_META_KEY]
+    if (preloaded !== undefined && preloaded !== null) {
+        return { structuredContent: preloaded }
+    }
+    const request = renderUiDataRequest(toolName, input, appKey)
+    try {
+        return readRenderUiData(await app.callServerTool(request), appKey)
+    } catch (error) {
+        if (request.name !== EXEC_READ_TOOL_NAME) {
+            throw error
+        }
+        // A connection without the split lists only `exec`, and a host may refuse a tool it never listed.
+        return readRenderUiData(await app.callServerTool({ ...request, name: EXEC_TOOL_NAME }), appKey)
+    }
 }

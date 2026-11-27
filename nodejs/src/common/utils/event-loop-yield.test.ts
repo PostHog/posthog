@@ -94,27 +94,44 @@ describe('event-loop-yield', () => {
         })
 
         it('does not block the loop across many CPU-bound calls', async () => {
+            jest.useFakeTimers({ doNotFake: ['setImmediate'] })
+            let elapsed = 0
+            const now = jest.spyOn(performance, 'now').mockImplementation(() => elapsed)
             configureEventLoopYield(20)
 
             let longestDelay = 0
+            let completed = 0
             let lastTick = performance.now()
             const interval = setInterval(() => {
                 const now = performance.now()
                 longestDelay = Math.max(longestDelay, now - lastTick)
                 lastTick = now
-            }, 0)
+            }, 1)
 
             try {
                 const blockMs = 30
                 for (let i = 0; i < 10; i++) {
-                    await yieldEventLoopIfNeeded('test', () => busyWaitMs(blockMs))
+                    const call = yieldEventLoopIfNeeded('test', () => {
+                        elapsed += blockMs
+                    }).then(() => {
+                        completed += 1
+                    })
+
+                    await new Promise((resolve) => setImmediate(resolve))
+                    expect(completed).toBe(i)
+                    await jest.advanceTimersByTimeAsync(1)
+                    await call
+                    expect(completed).toBe(i + 1)
                 }
                 // 10 * 30 = 300ms total blocking. With yielding, longestDelay
                 // should be close to one block + scheduling jitter. (If yielding
                 // were broken, this would be ~300ms.)
-                expect(longestDelay).toBeLessThan(blockMs * 4)
+                expect(longestDelay).toBe(blockMs)
             } finally {
                 clearInterval(interval)
+                await jest.runAllTimersAsync()
+                now.mockRestore()
+                jest.useRealTimers()
             }
         })
     })

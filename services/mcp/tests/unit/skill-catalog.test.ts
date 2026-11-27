@@ -1,6 +1,7 @@
 import { strToU8, zipSync } from 'fflate'
 import { describe, expect, it, vi } from 'vitest'
 
+import { maxResponseBytes } from '@/lib/response-budget'
 import type { ProjectSkillCatalog } from '@/skills/project-skill-catalog'
 import {
     formatLearnFile,
@@ -11,7 +12,7 @@ import {
     searchLearnFile,
     SkillCatalog,
 } from '@/skills/skill-catalog'
-import { ExecLearnCatalog } from '@/tools/exec-learn'
+import { ExecLearnCatalog, LEARN_GUIDE_TOKEN_BUDGET } from '@/tools/exec-learn'
 
 function makeArchive(files: Record<string, string>): Uint8Array {
     return zipSync(Object.fromEntries(Object.entries(files).map(([path, content]) => [path, strToU8(content)])))
@@ -103,6 +104,58 @@ describe('SkillCatalog and exec learn', () => {
             score: 120,
             snippets: [{ path: 'references/z.md' }],
         })
+    })
+
+    it('overlays a second archive, keeps the product skill on a shared name, and rejects duplicates within one archive', () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+        try {
+            const catalog = SkillCatalog.fromZip(
+                makeArchive({
+                    'funnels/SKILL.md': makeSkill('funnels', 'Product funnels.', '# Funnels'),
+                    'retention-analysis/SKILL.md': makeSkill('retention-analysis', 'Retention.', '# Retention'),
+                }),
+                makeArchive({
+                    'funnels/SKILL.md': makeSkill('funnels', 'Overlay funnels.', '# Overlay funnels'),
+                    'instrument-logs/SKILL.md': makeSkill('instrument-logs', 'Add logs.', '# Add logs'),
+                })
+            )
+
+            expect(catalog.listNames()).toEqual(['funnels', 'instrument-logs', 'retention-analysis'])
+            expect(catalog.describe('funnels')).toBe('Product funnels.')
+            expect(warn).toHaveBeenCalledTimes(1)
+            expect(() =>
+                SkillCatalog.fromZip(
+                    makeArchive({
+                        'a/SKILL.md': makeSkill('twice', 'One.', '# One'),
+                        'b/SKILL.md': makeSkill('twice', 'Two.', '# Two'),
+                    })
+                )
+            ).toThrow('Duplicate skill name')
+        } finally {
+            warn.mockRestore()
+        }
+    })
+
+    it('scores an omnibus instrument skill by its entry point only, never its references', () => {
+        const catalog = SkillCatalog.fromZip(
+            makeArchive({
+                'instrument-logs/SKILL.md': makeSkill(
+                    'instrument-logs',
+                    'Add PostHog log capture to an app.',
+                    '# Add logs\n\nInstall the SDK and ship logs.'
+                ),
+                'instrument-logs/references/go.md': '# Go\n\nConfigure the zerolog adapter.',
+                'investigating-logs/SKILL.md': makeSkill(
+                    'investigating-logs',
+                    'Find failing requests in logs.',
+                    '# Investigating logs\n\nFilter zerolog output by severity.'
+                ),
+            })
+        )
+
+        expect(catalog.searchResults('zerolog').map((result) => result.identifier)).toEqual(['investigating-logs'])
+        expect(catalog.searchResults('capture').map((result) => result.identifier)).toEqual(['instrument-logs'])
+        expect(catalog.read('instrument-logs', 'references/go.md')).toContain('zerolog adapter')
     })
 
     it('ranks an exact name before substring matches at the result limit', () => {
@@ -282,7 +335,7 @@ describe('SkillCatalog and exec learn', () => {
             '../escape/SKILL.md': makeSkill('escape', 'Unsafe archive.', '# Escape'),
         })
 
-        expect(() => SkillCatalog.fromZip(archive)).toThrow('Unsafe skill archive path')
+        expect(() => SkillCatalog.fromZip(archive)).toThrow('Skill archive has an unsafe path')
     })
 
     it.each([
@@ -535,6 +588,45 @@ describe('SkillCatalog and exec learn', () => {
                 'Unknown skill: "missing"'
             )
             expect(invocations).toEqual([])
+        })
+
+        const deferralBody = (fill: string): string =>
+            fill.repeat(Math.floor(maxResponseBytes(LEARN_GUIDE_TOKEN_BUDGET) * 0.6))
+
+        it.each<{ batch: string; files: Record<string, string>; command: string; retry: string; returned: string[] }>([
+            {
+                batch: 'skills',
+                files: {
+                    'big-a/SKILL.md': makeSkill('big-a', 'First large skill.', deferralBody('a')),
+                    'big-b/SKILL.md': makeSkill('big-b', 'Second large skill.', deferralBody('b')),
+                },
+                command: 'posthog:big-a posthog:big-b',
+                retry: 'learn posthog:big-b',
+                returned: ['big-a'],
+            },
+            {
+                batch: 'files',
+                files: {
+                    'big/SKILL.md': makeSkill('big', 'Large skill.', 'See the references.'),
+                    'big/references/a.md': deferralBody('a'),
+                    'big/references/b.md': deferralBody('b'),
+                },
+                command: 'posthog:big references/a.md references/b.md',
+                retry: 'learn posthog:big references/b.md',
+                returned: ['references/a.md'],
+            },
+        ])('defers whole $batch past the response budget and reports only what it returned', async (testCase) => {
+            const catalog = SkillCatalog.fromZip(makeArchive(testCase.files))
+            const invocations: { skill: string; path?: string }[] = []
+            const learn = new ExecLearnCatalog([], { posthog: catalog }, (inv) => invocations.push(inv))
+
+            const output = await learn.execute(testCase.command)
+
+            expect([
+                output.includes('bbbb'),
+                output.endsWith(`Run \`${testCase.retry}\` in a separate command.]`),
+            ]).toEqual([false, true])
+            expect(invocations.map((inv) => inv.path ?? inv.skill)).toEqual(testCase.returned)
         })
 
         it('keeps learn working when the listener throws', async () => {

@@ -1,13 +1,21 @@
 package core
 
 import (
+	"errors"
 	"os"
 	"strings"
 	"testing"
 )
 
 func TestDedicatedSecretsAreGeneratedAndKept(t *testing.T) {
-	for _, key := range []string{"INTERNAL_REQUEST_TOKEN", "BROWSERLESS_SECRET", "RECORDING_API_JWT_SECRET"} {
+	for _, key := range []string{
+		"INTERNAL_REQUEST_TOKEN",
+		"BROWSERLESS_SECRET",
+		"RECORDING_API_JWT_SECRET",
+		"OBJECT_STORAGE_ACCESS_KEY_ID",
+		"OBJECT_STORAGE_SECRET_ACCESS_KEY",
+		"CDP_SEALED_STATE_KEYS",
+	} {
 		cases := []struct {
 			name      string
 			existing  string
@@ -50,7 +58,64 @@ func TestDedicatedSecretsAreGeneratedAndKept(t *testing.T) {
 				if value == "" || value == ReadEnvValue("POSTHOG_SECRET") {
 					t.Fatalf("%s = %q, want a value of its own", key, value)
 				}
+				// The node service builds a Fernet key from it, which takes exactly 32 characters.
+				if key == "CDP_SEALED_STATE_KEYS" && tc.wantValue == "" && len(value) != 32 {
+					t.Fatalf("%s = %q, want 32 characters", key, value)
+				}
 			})
+		}
+	}
+}
+
+func TestUpgradeRestrictsEnvToOwner(t *testing.T) {
+	t.Chdir(t.TempDir())
+	if err := os.WriteFile(".env", []byte("POSTHOG_SECRET=s3cret\nDOMAIN=example.com\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	// os.WriteFile applies the umask, so set the mode of an older install explicitly.
+	if err := os.Chmod(".env", 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := UpdateEnvForUpgrade(""); err != nil {
+		t.Fatal(err)
+	}
+
+	info, err := os.Stat(".env")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mode := info.Mode().Perm(); mode != 0600 {
+		t.Fatalf(".env mode = %o, want 600", mode)
+	}
+}
+
+func TestUpgradeReplacesSharedObjectStorageKeys(t *testing.T) {
+	t.Chdir(t.TempDir())
+	existing := "POSTHOG_SECRET=s3cret\nDOMAIN=example.com\n" +
+		"OBJECT_STORAGE_ACCESS_KEY_ID=object_storage_root_user\n" +
+		"OBJECT_STORAGE_SECRET_ACCESS_KEY=\"object_storage_root_password\"\n"
+	if err := os.WriteFile(".env", []byte(existing), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := UpdateEnvForUpgrade(""); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(".env")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for key, shared := range map[string]string{
+		"OBJECT_STORAGE_ACCESS_KEY_ID":     "object_storage_root_user",
+		"OBJECT_STORAGE_SECRET_ACCESS_KEY": "object_storage_root_password",
+	} {
+		if value := ReadEnvValue(key); value == "" || value == shared {
+			t.Errorf("%s = %q, want a generated value", key, value)
+		}
+		if n := strings.Count(string(data), key+"="); n != 1 {
+			t.Errorf(".env has %d %s lines, want 1:\n%s", n, key, data)
 		}
 	}
 }
@@ -146,6 +211,49 @@ func TestUpdateEnvForUpgradeCaddyKeys(t *testing.T) {
 				if strings.Contains(got, nw) {
 					t.Errorf("expected .env not to contain %q, got:\n%s", nw, got)
 				}
+			}
+		})
+	}
+}
+
+func TestBatchExportsStayOnUnlessTheInstallHasNone(t *testing.T) {
+	cases := []struct {
+		name  string
+		count string
+		err   error
+		want  bool
+	}{
+		{"no batch exports", "0\n", nil, false},
+		{"some batch exports", "3\n", nil, true},
+		{"database not reachable", "", errors.New("exit status 1"), true},
+		{"unreadable output", "", nil, true},
+	}
+	for _, c := range cases {
+		if got := keepBatchExportsEnabled(c.count, c.err); got != c.want {
+			t.Errorf("%s: keepBatchExportsEnabled(%q, %v) = %v, want %v", c.name, c.count, c.err, got, c.want)
+		}
+	}
+}
+
+func TestEnvHasKeyCountsAnEmptyValueAsSet(t *testing.T) {
+	cases := []struct {
+		name string
+		env  string
+		want bool
+	}{
+		{"absent", "DOMAIN=example.com\n", false},
+		{"commented out", "#BATCH_EXPORTS_ENABLED=true\n", false},
+		{"empty value", "BATCH_EXPORTS_ENABLED=\n", true},
+		{"set value", "BATCH_EXPORTS_ENABLED=false\n", true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Chdir(t.TempDir())
+			if err := os.WriteFile(".env", []byte(c.env), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if got := envHasKey("BATCH_EXPORTS_ENABLED"); got != c.want {
+				t.Errorf("envHasKey = %v, want %v", got, c.want)
 			}
 		})
 	}

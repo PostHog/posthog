@@ -29,6 +29,7 @@ import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { isLiveOnSandboxSender } from '../Channels/sandboxSender'
 import { AutomationEmptyState } from '../setupGuide/AutomationEmptyState'
 import { AutomationSuggestionBanner } from '../setupGuide/AutomationSuggestionBanner'
 import { MessagingSetupReminderBanner } from '../setupGuide/MessagingSetupReminderBanner'
@@ -129,7 +130,6 @@ export function WorkflowsTable(): JSX.Element {
         allArchivedSelected,
         selectedArchivedCount,
         localWorkflowTags,
-        tags: allTags,
     } = useValues(logic)
     // Only an unfiltered Automations tab is truly empty. With a search or filter, the plain message fits.
     const showAutomationEmptyState =
@@ -154,7 +154,6 @@ export function WorkflowsTable(): JSX.Element {
         clearArchivedWorkflowSelection,
         updateWorkflowTags,
         setTagsFilter,
-        loadTagsIfNeeded,
     } = useActions(logic)
 
     useOnMountEffect(() => {
@@ -164,7 +163,6 @@ export function WorkflowsTable(): JSX.Element {
             id: 'new',
         })
         newWorkflowLogic?.unmount()
-        loadTagsIfNeeded()
 
         // Since logic isn't getting unmounted when navigating away from this scene, we need to reload workflows
         // when the component re-mounts
@@ -267,7 +265,6 @@ export function WorkflowsTable(): JSX.Element {
                 return (
                     <WorkflowTagsCell
                         tags={tags}
-                        tagsAvailable={allTags.filter((tag) => !tags.includes(tag))}
                         canEdit={canEdit}
                         onChange={(newTags) => updateWorkflowTags(item, newTags)}
                         onTagClick={filterByTag}
@@ -358,7 +355,21 @@ export function WorkflowsTable(): JSX.Element {
             width: 0,
             render: (_, item) => {
                 const config = STATUS_CONFIG[item.status] || STATUS_CONFIG.draft
-                return <LemonTag type={config.type}>{config.label}</LemonTag>
+                return (
+                    <div className="flex flex-wrap items-center gap-1">
+                        <LemonTag type={config.type}>{config.label}</LemonTag>
+                        {isLiveOnSandboxSender(item) && (
+                            <Tooltip title="Email steps on the PostHog test sender reach only verified members of your organization. To reach your users, set up your sending domain and switch those steps to it.">
+                                {/* Focusable so keyboard users can open the tooltip. */}
+                                <span tabIndex={0} className="inline-flex">
+                                    <LemonTag type="warning" data-attr="workflow-list-sandbox-sender">
+                                        Test sender
+                                    </LemonTag>
+                                </span>
+                            </Tooltip>
+                        )}
+                    </div>
+                )
             },
         },
         {

@@ -24,7 +24,6 @@ const CATALOG = new Set(CATALOG_TOOL_NAMES)
 const UNGATED_BY_DESIGN = new Set([
     'actions-get-all',
     'agent-feedback',
-    'business-knowledge-document-window-retrieve',
     'dashboard-create',
     'dashboard-get',
     'dashboard-widgets-batch-add',
@@ -87,20 +86,23 @@ function advertisedCommands(text: string): string[] {
     return namedCatalogTools(text)
 }
 
-/** Both surfaces an agent reads before its first call, plus the separate
- *  reference Claude web/desktop gets. */
 function execGuidance(toolNames: string[]): string {
     const builder = new InstructionsBuilder('some guidelines')
-    const state = (vendorClient?: string, renderUiEnabled = false): ResolvedState =>
+    const state = (vendorClient?: string, renderUiEnabled = false, mcpConsumer?: string): ResolvedState =>
         makeToolExecutorState(
             toolNames.map((name) => ({ name })),
-            { clientProfile: new MCPClientProfile(vendorClient ? { vendorClient } : {}), renderUiEnabled }
+            {
+                clientProfile: new MCPClientProfile(vendorClient ? { vendorClient } : {}),
+                renderUiEnabled,
+                requestContext: { mcpConsumer } as ResolvedState['requestContext'],
+            }
         )
     return [
         builder.buildExecToolDescription(state()),
         builder.buildExecCommandReference(state()),
         builder.buildExecCommandReference(state('ClaudeAI')),
         builder.buildExecCommandReference(state(undefined, true)),
+        builder.buildExecCommandReference(state(undefined, true, 'posthog-code')),
     ].join('\n\n')
 }
 

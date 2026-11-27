@@ -1,7 +1,7 @@
 import { BreakPointFunction } from 'kea'
 
+import { getInsightId } from 'lib/insights/getInsightId'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
-import { getInsightId } from 'scenes/insights/utils'
 
 import { InsightShortId } from '~/types'
 

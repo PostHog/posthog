@@ -1,0 +1,141 @@
+import posthog from 'posthog-js'
+
+import { Tooltip } from '@posthog/lemon-ui'
+
+import { ApiError } from 'lib/api'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { fullName, fullNameOrEmail } from 'lib/utils/strings'
+
+import { UserBasicType } from '~/types'
+
+// pinned: API error codes, match OWNER_LEFT_ORGANIZATION_CODE and OWNER_LOST_ACCESS_CODE in posthog/query_creator_access.py
+const OWNER_UNAVAILABLE_CAUSES = {
+    owner_left_organization: 'left',
+    owner_lost_access: 'lost_access',
+} as const
+
+export type OwnerUnavailableCause = (typeof OWNER_UNAVAILABLE_CAUSES)[keyof typeof OWNER_UNAVAILABLE_CAUSES]
+
+export type OwnedResourceLabel = 'subscription' | 'alert'
+
+export type ResourceOwner = Pick<UserBasicType, 'email'> & Partial<Pick<UserBasicType, 'first_name' | 'last_name'>>
+
+/** Why a write was refused because the resource's owner can no longer run it, or null for any other error. */
+export function ownerUnavailableCause(error: unknown): OwnerUnavailableCause | null {
+    if (!(error instanceof ApiError) || !error.code) {
+        return null
+    }
+    return OWNER_UNAVAILABLE_CAUSES[error.code as keyof typeof OWNER_UNAVAILABLE_CAUSES] ?? null
+}
+
+function OwnerChip({ owner }: { owner: ResourceOwner }): JSX.Element {
+    const name = fullName(owner)
+    return (
+        <Tooltip
+            title={
+                <span className="ph-no-capture">
+                    {name ? (
+                        <>
+                            {name}
+                            <br />
+                        </>
+                    ) : null}
+                    {owner.email}
+                </span>
+            }
+        >
+            <span className="inline-flex items-center gap-1 align-middle font-semibold">
+                <ProfilePicture user={owner} size="xs" />
+                <span className="ph-no-capture">{fullNameOrEmail(owner)}</span>
+            </span>
+        </Tooltip>
+    )
+}
+
+function OwnerUnavailableContent({
+    resourceLabel,
+    owner,
+    cause,
+}: {
+    resourceLabel: OwnedResourceLabel
+    owner: ResourceOwner | null
+    cause: OwnerUnavailableCause
+}): JSX.Element {
+    return (
+        <div className="space-y-2">
+            <p className="m-0">
+                {resourceLabel === 'alert' ? "Can't enable this alert." : "Can't re-enable this subscription."}
+            </p>
+            <p className="m-0">
+                {owner ? (
+                    <>
+                        It runs with the access of its creator, <OwnerChip owner={owner} />,{' '}
+                        {cause === 'left'
+                            ? 'who is no longer in the organization.'
+                            : 'who no longer has access to the data it reads.'}
+                    </>
+                ) : (
+                    // The creator foreign key is set to null when the account is deleted.
+                    'It runs with the access of its creator, whose account was deleted.'
+                )}{' '}
+                Take ownership to enable it with your access instead.
+            </p>
+        </div>
+    )
+}
+
+/**
+ * Offer to make the current user the owner of a subscription or alert whose owner can no longer run it.
+ * Resolves `true` once `takeOwnership` succeeded, `false` when the dialog was dismissed or the request failed.
+ */
+export function openTakeOwnershipDialog({
+    resourceLabel,
+    resourceId,
+    owner,
+    cause,
+    takeOwnership,
+}: {
+    resourceLabel: OwnedResourceLabel
+    resourceId: string | number
+    owner: ResourceOwner | null
+    cause: OwnerUnavailableCause
+    takeOwnership: () => Promise<void>
+}): Promise<boolean> {
+    return new Promise((resolve) => {
+        let taken = false
+        let request: Promise<void> = Promise.resolve()
+        LemonDialog.open({
+            title: `Take ownership of this ${resourceLabel}?`,
+            content: <OwnerUnavailableContent resourceLabel={resourceLabel} owner={owner} cause={cause} />,
+            // The modal grows to fit its text, so a long reason would stretch it across the screen.
+            maxWidth: '30rem',
+            shouldAwaitSubmit: true,
+            primaryButton: {
+                children: 'Take ownership and enable',
+                'data-attr': `${resourceLabel}-take-ownership-confirm`,
+                onClick: async () => {
+                    request = takeOwnership()
+                    try {
+                        await request
+                    } catch (error) {
+                        const detail = error instanceof ApiError ? error.detail : null
+                        lemonToast.error(detail || `Could not take ownership of this ${resourceLabel}. Try again.`)
+                        return
+                    }
+                    taken = true
+                    posthog.capture(`${resourceLabel} ownership taken`, { [`${resourceLabel}_id`]: resourceId })
+                },
+            },
+            secondaryButton: { children: 'Cancel', 'data-attr': `${resourceLabel}-take-ownership-cancel` },
+            // A dismissal while the request is in flight waits for it, so a takeover that lands is still reported.
+            onAfterClose: () => {
+                void request.then(
+                    () => resolve(taken),
+                    () => resolve(taken)
+                )
+            },
+        })
+    })
+}

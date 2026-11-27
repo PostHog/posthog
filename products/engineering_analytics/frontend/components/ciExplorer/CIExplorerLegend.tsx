@@ -6,7 +6,6 @@ const KINDS: [string, string][] = [
     ['matrix', 'Matrix'],
 ]
 
-/** What each node outline means. Shown while job nodes are on screen. */
 export function CIExplorerLegend(): JSX.Element {
     return (
         <div className="CIExplorer__legend">

@@ -5,21 +5,34 @@ statistics. They run on their own worker (DATA_WAREHOUSE_METADATA_TASK_QUEUE) so
 the import pipeline. The import workflow starts them as fire-and-forget children on this queue.
 """
 
+from typing import TYPE_CHECKING
+
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.compute_table_statistics import (
     ComputeTableStatisticsWorkflow,
     compute_table_statistics_activity,
+)
+from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.crawl_warehouse_migration import (
+    CrawlWarehouseMigrationWorkflow,
+    crawl_warehouse_migration_activity,
+    mark_warehouse_migration_failed_activity,
 )
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.enrich_table_semantics import (
     EnrichTableSemanticsWorkflow,
     enrich_table_semantics_activity,
 )
 
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
+
 WORKFLOWS = [
     EnrichTableSemanticsWorkflow,
     ComputeTableStatisticsWorkflow,
+    CrawlWarehouseMigrationWorkflow,
 ]
 
-ACTIVITIES = [
+ACTIVITIES: list[ActivityDefinition] = [
     enrich_table_semantics_activity,
     compute_table_statistics_activity,
+    crawl_warehouse_migration_activity,
+    mark_warehouse_migration_failed_activity,
 ]

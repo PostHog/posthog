@@ -2,6 +2,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 
 
 class TestView(APIBaseTest):
@@ -92,32 +93,24 @@ class TestView(APIBaseTest):
         )
 
     @patch(
-        "products.warehouse_sources.backend.models.table.DataWarehouseTable.get_columns",
-        return_value={
-            "id": {"clickhouse": "String", "hogql": "StringDatabaseField", "valid": True},
-            "a_column": {"clickhouse": "String", "hogql": "StringDatabaseField", "valid": True},
-        },
-    )
-    @patch(
         "products.data_modeling.backend.models.datawarehouse_saved_query.DataWarehouseSavedQuery.get_columns",
         return_value={"id": "String", "a_column": "String"},
     )
-    @patch("products.warehouse_sources.backend.tasks.tasks.get_client")
-    def test_view_with_external_table(self, patch_get_columns_1, patch_get_columns_2, patch_get_client):
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/warehouse_tables/",
-            {
-                "name": "whatever",
-                "url_pattern": "https://your-org.s3.amazonaws.com/bucket/whatever.pqt",
-                "credential": {
-                    "access_key": "_accesskey",
-                    "access_secret": "_accesssecret",
-                },
-                "format": "Parquet",
+    def test_view_with_external_table(self, _patch_get_columns):
+        credential = DataWarehouseCredential.objects.create(
+            team=self.team, access_key="_accesskey", access_secret="_accesssecret"
+        )
+        table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name="whatever",
+            format="Parquet",
+            url_pattern="https://your-org.s3.amazonaws.com/bucket/whatever.pqt",
+            credential=credential,
+            columns={
+                "id": {"clickhouse": "String", "hogql": "StringDatabaseField", "valid": True},
+                "a_column": {"clickhouse": "String", "hogql": "StringDatabaseField", "valid": True},
             },
         )
-        self.assertEqual(response.status_code, 201, response.content)
-        response = response.json()
 
         view_1_response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/",
@@ -133,6 +126,6 @@ class TestView(APIBaseTest):
 
         self.assertEqual(DataWarehouseSavedQuery.objects.all().count(), 1)
 
-        response = self.client.delete(f"/api/environments/{self.team.id}/warehouse_tables/{response['id']}")
+        self.client.delete(f"/api/environments/{self.team.id}/warehouse_tables/{table.id}")
 
         self.assertEqual(DataWarehouseSavedQuery.objects.all().count(), 1)

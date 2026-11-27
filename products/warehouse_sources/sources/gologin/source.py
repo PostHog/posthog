@@ -1,0 +1,113 @@
+from typing import cast
+
+from products.warehouse_sources.sources.gologin._config import GoLoginSourceConfig
+from products.warehouse_sources.sources.gologin.canonical_descriptions import CANONICAL_DESCRIPTIONS
+from products.warehouse_sources.sources.gologin.gologin import GoLoginResumeConfig, gologin_source, validate_credentials
+from products.warehouse_sources.sources.gologin.settings import (
+    AUTH_ERROR,
+    ENDPOINTS,
+    INCREMENTAL_FIELDS,
+    PERMISSION_ERROR,
+    WORKSPACE_ENDPOINTS,
+)
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    build_endpoint_schemas,
+    detect,
+)
+
+
+@SourceRegistry.register
+class GoLoginSource(ResumableSource[GoLoginSourceConfig, GoLoginResumeConfig]):
+    codebase_detection = detect(env=("^(GO_LOGIN|GOLOGIN)_",), npm=("gologin",), pypi=("gologin",))
+
+    lists_tables_without_credentials = True
+    api_docs_url = "https://api.gologin.com/docs"
+
+    @property
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.GOLOGIN
+
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {"401 Client Error": AUTH_ERROR, "403 Client Error": PERMISSION_ERROR}
+
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        return CANONICAL_DESCRIPTIONS
+
+    def get_schemas(
+        self,
+        config: GoLoginSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
+        api_version: str | None = None,
+    ) -> list[SourceSchema]:
+        return build_endpoint_schemas(
+            [*ENDPOINTS, *WORKSPACE_ENDPOINTS], INCREMENTAL_FIELDS, names, merge_only=INCREMENTAL_FIELDS.keys()
+        )
+
+    def validate_credentials(
+        self,
+        config: GoLoginSourceConfig,
+        team_id: int,
+        schema_name: str | None = None,
+        api_version: str | None = None,
+    ) -> tuple[bool, str | None]:
+        return validate_credentials(config.api_key)
+
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[GoLoginResumeConfig]:
+        return ResumableSourceManager(inputs, GoLoginResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: GoLoginSourceConfig,
+        resumable_source_manager: ResumableSourceManager[GoLoginResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
+        return gologin_source(
+            config.api_key,
+            inputs.schema_name,
+            inputs.team_id,
+            inputs.job_id,
+            resumable_source_manager,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
+        )
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        return SourceConfig(
+            name=ExternalDataSourceType.GOLOGIN,
+            category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
+            label="GoLogin",
+            iconPath="/static/services/gologin.png",
+            caption="Find your GoLogin API key in Settings > API.",
+            releaseStatus=ReleaseStatus.BETA,
+            fields=cast(
+                list[FieldType],
+                [
+                    SourceFieldInputConfig(
+                        name="api_key",
+                        label="API key",
+                        type=SourceFieldInputConfigType.PASSWORD,
+                        required=True,
+                        placeholder="",
+                        secret=True,
+                    )
+                ],
+            ),
+        )

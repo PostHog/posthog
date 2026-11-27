@@ -4,7 +4,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import UTC, datetime
-from typing import Any, Literal, Optional, Union
+from typing import TYPE_CHECKING, Any, Literal, Optional, Union
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
@@ -15,7 +15,7 @@ from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
 from rest_framework import serializers
 
 from posthog.clickhouse.client import sync_execute
-from posthog.kafka_client.client import ClickhouseProducer
+from posthog.kafka_client.client import ClickhouseProducer, ProduceResult
 from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
 from posthog.models.element.element import Element, chain_to_elements, elements_to_string
 from posthog.models.event.sql import BULK_INSERT_EVENT_SQL, EVENTS_JSON_DATA_TABLE, INSERT_EVENT_SQL
@@ -23,6 +23,9 @@ from posthog.models.person import Person
 from posthog.models.person.util import get_person_by_distinct_id
 from posthog.models.team import Team
 from posthog.settings import TEST
+
+if TYPE_CHECKING:
+    from posthog.models.group import Group
 
 ZERO_DATE = datetime(1970, 1, 1)
 CLICKHOUSE_JSON_MIN_INT = -(2**63)
@@ -87,6 +90,7 @@ def create_event(
     group3_created_at: Optional[Union[datetime, str]] = None,
     group4_created_at: Optional[Union[datetime, str]] = None,
     person_mode: Literal["full", "propertyless", "force_upgrade"] = "full",
+    delivery_timeout_seconds: float | None = None,
 ) -> str:
     if properties is None:
         properties = {}
@@ -126,15 +130,20 @@ def create_event(
         "person_mode": person_mode,
     }
     p = ClickhouseProducer()
+    results: list[ProduceResult] = []
     if TEST and settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
         json_data = {
             **data,
             "properties": _json_dumps_for_clickhouse(properties),
             "person_properties": _json_dumps_for_clickhouse(person_properties),
         }
-        p.produce(topic=KAFKA_EVENTS_JSON, sql=INSERT_EVENT_SQL(table_name=EVENTS_JSON_DATA_TABLE), data=json_data)
+        results.append(
+            p.produce(topic=KAFKA_EVENTS_JSON, sql=INSERT_EVENT_SQL(table_name=EVENTS_JSON_DATA_TABLE), data=json_data)
+        )
     if not (TEST and settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and _events_only_in_active_schema.get()):
-        p.produce(topic=KAFKA_EVENTS_JSON, sql=INSERT_EVENT_SQL(), data=data)
+        results.append(p.produce(topic=KAFKA_EVENTS_JSON, sql=INSERT_EVENT_SQL(), data=data))
+    if delivery_timeout_seconds is not None:
+        p.wait_for_delivery(results, delivery_timeout_seconds)
 
     return str(event_uuid)
 
@@ -164,6 +173,7 @@ def _resolve_person_for_bulk_event(team_id: int, distinct_id: str) -> Optional[P
 def bulk_create_events(
     events: list[dict[str, Any]],
     person_mapping: Optional[dict[str, Person]] = None,
+    group_mapping: Optional[dict[tuple[int, str], "Group"]] = None,
 ) -> None:
     """
     TEST ONLY
@@ -174,6 +184,9 @@ def bulk_create_events(
         "team": team,
         "timestamp": "2022-01-01T12:00:00"
     }])
+
+    ``group_mapping`` holds every group the events name, by group type index and key, so no event looks
+    up its groups one by one. A key outside the mapping has no group.
     """
     if not TEST:
         raise Exception("This function is only meant for setting up tests")
@@ -272,10 +285,13 @@ def bulk_create_events(
         for property_key, value in (event.get("properties") or {}).items():
             if property_key.startswith("$group_"):
                 group_type_index = property_key[-1]
-                try:
-                    group = get_group_by_key(team_id, int(group_type_index), value)
-                except Exception:
-                    group = None
+                if group_mapping is not None:
+                    group = group_mapping.get((int(group_type_index), value))
+                else:
+                    try:
+                        group = get_group_by_key(team_id, int(group_type_index), value)
+                    except Exception:
+                        group = None
                 if group is None:
                     continue
                 group_property_key = f"group{group_type_index}_properties"

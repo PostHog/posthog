@@ -37,6 +37,8 @@ rules:
               - '**/test_*.py'
               - '**/*_test.py'
               - '**/conftest*.py'
+              # Test-only re-export of the model for the vendor tests, which may import only the SDK.
+              - 'products/warehouse_sources/sources/sdk/testing.py'
               - '**/migrations/**'
               # The model, its per-kind adapters and the SDK are the implementation.
               - 'posthog/models/integration/**'

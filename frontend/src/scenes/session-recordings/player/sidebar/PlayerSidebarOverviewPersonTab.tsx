@@ -33,18 +33,19 @@ export function PlayerSidebarOverviewPersonTab(): JSX.Element {
                         <CopyToClipboardInline
                             description="person"
                             explicitValue={displayName}
-                            className="font-semibold truncate"
+                            className="font-semibold max-w-full"
                             data-attr="replay-overview-copy-person"
                         >
-                            {displayName}
+                            <span className="truncate">{displayName}</span>
                         </CopyToClipboardInline>
                         {distinctId && (
                             <CopyToClipboardInline
                                 description="distinct ID"
-                                className="text-xs text-secondary font-mono truncate"
+                                explicitValue={distinctId}
+                                className="text-xs text-secondary font-mono max-w-full"
                                 data-attr="replay-overview-copy-distinct-id"
                             >
-                                {distinctId}
+                                <span className="truncate">{distinctId}</span>
                             </CopyToClipboardInline>
                         )}
                     </>

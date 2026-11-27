@@ -5,6 +5,11 @@ import type { Task, TaskRun, TaskRunState } from "../../types";
 import type { JwtPayload } from "../jwt";
 import { claudeCodeConfigSchema } from "../schemas";
 import type { AgentServerConfig, ClaudeCodeConfig } from "../types";
+import {
+  parseServerRunPolicy,
+  RESTRICTIVE_RUN_POLICY,
+  type RunPolicy,
+} from "./run-policy";
 
 export interface RunLaunchSources {
   readonly payload: Pick<JwtPayload, "task_id" | "run_id" | "user_id">;
@@ -13,6 +18,12 @@ export interface RunLaunchSources {
   readonly config: Pick<AgentServerConfig, "apiUrl" | "projectId">;
   readonly env: Readonly<Record<string, string | undefined>>;
 }
+
+export type RunPolicySource =
+  | "server"
+  | "missing_server"
+  | "invalid_server"
+  | "stale_server";
 
 export interface RunLaunch {
   readonly userId: number | null;
@@ -31,10 +42,13 @@ export interface RunLaunch {
   readonly prewarmed: boolean | null;
   readonly sharedPromptCache: boolean;
   readonly codexMaxSubagents: number | null;
+  readonly codexAppsDisabled: boolean;
   readonly initialPermissionMode: PermissionMode | null;
   readonly pendingUserArtifactIds: string[];
-  readonly endRunWhenDone: boolean;
+  readonly policy: RunPolicy;
+  readonly policySource: RunPolicySource;
   readonly disableRepoHooks: boolean;
+  readonly disableSkills: boolean;
   readonly systemPrompt: ClaudeCodeConfig["systemPrompt"];
   readonly systemPromptValid: boolean;
   readonly tokenUsage: unknown;
@@ -47,6 +61,7 @@ export function readRunLaunch(sources: RunLaunchSources): RunLaunch {
   const systemPrompt = claudeCodeConfigSchema.shape.systemPrompt.safeParse(
     runState?.systemPrompt,
   );
+  const { policy, source: policySource } = readRunPolicy(sources);
 
   return {
     userId: sources.payload.user_id || task?.created_by?.id || null,
@@ -65,15 +80,38 @@ export function readRunLaunch(sources: RunLaunchSources): RunLaunch {
     prewarmed: taskRun ? runState?.prewarmed === true : null,
     sharedPromptCache: runState?.codex_shared_prompt_cache === true,
     codexMaxSubagents: runState?.codex_max_subagents ?? null,
+    // Without the run, the plan tokens can still arrive by another path, so a missing state keeps the apps off.
+    codexAppsDisabled: taskRun ? runState?.codex_apps_disabled === true : true,
     initialPermissionMode: runState?.initial_permission_mode ?? null,
     pendingUserArtifactIds: runState?.pending_user_artifact_ids ?? [],
-    endRunWhenDone: runState?.end_run_when_done === true,
+    policy,
+    policySource,
     disableRepoHooks: runState?.disable_repo_hooks === true,
+    disableSkills: runState?.disable_skills === true,
     systemPrompt: systemPrompt.success ? systemPrompt.data : undefined,
     systemPromptValid: systemPrompt.success,
     tokenUsage: runState?.token_usage,
     runState,
   };
+}
+
+/** Run-specific `-c` overrides for the codex app-server, or undefined when the run keeps the defaults. */
+export function codexConfigOverrides(
+  launch: Pick<RunLaunch, "codexMaxSubagents" | "codexAppsDisabled">,
+): Record<string, number | boolean> | undefined {
+  const overrides: Record<string, number | boolean> = {};
+  // Codex runs at most 3 sub-agents per session at once by default; the main agent does
+  // not count. A run that starts more sub-agents at once sets its own limit.
+  if (launch.codexMaxSubagents) {
+    overrides["agents.max_concurrent_threads_per_session"] =
+      launch.codexMaxSubagents;
+  }
+  // The apps connected to the ChatGPT plan that pays for the run. Slack turns them off when
+  // the plan owner has not allowed them, because people who join the thread use the same run.
+  if (launch.codexAppsDisabled) {
+    overrides["features.apps"] = false;
+  }
+  return Object.keys(overrides).length ? overrides : undefined;
 }
 
 export function readProductLaunch(
@@ -82,8 +120,8 @@ export function readProductLaunch(
   return {
     taskId: sources.payload.task_id,
     runId: sources.payload.run_id,
-    originProduct: readInteractionOrigin(sources.env),
-    clientProvenance: readClientProvenance(sources.task),
+    interactionOrigin: readInteractionOrigin(sources.env),
+    clientProvenance: readClientProvenance(sources),
     launchOptions: structuredClone(sources.taskRun?.state ?? {}),
     source: readTaskSource(sources),
   };
@@ -99,12 +137,29 @@ function readInteractionOrigin(
   );
 }
 
-// Browser session auth records no provenance, so a posthog_ai task without one comes from the web.
-function readClientProvenance(task: Task | null): string | undefined {
-  if (task?.client_provenance) {
-    return task.client_provenance;
+function readRunPolicy({ payload, env }: RunLaunchSources): {
+  policy: RunPolicy;
+  source: RunPolicySource;
+} {
+  const raw = env.POSTHOG_TASK_RUN_POLICY;
+  if (!raw) {
+    return { policy: RESTRICTIVE_RUN_POLICY, source: "missing_server" };
   }
-  return task?.origin_product === "posthog_ai" ? "posthog_web" : undefined;
+  const server = parseServerRunPolicy(raw);
+  if (!server) {
+    return { policy: RESTRICTIVE_RUN_POLICY, source: "invalid_server" };
+  }
+  if (server.runId !== payload.run_id) {
+    return { policy: RESTRICTIVE_RUN_POLICY, source: "stale_server" };
+  }
+  return { policy: server.policy, source: "server" };
+}
+
+function readClientProvenance(sources: RunLaunchSources): string | undefined {
+  return (
+    sources.task?.client_provenance ||
+    readRunPolicy(sources).policy.defaultClientProvenance
+  );
 }
 
 function readRepositories(task: Task | null): string[] {
@@ -113,9 +168,6 @@ function readRepositories(task: Task | null): string[] {
   }
   return task?.repository ? [task.repository] : [];
 }
-
-// Automated origins get no thread link, so sibling tasks keep one shared prompt cache.
-const THREAD_ORIGINS = new Set(["user_created", "posthog_ai"]);
 
 // GitHub drops custom URL schemes from links, so Desktop threads use the /code/... web bridge.
 function readTaskSource(sources: RunLaunchSources): TaskSource | undefined {
@@ -131,12 +183,12 @@ function readTaskSource(sources: RunLaunchSources): TaskSource | undefined {
       url: `${projectWebUrl}/inbox/${task.signal_report}`,
     };
   }
-  if (!THREAD_ORIGINS.has(task.origin_product)) {
+  if (!readRunPolicy(sources).policy.threadLink) {
     return undefined;
   }
 
   const taskId = encodeURIComponent(sources.payload.task_id);
-  const clientProvenance = readClientProvenance(task);
+  const clientProvenance = readClientProvenance(sources);
   if (
     clientProvenance === "posthog_web" ||
     clientProvenance === "posthog_mobile"
@@ -145,6 +197,9 @@ function readTaskSource(sources: RunLaunchSources): TaskSource | undefined {
       label: "PostHog AI chat",
       url: `${projectWebUrl}/ai?task=${taskId}`,
     };
+  }
+  if (clientProvenance !== "posthog_desktop") {
+    return undefined;
   }
   const appUrl = apiUrl.replace(/\/+$/, "");
   const path = task.channel

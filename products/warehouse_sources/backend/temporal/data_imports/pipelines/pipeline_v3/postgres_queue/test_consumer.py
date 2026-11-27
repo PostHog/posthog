@@ -16,11 +16,13 @@ from django.test import override_settings
 import psycopg
 import structlog
 
+from products.batch_exports.backend.facade.destinations.postgres import PostgreSQLConnectionError
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
     SCHEMA_DELETED_JOB_ERROR,
     SYNC_DISABLED_JOB_ERROR,
 )
+from products.warehouse_sources.backend.self_managed_access import ADOPTION_ACCESS_ERROR
 from products.warehouse_sources.backend.temporal.data_imports.metrics import LOCK_TAKEOVER_LATEST_ERROR
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
     TransientObjectStoreError,
@@ -34,6 +36,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.errors import (
     DestinationConfigurationError,
     DestinationDeliveryError,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor import (
+    INCOMPLETE_RUN_ERROR,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.table_handles import (
     GROUP_TABLE_HANDLES,
@@ -307,6 +312,7 @@ class TestProcessSingle:
             "[Errno 5] An error occurred (XMinioStorageFull) when calling the CopyObject operation: "
             "Storage backend has reached its minimum free drive threshold. Please delete a few objects to proceed.",
             str(DestinationConfigurationError("Prod", "The host name does not exist.")),
+            f"{ADOPTION_ACCESS_ERROR} 'orders', because the access rules of the table or of its source changed",
         ],
     )
     @pytest.mark.asyncio
@@ -344,6 +350,9 @@ class TestProcessSingle:
             ("ExternalDataSchema matching query does not exist.", False),
             # A destination the customer configured refuses the connection.
             (str(DestinationConfigurationError("Prod", "The host name does not exist.")), False),
+            # A batch aged out of its claim window (IncompleteRunError) — self-healing, and
+            # already tracked by its own metric, so it must not also hit error tracking.
+            (INCOMPLETE_RUN_ERROR, False),
             # A genuine non-retryable failure must still surface so real bugs aren't hidden.
             ("20009.59 is too large to store in a Decimal128 of precision 24.", True),
             # Storage backend out of disk space is an operational condition operators need to
@@ -511,15 +520,47 @@ class TestProcessSingle:
         assert [a.attempt for c in mock_mark.call_args_list for a in c.kwargs["attempts"]] == expected_marked_attempts
         assert consumer._executing == {}
 
+    @pytest.mark.parametrize(
+        "error",
+        [
+            # A sustained S3/object-store blip (TransientObjectStoreError, a NonReportableError
+            # subclass) is retryable in principle, so it must still reach error tracking only via
+            # the classification made further down the stack, not get captured just because this
+            # batch's own retry budget ran out.
+            TransientObjectStoreError("Generic S3 error"),
+            # A destination connect that exhausted its own internal retries without landing on a
+            # classified configuration problem (EXPECTED_USER_ERROR_PATTERNS) is also retryable,
+            # not a NonReportableError — the max-retries branch must consult is_expected_user_error
+            # too, the same as the non-retryable branch already does.
+            DestinationDeliveryError(
+                "Prod",
+                PostgreSQLConnectionError(
+                    "Failed to connect after 5 attempts due to an unrecoverable error. "
+                    "Please review connection configuration. Error message: connection failed: "
+                    'connection to server at "203.0.113.5", port 5432 failed: '
+                    "server closed the connection unexpectedly"
+                ),
+            ),
+            # writers/postgres.py's _client() rewrites a connect timeout into
+            # PostgreSQLConnectionError(CONNECT_TIMEOUT_DETAIL) before it ever reaches
+            # DestinationDeliveryError, so this is the actual text a timed-out destination
+            # connect carries here, not the client's raw "Timed-out while trying to connect
+            # for..." message.
+            DestinationDeliveryError(
+                "Prod",
+                PostgreSQLConnectionError(
+                    "The database did not answer on the host and port given. Check the host and "
+                    "port on the destination, and allow PostHog's IP addresses through your firewall."
+                ),
+            ),
+        ],
+        ids=["non_reportable_s3_blip", "destination_connect_exhausted", "destination_connect_timeout"],
+    )
     @pytest.mark.asyncio
-    async def test_non_reportable_error_skips_error_tracking_even_at_max_attempts(self):
-        # A sustained S3/object-store blip (TransientObjectStoreError, a NonReportableError
-        # subclass) is retryable in principle, so it must still reach error tracking only via
-        # the classification made further down the stack, not get captured just because this
-        # batch's own retry budget ran out.
+    async def test_non_reportable_error_skips_error_tracking_even_at_max_attempts(self, error: Exception):
         consumer = _make_consumer(max_attempts=2)
         batch = _make_batch(latest_attempt=1)
-        consumer._process_batch = AsyncMock(side_effect=TransientObjectStoreError("Generic S3 error"))
+        consumer._process_batch = AsyncMock(side_effect=error)
 
         with (
             patch(
@@ -534,6 +575,49 @@ class TestProcessSingle:
         mock_fail.assert_called_once()
         assert "max retries exceeded" in mock_fail.call_args[1]["reason"]
         mock_capture.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            # A plain app-DB error, not wrapped at all.
+            DjangoOperationalError(
+                'connection to server at "10.0.0.5", port 5432 failed: server closed the connection unexpectedly'
+            ),
+            # deliver_batch_to_destinations wraps every exception it sees as a
+            # DestinationDeliveryError, including a Django ORM read against PostHog's own app
+            # DB (loading the destination's integration, the S3 writer's Team lookup, ...),
+            # not only a failed destination connect — the cause here is a plain
+            # django.db OperationalError, not PostgreSQLClient.connect's PostgreSQLConnectionError.
+            DestinationDeliveryError(
+                "Prod",
+                DjangoOperationalError(
+                    'connection to server at "10.0.0.5", port 5432 failed: server closed the connection unexpectedly'
+                ),
+            ),
+        ],
+        ids=["bare_app_db_error", "destination_delivery_error_wrapping_app_db_error"],
+    )
+    @pytest.mark.asyncio
+    async def test_connection_drop_text_still_reported_when_not_a_destination_error(self, error: Exception):
+        # DESTINATION_CONNECT_EXHAUSTED_PATTERNS matches generic libpq wording that an
+        # OperationalError against PostHog's own app DB or PgBouncer can carry too, not only a
+        # destination connect failure. That must still reach error tracking once retries exhaust.
+        consumer = _make_consumer(max_attempts=2)
+        batch = _make_batch(latest_attempt=1)
+        consumer._process_batch = AsyncMock(side_effect=error)
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status_unless_failed",
+                new_callable=AsyncMock,
+            ),
+            patch.object(consumer, "_fail_run", new_callable=AsyncMock) as mock_fail,
+            patch.object(batch_consumer_module, "capture_exception") as mock_capture,
+        ):
+            await consumer._process_single(batch)
+
+        mock_fail.assert_called_once()
+        mock_capture.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_non_reportable_error_skips_error_tracking_on_first_attempt_too(self):
@@ -2138,6 +2222,9 @@ class TestFailRun:
             pytest.param("Decimal value is too large to store in a Decimal128", True, id="decimal_overflow"),
             pytest.param("Primary key required for incremental syncs", True, id="missing_primary_key"),
             pytest.param(
+                f"{ADOPTION_ACCESS_ERROR} 'orders', because the access rules changed", True, id="adoption_refused"
+            ),
+            pytest.param(
                 "XMinioStorageFull: storage backend has reached its minimum free drive threshold",
                 False,
                 id="our_storage_full",
@@ -2312,6 +2399,9 @@ class TestUpdateJobStatusToFailed:
         # failed" check and the write below — this must be a no-op, not a second
         # DoesNotExist raised on top of the batch's original failure.
         with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.close_old_connections"
+            ),
             patch(
                 "products.warehouse_sources.backend.models.external_data_job.ExternalDataJob.objects.filter",
             ) as mock_filter,
@@ -3945,7 +4035,9 @@ class TestUnlockGroup:
         fresh_conn = _make_healthy_conn()
         batches = [_make_batch()]
 
-        retry_error = psycopg.OperationalError("connection refused")
+        # Not a self-healing shape like a dropped connection or a connection refusal, so
+        # the retry exhaustion below must still reach error tracking.
+        retry_error = psycopg.OperationalError("password authentication failed for user")
         mock_unlock = AsyncMock(
             side_effect=[psycopg.OperationalError("another command is already in progress"), retry_error]
         )
@@ -4174,7 +4266,8 @@ class TestHeartbeatLoop:
 
         task = asyncio.create_task(consumer._heartbeat_loop())
         await asyncio.sleep(0.03)
-        time.sleep(1.0)  # block the event loop so the heartbeat cannot run
+        # nosemgrep: no-fixed-sleeps-in-tests -- blocks the event loop past the stall-dump deadline
+        time.sleep(1.0)
         assert "most recent call first" in capfd.readouterr().err
 
         await asyncio.sleep(0.03)  # the heartbeat resumes and arms the timer again
@@ -4827,6 +4920,10 @@ class TestIsRetryableError:
                 False,
             ),
             ("connection reset by peer", True),
+            # A destination's own server dropping the connection mid-handshake — the
+            # customer's infrastructure being briefly unreachable, not a bug — must stay
+            # retryable so the next scheduled run tries again.
+            ("server closed the connection unexpectedly", True),
         ],
     )
     def test_pattern_classification(self, message: str, retryable: bool):

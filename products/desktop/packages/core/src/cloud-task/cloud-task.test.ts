@@ -5384,7 +5384,11 @@ describe("CloudTaskEngine credential relay", () => {
       );
       expect(analyticsMock.track).toHaveBeenCalledWith(
         ANALYTICS_EVENTS.CLOUD_CREDENTIAL_RELAY,
-        { credential: "claude_subscription_token", outcome: "sent" },
+        {
+          $update_person_last_seen_at: false,
+          credential: "claude_subscription_token",
+          outcome: "sent",
+        },
       );
     },
   );
@@ -5440,7 +5444,11 @@ describe("CloudTaskEngine credential relay", () => {
     });
     expect(analyticsMock.track).toHaveBeenCalledWith(
       ANALYTICS_EVENTS.CLOUD_CREDENTIAL_RELAY,
-      { credential: "claude_subscription_token", outcome: "no_token" },
+      {
+        $update_person_last_seen_at: false,
+        credential: "claude_subscription_token",
+        outcome: "no_token",
+      },
     );
   });
 
@@ -5520,6 +5528,7 @@ describe("CloudTaskEngine credential relay", () => {
       expect(analyticsMock.track).toHaveBeenCalledWith(
         ANALYTICS_EVENTS.CLOUD_CREDENTIAL_RELAY,
         {
+          $update_person_last_seen_at: false,
           credential: "claude_subscription_token",
           outcome: "sent",
         },
@@ -5544,7 +5553,11 @@ describe("CloudTaskEngine credential relay", () => {
     expect(commandPosts()).toHaveLength(2);
     expect(analyticsMock.track).toHaveBeenCalledWith(
       ANALYTICS_EVENTS.CLOUD_CREDENTIAL_RELAY,
-      { credential: "claude_subscription_token", outcome: "expired" },
+      {
+        $update_person_last_seen_at: false,
+        credential: "claude_subscription_token",
+        outcome: "expired",
+      },
     );
   });
 

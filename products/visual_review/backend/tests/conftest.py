@@ -366,6 +366,7 @@ def mock_github_integration(team, mocker):
     """
     Create a mock GitHub integration for the team.
     """
+    from posthog.integrations import IntegrationManager
     from posthog.models.integration import GitHubIntegration, Integration
 
     mock_integration = MagicMock(spec=Integration)
@@ -380,16 +381,14 @@ def mock_github_integration(team, mocker):
         "access_token": "ghs_fake_token_for_testing",
     }
 
-    original_filter = Integration.objects.filter
+    original_find = IntegrationManager.github.oauth.find
 
-    def patched_filter(*args, **kwargs):
-        if kwargs.get("kind") == "github" and kwargs.get("team_id") == team.id:
-            mock_qs = MagicMock()
-            mock_qs.first.return_value = mock_integration
-            return mock_qs
-        return original_filter(*args, **kwargs)
+    def patched_find(team_id, *args, **kwargs):
+        if team_id == team.id:
+            return mock_integration
+        return original_find(team_id, *args, **kwargs)
 
-    mocker.patch.object(Integration.objects, "filter", side_effect=patched_filter)
+    mocker.patch.object(IntegrationManager.github.oauth, "find", side_effect=patched_find)
 
     def mock_access_token_expired(self):
         return False

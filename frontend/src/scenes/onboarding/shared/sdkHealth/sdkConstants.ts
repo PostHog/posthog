@@ -9,6 +9,7 @@ export const SDK_TYPE_READABLE_NAME: Record<SdkType, string> = {
     'posthog-node': 'Node.js',
     'posthog-python': 'Python',
     'posthog-php': 'PHP',
+    'posthog-laravel': 'Laravel',
     'posthog-ruby': 'Ruby',
     'posthog-go': 'Go',
     'posthog-flutter': 'Flutter',
@@ -25,10 +26,13 @@ export const SDK_TYPE_READABLE_NAME: Record<SdkType, string> = {
     'posthog-aspnetcore': 'ASP.NET Core',
     'posthog-rs': 'Rust',
     'posthog-rs-mcp': 'Rust MCP',
+    'posthog-rs-ffi': 'C/C++',
+    'posthog-electron': 'Electron',
     'posthog-godot': 'Godot',
     'posthog-unreal': 'Unreal Engine',
     'posthog-go-mcp': 'Go MCP',
     'posthog-ruby-mcp': 'Ruby MCP',
+    'posthog-roblox': 'Roblox',
     js: 'JavaScript Lite',
 }
 
@@ -64,6 +68,10 @@ export const SDK_DOCS_LINKS: Record<SdkType, { releases: string; docs: string }>
     'posthog-php': {
         releases: 'https://github.com/PostHog/posthog-php/releases',
         docs: 'https://posthog.com/docs/libraries/php',
+    },
+    'posthog-laravel': {
+        releases: 'https://github.com/PostHog/posthog-php/releases?q=laravel-v',
+        docs: 'https://posthog.com/docs/libraries/laravel',
     },
     'posthog-ruby': {
         releases: 'https://github.com/PostHog/posthog-ruby/releases',
@@ -129,6 +137,14 @@ export const SDK_DOCS_LINKS: Record<SdkType, { releases: string; docs: string }>
         releases: 'https://github.com/PostHog/posthog-rs/releases',
         docs: 'https://posthog.com/docs/mcp-analytics',
     },
+    'posthog-rs-ffi': {
+        releases: 'https://github.com/PostHog/posthog-rs/releases?q=posthog-rs-ffi-v',
+        docs: 'https://posthog.com/docs/libraries/c-cpp',
+    },
+    'posthog-electron': {
+        releases: 'https://github.com/PostHog/posthog-js/releases?q=%40posthog%2Felectron',
+        docs: 'https://posthog.com/docs/libraries/electron',
+    },
     'posthog-godot': {
         releases: 'https://github.com/PostHog/posthog-godot/releases',
         docs: 'https://github.com/PostHog/posthog-godot#readme',
@@ -144,6 +160,10 @@ export const SDK_DOCS_LINKS: Record<SdkType, { releases: string; docs: string }>
     'posthog-ruby-mcp': {
         releases: 'https://github.com/PostHog/posthog-ruby/releases',
         docs: 'https://posthog.com/docs/mcp-analytics',
+    },
+    'posthog-roblox': {
+        releases: 'https://github.com/PostHog/posthog-roblox/releases',
+        docs: 'https://posthog.com/docs/libraries/roblox',
     },
     js: {
         releases: 'https://github.com/PostHog/posthog-js/blob/main/packages/web/CHANGELOG.md',

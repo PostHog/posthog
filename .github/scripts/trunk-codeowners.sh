@@ -62,11 +62,18 @@ fi
 
 mkdir -p "$output_dir" || fall_back "Could not create $output_dir"
 
-if ! PYTHONPATH="$repo_root/packages/owners-yaml" generate >/dev/null 2>&1; then
+count_rules() {
+    grep -cvE '^#|^$' "$target" 2>/dev/null || true
+}
+
+# The map depends only on the checked-out tree, so a shard that downloaded the run's copy reuses it.
+if [ "$(count_rules)" -ge 1 ] 2>/dev/null; then
+    echo "Reusing the Trunk ownership map already in $output_dir"
+elif ! PYTHONPATH="$repo_root/packages/owners-yaml" generate >/dev/null 2>&1; then
     fall_back "Could not generate the Trunk ownership map"
 fi
 
-rule_count="$(grep -cvE '^#|^$' "$target" 2>/dev/null || true)"
+rule_count="$(count_rules)"
 if [ "${rule_count:-0}" -lt 1 ]; then
     fall_back "The generated Trunk ownership map has no rules"
 fi

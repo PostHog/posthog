@@ -1,9 +1,15 @@
+import { MOCK_DEFAULT_USER } from 'lib/api.mock'
+
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import { HttpResponse } from 'msw'
+
+import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { inviteSignupLogic } from './inviteSignupLogic'
+import { ErrorCodes, inviteSignupLogic } from './inviteSignupLogic'
 
 const INVITE_ID = '1234'
 
@@ -54,5 +60,47 @@ describe('inviteSignupLogic', () => {
             logic.actions.submitSignup()
         }).toFinishAllListeners()
         expect(signupRequest).toHaveBeenCalledTimes(2)
+    })
+
+    it('shows a connection message when the signup request gets no response', async () => {
+        useMocks({
+            post: {
+                [`/api/signup/${INVITE_ID}/`]: () => HttpResponse.error(),
+                '/api/signup/precheck': () => [200, { email_exists: false, pending_invite: null }],
+            },
+        })
+        logic.actions.setSignupValues({ first_name: 'Jane', password: 'a-long-and-unusual-passphrase-42' })
+
+        await expectLogic(logic, () => {
+            logic.actions.submitSignup()
+        }).toFinishAllListeners()
+
+        expect(logic.values.signupManualErrors).toEqual({
+            generic: {
+                code: 'network_error',
+                detail: "We couldn't reach PostHog. Check your connection and try again. Your details are still filled in.",
+            },
+        })
+    })
+
+    // An accepted invite is deleted, so reopening its link returns the same 400 as an unknown invite
+    it.each([
+        { signedIn: true, expectedError: null },
+        { signedIn: false, expectedError: ErrorCodes.InvalidInvite },
+    ])('handles a missing invite when signed in is $signedIn', async ({ signedIn, expectedError }) => {
+        useMocks({
+            get: {
+                '/api/signup/used-invite/': () => [
+                    400,
+                    { code: 'invalid_input', detail: 'The provided invite ID is not valid.' },
+                ],
+            },
+        })
+        userLogic.actions.loadUserSuccess(signedIn ? MOCK_DEFAULT_USER : null)
+        router.actions.push('/signup/used-invite')
+
+        await expectLogic(logic).toDispatchActions(['prevalidateInviteSuccess'])
+        expect(logic.values.error?.code ?? null).toEqual(expectedError)
+        expect(router.values.location.pathname.startsWith('/signup')).toBe(!signedIn)
     })
 })

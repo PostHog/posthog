@@ -1,10 +1,72 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "apply_to_suite_keys": {
+            "description": "Apply this version to these suites for future runs. Omit to preserve existing assignments.",
+            "items": {
+                "maxLength": 255,
+                "type": "string"
+            },
+            "maxItems": 100,
+            "type": "array"
+        },
         "base_version": {
             "description": "Version number the caller observed before requesting this bump. If provided and it does not match the scorer's current version, the request fails with 409. Omit to skip the optimistic-concurrency check.",
             "minimum": 1,
             "type": "number"
+        },
+        "composition": {
+            "anyOf": [
+                {
+                    "properties": {
+                        "expression": {
+                            "description": "Formula using the declared input aliases. Supports +, -, *, /, comparisons, and/or/not, conditional expressions, and number(), min(), max(), abs(). Boolean inputs are raw values: number(True) is 1 and number(False) is 0, regardless of passing rules. Categorical inputs are lists of keys: use \"good\" in relevance. Examples: (2 * precision + recall) / 3; safe and correct; \"good\" if correct else \"bad\". Every input alias must appear. Line breaks are allowed. Arithmetic results use 12 significant digits. Up to 1,024 characters and 16 input scorers.",
+                            "maxLength": 1024,
+                            "type": "string"
+                        },
+                        "inputs": {
+                            "description": "Named inputs. Item formulas use reported results from exact versions. Experiment formulas use statistics from item scorers.",
+                            "items": {
+                                "properties": {
+                                    "alias": {
+                                        "description": "Input name used in the formula. Start with a lowercase letter; use letters, digits, and underscores.",
+                                        "maxLength": 32,
+                                        "pattern": "^[a-z][a-z0-9_]{0,31}$",
+                                        "type": "string"
+                                    },
+                                    "category": {
+                                        "maxLength": 128,
+                                        "type": "string"
+                                    },
+                                    "scorer_version_id": {
+                                        "description": "Version of the input item scorer. Experiment formulas use its definition to find the run's results unless the version policy is exact.",
+                                        "type": "string"
+                                    },
+                                    "statistic": {
+                                        "description": "* `pass_rate` - pass_rate\n* `mean` - mean\n* `true_rate` - true_rate\n* `category_rate` - category_rate",
+                                        "enum": ["pass_rate", "mean", "true_rate", "category_rate"],
+                                        "type": "string"
+                                    },
+                                    "version_policy": {
+                                        "description": "* `run` - run\n* `exact` - exact\n* `combine` - combine",
+                                        "enum": ["run", "exact", "combine"],
+                                        "type": "string"
+                                    }
+                                },
+                                "required": ["alias", "scorer_version_id"],
+                                "type": "object"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["expression", "inputs"],
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Required for a composite scorer. Creates a new immutable formula and input selection."
         },
         "config": {
             "anyOf": [

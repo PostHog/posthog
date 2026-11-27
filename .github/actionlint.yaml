@@ -5,6 +5,7 @@ self-hosted-runner:
         - depot-ubuntu-24.04
         - depot-ubuntu-24.04-4
         - depot-ubuntu-24.04-8
+        - depot-ubuntu-24.04-16
         - depot-macos-15
         - depot-macos-26
         - depot-ubuntu-24.04-arm-4
@@ -12,18 +13,18 @@ self-hosted-runner:
         - ubuntu-24.04-8core
 
 # The vendored .github/actions/paths-filter emits one output per filter name at
-# runtime, but action.yml can only declare the static `changes` output, so
+# runtime, but action.yml can only declare its static outputs (`changes`, `reused`, `reused_from`), so
 # actionlint's strict output typing false-positives on every per-filter output
 # (e.g. steps.filter.outputs.backend). Upstream dorny/paths-filter avoided this
 # only because actionlint's popular-actions database special-cases it. The
-# `{changes: string}` anchor keeps this scoped to that action's output type.
+# output-type anchor keeps this scoped to that action.
 paths:
     '.github/workflows/**/*.yml':
         ignore:
-            - 'property ".+" is not defined in object type \{changes: string\}'
+            - 'property ".+" is not defined in object type \{changes: string; reused: string; reused_from: string\}'
     '.github/workflows/**/*.yaml':
         ignore:
-            - 'property ".+" is not defined in object type \{changes: string\}'
+            - 'property ".+" is not defined in object type \{changes: string; reused: string; reused_from: string\}'
     # GitHub's stacked PRs added the `stacked` activity type after actionlint's event list.
     # The broad glob also matches the copies hogli lint:workflows checks outside .github.
     '**/*.yml':

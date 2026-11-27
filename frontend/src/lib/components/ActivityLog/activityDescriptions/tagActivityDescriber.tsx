@@ -6,12 +6,11 @@ import {
     defaultDescriber,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { getDisplayNameFromEntityFilter } from 'lib/insights/entityFilterNames'
 import { Link } from 'lib/lemon-ui/Link'
-import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
 import { urls } from 'scenes/urls'
 
 import { getFilterLabel } from '~/taxonomy/helpers'
-import { EntityFilter } from '~/types'
 
 const nameOrId = (name?: string | null, id?: string | null): string => {
     if (name) {
@@ -32,7 +31,7 @@ const getRelatedObjectDescription = (context: any, preposition?: 'to' | 'from'):
 
     const getDisplayName = (): string => {
         if (objectType === 'event_definition') {
-            return getDisplayNameFromEntityFilter({ name: objectName } as EntityFilter, false) || objectName
+            return getDisplayNameFromEntityFilter({ name: objectName }, false) || objectName
         }
         if (objectType === 'property_definition') {
             return getFilterLabel(objectName, TaxonomicFilterGroupType.EventProperties)
@@ -108,6 +107,26 @@ const getRelatedObjectDescription = (context: any, preposition?: 'to' | 'from'):
 export function tagActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
     if (logItem.scope === 'TaggedItem') {
         return taggedItemActivityDescriber(logItem, asNotification)
+    }
+
+    if (logItem.activity === 'merged') {
+        const source = nameOrId(logItem.detail?.context?.source_name, logItem.item_id)
+        const target = nameOrId(logItem.detail?.context?.target_name, logItem.detail?.context?.target_id)
+        return {
+            summary: activityLogSummary(
+                logItem,
+                <>
+                    Merged tag <strong>{source}</strong> into
+                </>,
+                target
+            ),
+            description: (
+                <>
+                    <ActivityLogUserName logItem={logItem} /> merged tag <strong>{source}</strong> into{' '}
+                    <strong>{target}</strong>
+                </>
+            ),
+        }
     }
 
     if (logItem.activity == 'created') {

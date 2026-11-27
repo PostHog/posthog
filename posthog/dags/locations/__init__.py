@@ -11,10 +11,8 @@ from posthog.dags.common.resources import (
     ClickhouseClusterResource,
     PostgresResource,
     PostgresURL,
-    PostgresURLResource,
     PostHogAnalyticsResource,
     RedisResource,
-    kafka_producer_resource,
 )
 
 # Default loggers for every code location's jobs. Overrides Dagster's
@@ -46,15 +44,9 @@ resources_by_env = {
         "posthoganalytics": dagster.ResourceDefinition.none_resource(
             description="Dummy PostHogAnalytics resource since posthoganalytics is configured properly in production."
         ),
-        # Persons DB resource (parses connection URL)
-        "persons_database": PostgresURLResource(
-            connection_url=dagster.EnvVar("PERSONS_DB_WRITER_URL"),
-        ),
         "persons_database_url": PostgresURL(
             connection_url=dagster.EnvVar("PERSONS_DB_WRITER_URL"),
         ),
-        # Kafka producer (auto-configured from Django settings)
-        "kafka_producer": kafka_producer_resource,
         # Clay webhook for job switchers pipeline
         "clay_webhook_job_switchers": ClayWebhookResource(
             webhook_url=dagster.EnvVar("CLAY_JOB_SWITCHERS_WEBHOOK_URL"),
@@ -85,15 +77,9 @@ resources_by_env = {
             password=dagster.EnvVar("POSTGRES_PASSWORD"),
         ),
         "posthoganalytics": PostHogAnalyticsResource(personal_api_key=dagster.EnvVar("PERSONAL_API_KEY")),
-        # Persons DB resource (parses connection URL)
-        "persons_database": PostgresURLResource(
-            connection_url=dagster.EnvVar("PERSONS_DB_WRITER_URL"),
-        ),
         "persons_database_url": PostgresURL(
             connection_url=dagster.EnvVar("PERSONS_DB_WRITER_URL"),
         ),
-        # Kafka producer (auto-configured from Django settings)
-        "kafka_producer": kafka_producer_resource,
         # Clay webhook for job switchers pipeline
         "clay_webhook_job_switchers": ClayWebhookResource(
             webhook_url=dagster.EnvVar("CLAY_JOB_SWITCHERS_WEBHOOK_URL"),

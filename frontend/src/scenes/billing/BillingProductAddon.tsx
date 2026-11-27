@@ -5,6 +5,7 @@ import { ReactNode, useRef } from 'react'
 import { IconCheckCircle, IconInfo } from '@posthog/icons'
 import { LemonSelectOptions, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
+import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { humanFriendlyCurrency } from 'lib/utils/numbers'
 import { getProductIcon } from 'scenes/onboarding/shared/utils'
 
@@ -12,7 +13,6 @@ import { BillingProductV2AddonType } from '~/types'
 
 import { isProductVariantSecondary } from './billing-utils'
 import { BillingAddonFeaturesList } from './BillingAddonFeaturesList'
-import { billingLogic } from './billingLogic'
 import { BillingProductAddonActions } from './BillingProductAddonActions'
 import { billingProductLogic } from './billingProductLogic'
 import { DATA_PIPELINES_CUTOFF_DATE } from './constants'

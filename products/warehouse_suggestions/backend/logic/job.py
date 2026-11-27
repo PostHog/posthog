@@ -1,10 +1,15 @@
 from collections import defaultdict
+from collections.abc import Callable
+from contextlib import AbstractContextManager
 from datetime import date, datetime, timedelta
 from enum import StrEnum
 from uuid import UUID
 
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
+
+from opentelemetry import trace
 
 from posthog.dataclasses import frozen
 from posthog.models.team import Team
@@ -13,12 +18,14 @@ from posthog.models.team.extensions import get_or_create_team_extension
 from ..facade.enums import WarehouseSuggestionKind, WarehouseSuggestionStatus
 from ..models import WarehouseSuggestion, WarehouseSuggestionTeamConfig
 from .analytics import report_candidates
-from .candidates.base import CandidateContext, CandidateResult
+from .candidates.base import CandidateContext, CandidateResult, MeasurementRequest
 from .candidates.registry import evaluate_candidates
 from .inventory import load_inventory
-from .lifecycle import FLIP_KINDS, LifecycleResult, apply_run
-from .reads import ReadWindow, RollupDays, Subject, TeamReads, read_rollup_days, read_team_reads
+from .lifecycle import FLIP_KINDS, LifecycleResult, apply_run, pick_waiting, surface_on_demand, waiting_count
+from .reads import ReadWindow, TeamReads, read_rollup_days, read_team_reads
 from .rules import RULES, EligibilityRules, Rules
+
+tracer = trace.get_tracer(__name__)
 
 MAINTAINED_STATUSES = (WarehouseSuggestionStatus.PROPOSED, WarehouseSuggestionStatus.ACCEPTED)
 
@@ -35,15 +42,25 @@ class TeamRunResult:
     status: TeamRunStatus
     drafts: int = 0
     lifecycle: LifecycleResult | None = None
-    measurement_requests: tuple[Subject, ...] = ()
+    measurement_requests: tuple[MeasurementRequest, ...] = ()
+
+
+class RunStage(StrEnum):
+    READ_TEAM_READS = "warehouse_suggestions.run_team.read_team_reads"
+    BUILD_CONTEXT = "warehouse_suggestions.run_team.build_context"
+    EVALUATE_CANDIDATES = "warehouse_suggestions.run_team.evaluate_candidates"
+    APPLY_RUN = "warehouse_suggestions.run_team.apply_run"
+
+
+def _stage_span(stage: RunStage, team_id: int) -> AbstractContextManager[trace.Span]:
+    return tracer.start_as_current_span(stage.value, attributes={"team_id": team_id})
 
 
 def run_team(
     team_id: int,
     *,
     run_id: str,
-    today: date,
-    rollup_days: RollupDays,
+    load_reads: Callable[[], TeamReads],
     now: datetime | None = None,
     rules: Rules = RULES,
 ) -> TeamRunResult:
@@ -51,27 +68,68 @@ def run_team(
     team = Team.objects.get(id=team_id)
     if not get_or_create_team_extension(team, WarehouseSuggestionTeamConfig).enabled:
         return TeamRunResult(team_id=team_id, status=TeamRunStatus.DISABLED)
-    reads = read_team_reads(team_id, ReadWindow.ending(today, rules), rules, rollup_days)
+    with _stage_span(RunStage.READ_TEAM_READS, team_id):
+        reads = load_reads()
     eligible = is_eligible(reads, rules.eligibility)
     status = TeamRunStatus.PROCESSED if eligible else TeamRunStatus.NOT_ELIGIBLE
     if not eligible and not _has_suggestions_to_maintain(team_id):
         with transaction.atomic():
             _record_run(_locked_config(team_id), reads, eligible=False, now=now)
         return TeamRunResult(team_id=team_id, status=status)
-    context = build_context(team, reads, run_id=run_id, rules=rules, now=now)
+    with _stage_span(RunStage.BUILD_CONTEXT, team_id):
+        context = build_context(team, reads, run_id=run_id, rules=rules, now=now)
     results = _evaluate_and_report(context) if eligible else {}
     drafts = [draft for result in results.values() for draft in result.drafts]
     with transaction.atomic():
         config = _locked_config(team_id)
         _record_run(config, reads, eligible=eligible, now=now)
-        lifecycle = apply_run(context, team, drafts, now, surface=eligible and config.paused_reason is None)
+        with _stage_span(RunStage.APPLY_RUN, team_id):
+            lifecycle = apply_run(context, team, drafts, now, surface=shows_new_suggestions(config))
     return TeamRunResult(
         team_id=team_id,
         status=status,
         drafts=len(drafts),
         lifecycle=lifecycle,
-        measurement_requests=tuple(subject for result in results.values() for subject in result.measurement_requests),
+        measurement_requests=tuple(request for result in results.values() for request in result.measurement_requests),
     )
+
+
+@frozen
+class WaitingSuggestions:
+    count: int
+    can_show_more: bool
+
+
+NOTHING_WAITING = WaitingSuggestions(count=0, can_show_more=False)
+
+
+def surface_more(
+    team: Team, waiting: Q, *, now: datetime | None = None, rules: Rules = RULES
+) -> list[WarehouseSuggestion]:
+    """Show the next batch of `waiting` suggestions on request, under the same lock and rule as the daily run."""
+    now = now or timezone.now()
+    get_or_create_team_extension(team, WarehouseSuggestionTeamConfig)
+    with transaction.atomic():
+        if not shows_new_suggestions(_locked_config(team.pk)):
+            return []
+        return surface_on_demand(team, rules.lifecycle, now, waiting)
+
+
+def waiting_suggestions(
+    team_id: int, waiting: Q, *, now: datetime | None = None, rules: Rules = RULES
+) -> WaitingSuggestions:
+    config = WarehouseSuggestionTeamConfig.objects.filter(team_id=team_id).first()
+    if config is None or not shows_new_suggestions(config):
+        return NOTHING_WAITING
+    count = waiting_count(team_id, waiting)
+    if count == 0:
+        return NOTHING_WAITING
+    picked = pick_waiting(team_id, rules.lifecycle, now or timezone.now(), waiting=waiting, on_demand=True)
+    return WaitingSuggestions(count=count, can_show_more=bool(picked))
+
+
+def shows_new_suggestions(config: WarehouseSuggestionTeamConfig) -> bool:
+    return config.enabled and config.eligible and config.paused_reason is None
 
 
 def explain_team(
@@ -85,7 +143,8 @@ def explain_team(
 
 
 def _evaluate_and_report(context: CandidateContext) -> dict[WarehouseSuggestionKind, CandidateResult]:
-    results = evaluate_candidates(context)
+    with _stage_span(RunStage.EVALUATE_CANDIDATES, context.team_id):
+        results = evaluate_candidates(context)
     for kind, result in results.items():
         report_candidates(kind, len(result.drafts))
     return results

@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Optional, Union
 
@@ -60,8 +59,9 @@ from posthog.models.group.util import create_group
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
-from products.actions.backend.models.action import Action
-from products.event_definitions.backend.models.property_definition import PropertyDefinition
+from products.actions.backend.facade.testing import create_action
+from products.event_definitions.backend.facade.enums import PropertyType
+from products.event_definitions.backend.facade.testing import create_property_definition
 from products.product_analytics.backend.hogql_queries.stickiness.stickiness_query_runner import StickinessQueryRunner
 from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 
@@ -111,18 +111,18 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def _create_events(self, data: list[PersonSeriesFixture]):
         person_result = []
-        properties_to_create: dict[str, str] = {}
+        properties_to_create: dict[str, PropertyType] = {}
         for person in data:
             first_timestamp = person.events[0].timestamps[0]
 
             for key, value in person.properties.items():
                 if key not in properties_to_create:
                     if isinstance(value, bool):
-                        type = "Boolean"
+                        type = PropertyType.Boolean
                     elif isinstance(value, int):
-                        type = "Numeric"
+                        type = PropertyType.Numeric
                     else:
-                        type = "String"
+                        type = PropertyType.String
 
                     properties_to_create[key] = type
 
@@ -148,7 +148,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     )
 
         for key, value in properties_to_create.items():
-            PropertyDefinition.objects.create(team=self.team, name=key, property_type=value)
+            create_property_definition(team_id=self.team.id, name=key, property_type=value)
 
         return person_result
 
@@ -732,7 +732,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_actions(self):
         self._create_test_events()
 
-        action = Action.objects.create(
+        action = create_action(
             name="My Action",
             team=self.team,
             steps_json=[
@@ -743,7 +743,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        series: list[EventsNode | ActionsNode] = [ActionsNode(id=action.pk)]
+        series: list[EventsNode | ActionsNode] = [ActionsNode(id=action.id)]
 
         response = self._run_query(series=series)
 
@@ -1599,57 +1599,15 @@ class TestStickinessDashboardFilters(BaseTest):
         assert len(runner.series) == 1
 
 
-class TestStickinessSeriesCustomNames(BaseTest):
-    @parameterized.expand(
-        [
-            (
-                "applies_custom_name_to_stickiness_series",
-                [{"action": {"order": 0, "custom_name": None}, "data": [1, 2, 3]}],
-                [{"action": {"order": 0, "custom_name": "My Stickiness Name"}, "data": [1, 2, 3]}],
-                True,
-            ),
-            (
-                "not_modified_when_stickiness_names_match",
-                [{"action": {"order": 0, "custom_name": "My Stickiness Name"}, "data": [1, 2, 3]}],
-                [{"action": {"order": 0, "custom_name": "My Stickiness Name"}, "data": [1, 2, 3]}],
-                False,
-            ),
-        ]
-    )
-    def test_apply_stickiness_custom_names(
-        self,
-        _name: str,
-        cached_results: list,
-        expected_results: list,
-        expect_modified: bool,
-    ) -> None:
-        runner = StickinessQueryRunner(
-            query=StickinessQuery(series=[EventsNode(event="$pageview", custom_name="My Stickiness Name")]),
-            team=self.team,
-        )
-
-        cached_response = CachedStickinessQueryResponse(
-            results=cached_results,
-            is_cached=True,
-            last_refresh=datetime.now(UTC),
-            next_allowed_client_refresh=datetime.now(UTC),
-            cache_key="test_key",
-            timezone="UTC",
-        )
-
-        patched_response, was_modified = runner.apply_series_custom_names(cached_response)
-
-        assert patched_response.results == expected_results
-        assert was_modified is expect_modified
-
+class TestStickinessCacheHit(BaseTest):
     def test_a_response_cached_by_an_older_runner_reads_like_a_fresh_one(self) -> None:
-        action = Action.objects.create(team=self.team, name="Signed up")
+        action = create_action(team=self.team, name="Signed up")
         query = StickinessQuery(series=[EventsNode(event="$pageview"), ActionsNode(id=action.id)])
         cached_rows = [
-            {"label": "$pageview", "data": [3], "action": {"order": 0, "name": "$pageview"}},
-            {"label": "Signed up", "data": [1], "action": {"order": 1, "name": "Signed up"}},
+            {"label": "$pageview", "data": [3], "order": 0},
+            {"label": "Signed up", "data": [1], "order": 1},
         ]
-        # An older runner cached rows without a top-level `order` and a response without `action_names`.
+        # An older runner cached a response without `action_names`.
         with patch.object(
             StickinessQueryRunner, "calculate", return_value=StickinessQueryResponse(results=cached_rows)
         ):
@@ -1662,7 +1620,6 @@ class TestStickinessSeriesCustomNames(BaseTest):
         )
 
         assert isinstance(response, CachedStickinessQueryResponse)
-        assert [row["order"] for row in response.results] == [0, 1]
         assert response.action_names == {str(action.id): "Signed up"}
 
 

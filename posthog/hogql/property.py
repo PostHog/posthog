@@ -1,6 +1,6 @@
 import re
 import math
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Literal, Optional, TypeGuard, cast
 
 from django.db import models
@@ -60,16 +60,18 @@ from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_ACTIONS, PropertyOperatorType
 from posthog.dataclasses import frozen
 from posthog.interval_specs import get_interval_func
-from posthog.models import Property, PropertyDefinition, Team
+from posthog.models import Property, Team
 from posthog.models.element import Element
-from posthog.models.event import Selector
+from posthog.models.event import MAX_SELECTOR_LENGTH, Selector
 from posthog.models.property import BehavioralPropertyType, PropertyGroup, ValueT
 from posthog.models.property.util import build_selector_regex
 from posthog.utils import get_from_dict_or_attr, relative_date_parse
 
-from products.actions.backend.models.action import Action, ActionStepJSON
+from products.actions.backend.facade.api import get_action
+from products.actions.backend.facade.contracts import Action, ActionNotFound, ActionStep
 from products.cohorts.backend.models.cohort import Cohort
 from products.data_tools.backend.models.join import DataWarehouseJoin
+from products.event_definitions.backend.models import PropertyDefinition
 from products.event_definitions.backend.models.property_definition import PropertyType
 from products.warehouse_sources.backend.facade.hogql import get_view_or_table_by_name
 
@@ -1135,8 +1137,8 @@ def _behavioral_property_to_expr(property: Property, team: Team, scope: str, str
 
     if property.event_type == "actions":
         try:
-            action = Action.objects.get(pk=int(property.key), team__project_id=team.project_id)
-        except (Action.DoesNotExist, ValueError, TypeError):
+            action = get_action(action_id=int(property.key), project_id=team.project_id)
+        except (ActionNotFound, ValueError, TypeError):
             raise QueryError(f"Action '{property.key}' in behavioral filter not found")
         conditions: list[ast.Expr] = [action_to_expr(action)]
     else:
@@ -1829,7 +1831,7 @@ def bound_property_to_expr(property: Property, expr: ast.Expr, team: Team) -> as
     )
 
 
-def steps_to_expr(steps: list[ActionStepJSON], team: Team, events_alias: Optional[str] = None) -> ast.Expr:
+def steps_to_expr(steps: Sequence[ActionStep], team: Team, events_alias: Optional[str] = None) -> ast.Expr:
     if len(steps) == 0:
         return ast.Constant(value=True)
 
@@ -1939,7 +1941,14 @@ def steps_to_expr(steps: list[ActionStepJSON], team: Team, events_alias: Optiona
             # An action referencing itself here would re-enter action_to_expr until Python's recursion limit.
             if any(isinstance(prop, dict) and prop.get("type") == "behavioral" for prop in step.properties):
                 raise QueryError("Action steps can't filter on behavioral properties")
-            exprs.append(property_to_expr(step.properties, team))
+            from posthog.hogql.functions.insight_selection import InsightSelectionFinder  # noqa: PLC0415
+
+            property_expr = property_to_expr(step.properties, team)
+            # Saved action definitions are absent from the caller's query-cache fingerprint.
+            selection = InsightSelectionFinder(property_expr)
+            if selection.found or selection.has_query_tags:
+                raise QueryError("Action steps cannot contain insight selections or embedded query tags")
+            exprs.append(property_expr)
 
         if len(exprs) == 1:
             or_queries.append(exprs[0])
@@ -1954,8 +1963,18 @@ def steps_to_expr(steps: list[ActionStepJSON], team: Team, events_alias: Optiona
         return ast.Or(exprs=or_queries)
 
 
-def action_to_expr(action: Action, events_alias: Optional[str] = None) -> ast.Expr:
-    return steps_to_expr(action.steps, action.team, events_alias)
+def action_to_expr(action: Action, events_alias: Optional[str] = None, *, team: Optional[Team] = None) -> ast.Expr:
+    """The condition an event must meet to match the action, compiled against the action's own team.
+
+    The action's team is read by id. A caller that holds that team, or a child environment of it, can
+    pass it as `team` to skip the read; any other team is not used. Actions live on the project's root
+    team, so a child environment reaches it through its cached `parent_team`.
+    """
+    if team is not None and team.pk != action.team_id and team.parent_team_id == action.team_id:
+        team = team.parent_team
+    if team is None or team.pk != action.team_id:
+        team = Team.objects.get(pk=action.team_id)
+    return steps_to_expr(action.steps, team, events_alias)
 
 
 def entity_to_expr(entity: RetentionEntity, team: Team) -> ast.Expr:
@@ -1963,8 +1982,8 @@ def entity_to_expr(entity: RetentionEntity, team: Team) -> ast.Expr:
         # action
         action_id = int(entity.id) if isinstance(entity.id, float) else entity.id
         try:
-            action = Action.objects.get(pk=action_id, team=team)
-        except Action.DoesNotExist:
+            action = get_action(action_id=int(action_id), team_id=team.pk)
+        except ActionNotFound:
             raise ValidationError(f"Action ID {entity.id} does not exist!")
         event_expr = action_to_expr(action)
     elif entity.id is None:
@@ -2012,6 +2031,8 @@ def element_property_key_to_breakdown_expr(key: str) -> ast.Expr:
 
 
 def selector_to_expr(selector_string: str):
+    if len(selector_string) > MAX_SELECTOR_LENGTH:
+        raise QueryError(f"Selector is too long. The maximum length is {MAX_SELECTOR_LENGTH} characters.")
     selector = Selector(selector_string, escape_slashes=False)
     if selector.is_unsatisfiable():
         # The id-only shortcut below skips the regex, so [id="a"][id="b"] would match every

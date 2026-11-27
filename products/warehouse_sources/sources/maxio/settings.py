@@ -1,0 +1,279 @@
+"""Maxio (Advanced Billing / Chargify) source settings and endpoint catalog."""
+
+import dataclasses
+
+from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType
+
+# Maxio Advanced Billing sites are hosted per-region on different domains. The
+# subdomain is the site's "site name"; the region is chosen when the account is
+# provisioned (see maxio-com/ab-python-sdk `Environment`).
+MAXIO_BASE_URLS: dict[str, str] = {
+    "us": "https://{subdomain}.chargify.com",
+    "eu": "https://{subdomain}.ebilling.maxio.com",
+}
+
+# Maximum allowed by the API; any larger value is clamped server-side to 200.
+PAGE_SIZE = 200
+
+# `start_datetime` filters are interpreted in the site's configured timezone (not UTC)
+# unless a timezone is embedded in the value. We format watermarks as naive UTC and
+# re-read a trailing day each incremental run to cover the maximum UTC<->site-timezone
+# skew; the merge on primary keys dedupes the overlap.
+TIMEZONE_SKEW_LOOKBACK_SECONDS = 24 * 60 * 60
+
+# Allocation listings take no `per_page` and return pages of 50.
+ALLOCATIONS_PAGE_SIZE = 50
+
+
+@dataclasses.dataclass(frozen=True)
+class MaxioFanoutConfig:
+    """A child endpoint read once for each (subscription, component) row of `subscription_components`."""
+
+    # The child endpoints accept only some component kinds and reject the others with an error.
+    component_kinds: frozenset[str]
+
+
+@dataclasses.dataclass(frozen=True)
+class MaxioEndpointConfig:
+    path: str
+    # JSONPath into the response body. Most list endpoints return a bare array of
+    # `{"<resource>": {...}}` wrappers; invoices/credit notes wrap the array in a key.
+    data_selector: str
+    primary_keys: list[str]
+    # Stable datetime field used for delta partitioning; None disables partitioning.
+    partition_keys: list[str] | None
+    incremental_fields: list[IncrementalField]
+    # Value for the `date_field` query param when syncing incrementally. Only endpoints
+    # whose rows can also be *ordered* by a matching stable field advertise incremental
+    # sync — the pipeline checkpoints an ascending watermark per batch.
+    incremental_date_field: str | None = None
+    # Events-style monotonic integer cursor (`since_id`, inclusive) instead of a
+    # datetime window.
+    uses_since_id: bool = False
+    # Cursor field filtered through the date-only `since_date` param. The schema lookback
+    # moves the watermark back one day before it is truncated to a date.
+    since_date_field: str | None = None
+    page_size: int = PAGE_SIZE
+    # False for endpoints that take no `per_page` param and use a fixed page size.
+    sends_page_size: bool = True
+    fanout: MaxioFanoutConfig | None = None
+    # Static params sent on every request.
+    extra_params: dict[str, str | int | bool] = dataclasses.field(default_factory=dict)
+    # Explicit stable sort applied on every run (guards against page-boundary drift).
+    sort_params: dict[str, str] = dataclasses.field(default_factory=dict)
+    # Sort override when syncing incrementally, matching the incremental cursor so
+    # rows arrive in ascending cursor order.
+    incremental_sort_params: dict[str, str] = dataclasses.field(default_factory=dict)
+
+
+def _datetime_field(name: str) -> IncrementalField:
+    return {
+        "label": name,
+        "type": IncrementalFieldType.DateTime,
+        "field": name,
+        "field_type": IncrementalFieldType.DateTime,
+    }
+
+
+ENDPOINTS: dict[str, MaxioEndpointConfig] = {
+    "customers": MaxioEndpointConfig(
+        path="/customers.json",
+        data_selector="[*].customer",
+        primary_keys=["id"],
+        partition_keys=["created_at"],
+        # `direction` sorts customers by time of creation only, so `created_at` is the
+        # only cursor whose arrival order matches the watermark. `updated_at` filtering
+        # exists server-side but rows can't be ordered by it, which would corrupt the
+        # per-batch ascending watermark checkpoint.
+        incremental_fields=[_datetime_field("created_at")],
+        incremental_date_field="created_at",
+        sort_params={"direction": "asc"},
+    ),
+    "subscriptions": MaxioEndpointConfig(
+        path="/subscriptions.json",
+        data_selector="[*].subscription",
+        primary_keys=["id"],
+        partition_keys=["created_at"],
+        incremental_fields=[_datetime_field("updated_at")],
+        incremental_date_field="updated_at",
+        sort_params={"sort": "created_at", "direction": "asc"},
+        incremental_sort_params={"sort": "updated_at", "direction": "asc"},
+    ),
+    "invoices": MaxioEndpointConfig(
+        path="/invoices.json",
+        data_selector="invoices",
+        primary_keys=["uid"],
+        partition_keys=["created_at"],
+        incremental_fields=[_datetime_field("updated_at")],
+        incremental_date_field="updated_at",
+        extra_params={
+            "line_items": "true",
+            "discounts": "true",
+            "taxes": "true",
+            "credits": "true",
+            "payments": "true",
+            "refunds": "true",
+        },
+        sort_params={"sort": "created_at", "direction": "asc"},
+        incremental_sort_params={"sort": "updated_at", "direction": "asc"},
+    ),
+    "products": MaxioEndpointConfig(
+        path="/products.json",
+        data_selector="[*].product",
+        primary_keys=["id"],
+        partition_keys=["created_at"],
+        # Server-side date filtering exists, but the endpoint exposes no sort params so
+        # arrival order is undefined — full refresh only (the table is small anyway).
+        incremental_fields=[],
+        extra_params={"include_archived": "true"},
+    ),
+    "product_families": MaxioEndpointConfig(
+        path="/product_families.json",
+        data_selector="[*].product_family",
+        primary_keys=["id"],
+        partition_keys=["created_at"],
+        incremental_fields=[],
+    ),
+    "coupons": MaxioEndpointConfig(
+        path="/coupons.json",
+        data_selector="[*].coupon",
+        primary_keys=["id"],
+        partition_keys=["created_at"],
+        # Date filtering is only available via nested `filter[...]` params whose
+        # serialization we can't verify against a live site — full refresh only.
+        incremental_fields=[],
+    ),
+    "components": MaxioEndpointConfig(
+        path="/components.json",
+        data_selector="[*].component",
+        primary_keys=["id"],
+        partition_keys=["created_at"],
+        incremental_fields=[],
+        extra_params={"include_archived": "true"},
+    ),
+    "payment_profiles": MaxioEndpointConfig(
+        path="/payment_profiles.json",
+        data_selector="[*].payment_profile",
+        primary_keys=["id"],
+        # Payment profiles carry no creation timestamp.
+        partition_keys=None,
+        incremental_fields=[],
+    ),
+    "events": MaxioEndpointConfig(
+        path="/events.json",
+        data_selector="[*].event",
+        primary_keys=["id"],
+        partition_keys=["created_at"],
+        incremental_fields=[
+            {
+                "label": "id",
+                "type": IncrementalFieldType.Integer,
+                "field": "id",
+                "field_type": IncrementalFieldType.Integer,
+            }
+        ],
+        uses_since_id=True,
+        sort_params={"direction": "asc"},
+    ),
+    "credit_notes": MaxioEndpointConfig(
+        path="/credit_notes.json",
+        data_selector="credit_notes",
+        primary_keys=["uid"],
+        # Credit notes expose no stable creation timestamp (`issue_date` can be absent
+        # on drafts), so partitioning stays off.
+        partition_keys=None,
+        incremental_fields=[],
+        extra_params={
+            "line_items": "true",
+            "discounts": "true",
+            "taxes": "true",
+            "applications": "true",
+            "refunds": "true",
+        },
+    ),
+    "subscription_components": MaxioEndpointConfig(
+        path="/subscriptions_components.json",
+        data_selector="subscriptions_components",
+        # `id` is the component id, so it repeats across subscriptions.
+        primary_keys=["subscription_id", "component_id"],
+        partition_keys=["created_at"],
+        incremental_fields=[_datetime_field("updated_at")],
+        incremental_date_field="updated_at",
+        # The only sort options are `id` and `updated_at`; `id` keeps full-refresh pages
+        # stable while rows are updated mid-sync.
+        sort_params={"sort": "id", "direction": "asc"},
+        incremental_sort_params={"sort": "updated_at", "direction": "asc"},
+    ),
+    "component_price_points": MaxioEndpointConfig(
+        path="/components_price_points.json",
+        data_selector="price_points",
+        primary_keys=["id"],
+        partition_keys=["created_at"],
+        # Date filtering is only available via nested `filter[...]` params — full refresh only.
+        incremental_fields=[],
+        extra_params={"include": "currency_prices"},
+        sort_params={"direction": "asc"},
+    ),
+    "product_price_points": MaxioEndpointConfig(
+        path="/products_price_points.json",
+        data_selector="price_points",
+        primary_keys=["id"],
+        partition_keys=["created_at"],
+        # Date filtering is only available via nested `filter[...]` params — full refresh only.
+        incremental_fields=[],
+        extra_params={"include": "currency_prices"},
+        sort_params={"direction": "asc"},
+    ),
+    "reason_codes": MaxioEndpointConfig(
+        path="/reason_codes.json",
+        data_selector="[*].reason_code",
+        primary_keys=["id"],
+        partition_keys=["created_at"],
+        incremental_fields=[],
+    ),
+    "invoice_events": MaxioEndpointConfig(
+        path="/invoices/events.json",
+        data_selector="events",
+        primary_keys=["id"],
+        partition_keys=["timestamp"],
+        incremental_fields=[
+            {
+                "label": "id",
+                "type": IncrementalFieldType.Integer,
+                "field": "id",
+                "field_type": IncrementalFieldType.Integer,
+            }
+        ],
+        # Events always come back in ascending id order; `since_id` is exclusive here.
+        uses_since_id=True,
+        # Without this flag the API leaves out `change_invoice_status` events.
+        extra_params={"with_change_invoice_status": "true"},
+    ),
+    "subscription_component_usages": MaxioEndpointConfig(
+        path="/subscriptions/{subscription_id}/components/{component_id}/usages.json",
+        data_selector="[*].usage",
+        primary_keys=["subscription_id", "component_id", "id"],
+        partition_keys=["created_at"],
+        incremental_fields=[_datetime_field("created_at")],
+        since_date_field="created_at",
+        fanout=MaxioFanoutConfig(component_kinds=frozenset({"metered_component", "prepaid_usage_component"})),
+    ),
+    "subscription_component_allocations": MaxioEndpointConfig(
+        path="/subscriptions/{subscription_id}/components/{component_id}/allocations.json",
+        data_selector="[*].allocation",
+        # Older allocations carry no `allocation_id`.
+        primary_keys=["subscription_id", "component_id", "timestamp"],
+        partition_keys=["timestamp"],
+        # No server-side filter — full refresh only.
+        incremental_fields=[],
+        page_size=ALLOCATIONS_PAGE_SIZE,
+        sends_page_size=False,
+        fanout=MaxioFanoutConfig(
+            component_kinds=frozenset({"quantity_based_component", "on_off_component", "prepaid_usage_component"})
+        ),
+    ),
+}
+
+INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
+    name: config.incremental_fields for name, config in ENDPOINTS.items()
+}

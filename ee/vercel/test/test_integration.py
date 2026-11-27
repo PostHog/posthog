@@ -1,4 +1,5 @@
-from typing import Any
+from datetime import UTC, datetime
+from typing import Any, cast
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -17,6 +18,9 @@ from parameterized import parameterized
 from rest_framework import exceptions
 from rest_framework.exceptions import NotFound, ValidationError
 
+from posthog.api.email_verification import VERIFICATION_DISABLED_FLAG
+from posthog.constants import AvailableFeature
+from posthog.helpers.email_utils import EmailLookupHandler
 from posthog.integrations import IntegrationConflict, IntegrationReader
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization, OrganizationMembership
@@ -24,13 +28,19 @@ from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.organization_integration import OrganizationIntegration
 from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.team import Team
-from posthog.models.user import User
+from posthog.models.user import User, UserType
 from posthog.models.webauthn_credential import WebauthnCredential
+from posthog.project_creation_limits import ORGANIZATION_PROJECT_LIMIT_MESSAGE, PLAN_PROJECT_LIMIT_MESSAGE
+from posthog.tasks.email import send_email_verification_code
+from posthog.utils import absolute_uri
 
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.facade.contracts import ExperimentChanged
+from products.experiments.backend.facade.testing import create_experiment, delete_experiment, update_experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
+from ee.api.vercel.test.base import fake_vercel_token_endpoint
 from ee.api.vercel.types import VercelUserClaims
+from ee.models.license import License, LicenseManager
 from ee.vercel.integration import (
     RequiresExistingUserLogin,
     SSOParams,
@@ -39,8 +49,14 @@ from ee.vercel.integration import (
     get_or_create_connectable_resource,
 )
 
+SIX_PROJECTS_FEATURE = {"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "name": "Projects", "limit": 6}
+UNLIMITED_PROJECTS_FEATURE = {"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "name": "Projects", "limit": None}
+BILLING_NEXT = "%2Forganization%2Fbilling%2Foverview"
+
 # Hardcoded independently of ee.vercel.integration.CLIENT_ENV_PREFIXES so a dropped prefix fails these tests.
 EXPECTED_PREFIXES = ["NEXT_PUBLIC_", "VITE_", "NUXT_PUBLIC_", "PUBLIC_"]
+
+EXISTING_USER_EMAIL = "kim@example.com"
 
 
 class TestVercelIntegration(TestCase):
@@ -67,16 +83,6 @@ class TestVercelIntegration(TestCase):
             key=name,
             name=description,
             deleted=archived,
-        )
-
-    def make_experiment(self, team, name, description, archived):
-        ff = FeatureFlag.objects.create(team=team, key="exp-flag")
-        return Experiment.objects.create(
-            team=team,
-            name=name,
-            description=description,
-            archived=archived,
-            feature_flag=ff,
         )
 
     def assert_vercel_item(
@@ -277,7 +283,6 @@ class TestVercelIntegration(TestCase):
         expected_config = {k: v for k, v in self.payload.items() if k != "credentials"}
         assert self.installation.config == expected_config
         assert self.installation.config != original_config
-        assert self.installation.sensitive_config["credentials"] == self.payload["credentials"]
 
     @patch("ee.vercel.integration.report_user_signed_up")
     def test_upsert_installation_new_user_new_org(self, mock_report):
@@ -298,11 +303,9 @@ class TestVercelIntegration(TestCase):
         assert "new_user_456" in new_installation.config["user_mappings"]
         assert new_installation.config["user_mappings"]["new_user_456"] is not None
 
-        # Check all other config fields match (credentials are in sensitive_config)
+        assert "credentials" not in new_installation.config
         for key, value in self.payload.items():
-            if key == "credentials":
-                assert new_installation.sensitive_config["credentials"] == value
-            else:
+            if key != "credentials":
                 assert new_installation.config[key] == value
 
         new_user = User.objects.get(email=self.payload["account"]["contact"]["email"])
@@ -319,12 +322,18 @@ class TestVercelIntegration(TestCase):
 
         mock_report.assert_called_once()
 
+    @parameterized.expand(
+        [
+            ("same_address", EXISTING_USER_EMAIL),
+            ("ascii_case_variant", "Kim@Example.com"),
+            ("kelvin_sign_variant", "\u212aim@example.com"),
+        ]
+    )
     @patch("ee.vercel.integration.report_user_signed_up")
-    def test_upsert_installation_existing_user_new_org(self, mock_report):
+    def test_upsert_installation_existing_user_new_org(self, _name, contact_email, mock_report):
         """Test: External user (no Vercel mapping) installs - added to org but no mapping until SSO."""
-        existing_user = User.objects.create_user(
-            email=self.payload["account"]["contact"]["email"], password="existing", first_name="Existing"
-        )
+        existing_user = User.objects.create_user(email=EXISTING_USER_EMAIL, password="existing", first_name="Existing")
+        self.payload["account"]["contact"]["email"] = contact_email
         new_installation_id = self.NEW_INSTALLATION_ID
         existing_user_claims = self._create_user_claims("existing_user_789")
         existing_user_claims.installation_id = new_installation_id
@@ -340,11 +349,9 @@ class TestVercelIntegration(TestCase):
             "user_mappings", {}
         )
 
-        # Check all other config fields match (credentials are in sensitive_config)
+        assert "credentials" not in new_installation.config
         for key, value in self.payload.items():
-            if key == "credentials":
-                assert new_installation.sensitive_config["credentials"] == value
-            else:
+            if key != "credentials":
                 assert new_installation.config[key] == value
 
         # Existing user IS added to the organization - they are installing so they should be a member
@@ -352,6 +359,7 @@ class TestVercelIntegration(TestCase):
         membership = OrganizationMembership.objects.get(user=existing_user, organization=new_org)
         assert membership.level == OrganizationMembership.Level.OWNER
         assert OrganizationProvisioning.objects.get(organization=new_org).partner == "vercel"
+        assert list(EmailLookupHandler.users_matching_email(EXISTING_USER_EMAIL)) == [existing_user]
 
         mock_report.assert_not_called()
 
@@ -534,27 +542,98 @@ class TestVercelIntegration(TestCase):
         assert user.is_email_verified is expect_login
         assert (request.session.get(SESSION_KEY) == str(user.pk)) is expect_login
 
-    @parameterized.expand([("verified_claim", True), ("unverified_claim", False)])
-    @patch("ee.vercel.integration.report_user_signed_up")
-    def test_sso_login_verifies_a_new_users_email_only_from_a_verified_claim(
-        self, _name: str, claim_email_verified: bool, mock_report: Mock
+    @parameterized.expand(
+        [
+            ("verified_claim", True, True, False, False, None),
+            ("unverified_claim", False, True, False, False, f"reason=vercel_sso&next={BILLING_NEXT}"),
+            ("missing_claim", None, True, False, False, f"reason=vercel_sso&next={BILLING_NEXT}"),
+            (
+                "unverified_claim_and_send_fails",
+                False,
+                True,
+                False,
+                True,
+                f"reason=vercel_sso&next={BILLING_NEXT}&email_sent=false",
+            ),
+            (
+                "unverified_claim_and_email_unavailable",
+                False,
+                False,
+                False,
+                False,
+                f"reason=vercel_sso&next={BILLING_NEXT}&email_sent=false",
+            ),
+            (
+                "unverified_claim_and_verification_disabled_for_org",
+                False,
+                True,
+                True,
+                False,
+                f"reason=vercel_sso&next={BILLING_NEXT}",
+            ),
+        ]
+    )
+    @patch("posthog.ph_client.posthoganalytics.get_feature_flag")
+    @patch("posthog.email.is_email_available")
+    @patch("posthog.api.email_verification.send_email_verification_code")
+    def test_sso_logs_in_a_new_user_only_from_a_verified_claim(
+        self,
+        _name: str,
+        claim_email_verified: bool | None,
+        email_available: bool,
+        verification_disabled_for_org: bool,
+        send_fails: bool,
+        verify_email_query: str | None,
+        mock_send_email: Mock,
+        mock_is_email_available: Mock,
+        mock_get_feature_flag: Mock,
     ) -> None:
+        mock_is_email_available.return_value = email_available
+        mock_get_feature_flag.side_effect = lambda key, distinct_id, **_: (
+            verification_disabled_for_org
+            and key == VERIFICATION_DISABLED_FLAG
+            and distinct_id == str(self.organization.id)
+        )
+        if send_fails:
+            mock_send_email.side_effect = Exception("email provider unavailable")
+        elif not email_available:
+            mock_send_email.side_effect = send_email_verification_code
         claims = self._create_user_claims("vercel_new_user")
         claims.user_email = "new-sso-user@example.com"
         claims.user_email_verified = claim_email_verified
+        code = f"new_user_code_{_name}"
+        VercelIntegration.set_cached_claims(code, claims, timeout=300)
+        team, resource = self.make_team_with_vercel(self.organization, self.user)
         request = RequestFactory().get("/")
         SessionMiddleware(lambda request: HttpResponse()).process_request(request)
 
-        user = VercelIntegration._authenticate_and_login_user(request, claims, None)
+        redirect_url = VercelIntegration.authenticate_sso(
+            request, SSOParams(mode="sso", code=code, state="state", path="billing", resource_id=str(resource.pk))
+        )
 
-        assert user.email == "new-sso-user@example.com"
-        assert user.is_email_verified is claim_email_verified
+        user = User.objects.get(email="new-sso-user@example.com")
+        self.installation.refresh_from_db()
+        assert self.installation.config["user_mappings"]["vercel_new_user"] == user.pk
+        assert OrganizationMembership.objects.filter(user=user, organization=self.organization).exists()
+        assert user.current_team == team
+        assert user.is_email_verified is (claim_email_verified is True)
+        if verify_email_query is None:
+            assert redirect_url == VercelIntegration.SSO_PATH_REDIRECT_MAP["billing"]
+            assert request.session.get(SESSION_KEY) == str(user.pk)
+        else:
+            assert redirect_url == f"/verify_email/{user.uuid}?{verify_email_query}"
+            assert SESSION_KEY not in request.session
+            assert mock_send_email.call_args.args[0] == user.pk
 
     @parameterized.expand(
         [
-            (f"{policy}_{mapped}", policy, mapped)
-            for policy in ("totp", "passkey", "sso", "inactive", "domain")
-            for mapped in (False, True)
+            *(
+                (f"{policy}_{account}", policy, account)
+                for policy in ("totp", "passkey", "sso", "inactive", "domain", "service_account")
+                for account in ("existing", "mapped")
+            ),
+            ("sso_new", "sso", "new"),
+            ("domain_new", "domain", "new"),
         ]
     )
     @override_settings(
@@ -562,9 +641,10 @@ class TestVercelIntegration(TestCase):
         SOCIAL_AUTH_GOOGLE_OAUTH2_KEY="synthetic-client",
         SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET="synthetic-secret",
     )
-    def test_sso_preserves_account_login_requirements(self, _name: str, policy: str, mapped: bool) -> None:
+    def test_sso_preserves_account_login_requirements(self, _name: str, policy: str, account: str) -> None:
+        mapped = account == "mapped"
         claims = self._create_user_claims("protected_user")
-        claims.user_email = self.user.email
+        claims.user_email = "new-sso-user@example.com" if account == "new" else self.user.email
         if mapped:
             self.installation.config["user_mappings"] = {claims.user_id: self.user.pk}
             self.installation.save()
@@ -592,6 +672,9 @@ class TestVercelIntegration(TestCase):
         elif policy == "inactive":
             self.user.is_active = False
             self.user.save()
+        elif policy == "service_account":
+            self.user.type = UserType.SERVICE_ACCOUNT
+            self.user.save(update_fields=["type"])
         elif policy == "domain":
             self.organization.enforce_verified_domains = True
             self.organization.save()
@@ -607,6 +690,7 @@ class TestVercelIntegration(TestCase):
         assert self.installation.config.get("user_mappings", {}).get(claims.user_id) == (
             self.user.pk if mapped else None
         )
+        assert not User.objects.filter(email="new-sso-user@example.com").exists()
 
     def test_sso_does_not_replace_an_inactive_users_mapping(self) -> None:
         inactive_user = User.objects.create_user(
@@ -830,9 +914,24 @@ class TestVercelIntegration(TestCase):
 
         mock_report.assert_not_called()
 
-    def test_get_resource_not_found(self):
+    @parameterized.expand([("missing_id",), ("another_organization",), ("not_a_number",)])
+    def test_resource_not_found(self, case: str):
+        if case == "another_organization":
+            other_org = Organization.objects.create(name="Other Org")
+            _, other_resource = self.make_team_with_vercel(other_org, self.user)
+            resource_id = str(other_resource.pk)
+        else:
+            resource_id = "999999" if case == "missing_id" else "abc"
+
         with self.assertRaises(NotFound):
-            VercelIntegration.get_resource("999999")
+            VercelIntegration.get_resource(self.installation_id, resource_id)
+        with self.assertRaises(NotFound):
+            VercelIntegration.update_resource(self.installation_id, resource_id, {"name": "Hacked"})
+        with self.assertRaises(NotFound):
+            VercelIntegration.delete_resource(self.installation_id, resource_id)
+        if case == "another_organization":
+            other_resource.refresh_from_db()
+            assert other_resource.config["name"] == "Test Resource"
 
     def test_create_resource(self):
         resource_data = {
@@ -858,12 +957,84 @@ class TestVercelIntegration(TestCase):
         assert resource.team.organization == self.organization
         assert resource.created_by == self.installation.created_by
 
+    @parameterized.expand(
+        [
+            ("billing_grants_more_projects", [], [SIX_PROJECTS_FEATURE], None, None),
+            ("billing_grants_no_more_projects", [], [], None, PLAN_PROJECT_LIMIT_MESSAGE),
+            ("at_organization_maximum", [UNLIMITED_PROJECTS_FEATURE], [], 1, ORGANIZATION_PROJECT_LIMIT_MESSAGE),
+        ]
+    )
+    def test_create_resource_checks_project_limit(
+        self,
+        _name: str,
+        stored_features: list[dict],
+        billing_features: list[dict],
+        organization_maximum: int | None,
+        refusal: str | None,
+    ) -> None:
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123", plan="enterprise", valid_until=datetime(2038, 1, 19, 3, 14, 7, tzinfo=UTC)
+        )
+        self.organization.available_product_features = stored_features
+        self.organization.save()
+        Team.objects.create(organization=self.organization, name="Existing project")
+        resource_data = {
+            "productId": "posthog",
+            "name": "Second project",
+            "metadata": {},
+            "billingPlanId": "posthog-usage-based",
+        }
+
+        with (
+            patch("ee.vercel.integration.get_cached_instance_license", return_value=license),
+            patch("ee.billing.billing_manager.http_session.get") as billing_get,
+            patch("posthog.project_creation_limits.MAX_ALLOWED_PROJECTS_PER_ORG", organization_maximum or 2000),
+        ):
+            billing_get.return_value.status_code = 200
+            billing_get.return_value.json.return_value = {"available_product_features": billing_features}
+            if refusal is None:
+                VercelIntegration.create_resource(self.installation_id, resource_data)
+            else:
+                with self.assertRaises(exceptions.PermissionDenied) as refused:
+                    VercelIntegration.create_resource(self.installation_id, resource_data)
+                assert refused.exception.detail == refusal
+
+        expected_project_count = 2 if refusal is None else 1
+        assert Team.objects.filter(organization=self.organization).count() == expected_project_count
+
+    def test_repeated_plan_limit_refusals_read_billing_once_per_cooldown(self) -> None:
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123", plan="enterprise", valid_until=datetime(2038, 1, 19, 3, 14, 7, tzinfo=UTC)
+        )
+        self.organization.available_product_features = []
+        self.organization.save()
+        Team.objects.create(organization=self.organization, name="Existing project")
+        resource_data = {
+            "productId": "posthog",
+            "name": "Second project",
+            "metadata": {},
+            "billingPlanId": "posthog-usage-based",
+        }
+
+        with (
+            patch("ee.vercel.integration.get_cached_instance_license", return_value=license),
+            patch("ee.billing.billing_manager.http_session.get") as billing_get,
+        ):
+            billing_get.return_value.status_code = 200
+            billing_get.return_value.json.return_value = {"available_product_features": []}
+            for _ in range(3):
+                with self.assertRaises(exceptions.PermissionDenied):
+                    VercelIntegration.create_resource(self.installation_id, resource_data)
+
+        assert billing_get.call_count == 1
+        assert Team.objects.filter(organization=self.organization).count() == 1
+
     def test_get_resource(self):
         team, resource = self.make_team_with_vercel(self.organization, self.user)
         resource.config["metadata"] = {}
         resource.save()
 
-        result = VercelIntegration.get_resource(str(resource.pk))
+        result = VercelIntegration.get_resource(self.installation_id, str(resource.pk))
 
         assert result["id"] == str(resource.pk)
         assert result["productId"] == "posthog"
@@ -884,7 +1055,7 @@ class TestVercelIntegration(TestCase):
         resource.save()
 
         update_data = {"name": "Updated Name", "metadata": {"new": "value"}}
-        result = VercelIntegration.update_resource(str(resource.pk), update_data)
+        result = VercelIntegration.update_resource(self.installation_id, str(resource.pk), update_data)
 
         resource.refresh_from_db()
         assert resource.config["name"] == "Updated Name"
@@ -896,12 +1067,8 @@ class TestVercelIntegration(TestCase):
     def test_delete_resource(self):
         team, resource = self.make_team_with_vercel(self.organization, self.user)
         resource_id = str(resource.pk)
-        VercelIntegration.delete_resource(resource_id)
+        VercelIntegration.delete_resource(self.installation_id, resource_id)
         assert not Integration.objects.filter(pk=resource_id).exists()
-
-    def test_delete_resource_not_found(self):
-        with self.assertRaises(NotFound):
-            VercelIntegration.delete_resource("999999")
 
     def test_create_resource_missing_name(self):
         resource_data = {
@@ -967,26 +1134,6 @@ class TestVercelIntegration(TestCase):
 
     @parameterized.expand(
         [
-            ("success", {"access_token": "test_token"}, "test_token"),
-            ("missing", {}, None),
-        ]
-    )
-    def test_get_access_token(self, _, credentials, expected):
-        self.installation.sensitive_config["credentials"] = credentials
-        self.installation.save()
-        result = VercelIntegration._get_access_token(self.installation)
-        assert result == expected
-
-    def test_get_access_token_fallback_from_config(self):
-        """Pre-migration installations store credentials in config — fallback should find them."""
-        self.installation.config["credentials"] = {"access_token": "legacy_token", "token_type": "Bearer"}
-        self.installation.sensitive_config = {}
-        self.installation.save()
-        result = VercelIntegration._get_access_token(self.installation)
-        assert result == "legacy_token"
-
-    @parameterized.expand(
-        [
             ("success", False),
             ("failure", True),
         ]
@@ -1008,54 +1155,48 @@ class TestVercelIntegration(TestCase):
 
     @parameterized.expand(
         [
-            (
-                "flag",
-                "make_feature_flag",
-                VercelIntegration._convert_feature_flag_to_vercel_item,
-                "flag",
-                "test_flag",
-                "Test Feature Flag",
-                False,
-                "test-flag",
-            ),
-            (
-                "flag_deleted",
-                "make_feature_flag",
-                VercelIntegration._convert_feature_flag_to_vercel_item,
-                "flag",
-                "deleted_flag",
-                "Deleted Flag",
-                True,
-                "deleted-flag",
-            ),
-            (
-                "experiment",
-                "make_experiment",
-                VercelIntegration._convert_experiment_to_vercel_item,
-                "experiment",
-                "Test Experiment",
-                "A test experiment",
-                False,
-                "test-experiment",
-            ),
-            (
-                "experiment_archived",
-                "make_experiment",
-                VercelIntegration._convert_experiment_to_vercel_item,
-                "experiment",
-                "Archived Experiment",
-                "",
-                True,
-                "archived-experiment",
-            ),
+            ("flag", "test_flag", "Test Feature Flag", False, "test-flag"),
+            ("flag_deleted", "deleted_flag", "Deleted Flag", True, "deleted-flag"),
         ]
     )
-    def test_convert_to_vercel_item(self, _, factory_name, converter, category, name, desc, archived, expected_slug):
+    def test_convert_feature_flag_to_vercel_item(self, _, name, desc, archived, expected_slug):
         team, _ = self.make_team_with_vercel(self.organization, self.user)
-        factory = getattr(self, factory_name)
-        item = factory(team, name, desc, archived)
-        result = converter(item, created=True)
-        self.assert_vercel_item(item, result, category, archived, expected_slug, name, desc)
+        item = self.make_feature_flag(team, name, desc, archived)
+        result = VercelIntegration._convert_feature_flag_to_vercel_item(item, created=True)
+        self.assert_vercel_item(item, result, "flag", archived, expected_slug, name, desc)
+
+    @parameterized.expand(
+        [
+            ("created", True, False, False, {"id": "experiment_7", "isArchived": False}),
+            ("archived", False, True, False, {"isArchived": True}),
+            ("deleted", False, False, True, {"isArchived": True}),
+        ]
+    )
+    def test_convert_experiment_to_vercel_item(
+        self, _name: str, created: bool, archived: bool, deleted: bool, expected_fields: dict[str, Any]
+    ) -> None:
+        change = ExperimentChanged(
+            team_id=3,
+            experiment_id=7,
+            created=created,
+            deleted=deleted,
+            name="Checkout Test",
+            description=None,
+            archived=archived,
+            created_at=datetime(2026, 9, 1, tzinfo=UTC),
+            updated_at=datetime(2026, 9, 2, 12, tzinfo=UTC),
+        )
+
+        assert VercelIntegration._convert_experiment_to_vercel_item(change) == {
+            **expected_fields,
+            "slug": "checkout-test",
+            "origin": absolute_uri("/project/3/experiments/7"),
+            "category": "experiment",
+            "name": "Checkout Test",
+            "description": "",
+            "createdAt": 1788220800000,
+            "updatedAt": 1788350400000,
+        }
 
     @parameterized.expand(
         [
@@ -1158,25 +1299,22 @@ class TestVercelIntegration(TestCase):
 
         mock_sync.assert_called_once_with(feature_flag, False)
 
+    @parameterized.expand([("soft_delete", False), ("hard_delete", True)])
     @patch("ee.vercel.integration.VercelIntegration.delete_experiment_from_vercel")
-    def test_experiment_post_save_signal_deletes_when_marked_deleted(self, mock_delete):
-        """Test that post_save signal triggers deletion when experiment is marked as deleted=True"""
+    def test_experiment_delete_removes_the_item_from_vercel(self, _name, hard_delete, mock_delete):
         team, _ = self.make_team_with_vercel(self.organization, self.user)
 
         feature_flag = FeatureFlag.objects.create(team=team, key="exp-flag")
 
-        experiment = Experiment.objects.create(
-            team=team,
-            name="test_experiment",
-            feature_flag=feature_flag,
-            deleted=False,
-        )
+        experiment_id = create_experiment(team_id=team.id, feature_flag_id=feature_flag.id, name="test_experiment")
         mock_delete.reset_mock()
 
-        experiment.deleted = True
-        experiment.save()
+        if hard_delete:
+            delete_experiment(team_id=team.id, experiment_id=experiment_id)
+        else:
+            update_experiment(team_id=team.id, experiment_id=experiment_id, deleted=True)
 
-        mock_delete.assert_called_once_with(experiment)
+        mock_delete.assert_called_once_with(team, experiment_id)
 
     @patch("ee.vercel.integration.VercelIntegration.sync_experiment_to_vercel")
     def test_experiment_post_save_signal_syncs_when_not_deleted(self, mock_sync):
@@ -1185,20 +1323,28 @@ class TestVercelIntegration(TestCase):
 
         feature_flag = FeatureFlag.objects.create(team=team, key="exp-flag")
 
-        experiment = Experiment.objects.create(
-            team=team,
-            name="test_experiment",
-            feature_flag=feature_flag,
-            deleted=False,
-        )
+        experiment_id = create_experiment(team_id=team.id, feature_flag_id=feature_flag.id, name="test_experiment")
 
-        mock_sync.assert_called_with(experiment, True)
+        mock_sync.assert_called_with(team, mock.ANY)
+        assert mock_sync.call_args.args[1].created is True
         mock_sync.reset_mock()
 
-        experiment.name = "Updated Test Experiment"
-        experiment.save()
+        update_experiment(team_id=team.id, experiment_id=experiment_id, name="Updated Test Experiment")
 
-        mock_sync.assert_called_once_with(experiment, False)
+        mock_sync.assert_called_once_with(team, mock.ANY)
+        change = mock_sync.call_args.args[1]
+        assert (change.experiment_id, change.created, change.name) == (experiment_id, False, "Updated Test Experiment")
+
+    @parameterized.expand([("member", True), ("not_a_member", False)])
+    def test_sso_redirect_url_for_an_experiment(self, _name, is_member):
+        organization = self.organization if is_member else Organization.objects.create(name="Other Org")
+        team = Team.objects.create(organization=organization, name="Experiment Team")
+        feature_flag = FeatureFlag.objects.create(team=team, key="exp-flag")
+        experiment_id = create_experiment(team_id=team.id, feature_flag_id=feature_flag.id)
+
+        url = VercelIntegration._get_sso_experimentation_url(f"experiment_{experiment_id}", self.user)
+
+        assert url == (f"/project/{team.id}/experiments/{experiment_id}" if is_member else None)
 
     @parameterized.expand(
         [
@@ -1206,9 +1352,11 @@ class TestVercelIntegration(TestCase):
             ("sync_autocreates", False, True, 1),
         ]
     )
+    @patch("ee.vercel.integration.VercelAPIClient")
     def test_safe_vercel_sync_only_autocreates_resource_on_sync(
-        self, _name, is_delete, should_create, expected_sync_calls
+        self, _name, is_delete, should_create, expected_sync_calls, _mock_client
     ):
+        fake_vercel_token_endpoint(self)
         team = Team.objects.create(organization=self.organization, name="No Resource Team")
         sync_func = Mock()
 
@@ -1509,6 +1657,7 @@ class TestPushSecretsToVercel(TestCase):
     """Tests for pushing secrets to Vercel when API token is rotated."""
 
     def setUp(self):
+        fake_vercel_token_endpoint(self)
         self.user = User.objects.create_user(email="secrets@example.com", password="test", first_name="Test")
         self.organization = Organization.objects.create(name="Secrets Test Org")
         self.user.join(organization=self.organization, level=OrganizationMembership.Level.OWNER)
@@ -1528,9 +1677,6 @@ class TestPushSecretsToVercel(TestCase):
             integration_id="icfg_secrets_test_123456789",
             config={
                 "billing_plan_id": "posthog-usage-based",
-            },
-            sensitive_config={
-                "credentials": {"access_token": "test_token", "token_type": "Bearer"},
             },
             created_by=self.user,
         )

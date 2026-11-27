@@ -1,17 +1,36 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 
+import { applyChartDisplay } from 'lib/components/ChartFilter/chartDisplayOptions'
+import type { ChartDisplayOption, ChartDisplayOptionGroup } from 'lib/components/ChartFilter/chartDisplayOptions'
+import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
+import type {
+    DataNode,
+    ErrorTrackingQueryResponse,
+    EventsQueryResponse,
+    HogQLAutocompleteResponse,
+    HogQLMetadataResponse,
+    HogQLQueryResponse,
+    HogQueryResponse,
+    LogAttributesQueryResponse,
+    LogValuesQueryResponse,
+    LogsQueryResponse,
+    MetricsQueryResponse,
+    RefreshType,
+    SessionsQueryResponse,
+    TraceSpansAggregationQueryResponse,
+    TraceSpansAttributeBreakdownQueryResponse,
+    TraceSpansQueryResponse,
+    TraceSpansTreeQueryResponse,
+} from '~/queries/schema/schema-general'
 import type { AnyResponseType, InsightVizNode, TrendsQuery } from '~/queries/schema/schema-general'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
 import type { ChartAlternativesLogicProps } from './chartAlternativesLogic'
 import { chartAlternativesLogic } from './chartAlternativesLogic'
-import { applyChartDisplay } from './chartDisplayOptions'
-import type { ChartDisplayOption, ChartDisplayOptionGroup } from './chartDisplayOptions'
 import { RAW_TIME_SERIES_DISPLAYS, deriveChartPreview, hasPreviewData } from './chartPreviewData'
 
 export interface ChartPreview {
@@ -78,88 +97,88 @@ export interface chartPreviewsLogicActions {
     } // chartAlternativesLogic
     loadDataSuccess: (
         response:
+            | ErrorTrackingQueryResponse
+            | HogQLAutocompleteResponse
+            | HogQLMetadataResponse
+            | HogQLQueryResponse<any[]>
+            | HogQueryResponse
+            | LogAttributesQueryResponse
+            | LogValuesQueryResponse
+            | MetricsQueryResponse
             | Record<string, any>
-            | null
-            | import('~/queries/schema').ErrorTrackingQueryResponse
-            | import('~/queries/schema').HogQLAutocompleteResponse
-            | import('~/queries/schema').HogQLMetadataResponse
-            | import('~/queries/schema').HogQLQueryResponse<any[]>
-            | import('~/queries/schema').HogQueryResponse
-            | import('~/queries/schema').LogAttributesQueryResponse
-            | import('~/queries/schema').LogValuesQueryResponse
-            | import('~/queries/schema').MetricsQueryResponse
-            | import('~/queries/schema').SessionsQueryResponse
-            | import('~/queries/schema').TraceSpansAggregationQueryResponse
-            | import('~/queries/schema').TraceSpansAttributeBreakdownQueryResponse
-            | import('~/queries/schema').TraceSpansQueryResponse
-            | import('~/queries/schema').TraceSpansTreeQueryResponse,
+            | SessionsQueryResponse
+            | TraceSpansAggregationQueryResponse
+            | TraceSpansAttributeBreakdownQueryResponse
+            | TraceSpansQueryResponse
+            | TraceSpansTreeQueryResponse
+            | null,
         payload?:
             | {
-                  overrideQuery: import('~/queries/schema').DataNode<Record<string, any>> | undefined
+                  overrideQuery: DataNode<Record<string, any>> | undefined
                   pollOnly: boolean
                   queryId: string
-                  refresh: import('~/queries/schema').RefreshType | undefined
+                  refresh: RefreshType | undefined
               }
             | undefined
     ) => {
         payload?: {
-            overrideQuery: import('~/queries/schema').DataNode<Record<string, any>> | undefined
+            overrideQuery: DataNode<Record<string, any>> | undefined
             pollOnly: boolean
             queryId: string
-            refresh: import('~/queries/schema').RefreshType | undefined
+            refresh: RefreshType | undefined
         }
         response:
+            | ErrorTrackingQueryResponse
+            | HogQLAutocompleteResponse
+            | HogQLMetadataResponse
+            | HogQLQueryResponse<any[]>
+            | HogQueryResponse
+            | LogAttributesQueryResponse
+            | LogValuesQueryResponse
+            | MetricsQueryResponse
             | Record<string, any>
+            | SessionsQueryResponse
+            | TraceSpansAggregationQueryResponse
+            | TraceSpansAttributeBreakdownQueryResponse
+            | TraceSpansQueryResponse
+            | TraceSpansTreeQueryResponse
             | null
-            | import('~/queries/schema').ErrorTrackingQueryResponse
-            | import('~/queries/schema').HogQLAutocompleteResponse
-            | import('~/queries/schema').HogQLMetadataResponse
-            | import('~/queries/schema').HogQLQueryResponse<any[]>
-            | import('~/queries/schema').HogQueryResponse
-            | import('~/queries/schema').LogAttributesQueryResponse
-            | import('~/queries/schema').LogValuesQueryResponse
-            | import('~/queries/schema').MetricsQueryResponse
-            | import('~/queries/schema').SessionsQueryResponse
-            | import('~/queries/schema').TraceSpansAggregationQueryResponse
-            | import('~/queries/schema').TraceSpansAttributeBreakdownQueryResponse
-            | import('~/queries/schema').TraceSpansQueryResponse
-            | import('~/queries/schema').TraceSpansTreeQueryResponse
     } // insightVizDataLogic
     setInsightData: (
         response:
+            | ErrorTrackingQueryResponse
+            | EventsQueryResponse
+            | HogQLAutocompleteResponse
+            | HogQLMetadataResponse
+            | HogQLQueryResponse<any[]>
+            | HogQueryResponse
+            | LogAttributesQueryResponse
+            | LogsQueryResponse
+            | LogValuesQueryResponse
+            | MetricsQueryResponse
             | Record<string, any>
-            | import('~/queries/schema').ErrorTrackingQueryResponse
-            | import('~/queries/schema').EventsQueryResponse
-            | import('~/queries/schema').HogQLAutocompleteResponse
-            | import('~/queries/schema').HogQLMetadataResponse
-            | import('~/queries/schema').HogQLQueryResponse<any[]>
-            | import('~/queries/schema').HogQueryResponse
-            | import('~/queries/schema').LogAttributesQueryResponse
-            | import('~/queries/schema').LogsQueryResponse
-            | import('~/queries/schema').LogValuesQueryResponse
-            | import('~/queries/schema').MetricsQueryResponse
-            | import('~/queries/schema').SessionsQueryResponse
-            | import('~/queries/schema').TraceSpansAggregationQueryResponse
-            | import('~/queries/schema').TraceSpansAttributeBreakdownQueryResponse
-            | import('~/queries/schema').TraceSpansQueryResponse
-            | import('~/queries/schema').TraceSpansTreeQueryResponse
+            | SessionsQueryResponse
+            | TraceSpansAggregationQueryResponse
+            | TraceSpansAttributeBreakdownQueryResponse
+            | TraceSpansQueryResponse
+            | TraceSpansTreeQueryResponse
     ) =>
+        | ErrorTrackingQueryResponse
+        | EventsQueryResponse
+        | HogQLAutocompleteResponse
+        | HogQLMetadataResponse
+        | HogQLQueryResponse<any[]>
+        | HogQueryResponse
+        | LogAttributesQueryResponse
+        | LogsQueryResponse
+        | LogValuesQueryResponse
+        | MetricsQueryResponse
         | Record<string, any>
-        | import('~/queries/schema').ErrorTrackingQueryResponse
-        | import('~/queries/schema').EventsQueryResponse
-        | import('~/queries/schema').HogQLAutocompleteResponse
-        | import('~/queries/schema').HogQLMetadataResponse
-        | import('~/queries/schema').HogQLQueryResponse<any[]>
-        | import('~/queries/schema').HogQueryResponse
-        | import('~/queries/schema').LogAttributesQueryResponse
-        | import('~/queries/schema').LogsQueryResponse
-        | import('~/queries/schema').LogValuesQueryResponse
-        | import('~/queries/schema').MetricsQueryResponse
-        | import('~/queries/schema').SessionsQueryResponse
-        | import('~/queries/schema').TraceSpansAggregationQueryResponse
-        | import('~/queries/schema').TraceSpansAttributeBreakdownQueryResponse
-        | import('~/queries/schema').TraceSpansQueryResponse
-        | import('~/queries/schema').TraceSpansTreeQueryResponse // insightVizDataLogic
+        | SessionsQueryResponse
+        | TraceSpansAggregationQueryResponse
+        | TraceSpansAttributeBreakdownQueryResponse
+        | TraceSpansQueryResponse
+        | TraceSpansTreeQueryResponse // insightVizDataLogic
     rememberTimeSeries: (entry: TimeSeriesEntry) => {
         entry: TimeSeriesEntry
     }
@@ -346,33 +365,33 @@ export const chartPreviewsLogic = kea<chartPreviewsLogicType>([
             }
             scheduleNextChart()
         }
+        const reportGalleryViewed = (): void => {
+            scheduleNextChart()
+            if (!values.galleryOpen || values.insightDataLoading) {
+                return
+            }
+            const eligiblePreviews = values.previews.filter((preview) => !preview.option.disabledReason)
+            const loadedPreviews = eligiblePreviews.filter((preview) => preview.response !== null)
+            const samplePreviews = loadedPreviews.filter((preview) => preview.sample)
+            posthog.capture('insight chart alternatives viewed', {
+                current_display: values.currentDisplay,
+                eligible_chart_count: eligiblePreviews.length,
+                eligible_displays: eligiblePreviews.map((preview) => preview.option.display),
+                preview_count: loadedPreviews.length,
+                preview_displays: loadedPreviews.map((preview) => preview.option.display),
+                sample_preview_count: samplePreviews.length,
+                sample_preview_displays: samplePreviews.map((preview) => preview.option.display),
+                suggested_displays: eligiblePreviews
+                    .filter((preview) => preview.suggested)
+                    .map((preview) => preview.option.display),
+                all_previews_loaded: eligiblePreviews.length > 0 && loadedPreviews.length === eligiblePreviews.length,
+            })
+        }
         return {
             showNextChart: scheduleNextChart,
-            openGallery: scheduleNextChart,
+            openGallery: reportGalleryViewed,
             closeGallery: scheduleNextChart,
-            toggleGallery: () => {
-                scheduleNextChart()
-                if (!values.galleryOpen || values.insightDataLoading) {
-                    return
-                }
-                const eligiblePreviews = values.previews.filter((preview) => !preview.option.disabledReason)
-                const loadedPreviews = eligiblePreviews.filter((preview) => preview.response !== null)
-                const samplePreviews = loadedPreviews.filter((preview) => preview.sample)
-                posthog.capture('insight chart alternatives viewed', {
-                    current_display: values.currentDisplay,
-                    eligible_chart_count: eligiblePreviews.length,
-                    eligible_displays: eligiblePreviews.map((preview) => preview.option.display),
-                    preview_count: loadedPreviews.length,
-                    preview_displays: loadedPreviews.map((preview) => preview.option.display),
-                    sample_preview_count: samplePreviews.length,
-                    sample_preview_displays: samplePreviews.map((preview) => preview.option.display),
-                    suggested_displays: eligiblePreviews
-                        .filter((preview) => preview.suggested)
-                        .map((preview) => preview.option.display),
-                    all_previews_loaded:
-                        eligiblePreviews.length > 0 && loadedPreviews.length === eligiblePreviews.length,
-                })
-            },
+            toggleGallery: reportGalleryViewed,
             loadDataSuccess: rememberLoadedTimeSeries,
             setInsightData: rememberLoadedTimeSeries,
         }

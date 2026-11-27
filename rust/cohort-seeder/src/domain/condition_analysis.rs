@@ -834,7 +834,7 @@ mod tests {
             (
                 "inexactplan00000",
                 "purchase",
-                property_equality("plan", "TRUE"),
+                property_equality("plan", "true"),
             ),
             (
                 "exacturl00000000",

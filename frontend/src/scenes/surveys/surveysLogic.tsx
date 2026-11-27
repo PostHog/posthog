@@ -6,12 +6,11 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, SURVEY_PAGE_SIZE } from 'lib/constants'
 import { featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic'
 import { pluralize } from 'lib/utils/strings'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
-import { SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
 import { duplicateExistingSurvey, sanitizeSurvey } from 'scenes/surveys/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -126,7 +125,7 @@ export interface surveysLogicValues {
     teamSdkVersions: TeamSdkVersions // surveysSdkLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     currentTeamLoading: boolean // teamLogic
-    hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
+    hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean // userLogic
     breadcrumbs: Breadcrumb[]
     data: SurveyDataState
     dataLoading: boolean
@@ -232,11 +231,11 @@ export interface surveysLogicActions {
     ) => {
         source: SURVEY_CREATED_SOURCE
         toolOutput: {
-            error?: string | undefined
-            error_message?: string | undefined
-            survey_id?: string | undefined
-            survey_name?: string | undefined
-            survey_type?: string | undefined
+            error?: string
+            error_message?: string
+            survey_id?: string
+            survey_name?: string
+            survey_type?: string
         }
     }
     loadNextPage: () => {
@@ -422,11 +421,11 @@ export interface surveysLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         searchedSurveys: (data: SurveyDataState, searchTerm: string) => Survey[]
         surveysStylingAvailable: (
-            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
+            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean
         ) => boolean
         formBuilderEnabled: (enabledFlags: FeatureFlagsSet) => boolean
         globalSurveyAppearanceConfigAvailable: (
-            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
+            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean
         ) => boolean
         showSurveysDisabledBanner: (currentTeam: TeamPublicType | TeamType | null) => boolean
     }

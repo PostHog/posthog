@@ -16,7 +16,7 @@ from posthog.models.user import User
 import products.review_hog.backend.temporal.client  # noqa: F401
 from products.review_hog.backend.models import ReviewUserSettings
 from products.review_hog.backend.receivers import resolve_stamphog_acting_reviewer
-from products.signals.backend.enums import ReportPriority
+from products.signals.backend.facade.taxonomy import ReportPriority
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.tasks.backend.models import Task, TaskRun
 
@@ -39,6 +39,11 @@ class TestInboxTrigger(BaseTest):
         busy_patcher = patch(_WORKFLOW_RUNNING, return_value=False)
         self.addCleanup(busy_patcher.stop)
         busy_patcher.start()
+        # The task's PR links to its source report, and that dispatches the Origin and tracker edit
+        # of the PR body. Celery runs it eagerly in tests, and without GitHub it raises a retry.
+        tracker_patcher = patch("products.signals.backend.tasks.link_report_tracker_issues.delay")
+        self.addCleanup(tracker_patcher.stop)
+        tracker_patcher.start()
         self.signal_report = SignalReport.objects.create(
             team=self.team, status=SignalReport.Status.IN_PROGRESS, signal_count=1, total_weight=1.0
         )

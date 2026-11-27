@@ -7,9 +7,9 @@ import { Spinner } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { cn } from 'lib/utils/css-classes'
 import { uuid } from 'lib/utils/dom'
+import { type HogQLQueryString } from 'lib/utils/hogql'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
-import type { HogQLQueryString } from '~/queries/utils'
 import { PropertyFilterType, PropertyOperator, SurveyDisplayConditions, SurveyMatchType } from '~/types'
 
 import { surveyLogic } from '../surveyLogic'

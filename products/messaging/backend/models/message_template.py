@@ -3,11 +3,13 @@ from django.db import models
 from posthog.models.tagged_items_relation import Taggable
 from posthog.models.utils import UUIDTModel
 
+KEY_CONSTRAINT = "unique_message_template_key_per_team"
+
 
 # nosemgrep: no-new-uuidt-models -- an existing model, and its stored ids cannot change.
 class MessageTemplate(Taggable, UUIDTModel):
     """
-    A model for storing message templates used for email and eventually other messaging channels.
+    A model for storing message templates used for email and push notifications.
     """
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
@@ -28,9 +30,24 @@ class MessageTemplate(Taggable, UUIDTModel):
     # For emails carrying codes or reset links: sends keep no rendered body or subject, and clicks keep only
     # the link's origin.
     sensitive = models.BooleanField(default=False, db_default=False)
+    click_tracking_enabled = models.BooleanField(null=True, blank=True, default=None)
+    key = models.CharField(
+        max_length=400,
+        null=True,
+        blank=True,
+        help_text="Client-chosen identifier, unique within this environment among templates that are not deleted. "
+        "Letters, numbers, hyphens (-) and underscores (_) only.",
+    )
 
     class Meta:
         db_table = "posthog_messagetemplate"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team", "key"],
+                condition=models.Q(key__isnull=False, deleted=False),
+                name=KEY_CONSTRAINT,
+            ),
+        ]
 
     def __str__(self):
         return self.name

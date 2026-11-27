@@ -1,15 +1,26 @@
-import { ExperimentEventExposureConfig, ExperimentExposureCriteria, NodeKind } from '~/queries/schema/schema-general'
+import { dayjs } from 'lib/dayjs'
 
 import {
+    ExperimentEventExposureConfig,
+    ExperimentExposureConfig,
+    ExperimentExposureCriteria,
+    HogQLQueryModifiers,
+    NodeKind,
+} from '~/queries/schema/schema-general'
+import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
+
+import {
+    draftDefaultExposureEvent,
     exposureEventLabel,
     getActivationConfig,
     getExposureEventAndProperty,
+    hasNegatedEventFilter,
     isDefaultExposureConfig,
     resolvedExposureEvent,
 } from './exposureContract'
 
 describe('exposureContract', () => {
-    it('uses the rollout event for a local draft without a server-resolved event', () => {
+    it('uses the fallback event for a local draft without a server-resolved event', () => {
         expect(resolvedExposureEvent({}, '$experiment_exposure')).toBe('$experiment_exposure')
     })
 
@@ -17,6 +28,15 @@ describe('exposureContract', () => {
         expect(resolvedExposureEvent({ resolved_exposure_event: '$feature_flag_called' }, '$experiment_exposure')).toBe(
             '$feature_flag_called'
         )
+    })
+
+    it.each([
+        ['no cutoff', null, '$feature_flag_called'],
+        ['a cutoff after now', '2026-09-01T00:00:01+00:00', '$feature_flag_called'],
+        ['a cutoff at now', '2026-09-01T00:00:00+00:00', '$experiment_exposure'],
+        ['a cutoff before now', '2026-08-01T00:00:00+00:00', '$experiment_exposure'],
+    ])('gives a draft launched now with %s the default event the backend resolves', (_name, cutoff, expected) => {
+        expect(draftDefaultExposureEvent(cutoff, dayjs('2026-09-01T00:00:00Z'))).toBe(expected)
     })
 
     it.each([
@@ -84,7 +104,7 @@ describe('exposureContract', () => {
         expect(getExposureEventAndProperty({ featureFlagKey: 'my-flag', exposureCriteria })).toEqual(expected)
     })
 
-    // The rollout swaps the default event server-side, so the default branches must name the
+    // The cutoff swaps the default event server-side, so the default branches must name the
     // resolved event while a custom event stays untouched.
     it.each<[string, ExperimentExposureCriteria | undefined, string | null]>([
         ['no exposure config', undefined, '$experiment_exposure'],
@@ -178,4 +198,100 @@ describe('exposureContract', () => {
     ])('resolves the activation config for %s', (_name, exposureCriteria, expectActive) => {
         expect(getActivationConfig(exposureCriteria)).toEqual(expectActive ? activationConfig : undefined)
     })
+
+    const eventConfig = (...properties: AnyPropertyFilter[]): ExperimentEventExposureConfig => ({
+        kind: NodeKind.ExperimentEventExposureConfig,
+        event: '$pageview',
+        properties,
+    })
+    const eventFilter = (key: string, operator: PropertyOperator): AnyPropertyFilter => ({
+        type: PropertyFilterType.Event,
+        key,
+        operator,
+        value: 'x',
+    })
+    const negatedPersonFilter: AnyPropertyFilter = {
+        type: PropertyFilterType.Person,
+        key: 'email',
+        operator: PropertyOperator.NotIContains,
+        value: 'x',
+    }
+
+    it.each<
+        [
+            string,
+            ExperimentExposureConfig | undefined,
+            boolean,
+            (number | null)?,
+            HogQLQueryModifiers['personsOnEventsMode']?,
+        ]
+    >([
+        ['no config', undefined, false],
+        ['no filters', eventConfig(), false],
+        ['a negated event filter', eventConfig(eventFilter('$current_url', PropertyOperator.NotIContains)), true],
+        ['a negated filter without a value', eventConfig(eventFilter('step', PropertyOperator.IsNotSet)), true],
+        ['a filter that selects', eventConfig(eventFilter('$current_url', PropertyOperator.IContains)), false],
+        ['a negated filter on the flag key', eventConfig(eventFilter('$feature_flag', PropertyOperator.IsNot)), false],
+        [
+            'a negated filter on the group a group experiment counts',
+            eventConfig(eventFilter('$group_2', PropertyOperator.IsNot)),
+            false,
+            2,
+        ],
+        [
+            'a negated filter on a group key in a person experiment',
+            eventConfig(eventFilter('$group_2', PropertyOperator.IsNot)),
+            true,
+            null,
+        ],
+        ['a negated person filter read from the persons table', eventConfig(negatedPersonFilter), false],
+        [
+            'a negated person filter read from the events',
+            eventConfig(negatedPersonFilter),
+            true,
+            null,
+            'person_id_override_properties_on_events',
+        ],
+        ['a negated person filter in a group experiment', eventConfig(negatedPersonFilter), true, 2],
+        [
+            'a negated session filter',
+            eventConfig({
+                type: PropertyFilterType.Session,
+                key: '$entry_current_url',
+                operator: PropertyOperator.NotIContains,
+                value: 'x',
+            }),
+            true,
+        ],
+        [
+            'an action with a negated event filter',
+            {
+                kind: NodeKind.ActionsNode,
+                id: 1,
+                properties: [eventFilter('$current_url', PropertyOperator.IsNot)],
+            },
+            true,
+        ],
+        [
+            'a warehouse exposure',
+            {
+                kind: NodeKind.ExperimentWarehouseNativeExposureConfig,
+                connection_id: 'x',
+                query: 'SELECT 1',
+                unit: { unit_type: 'customer', id_namespace: 'billing_customer_id' },
+            },
+            false,
+        ],
+    ])(
+        'reads whether the config leaves out events for %s',
+        (
+            _name,
+            config,
+            expected,
+            groupTypeIndex = null,
+            personsOnEventsMode = 'person_id_override_properties_joined'
+        ) => {
+            expect(hasNegatedEventFilter(config, groupTypeIndex, personsOnEventsMode)).toBe(expected)
+        }
+    )
 })

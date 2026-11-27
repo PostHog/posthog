@@ -1,11 +1,13 @@
 import json
+from dataclasses import replace
+from time import monotonic, sleep
 from urllib.parse import quote
 
-from products.customer_analytics.backend.facade.api import get_key_metrics
+from products.customer_analytics.backend.facade.api import get_key_metric_names, get_key_metrics
 from products.customer_analytics.backend.facade.contracts import KeyMetric
 
 from ...facade import contracts
-from ...facade.enums import HighlightLabel, HighlightMetricReason, HighlightUnit
+from ...facade.enums import HighlightLabel, HighlightMetricReason, HighlightUnit, PulseSlotStatus
 from ..highlight_rules import exact
 from ..highlight_trends import detect
 from ..highlight_types import Candidate, Context, DailyValueNotReady, Found, Source
@@ -20,12 +22,31 @@ PULSE_DAYS = 28
 
 
 def find(context: Context) -> Found:
+    slots = [
+        contracts.PulseSlot(key=key, name=name)
+        for key, name in get_key_metric_names(team=context.team).items()
+        if key not in context.hidden
+    ]
+    context.publish_pulse(Found(), slots)
     metrics = get_key_metrics(team=context.team, user=context.user)
+    deadline = monotonic() + 20
+    while metrics is None and monotonic() < deadline:
+        sleep(min(1.0, max(0, deadline - monotonic())))
+        metrics = get_key_metrics(team=context.team, user=context.user)
     if metrics is None:
+        context.publish_pulse(Found(), [replace(slot, status=PulseSlotStatus.ERROR) for slot in slots])
         raise DailyValueNotReady("key_metrics")
     shown = [metric for metric in metrics if metric.this_week or metric.last_week]
     candidates = [candidate for metric in shown if (candidate := _same_weekday(context, metric)) is not None]
-    return Found(items=tuple(candidates), pulse=tuple(tile(metric) for metric in shown))
+    found = Found(
+        items=tuple(candidates), pulse=tuple(tile(metric) for metric in shown if metric.key not in context.hidden)
+    )
+    keys = {metric.key for metric in found.pulse}
+    context.publish_pulse(
+        found,
+        [replace(slot, status=PulseSlotStatus.READY if slot.key in keys else PulseSlotStatus.EMPTY) for slot in slots],
+    )
+    return found
 
 
 def tile(metric: KeyMetric) -> contracts.HighlightMetric:

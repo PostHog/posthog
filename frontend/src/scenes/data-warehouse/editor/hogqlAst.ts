@@ -147,3 +147,12 @@ export function tablesAndColumnsFromAst(ast: ASTNode): Record<string, Record<str
 
     return selectedColumnsByTable
 }
+
+export type SelectComparison = 'same' | 'different' | 'unparsable'
+
+export function compareParsedSelects(parsed: string, otherParsed: string): SelectComparison {
+    if ((JSON.parse(parsed) as { error?: boolean }).error) {
+        return 'unparsable'
+    }
+    return parsed === otherParsed ? 'same' : 'different'
+}

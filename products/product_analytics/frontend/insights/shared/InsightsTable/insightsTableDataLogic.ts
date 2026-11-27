@@ -1,17 +1,34 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 import { uuid } from 'lib/utils/dom'
 import { average, median } from 'lib/utils/numbers'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { isOtherBreakdown } from 'scenes/insights/utils'
-import { compareDataNodeQuery } from 'scenes/insights/utils/queryUtils'
 import { ResultSeriesRow, getResultOrder, hasFormulaResults } from 'scenes/insights/utils/resultSeries'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { cancelQueryOnServer, concurrencyController } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { compareDataNodeQuery } from '~/queries/nodes/InsightViz/queryUtils'
 import { performQuery } from '~/queries/query'
+import { hasBreakdownFilter } from '~/queries/schema/node-guards'
+import type {
+    DataNode,
+    ErrorTrackingQueryResponse,
+    HogQLAutocompleteResponse,
+    HogQLMetadataResponse,
+    HogQLQueryResponse,
+    HogQueryResponse,
+    LogAttributesQueryResponse,
+    LogValuesQueryResponse,
+    MetricsQueryResponse,
+    SessionsQueryResponse,
+    TraceSpansAggregationQueryResponse,
+    TraceSpansAttributeBreakdownQueryResponse,
+    TraceSpansQueryResponse,
+    TraceSpansTreeQueryResponse,
+} from '~/queries/schema/schema-general'
 import type {
     AnyDataWarehouseNode,
     AnyEntityNode,
@@ -32,7 +49,6 @@ import type {
     WebOverviewQuery,
     WebStatsTableQuery,
 } from '~/queries/schema/schema-general'
-import { hasBreakdownFilter } from '~/queries/utils'
 import { ChartDisplayType, CompareLabelType, InsightLogicProps, TrendResult } from '~/types'
 
 import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
@@ -163,33 +179,33 @@ export interface insightsTableDataLogicActions {
     loadData: (
         refresh?: RefreshType | undefined,
         alreadyRunningQueryId?: string | undefined,
-        overrideQuery?: import('~/queries/schema').DataNode<Record<string, any>> | undefined
+        overrideQuery?: DataNode<Record<string, any>> | undefined
     ) => {
-        overrideQuery: import('~/queries/schema').DataNode<Record<string, any>> | undefined
+        overrideQuery: DataNode<Record<string, any>> | undefined
         pollOnly: boolean
         queryId: string
         refresh: RefreshType | undefined
     } // insightVizDataLogic
     loadDataSuccess: (
         response:
+            | ErrorTrackingQueryResponse
+            | HogQLAutocompleteResponse
+            | HogQLMetadataResponse
+            | HogQLQueryResponse<any[]>
+            | HogQueryResponse
+            | LogAttributesQueryResponse
+            | LogValuesQueryResponse
+            | MetricsQueryResponse
             | Record<string, any>
-            | null
-            | import('~/queries/schema').ErrorTrackingQueryResponse
-            | import('~/queries/schema').HogQLAutocompleteResponse
-            | import('~/queries/schema').HogQLMetadataResponse
-            | import('~/queries/schema').HogQLQueryResponse<any[]>
-            | import('~/queries/schema').HogQueryResponse
-            | import('~/queries/schema').LogAttributesQueryResponse
-            | import('~/queries/schema').LogValuesQueryResponse
-            | import('~/queries/schema').MetricsQueryResponse
-            | import('~/queries/schema').SessionsQueryResponse
-            | import('~/queries/schema').TraceSpansAggregationQueryResponse
-            | import('~/queries/schema').TraceSpansAttributeBreakdownQueryResponse
-            | import('~/queries/schema').TraceSpansQueryResponse
-            | import('~/queries/schema').TraceSpansTreeQueryResponse,
+            | SessionsQueryResponse
+            | TraceSpansAggregationQueryResponse
+            | TraceSpansAttributeBreakdownQueryResponse
+            | TraceSpansQueryResponse
+            | TraceSpansTreeQueryResponse
+            | null,
         payload?:
             | {
-                  overrideQuery: import('~/queries/schema').DataNode<Record<string, any>> | undefined
+                  overrideQuery: DataNode<Record<string, any>> | undefined
                   pollOnly: boolean
                   queryId: string
                   refresh: RefreshType | undefined
@@ -197,27 +213,27 @@ export interface insightsTableDataLogicActions {
             | undefined
     ) => {
         payload?: {
-            overrideQuery: import('~/queries/schema').DataNode<Record<string, any>> | undefined
+            overrideQuery: DataNode<Record<string, any>> | undefined
             pollOnly: boolean
             queryId: string
             refresh: RefreshType | undefined
         }
         response:
+            | ErrorTrackingQueryResponse
+            | HogQLAutocompleteResponse
+            | HogQLMetadataResponse
+            | HogQLQueryResponse<any[]>
+            | HogQueryResponse
+            | LogAttributesQueryResponse
+            | LogValuesQueryResponse
+            | MetricsQueryResponse
             | Record<string, any>
+            | SessionsQueryResponse
+            | TraceSpansAggregationQueryResponse
+            | TraceSpansAttributeBreakdownQueryResponse
+            | TraceSpansQueryResponse
+            | TraceSpansTreeQueryResponse
             | null
-            | import('~/queries/schema').ErrorTrackingQueryResponse
-            | import('~/queries/schema').HogQLAutocompleteResponse
-            | import('~/queries/schema').HogQLMetadataResponse
-            | import('~/queries/schema').HogQLQueryResponse<any[]>
-            | import('~/queries/schema').HogQueryResponse
-            | import('~/queries/schema').LogAttributesQueryResponse
-            | import('~/queries/schema').LogValuesQueryResponse
-            | import('~/queries/schema').MetricsQueryResponse
-            | import('~/queries/schema').SessionsQueryResponse
-            | import('~/queries/schema').TraceSpansAggregationQueryResponse
-            | import('~/queries/schema').TraceSpansAttributeBreakdownQueryResponse
-            | import('~/queries/schema').TraceSpansQueryResponse
-            | import('~/queries/schema').TraceSpansTreeQueryResponse
     } // insightVizDataLogic
     setDetailedResultsAggregationType: (detailedResultsAggregationType: AggregationType) => {
         detailedResultsAggregationType: AggregationType

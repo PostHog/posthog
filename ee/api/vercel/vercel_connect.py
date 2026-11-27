@@ -18,15 +18,15 @@ from rest_framework.response import Response
 
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.oauth_pending_connection import shared_cookie_domain
-from posthog.integrations import IntegrationManager, IntegrationRecord
-from posthog.models.integration import Integration
+from posthog.integrations import CrossTeamFilter, IntegrationManager, IntegrationNotFound, IntegrationRecord
+from posthog.ip_restrictions import enforce_ip_restrictions, get_ip_blocked_organization_ids
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_integration import OrganizationIntegration
 from posthog.models.team import Team
 from posthog.models.user import User
 
-from ee.api.vercel.crypto import decrypt_payload, encrypt_payload, mark_token_used
-from ee.vercel.client import APIError, VercelAPIClient
+from ee.api.vercel.crypto import decrypt_payload, encrypt_payload, mark_token_used, release_used_token
+from ee.vercel.client import APIError, InstallationTokenError, OAuthTokenResponse, VercelAPIClient
 
 logger = structlog.get_logger(__name__)
 
@@ -47,6 +47,7 @@ CONNECT_NONCE_COOKIE_PATH = "/api/vercel/connect"
 INSTALL_STATE_COOKIE_PREFIX = "__Host-ph_vercel_install_state_"
 MAX_PENDING_INSTALL_STATES = 5
 INSTALL_CONTINUATION_CACHE_PREFIX = "vercel_connect_install_next:"
+INSTALL_CONTINUATION_SALT = "vercel_connect_install"
 SESSION_INVALID_MESSAGE = "Session expired or invalid. Please try linking again from Vercel."
 _BROWSER_NONCE_KEY = "browser_nonce"
 
@@ -127,8 +128,22 @@ def _install_continuation_cache_key(state: str) -> str:
     return INSTALL_CONTINUATION_CACHE_PREFIX + hashlib.sha256(state.encode()).hexdigest()
 
 
-def _install_continuation(state: str) -> str:
-    return cache.get(_install_continuation_cache_key(state), "")
+def _save_install_continuation(state: str, continuation: dict) -> None:
+    cache.set(
+        _install_continuation_cache_key(state),
+        encrypt_payload(continuation, salt=INSTALL_CONTINUATION_SALT, jti=False),
+        timeout=CONNECT_SESSION_TIMEOUT,
+    )
+
+
+def _install_continuation(state: str) -> dict | None:
+    token = cache.get(_install_continuation_cache_key(state))
+    if not token:
+        return None
+    try:
+        return decrypt_payload(token, salt=INSTALL_CONTINUATION_SALT, ttl=CONNECT_SESSION_TIMEOUT)
+    except InvalidToken:
+        return None
 
 
 def _forget_install_continuation(state: str) -> None:
@@ -146,14 +161,13 @@ def _drop_excess_install_state_cookies(request: Request, response: HttpResponse)
         response.delete_cookie(name, path="/", samesite="Lax")
 
 
-def _redirect_through_vercel_install(request: Request, next_url: str) -> HttpResponse:
+def _redirect_through_vercel_install(request: Request, continuation: dict) -> HttpResponse:
     # A Marketplace install calls back without a state, so nothing ties its code to this browser. Vercel's
     # external install flow returns the state we send, and the state cookie ties that state to this browser.
     state = secrets.token_urlsafe(32)
     slug = quote(settings.VERCEL_INTEGRATION_SLUG, safe="")
     response = HttpResponseRedirect(f"https://vercel.com/integrations/{slug}/new?{urlencode({'state': state})}")
-    if next_url:
-        cache.set(_install_continuation_cache_key(state), next_url, timeout=CONNECT_SESSION_TIMEOUT)
+    _save_install_continuation(state, continuation)
     _drop_excess_install_state_cookies(request, response)
     response.set_cookie(
         _install_state_cookie_name(state),
@@ -201,6 +215,35 @@ def _require_install_state_from_this_browser(request: Request, state: str) -> No
     raise exceptions.ValidationError(SESSION_INVALID_MESSAGE)
 
 
+def _require_same_vercel_user(continuation: dict, install_grant: OAuthTokenResponse) -> None:
+    if secrets.compare_digest(continuation["user_id"].encode(), install_grant.user_id.encode()):
+        return
+
+    capture_exception(
+        Exception("Vercel connect: install page returned a different Vercel user"),
+        {"reason": "install_user_mismatch", "integration": "vercel"},
+    )
+    raise exceptions.ValidationError(SESSION_INVALID_MESSAGE)
+
+
+def _exchange_code(code: str, client_id: str, client_secret: str, redirect_uri: str) -> OAuthTokenResponse:
+    token_response = VercelAPIClient(bearer_token=None).oauth_token_exchange(
+        code=code,
+        client_id=client_id,
+        client_secret=client_secret,
+        redirect_uri=redirect_uri,
+    )
+    if token_response.error:
+        logger.error(
+            "vercel_connect_token_exchange_failed",
+            error=token_response.error,
+            error_description=token_response.error_description,
+            integration="vercel",
+        )
+        raise exceptions.AuthenticationFailed("Vercel authentication failed")
+    return token_response
+
+
 def _mark_token_used(jti: str) -> bool:
     return mark_token_used(jti, ttl=CONNECT_SESSION_TIMEOUT)
 
@@ -221,23 +264,27 @@ def _validate_next_url(url: str) -> str:
 
 
 def _is_installation_orphaned(integration: OrganizationIntegration) -> bool:
-    """Return True if Vercel no longer recognises this installation (401/403/404).
+    """Return True if Vercel no longer recognises this installation.
+
+    Vercel shows this by refusing a token for it (400 `invalid_grant`), or with 401/403/404 on the installation.
 
     Returns False when Vercel confirms the installation is active, or when
     we cannot reach Vercel (network/5xx) -- in that ambiguous case we keep
     the existing integration to avoid accidental deletion.
     """
-    access_token = integration.sensitive_config.get("credentials", {}).get("access_token")
-    if not access_token:
-        return False
-
     installation_id = integration.integration_id
     if not installation_id:
         return False
 
-    client = VercelAPIClient(bearer_token=access_token)
     try:
-        return not client.check_installation_active(installation_id)
+        if VercelAPIClient.for_installation(installation_id).check_installation_active(installation_id):
+            return False
+        # A cached token Vercel already revoked also gets a 401, so confirm with a fresh one before deleting.
+        return not VercelAPIClient.for_installation(installation_id, fresh=True).check_installation_active(
+            installation_id
+        )
+    except InstallationTokenError as e:
+        return e.status_code == 400 and e.code == "invalid_grant"
     except APIError:
         return False
 
@@ -277,10 +324,16 @@ def _delete_orphaned_integration(integration: OrganizationIntegration) -> None:
                 return
             claimed_team_ids |= sibling_team_ids
 
-        Integration.objects.filter(
-            team__organization_id=integration.organization_id,
-            kind=Integration.IntegrationKind.VERCEL,
-        ).exclude(team_id__in=claimed_team_ids).delete()
+        unclaimed_team_ids = Team.objects.filter(organization_id=integration.organization_id).exclude(
+            pk__in=claimed_team_ids
+        )
+        for resource in IntegrationManager.vercel.oauth.list_across_teams(
+            CrossTeamFilter(team_ids=tuple(unclaimed_team_ids.values_list("id", flat=True)))
+        ):
+            try:
+                IntegrationManager.vercel.oauth.delete(resource.team_id, resource.id, ignore_usages=True)
+            except IntegrationNotFound:
+                pass  # Another request deleted the resource after the list.
         integration.delete()
 
 
@@ -316,38 +369,33 @@ class VercelConnectCallbackViewSet(viewsets.GenericViewSet):
         state = request.query_params.get("state")
         if not state:
             _reject_install_return_without_state(request)
-            return _redirect_through_vercel_install(request, next_url)
-        _require_install_state_from_this_browser(request, state)
-        next_url = _install_continuation(state) or next_url
-
-        client = VercelAPIClient(bearer_token=None)
-        token_response = client.oauth_token_exchange(
-            code=code,
-            client_id=client_id,
-            client_secret=client_secret,
-            redirect_uri=redirect_uri,
-        )
-
-        if token_response.error:
-            logger.error(
-                "vercel_connect_token_exchange_failed",
-                error=token_response.error,
-                error_description=token_response.error_description,
-                integration="vercel",
+            # Vercel waits for the import on the installation of this Marketplace code, so keep its grant.
+            # The install page code only proves which Vercel user holds this browser.
+            marketplace_grant = _exchange_code(code, client_id, client_secret, redirect_uri)
+            return _redirect_through_vercel_install(
+                request,
+                {
+                    "installation_id": marketplace_grant.installation_id,
+                    "user_id": marketplace_grant.user_id,
+                    "team_id": marketplace_grant.team_id,
+                    "configuration_id": configuration_id,
+                    "next_url": next_url,
+                },
             )
-            raise exceptions.AuthenticationFailed("Vercel authentication failed")
+        _require_install_state_from_this_browser(request, state)
+        continuation = _install_continuation(state)
+        if continuation is None:
+            capture_exception(
+                Exception("Vercel connect: install state has no Marketplace grant"),
+                {"reason": "missing_marketplace_grant", "integration": "vercel"},
+            )
+            raise exceptions.ValidationError(SESSION_INVALID_MESSAGE)
+
+        _require_same_vercel_user(continuation, _exchange_code(code, client_id, client_secret, redirect_uri))
 
         browser_nonce = secrets.token_urlsafe(32)
         session_token = _sign_connect_session(
-            {
-                "access_token": token_response.access_token,
-                "token_type": token_response.token_type,
-                "installation_id": token_response.installation_id,
-                "user_id": token_response.user_id,
-                "team_id": token_response.team_id,
-                "configuration_id": configuration_id,
-                "next_url": next_url,
-            },
+            {**continuation, "next_url": continuation.get("next_url") or next_url},
             browser_nonce=browser_nonce,
         )
 
@@ -380,6 +428,9 @@ class VercelConnectLinkSerializer(serializers.Serializer):
 class VercelConnectLinkViewSet(viewsets.GenericViewSet):
     """API endpoint to complete the Vercel connectable account linking."""
 
+    # Linking resolves a submitted organization; session discovery filters each candidate organization.
+    _ip_restrictions_use_view_scope = True
+
     permission_classes = [permissions.IsAuthenticated]
 
     @decorators.action(detail=False, methods=["post"], url_path="complete")
@@ -398,6 +449,8 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
 
         cached_data = _load_browser_bound_session(request, session_key)
 
+        enforce_ip_restrictions(request, user, request.successful_authenticator, organization_id=str(organization_id))
+
         jti = cached_data.get("jti")
         if not jti or not _mark_token_used(jti):
             raise exceptions.ValidationError("Session already used. Please try linking again from Vercel.")
@@ -410,7 +463,7 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
         except OrganizationMembership.DoesNotExist:
             raise exceptions.PermissionDenied("You are not a member of this organization.")
 
-        if membership.level < OrganizationMembership.Level.ADMIN:
+        if membership.effective_level < OrganizationMembership.Level.ADMIN:
             raise exceptions.PermissionDenied("You must be an admin or owner to link this organization.")
 
         organization = membership.organization
@@ -450,6 +503,13 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
 
         production_team = teams_by_id[production_team_id]
 
+        try:
+            client = VercelAPIClient.for_installation(installation_id)
+        except InstallationTokenError as e:
+            release_used_token(jti)
+            capture_exception(e, {"installation_id": installation_id, "organization_id": str(organization.id)})
+            raise exceptions.ValidationError("Vercel did not accept the link. Start the link again from Vercel.")
+
         with transaction.atomic():
             _lock_vercel_links(organization.id)
             org_integration = OrganizationIntegration.objects.create(
@@ -470,12 +530,6 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
                         cached_data["user_id"]: user.pk,
                     },
                 },
-                sensitive_config={
-                    "credentials": {
-                        "access_token": cached_data["access_token"],
-                        "token_type": cached_data["token_type"],
-                    },
-                },
                 created_by=user,
             )
 
@@ -493,7 +547,6 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
         production_resource = resources[production_team_id]
         env_secrets = self._build_env_secrets(teams_by_id, production_team_id, preview_team_id, development_team_id)
 
-        client = VercelAPIClient(bearer_token=cached_data["access_token"])
         import_result = client.import_resource(
             integration_config_id=installation_id,
             resource_id=str(production_resource.id),
@@ -512,10 +565,15 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
                 resource_id=resource_id,
                 integration="vercel",
             )
+
             with transaction.atomic():
                 org_integration.delete()
                 for resource in resources.values():
                     IntegrationManager.vercel.oauth.delete(resource.team_id, resource.id, ignore_usages=True)
+
+            # The rollback leaves nothing behind, so the same session can try the link again.
+            release_used_token(jti)
+
             capture_exception(
                 VercelImportError("Vercel did not accept the resource import"),
                 {
@@ -606,10 +664,15 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
         cached_data = _load_browser_bound_session(request, session_key)
 
         user = cast(User, request.user)
-        memberships = OrganizationMembership.objects.filter(
-            user=user,
-            level__gte=OrganizationMembership.Level.ADMIN,
-        ).select_related("organization")
+        memberships = (
+            OrganizationMembership.objects.with_effective_level()
+            .filter(
+                user=user,
+                resolved_level__gte=OrganizationMembership.Level.ADMIN,
+            )
+            .exclude(organization_id__in=get_ip_blocked_organization_ids(request))
+            .select_related("organization")
+        )
 
         org_ids = [m.organization_id for m in memberships]
         vercel_integrations = {
@@ -636,12 +699,12 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
         for team in Team.objects.filter(organization_id__in=org_ids).order_by("name"):
             teams_by_org.setdefault(team.organization_id, []).append(team)
 
-        teams_with_vercel = set(
-            Integration.objects.filter(
-                team__organization_id__in=org_ids,
-                kind=Integration.IntegrationKind.VERCEL,
-            ).values_list("team_id", flat=True)
-        )
+        teams_with_vercel = {
+            resource.team_id
+            for resource in IntegrationManager.vercel.oauth.list_across_teams(
+                CrossTeamFilter(team_ids=tuple(team.pk for teams in teams_by_org.values() for team in teams))
+            )
+        }
 
         organizations = [
             {

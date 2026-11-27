@@ -218,9 +218,12 @@ class WhereClauseExtractor(CloningVisitor):
                 new_field = cast(ast.Field, clone_expr(node))
                 if isinstance(node.type, ast.PropertyType):
                     chain_length = len(node.type.chain) + 1
+                    new_field.chain = new_field.chain[-chain_length:]
+                elif isinstance(node.type, ast.FieldAliasType):
+                    # The chain holds the SELECT alias, which may also name a different column of the inner table.
+                    new_field.chain = [type.name]
                 else:
-                    chain_length = 1
-                new_field.chain = new_field.chain[-chain_length:]
+                    new_field.chain = new_field.chain[-1:]
                 return new_field
         return ast.Constant(value=self.tombstone_string)
 
@@ -228,7 +231,7 @@ class WhereClauseExtractor(CloningVisitor):
         return ast.Constant(value=node.value)
 
     def visit_placeholder(self, node: ast.Placeholder) -> ast.Expr:
-        raise Exception()  # this should never happen, as placeholders should be resolved before this runs
+        raise QueryError("Resolve placeholders before you extract a where clause from the query.")
 
     def visit_and(self, node: ast.And) -> ast.Expr:
         exprs = [self.visit(expr) for expr in node.exprs]
@@ -578,10 +581,8 @@ class _ReferencesLazyJoinVisitor(TraversingVisitor):
 
 
 def is_events_only_field(node: ast.Field) -> bool:
-    """True iff the field resolves to a direct field on the EventsTable (not a traversal to
-    person/groups/sessions/etc. via a virtual/lazy join)."""
-    from posthog.hogql.database.schema.events import EventsTable
-
+    """True iff the field resolves to a direct field on the EventsTable or the events_with_flag_calls union (not a
+    traversal to person/groups/sessions/etc. via a virtual/lazy join)."""
     type_ = node.type
     if isinstance(type_, ast.PropertyType):
         type_ = type_.field_type
@@ -590,15 +591,9 @@ def is_events_only_field(node: ast.Field) -> bool:
     if not isinstance(type_, ast.FieldType):
         return False
 
-    table_type = type_.table_type
-    while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
-        table_type = table_type.table_type
     # Virtual tables (e.g. person, group) pivot to another underlying table, so they are not
     # safely "events-only" even if they hang off an events row.
-
-    if isinstance(table_type, ast.TableType):
-        return isinstance(table_type.table, EventsTable)
-    return False
+    return is_events_scan(type_.table_type)
 
 
 def _unwrap_field_alias_type(expr_type: Optional[ast.Type]) -> Optional[ast.Type]:
@@ -607,16 +602,41 @@ def _unwrap_field_alias_type(expr_type: Optional[ast.Type]) -> Optional[ast.Type
     return expr_type
 
 
-def _unwrap_table_alias_type(table_type: Optional[ast.Type]) -> Optional[ast.Type]:
+def unwrap_table_alias_type(table_type: Optional[ast.Type]) -> Optional[ast.Type]:
     while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
         table_type = table_type.table_type
     return table_type
 
 
+def is_events_scan(table_type: Optional[ast.Type]) -> bool:
+    """True when `table_type` reads events or the events_with_flag_calls union, through table aliases."""
+    from posthog.hogql.database.schema.events import EventsTable  # noqa: PLC0415 - breaks the schema import cycle
+    from posthog.hogql.database.schema.events_with_flag_calls import (  # noqa: PLC0415 - breaks the schema import cycle
+        EventsWithFlagCallsTable,
+    )
+
+    unwrapped = unwrap_table_alias_type(table_type)
+    return isinstance(unwrapped, (ast.TableType, ast.LazyTableType)) and isinstance(
+        unwrapped.table, (EventsTable, EventsWithFlagCallsTable)
+    )
+
+
+def event_field_type(expr: ast.Expr) -> ast.FieldType | None:
+    """The type of the `event` column that resolved `expr` reads, or None when it reads something else."""
+    # The resolver wraps a field without a table prefix in an alias when the query has several tables.
+    while isinstance(expr, ast.Alias):
+        expr = expr.expr
+    if not isinstance(expr, ast.Field):
+        return None
+    # A select alias used in WHERE wraps the column in one FieldAliasType per alias.
+    field_type = expr.type
+    while isinstance(field_type, ast.FieldAliasType):
+        field_type = field_type.type
+    return field_type if isinstance(field_type, ast.FieldType) and field_type.name == "event" else None
+
+
 def get_events_session_id_table_type(node: ast.Expr) -> Optional[ast.BaseTableType]:
     """If the expression resolves to $session_id on the events table, return its (possibly aliased) table type."""
-    from posthog.hogql.database.schema.events import EventsTable  # noqa: PLC0415 - breaks the schema import cycle
-
     expr_type = _unwrap_field_alias_type(node.type)
 
     if isinstance(expr_type, ast.FieldType) and expr_type.name == "$session_id":
@@ -639,8 +659,7 @@ def get_events_session_id_table_type(node: ast.Expr) -> Optional[ast.BaseTableTy
     else:
         return None
 
-    unwrapped = _unwrap_table_alias_type(table_type)
-    if isinstance(unwrapped, ast.TableType) and isinstance(unwrapped.table, EventsTable):
+    if is_events_scan(table_type):
         return cast(ast.BaseTableType, table_type)
     return None
 
@@ -679,11 +698,11 @@ def build_session_id_literal_pushdown_predicate(
     """
     if outer_node.where is None:
         return None
-    events_join = _find_join_for_alias(outer_node.select_from, join_to_add.from_table)
+    events_join = _events_scan_for_join(outer_node, join_to_add)
     if events_join is None or not isinstance(events_join.table, ast.Field):
         return None
 
-    events_table_type = _unwrap_table_alias_type(events_join.table.type)
+    events_table_type = unwrap_table_alias_type(events_join.table.type)
     if events_table_type is None:
         return None
 
@@ -697,7 +716,7 @@ def build_session_id_literal_pushdown_predicate(
             continue
         # only push filters owned by the events occurrence this lazy join hangs off
         owner = get_events_session_id_table_type(term.left)
-        if owner is None or _unwrap_table_alias_type(owner) is not events_table_type:
+        if owner is None or unwrap_table_alias_type(owner) is not events_table_type:
             continue
         constants = extract_uuid_constants(term.right)
         if not constants or len(constants) > SESSION_ID_LITERAL_PUSHDOWN_MAX_IDS:
@@ -735,7 +754,7 @@ def build_session_id_v7_pushdown_predicate(
 
     Returns None if the outer query shape or WHERE can't be safely pushed down.
     """
-    events_join = _find_join_for_alias(outer_node.select_from, join_to_add.from_table)
+    events_join = _events_scan_for_join(outer_node, join_to_add)
     if events_join is None or not isinstance(events_join.table, ast.Field):
         return None
 
@@ -814,6 +833,76 @@ def build_session_property_pre_aggregation_predicate(
     )
 
 
+def build_global_sessions_join_filter(
+    outer_node: ast.SelectQuery,
+    join_to_add: LazyJoinToAdd,
+    context: HogQLContext,
+    string_fields: frozenset[str],
+) -> Optional[ast.Expr]:
+    """The session predicate that can filter the sessions side of a ``GLOBAL LEFT JOIN`` without changing results.
+
+    The outer WHERE keeps the predicate, so filtering the joined sessions only removes rows that the outer
+    WHERE drops anyway, provided that the predicate is false for an event whose session was filtered out.
+    Such an event gets the column defaults from the LEFT JOIN, which are empty strings, zeros and NULLs. Only
+    an equality or IN between a string column in ``string_fields`` and non-empty string constants is false for
+    all of them. The column type matters because ClickHouse coerces a string constant to the column type, so
+    ``$session_duration = '0'`` is true for the default 0. Returns None otherwise, and the caller keeps the
+    plain join.
+    """
+    # Every events alias in one SELECT shares the same sessions LazyJoin, so with two of them the extractor
+    # would lift one alias's session filter into the other alias's join.
+    if _count_events_scans(outer_node.select_from) > 1:
+        return None
+    extractor = WhereClauseExtractor(context)
+    extractor.add_local_tables(join_to_add)
+    lifted = extractor.get_inner_where(outer_node)
+    if lifted is None or isinstance(lifted, ast.Constant):
+        return None
+
+    terms = lifted.exprs if isinstance(lifted, ast.And) else [lifted]
+    if not all(_is_non_default_string_match(term, string_fields) for term in terms):
+        return None
+    return lifted
+
+
+def _count_events_scans(select_from: Optional[ast.JoinExpr]) -> int:
+    from posthog.hogql.database.schema.events import EventsTable
+    from posthog.hogql.database.schema.events_with_flag_calls import EventsWithFlagCallsTable
+
+    count = 0
+    ptr = select_from
+    while ptr:
+        table_type = ptr.type.table_type if isinstance(ptr.type, ast.TableAliasType) else ptr.type
+        if isinstance(table_type, ast.TableType) and isinstance(table_type.table, EventsTable):
+            count += 1
+        # The flag calls union shares the events fields, sessions join included, and is already expanded into
+        # a subquery by the time the sessions join resolves.
+        elif isinstance(table_type, ast.SelectQueryAliasType) and isinstance(
+            table_type.lazy_table, EventsWithFlagCallsTable
+        ):
+            count += 1
+        elif isinstance(table_type, ast.LazyTableType) and isinstance(table_type.table, EventsWithFlagCallsTable):
+            count += 1
+        ptr = ptr.next_join
+    return count
+
+
+def _is_non_default_string_match(expr: ast.Expr, string_fields: frozenset[str]) -> bool:
+    if not isinstance(expr, ast.CompareOperation) or not isinstance(expr.left, ast.Field):
+        return False
+    if expr.left.chain[-1] not in string_fields:
+        return False
+    if expr.op == CompareOperationOp.Eq:
+        values = [expr.right]
+    elif expr.op == CompareOperationOp.In and isinstance(expr.right, ast.Tuple | ast.Array):
+        values = expr.right.exprs
+    else:
+        return False
+    return len(values) > 0 and all(
+        isinstance(value, ast.Constant) and isinstance(value.value, str) and value.value != "" for value in values
+    )
+
+
 def _collect_referenced_top_level_aliases(expr: ast.Expr) -> set[str]:
     visitor = _CollectTopLevelAliasesVisitor()
     visitor.visit(expr)
@@ -829,6 +918,17 @@ class _CollectTopLevelAliasesVisitor(TraversingVisitor):
     def visit_field(self, node: ast.Field):
         if node.chain:
             self.names.add(str(node.chain[0]))
+
+
+def _events_scan_for_join(outer_node: ast.SelectQuery, join_to_add: LazyJoinToAdd) -> Optional[ast.JoinExpr]:
+    """The FROM entry that the lazy join starts from, as the query wrote it.
+
+    Lazy table resolution replaces the scan of a lazy table, such as the union of events and flag_evaluations, with a
+    subquery, so the entry it recorded stands in for it.
+    """
+    if join_to_add.from_scan is not None:
+        return join_to_add.from_scan.join
+    return _find_join_for_alias(outer_node.select_from, join_to_add.from_table)
 
 
 def _find_join_for_alias(select_from: Optional[ast.JoinExpr], alias: str) -> Optional[ast.JoinExpr]:
@@ -1032,6 +1132,14 @@ class _FieldNodeCollector(TraversingVisitor):
 # columns (not rows), and the clause-level `ARRAY JOIN` lives on the SelectQuery, not in a predicate. Add
 # any future array-expanding function HogQL lowers into WHERE here.
 _ROW_MULTIPLYING_FUNCTIONS = {"arrayJoin"}
+
+# These return a different value on each read, so a copy of a filter that calls one selects other rows than the
+# original. Lowercase, because HogQL accepts some of them in any case, such as RAND().
+_NONDETERMINISTIC_FUNCTIONS = frozenset({"rand", "rownumberinblock", "rownumberinallblocks", "nowinblock"})
+
+
+def is_nondeterministic_function(name: str) -> bool:
+    return name.lower() in _NONDETERMINISTIC_FUNCTIONS
 
 
 class _RowMultiplyingFunctionFinder(TraversingVisitor):

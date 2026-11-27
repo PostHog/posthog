@@ -43,7 +43,7 @@ describe('cliAuthorizeLogic', () => {
         const scopes = logic.values.authorize.scopes
         // Covers the agent surface (reads + the writes that are allowed on a key)
         expect(scopes).toEqual(expect.arrayContaining(['user:read', 'project:read', 'query:read', 'insight:write']))
-        // But drops writes the product withholds from manually-created keys
+        // But drops writes the product withholds from keys by default
         expect(scopes).not.toContain('file_system:write')
         expect(scopes).not.toContain('integration:write')
         expect(scopes).not.toContain('user:write')
@@ -119,8 +119,9 @@ describe('cliAuthorizeLogic', () => {
 
         logic.actions.setSearchTerm('feature flag')
         await expectLogic(logic).toMatchValues({ searchTerm: 'feature flag' })
-        expect(logic.values.filteredScopes.map((scope) => scope.key)).toContain('feature_flag')
-        expect(logic.values.filteredScopes.every((scope) => scope.key === 'feature_flag')).toBe(true)
+        const keys = logic.values.filteredScopes.map((scope) => scope.key)
+        expect(keys).toContain('feature_flag')
+        expect(keys).not.toContain('insight')
     })
 
     it('surfaces the invalid_scope error from the backend on submit', async () => {
@@ -145,5 +146,39 @@ describe('cliAuthorizeLogic', () => {
         expect(logic.values.authorizeErrors.scopes).toBe(
             'One or more selected scopes are not permitted. Try choosing a different preset.'
         )
+    })
+
+    it('adds a typed code to the URL without resetting the picked scopes', async () => {
+        router.actions.push('/cli/authorize', { use_cases: 'schema' })
+        logic.actions.setAuthorizeValues({
+            userCode: 'ABCD-1234',
+            organizationId: 'org-id',
+            projectId: 1,
+            scopes: ['event_definition:read'],
+        })
+        jest.spyOn(api, 'create').mockResolvedValueOnce({})
+
+        await expectLogic(logic, () => {
+            logic.actions.submitAuthorize()
+        }).toDispatchActions(['submitAuthorizeSuccess'])
+
+        expect(router.values.searchParams).toEqual({ use_cases: 'schema', code: 'ABCD-1234' })
+        expect(logic.values.authorize.scopes).toEqual(['event_definition:read'])
+    })
+
+    it('offers to try again after the person closes the sign-in prompt', async () => {
+        router.actions.push('/cli/authorize', { code: 'ABCD-1234' })
+        logic.actions.setAuthorizeValues({ userCode: 'ABCD-1234', organizationId: 'org-id', projectId: 1 })
+        jest.spyOn(api, 'create').mockRejectedValueOnce(
+            new ApiError(undefined, 403, undefined, { code: 'sensitive_action_required_reauth' })
+        )
+
+        await expectLogic(logic, () => {
+            logic.actions.submitAuthorize()
+        })
+            .toDispatchActions(['submitAuthorizeFailure'])
+            .toMatchValues({ reauthenticationDismissed: true })
+
+        expect(logic.values.authorizeErrors.userCode).toBeUndefined()
     })
 })

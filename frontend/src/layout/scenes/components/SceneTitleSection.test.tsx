@@ -2,6 +2,7 @@ import '@testing-library/jest-dom'
 
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 
+import { SceneDescription } from './SceneDescription'
 import { SceneName } from './SceneTitleSection'
 
 describe('SceneName', () => {
@@ -64,6 +65,44 @@ describe('SceneName', () => {
         }
     })
 
+    test('SceneDescription keeps a draft typed after a save when that save fails and rolls back', () => {
+        jest.useFakeTimers()
+        try {
+            const onChange = jest.fn()
+            const field = (description: string): JSX.Element => (
+                <SceneDescription
+                    description={description}
+                    onChange={onChange}
+                    canEdit
+                    saveOnBlur
+                    renameDebounceMs={0}
+                />
+            )
+            const { rerender } = render(field('Stored'))
+
+            fireEvent.click(screen.getByRole('button'))
+            fireEvent.change(screen.getByRole('textbox'), { target: { value: 'First edit' } })
+            fireEvent.blur(screen.getByRole('textbox'))
+            act(() => {
+                jest.advanceTimersByTime(1)
+            })
+            rerender(field('First edit'))
+
+            fireEvent.click(screen.getByRole('button'))
+            fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Second edit' } })
+            rerender(field('Stored'))
+            expect(screen.getByRole('textbox')).toHaveValue('Second edit')
+
+            fireEvent.blur(screen.getByRole('textbox'))
+            act(() => {
+                jest.advanceTimersByTime(1)
+            })
+            expect(onChange).toHaveBeenLastCalledWith('Second edit')
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
     // Guards the reconciliation change: a genuine external update (loading a resource,
     // an AI-generated name) must still replace the field's value.
     test('adopts an external name change into the field', () => {
@@ -72,5 +111,12 @@ describe('SceneName', () => {
 
         rerender(<SceneName name="Generated name" canEdit onChange={jest.fn()} />)
         expect(screen.getByText('Generated name')).toBeInTheDocument()
+
+        const { rerender: rerenderDescription } = render(
+            <SceneDescription description="Saved" canEdit saveOnBlur onChange={jest.fn()} />
+        )
+        fireEvent.click(screen.getByText('Saved'))
+        rerenderDescription(<SceneDescription description="Rolled back" canEdit saveOnBlur onChange={jest.fn()} />)
+        expect(screen.getByRole('textbox')).toHaveValue('Rolled back')
     })
 })

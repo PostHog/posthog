@@ -15,6 +15,7 @@ export class ImageFetchTopHogMetrics {
     private readonly attempts: Recorder
     private readonly blockEvents: Recorder
     private readonly blockedMs: Recorder
+    private readonly filteredUrls: Recorder
 
     constructor(topHog: TopHogRegistry) {
         this.attempts = topHog.registerSum('ai_research_v4_image_fetch_attempts_by_registrable_domain', {
@@ -29,6 +30,31 @@ export class ImageFetchTopHogMetrics {
             topN: TOP_DOMAIN_FACTORS,
             maxKeys: MAX_TRACKED_DOMAIN_FACTORS,
         })
+        this.filteredUrls = topHog.registerSum('ai_research_v4_image_fetch_filtered_urls_by_registrable_domain', {
+            topN: TOP_DOMAIN_FACTORS,
+            maxKeys: MAX_TRACKED_DOMAIN_FACTORS,
+        })
+    }
+
+    /**
+     * The first pass of a URL shows what the recorder sends for a domain. The later passes show what the fetcher sends
+     * back to itself, so the two together separate new demand from republish churn. Only the `received` stage reads
+     * demand, because the later stages see a URL after duplicates merge, with the highest pass and one route.
+     */
+    public recordFilteredUrl(
+        candidate: FetchCandidate,
+        stage: 'received' | 'store_deduped' | 'not_ready' | 'fetchable'
+    ): void {
+        this.recordForSourcePartitions(
+            this.filteredUrls,
+            candidate.sourcePartitions,
+            {
+                registrable_domain: candidate.registrableDomain,
+                stage,
+                pass: candidate.republishCount === 0 ? 'first' : 'republished',
+            },
+            1
+        )
     }
 
     public recordAttempt(attempt: FetchAttempt): void {

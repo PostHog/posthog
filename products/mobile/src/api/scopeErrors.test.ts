@@ -1,5 +1,5 @@
 import { ApiError } from './client'
-import { missingFeatureScope, missingScope, missingViewsScope } from './scopeErrors'
+import { missingFeatureScope, missingScope, missingViewsScope, type ScopedFeature } from './scopeErrors'
 
 describe('missingScope', () => {
     test.each<[string, unknown, string | null]>([
@@ -33,9 +33,11 @@ describe('missingScope', () => {
         expect(missingViewsScope(granted)).toBe(expected)
     })
 
-    test.each<[string, string[], 'errors' | 'replay', string | null]>([
+    test.each<[string, string[], ScopedFeature, string | null]>([
         ['a write that covers the error tracking read', ['error_tracking:write'], 'errors', null],
         ['a grant without the summary scopes', ['session_recording:read'], 'replay', 'replay_scanner:read'],
+        ['an inbox write that covers the read', ['inbox:write'], 'inbox', null],
+        ['a read-only inbox grant', ['inbox:read'], 'inbox', 'inbox:write'],
     ])('finds the missing feature scope in %s', (_name, granted, feature, expected) => {
         expect(missingFeatureScope(granted, feature)).toBe(expected)
     })

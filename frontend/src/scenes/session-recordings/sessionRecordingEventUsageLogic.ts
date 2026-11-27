@@ -3,8 +3,8 @@ import posthog from 'posthog-js'
 
 import { isLogEntryPropertyFilter, isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { isActionFilter, isEventFilter } from 'lib/components/UniversalFilters/utils'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { metricCount, metricHistogram } from 'lib/operationalMetrics'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { MiniFilterKey } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
 import { InspectorListItemType } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { filtersFromUniversalFilterGroups } from 'scenes/session-recordings/utils'
@@ -98,7 +98,7 @@ export interface sessionRecordingEventUsageLogicActions {
         playerData: SessionPlayerData
     }
     reportRecordingLoadedFromFile: (data: { error?: string; success: boolean }) => {
-        error?: string | undefined
+        error?: string
         success: boolean
     }
     reportRecordingOpenedFromRecentRecordingList: () => {

@@ -15,6 +15,7 @@ from posthog.models.integration import Integration
 from posthog.models.organization_integration import OrganizationIntegration
 
 from ee.api.vercel.types import VercelUserClaims
+from ee.vercel.client import SSOTokenResponse
 
 
 class TestConstants:
@@ -30,13 +31,6 @@ class MockFactory:
         return {
             "_validate_client_credentials": Mock(return_value=("test_client_id", "test_client_secret")),
             "_exchange_sso_token": Mock(return_value=Mock(id_token="mock_id_token", error=None)),
-        }
-
-    @staticmethod
-    def failed_token_exchange():
-        return {
-            "_validate_client_credentials": Mock(return_value=("test_client_id", "test_client_secret")),
-            "_exchange_sso_token": Mock(return_value=Mock(error="invalid_code")),
         }
 
     @staticmethod
@@ -206,8 +200,14 @@ class TestSSORedirectSuccess(BaseSSOMockTest):
         response = SSOTestHelper.make_sso_request(sso_setup["client"], sso_setup["url"], url=custom_url)
         SSOTestHelper.assert_successful_redirect(response, custom_url)
 
-    def test_sso_redirect_with_resource_switching(self, sso_setup):
-        team = Team.objects.create(organization=sso_setup["organization"], name="SSO Test Team")
+    @pytest.mark.parametrize("resource_in_installation_org", [True, False])
+    def test_sso_redirect_with_resource_switching(self, sso_setup, resource_in_installation_org):
+        if resource_in_installation_org:
+            organization = sso_setup["organization"]
+        else:
+            organization = Organization.objects.create(name="Other Org")
+            sso_setup["user"].join(organization=organization, level=OrganizationMembership.Level.MEMBER)
+        team = Team.objects.create(organization=organization, name="SSO Test Team")
         resource = Integration.objects.create(
             team=team,
             kind=Integration.IntegrationKind.VERCEL,
@@ -217,10 +217,14 @@ class TestSSORedirectSuccess(BaseSSOMockTest):
         )
 
         response = SSOTestHelper.make_sso_request(sso_setup["client"], sso_setup["url"], resource_id=str(resource.pk))
-        SSOTestHelper.assert_successful_redirect(response)
 
         sso_setup["user"].refresh_from_db()
-        assert sso_setup["user"].current_team == team
+        if resource_in_installation_org:
+            SSOTestHelper.assert_successful_redirect(response)
+            assert sso_setup["user"].current_team == team
+        else:
+            assert response.status_code == status.HTTP_401_UNAUTHORIZED
+            assert sso_setup["user"].current_team != team
 
     def test_sso_redirect_with_experimentation_item(self, sso_setup):
         from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -293,9 +297,20 @@ class TestSSORedirectFailures:
             assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     def test_sso_redirect_when_token_exchange_fails(self, sso_setup):
-        with mock_vercel_integration(**MockFactory.failed_token_exchange()):
+        with (
+            patch(
+                "ee.vercel.integration.VercelIntegration._validate_client_credentials",
+                return_value=("test_client_id", "test_client_secret"),
+            ),
+            patch(
+                "ee.vercel.integration.VercelAPIClient.sso_token_exchange",
+                return_value=SSOTokenResponse(access_token="", token_type="", error="invalid_code"),
+            ),
+            patch("ee.api.vercel.utils.requests.get") as jwks_fetch,
+        ):
             response = SSOTestHelper.make_sso_request(sso_setup["client"], sso_setup["url"])
             assert response.status_code == status.HTTP_401_UNAUTHORIZED
+            jwks_fetch.assert_not_called()
 
     def test_sso_redirect_when_token_exchange_returns_none(self, sso_setup):
         with mock_vercel_integration(**MockFactory.token_exchange_returns_none()):
@@ -432,27 +447,31 @@ class TestSSOUserMapping:
 
 
 class TestSSOOrganizationHandling:
-    def test_sso_redirect_adds_new_user_to_organization(self, sso_setup):
-        """
-        When a new user authenticates via SSO, the system should:
-        1. Create a new PostHog user account
-        2. Add them as a member of the installation's organization
-        3. Create the user mapping
-        4. Successfully authenticate the user
-        """
+    @pytest.mark.parametrize("email_verified", [True, False])
+    def test_sso_redirect_adds_new_user_to_organization(self, sso_setup, email_verified: bool) -> None:
         new_user_email = "newuser@example.com"
+        claims = create_user_claims(sso_setup["installation_id"], "brand_new_user", new_user_email)
+        claims.user_email_verified = email_verified
 
         with (
             mock_vercel_integration(**MockFactory.successful_sso_flow(sso_setup["installation_id"])),
-            mock_jwt_validation(create_user_claims(sso_setup["installation_id"], "brand_new_user", new_user_email)),
+            mock_jwt_validation(claims),
+            patch("posthog.api.email_verification.send_email_verification_code") as mock_send_email,
         ):
             response = SSOTestHelper.make_sso_request(sso_setup["client"], sso_setup["url"])
+
+        new_user = User.objects.get(email=new_user_email)
+        assert OrganizationMembership.objects.filter(user=new_user, organization=sso_setup["organization"]).exists()
+        SSOTestHelper.assert_user_mapping_created(sso_setup["installation"], "brand_new_user", new_user.pk)
+        if email_verified:
             SSOTestHelper.assert_successful_redirect(response)
-
-            new_user = User.objects.get(email=new_user_email)
-            assert OrganizationMembership.objects.filter(user=new_user, organization=sso_setup["organization"]).exists()
-
-            SSOTestHelper.assert_user_mapping_created(sso_setup["installation"], "brand_new_user", new_user.pk)
+            assert sso_setup["client"].session[SESSION_KEY] == str(new_user.pk)
+        else:
+            SSOTestHelper.assert_successful_redirect(
+                response, f"/verify_email/{new_user.uuid}?reason=vercel_sso&next=%2F"
+            )
+            assert SESSION_KEY not in sso_setup["client"].session
+            assert mock_send_email.call_args.args[0] == new_user.pk
 
     def test_sso_redirect_handles_user_with_multiple_organizations(self, sso_setup):
         """
@@ -542,8 +561,13 @@ EU_SITE_URL = "https://eu.posthog.com"
 
 
 class TestSSORegionRedirect:
-    def test_us_region_redirects_to_eu_when_resource_not_found(self, sso_setup):
-        with self.settings(SITE_URL=US_SITE_URL, DEBUG=False):
+    def test_us_region_redirects_to_eu_when_installation_not_found(self, sso_setup):
+        eu_installation_id = "icfg_eu_only_123"
+        with (
+            self.settings(SITE_URL=US_SITE_URL, DEBUG=False),
+            mock_vercel_integration(**MockFactory.successful_sso_flow(eu_installation_id)),
+            mock_jwt_validation(create_user_claims(eu_installation_id)),
+        ):
             response = SSOTestHelper.make_sso_request(sso_setup["client"], sso_setup["url"], resource_id="99999")
 
         assert response.status_code == status.HTTP_302_FOUND
@@ -556,6 +580,7 @@ class TestSSORegionRedirect:
         assert qs["code"] == [TestConstants.AUTH_CODE]
         assert qs["state"] == [TestConstants.STATE]
         assert qs["resource_id"] == ["99999"]
+        assert "_claims_token" in qs
 
     def test_us_region_processes_normally_when_resource_found(self, sso_setup):
         team = Team.objects.create(organization=sso_setup["organization"], name="Region Test Team")
@@ -613,7 +638,12 @@ class TestSSORegionRedirect:
         assert "eu.posthog.com" not in response.url
 
     def test_redirect_preserves_all_query_params(self, sso_setup):
-        with self.settings(SITE_URL=US_SITE_URL, DEBUG=False):
+        eu_installation_id = "icfg_eu_only_123"
+        with (
+            self.settings(SITE_URL=US_SITE_URL, DEBUG=False),
+            mock_vercel_integration(**MockFactory.successful_sso_flow(eu_installation_id)),
+            mock_jwt_validation(create_user_claims(eu_installation_id)),
+        ):
             response = SSOTestHelper.make_sso_request(
                 sso_setup["client"],
                 sso_setup["url"],

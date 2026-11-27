@@ -1,5 +1,9 @@
 import json
+import tempfile
+import subprocess
 from copy import deepcopy
+from html.parser import HTMLParser
+from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 import unittest
@@ -16,6 +20,7 @@ from rest_framework import status
 from posthog.api.test.test_personal_api_keys import PersonalAPIKeysBaseTest
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.file_system.file_system import FileSystem
+from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team_caching import set_team_in_cache
 from posthog.models.user import User
 from posthog.test.persons import create_person
@@ -33,41 +38,69 @@ if TYPE_CHECKING:
 Survey = cast("type[SurveyModel]", apps.get_model("surveys", "Survey"))
 
 
+class _RenderedHTML(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.tags: list[tuple[str, dict[str, str | None]]] = []
+        self.text: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self.tags.append((tag, dict(attrs)))
+
+    def handle_data(self, data: str) -> None:
+        if data.strip():
+            self.text.append(data.strip())
+
+    def structure(self) -> list[tuple[str, list[str]]]:
+        return [(tag, sorted(attrs)) for tag, attrs in self.tags]
+
+    def attribute(self, tag: str, name: str) -> str | None:
+        return next(attrs[name] for found, attrs in self.tags if found == tag and name in attrs)
+
+
 class TestEarlyAccessFeatureSiteAppTemplate(unittest.TestCase):
-    def test_site_app_template_escapes_user_controlled_fields(self):
-        import re
+    PLAIN_ITEM = {
+        "name": "Dark mode",
+        "description": "A darker theme",
+        "flagKey": "dark-mode",
+        "documentationUrl": "https://docs.example.com/dark-mode",
+    }
 
+    def _render_list(self, item: dict[str, str]) -> _RenderedHTML:
         from products.cdp.backend.templates._siteapps.template_early_access_features import template
 
-        code = template.code
+        with tempfile.TemporaryDirectory() as directory:
+            script = Path(directory) / "site_app.mts"
+            script.write_text(f"{template.code}\nconsole.log(listItemComponents({json.dumps([item])}, () => false))\n")
+            html = subprocess.check_output(["node", str(script)], text=True)
 
-        assert "escapeHTML" in code, "escapeHTML function must be defined in the template"
+        rendered = _RenderedHTML()
+        rendered.feed(html)
+        rendered.close()
+        return rendered
 
-        for field in ["item.name", "item.description"]:
-            raw_pattern = re.compile(r"\$\{" + re.escape(field) + r"\}")
-            escaped_pattern = re.compile(r"\$\{escapeHTML\(" + re.escape(field) + r"\)\}")
+    @parameterized.expand(
+        [
+            ("documentationUrl", "https://docs.example.com/what's-new", "https://docs.example.com/what's-new"),
+            ("documentationUrl", "https://docs.example.com/a%20b?x=1&y=2", "https://docs.example.com/a%20b?x=1&y=2"),
+            ("documentationUrl", "ftp://docs.example.com/dark-mode", ""),
+            ("name", 'Bob\'s <i>new</i> "beta"', 'Bob\'s <i>new</i> "beta"'),
+            ("description", "Now <i>faster</i> & 'lighter'", "Now <i>faster</i> & 'lighter'"),
+        ]
+    )
+    def test_site_app_list_renders_field_as_plain_value(self, field: str, value: str, expected: str) -> None:
+        plain = self._render_list(self.PLAIN_ITEM)
+        rendered = self._render_list({**self.PLAIN_ITEM, field: value})
 
-            raw_count = len(raw_pattern.findall(code))
-            escaped_count = len(escaped_pattern.findall(code))
-
-            assert raw_count == 0, f"Found {raw_count} unescaped interpolation(s) of {field}"
-            assert escaped_count > 0, f"No escaped interpolation of {field} found"
-
-    def test_site_app_template_uses_safe_url_for_documentation_url_href(self):
-        """safeUrl validates the protocol (http/https only) and encodes the URL,
-        unlike raw encodeURI which would allow javascript: URLs through."""
-        import re
-
-        from products.cdp.backend.templates._siteapps.template_early_access_features import template
-
-        code = template.code
-
-        raw_pattern = re.compile(r"\$\{item\.documentationUrl\}")
-        safe_url_pattern = re.compile(r"\$\{safeUrl\(item\.documentationUrl\)\}")
-
-        assert "safeUrl" in code, "safeUrl function must be defined in the template"
-        assert len(raw_pattern.findall(code)) == 0, "Found unescaped interpolation of item.documentationUrl"
-        assert len(safe_url_pattern.findall(code)) > 0, "item.documentationUrl must be wrapped in safeUrl"
+        assert rendered.structure() == plain.structure()
+        shown = {
+            "documentationUrl": rendered.attribute("a", "href"),
+            "name": rendered.attribute("div", "data-name"),
+            "description": rendered.text[1],
+        }
+        assert shown[field] == expected
+        if field == "name":
+            assert rendered.text[0] == expected
 
 
 class TestEarlyAccessFeature(APIBaseTest):
@@ -999,6 +1032,7 @@ class TestEarlyAccessFeature(APIBaseTest):
                     "created_by": None,
                     "description": "A revolution in usability research: now you can count clicks!",
                     "documentation_url": "",
+                    "image_url": "",
                     "feature_flag": None,
                     "id": ANY,
                     "name": "Click counter",
@@ -1027,6 +1061,37 @@ class TestEarlyAccessFeature(APIBaseTest):
         assert response_data["payload"] == payload
         feature = EarlyAccessFeature.objects.get(id=response_data["id"])
         assert feature.payload == payload
+
+    def test_image_url_is_saved_on_create_update_and_clear(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/early_access_feature/",
+            data={
+                "name": "Feature with image",
+                "stage": "beta",
+                "image_url": "https://images.example.com/first.png",
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["image_url"] == "https://images.example.com/first.png"
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/early_access_feature/{response.json()['id']}/",
+            data={"image_url": "https://images.example.com/second.png"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        feature = EarlyAccessFeature.objects.get(id=response.json()["id"])
+        assert feature.image_url == "https://images.example.com/second.png"
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/early_access_feature/{feature.id}/",
+            data={"image_url": ""},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        feature.refresh_from_db()
+        assert feature.image_url == ""
 
     def test_can_create_early_access_feature_without_payload_defaults_to_empty_dict(self):
         response = self.client.post(
@@ -1089,6 +1154,39 @@ class TestEarlyAccessFeature(APIBaseTest):
         feature.refresh_from_db()
         assert feature.payload == {}
 
+    def test_list_filters_by_ids(self):
+        features = [
+            EarlyAccessFeature.objects.create(team=self.team, name=name, description="", stage="beta")
+            for name in ("Listed", "Also listed", "Unlisted")
+        ]
+
+        ids = ",".join(str(feature.id) for feature in features[:2])
+        response = self.client.get(f"/api/projects/{self.team.id}/early_access_feature/?ids={ids}")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert sorted(feature["name"] for feature in response.json()["results"]) == ["Also listed", "Listed"]
+
+    def test_list_orders_newest_first_and_searches_by_name(self):
+        for name in ("Oldest", "Middle", "Newest"):
+            EarlyAccessFeature.objects.create(team=self.team, name=name, description="", stage="beta")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/early_access_feature/?limit=2")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [feature["name"] for feature in response.json()["results"]] == ["Newest", "Middle"]
+
+        searched = self.client.get(f"/api/projects/{self.team.id}/early_access_feature/?search=midd")
+
+        assert [feature["name"] for feature in searched.json()["results"]] == ["Middle"]
+
+        oldest = self.client.get(f"/api/projects/{self.team.id}/early_access_feature/?order=created_at&limit=1")
+
+        assert [feature["name"] for feature in oldest.json()["results"]] == ["Oldest"]
+
+        mine = self.client.get(f"/api/projects/{self.team.id}/early_access_feature/?created_by_id={self.user.id}")
+
+        assert mine.json()["results"] == []
+
     def test_payload_in_list_response(self):
         EarlyAccessFeature.objects.create(
             team=self.team,
@@ -1130,10 +1228,12 @@ class TestEarlyAccessFeature(APIBaseTest):
             ANY,
             "feature flag created",
             {
+                "feature_flag_id": ff_instance.id,
                 "groups_count": 1,
                 "has_variants": False,
                 "variants_count": 0,
                 "has_rollout_percentage": False,
+                "condition_rollout_percentages": [0],
                 "has_filters": False,
                 "filter_count": 0,
                 "created_at": ff_instance.created_at,
@@ -1247,6 +1347,20 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
             REMOTE_ADDR=ip,
         )
 
+    def _expected_sprocket_preview(self, feature, **overrides):
+        return {
+            "id": str(feature.id),
+            "name": "Sprocket",
+            "description": "A fancy new sprocket.",
+            "stage": "beta",
+            "documentationUrl": "",
+            "imageUrl": "",
+            "payload": {},
+            "flagKey": "sprocket",
+            "assignee": None,
+            **overrides,
+        }
+
     @snapshot_postgres_queries
     def test_early_access_features(self):
         create_person(
@@ -1291,18 +1405,7 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
 
             self.assertListEqual(
                 response.json()["earlyAccessFeatures"],
-                [
-                    {
-                        "id": str(feature.id),
-                        "name": "Sprocket",
-                        "description": "A fancy new sprocket.",
-                        "stage": "beta",
-                        "documentationUrl": "",
-                        "payload": {},
-                        "flagKey": "sprocket",
-                        "assignee": None,
-                    }
-                ],
+                [self._expected_sprocket_preview(feature)],
             )
 
     @snapshot_postgres_queries
@@ -1349,18 +1452,7 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
 
             self.assertListEqual(
                 response.json()["earlyAccessFeatures"],
-                [
-                    {
-                        "id": str(feature.id),
-                        "name": "Sprocket",
-                        "description": "A fancy new sprocket.",
-                        "stage": "beta",
-                        "documentationUrl": "",
-                        "payload": {},
-                        "flagKey": "sprocket",
-                        "assignee": None,
-                    }
-                ],
+                [self._expected_sprocket_preview(feature)],
             )
 
     @snapshot_postgres_queries
@@ -1396,18 +1488,7 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
 
             self.assertListEqual(
                 response.json()["earlyAccessFeatures"],
-                [
-                    {
-                        "id": str(feature.id),
-                        "name": "Sprocket",
-                        "description": "A fancy new sprocket.",
-                        "stage": "beta",
-                        "documentationUrl": "",
-                        "payload": {},
-                        "flagKey": "sprocket",
-                        "assignee": None,
-                    }
-                ],
+                [self._expected_sprocket_preview(feature)],
             )
 
     def test_early_access_features_beta_only(self):
@@ -1466,18 +1547,7 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
 
             self.assertListEqual(
                 response.json()["earlyAccessFeatures"],
-                [
-                    {
-                        "id": str(feature.id),
-                        "name": "Sprocket",
-                        "description": "A fancy new sprocket.",
-                        "stage": "beta",
-                        "documentationUrl": "",
-                        "payload": {},
-                        "flagKey": "sprocket",
-                        "assignee": None,
-                    }
-                ],
+                [self._expected_sprocket_preview(feature)],
             )
 
     def test_early_access_features_errors_out_on_random_token(self):
@@ -1502,7 +1572,24 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
                 "Project token not provided. You can find your project token in PostHog project settings.",
             )
 
-    def test_early_access_features_preserves_documentation_url(self):
+    def test_early_access_features_answers_cors_preflight_without_token(self):
+        self.client.logout()
+
+        with self.assertNumQueries(0):
+            response = self.client.options(
+                "/api/early_access_features/",
+                headers={
+                    "origin": "https://app.example.com",
+                    "access-control-request-method": "GET",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers["Access-Control-Allow-Origin"], "https://app.example.com")
+        self.assertIn("GET", response.headers["Access-Control-Allow-Methods"])
+        self.assertIn("Content-Type", response.headers["Access-Control-Allow-Headers"])
+
+    def test_early_access_features_preserves_documentation_and_image_urls(self):
         feature_flag = FeatureFlag.objects.create(
             team=self.team,
             name="Feature Flag for Docs Test",
@@ -1510,6 +1597,7 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
             created_by=self.user,
         )
         documentation_url = "https://docs.example.com/features/sprocket?version=2&lang=en#getting-started"
+        image_url = "https://images.example.com/sprocket.png?width=1200"
         EarlyAccessFeature.objects.create(
             team=self.team,
             name="Docs Feature",
@@ -1517,6 +1605,7 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
             stage="beta",
             feature_flag=feature_flag,
             documentation_url=documentation_url,
+            image_url=image_url,
         )
 
         self.client.logout()
@@ -1524,10 +1613,8 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
         response = self._get_features()
         self.assertEqual(response.status_code, 200)
         feature_data = response.json()["earlyAccessFeatures"][0]
-        self.assertEqual(
-            feature_data["documentationUrl"],
-            documentation_url,
-        )
+        self.assertEqual(feature_data["documentationUrl"], documentation_url)
+        self.assertEqual(feature_data["imageUrl"], image_url)
 
     @snapshot_postgres_queries
     def test_early_access_features_includes_payload_in_preview(self):
@@ -1562,18 +1649,7 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
 
             self.assertListEqual(
                 response.json()["earlyAccessFeatures"],
-                [
-                    {
-                        "id": str(feature.id),
-                        "name": "Sprocket",
-                        "description": "A fancy new sprocket.",
-                        "stage": "beta",
-                        "documentationUrl": "",
-                        "payload": payload,
-                        "flagKey": "sprocket",
-                        "assignee": None,
-                    }
-                ],
+                [self._expected_sprocket_preview(feature, payload=payload)],
             )
 
     def test_early_access_features_includes_assignee_display_name_in_preview(self):
@@ -1947,6 +2023,22 @@ class TestEarlyAccessFeatureResourceAccessControl(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/early_access_feature/{feature.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["user_access_level"], "editor")
+
+    @parameterized.expand([("by ids", "?ids={id}", True), ("plain list", "", False)])
+    def test_admin_lists_private_feature(self, _name: str, query: str, expected: bool) -> None:
+        feature = self._create_feature()
+        AccessControl.objects.create(
+            resource="early_access_feature", resource_id=str(feature.id), team=self.team, access_level="none"
+        )
+        membership = self.user.organization_memberships.get(organization=self.organization)
+        membership.level = OrganizationMembership.Level.ADMIN
+        membership.save()
+        self.client.force_login(self.user)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/early_access_feature/{query.format(id=feature.id)}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(str(feature.id) in [item["id"] for item in response.json()["results"]], expected)
 
     def test_access_controls_endpoint_route_exists(self) -> None:
         feature = self._create_feature()

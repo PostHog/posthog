@@ -3,6 +3,9 @@ from typing import Any
 
 import structlog
 
+from posthog.models.team.team import Team
+
+from products.cohorts.backend.backfill.flag_calls_table import pinned_flag_calls_table
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.leaf_shape import walk_filter_leaves
 from products.cohorts.backend.parity.eligibility import is_action_key, leaf_drop_reason
@@ -75,6 +78,19 @@ def pin_conditions_for_cohorts(cohorts: Iterable[Cohort]) -> tuple[dict[str, Any
 
     conditions.sort(key=lambda item: (item["cohort_id"], item["condition_hash"], item["event_name"] or ""))
     return {"schema_version": 1, "conditions": conditions}, sorted(event_names)
+
+
+def pin_behavioral_run(cohorts: list[Cohort], team: Team) -> dict[str, Any]:
+    """The `pinned` payload of a behavioral run over these cohorts.
+
+    Raises FlagCallsTableUnresolved when a flag-call cohort's batch query does not compile.
+    """
+    pinned, event_names = pin_conditions_for_cohorts(cohorts)
+    return {
+        **pinned,
+        "event_names": event_names,
+        "flag_calls_table": pinned_flag_calls_table(cohorts, pinned["conditions"], team),
+    }
 
 
 def pin_person_conditions_for_cohorts(cohorts: Iterable[Cohort], *, max_conditions: int) -> dict[str, Any]:

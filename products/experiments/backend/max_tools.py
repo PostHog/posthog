@@ -10,7 +10,7 @@ from posthog.sync import database_sync_to_async
 
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.experiment_summary_data_service import ExperimentSummaryDataService
-from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
+from products.experiments.backend.facade.contracts import ExperimentAssistantContext
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, experiment_eligibility_error
 
@@ -260,7 +260,9 @@ class ExperimentSummaryTool(MaxTool):
             return f"Experiment {experiment_id} not found", {"error": "not_found"}
 
         # Before the metric queries run, so a denied user costs no ClickHouse work
-        await self.check_object_access(experiment, "viewer", resource="experiment", action="read")
+        await self.check_object_access(
+            experiment_context.object_access_ref(experiment), "viewer", resource="experiment", action="read"
+        )
 
         data_service = ExperimentSummaryDataService(self._team, self._user)
 
@@ -271,7 +273,7 @@ class ExperimentSummaryTool(MaxTool):
 
         summary_context = summary_data.context
 
-        formatted_data = await experiment_context.format_experiment_results_data(
+        formatted_data = experiment_context.format_experiment_results_data(
             experiment,
             exposures=summary_context.exposures,
             primary_metrics_results=summary_context.primary_metrics_results,
@@ -295,19 +297,18 @@ class ExperimentSummaryTool(MaxTool):
 
     def _build_result(
         self,
-        experiment: Experiment,
+        experiment: ExperimentAssistantContext,
         formatted_data: str,
         primary_metrics: list,
         secondary_metrics: list,
     ) -> tuple[str, dict[str, Any]]:
         """Build the final result tuple with artifact metadata."""
-        stats_method = get_experiment_stats_method(experiment)
-        variants = [v.get("key") for v in experiment.feature_flag.variants if v.get("key")]
+        variants = [v.key for v in experiment.feature_flag_variants if v.key]
 
         return formatted_data, {
             "experiment_id": experiment.id,
             "experiment_name": experiment.name,
-            "stats_method": stats_method,
+            "stats_method": experiment.stats_method,
             "variants": variants,
             "has_results": bool(primary_metrics or secondary_metrics),
         }

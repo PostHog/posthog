@@ -88,11 +88,9 @@ class TestGeneratePolicyYaml(TestCase):
         for domain in INFRASTRUCTURE_DOMAINS:
             self.assertIn(domain, allow_rule["domains"])
 
-    def test_always_includes_gateway_domains(self):
-        policy = yaml.safe_load(generate_policy_yaml([]))
-        allow_rule = next(rule for rule in policy["network_rules"] if rule["name"] == "allow-domains")
-        self.assertIn("gateway.us.posthog.com", allow_rule["domains"])
-        self.assertIn("gateway.eu.posthog.com", allow_rule["domains"])
+    def test_infrastructure_domains_omit_legacy_python_gateway_hosts(self):
+        self.assertNotIn("gateway.us.posthog.com", INFRASTRUCTURE_DOMAINS)
+        self.assertNotIn("gateway.eu.posthog.com", INFRASTRUCTURE_DOMAINS)
 
     def test_default_deny_at_end(self):
         policy = yaml.safe_load(generate_policy_yaml([]))
@@ -144,11 +142,9 @@ class TestGeneratePolicyYaml(TestCase):
 
     def test_env_policy_allows_gateway_selection_vars(self):
         # AI_GATEWAY_URL picks the Go gateway and AI_GATEWAY_PRODUCTS scopes it. If
-        # the firewall strips either, the sandbox silently stays on the Python
-        # gateway, so a migrated product keeps billing under its old tag.
+        # the firewall strips either, the agent cannot route its model calls.
         policy = yaml.safe_load(generate_policy_yaml([]))
         for key in (
-            "LLM_GATEWAY_URL",
             "AI_GATEWAY_URL",
             "AI_GATEWAY_PRODUCTS",
             "AI_GATEWAY_PRODUCT",
@@ -158,8 +154,7 @@ class TestGeneratePolicyYaml(TestCase):
             self.assertIn(key, policy["env_policy"]["allow"])
 
     def test_go_gateway_hosts_reachable(self):
-        # The Go gateway is a different hostname from the Python one; without an
-        # allow-domains entry every sandbox model call is denied at the syscall layer.
+        # Without an allow-domains entry every sandbox model call is denied at the syscall layer.
         policy = yaml.safe_load(generate_policy_yaml([]))
         allow_rule = next(rule for rule in policy["network_rules"] if rule["name"] == "allow-domains")
         self.assertIn("ai-gateway.us.posthog.com", allow_rule["domains"])
@@ -183,21 +178,21 @@ class TestGeneratePolicyYaml(TestCase):
 
     @override_settings(
         DEBUG=True,
-        SANDBOX_LLM_GATEWAY_URL="http://host.docker.internal:3308",
+        SANDBOX_AI_GATEWAY_URL="http://host.docker.internal:8080",
         SANDBOX_MCP_URL="http://host.docker.internal:8787/mcp",
     )
     def test_debug_mode_adds_ports_from_sandbox_url_settings(self):
-        # Local llm-gateway (3308) and MCP wrangler (8787) listen on non-standard
+        # Local ai-gateway (8080) and MCP wrangler (8787) listen on non-standard
         # ports — without including them in `allow-debug-domains.ports`, agentsh
         # denies the connect at the syscall layer even when the hostname is allowed.
         policy = yaml.safe_load(generate_policy_yaml([]))
         debug_rule = next(rule for rule in policy["network_rules"] if rule["name"] == "allow-debug-domains")
-        self.assertIn(3308, debug_rule["ports"])
+        self.assertIn(8080, debug_rule["ports"])
         self.assertIn(8787, debug_rule["ports"])
 
     @override_settings(
         DEBUG=True,
-        SANDBOX_LLM_GATEWAY_URL="http://host.docker.internal:3308",
+        SANDBOX_AI_GATEWAY_URL="http://host.docker.internal:8080",
     )
     def test_debug_mode_adds_sandbox_hosts_to_debug_rule(self):
         # Parsed sandbox hostnames belong on the DEBUG rule, not the prod rule.
@@ -207,7 +202,7 @@ class TestGeneratePolicyYaml(TestCase):
         self.assertIn("host.docker.internal", debug_rule["domains"])
         self.assertNotIn("host.docker.internal", allow_rule["domains"])
 
-    @override_settings(DEBUG=False, SANDBOX_LLM_GATEWAY_URL="http://example.local:3308")
+    @override_settings(DEBUG=False, SANDBOX_AI_GATEWAY_URL="http://example.local:8080")
     def test_non_debug_mode_omits_debug_rule_entirely(self):
         # Outside DEBUG the debug rule should not exist and the prod rule keeps
         # cloud-routing ports only. The hostname itself still joins the prod
@@ -233,12 +228,6 @@ class TestGeneratePolicyYaml(TestCase):
     @parameterized.expand(
         [
             ("api", {"SANDBOX_API_URL": "https://api.sandbox.example.dev"}, "api.sandbox.example.dev", None),
-            (
-                "llm_gateway",
-                {"SANDBOX_LLM_GATEWAY_URL": "https://llm-gw.sandbox.example.dev"},
-                "llm-gw.sandbox.example.dev",
-                None,
-            ),
             (
                 "ai_gateway",
                 {"SANDBOX_AI_GATEWAY_URL": "https://ai-gw.sandbox.example.dev"},
@@ -270,7 +259,7 @@ class TestGeneratePolicyYaml(TestCase):
         if absent_host:
             self.assertNotIn(absent_host, allow_rule["domains"])
 
-    @override_settings(DEBUG=False, SANDBOX_LLM_GATEWAY_URL="http://localhost:3308")
+    @override_settings(DEBUG=False, SANDBOX_AI_GATEWAY_URL="http://localhost:8080")
     def test_loopback_sandbox_hosts_stay_off_prod_rule(self):
         # Loopback is already allowed by CIDR; the alias would be noise in the
         # enforced domain rule.
@@ -293,7 +282,7 @@ class TestGeneratePolicyYaml(TestCase):
         allow_rule = next(rule for rule in policy["network_rules"] if rule["name"] == "allow-domains")
         self.assertNotIn(parsed_host, allow_rule["domains"])
 
-    @override_settings(DEBUG=False, SANDBOX_LLM_GATEWAY_URL="http://10.0.5.3:3308")
+    @override_settings(DEBUG=False, SANDBOX_AI_GATEWAY_URL="http://10.0.5.3:8080")
     def test_ip_literal_settings_hosts_rejected_from_enforced_rule(self):
         # Both layers match DNS names; an IP literal would be inert on the
         # agentsh rule and rejected by Modal, so it is excluded with a warning.
@@ -340,7 +329,7 @@ class TestGeneratePolicyYaml(TestCase):
         allow_rule = next(rule for rule in policy["network_rules"] if rule["name"] == "allow-domains")
         self.assertIn("ai-gw.example.dev", allow_rule["domains"])
 
-    @override_settings(DEBUG=False, SANDBOX_LLM_GATEWAY_URL="http://degraded-host.example:abc")
+    @override_settings(DEBUG=False, SANDBOX_AI_GATEWAY_URL="http://degraded-host.example:abc")
     def test_malformed_port_outside_debug_keeps_hostname_on_enforced_rule(self):
         # Documented degrade contract: hostname kept, port dropped. The host
         # still reaches the enforced rule so the sandbox can connect on 443/80.
@@ -353,7 +342,7 @@ class TestGeneratePolicyYaml(TestCase):
         # Non-numeric port — `urlparse(...).port` raises ValueError on access.
         SANDBOX_API_URL="http://host:abc",
         # Out-of-range port (>65535) — also raises ValueError.
-        SANDBOX_LLM_GATEWAY_URL="http://host:99999",
+        SANDBOX_AI_GATEWAY_URL="http://host:99999",
     )
     def test_debug_mode_tolerates_malformed_sandbox_urls(self):
         # A typo in `SANDBOX_*_URL` should not crash `generate_policy_yaml`.
@@ -367,7 +356,7 @@ class TestGeneratePolicyYaml(TestCase):
             self.assertIn(port, debug_rule["ports"])
         self.assertEqual(sorted(allow_rule["ports"]), [22, 80, 443])
 
-    @override_settings(DEBUG=True, SANDBOX_LLM_GATEWAY_URL="not-a-url-at-all://")
+    @override_settings(DEBUG=True, SANDBOX_AI_GATEWAY_URL="not-a-url-at-all://")
     def test_debug_mode_tolerates_malformed_sandbox_hostname(self):
         # Companion to the port-side guard — `_hostname_from_url` should
         # degrade silently rather than crash policy generation.
@@ -610,6 +599,27 @@ class TestModalSandboxAgentShWrapping(TestCase):
             self.assertIn("--autoPublish true", cmd)
         else:
             self.assertNotIn("--autoPublish", cmd)
+
+    @parameterized.expand([("modal",), ("docker",)])
+    def test_command_passes_the_run_policy_to_the_agent(self, provider):
+        from products.tasks.backend.logic.services.docker_sandbox import DockerSandbox
+        from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
+
+        sandbox: ModalSandbox | DockerSandbox
+        if provider == "modal":
+            sandbox = ModalSandbox.__new__(ModalSandbox)
+        else:
+            sandbox = DockerSandbox.__new__(DockerSandbox)
+        sandbox.id = "sb-test"
+        cmd = sandbox._build_agent_server_command(
+            repo_path="/tmp/workspace/repos/org/repo",
+            task_id="test-task",
+            run_id="test-run",
+            mode="background",
+            create_pr=True,
+            run_policy='{"finish_tool":true}',
+        )
+        self.assertIn("""POSTHOG_TASK_RUN_POLICY='{"finish_tool":true}'""", cmd)
 
     @parameterized.expand(
         [

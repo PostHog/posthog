@@ -1,6 +1,6 @@
 import { useIsFocused } from 'expo-router'
 import { type ReactElement, useCallback, useRef, useState } from 'react'
-import { FlatList, type ListRenderItem, RefreshControl, ScrollView, Text, View, type ViewToken } from 'react-native'
+import { FlatList, type ListRenderItem, type ListViewToken, RefreshControl, ScrollView, Text, View } from 'react-native'
 import type { DashboardView, InsightSnapshot, PinDisplayMode, ViewEntry } from '@/model/views'
 import { ChartCanvasBudget, useCanvasBudgetViewport } from '@/ui/chart/budget/ChartCanvasBudget'
 import { useChartListMotion } from '@/ui/chart/selection/ChartSelectionProvider'
@@ -35,10 +35,6 @@ interface DashboardScreenProps {
     displayMode: PinDisplayMode | null
 }
 
-/**
- * A dashboard in one column. It opens like the web: a cache-only dashboard read, then a `blocking` read for each
- * visible tile whose cached result is missing or past its `cache_target_age`.
- */
 export function DashboardScreen({ dashboardRef, from, displayMode }: DashboardScreenProps): ReactElement {
     const screen = useDashboardScreen(dashboardRef, { from, displayMode })
     const scrollTitle = useScrollTitle(screen.dashboard.data?.name ?? '')
@@ -90,12 +86,12 @@ interface DashboardBodyProps {
 
 /** Calls both visibility trackers from one callback, because a list takes one and it must never change. */
 function useViewableItems(
-    first: (info: { viewableItems: ViewToken[] }) => void,
-    second: (info: { viewableItems: ViewToken[] }) => void
-): (info: { viewableItems: ViewToken[] }) => void {
+    first: (info: { viewableItems: ListViewToken[] }) => void,
+    second: (info: { viewableItems: ListViewToken[] }) => void
+): (info: { viewableItems: ListViewToken[] }) => void {
     const handlers = useRef({ first, second })
     handlers.current = { first, second }
-    return useRef((info: { viewableItems: ViewToken[] }) => {
+    return useRef((info: { viewableItems: ListViewToken[] }) => {
         handlers.current.first(info)
         handlers.current.second(info)
     }).current

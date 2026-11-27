@@ -9,8 +9,10 @@ import type { MockResolverInfo } from '~/mocks/utils'
 import type { DataModelingJobApi } from 'products/data_warehouse/frontend/generated/api.schemas'
 
 import type { ModelStatusModelApi, ModelUsageApi, ModelUsageRowApi, ModelUsageTotalsApi } from './generated/api.schemas'
+import { ModelsUsageDateFilter } from './ModelsUsageDateFilter'
 import { modelsUsageLogic } from './modelsUsageLogic'
 import { ModelsUsageTab } from './ModelsUsageTab'
+import { QuillModelsUsageDateFilter } from './QuillModelsUsageDateFilter'
 
 const totals: ModelUsageTotalsApi = {
     runs: 320,
@@ -293,7 +295,7 @@ const inMainContent =
 const meta: Meta<typeof ModelsUsageTab> = {
     title: 'Products/Data modeling/Models usage',
     component: ModelsUsageTab,
-    args: { savedQueryIdToNodeId },
+    args: { savedQueryIdToNodeId, dateFilter: <ModelsUsageDateFilter /> },
     decorators: [mswDecorator({})],
     parameters: {
         featureFlags: [FEATURE_FLAGS.DATA_MODELING_USAGE, FEATURE_FLAGS.MANAGED_TRINO_QUERY],
@@ -349,8 +351,42 @@ export default meta
 type Story = StoryObj<typeof ModelsUsageTab>
 
 export const Populated: Story = { decorators: [inMainContent('w-256')] }
+export const Loading: Story = {
+    decorators: [inMainContent('w-256')],
+    parameters: {
+        testOptions: {
+            waitForLoadersToDisappear: false,
+            waitForSelector: '[aria-label="Loading model usage"]',
+        },
+        msw: {
+            mocks: {
+                get: {
+                    '/api/projects/:team_id/data_modeling_usage/': (): Promise<never> => new Promise(() => {}),
+                    '/api/projects/:team_id/data_modeling_jobs/': (): Promise<never> => new Promise(() => {}),
+                },
+            },
+        },
+    },
+}
+export const LoadingNarrow: Story = {
+    ...Loading,
+    decorators: [inMainContent('w-128')],
+}
 export const Narrow: Story = {
     decorators: [inMainContent('w-128')],
+}
+export const CatalogDateFilter: Story = {
+    args: { dateFilter: <QuillModelsUsageDateFilter /> },
+    decorators: [inMainContent('w-256')],
+    parameters: {
+        featureFlags: [
+            FEATURE_FLAGS.DATA_MODELING_USAGE,
+            FEATURE_FLAGS.MANAGED_TRINO_QUERY,
+            FEATURE_FLAGS.TODAY_RAIL_NAV,
+            FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE,
+        ],
+        testOptions: { snapshotBrowsers: [] },
+    },
 }
 export const Unmeasured: Story = {
     decorators: [inMainContent('w-256')],

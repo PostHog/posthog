@@ -3,6 +3,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -15,13 +16,18 @@ from posthog.schema import (
     PropertyOperator,
 )
 
+from posthog.hogql import parser
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.visitor import clear_locations
 
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 
 from products.mcp_analytics.backend import mcp_harness
+from products.mcp_analytics.backend.facade.api import mcp_harness_virtual_field_expr
+from products.mcp_analytics.backend.facade.contracts import CustomHarnessRule
 from products.mcp_analytics.backend.hogql_queries.harness_breakdown import MCPHarnessBreakdownQueryRunner
+from products.mcp_analytics.backend.models import MCPCustomHarness
 from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
 
 
@@ -46,6 +52,35 @@ def test_harness_expressions_are_parseable_hogql(_name: str, sql: str) -> None:
     # runner, so a syntax slip (an inline comment the grammar rejects, an unbalanced
     # paren) would otherwise surface as a broken dashboard rather than a failing test.
     parse_expr(sql)
+
+
+def test_custom_rules_come_before_built_in_buckets_and_are_escaped() -> None:
+    rule = CustomHarnessRule(name="O'Brien \\ Agent", pattern="Acme'Agent")
+
+    for sql in (
+        mcp_harness.harness_label_sql("h", [rule]),
+        mcp_harness.harness_label_or_token_sql("h", custom_rules=[rule]),
+    ):
+        parse_expr(sql)
+        assert sql.index("O\\'Brien") < sql.index("'Claude Code',")
+
+
+def test_virtual_field_with_rules_matches_a_full_parse_and_reuses_the_parse_cache() -> None:
+    rules = (CustomHarnessRule(name="Acme Agent", pattern="acme-agent"),)
+    full_parse = parse_expr(
+        "if(startsWith(event, '$mcp_'), arrayMap(h -> {label}, [{token}])[1], NULL)",
+        placeholders={
+            "label": parse_expr(mcp_harness.harness_label_sql("h", rules)),
+            "token": parse_expr(mcp_harness.HARNESS_TOKEN_SQL),
+        },
+    )
+    mcp_harness_virtual_field_expr(rules)
+
+    with patch.object(parser, "_invoke_parser", wraps=parser._invoke_parser) as invoke_parser:
+        expr = mcp_harness_virtual_field_expr(rules)
+
+    assert invoke_parser.call_count == 0
+    assert clear_locations(expr) == clear_locations(full_parse)
 
 
 def test_label_or_token_keeps_the_bounded_label_set_reachable() -> None:
@@ -103,6 +138,24 @@ class TestMCPHarnessBreakdownQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Click
         self.assertEqual(response.columns, ["client", "calls"])
         self.assertEqual(response.column_formats, ["mcp_harness", None])
         self.assertEqual(response.results, [("OpenAI Codex", 2), ("Claude Code", 1)])
+
+    def test_custom_harness_names_calls_everywhere_the_label_shows(self) -> None:
+        MCPCustomHarness.objects.create(team=self.team, name="Acme Agent", match_pattern="acme-agent")
+        MCPCustomHarness.objects.create(team=self.team, name="Our Cursor", match_pattern="cursor-internal")
+        self._emit(properties={"$mcp_client_name": "Acme-Agent/1.2"})
+        self._emit(properties={"$mcp_client_user_agent": "acme-agent/2.0 (node)"}, distinct_id="d2")
+        self._emit(properties={"$mcp_client_name": "cursor-internal"}, distinct_id="d3")
+        self._emit(properties={"$mcp_client_name": "something-else"}, distinct_id="d4")
+        flush_persons_and_events()
+
+        virtual = execute_hogql_query(
+            "SELECT properties.$virt_mcp_harness AS client, count() AS calls "
+            "FROM events WHERE event = '$mcp_tool_call' GROUP BY client ORDER BY calls DESC, client",
+            team=self.team,
+        )
+
+        self.assertEqual(virtual.results, [("Acme Agent", 2), ("Other", 1), ("Our Cursor", 1)])
+        self.assertEqual(set(self._breakdown()), {"Acme Agent", "Other", "Our Cursor"})
 
     def test_virtual_harness_property_is_empty_on_other_events(self) -> None:
         _create_event(team=self.team, event="$pageview", distinct_id="d1", properties={"$mcp_client_name": "codex"})
@@ -191,6 +244,11 @@ class TestMCPHarnessBreakdownQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Click
             # PostHog's own server) and in both value spellings.
             ("sdk_vendor_cowork", {"$mcp_vendor_client": "Cowork"}, "Cowork"),
             ("sdk_vendor_claudecode", {"$mcp_vendor_client": "ClaudeCode"}, "Claude Code"),
+            (
+                "sdk_vendor_claude_artifacts_over_generic_name",
+                {"$mcp_vendor_client": "ClaudeArtifacts", "$mcp_client_name": "Claude"},
+                "Claude Artifacts",
+            ),
             ("sdk_vendor_hyphenated", {"$mcp_vendor_client": "claude-code"}, "Claude Code"),
             ("legacy_vendor_cowork", {"mcp_vendor_client": "Cowork"}, "Cowork"),
             ("legacy_vendor_claudecode", {"mcp_vendor_client": "ClaudeCode"}, "Claude Code"),
@@ -247,6 +305,44 @@ class TestMCPHarnessBreakdownQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Click
             # Without the kimchi UA, pi-mcp's name alone stays unattributed: it is
             # not Pi's own `pi-client`, and other pi-based clients share it.
             ("pi_mcp_name_alone_is_other", {"$mcp_client_name": "pi-mcp-castai"}, "Other"),
+            (
+                "wizard_ua_beats_generic_pi_mcp_name",
+                {"$mcp_client_user_agent": "posthog/wizard; version: 2.0.0", "$mcp_client_name": "pi-mcp-posthog"},
+                "PostHog Wizard",
+            ),
+            ("posthog_sdk_ua_is_not_wizard", {"$mcp_client_user_agent": "posthog-python/7.0.0"}, "Other"),
+            (
+                "devin_ua_beats_rmcp_name",
+                {"$mcp_client_user_agent": "Devin-MCP-Client/0.1.0", "$mcp_client_name": "rmcp"},
+                "Devin",
+            ),
+            ("rmcp_name_alone_is_rust_sdk", {"$mcp_client_name": "rmcp"}, "Rust MCP SDK"),
+            (
+                "cloudflare_portal_ua_beats_generic_name",
+                {"$mcp_client_user_agent": "Cloudflare-MCP-Portal", "$mcp_client_name": "mcp-client"},
+                "Cloudflare MCP Portal",
+            ),
+            (
+                "opencode_ua_beats_generic_cli_name",
+                {"$mcp_client_user_agent": "opencode/latest/2.0.22/cli", "$mcp_client_name": "cli"},
+                "opencode",
+            ),
+            (
+                "python_sdk_default_name_resolves_by_ua",
+                {"$mcp_client_user_agent": "python-httpx/0.28.1", "$mcp_client_name": "mcp"},
+                "Python MCP SDK",
+            ),
+            (
+                "claude_artifacts_name",
+                {"$mcp_client_user_agent": "Claude-User", "$mcp_client_name": "ClaudeArtifacts"},
+                "Claude Artifacts",
+            ),
+            ("amp_thread_actor_name", {"$mcp_client_name": "amp-thread-actor"}, "Amp"),
+            (
+                "gemini_cli_via_mcp_remote",
+                {"$mcp_client_name": "gemini-cli-mcp-client (via mcp-remote 0.15.2)"},
+                "Gemini CLI",
+            ),
             ("client_name_librechat", {"$mcp_client_name": "@librechat/api-client"}, "LibreChat"),
             (
                 "mcp_remote_suffix_stripped",
@@ -255,6 +351,7 @@ class TestMCPHarnessBreakdownQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Click
             ),
             ("client_name_lovable", {"$mcp_client_name": "lovable"}, "Lovable"),
             ("unknown_to_other", {"$mcp_client_name": "totally-unknown-thing"}, "Other"),
+            ("generic_claude_without_vendor_is_other", {"$mcp_client_name": "Claude"}, "Other"),
             # Not resolution signals: the SDKs never emit these properties and the
             # server folds the session-pinned name into per-event $mcp_client_name,
             # so on their own they attribute nothing.

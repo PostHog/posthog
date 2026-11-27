@@ -2145,7 +2145,7 @@ def _infer_json_extract_keys_and_values_type(
     if not isinstance(type_arg, ast.Constant) or not isinstance(type_arg.value, str):
         return None
 
-    runtime_type = parse_sql_runtime_type(type_arg.value, dialect=dialect)
+    runtime_type = parse_sql_runtime_type(type_arg.value, dialect="clickhouse" if dialect == "trino" else dialect)
     if runtime_type.family == "unknown":
         return None
 

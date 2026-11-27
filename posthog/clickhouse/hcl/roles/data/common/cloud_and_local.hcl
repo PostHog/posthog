@@ -104,34 +104,6 @@ database "posthog" {
     }
   }
 
-  table "cohort_membership" {
-    order_by = ["team_id", "cohort_id", "person_id"]
-    settings = {
-      index_granularity = "8192"
-    }
-    column "team_id" {
-      type = "Int64"
-    }
-    column "cohort_id" {
-      type = "Int64"
-    }
-    column "person_id" {
-      type = "UUID"
-    }
-    column "status" {
-      type = "Enum8('entered'=1, 'left'=2)"
-    }
-    column "last_updated" {
-      type    = "DateTime64(6)"
-      default = "now64()"
-    }
-    engine "replicated_replacing_merge_tree" {
-      zoo_path       = "/clickhouse/tables/noshard/posthog.cohort_membership"
-      replica_name   = "{replica}-{shard}"
-      version_column = "last_updated"
-    }
-  }
-
   table "distinct_id_usage" {
     column "team_id" {
       type = "Int64"
@@ -437,6 +409,13 @@ SQL
     column "entity_id" {
       type = "String"
     }
+    column "distinct_id" {
+      type = "String"
+    }
+    column "person_id" {
+      type    = "UUID"
+      default = "toUUIDOrZero(entity_id)"
+    }
     column "variant" {
       type = "String"
     }
@@ -462,6 +441,18 @@ SQL
     column "expires_at" {
       type    = "Date"
       default = "today() + toIntervalDay(7)"
+    }
+    column "timestamp" {
+      type  = "DateTime64(6, 'UTC')"
+      alias = "first_exposure_time"
+    }
+    column "uuid" {
+      type  = "UUID"
+      alias = "exposure_event_uuid"
+    }
+    column "inserted_at" {
+      type  = "Nullable(DateTime64(6, 'UTC'))"
+      alias = "NULL"
     }
     engine "distributed" {
       cluster_name    = "posthog"
@@ -1050,6 +1041,13 @@ SQL
     column "entity_id" {
       type = "String"
     }
+    column "distinct_id" {
+      type = "String"
+    }
+    column "person_id" {
+      type    = "UUID"
+      default = "toUUIDOrZero(entity_id)"
+    }
     column "variant" {
       type = "String"
     }
@@ -1075,6 +1073,18 @@ SQL
     column "expires_at" {
       type    = "Date"
       default = "today() + toIntervalDay(7)"
+    }
+    column "timestamp" {
+      type  = "DateTime64(6, 'UTC')"
+      alias = "first_exposure_time"
+    }
+    column "uuid" {
+      type  = "UUID"
+      alias = "exposure_event_uuid"
+    }
+    column "inserted_at" {
+      type  = "Nullable(DateTime64(6, 'UTC'))"
+      alias = "NULL"
     }
     engine "replicated_replacing_merge_tree" {
       zoo_path       = "/clickhouse/tables/{shard}/posthog.experiment_exposures_preaggregated"

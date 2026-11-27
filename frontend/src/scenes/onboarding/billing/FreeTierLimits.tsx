@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 
-import { billingLogic } from 'scenes/billing/billingLogic'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { availableOnboardingProducts, getProductIcon } from 'scenes/onboarding/shared/utils'
 
 type FreeTierLimit = {

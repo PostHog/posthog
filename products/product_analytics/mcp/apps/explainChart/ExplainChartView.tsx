@@ -43,10 +43,13 @@ export interface ExplainChartViewProps {
     /** Draws the chart with the overlay as a child, so the overlay can read the chart's scales. */
     renderChart: (overlay: ReactNode) => ReactNode
     openLink: (url: string) => void
+    openLinkLabel?: ReactNode
     title?: string | null
     formatValue?: (value: number) => string
     onPageChange?: (change: StoryPageChange) => void
     evidenceCharts?: StoryEvidenceCharts
+    seriesKey?: string
+    chapterAction?: (page: StoryPage, step: number) => ReactNode
 }
 
 function hasChapter(page: StoryPage): page is StoryPage & { chapter: StoryChapter } {
@@ -60,6 +63,12 @@ function warningMessages(warnings: unknown[] = []): string[] {
 }
 
 function seriesNoteOf(data: ExplainChartData): string | null {
+    if (data.shape === 'funnel_steps') {
+        const breakdown = data.breakdowns[data.seriesIndex]
+        return data.breakdowns.length < 2 || breakdown === undefined
+            ? null
+            : `This follows ${breakdown}, one of the ${data.breakdowns.length} breakdown values on the funnel.`
+    }
     if (data.results.length < 2) {
         return null
     }
@@ -72,10 +81,13 @@ export function ExplainChartView({
     data,
     renderChart,
     openLink,
+    openLinkLabel,
     title,
     formatValue = defaultFormat,
     onPageChange,
     evidenceCharts,
+    seriesKey,
+    chapterAction,
 }: ExplainChartViewProps): ReactElement {
     const pages = useMemo(() => buildStoryPages(data, formatValue), [data, formatValue])
     // With one chapter, a summary page and steps add nothing, so the explanation is that chapter alone.
@@ -126,7 +138,7 @@ export function ExplainChartView({
 
     const overlay = (
         <StoryChartOverlay
-            seriesKey={String(data.seriesIndex)}
+            seriesKey={seriesKey ?? String(data.seriesIndex)}
             pages={pages}
             highlightedIndex={previewIndex ?? activeIndex}
             activeIndex={activeIndex}
@@ -198,6 +210,7 @@ export function ExplainChartView({
                                     warnings={warningMessages(data.warnings)}
                                     page={active}
                                     openLink={openLink}
+                                    openLinkLabel={openLinkLabel}
                                     canShowChart={canShowChart}
                                     shownEvidenceIndex={shownEvidenceIndex}
                                     onToggleChart={toggleEvidenceChart}
@@ -206,6 +219,7 @@ export function ExplainChartView({
                                 <StoryChapterView
                                     page={active}
                                     openLink={openLink}
+                                    openLinkLabel={openLinkLabel}
                                     canShowChart={canShowChart}
                                     shownEvidenceIndex={shownEvidenceIndex}
                                     onToggleChart={toggleEvidenceChart}
@@ -219,6 +233,9 @@ export function ExplainChartView({
                                     onSelect={(index) => select(index, 'summary_list')}
                                     onPreview={setPreviewIndex}
                                 />
+                            )}
+                            {chapterAction && hasChapter(active) && (
+                                <div className="mt-4">{chapterAction(active, activeIndex)}</div>
                             )}
                         </div>
                         {/* One chapter shows on its own and a chart with none shows its summary alone, so steps add nothing. */}

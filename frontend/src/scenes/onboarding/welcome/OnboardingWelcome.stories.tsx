@@ -4,7 +4,6 @@ import { Meta, StoryObj } from '@storybook/react'
 import { useActions } from 'kea'
 import { router } from 'kea-router'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { App } from 'scenes/App'
 import { teamLogic } from 'scenes/teamLogic'
@@ -57,7 +56,6 @@ function welcomeStory(productKey: ProductKey | undefined, waitForSelector: strin
             return <App />
         },
         parameters: {
-            featureFlags: { [FEATURE_FLAGS.ONBOARDING_SIMPLE_FLOW]: 'test' },
             testOptions: { waitForSelector },
         },
     }

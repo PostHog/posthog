@@ -16,6 +16,7 @@ from products.review_hog.backend.activity_logging import installation_account_na
 from products.review_hog.backend.automatic_review_rules import load_people
 from products.review_hog.backend.facade.contracts import (
     UNSET,
+    AdminOnlyChangeError,
     RepositoryNotFoundError,
     ReviewDetail,
     ReviewInstallationClaimInfo,
@@ -70,7 +71,7 @@ from products.review_hog.backend.repository_settings import (
 from products.review_hog.backend.review_listing import ReviewListing
 from products.review_hog.backend.reviewer.lazy_seed import seed_canonicals_tolerantly, sync_canonical_authoring
 from products.review_hog.backend.skill_configs import ReviewSkillMenu
-from products.stamphog.backend.facade.api import has_reviewable_repo_config
+from products.stamphog.backend.facade.api import has_reviewable_repo_config, reviewable_repositories
 
 logger = logging.getLogger(__name__)
 
@@ -119,6 +120,16 @@ def _stamphog_connected(team_id: int) -> bool:
     except Exception:
         logger.exception("review_hog_stamphog_connected_check_failed")
         return False
+
+
+def _auto_approval_repositories(team_id: int) -> frozenset[str]:
+    # Reads the stamphog product DB like `_stamphog_connected`, so a stamphog outage hides the Deep review
+    # switches instead of failing the repository overview.
+    try:
+        return reviewable_repositories(team_id)
+    except Exception:
+        logger.exception("review_hog_auto_approval_repositories_failed")
+        return frozenset()
 
 
 def _user_preferences(team_id: int, preferences: ReviewPreferences) -> ReviewUserPreferences:
@@ -201,6 +212,9 @@ def _repository_settings(
         full_name=row.full_name,
         selected=row.selected,
         flash_for=AutomaticFlashFor(row.flash_for) if row.flash_for is not None else None,
+        review_drafts=row.review_drafts,
+        deep_review_gated_prs=row.deep_review_gated_prs,
+        review_pushes=row.review_pushes,
         people=_person_entries(people.get(row.id, [])),
         created_by=_user_ref(row.created_by),
         created_at=row.created_at,
@@ -239,7 +253,7 @@ def _choice_info(choice: ReviewUserRepositoryChoice) -> ReviewRepositoryChoiceIn
     )
 
 
-def _overview_entry(entry: OverviewEntry) -> ReviewRepositoryOverviewEntry:
+def _overview_entry(entry: OverviewEntry, auto_approval: frozenset[str]) -> ReviewRepositoryOverviewEntry:
     repository = entry.repository
     exception = None
     if repository is not None and repository.flash_for is not None:
@@ -255,6 +269,10 @@ def _overview_entry(entry: OverviewEntry) -> ReviewRepositoryOverviewEntry:
         selected=entry.selected,
         repository_id=repository.id if repository is not None else None,
         exception=exception,
+        review_drafts=repository is not None and repository.review_drafts,
+        review_pushes=repository is not None and repository.review_pushes,
+        deep_review_gated_prs=repository is not None and repository.deep_review_gated_prs,
+        auto_approval=entry.full_name.lower() in auto_approval,
         my_choice=ReviewUserRepositoryChoiceMode(entry.my_choice.mode) if entry.my_choice is not None else None,
         my_choice_id=entry.my_choice.id if entry.my_choice is not None else None,
         my_result=entry.my_result,
@@ -294,14 +312,29 @@ def save_review_repository(
     github_repo_id: int | None,
     selected: bool | None,
     flash_for: AutomaticFlashFor | None | Unset = UNSET,
+    review_drafts: bool | None = None,
+    deep_review_gated_prs: bool | None = None,
+    review_pushes: bool | None = None,
+    raise_only: bool = False,
 ) -> ReviewRepositoryWriteOutcome:
-    """Include or remove a repository, or set or clear its exception. Omitted fields keep their value.
+    """Include or remove a repository, set or clear its exception, or turn its draft reviews, push reviews or
+    Deep reviews of pull requests that need a person on or off.
 
-    Raises `OwnershipConflict` when another project holds the repository, and `RepositorySettingsError`
-    when the rules forbid the write.
+    Omitted fields keep their value. With `raise_only`, the write may only turn the repository's reviews up.
+
+    Raises `OwnershipConflict` when another project holds the repository, `RepositorySettingsError`
+    when the rules forbid the write, and `AdminOnlyChangeError` when a `raise_only` write turns reviews down.
     """
     ref = RepositoryRef(installation_id=installation_id, github_repo_id=github_repo_id, full_name=full_name)
-    result = _project_repositories(team_id, user_id).save_repository(ref, selected=selected, flash_for=flash_for)
+    result = _project_repositories(team_id, user_id).save_repository(
+        ref,
+        selected=selected,
+        flash_for=flash_for,
+        review_drafts=review_drafts,
+        deep_review_gated_prs=deep_review_gated_prs,
+        review_pushes=review_pushes,
+        raise_only=raise_only,
+    )
     repository = None
     if result.repository is not None:
         repository = _repository_settings(result.repository, load_people(team_id, [result.repository.id]))
@@ -314,13 +347,22 @@ def delete_review_repository(team_id: int, user_id: int, repository_id: UUID) ->
 
 
 def add_review_repository_person(
-    team_id: int, user_id: int, repository_id: UUID | None, *, person_user_id: int, kind: ReviewRepositoryPersonKind
+    team_id: int,
+    user_id: int,
+    repository_id: UUID | None,
+    *,
+    person_user_id: int,
+    kind: ReviewRepositoryPersonKind,
+    raise_only: bool = False,
 ) -> bool:
     """Add a person to a list of a repository exception, or of the project rule when `repository_id` is None.
 
     True when added, False when the person was already on the list. Raises `PersonNotActiveMemberError`, and
-    `RepositoryNotFoundError` when the project has no such repository.
+    `RepositoryNotFoundError` when the project has no such repository. With `raise_only`, the user may only
+    add themselves to a repository's 'listed' list, and anything else raises `AdminOnlyChangeError`.
     """
+    if raise_only and (repository_id is None or person_user_id != user_id or kind != ReviewRepositoryPersonKind.LISTED):
+        raise AdminOnlyChangeError("Project members can only add themselves to a repository's people list.")
     repositories = _project_repositories(team_id, user_id)
     repository = None
     if repository_id is not None:
@@ -455,10 +497,11 @@ def get_review_repository_overview(
     folds = view == RepositoryOverviewView.DIFFERS or (view == RepositoryOverviewView.ALL and not search.strip())
     folded = overview.folded() if folds else []
     claim = repositories.claim_for(installation_id)
+    auto_approval = _auto_approval_repositories(team_id)
     return ReviewRepositoryOverviewPage(
         installation_id=installation_id,
         claim_scope=ReviewInstallationClaimScope(claim.scope) if claim is not None else None,
-        entries=[_overview_entry(entry) for entry in entries],
+        entries=[_overview_entry(entry, auto_approval) for entry in entries],
         total=total,
         folded=len(folded),
         folded_preview=[entry.full_name for entry in folded[:FOLDED_PREVIEW_SIZE]],

@@ -89,7 +89,14 @@ export function PrCommentsSection({ report }: { report: SignalReport }): JSX.Ele
             }
         >
             {prCommentsError ? (
-                <p className="m-0 py-2 text-sm text-danger">{prCommentsError}</p>
+                <p className="m-0 py-2 text-sm text-danger">
+                    {prCommentsError.message}
+                    {prCommentsError.remediationUrl ? (
+                        <Link to={prCommentsError.remediationUrl} className="ml-2">
+                            Open GitHub integration settings
+                        </Link>
+                    ) : null}
+                </p>
             ) : prComments === null ? (
                 <div className="flex flex-col gap-3">
                     <LemonSkeleton className="h-10 w-full" />

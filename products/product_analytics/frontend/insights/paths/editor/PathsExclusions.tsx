@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { PathItemFilters } from 'lib/components/PropertyFilters/PathItemFilters'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 
 import { EditorFilterProps, EventPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 

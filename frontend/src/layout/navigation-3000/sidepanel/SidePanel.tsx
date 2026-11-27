@@ -3,7 +3,7 @@ import './SidePanel.scss'
 import { useActions, useValues } from 'kea'
 import { memo } from 'react'
 
-import { Resizer } from 'lib/components/Resizer/Resizer'
+import { Resizer } from 'lib/lemon-ui/Resizer/Resizer'
 import { cn } from 'lib/utils/css-classes'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'

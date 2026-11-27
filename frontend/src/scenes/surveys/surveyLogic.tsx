@@ -21,6 +21,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { isApprovalRequiredError } from 'lib/api-error'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -28,8 +29,10 @@ import { dayjs } from 'lib/dayjs'
 import { FeatureFlagsSet, featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { isObject } from 'lib/utils/guards'
+import { HogQLQueryString } from 'lib/utils/hogql'
 import { hasFormErrors, objectClean } from 'lib/utils/objects'
 import { allOperatorsMapping } from 'lib/utils/operators'
+import { showApprovalRequiredToast } from 'scenes/approvals/ApprovalRequiredBanner'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -59,7 +62,6 @@ import {
     ProductKey,
 } from '~/queries/schema/schema-general'
 import { SurveyAnalysisQuestionGroup, SurveyAnalysisResponseItem } from '~/queries/schema/schema-surveys'
-import { HogQLQueryString } from '~/queries/utils'
 import {
     ActivityScope,
     AnyPropertyFilter,
@@ -131,6 +133,7 @@ import type { SurveyDataState } from './surveysLogic'
 import { buildChoiceTranslationMap } from './surveyTranslationUtils'
 import { SurveyFeatureWarning, getSurveyWarnings } from './surveyVersionRequirements'
 import type { TeamSdkVersions } from './surveyVersionRequirements'
+import type { SurveySdkType } from './surveyVersionRequirements'
 import {
     DATE_FORMAT,
     type OpenEndedColumnMap,
@@ -990,20 +993,20 @@ export interface surveyLogicActions {
             | {
                   appearance: SurveyAppearance | null
                   archived: boolean
-                  base_language?: string | null | undefined
+                  base_language?: string | null
                   conditions: SurveyDisplayConditions | null
-                  current_iteration?: number | null | undefined
+                  current_iteration?: number | null
                   description: string
-                  enable_iframe_embedding?: boolean | null | undefined
-                  enable_partial_responses?: boolean | null | undefined
+                  enable_iframe_embedding?: boolean | null
+                  enable_partial_responses?: boolean | null
                   end_date: string | null
-                  form_content?: Record<string, unknown> | null | undefined
-                  headline_response_count?: number | null | undefined
-                  headline_summary?: string | null | undefined
+                  form_content?: Record<string, unknown> | null
+                  headline_response_count?: number | null
+                  headline_summary?: string | null
                   id: 'new'
-                  iteration_count?: number | null | undefined
-                  iteration_frequency_days?: number | null | undefined
-                  iteration_start_dates?: string[] | undefined
+                  iteration_count?: number | null
+                  iteration_frequency_days?: number | null
+                  iteration_start_dates?: string[]
                   linked_flag: FeatureFlagBasicType | null
                   linked_flag_id: number | null
                   name: string
@@ -1013,32 +1016,29 @@ export interface surveyLogicActions {
                       | MultipleSurveyQuestion
                       | RatingSurveyQuestion
                   )[]
-                  response_sampling_interval?: number | null | undefined
-                  response_sampling_interval_type?: string | null | undefined
-                  response_sampling_limit?: number | null | undefined
-                  response_sampling_start_date?: string | null | undefined
+                  response_sampling_interval?: number | null
+                  response_sampling_interval_type?: string | null
+                  response_sampling_limit?: number | null
+                  response_sampling_start_date?: string | null
                   responses_limit: number | null
-                  schedule?: SurveySchedule | null | undefined
+                  schedule?: SurveySchedule | null
                   start_date: string | null
                   targeting_flag: FeatureFlagBasicType | null
-                  targeting_flag_filters?: FeatureFlagFilters | undefined
-                  translations?:
-                      | Record<
-                            string,
-                            {
-                                backButtonText?: string | undefined
-                                introScreenButtonText?: string | undefined
-                                introScreenDescription?: string | undefined
-                                introScreenHeader?: string | undefined
-                                name?: string | undefined
-                                submitButtonText?: string | undefined
-                                thankYouMessageCloseButtonText?: string | undefined
-                                thankYouMessageDescription?: string | undefined
-                                thankYouMessageHeader?: string | undefined
-                            }
-                        >
-                      | null
-                      | undefined
+                  targeting_flag_filters?: FeatureFlagFilters
+                  translations?: Record<
+                      string,
+                      {
+                          backButtonText?: string
+                          introScreenButtonText?: string
+                          introScreenDescription?: string
+                          introScreenHeader?: string
+                          name?: string
+                          submitButtonText?: string
+                          thankYouMessageCloseButtonText?: string
+                          thankYouMessageDescription?: string
+                          thankYouMessageHeader?: string
+                      }
+                  > | null
                   type: SurveyType
                   user_access_level: AccessControlLevel
               },
@@ -1049,20 +1049,20 @@ export interface surveyLogicActions {
             | {
                   appearance: SurveyAppearance | null
                   archived: boolean
-                  base_language?: string | null | undefined
+                  base_language?: string | null
                   conditions: SurveyDisplayConditions | null
-                  current_iteration?: number | null | undefined
+                  current_iteration?: number | null
                   description: string
-                  enable_iframe_embedding?: boolean | null | undefined
-                  enable_partial_responses?: boolean | null | undefined
+                  enable_iframe_embedding?: boolean | null
+                  enable_partial_responses?: boolean | null
                   end_date: string | null
-                  form_content?: Record<string, unknown> | null | undefined
-                  headline_response_count?: number | null | undefined
-                  headline_summary?: string | null | undefined
+                  form_content?: Record<string, unknown> | null
+                  headline_response_count?: number | null
+                  headline_summary?: string | null
                   id: 'new'
-                  iteration_count?: number | null | undefined
-                  iteration_frequency_days?: number | null | undefined
-                  iteration_start_dates?: string[] | undefined
+                  iteration_count?: number | null
+                  iteration_frequency_days?: number | null
+                  iteration_start_dates?: string[]
                   linked_flag: FeatureFlagBasicType | null
                   linked_flag_id: number | null
                   name: string
@@ -1072,32 +1072,29 @@ export interface surveyLogicActions {
                       | MultipleSurveyQuestion
                       | RatingSurveyQuestion
                   )[]
-                  response_sampling_interval?: number | null | undefined
-                  response_sampling_interval_type?: string | null | undefined
-                  response_sampling_limit?: number | null | undefined
-                  response_sampling_start_date?: string | null | undefined
+                  response_sampling_interval?: number | null
+                  response_sampling_interval_type?: string | null
+                  response_sampling_limit?: number | null
+                  response_sampling_start_date?: string | null
                   responses_limit: number | null
-                  schedule?: SurveySchedule | null | undefined
+                  schedule?: SurveySchedule | null
                   start_date: string | null
                   targeting_flag: FeatureFlagBasicType | null
-                  targeting_flag_filters?: FeatureFlagFilters | undefined
-                  translations?:
-                      | Record<
-                            string,
-                            {
-                                backButtonText?: string | undefined
-                                introScreenButtonText?: string | undefined
-                                introScreenDescription?: string | undefined
-                                introScreenHeader?: string | undefined
-                                name?: string | undefined
-                                submitButtonText?: string | undefined
-                                thankYouMessageCloseButtonText?: string | undefined
-                                thankYouMessageDescription?: string | undefined
-                                thankYouMessageHeader?: string | undefined
-                            }
-                        >
-                      | null
-                      | undefined
+                  targeting_flag_filters?: FeatureFlagFilters
+                  translations?: Record<
+                      string,
+                      {
+                          backButtonText?: string
+                          introScreenButtonText?: string
+                          introScreenDescription?: string
+                          introScreenHeader?: string
+                          name?: string
+                          submitButtonText?: string
+                          thankYouMessageCloseButtonText?: string
+                          thankYouMessageDescription?: string
+                          thankYouMessageHeader?: string
+                      }
+                  > | null
                   type: SurveyType
                   user_access_level: AccessControlLevel
               }
@@ -1480,7 +1477,7 @@ export interface surveyLogicMeta {
         ) => SurveyAnalysisQuestionGroup[]
         surveyWarnings: (
             survey: NewSurvey | Survey,
-            teamSdkVersions: Partial<Record<import('./surveyVersionRequirements').SurveySdkType, string | null>>
+            teamSdkVersions: Partial<Record<SurveySdkType, string | null>>
         ) => SurveyFeatureWarning[]
     }
 }
@@ -2013,6 +2010,15 @@ export const surveyLogic = kea<surveyLogicType>([
                 tryShowMCPHint('surveys.create', {
                     derivedPrompt: survey.name ? `Create a ${surveyType}survey called ${survey.name}` : undefined,
                 })
+            },
+            updateSurveyFailure: ({ errorObject }) => {
+                // The global error handler skips approval 409s, so without this a targeting change that
+                // waits for approval looks like a save that did nothing.
+                if (isApprovalRequiredError(errorObject)) {
+                    showApprovalRequiredToast(errorObject.data.change_request_id, undefined, errorObject.data.code)
+                    // The backend saved none of the edits, so drop the form state that shows them as saved.
+                    actions.loadSurvey()
+                }
             },
             updateSurveySuccess: ({ survey }) => {
                 lemonToast.success(<>Survey {survey.name} updated</>)

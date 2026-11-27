@@ -3,74 +3,81 @@
 A module of its own, like ``queries.py``, so the HogQL and LLM client imports stay out of ``facade/api.py``.
 """
 
-from datetime import datetime
+from typing import assert_never
 from uuid import UUID
 
 from posthog.models import User
 
 from products.error_tracking.backend.facade import contracts
 from products.error_tracking.backend.logic import issue_summaries
+from products.error_tracking.backend.logic.issue_summaries import IssueSummaryOutcome
 from products.error_tracking.backend.models import ErrorTrackingIssueSummary
 
 
 def _to_summary(summary: ErrorTrackingIssueSummary) -> contracts.ErrorTrackingIssueSummary:
     content = summary.content
-    category = content.get("category")
     return contracts.ErrorTrackingIssueSummary(
         issue_id=summary.issue_id,
         what_happened=content["what_happened"],
         likely_cause=content["likely_cause"],
         who_is_affected=content["who_is_affected"],
         suggested_next_step=content["suggested_next_step"],
-        category=contracts.IssueSummaryCategory(category)
-        if category in contracts.IssueSummaryCategory.values
-        else None,
         model=summary.model,
         generated_at=summary.generated_at,
         checked_at=summary.checked_at,
     )
 
 
-def _shown(team_id: int, summary: ErrorTrackingIssueSummary | None) -> contracts.ErrorTrackingIssueSummary | None:
-    """Every read returns through here, so turning the flag off also hides stored summaries."""
-    if summary is None or not issue_summaries.issue_summaries_enabled(team_id):
-        return None
-    return _to_summary(summary)
-
-
-def get_issue_summary(team_id: int, issue_id: UUID | str, *, user: User) -> contracts.ErrorTrackingIssueSummary | None:
-    """The stored summary, whatever its age, when `user` may read it. Never generates."""
-    if not issue_summaries.summary_sources_readable(team_id, user):
-        return None
-    return _shown(team_id, issue_summaries.get_issue_summary(team_id, issue_id))
-
-
-def get_or_generate_issue_summary(
-    team_id: int, issue_id: UUID | str, *, user: User
-) -> contracts.ErrorTrackingIssueSummary | None:
-    """Generate in the calling thread when a summary is due, else return the stored one. Blocks on the model."""
-    if not issue_summaries.summary_sources_readable(team_id, user):
-        return None
-    return _shown(team_id, issue_summaries.get_or_generate_issue_summary(team_id, issue_id).summary)
-
-
-def start_issue_summary_generation(team_id: int, issue_id: UUID | str, *, user: User) -> bool:
-    """Queue generation in the background when a summary may be due. False means the caller should not wait.
-
-    Also False when `user` may not read the summary, so that caller does not wait for one it cannot see.
-    """
-    if not issue_summaries.summary_sources_readable(team_id, user):
-        return False
-    return issue_summaries.start_issue_summary_generation(team_id, issue_id)
-
-
-def wait_for_issue_summary(
-    team_id: int, issue_id: UUID | str, *, user: User, checked_after: datetime | None, timeout_seconds: float
-) -> contracts.ErrorTrackingIssueSummary | None:
-    """Poll for a summary generated or confirmed unchanged after `checked_after`. None at the timeout."""
-    if not issue_summaries.summary_sources_readable(team_id, user):
-        return None
-    summary = issue_summaries.wait_for_issue_summary(
-        team_id, issue_id, checked_after=checked_after, timeout_seconds=timeout_seconds
+def read_issue_summary(team_id: int, issue_id: UUID | str, *, user: User) -> contracts.IssueSummaryRead:
+    """The stored summary, or the reason `user` sees none. Never starts generation."""
+    state = issue_summaries.read_issue_summary(team_id, issue_id, user)
+    return contracts.IssueSummaryRead(
+        status=state.status,
+        summary=_to_summary(state.summary) if state.summary is not None else None,
+        reason=state.reason,
     )
-    return _shown(team_id, summary)
+
+
+def summarize_issue(team_id: int, issue_id: UUID | str, *, user: User) -> contracts.IssueSummarize:
+    """Generate the summary of an issue that has none, because `user` asked for it. Each generation uses AI credits."""
+    result = issue_summaries.generate_issue_summary_on_demand(team_id, issue_id, user)
+    if result.summary is not None:
+        return contracts.IssueSummarize(
+            outcome=contracts.IssueSummarizeOutcome.READY, summary=_to_summary(result.summary)
+        )
+    return contracts.IssueSummarize(outcome=_summarize_outcome(result.outcome), summary=None)
+
+
+def _summarize_outcome(outcome: IssueSummaryOutcome) -> contracts.IssueSummarizeOutcome:
+    match outcome:
+        case IssueSummaryOutcome.DISABLED:
+            return contracts.IssueSummarizeOutcome.DISABLED
+        case IssueSummaryOutcome.RESTRICTED:
+            return contracts.IssueSummarizeOutcome.RESTRICTED
+        case IssueSummaryOutcome.SETTING_OFF:
+            return contracts.IssueSummarizeOutcome.SETTING_OFF
+        case IssueSummaryOutcome.AI_NOT_APPROVED:
+            return contracts.IssueSummarizeOutcome.AI_NOT_APPROVED
+        case IssueSummaryOutcome.OUT_OF_CREDITS:
+            return contracts.IssueSummarizeOutcome.OUT_OF_CREDITS
+        case IssueSummaryOutcome.RATE_LIMITED:
+            return contracts.IssueSummarizeOutcome.RATE_LIMITED
+        case IssueSummaryOutcome.IN_PROGRESS:
+            return contracts.IssueSummarizeOutcome.IN_PROGRESS
+        case IssueSummaryOutcome.ISSUE_MISSING:
+            return contracts.IssueSummarizeOutcome.ISSUE_MISSING
+        case IssueSummaryOutcome.NO_EXCEPTION:
+            return contracts.IssueSummarizeOutcome.NO_EXCEPTION
+        # GENERATED and FRESH always carry a summary, so they never reach this match.
+        case (
+            IssueSummaryOutcome.GENERATED
+            | IssueSummaryOutcome.FRESH
+            | IssueSummaryOutcome.INPUTS_ERROR
+            | IssueSummaryOutcome.GATEWAY_UNCONFIGURED
+            | IssueSummaryOutcome.MODEL_ERROR
+            | IssueSummaryOutcome.INVALID_OUTPUT
+            | IssueSummaryOutcome.UNEXPECTED_ERROR
+        ):
+            return contracts.IssueSummarizeOutcome.FAILED
+        case _:
+            assert_never(outcome)

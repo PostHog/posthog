@@ -41,6 +41,40 @@ def parse_unsubscribe_source(token_data: dict[str, Any]) -> UnsubscribeSource | 
     return UnsubscribeSource(app_source_id=app_source_id, instance_id=instance_id)
 
 
+@frozen
+class EmailSendReference:
+    workflow_id: str
+    action_id: str | None
+    invocation_id: str
+    workflow_version: int | None
+
+    def event_properties(self) -> dict[str, Any]:
+        properties = {
+            "$workflow_id": self.workflow_id,
+            "$workflow_action_id": self.action_id,
+            "$workflow_invocation_id": self.invocation_id,
+            "$workflow_version": self.workflow_version,
+        }
+        return {key: value for key, value in properties.items() if value is not None}
+
+
+def parse_email_send_reference(token_data: dict[str, Any]) -> EmailSendReference | None:
+    workflow_id = token_data.get("workflow_id")
+    invocation_id = token_data.get("invocation_id")
+    if not isinstance(workflow_id, str) or not isinstance(invocation_id, str):
+        return None
+    action_id = token_data.get("instance_id")
+    workflow_version = token_data.get("workflow_version")
+    return EmailSendReference(
+        workflow_id=workflow_id,
+        action_id=action_id if isinstance(action_id, str) and _INSTANCE_ID_PATTERN.match(action_id) else None,
+        invocation_id=invocation_id,
+        workflow_version=workflow_version
+        if isinstance(workflow_version, int) and not isinstance(workflow_version, bool)
+        else None,
+    )
+
+
 def _includes_real_category(team_id: int, category_ids: list[str]) -> bool:
     # The preferences form accepts any category id string, so made-up ids must not add to the count.
     if ALL_MESSAGE_PREFERENCE_CATEGORY_ID in category_ids:

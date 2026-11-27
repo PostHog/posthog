@@ -5,8 +5,6 @@ import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 
-import { tagsModel } from '~/models/tagsModel'
-
 import type { AccountApi } from '../../generated/api.schemas'
 import { AccountEditModal } from './AccountEditModal'
 import { AccountEventStreamModal } from './AccountEventStreamModal'
@@ -16,8 +14,6 @@ import { customerAnalyticsAccountSceneLogic } from './customerAnalyticsAccountSc
 export function AccountSidebar({ account }: { account: AccountApi }): JSX.Element {
     const { tagsSaving } = useValues(customerAnalyticsAccountSceneLogic)
     const { updateTags, openAccountEditor, openEventStreamModal } = useActions(customerAnalyticsAccountSceneLogic)
-    const { tags: tagsAvailable, tagsLoading } = useValues(tagsModel)
-    const { loadTagsIfNeeded } = useActions(tagsModel)
 
     return (
         <aside
@@ -47,14 +43,7 @@ export function AccountSidebar({ account }: { account: AccountApi }): JSX.Elemen
             <LemonDivider className="my-0" />
             <div className="flex flex-col gap-1 p-4" data-attr="account-rail-tags">
                 <span className="secondary text-secondary">Tags</span>
-                <ObjectTags
-                    tags={account.tags ?? []}
-                    onChange={updateTags}
-                    onEdit={loadTagsIfNeeded}
-                    saving={tagsSaving || tagsLoading}
-                    tagsAvailable={tagsAvailable}
-                    wrap
-                />
+                <ObjectTags tags={account.tags ?? []} onChange={updateTags} saving={tagsSaving} wrap />
             </div>
             <LemonDivider className="my-0" />
             <AccountPinnedPropertiesPanel accountId={account.id} />

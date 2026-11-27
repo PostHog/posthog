@@ -1,13 +1,23 @@
 import './LemonFileInput.scss'
 
 import clsx from 'clsx'
-import { ChangeEvent, RefObject, createRef, useEffect, useState } from 'react'
+import { ChangeEvent, RefObject, Suspense, lazy, useEffect, useRef, useState } from 'react'
 
 import { IconUpload } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
+import { retryImport } from 'lib/utils/retryImport'
+
+// This file ships on every logged-in page, and quill must load only where a page turns it on.
+const QuillUploadButton = lazy(() =>
+    retryImport(() => import('./QuillUploadButton')).then((m) => ({ default: m.QuillUploadButton }))
+)
+const QuillUploadedFiles = lazy(() =>
+    retryImport(() => import('./QuillUploadedFiles')).then((m) => ({ default: m.QuillUploadedFiles }))
+)
 
 export interface LemonFileInputProps extends Pick<HTMLInputElement, 'multiple' | 'accept'> {
     value?: File[]
@@ -52,11 +62,18 @@ export const LemonFileInput = ({
     const [files, setFiles] = useState(value || ([] as File[]))
 
     // dragCounter and drag are used to track whether the user is dragging a file over the textarea
-    // without drag counter the textarea highlight would flicker when the user drags a file over it
-    let dragCounter = 0
+    // without drag counter the textarea highlight would flicker when the user drags a file over it.
+    // Entering a child fires dragenter on it before dragleave on the parent, so the counter must
+    // survive re-renders and the listeners must stay bound for the whole drag.
+    const dragCounter = useRef(0)
     const [drag, setDrag] = useState(false)
-    const dropRef = createRef<HTMLDivElement>()
-    const fileInputRef = inputRef ?? createRef<HTMLInputElement>()
+    const dropRef = useRef<HTMLDivElement>(null)
+    const localInputRef = useRef<HTMLInputElement>(null)
+    const fileInputRef = inputRef ?? localInputRef
+    const quillSurface = useQuillSurface()
+
+    const latest = useRef({ files, multiple, disabledReason, onChange })
+    latest.current = { files, multiple, disabledReason, onChange }
 
     useEffect(() => {
         if (value && value !== files) {
@@ -84,64 +101,67 @@ export const LemonFileInput = ({
         e.target.value = ''
     }
 
-    const handleDrag = (e: DragEvent): void => {
-        e.preventDefault()
-        e.stopPropagation()
-    }
-
-    const handleDragIn = (e: DragEvent): void => {
-        e.preventDefault()
-        e.stopPropagation()
-        if (disabledReason) {
-            return
-        }
-        dragCounter++
-        if (e.dataTransfer?.items && e.dataTransfer.items.length > 0) {
-            setDrag(true)
-        }
-    }
-
-    const handleDragOut = (e: DragEvent): void => {
-        e.preventDefault()
-        e.stopPropagation()
-        dragCounter--
-        if (dragCounter === 0) {
-            setDrag(false)
-        }
-    }
-
-    const handleDrop = (e: DragEvent): void => {
-        e.preventDefault()
-        e.stopPropagation()
-        if (disabledReason) {
-            return
-        }
-        setDrag(false)
-        if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
-            const filesArr = Array.prototype.slice.call(e.dataTransfer?.files)
-            const localFiles = multiple ? [...files, ...filesArr] : [filesArr[0]]
-            setFiles(localFiles)
-            onChange?.(localFiles)
-            dragCounter = 0
-        }
-    }
-
     useEffect(() => {
         const div = (alternativeDropTargetRef || dropRef)?.current
         if (!div) {
             return
         }
+
+        const handleDrag = (e: DragEvent): void => {
+            e.preventDefault()
+            e.stopPropagation()
+        }
+
+        const handleDragIn = (e: DragEvent): void => {
+            e.preventDefault()
+            e.stopPropagation()
+            if (latest.current.disabledReason) {
+                return
+            }
+            dragCounter.current++
+            if (e.dataTransfer?.items && e.dataTransfer.items.length > 0) {
+                setDrag(true)
+            }
+        }
+
+        const handleDragOut = (e: DragEvent): void => {
+            e.preventDefault()
+            e.stopPropagation()
+            dragCounter.current = Math.max(0, dragCounter.current - 1)
+            if (dragCounter.current === 0) {
+                setDrag(false)
+            }
+        }
+
+        const handleDrop = (e: DragEvent): void => {
+            e.preventDefault()
+            e.stopPropagation()
+            dragCounter.current = 0
+            setDrag(false)
+            const { files: currentFiles, multiple: isMultiple, disabledReason: isDisabled } = latest.current
+            if (isDisabled) {
+                return
+            }
+            if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
+                const filesArr = Array.prototype.slice.call(e.dataTransfer.files)
+                const localFiles = isMultiple ? [...currentFiles, ...filesArr] : [filesArr[0]]
+                setFiles(localFiles)
+                latest.current.onChange?.(localFiles)
+            }
+        }
+
         div.addEventListener('dragenter', handleDragIn)
         div.addEventListener('dragleave', handleDragOut)
         div.addEventListener('dragover', handleDrag)
         div.addEventListener('drop', handleDrop)
         return () => {
-            div?.removeEventListener('dragenter', handleDragIn)
-            div?.removeEventListener('dragleave', handleDragOut)
-            div?.removeEventListener('dragover', handleDrag)
-            div?.removeEventListener('drop', handleDrop)
+            div.removeEventListener('dragenter', handleDragIn)
+            div.removeEventListener('dragleave', handleDragOut)
+            div.removeEventListener('dragover', handleDrag)
+            div.removeEventListener('drop', handleDrop)
+            dragCounter.current = 0
         }
-    }, [value, handleDrop, handleDragOut, alternativeDropTargetRef, dropRef, handleDragIn])
+    }, [alternativeDropTargetRef])
 
     useEffect(() => {
         const extraDragTarget = alternativeDropTargetRef?.current
@@ -155,6 +175,8 @@ export const LemonFileInput = ({
             extraDragTarget.classList.remove('FileDropTarget--active')
         }
     }, [drag, alternativeDropTargetRef])
+
+    const uploadLabel = `Click or drag and drop to upload${accept ? ` ${acceptToDisplayName(accept)}` : ''}`
 
     return (
         <>
@@ -182,22 +204,32 @@ export const LemonFileInput = ({
                     )}
                     onClick={handleCallToActionClick}
                 >
-                    {callToAction || (
-                        <LemonButton icon={<IconUpload />} type="tertiary" disabledReason={disabledReason}>
-                            Click or drag and drop to upload
-                            {accept ? ` ${acceptToDisplayName(accept)}` : ''}
-                        </LemonButton>
-                    )}
-                </div>
-                {files.length > 0 && showUploadedFiles && (
-                    <div className="flex flex-row gap-2">
-                        {files.map((x, i) => (
-                            <LemonTag key={i} icon={loading ? <Spinner /> : undefined}>
-                                {x.name}
-                            </LemonTag>
+                    {callToAction ||
+                        (quillSurface ? (
+                            <Suspense fallback={null}>
+                                <QuillUploadButton label={uploadLabel} disabledReason={disabledReason} />
+                            </Suspense>
+                        ) : (
+                            <LemonButton icon={<IconUpload />} type="tertiary" disabledReason={disabledReason}>
+                                {uploadLabel}
+                            </LemonButton>
                         ))}
-                    </div>
-                )}
+                </div>
+                {files.length > 0 &&
+                    showUploadedFiles &&
+                    (quillSurface ? (
+                        <Suspense fallback={null}>
+                            <QuillUploadedFiles files={files} loading={loading} />
+                        </Suspense>
+                    ) : (
+                        <div className="flex flex-row gap-2">
+                            {files.map((x, i) => (
+                                <LemonTag key={i} icon={loading ? <Spinner /> : undefined}>
+                                    {x.name}
+                                </LemonTag>
+                            ))}
+                        </div>
+                    ))}
             </div>
         </>
     )

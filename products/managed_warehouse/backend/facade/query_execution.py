@@ -38,6 +38,7 @@ def execute_managed_trino_query(
     settings: HogQLGlobalSettings,
     timings: HogQLTimings,
     limit_context: LimitContext | None,
+    canary: bool = False,
 ) -> HogQLQueryResponse:
     from products.managed_warehouse.backend.query_execution import (
         execute_managed_trino_query as execute,  # noqa: PLC0415 -- query compilation is optional during Django startup
@@ -51,7 +52,18 @@ def execute_managed_trino_query(
         settings=settings,
         timings=timings,
         limit_context=limit_context,
+        canary=canary,
     )
+
+
+def use_trino_canary(
+    distinct_id: str | None, organization_id: str, *, limit_context: LimitContext | None = None
+) -> bool:
+    from products.managed_warehouse.backend.trino_connection import (
+        use_trino_canary as decide,  # noqa: PLC0415 -- keeps the optional Trino connection path off Django startup
+    )
+
+    return decide(distinct_id, organization_id, limit_context=limit_context)
 
 
 def get_managed_trino_schema(

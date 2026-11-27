@@ -13,6 +13,7 @@ from posthog.schema import (
     ExperimentExposureCriteria,
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
+    ExperimentQuantileMetric,
     ExperimentRatioMetric,
     ExperimentRetentionMetric,
     ExperimentWarehouseNativeExposureConfig,
@@ -26,9 +27,9 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import get_actions
 from products.experiments.backend.hogql_queries.breakdown_injector import BreakdownInjector
-from products.experiments.backend.hogql_queries.cuped_config import CupedQueryConfig
+from products.experiments.backend.hogql_queries.cuped_config import CupedQueryConfig, activation_blocks_cuped
 from products.experiments.backend.hogql_queries.experiment_cuped_query_builder import CupedQueryBuilder
 from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import ExposureQueryBuilder
 from products.experiments.backend.hogql_queries.experiment_funnel_query_builder import FunnelQueryBuilder
@@ -41,7 +42,9 @@ from products.experiments.backend.hogql_queries.experiment_metric_values import 
     build_value_aggregation_expr,
     build_value_expr,
     get_conversion_window_seconds,
+    get_maturity_window_seconds,
 )
+from products.experiments.backend.hogql_queries.experiment_quantile_query_builder import QuantileQueryBuilder
 from products.experiments.backend.hogql_queries.experiment_query_context import (
     ExperimentPrecomputationContext,
     ExperimentQueryContext,
@@ -59,15 +62,18 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     resolve_default_exposure_event,
     resolve_filter_test_accounts,
 )
+from products.experiments.backend.hogql_queries.metric_source_precompute import (
+    spread_metric_events_reads_across_replicas,
+)
+from products.experiments.backend.hogql_queries.precompute_policy import precompute_person_resolution_enabled
 
 
 def resolve_exposure_config_for_builder(
     exposure_config: ExperimentEventExposureConfig | ActionsNode,
-    team: Team,
     start_date: Optional[datetime],
 ) -> ExperimentEventExposureConfig | ActionsNode:
     if isinstance(exposure_config, ExperimentEventExposureConfig) and exposure_config.event == DEFAULT_EXPOSURE_EVENT:
-        return exposure_config.model_copy(update={"event": resolve_default_exposure_event(team, start_date)})
+        return exposure_config.model_copy(update={"event": resolve_default_exposure_event(start_date)})
     return exposure_config
 
 
@@ -83,7 +89,6 @@ class ExposureQueryParams:
 
 def get_exposure_config_params_for_builder(
     exposure_criteria: Union[ExperimentExposureCriteria, dict, None],
-    team: Team,
     start_date: Optional[datetime],
 ) -> ExposureQueryParams:
     criteria = normalize_to_exposure_criteria(exposure_criteria)
@@ -94,14 +99,12 @@ def get_exposure_config_params_for_builder(
     if isinstance(stored_exposure, ExperimentWarehouseNativeExposureConfig):
         raise ExposedHogQLError("Warehouse-native sources cannot be calculated yet.")
     if criteria is None:
-        exposure_config = ExperimentEventExposureConfig(
-            event=resolve_default_exposure_event(team, start_date), properties=[]
-        )
+        exposure_config = ExperimentEventExposureConfig(event=resolve_default_exposure_event(start_date), properties=[])
         multiple_variant_handling = MultipleVariantHandling.EXCLUDE
     else:
         if stored_exposure is None:
             exposure_config = ExperimentEventExposureConfig(
-                event=resolve_default_exposure_event(team, start_date), properties=[]
+                event=resolve_default_exposure_event(start_date), properties=[]
             )
         elif (
             isinstance(stored_exposure, ExperimentEventExposureConfig)
@@ -110,7 +113,7 @@ def get_exposure_config_params_for_builder(
             # A config naming $feature_flag_called explicitly is the default exposure, not a
             # custom one (same convention as get_exposure_event_and_property), so it follows
             # the same event resolution while keeping its property filters.
-            exposure_config = resolve_exposure_config_for_builder(stored_exposure, team, start_date)
+            exposure_config = resolve_exposure_config_for_builder(stored_exposure, start_date)
         else:
             exposure_config = stored_exposure
         # Activation only composes with the default exposure; a custom exposure_config
@@ -130,11 +133,15 @@ def get_exposure_config_params_for_builder(
 
 def metric_reads_flag_call(
     team: Team,
-    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric,
+    metric: ExperimentMeanMetric
+    | ExperimentFunnelMetric
+    | ExperimentRatioMetric
+    | ExperimentRetentionMetric
+    | ExperimentQuantileMetric,
 ) -> bool:
     """Whether a metric source matches $feature_flag_called, as its event or through an action step."""
     sources: Sequence[object]
-    if isinstance(metric, ExperimentMeanMetric):
+    if isinstance(metric, ExperimentMeanMetric | ExperimentQuantileMetric):
         sources = [metric.source]
     elif isinstance(metric, ExperimentFunnelMetric):
         sources = metric.series
@@ -147,7 +154,7 @@ def metric_reads_flag_call(
     action_ids = [int(source.id) for source in sources if isinstance(source, ActionsNode)]
     return bool(action_ids) and any(
         step.event == DEFAULT_EXPOSURE_EVENT
-        for action in Action.objects.filter(pk__in=action_ids, team__project_id=team.project_id)
+        for action in get_actions(action_ids=action_ids, project_id=team.project_id)
         for step in action.steps
     )
 
@@ -164,12 +171,17 @@ class ExperimentQueryBuilder:
         date_range_query: QueryDateRange,
         entity_key: str,
         metric: Optional[
-            ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric
+            ExperimentMeanMetric
+            | ExperimentFunnelMetric
+            | ExperimentRatioMetric
+            | ExperimentRetentionMetric
+            | ExperimentQuantileMetric
         ] = None,
         breakdowns: list[Breakdown] | None = None,
         only_count_matured_users: bool = False,
         cuped_config: CupedQueryConfig | None = None,
         activation_config: ExperimentEventExposureConfig | ActionsNode | None = None,
+        feature_flag_rule_id: str | None = None,
     ):
         self.team = team
         self.metric = metric
@@ -185,11 +197,7 @@ class ExperimentQueryBuilder:
         self.breakdowns = breakdowns or []
         self.breakdown_injector = BreakdownInjector(self.breakdowns, metric) if metric else None
         self.cuped_config = cuped_config or CupedQueryConfig()
-        # ponytail: funnel CUPED sources its pre-exposure covariate from the metric_events
-        # scan, but activation mode forces the temporal filter that removes those rows, so
-        # the covariate would silently be 0 for everyone. Disable it until the covariate
-        # gets its own pre-window scan.
-        if activation_config is not None and isinstance(metric, ExperimentFunnelMetric):
+        if activation_blocks_cuped(metric, has_activation=activation_config is not None):
             self.cuped_config = CupedQueryConfig(enabled=False, lookback_days=self.cuped_config.lookback_days)
 
         # Frozen snapshot for builders that take a context instead of this builder,
@@ -207,8 +215,10 @@ class ExperimentQueryBuilder:
             breakdowns=tuple(self.breakdowns),
             only_count_matured_users=self.only_count_matured_users,
             cuped_config=self.cuped_config,
+            resolve_precomputed_persons=precompute_person_resolution_enabled(team),
             activation_config=self.activation_config,
             read_exposure_copies=metric is None or not metric_reads_flag_call(team, metric),
+            feature_flag_rule_id=feature_flag_rule_id,
         )
 
     # Experiment queries group by (variant, breakdown_values), so the row count is
@@ -248,13 +258,20 @@ class ExperimentQueryBuilder:
                 query = RetentionQueryBuilder(
                     self, exposure, maturity=maturity, metric_events_job_ids=metric_events_job_ids
                 ).build_retention_query()
+            case ExperimentQuantileMetric():
+                # Metric-events precompute does not apply to quantile metrics, so only the exposures can be precomputed.
+                query = QuantileQueryBuilder(self, exposure).build_quantile_query()
             case _:
                 raise NotImplementedError(
-                    f"Only funnel, mean, ratio, and retention metrics are supported. Got {type(self.metric)}"
+                    f"Only funnel, mean, ratio, retention, and quantile metrics are supported. Got {type(self.metric)}"
                 )
 
+        query = spread_metric_events_reads_across_replicas(query)
         query.limit = ast.Constant(value=self.QUERY_RESULT_LIMIT)
         return query
+
+    def reads_precomputed_exposures(self, job_ids: list[str]) -> bool:
+        return self._exposure_query_builder(job_ids=job_ids).reads_precomputed()
 
     def _exposure_query_builder(
         self, maturity: MaturityGate | None = None, job_ids: list[str] | None = None
@@ -291,12 +308,13 @@ class ExperimentQueryBuilder:
     def _cuped_query_builder(self) -> CupedQueryBuilder:
         return CupedQueryBuilder(self)
 
-    def get_exposure_timeseries_query(self) -> ast.SelectQuery:
+    def get_exposure_timeseries_query(self, with_library: bool = False) -> ast.SelectQuery:
         """
         Daily exposure counts per variant. Each entity counts once, on the day of
-        its first exposure. Columns: day, variant, exposed_count.
+        its first exposure. Columns: day, variant, exposed_count, and with `with_library`
+        exposed_by_library (see ExposureQueryBuilder.timeseries_query).
         """
-        return self._exposure_query_builder().timeseries_query()
+        return self._exposure_query_builder().timeseries_query(with_library)
 
     def get_exposure_segments_query(self, top_values: int, first_exposed_after: date | None = None) -> ast.SelectQuery:
         """
@@ -335,7 +353,7 @@ class ExperimentQueryBuilder:
         """
         if self.metric is None or isinstance(self.metric, ExperimentRetentionMetric):
             return 0
-        return self._get_conversion_window_seconds()
+        return get_maturity_window_seconds(self.metric)
 
     def _build_conversion_window_predicate(self) -> ast.Expr:
         """Uses "metric_events" as the events alias."""

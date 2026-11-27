@@ -1,10 +1,12 @@
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
 
+import { traceDrawerLogic } from '../redesign/trace/traceDrawerLogic'
 import { AIObservabilityReviews } from './AIObservabilityReviews'
 import { TRACE_REVIEWS_PER_PAGE } from './aiObservabilityReviewsLogic'
 import { traceReviewsApi } from './traceReviewsApi'
@@ -50,6 +52,16 @@ describe('AIObservabilityReviews', () => {
         cleanup()
     })
 
+    it('identifies the project key that last reviewed the trace', async () => {
+        const keyId = 'example-project-key-12345678'
+        mockTraceReviewsList.mockResolvedValue({
+            results: [{ ...reviews[0], reviewed_by_project_key_id: keyId }],
+            count: 1,
+        })
+        const { findByTitle } = render(<AIObservabilityReviews />)
+        expect((await findByTitle(keyId)).textContent).toBe('Project key · 12345678')
+    })
+
     it('loads the next page when the next page button is clicked', async () => {
         const { findAllByText, getByLabelText } = render(<AIObservabilityReviews />)
         await findAllByText(`1-${TRACE_REVIEWS_PER_PAGE} of ${TRACE_REVIEWS_PER_PAGE * 2} reviews`)
@@ -81,5 +93,39 @@ describe('AIObservabilityReviews', () => {
             { timeout: 3000 }
         )
         expect(router.values.searchParams.review_order_by).toBe('updated_at')
+    })
+
+    describe('opening the trace drawer', () => {
+        async function renderReviews(): Promise<HTMLElement> {
+            localStorage.clear()
+            featureFlagLogic.mount()
+            router.actions.push(urls.aiObservabilityReviews(), { human_reviews_tab: 'reviews' })
+            const { findByText } = render(<AIObservabilityReviews />)
+            return await findByText('trace-0')
+        }
+
+        it.each([
+            ['the row', (link: HTMLElement): Element | null => link.closest('tr')?.querySelector('td + td') ?? null],
+            ['the trace link', (link: HTMLElement): Element => link],
+        ])('opens from %s with no timestamp or step', async (_name, target) => {
+            const clicked = target(await renderReviews())
+            if (!clicked) {
+                throw new Error('No click target')
+            }
+
+            fireEvent.click(clicked)
+
+            expect(router.values.location.pathname).toContain(urls.aiObservabilityReviews())
+            expect(router.values.searchParams).toEqual({ human_reviews_tab: 'reviews', trace: 'trace-0' })
+        })
+
+        it('gives the drawer the rows in table order', async () => {
+            await renderReviews()
+
+            expect(traceDrawerLogic({ listId: 'reviews' }).values.rows.slice(0, 2)).toEqual([
+                { traceId: 'trace-0', timestamp: null, stepId: null },
+                { traceId: 'trace-1', timestamp: null, stepId: null },
+            ])
+        })
     })
 })

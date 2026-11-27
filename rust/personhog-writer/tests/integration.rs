@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, TimeZone, Utc};
 use common::{
     cleanup_team, create_local_kafka_producer, create_mock_kafka, create_test_pool, make_person,
     unique_team_id, KAFKA_BOOTSTRAP, TARGET_TABLE, TOPIC,
@@ -80,6 +80,70 @@ async fn writer_upserts_person_to_pg() {
     assert_eq!(row.0, 1); // id
     assert_eq!(row.1, 1); // version
     assert!(!row.2); // is_identified
+
+    cleanup_team(&pool, team_id).await;
+}
+
+/// Persons created before personhog from a client's zero `DateTime` carry
+/// year 1 as `created_at`; the leader admits what this upsert binds, so
+/// the bind has to hold at the far end of the range.
+#[tokio::test]
+async fn writer_upserts_a_year_one_created_at() {
+    const YEAR_ONE_MS: i64 = -62_135_596_800_000;
+    let pool = create_test_pool().await;
+    let team_id: i32 = unique_team_id();
+
+    let writer = PersonWriteStore::new(
+        PgStore::new(pool.clone(), TARGET_TABLE.to_string()),
+        common::test_store_config(),
+        common::test_permits(),
+    );
+    let person = Person {
+        created_at: YEAR_ONE_MS,
+        last_seen_at: Some(YEAR_ONE_MS),
+        ..make_person(team_id as i64, 1, 1)
+    };
+
+    assert!(matches!(
+        writer.upsert_batch(vec![person]).await,
+        BatchOutcome::Success
+    ));
+
+    let row: (DateTime<Utc>, Option<DateTime<Utc>>) = sqlx::query_as(
+        "SELECT created_at, last_seen_at FROM personhog_person_tmp WHERE team_id = $1 AND id = $2",
+    )
+    .bind(team_id)
+    .bind(1_i64)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let year_one = Utc.timestamp_millis_opt(YEAR_ONE_MS).unwrap();
+    assert_eq!(row.0, year_one);
+    assert_eq!(row.1, Some(year_one));
+
+    // The leader admits down to Postgres's own floor, Julian day 0, so
+    // that exact instant has to bind as well.
+    const PG_TIMESTAMPTZ_MIN_MS: i64 = -210_866_803_200_000;
+    let floor_person = Person {
+        created_at: PG_TIMESTAMPTZ_MIN_MS,
+        ..make_person(team_id as i64, 2, 1)
+    };
+    assert!(matches!(
+        writer.upsert_batch(vec![floor_person]).await,
+        BatchOutcome::Success
+    ));
+    let floor: (DateTime<Utc>,) = sqlx::query_as(
+        "SELECT created_at FROM personhog_person_tmp WHERE team_id = $1 AND id = $2",
+    )
+    .bind(team_id)
+    .bind(2_i64)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        floor.0,
+        Utc.timestamp_millis_opt(PG_TIMESTAMPTZ_MIN_MS).unwrap()
+    );
 
     cleanup_team(&pool, team_id).await;
 }
@@ -187,7 +251,69 @@ async fn writer_version_guard_skips_stale_updates() {
 }
 
 #[tokio::test]
-async fn writer_merges_meta_and_last_seen_instead_of_assigning() {
+async fn writer_upsert_does_not_wait_on_a_person_foreign_key_check() {
+    let pool = create_test_pool().await;
+    let team_id: i32 = unique_team_id();
+
+    let writer = PersonWriteStore::new(
+        PgStore::new(pool.clone(), TARGET_TABLE.to_string()),
+        common::test_store_config(),
+        common::test_permits(),
+    );
+    assert!(matches!(
+        writer
+            .upsert_batch(vec![make_person(team_id as i64, 1, 1)])
+            .await,
+        BatchOutcome::Success
+    ));
+
+    let mut attach = pool.begin().await.unwrap();
+    sqlx::query(
+        "INSERT INTO personhog_persondistinctid_tmp (distinct_id, person_id, team_id, version)
+         VALUES ('fk-check', $1, $2, 1)",
+    )
+    .bind(1_i64)
+    .bind(team_id)
+    .execute(&mut *attach)
+    .await
+    .unwrap();
+    let probe = sqlx::query(
+        "SELECT 1 FROM personhog_person_tmp WHERE team_id = $1 AND id = $2 FOR UPDATE NOWAIT",
+    )
+    .bind(team_id)
+    .bind(1_i64)
+    .execute(&pool)
+    .await;
+    assert!(
+        matches!(&probe, Err(sqlx::Error::Database(e)) if e.code().as_deref() == Some("55P03")),
+        "the distinct id insert must hold a foreign-key lock on its person: {probe:?}"
+    );
+
+    let upsert = tokio::time::timeout(
+        Duration::from_secs(5),
+        writer.upsert_batch(vec![make_person(team_id as i64, 1, 2)]),
+    )
+    .await;
+    attach.rollback().await.unwrap();
+
+    assert!(
+        matches!(&upsert, Ok(BatchOutcome::Success)),
+        "the upsert must not wait on the open distinct id insert for its person: {upsert:?}"
+    );
+    let row: (i64,) =
+        sqlx::query_as("SELECT version FROM personhog_person_tmp WHERE team_id = $1 AND id = $2")
+            .bind(team_id)
+            .bind(1_i64)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(row.0, 2);
+
+    cleanup_team(&pool, team_id).await;
+}
+
+#[tokio::test]
+async fn writer_merges_last_seen_instead_of_assigning() {
     let pool = create_test_pool().await;
     let team_id: i32 = 99_006;
     cleanup_team(&pool, team_id).await;
@@ -199,8 +325,8 @@ async fn writer_merges_meta_and_last_seen_instead_of_assigning() {
     );
 
     let fetch = |pool: sqlx::PgPool| async move {
-        let row: (i64, Option<String>, Option<DateTime<Utc>>) = sqlx::query_as(
-            "SELECT version, properties_last_updated_at::text, last_seen_at
+        let row: (i64, Option<DateTime<Utc>>) = sqlx::query_as(
+            "SELECT version, last_seen_at
              FROM personhog_person_tmp WHERE team_id = $1 AND id = $2",
         )
         .bind(team_id)
@@ -208,42 +334,28 @@ async fn writer_merges_meta_and_last_seen_instead_of_assigning() {
         .fetch_one(&pool)
         .await
         .unwrap();
-        (row.0, row.1, row.2.map(|t| t.timestamp_millis()))
+        (row.0, row.1.map(|t| t.timestamp_millis()))
     };
 
-    // Seed a row carrying meta and a last-seen value, as ingestion's direct
-    // writer produces today.
     let mut person = make_person(team_id as i64, 1, 1);
-    person.properties_last_updated_at =
-        serde_json::to_vec(&serde_json::json!({"email": "2026-01-01T00:00:00Z"})).unwrap();
     person.last_seen_at = Some(5000);
     assert!(matches!(
         writer.upsert_batch(vec![person]).await,
         BatchOutcome::Success
     ));
-    let (version, meta, last_seen) = fetch(pool.clone()).await;
-    assert_eq!((version, last_seen), (1, Some(5000)));
-    let seeded_meta = meta.expect("insert must land the seeded meta");
+    assert_eq!(fetch(pool.clone()).await, (1, Some(5000)));
 
-    // A leader-shaped record: newer version, no meta, older last-seen. The
-    // version guard admits it, but it must not erase the meta or lower the
-    // last-seen value.
-    let mut leader_record = make_person(team_id as i64, 1, 2);
-    leader_record.last_seen_at = Some(3000);
+    // A newer record with an older last-seen. The version guard admits it,
+    // but it must not lower the last-seen value.
+    let mut older_last_seen = make_person(team_id as i64, 1, 2);
+    older_last_seen.last_seen_at = Some(3000);
     assert!(matches!(
-        writer.upsert_batch(vec![leader_record]).await,
+        writer.upsert_batch(vec![older_last_seen]).await,
         BatchOutcome::Success
     ));
-    let (version, meta, last_seen) = fetch(pool.clone()).await;
-    assert_eq!(version, 2, "the version guard must admit the newer record");
     assert_eq!(
-        meta.as_deref(),
-        Some(seeded_meta.as_str()),
-        "a record without meta must leave the stored meta in place"
-    );
-    assert_eq!(
-        last_seen,
-        Some(5000),
+        fetch(pool.clone()).await,
+        (2, Some(5000)),
         "a record with an older last-seen must not lower the stored value"
     );
 
@@ -254,26 +366,17 @@ async fn writer_merges_meta_and_last_seen_instead_of_assigning() {
         writer.upsert_batch(vec![no_last_seen]).await,
         BatchOutcome::Success
     ));
-    let (version, _, last_seen) = fetch(pool.clone()).await;
-    assert_eq!((version, last_seen), (3, Some(5000)));
+    assert_eq!(fetch(pool.clone()).await, (3, Some(5000)));
 
-    // A record that does carry meta and a newer last-seen replaces both —
-    // merging must not freeze the columns at their first values.
+    // A newer last-seen replaces the stored value, so merging must not
+    // freeze the column at its first value.
     let mut advancing = make_person(team_id as i64, 1, 4);
-    advancing.properties_last_updated_at =
-        serde_json::to_vec(&serde_json::json!({"email": "2026-02-01T00:00:00Z"})).unwrap();
     advancing.last_seen_at = Some(6000);
     assert!(matches!(
         writer.upsert_batch(vec![advancing]).await,
         BatchOutcome::Success
     ));
-    let (version, meta, last_seen) = fetch(pool.clone()).await;
-    assert_eq!((version, last_seen), (4, Some(6000)));
-    assert_ne!(
-        meta.as_deref(),
-        Some(seeded_meta.as_str()),
-        "a record carrying meta must replace the stored meta"
-    );
+    assert_eq!(fetch(pool.clone()).await, (4, Some(6000)));
 
     cleanup_team(&pool, team_id).await;
 }
@@ -1157,12 +1260,14 @@ async fn the_draining_flag_follows_the_subscribed_topic_not_the_move() {
     let member = plain_member_config(&mock_cluster.bootstrap_servers(), "test-follow");
     let consumer = PersonConsumer::new(&member, TOPIC.to_string()).unwrap();
     let flipped = ChangelogConfig {
+        cluster: None,
         topic: NEXT_TOPIC.to_string(),
         partitions: 1,
         epoch: 2,
         writer_group: "test-follow".to_string(),
         retire_groups: vec![],
         draining: vec![Generation {
+            cluster: None,
             topic: TOPIC.to_string(),
             partitions: 1,
             epoch: 1,

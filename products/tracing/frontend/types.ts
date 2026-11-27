@@ -18,7 +18,7 @@ export interface Span {
     attributes: Record<string, string>
     // OTel resource attributes (who/what emitted the span: service.version, host, k8s, ...).
     resource_attributes: Record<string, string>
-    // OTel span events, earliest first. Only the single-trace endpoint returns them.
+    // OTel span events, earliest first. The trace endpoint returns them, and list queries with `includeEvents`.
     events?: _SpanEventApi[]
     trace_start?: string
     trace_duration?: number

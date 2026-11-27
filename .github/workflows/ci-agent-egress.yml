@@ -1,0 +1,205 @@
+name: Agent Egress
+
+on:
+    push:
+        branches:
+            - master
+        paths:
+            - '.github/workflows/ci-agent-egress.yml'
+            - '.github/scripts/ordered-image-release.sh'
+            - 'products/tasks/services/egress-proxy/**'
+            - '!products/tasks/services/egress-proxy/**/*.md'
+    pull_request:
+        paths:
+            - '.github/workflows/ci-agent-egress.yml'
+            - '.github/scripts/ordered-image-release.sh'
+            - 'products/tasks/services/egress-proxy/**'
+            - '!products/tasks/services/egress-proxy/**/*.md'
+    workflow_dispatch:
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.head_ref) || github.sha }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+    contents: read
+
+jobs:
+    test:
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+        defaults:
+            run:
+                shell: bash
+                working-directory: products/tasks/services/egress-proxy
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+              with:
+                  persist-credentials: false
+                  sparse-checkout: products/tasks/services/egress-proxy
+                  sparse-checkout-cone-mode: false
+
+            - name: Set up Go
+              uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
+              with:
+                  go-version-file: products/tasks/services/egress-proxy/go.mod
+                  cache: false
+
+            - name: Check formatting
+              run: |
+                  unformatted=$(gofmt -l .)
+                  if [[ -n "$unformatted" ]]; then
+                      printf '%s\n' "$unformatted"
+                      exit 1
+                  fi
+
+            - name: Vet
+              run: go vet ./...
+
+            - name: Test
+              run: go test -race -count=1 ./...
+
+    images:
+        runs-on: ubuntu-24.04
+        timeout-minutes: 15
+        defaults:
+            run:
+                shell: bash
+                working-directory: products/tasks/services/egress-proxy
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+              with:
+                  persist-credentials: false
+                  sparse-checkout: products/tasks/services/egress-proxy
+                  sparse-checkout-cone-mode: false
+            - name: Build runtime images
+              run: |
+                  docker build --build-arg COMMIT_HASH="$GITHUB_SHA" -t agent-egress-proxy .
+                  docker build --build-arg COMMIT_HASH="$GITHUB_SHA" -f Dockerfile.relay -t agent-egress-relay .
+            - name: Check runtime startup, relay transport and enrollment
+              run: bash scripts/smoke_images.sh
+
+    publish:
+        name: Publish ${{ matrix.image }}
+        needs: [test, images]
+        if: >-
+            github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true' &&
+            vars.ORDERED_IMAGE_ALIAS_PAUSED != 'true' &&
+            github.ref == 'refs/heads/master' &&
+            (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        runs-on: ubuntu-24.04
+        timeout-minutes: 30
+        permissions:
+            contents: read
+            id-token: write
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - image: posthog-agent-egress
+                      dockerfile: Dockerfile
+                    - image: posthog-agent-egress-relay
+                      dockerfile: Dockerfile.relay
+        steps:
+            - name: Check out full history for first-parent release ordering
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+              with:
+                  persist-credentials: false
+                  fetch-depth: 0
+                  filter: blob:none
+                  sparse-checkout: |
+                      products/tasks/services/egress-proxy
+                      .github/scripts/ordered-image-release.sh
+                  sparse-checkout-cone-mode: false
+
+            - name: Compute ordered release tag
+              id: release
+              run: bash .github/scripts/ordered-image-release.sh tag
+
+            - name: Require an ordered release tag
+              env:
+                  RELEASE_TAG: ${{ steps.release.outputs.tag }}
+              run: test -n "$RELEASE_TAG"
+
+            - name: Configure registry credentials
+              uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37
+              with:
+                  role-to-assume: ${{ secrets.AWS_ECR_SHARED_SERVICES_POSTHOG_MASTER_PUBLISH_IAM_ROLE }}
+                  aws-region: us-east-1
+
+            - name: Log in to Amazon ECR
+              id: registry
+              uses: aws-actions/amazon-ecr-login@f2e9fc6c2b355c1890b65e6f6f0e2ac3e6e22f78
+
+            - name: Reuse an already-published commit
+              id: existing
+              env:
+                  IMAGE: ${{ matrix.image }}
+              run: |
+                  set -euo pipefail
+                  response="$(aws ecr batch-get-image --repository-name "$IMAGE" \
+                      --image-ids "imageTag=$GITHUB_SHA" \
+                      --accepted-media-types application/vnd.oci.image.index.v1+json \
+                          application/vnd.docker.distribution.manifest.list.v2+json \
+                      --output json)"
+                  jq -e 'all(.failures[]?; .failureCode == "ImageNotFound")' <<< "$response" > /dev/null
+                  digest="$(jq -r '.images[0].imageId.imageDigest // empty' <<< "$response")"
+                  if [[ -n "$digest" && ! "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+                      exit 1
+                  fi
+                  echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
+            - name: Set up QEMU
+              if: steps.existing.outputs.digest == ''
+              uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a
+              with:
+                  image: tonistiigi/binfmt@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0
+                  platforms: arm64
+
+            - name: Set up Docker Buildx
+              if: steps.existing.outputs.digest == ''
+              run: |
+                  docker buildx version
+                  docker buildx create --name agent-egress --use --driver docker-container \
+                      --driver-opt image=moby/buildkit@sha256:c5f8862f52499773af85bc07695b2379ef08e8002352b0df2c4864c91d78dabe
+                  docker buildx inspect --bootstrap
+
+            - name: Build and publish both architectures
+              id: build
+              if: steps.existing.outputs.digest == ''
+              uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc
+              with:
+                  context: products/tasks/services/egress-proxy
+                  file: products/tasks/services/egress-proxy/${{ matrix.dockerfile }}
+                  push: true
+                  platforms: linux/amd64,linux/arm64
+                  tags: ${{ steps.registry.outputs.registry }}/${{ matrix.image }}:${{ github.sha }}
+                  build-args: COMMIT_HASH=${{ github.sha }}
+                  annotations: |
+                      index:org.opencontainers.image.source=https://github.com/PostHog/posthog
+                      index:org.opencontainers.image.revision=${{ github.sha }}
+
+            - name: Install release alias client
+              run: bash .github/scripts/ordered-image-release.sh install "$RUNNER_TEMP/regctl"
+
+            - name: Publish and verify the ordered alias
+              id: alias
+              env:
+                  ECR_REGISTRY: ${{ steps.registry.outputs.registry }}
+                  ECR_REPO: ${{ matrix.image }}
+                  EXPECTED_DIGEST: ${{ steps.existing.outputs.digest || steps.build.outputs.digest }}
+                  ORDERED_ALIAS: ${{ steps.release.outputs.tag }}
+                  REGCTL: ${{ runner.temp }}/regctl
+              run: bash .github/scripts/ordered-image-release.sh publish
+
+            - name: Require matching release digests
+              env:
+                  OUTCOME: ${{ steps.alias.outputs.outcome }}
+                  IMAGE: ${{ steps.registry.outputs.registry }}/${{ matrix.image }}
+                  DIGEST: ${{ steps.existing.outputs.digest || steps.build.outputs.digest }}
+                  RELEASE_TAG: ${{ steps.release.outputs.tag }}
+              run: |
+                  set -euo pipefail
+                  test "$OUTCOME" = present-at-expected-digest
+                  printf '%s\n' "$IMAGE@$DIGEST" "Commit: $GITHUB_SHA" "Release: $RELEASE_TAG" >> "$GITHUB_STEP_SUMMARY"

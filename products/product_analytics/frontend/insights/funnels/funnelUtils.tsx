@@ -12,10 +12,8 @@ import {
     FunnelExclusionSteps,
     FunnelsDataWarehouseNode,
     FunnelsFilter,
-    FunnelsQuery,
 } from '~/queries/schema/schema-general'
 import { integer } from '~/queries/schema/type-utils'
-import { isFunnelsDataWarehouseNode } from '~/queries/utils'
 import {
     Breakdown,
     BreakdownKeyType,
@@ -889,16 +887,4 @@ export function getStepBreakdownSeries(
     }
 
     return single
-}
-
-export function isFunnelWithEnoughSteps(series: FunnelsQuery['series'] | null | undefined): boolean {
-    return (series?.length || 0) > 1
-}
-
-export function isFunnelWithIncompleteDataWarehouseStep(series: FunnelsQuery['series'] | null | undefined): boolean {
-    return (series || []).some(
-        (step) =>
-            isFunnelsDataWarehouseNode(step) &&
-            (!step.table_name || !step.id_field || !step.timestamp_field || !step.aggregation_target_field)
-    )
 }

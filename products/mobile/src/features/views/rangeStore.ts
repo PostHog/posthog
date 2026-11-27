@@ -1,7 +1,9 @@
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { useCallback, useMemo } from 'react'
 import { create } from 'zustand'
+import { createJSONStorage, persist } from 'zustand/middleware'
 
-import { addSessionEndTask } from '@/auth/authStore'
+import { addSessionEndTask, useAuthStore } from '@/auth/authStore'
 import { haptic } from '@/lib/haptics'
 import type { RangeChoice, RangePresetKey, SavedRange, ViewKind } from '@/model/views'
 
@@ -16,46 +18,64 @@ import { type FiltersOverride, rangeOverride } from './rangeOverride'
 import { isSavedRange, presetForValues, rangeLabel } from './rangePresets'
 import { type StepContext, type StepDirection, stepRange } from './rangeStep'
 
-/**
- * `{data scope}|dashboard:{id}`, `{data scope}|insight:{short_id}` or `{data scope}|web`. The data scope
- * (`useViewsContext().dataScope`) keeps a range picked in demo mode or in one project out of the others.
- */
 export type ViewRangeKey = string
 
-export function dashboardRangeKey(dataScope: string, dashboardRef: string | number): ViewRangeKey {
-    return `${dataScope}|dashboard:${dashboardRef}`
+export function useViewRangeScope(dataScope: string): string {
+    const userId = useAuthStore((state) => state.user?.uuid)
+    return dataScope !== 'demo' && userId ? `${dataScope}|${userId}` : dataScope
 }
 
-export function insightRangeKey(dataScope: string, shortId: string): ViewRangeKey {
-    return `${dataScope}|insight:${shortId}`
+export function dashboardRangeKey(scope: string, dashboardRef: string | number): ViewRangeKey {
+    return `${scope}|dashboard:${dashboardRef}`
 }
 
-export function webAnalyticsRangeKey(dataScope: string): ViewRangeKey {
-    return `${dataScope}|web`
+export function insightRangeKey(scope: string, shortId: string): ViewRangeKey {
+    return `${scope}|insight:${shortId}`
+}
+
+export function webAnalyticsRangeKey(scope: string): ViewRangeKey {
+    return `${scope}|web`
 }
 
 interface ViewRangeStoreState {
     ranges: Record<ViewRangeKey, RangeChoice>
-    compare: Record<ViewRangeKey, boolean>
     setRange: (key: ViewRangeKey, choice: RangeChoice | null) => void
+}
+
+export const useViewRangeStore = create<ViewRangeStoreState>()(
+    persist(
+        (set) => ({
+            ranges: {},
+            setRange: (key, choice) =>
+                set((state) => {
+                    const { [key]: _removed, ...rest } = state.ranges
+                    return { ranges: choice ? { ...rest, [key]: choice } : rest }
+                }),
+        }),
+        {
+            name: 'views-ranges:v1',
+            storage: createJSONStorage(() => AsyncStorage),
+            partialize: (state) => ({ ranges: state.ranges }),
+            skipHydration: true,
+        }
+    )
+)
+
+export const viewRangesLoaded = Promise.resolve(useViewRangeStore.persist.rehydrate())
+
+interface ViewCompareStoreState {
+    compare: Record<ViewRangeKey, boolean>
     setCompare: (key: ViewRangeKey, on: boolean) => void
     clear: () => void
 }
 
-// In memory only: a range lasts for the session, like the web's draft filters, and is never saved to the view.
-export const useViewRangeStore = create<ViewRangeStoreState>()((set) => ({
-    ranges: {},
+export const useViewCompareStore = create<ViewCompareStoreState>()((set) => ({
     compare: {},
-    setRange: (key, choice) =>
-        set((state) => {
-            const { [key]: _removed, ...rest } = state.ranges
-            return { ranges: choice ? { ...rest, [key]: choice } : rest }
-        }),
     setCompare: (key, on) => set((state) => ({ compare: { ...state.compare, [key]: on } })),
-    clear: () => set({ ranges: {}, compare: {} }),
+    clear: () => set({ compare: {} }),
 }))
 
-addSessionEndTask(() => useViewRangeStore.getState().clear())
+addSessionEndTask(() => useViewCompareStore.getState().clear())
 
 export interface ViewRange {
     /** Null: the view's saved range. */
@@ -82,7 +102,7 @@ export interface ViewRange {
 }
 
 /**
- * The session range of one view. `savedCompare` is the view's own compare setting, used until the user toggles it.
+ * `savedCompare` is the view's own compare setting, used until the user toggles it.
  * `compareKey` keeps the compare toggle apart from a range that another view shares, such as a tile's insight.
  */
 export function useViewRange(
@@ -93,9 +113,9 @@ export function useViewRange(
     compareKey: ViewRangeKey = key
 ): ViewRange {
     const choice = useViewRangeStore((state) => state.ranges[key] ?? null)
-    const compareChoice = useViewRangeStore((state) => state.compare[compareKey])
+    const compareChoice = useViewCompareStore((state) => state.compare[compareKey])
     const setRange = useViewRangeStore((state) => state.setRange)
-    const setCompareFor = useViewRangeStore((state) => state.setCompare)
+    const setCompareFor = useViewCompareStore((state) => state.setCompare)
     const savedFrom = saved.dateFrom
     const savedTo = saved.dateTo
     const savedRange = useMemo<SavedRange>(() => ({ dateFrom: savedFrom, dateTo: savedTo }), [savedFrom, savedTo])

@@ -8,11 +8,12 @@ import { pngHoggie } from 'lib/brand/hoggies'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { urls } from 'scenes/urls'
 import { marketingAnalyticsLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 
 import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
 import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
+
+import { marketingSourceConnectUrl } from '../components/marketingSourceConnectUrl'
 
 const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlass)
 
@@ -37,7 +38,7 @@ export function SearchConsoleSource({ headerAction }: { headerAction?: ReactNode
     }
     if (!dataWarehouseSources) {
         return (
-            <section className="max-w-3xl w-full mx-auto mt-8 mb-6">
+            <section className="w-full mt-8 mb-6">
                 <h2 className="mb-4 flex items-center justify-between gap-2">
                     <span>Search performance</span>
                     {headerAction}
@@ -68,7 +69,7 @@ export function SearchConsoleSource({ headerAction }: { headerAction?: ReactNode
         return null
     }
     return (
-        <section className="max-w-3xl w-full mx-auto mt-8 mb-6">
+        <section className="w-full mt-8 mb-6">
             <h2 className="mb-4">Search performance</h2>
             <LemonCard hoverEffect={false} className="space-y-4" data-attr="marketing-search-console-extra">
                 <div className="flex items-start gap-4">
@@ -94,12 +95,7 @@ export function SearchConsoleSource({ headerAction }: { headerAction?: ReactNode
                                 type="secondary"
                                 size="small"
                                 disabledReason={restrictedReason}
-                                to={urls.dataWarehouseSourceNew(
-                                    source.type,
-                                    urls.marketingAnalyticsApp(),
-                                    'Marketing analytics'
-                                )}
-                                targetBlank
+                                to={marketingSourceConnectUrl(source.type, 'marketing_analytics_search_console_card')}
                             >
                                 Connect
                             </LemonButton>

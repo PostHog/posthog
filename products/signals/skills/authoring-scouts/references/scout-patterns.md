@@ -2,6 +2,7 @@
 
 A catalog of the **reference architectures** scouts fall into.
 Most new scouts are a variation on one of these — pick the closest shape as your starting point, copy the named canonical scout it maps to, and swap in your surface's discriminator and queries.
+To read a canonical scout this page names, try `posthog:skill-get` first for the copy this project runs, then fetch its upstream `SKILL.md` from GitHub at `https://raw.githubusercontent.com/PostHog/posthog/master/products/signals/skills/<name>/SKILL.md` (bundled references sit in `https://github.com/PostHog/posthog/tree/master/products/signals/skills/<name>`); with no web access, start from the skeletons in [`scout-anatomy.md`](scout-anatomy.md).
 The [`scout-anatomy.md`](scout-anatomy.md) body structure is the same for all of them; what changes between patterns is **what the scout watches**, **how it reads that data**, and **what its signal-vs-noise discriminator is**.
 
 This is a living reference — add a pattern when a genuinely new shape proves itself, rather than letting every scout reinvent one.
@@ -86,7 +87,7 @@ The default specialist shape, and the one most surfaces fit.
   Pair it with a **change log** of the things that could shift the metric (merged website PRs above a materiality bar, experiments started or stopped, deploys) so a surprise can be attributed rather than re-derived, and post a short plain-language digest on a fixed cadence even when quiet, because a silent predictor gives its reader no way to tell calibration from absence.
   This is the shape to reach for when the team wants a metric _understood_ rather than merely alarmed on, and when the volume is low enough that per-bucket anomaly scoring is mostly noise.
 - Copy the closest specialist verbatim and replace the surface + discriminator.
-  Read `products/signals/skills/signals-scout-error-tracking/SKILL.md` for the cleanest worked example (its `count`-vs-`distinct_users` table is the canonical discriminator).
+  Read `signals-scout-error-tracking` for the cleanest worked example (its `count`-vs-`distinct_users` table is the canonical discriminator).
 
 ### Liveness / absence watcher
 
@@ -171,7 +172,7 @@ The scout can't re-check everything every run, so it **curates**.
 - **The balance:** each run splits effort between **exploit** (re-check watchlist items that are due) and **explore** (discover new high-value items to add).
   Neither alone is enough — exploit-only goes stale, explore-only never follows up.
 - **Dedupe + memory:** the watchlist itself is the memory — `watchlist:<domain>:<id>` entries with last-checked timestamps and per-item baselines.
-  This is the one specialist that bundles its own references; read `products/signals/skills/signals-scout-anomaly-detection/` for the full treatment.
+  This is the one specialist that bundles its own references; read `signals-scout-anomaly-detection` and its `references/` for the full treatment.
 
 **Curated (fixed) variant — the common user ask.** When the team already knows exactly which entities matter ("watch _these_ dashboards / insights / metrics"), drop the explore half: the watchlist is a **fixed, curated set** held in the scratchpad (or even inlined in the body), so a run spends almost nothing on discovery and almost everything on "is the latest number worth a human's attention?".
 This is what most users mean by "keep an eye on my key dashboards", and it's the cleanest first scout to hand someone.
@@ -197,7 +198,7 @@ Files P3 recommendations rather than P0–P2 anomalies.
 - **Discriminator:** a high-value entity that lacks the coverage/configuration it should have.
 - **Calibration:** default `priority` P3 with `actionability: requires_human_input`; weight by how much the gap matters, not by urgency.
   Don't flood the inbox — a recommendation the team won't act on is noise.
-- See `products/signals/skills/signals-scout-observability-gaps/SKILL.md`.
+- See `signals-scout-observability-gaps`.
 
 ### Warehouse-backed source scout
 
@@ -809,6 +810,7 @@ These compose into any pattern above:
   Raises confidence, and gives the human a number to act on.
 - **Leading-indicator proxies (watch the coping behavior, not the system)** — users route around a problem before telemetry names it, and their coping behavior is often the earliest available signal: a manual-refresh or re-sync spike when data goes stale, a surge in FAQ/help/contact-page traffic when something confuses, a rising share of requests blocked by a usage cap before an upgrade-or-churn decision.
   Score the proxy against its own baseline like any metric, but frame the finding around the underlying problem it implies — and corroborate against the system's own health signals before claiming a cause.
+- **Read core context by tag first** — for an account-level scout, start the context sweep with the account's notes tagged `context-core` (`accounts-notebooks-list` with `tags`), the stack, stakeholders and plans its team keeps current, before the rest of its notes. Skip notes tagged `scout` there: they are scout write-ups, your own included, not what people know.
 - **Opt-in scoping via tags** — let users opt entities into a scout by tagging them in PostHog (e.g. only funnels tagged `<scout-scope>` get scored).
   The tag is the configuration surface: users curate scope in the UI without touching the skill body, the quick close-out is "are any entities tagged?", and untagging is the off switch.
 - **Ready-to-paste handoff** — end a recommendation finding with the exact next action: a paste-able coding-agent prompt carrying the file:line references and the fix shape, or the name of the skill/command that applies it.
@@ -817,7 +819,8 @@ These compose into any pattern above:
   Your body carries the ownership map only; the shared discipline is already in the harness prompt (check the fleet before investigating, search the scratchpad by entity rather than by your own prefix, and author anyway when your angle is materially new — citing the sibling's report id).
   So don't spend body lines re-teaching "check what siblings found" or "don't duplicate": name what's yours and what isn't, and let the prompt handle the rest.
 - **Run-budget discipline** — the sandbox kills a run after a fixed budget, so an expensive scout should name its budget at the top of the body and query economically: one combined SQL returning several metrics beats several queries, cap tool calls and items per run, and prefer a fast shallower pass that completes over a thorough one that times out and posts nothing.
-- **Notebook write-up behind a rich finding.** When a finding carries real analysis (charts, a multi-step investigation, several supporting queries), write it up in a notebook with `notebooks-create` and link the URL from the finding description, rather than cramming everything into the report prose.
+- **Account note write-up for an account-level finding.** When a finding is about one Customer analytics account and the scout holds `account_note:write`, write it to that account's Notes with `accounts-notebooks-create` (Markdown in `text_content`, a link to the report, and topic tags only). The server adds `scout` and `scout-<skill name>`, so the account's owner sees it on the account's Notes tab and can filter scout notes in or out. Without the grant, skip the note and file the report as usual.
+- **Notebook write-up behind a rich finding.** When a finding carries real analysis (charts, a multi-step investigation, several supporting queries), create a notebook with `posthog:notebooks-create-markdown`, add the analysis with `posthog:notebooks-add-cell`, and link its URL from the finding description.
   The inbox entry stays scannable; the depth is one click away.
   A case-study scout (one report a day traced from first signal to human reaction) should set itself a **depth floor** (a fixed section list, a timeline table, a minimum number of executed query cells) so the notebook is a write-up and not a stub.
 - **Parameterize by an operator profile.** When several people want the same scout for their own slice (their book, their repositories, their channel), do not clone and edit.

@@ -1,0 +1,585 @@
+import ssl
+import socket
+import dataclasses
+from datetime import UTC, date, datetime
+from typing import Any
+
+import pytest
+import time_machine
+from unittest import mock
+
+from products.warehouse_sources.sources.sdk.testing import (
+    DriveResult,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.sources.signoz import signoz as sgz
+from products.warehouse_sources.sources.signoz._config import SigNozSourceConfig
+from products.warehouse_sources.sources.signoz.settings import SIGNOZ_ENDPOINTS
+from products.warehouse_sources.sources.signoz.signoz import (
+    CONNECTION_ERROR,
+    INVALID_HOST_ERROR,
+    TLS_ERROR,
+    UNEXPECTED_RESPONSE_ERROR,
+    SigNozResumeConfig,
+    _extract_config_items,
+    _extract_meter_rows,
+    _extract_raw_rows,
+    _to_epoch_ms,
+    validate_credentials,
+)
+from products.warehouse_sources.sources.signoz.source import SigNozSource
+
+CONFIG = SigNozSourceConfig(host="example.signoz.io", api_key="key")
+
+
+class TestToEpochMs:
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            (datetime(2026, 1, 1, tzinfo=UTC), 1767225600000),
+            (datetime(2026, 1, 1), 1767225600000),  # naive -> UTC
+            (date(2026, 1, 1), 1767225600000),
+            (1767225600000, 1767225600000),  # already ms
+            (1767225600, 1767225600000),  # seconds -> ms
+            ("2026-01-01T00:00:00Z", 1767225600000),
+            # Go marshals time.Time with nanosecond precision; must still parse.
+            ("2026-01-01T00:00:00.123456789Z", 1767225600123),
+            ("not-a-timestamp", None),
+            (None, None),
+        ],
+    )
+    def test_to_epoch_ms(self, value: Any, expected: int | None) -> None:
+        assert _to_epoch_ms(value) == expected
+
+
+class TestExtractRawRows:
+    @pytest.mark.parametrize(
+        "response",
+        [
+            {},
+            {"data": {}},
+            {"data": {"data": {}}},
+            {"data": {"data": {"results": []}}},
+            {"data": {"data": {"results": [{"queryName": "A", "rows": None}]}}},
+            "unexpected",
+            None,
+        ],
+    )
+    def test_malformed_envelope_returns_empty(self, response: Any) -> None:
+        assert _extract_raw_rows(response) == []
+
+
+class TestExtractConfigItems:
+    def test_notification_channels_allowlist_strips_credential_data(self) -> None:
+        # The `data` field carries receiver secrets (Slack webhook URLs, PagerDuty keys); the
+        # allowlist must drop it (and anything else off-list) before it reaches the warehouse.
+        response = {
+            "status": "success",
+            "data": [
+                {
+                    "id": "c1",
+                    "name": "oncall",
+                    "type": "slack",
+                    "data": {"url": "https://hooks.slack.com/services/SECRET"},
+                    "createdAt": "2026-01-01T00:00:00Z",
+                    "updatedAt": "2026-01-02T00:00:00Z",
+                    "internal_field": "drop me",
+                }
+            ],
+        }
+        assert _extract_config_items(response, SIGNOZ_ENDPOINTS["notification_channels"]) == [
+            {
+                "id": "c1",
+                "name": "oncall",
+                "type": "slack",
+                "createdAt": "2026-01-01T00:00:00Z",
+                "updatedAt": "2026-01-02T00:00:00Z",
+            }
+        ]
+
+    @pytest.mark.parametrize(
+        "response",
+        [{}, {"data": None}, {"data": {"rules": "nope"}}, None],
+    )
+    def test_malformed_response_returns_empty(self, response: Any) -> None:
+        assert _extract_config_items(response, SIGNOZ_ENDPOINTS["alert_rules"]) == []
+
+
+class TestValidateCredentials:
+    @pytest.mark.parametrize(
+        ("status_code", "body", "schema_name", "expected_valid"),
+        [
+            (200, b'{"status": "success", "data": []}', None, True),
+            # A host serving a web page for every path is not a SigNoz API.
+            (200, b"<!doctype html><html></html>", None, False),
+            (200, b"", None, False),
+            (401, None, None, False),
+            # 403 at source-create is a valid key without the probe's role -> accept.
+            (403, None, None, True),
+            # 403 on a scoped probe is a hard failure.
+            (403, None, "logs", False),
+            (500, None, None, False),
+        ],
+    )
+    def test_status_mapping(
+        self, status_code: int, body: bytes | None, schema_name: str | None, expected_valid: bool
+    ) -> None:
+        with scripted_network(always(ScriptedResponse(status=status_code, body=body))) as network:
+            is_valid, error = validate_credentials("example.signoz.io", "key", schema_name=schema_name)
+
+        assert {request.path for request in network.requests_log} == {"/api/v1/channels"}
+        assert is_valid is expected_valid
+        if expected_valid:
+            assert error is None
+        else:
+            assert error is not None
+
+    def test_redirect_is_rejected(self) -> None:
+        redirect = ScriptedResponse(status=302, headers={"Location": "https://internal.example.com/"})
+        with scripted_network(always(redirect)):
+            is_valid, error = validate_credentials("example.signoz.io", "key")
+
+        assert is_valid is False
+        assert error is not None
+
+    @pytest.mark.parametrize("host", ["", "not a host!", "bad_host/", "signoz.example.com:8080"])
+    def test_invalid_host_is_rejected_without_a_request(self, host: str) -> None:
+        is_valid, error = validate_credentials(host, "key")
+        assert is_valid is False
+        assert error == INVALID_HOST_ERROR
+
+    @pytest.mark.parametrize(
+        ("failure", "expected_error"),
+        [
+            (ssl.SSLError("certificate verify failed: self-signed certificate"), TLS_ERROR),
+            (TimeoutError("timed out"), CONNECTION_ERROR),
+            (ConnectionRefusedError("connection refused"), CONNECTION_ERROR),
+            (socket.gaierror("name or service not known"), CONNECTION_ERROR),
+        ],
+    )
+    def test_transport_failure_gets_a_message_without_the_raw_error(
+        self, failure: BaseException, expected_error: str
+    ) -> None:
+        with scripted_network(always(failure)):
+            is_valid, error = validate_credentials("signoz.example.com", "key")
+
+        assert is_valid is False
+        assert error == expected_error
+
+    @pytest.mark.parametrize("status_code", [404, 500])
+    def test_unexpected_status_hides_the_status_code(self, status_code: int) -> None:
+        with scripted_network(always(ScriptedResponse(status=status_code))):
+            is_valid, error = validate_credentials("example.signoz.io", "key")
+
+        assert is_valid is False
+        assert error == UNEXPECTED_RESPONSE_ERROR
+
+    @mock.patch("products.warehouse_sources.sources.signoz.signoz._is_host_safe")
+    def test_unsafe_host_is_blocked(self, mock_host_safe: mock.MagicMock) -> None:
+        mock_host_safe.return_value = (False, "Hosts with internal IP addresses are not allowed")
+        is_valid, error = validate_credentials("10.0.0.1", "key", team_id=42)
+        assert is_valid is False
+        assert error == "Hosts with internal IP addresses are not allowed"
+
+
+class TestSigNozSourceResponse:
+    @pytest.mark.parametrize(
+        ("endpoint", "expected_pks", "expected_partition_key", "expected_sort_mode"),
+        [
+            ("logs", ["id"], "timestamp", "asc"),
+            ("traces", ["trace_id", "span_id"], "timestamp", "asc"),
+            ("alert_rules", ["id"], "createdAt", "asc"),
+            ("dashboards", ["id"], "createdAt", "asc"),
+            ("notification_channels", ["id"], "createdAt", "asc"),
+            # One series after another, so the rows are not in timestamp order.
+            ("meter_usage", ["metric_name", "timestamp", "service_name", "deployment_environment"], "timestamp", None),
+        ],
+    )
+    def test_source_response_shape(
+        self, endpoint: str, expected_pks: list[str], expected_partition_key: str, expected_sort_mode: str | None
+    ) -> None:
+        response = SourceDriver(SigNozSource(), CONFIG).run(endpoint, always(ScriptedResponse(json=_page([])))).response
+
+        assert response is not None
+        assert response.name == endpoint
+        assert response.primary_keys == expected_pks
+        assert response.sort_mode == expected_sort_mode
+        assert response.partition_mode == "datetime"
+        assert response.partition_keys == [expected_partition_key]
+
+
+def _meter_response(series: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "status": "success",
+        "data": {
+            "type": "time_series",
+            "data": {"results": [{"queryName": "A", "aggregations": [{"index": 0, "series": series}]}]},
+        },
+    }
+
+
+def _meter_series(labels: dict[str, Any], values: list[dict[str, Any]]) -> dict[str, Any]:
+    return {"labels": [{"key": {"name": k}, "value": v} for k, v in labels.items()], "values": values}
+
+
+METER_METRICS = SIGNOZ_ENDPOINTS["meter_usage"].metric_names
+DAY_MS = 86_400_000
+JAN_1_MS = 1767225600000  # 2026-01-01T00:00:00Z
+
+
+def _page(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    return {"status": "success", "data": {"type": "raw", "data": {"results": [{"queryName": "A", "rows": rows}]}}}
+
+
+def _with_page_size(endpoint: str, page_size: int) -> Any:
+    return dataclasses.replace(SIGNOZ_ENDPOINTS[endpoint], page_size=page_size)
+
+
+def _log_row(ts: str, row_id: str) -> dict[str, Any]:
+    return {"timestamp": ts, "data": {"id": row_id, "body": f"line {row_id}"}}
+
+
+class TestGetRows:
+    def _run(
+        self,
+        endpoint: str,
+        responses: list[Any],
+        resume_state: SigNozResumeConfig | None = None,
+        page_size: int = 2,
+        should_use_incremental_field: bool = False,
+        db_incremental_field_last_value: Any = None,
+    ) -> DriveResult:
+        with mock.patch.dict(sgz.SIGNOZ_ENDPOINTS, {endpoint: _with_page_size(endpoint, page_size)}):
+            return SourceDriver(SigNozSource(), CONFIG).run(
+                endpoint,
+                [ScriptedResponse(json=response) for response in responses],
+                resume_state=resume_state,
+                should_use_incremental_field=should_use_incremental_field,
+                db_incremental_field_last_value=db_incremental_field_last_value,
+            )
+
+    @pytest.mark.parametrize("endpoint", ["alert_rules", "dashboards"])
+    def test_config_pages_follow_total_and_preserve_record_keys(self, endpoint: str) -> None:
+        list_key = "rules" if endpoint == "alert_rules" else "dashboards"
+        legacy_path = "/api/v1/rules" if endpoint == "alert_rules" else "/api/v1/dashboards"
+        path = "/api/v3/rules" if endpoint == "alert_rules" else "/api/v2/dashboards"
+        rows = [
+            {"id": str(i), "createdAt": "2026-01-01T00:00:00Z", "alert": f"rule {i}", "unexpected": "drop"}
+            if endpoint == "alert_rules"
+            else {"id": str(i), "createdAt": "2026-01-01T00:00:00Z", "spec": {"display": {"name": f"board {i}"}}}
+            for i in range(3)
+        ]
+        with mock.patch.dict(sgz.SIGNOZ_ENDPOINTS, {endpoint: _with_page_size(endpoint, 2)}):
+            result = SourceDriver(SigNozSource(), CONFIG).run(
+                endpoint,
+                [
+                    ScriptedResponse(body=b"<!doctype html><html></html>"),
+                    ScriptedResponse(json={"status": "success", "data": {list_key: rows[:1], "total": 3}}),
+                    ScriptedResponse(json={"status": "success", "data": {list_key: rows[1:], "total": 3}}),
+                ],
+            )
+
+        assert result.raised is None
+        expected = [{k: v for k, v in row.items() if k != "unexpected"} for row in rows]
+        assert result.rows == expected
+        assert result.paths == [legacy_path, path, path]
+        assert result.params("offset") == [None, "0", "1"]
+        assert result.params("limit") == [None, "2", "2"]
+        assert result.params("sort") == [None, "created_at", "created_at"]
+        assert result.params("order") == [None, "asc", "asc"]
+        assert result.response is not None
+        assert result.response.primary_keys == ["id"]
+        assert all(row["id"] for row in result.rows)
+        assert result.response.partition_keys == ["createdAt"]
+        assert all(row["createdAt"] == "2026-01-01T00:00:00Z" for row in result.rows)
+
+    @pytest.mark.parametrize(
+        "unavailable",
+        [ScriptedResponse(status=404), ScriptedResponse(body=b"<!doctype html><html></html>")],
+    )
+    def test_config_falls_back_to_current_api_when_legacy_list_is_removed(self, unavailable: ScriptedResponse) -> None:
+        result = SourceDriver(SigNozSource(), CONFIG).run(
+            "alert_rules",
+            [
+                unavailable,
+                ScriptedResponse(json={"status": "success", "data": {"rules": [{"id": "r1"}], "total": 1}}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.rows == [{"id": "r1"}]
+        assert result.paths == ["/api/v1/rules", "/api/v3/rules"]
+
+    @pytest.mark.parametrize("endpoint", ["alert_rules", "dashboards"])
+    def test_config_prefers_legacy_lists_and_keeps_their_full_records(self, endpoint: str) -> None:
+        legacy_row = {
+            "id": "old-1",
+            "createAt": "2026-01-01T00:00:00Z",
+            "createBy": "viewer",
+            "condition": {"target": 1},
+            "frequency": "1m",
+            "annotations": {"summary": "s"},
+        }
+        dashboard_row = {"id": "old-1", "createdAt": "2026-01-01T00:00:00Z", "data": {"panels": []}}
+        data: Any = {"rules": [legacy_row]} if endpoint == "alert_rules" else [dashboard_row]
+        result = SourceDriver(SigNozSource(), CONFIG).run(
+            endpoint, [ScriptedResponse(json={"status": "success", "data": data})]
+        )
+
+        assert result.raised is None
+        if endpoint == "alert_rules":
+            assert result.rows == [{**legacy_row, "createdAt": "2026-01-01T00:00:00Z", "createdBy": "viewer"}]
+        else:
+            assert result.rows == [dashboard_row]
+        assert result.paths == ["/api/v1/rules" if endpoint == "alert_rules" else "/api/v1/dashboards"]
+        assert result.params("offset") == [None]
+
+    @pytest.mark.parametrize("status", [401, 403, 400])
+    def test_config_does_not_fall_back_on_api_errors(self, status: int) -> None:
+        result = SourceDriver(SigNozSource(), CONFIG).run("alert_rules", [ScriptedResponse(status=status)])
+
+        assert result.raised is not None
+        assert result.paths == ["/api/v1/rules"]
+
+    def test_config_does_not_switch_versions_after_yielding_a_page(self) -> None:
+        result = SourceDriver(SigNozSource(), CONFIG).run(
+            "alert_rules",
+            [
+                ScriptedResponse(status=404),
+                ScriptedResponse(json={"data": {"rules": [{"id": "r1"}], "total": 2}}),
+                ScriptedResponse(status=404),
+            ],
+        )
+
+        assert result.raised is not None
+        assert result.rows == [{"id": "r1"}]
+        assert result.paths == ["/api/v1/rules", "/api/v3/rules", "/api/v3/rules"]
+
+    def test_notification_channels_endpoint_drops_credential_data(self) -> None:
+        # End-to-end guard on the sync path: the receiver `data` payload never reaches the
+        # yielded rows, so imported channel secrets can't land in the warehouse table.
+        responses = [
+            {
+                "status": "success",
+                "data": [{"id": "c1", "name": "oncall", "type": "slack", "data": {"url": "https://secret"}}],
+            }
+        ]
+        result = self._run("notification_channels", responses)
+
+        assert result.raised is None
+        assert result.items == [[{"id": "c1", "name": "oncall", "type": "slack"}]]
+
+    @pytest.mark.parametrize(
+        ("body", "expected_non_retryable"),
+        [
+            (b"<!doctype html><html></html>", True),
+            (b"", True),
+            # A truncated JSON body is a transient upstream blip, so it stays retryable.
+            (b'{"status": "succ', False),
+        ],
+    )
+    def test_non_json_body_is_non_retryable_only_when_not_json(self, body: bytes, expected_non_retryable: bool) -> None:
+        result = SourceDriver(SigNozSource(), CONFIG).run("alert_rules", always(ScriptedResponse(body=body)))
+
+        assert result.raised is not None
+        non_retryable = SigNozSource().get_non_retryable_errors()
+        assert any(pattern in str(result.raised) for pattern in non_retryable) is expected_non_retryable
+
+    def test_full_page_advances_window_start_and_saves_state_after_yield(self) -> None:
+        responses = [
+            _page([_log_row("2026-01-01T00:00:00Z", "1"), _log_row("2026-01-01T00:00:01Z", "2")]),
+            _page([_log_row("2026-01-01T00:00:02Z", "3")]),
+        ]
+        result = self._run(
+            "logs",
+            responses,
+            resume_state=SigNozResumeConfig(window_start_ms=1767225600000, window_end_ms=1767312000000, offset=0),
+            page_size=2,
+        )
+
+        assert result.raised is None
+        assert [len(b) for b in result.items] == [2, 1]
+        # Window start advanced to the last row's timestamp; one trailing row at that ms is
+        # skipped via the offset instead of an ever-growing window offset.
+        assert len(result.saved_states) == 1
+        assert result.saved_states[0].window_start_ms == 1767225601000
+        assert result.saved_states[0].offset == 1
+        # The second request starts at the advanced window with the trailing-row offset.
+        second_body = result.requests[1].json()
+        assert second_body["start"] == 1767225601000
+        assert second_body["compositeQuery"]["queries"][0]["spec"]["offset"] == 1
+
+    def test_full_page_within_one_millisecond_grows_offset(self) -> None:
+        same_ts = "2026-01-01T00:00:00Z"
+        responses = [
+            _page([_log_row(same_ts, "1"), _log_row(same_ts, "2")]),
+            _page([_log_row(same_ts, "3"), _log_row(same_ts, "4")]),
+            _page([]),
+        ]
+        result = self._run(
+            "logs",
+            responses,
+            resume_state=SigNozResumeConfig(window_start_ms=1767225600000, window_end_ms=1767225700000, offset=0),
+            page_size=2,
+        )
+
+        # The whole window-start millisecond spans multiple pages: offset accumulates so no
+        # rows are skipped and none are refetched.
+        assert [s.offset for s in result.saved_states] == [2, 4]
+        assert all(s.window_start_ms == 1767225600000 for s in result.saved_states)
+        assert [request.json()["compositeQuery"]["queries"][0]["spec"]["offset"] for request in result.requests] == [
+            0,
+            2,
+            4,
+        ]
+
+    def test_incremental_watermark_sets_window_start(self) -> None:
+        responses = [_page([])]
+        result = self._run(
+            "logs",
+            responses,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+        assert result.requests[0].json()["start"] == 1767225600000
+
+    def test_first_sync_uses_lookback_window(self) -> None:
+        responses = [_page([])]
+        result = self._run("logs", responses)
+
+        body = result.requests[0].json()
+        lookback_days = (body["end"] - body["start"]) / 1000 / 86400
+        assert round(lookback_days) == SIGNOZ_ENDPOINTS["logs"].default_lookback_days
+
+
+class TestMeterUsage:
+    def _metric_queried(self, request: Any) -> str:
+        return request.json()["compositeQuery"]["queries"][0]["spec"]["aggregations"][0]["metricName"]
+
+    @time_machine.travel(datetime(2026, 3, 10, 15, 30, tzinfo=UTC), tick=False)
+    def test_queries_every_metric_and_shapes_daily_rows(self) -> None:
+        first = _meter_response(
+            [
+                _meter_series(
+                    {"service.name": "checkout", "deployment.environment": "prod"},
+                    [
+                        {"timestamp": JAN_1_MS, "value": 120.0},
+                        {"timestamp": JAN_1_MS + DAY_MS, "value": 80.0},
+                        {"timestamp": JAN_1_MS + 2 * DAY_MS, "value": 5.0, "partial": True},
+                    ],
+                ),
+                # A series without an environment label, and a point with no value.
+                _meter_series(
+                    {"service.name": "search"},
+                    [{"timestamp": JAN_1_MS, "value": 7}, {"timestamp": JAN_1_MS + DAY_MS}],
+                ),
+            ]
+        )
+        responses = [first] + [_meter_response([]) for _ in METER_METRICS[1:]]
+        result = SourceDriver(SigNozSource(), CONFIG).run("meter_usage", [ScriptedResponse(json=r) for r in responses])
+
+        assert result.raised is None
+        assert [self._metric_queried(r) for r in result.requests] == list(METER_METRICS)
+        spec = result.requests[0].json()["compositeQuery"]["queries"][0]["spec"]
+        assert spec["source"] == "meter"
+        assert spec["stepInterval"] == 86400
+        assert spec["aggregations"][0]["timeAggregation"] == "increase"
+        assert spec["groupBy"] == [{"name": "service.name"}, {"name": "deployment.environment"}]
+        # Whole UTC days only: the window ends at today's midnight.
+        body = result.requests[0].json()
+        assert body["end"] == int(datetime(2026, 3, 10, tzinfo=UTC).timestamp() * 1000)
+        assert body["start"] % DAY_MS == 0
+        assert result.rows == [
+            {
+                "metric_name": METER_METRICS[0],
+                "timestamp": datetime(2026, 1, 1, tzinfo=UTC),
+                "service_name": "checkout",
+                "deployment_environment": "prod",
+                "value": 120.0,
+            },
+            {
+                "metric_name": METER_METRICS[0],
+                "timestamp": datetime(2026, 1, 2, tzinfo=UTC),
+                "service_name": "checkout",
+                "deployment_environment": "prod",
+                "value": 80.0,
+            },
+            {
+                "metric_name": METER_METRICS[0],
+                "timestamp": datetime(2026, 1, 1, tzinfo=UTC),
+                "service_name": "search",
+                "deployment_environment": "",
+                "value": 7,
+            },
+        ]
+
+    @pytest.mark.parametrize(
+        ("should_use_incremental_field", "last_value", "expected_start"),
+        [
+            # The watermark day and the day before it are read again.
+            (True, datetime(2026, 3, 5, tzinfo=UTC), datetime(2026, 3, 4, tzinfo=UTC)),
+            (True, "2026-03-05T00:00:00+00:00", datetime(2026, 3, 4, tzinfo=UTC)),
+            (False, None, datetime(2025, 3, 10, tzinfo=UTC)),
+        ],
+    )
+    @time_machine.travel(datetime(2026, 3, 10, 15, 30, tzinfo=UTC), tick=False)
+    def test_window_start(self, should_use_incremental_field: bool, last_value: Any, expected_start: datetime) -> None:
+        result = SourceDriver(SigNozSource(), CONFIG).run(
+            "meter_usage",
+            always(ScriptedResponse(json=_meter_response([]))),
+            should_use_incremental_field=should_use_incremental_field,
+            db_incremental_field_last_value=last_value,
+        )
+
+        assert result.raised is None
+        assert {r.json()["start"] for r in result.requests} == {int(expected_start.timestamp() * 1000)}
+
+    @time_machine.travel(datetime(2026, 3, 10, 15, 30, tzinfo=UTC), tick=False)
+    def test_watermark_today_queries_nothing(self) -> None:
+        result = SourceDriver(SigNozSource(), CONFIG).run(
+            "meter_usage",
+            always(ScriptedResponse(json=_meter_response([]))),
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 3, 12, tzinfo=UTC),
+        )
+
+        assert result.raised is None
+        assert result.requests == []
+
+    def test_resume_continues_with_the_next_metric_in_the_pinned_window(self) -> None:
+        resume = SigNozResumeConfig(window_start_ms=JAN_1_MS, window_end_ms=JAN_1_MS + 3 * DAY_MS, offset=3)
+        series = _meter_series({"service.name": "api"}, [{"timestamp": JAN_1_MS, "value": 1}])
+        result = SourceDriver(SigNozSource(), CONFIG).run(
+            "meter_usage",
+            [ScriptedResponse(json=_meter_response([series])), ScriptedResponse(json=_meter_response([series]))],
+            resume_state=resume,
+        )
+
+        assert result.raised is None
+        assert [self._metric_queried(r) for r in result.requests] == list(METER_METRICS[3:])
+        assert {(r.json()["start"], r.json()["end"]) for r in result.requests} == {(JAN_1_MS, JAN_1_MS + 3 * DAY_MS)}
+        assert [row["metric_name"] for row in result.rows] == list(METER_METRICS[3:])
+        assert [state.offset for state in result.saved_states] == [4, 5]
+
+    @pytest.mark.parametrize(
+        "response",
+        [
+            {},
+            {"data": {"data": {"results": None}}},
+            {"data": {"data": {"results": [{"queryName": "A", "aggregations": None}]}}},
+            {"data": {"data": {"results": [{"aggregations": [{"series": [{"labels": None, "values": None}]}]}]}}},
+            {
+                "data": {
+                    "data": {
+                        "results": [{"aggregations": [{"series": [{"values": [{"timestamp": "x", "value": 1}]}]}]}]
+                    }
+                }
+            },
+            "unexpected",
+        ],
+    )
+    def test_malformed_time_series_returns_empty(self, response: Any) -> None:
+        assert _extract_meter_rows(response, SIGNOZ_ENDPOINTS["meter_usage"], METER_METRICS[0]) == []

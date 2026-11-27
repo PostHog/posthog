@@ -144,7 +144,7 @@ describe('searchLogic', () => {
 
     it.each([
         ['batch exports', [], '/data-management/destinations?tab=batch'],
-        ['metrics sql', [], '/metrics?activeTab=sql'],
+        ['metrics viewer', [], '/metrics?activeTab=viewer'],
         ['dashboards cross-project', [FEATURE_FLAGS.CROSS_PROJECT_DASHBOARDS], '/dashboard?tab=cross-project'],
         ['tracing sql', [FEATURE_FLAGS.TRACING, FEATURE_FLAGS.TRACING_SCENE_TABS], '/tracing?tab=sql'],
         ['reusable widgets', [], '/notebooks?tab=widgets'],
@@ -162,14 +162,19 @@ describe('searchLogic', () => {
 
         const rows = logic.values.allCategories.flatMap((category) => category.items)
         expect(rows.some((item) => item.category === SEARCH_TAB_CATEGORY)).toBe(true)
-        expect(rows.map((item) => item.href)).not.toContain('/metrics?activeTab=sql')
+        expect(rows.map((item) => item.href)).not.toContain('/metrics?activeTab=viewer')
     })
 
-    it('lists Error tracking first in Products for "errors"', async () => {
-        await searchOnceProductsLoad('errors')
+    it.each([
+        ['errors', 'tools', 'Error tracking'],
+        ['support', 'tools', 'Support'],
+        ['my tickets', 'tools', 'Your tickets'],
+        ['log out', 'actions', 'Log out'],
+    ])('for "%s" lists first in %s: %s', async (search, key, name) => {
+        await searchOnceProductsLoad(search)
 
-        const products = logic.values.allCategories.find((category) => category.key === 'tools')
-        expect(products?.items[0]?.name).toBe('Error tracking')
+        const category = logic.values.allCategories.find((category) => category.key === key)
+        expect(category?.items[0]?.name).toBe(name)
     })
 
     it('lists the Tabs group above Settings', async () => {

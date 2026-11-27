@@ -3,15 +3,17 @@ use base64::Engine;
 use replay_core_v4::envelope::{
     open_frame, seal_frame_with_nonce, seal_json_envelope_with_nonce, Codec, Context, Version,
 };
-use replay_core_v4::refs::{image_ref, image_url_ref, reference_hash, url_fingerprint};
+use replay_core_v4::fetched_image::{fetched_image_context, image_url_hash, public_font_ref_of};
+use replay_core_v4::refs::{reference_hash, url_fingerprint, url_ref, UrlAsset};
 use replay_core_v4::seal::{
     image_content_key, image_url_key, open_session_key, seal_session_key_with_nonce,
     url_fingerprint_key, SealedKey, WrappingContext,
 };
+use replay_core_v4::v4_image_refs::{image_ref, image_url_ref};
 use serde_json::Value;
 
 // Written with Node's crypto from the spec in replay-data.md, so this checks the Rust code against an independent
-// implementation. The v4 Node writers read the same file.
+// implementation. The v4 Node tests read the same file.
 const VECTOR: &str =
     include_str!("../../../../nodejs/src/ingestion/pipelines/sessionreplay/ai-research/v4-keys/encryption-vector-v4.json");
 
@@ -138,9 +140,13 @@ fn reproduces_every_pinned_v4_value() {
     assert!(open_frame(&session_key, Version::V4, &image_context, &image_frame).is_err());
 
     let url = &vector["url"];
-    let url_hash = reference_hash(
-        &image_url_key(&team_month_key),
-        url["url"].as_str().unwrap().as_bytes(),
+    let url_hash = image_url_hash(&team_month_key, url["url"].as_str().unwrap());
+    assert_eq!(
+        url_hash,
+        reference_hash(
+            &image_url_key(&team_month_key),
+            url["url"].as_str().unwrap().as_bytes()
+        )
     );
     assert_eq!(
         image_url_ref(team_id, key_month, &url_hash),
@@ -150,7 +156,11 @@ fn reproduces_every_pinned_v4_value() {
     // The image fetcher seals a fetched image under its URL reference, so a reader rebuilds the context from it.
     let fetched = &vector["imageUrl"];
     assert_eq!(fetched["ref"], url["ref"]);
-    let fetched_context = context(&fetched["context"], Some(Codec::None));
+    let fetched_context = fetched_image_context(fetched["ref"].as_str().unwrap()).unwrap();
+    assert_eq!(
+        fetched_context,
+        context(&fetched["context"], Some(Codec::None))
+    );
     let fetched_frame = seal_frame_with_nonce(
         &team_month_key,
         Version::V4,
@@ -160,6 +170,34 @@ fn reproduces_every_pinned_v4_value() {
     )
     .unwrap();
     assert_eq!(fetched_frame, bytes(&fetched["frame"]));
+
+    let font = &vector["fontUrl"];
+    let font_hash = image_url_hash(&team_month_key, font["url"].as_str().unwrap());
+    assert_eq!(
+        url_ref(UrlAsset::Font, team_id, key_month, &font_hash),
+        font["ref"].as_str().unwrap()
+    );
+    let font_context = fetched_image_context(font["ref"].as_str().unwrap()).unwrap();
+    assert_eq!(font_context, context(&font["context"], Some(Codec::None)));
+    let font_frame = seal_frame_with_nonce(
+        &team_month_key,
+        Version::V4,
+        &font_context,
+        &bytes(&font["bytes"]),
+        nonce(&font["nonce"]),
+    )
+    .unwrap();
+    assert_eq!(font_frame, bytes(&font["frame"]));
+
+    let public_font = &vector["publicFontUrl"];
+    let public_ref = |url: &Value| public_font_ref_of(url.as_str().unwrap());
+    assert_eq!(
+        public_ref(&public_font["url"]),
+        str_field(&public_font["ref"])
+    );
+    for url in public_font["teamUrls"].as_array().unwrap() {
+        assert_eq!(public_ref(url), None, "{url}");
+    }
 
     let index = &vector["index"];
     let envelope = seal_json_envelope_with_nonce(

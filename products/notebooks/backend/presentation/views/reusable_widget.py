@@ -9,10 +9,15 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.pagination import offset_page_links
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.models import User
+from posthog.permissions import request_subject
 
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.notebooks.backend.facade.widgets import (
     WidgetConflictError,
     WidgetError,
@@ -56,7 +61,11 @@ class ReusableWidgetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     requires_resource_level_access = True
 
     def _require_query_access(self) -> None:
-        if not self.user_access_control.check_access_level_for_resource("query", "viewer"):
+        if not authorization.check(
+            resource=Resource(type=ResourceType.QUERY, project_id=self.team.pk),
+            action=Action.VIEW,
+            subject=request_subject(self.request),
+        ):
             raise PermissionDenied("You need query access to read or edit widget demo data.")
 
     def _require_user(self) -> None:
@@ -96,13 +105,17 @@ class ReusableWidgetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         self._require_user()
         query = ReusableWidgetCatalogQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
+        offset = query.validated_data["offset"]
+        limit = query.validated_data["limit"]
         result = list_reusable_widgets(
             team_id=self.team_id,
             search=query.validated_data["search"],
-            offset=query.validated_data["offset"],
-            limit=query.validated_data["limit"],
+            offset=offset,
+            limit=limit,
         )
-        return Response(ReusableWidgetPageSerializer(result).data)
+        data = ReusableWidgetPageSerializer(result).data
+        data.update(offset_page_links(request, offset=offset, limit=limit, next_offset=result.next_offset))
+        return Response(data)
 
     @extend_schema(
         operation_id="reusable_widgets_retrieve",
@@ -126,16 +139,20 @@ class ReusableWidgetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         self._require_user()
         query = WidgetVersionQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
+        offset = query.validated_data["offset"]
+        limit = query.validated_data["limit"]
         try:
             result = list_reusable_widget_versions(
                 team_id=self.team_id,
                 widget_id=self._widget_id(),
-                offset=query.validated_data["offset"],
-                limit=query.validated_data["limit"],
+                offset=offset,
+                limit=limit,
             )
         except WidgetError as error:
             return self._error_response(error)
-        return Response(ReusableWidgetVersionPageSerializer(result).data)
+        data = ReusableWidgetVersionPageSerializer(result).data
+        data.update(offset_page_links(request, offset=offset, limit=limit, next_offset=result.next_offset))
+        return Response(data)
 
     @extend_schema(
         operation_id="reusable_widgets_restore",

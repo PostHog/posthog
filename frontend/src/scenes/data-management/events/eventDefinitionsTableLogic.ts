@@ -9,10 +9,11 @@ import api, { PaginatedResponse } from 'lib/api'
 import { convertPropertyGroupToProperties } from 'lib/components/PropertyFilters/utils'
 import { EVENT_DEFINITIONS_PER_PAGE, PROPERTY_DEFINITIONS_PER_EVENT } from 'lib/constants'
 import { objectsEqual } from 'lib/utils/objects'
+import { truncate } from 'lib/utils/strings'
 import { parseTagsFilter } from 'lib/utils/url'
 import { projectLogic } from 'scenes/projectLogic'
 
-import { AnyPropertyFilter, EventDefinition, EventDefinitionType, PropertyDefinition } from '~/types'
+import { AnyPropertyFilter, EventDefinition, EventDefinitionType, JsonType, PropertyDefinition } from '~/types'
 
 import { eventDefinitionsBulkUpdateVerifiedCreate } from 'products/event_definitions/frontend/generated/api'
 import type {
@@ -61,6 +62,20 @@ const DEFAULT_FILTERS: Filters = {
     verified: undefined,
 }
 
+// Event properties are untrusted input of any size, so the example is capped before the table renders it.
+const MAX_PROPERTY_EXAMPLE_LENGTH = 200
+
+function formatPropertyExample(value: JsonType | undefined): string | undefined {
+    if (value === undefined) {
+        return undefined
+    }
+    try {
+        return truncate(JSON.stringify(value), MAX_PROPERTY_EXAMPLE_LENGTH)
+    } catch {
+        return undefined
+    }
+}
+
 export function createDefinitionKey(event?: EventDefinition, property?: PropertyDefinition): string {
     return `${event?.id ?? 'event'}-${property?.id ?? 'property'}`
 }
@@ -77,6 +92,18 @@ export function normalizePropertyDefinitionEndpointUrl(
         ...(url ? combineUrl(url).searchParams : {}),
         ...searchParams,
     })
+}
+
+function filtersFromSearchParams(searchParams: Record<string, any>): Filters {
+    const { event, event_type, ordering, tags, verified } = searchParams
+    return {
+        ...DEFAULT_FILTERS,
+        ...(event !== undefined && { event }),
+        ...(event_type !== undefined && { event_type }),
+        ...(ordering !== undefined && { ordering }),
+        ...(parseTagsFilter(tags) !== undefined && { tags: parseTagsFilter(tags) }),
+        ...(verified !== undefined && { verified: verified === 'true' || verified === true }),
+    }
 }
 
 function normalizeEventDefinitionEndpointUrl({
@@ -289,7 +316,11 @@ export interface eventDefinitionsTableLogicActions {
     setEventDefinitionPropertiesLoading: (ids: string[]) => {
         ids: string[]
     }
-    setFilters: (filters: Partial<Filters>) => {
+    setFilters: (
+        filters: Partial<Filters>,
+        debounce?: boolean
+    ) => {
+        debounce: boolean
         filters: Partial<Filters>
     }
     setLocalEventDefinition: (definition: EventDefinition) => {
@@ -369,7 +400,7 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
         loadEventDefinitions: (url: string | null = '') => ({ url }),
         loadEventExample: (definition: EventDefinition) => ({ definition }),
         loadPropertiesForEvent: (definition: EventDefinition, url: string | null = '') => ({ definition, url }),
-        setFilters: (filters: Partial<Filters>) => ({ filters }),
+        setFilters: (filters: Partial<Filters>, debounce: boolean = true) => ({ filters, debounce }),
         setLocalEventDefinition: (definition: EventDefinition) => ({ definition }),
         applyBulkTagUpdates: (updates: { id: number | string; tags: string[] }[]) => ({ updates }),
         applyBulkVerifiedUpdates: (updates: { id: string; verified: boolean }[]) => ({ updates }),
@@ -415,7 +446,6 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                         return cache.apiCache[url]
                     }
 
-                    await breakpoint(200)
                     cache.eventsStartTime = performance.now()
                     // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                     const response = await api.get(url)
@@ -486,11 +516,19 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                         return values.eventDefinitions
                     }
                     const verifiedById = new Map(updates.map((u) => [String(u.id), u.verified] as const))
+                    const patchDefinition = (d: EventDefinition): EventDefinition => {
+                        const verified = verifiedById.get(String(d.id))
+                        if (verified === undefined) {
+                            return d
+                        }
+                        // Like the server, verifying also unhides the event and cancels a scheduled delete
+                        return verified
+                            ? { ...d, verified, hidden: false, scheduled_deletion_at: null }
+                            : { ...d, verified }
+                    }
                     const patch = (list: EventDefinitionsPaginatedResponse): EventDefinitionsPaginatedResponse => ({
                         ...list,
-                        results: list.results.map((d) =>
-                            verifiedById.has(String(d.id)) ? { ...d, verified: verifiedById.get(String(d.id)) } : d
-                        ),
+                        results: list.results.map(patchDefinition),
                     })
 
                     const onScreen = values.eventDefinitions.current === cacheKey
@@ -560,7 +598,7 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                     breakpoint()
 
                     // Fetch one event as example and cache (only if events have been captured)
-                    let exampleEventProperties: Record<string, string> = {}
+                    let exampleEventProperties: Record<string, JsonType> = {}
                     if (definition.last_seen_at) {
                         const exampleUrl = api.events.determineListEndpoint({ event: definition.name }, 1)
                         if (exampleUrl && exampleUrl in (cache.apiCache ?? {})) {
@@ -587,7 +625,7 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                             ) + 1,
                         results: response.results.map((prop: PropertyDefinition) => ({
                             ...prop,
-                            example: exampleEventProperties?.[prop.name]?.toString(),
+                            example: formatPropertyExample(exampleEventProperties?.[prop.name]),
                         })),
                     }
 
@@ -657,7 +695,12 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
         ],
     })),
     listeners(({ actions, values, cache }) => ({
-        setFilters: async () => {
+        setFilters: async ({ debounce }, breakpoint) => {
+            if (debounce) {
+                cache.filtersLoadPending = true
+                await breakpoint(200)
+            }
+            cache.filtersLoadPending = false
             actions.loadEventDefinitions()
         },
         bulkUpdateVerifiedSuccess: ({ bulkVerifiedResult, payload }) => {
@@ -720,22 +763,18 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
             }
         },
     })),
-    urlToAction(({ actions, values }) => ({
+    urlToAction(({ actions, values, cache }) => ({
         '/data-management/events': (_, searchParams) => {
-            const { event, event_type, ordering, tags, verified } = searchParams
-
-            const filtersFromUrl: Filters = {
-                ...DEFAULT_FILTERS,
-                ...(event !== undefined && { event }),
-                ...(event_type !== undefined && { event_type }),
-                ...(ordering !== undefined && { ordering }),
-                ...(parseTagsFilter(tags) !== undefined && { tags: parseTagsFilter(tags) }),
-                ...(verified !== undefined && { verified: verified === 'true' || verified === true }),
-            }
+            const filtersFromUrl = filtersFromSearchParams(searchParams)
 
             if (!objectsEqual(values.filters, filtersFromUrl)) {
-                actions.setFilters(filtersFromUrl)
-            } else if (!values.eventDefinitions.results.length && !values.eventDefinitionsLoading) {
+                actions.setFilters(filtersFromUrl, false)
+            } else if (
+                // A debounced filter change already writes this URL, so loading here would skip the debounce
+                !cache.filtersLoadPending &&
+                !values.eventDefinitions.results.length &&
+                !values.eventDefinitionsLoading
+            ) {
                 actions.loadEventDefinitions()
             }
         },

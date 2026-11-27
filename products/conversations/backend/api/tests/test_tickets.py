@@ -2,6 +2,7 @@ import json
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from decimal import Decimal
+from io import BytesIO
 from threading import Barrier, Event
 from uuid import UUID
 
@@ -19,12 +20,14 @@ from posthog.test.base import (
 )
 from unittest.mock import patch
 
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import close_old_connections, connection, transaction
 from django.db.utils import IntegrityError
 from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
+from PIL import Image
 from rest_framework import status
 
 from posthog.schema import HogQLQueryModifiers, MaterializationMode
@@ -32,9 +35,10 @@ from posthog.schema import HogQLQueryModifiers, MaterializationMode
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.models import ActivityLog, Comment, Organization, Tag, Team, User
+from posthog.models import ActivityLog, Comment, Organization, Tag, TaggedItem, Team, User
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.uploaded_media import UploadedMedia
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.redis import get_client
 from posthog.test.persons import create_person
@@ -44,8 +48,10 @@ from products.access_control.backend.models.role import Role
 from products.conversations.backend import reply_dedupe
 from products.conversations.backend.api.ticket_filters import query_params_to_view_filters
 from products.conversations.backend.api.tickets import (
+    MAX_TAGS_ADDED_PER_UPDATE,
     ComposeTicketSerializer,
     TicketReplyRequestSerializer,
+    TicketUpdateRequestSerializer,
     TicketViewSet,
 )
 from products.conversations.backend.models import (
@@ -65,6 +71,7 @@ from products.conversations.backend.reply_dedupe import (
     ReplyFingerprint,
     reserve,
 )
+from products.conversations.backend.services.attachments import CONVERSATIONS_ATTACHMENT_MEDIA_PURPOSE
 
 from ee.clickhouse.materialized_columns.columns import get_bloom_filter_lower_index_name
 
@@ -90,6 +97,32 @@ class TestComposeTicketSerializer(SimpleTestCase):
     def test_accepts_up_to_100_tags(self):
         serializer = ComposeTicketSerializer(data=self._payload(tags=[f"t{i}" for i in range(100)]))
         assert serializer.is_valid(), serializer.errors
+
+
+class TestTicketUpdateRequestSerializer(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("at_the_cap", MAX_TAGS_ADDED_PER_UPDATE, True),
+            ("over_the_cap", MAX_TAGS_ADDED_PER_UPDATE + 1, False),
+        ]
+    )
+    def test_caps_new_tags_and_not_the_list_length(self, _name: str, new_tag_count: int, expected_valid: bool) -> None:
+        current = [f"current-{i}" for i in range(MAX_TAGS_ADDED_PER_UPDATE + 50)]
+        ticket = Ticket()
+        ticket.prefetched_tags = [TaggedItem(tag=Tag(name=name)) for name in current]  # type: ignore[attr-defined]
+        resent = [f" {name.upper()} " for name in current]
+        tags = [*resent, *(f"new-{i}" for i in range(new_tag_count))]
+
+        serializer = TicketUpdateRequestSerializer(ticket, data={"tags": tags}, partial=True)
+
+        assert serializer.is_valid() is expected_valid, serializer.errors
+
+    @parameterized.expand([("list", []), ("text", "Jane")])
+    def test_rejects_customer_details_that_are_not_an_object(self, _name: str, traits: object) -> None:
+        serializer = TicketUpdateRequestSerializer(Ticket(), data={"anonymous_traits": traits}, partial=True)
+
+        assert not serializer.is_valid()
+        assert serializer.errors["anonymous_traits"][0].code == "invalid"
 
 
 # Patch on_commit to execute immediately in tests
@@ -310,6 +343,27 @@ class TestTicketAPI(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["status"], "resolved")
+
+    @parameterized.expand(
+        [
+            ("inbound_markers", {"name": "Jane", "email_relayed": True, "email_forwarded": True}),
+            ("malformed_stored_traits", ["x"]),
+        ]
+    )
+    def test_editing_customer_details_keeps_inbound_email_traits(self, mock_on_commit, _name: str, stored: object):
+        inbound = {"email_relayed": True, "email_forwarded": True} if isinstance(stored, dict) else {}
+        self.ticket.anonymous_traits = stored
+        self.ticket.save(update_fields=["anonymous_traits"])
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/",
+            {"anonymous_traits": {"name": "Jane Doe", "email": "jane@example.net"}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        self.ticket.refresh_from_db()
+        assert self.ticket.anonymous_traits == {"name": "Jane Doe", "email": "jane@example.net", **inbound}
 
     def test_retrieve_ticket_marks_as_read(self, mock_on_commit):
         self.ticket.unread_team_count = 5
@@ -974,7 +1028,7 @@ class TestTicketAPI(APIBaseTest):
 
         # Person reads go through personhog, so both page sizes should use the same database queries.
         for limit in (2, 3):
-            with self.subTest(limit=limit), self.assertNumQueries(10):
+            with self.subTest(limit=limit), self.assertNumQueries(7):
                 response = self.client.get(f"{list_url}?limit={limit}")
                 self.assertEqual(response.status_code, status.HTTP_200_OK)
                 self.assertEqual(response.json()["count"], 3)
@@ -2694,6 +2748,14 @@ class TestTicketPersonalAPIKeyScopes(APIBaseTest):
             ("reply_with_write", "reply", "post", ["ticket:write"], status.HTTP_201_CREATED),
             ("reply_with_read_only", "reply", "post", ["ticket:read"], status.HTTP_403_FORBIDDEN),
             ("reply_wrong_scope", "reply", "post", ["insight:write"], status.HTTP_403_FORBIDDEN),
+            ("ai_rerun_with_read_only", "ai_rerun", "post", ["ticket:read"], status.HTTP_403_FORBIDDEN),
+            (
+                "scout_ai_rerun",
+                "ai_rerun",
+                "post",
+                ["ticket:write", "signal_scout_internal:write"],
+                status.HTTP_403_FORBIDDEN,
+            ),
         ]
     )
     def test_messages_and_reply_scopes(self, _name, action, method, scopes, expected_status):
@@ -2784,24 +2846,30 @@ class TestTicketPersonalAPIKeyScopes(APIBaseTest):
         if expected_status == status.HTTP_200_OK:
             assert self.ticket.status == Status.RESOLVED
 
-    @parameterized.expand([("create", "post"), ("update", "patch")])
-    def test_scout_cannot_write_generic_ticket_comments(self, _name: str, method: str) -> None:
+    @parameterized.expand(
+        [
+            ("create", "post", "conversations_ticket", ""),
+            ("update", "patch", "conversations_ticket", "{id}/"),
+            ("send_to_slack", "post", "Ticket", "{id}/send_to_slack/"),
+        ]
+    )
+    @patch("posthog.api.comments.CommentViewSet._slack_mirror_flag_enabled", return_value=True)
+    def test_scout_cannot_write_generic_ticket_comments(
+        self, _name: str, method: str, scope: str, path: str, _flag: object
+    ) -> None:
         note = Comment.objects.create(
             team=self.team,
             created_by=self.user,
-            scope="conversations_ticket",
+            scope=scope,
             item_id=str(self.ticket.id),
             content="Original note",
             item_context={"author_type": "support", "is_private": True},
         )
         self._auth_with_scopes(["ticket:write", "signal_scout_internal:write"])
-        url = f"/api/projects/{self.team.id}/comments/"
-        if method == "patch":
-            url += f"{note.id}/"
         response = getattr(self.client, method)(
-            url,
+            f"/api/projects/{self.team.id}/comments/{path.format(id=note.id)}",
             {
-                "scope": "conversations_ticket",
+                "scope": scope,
                 "item_id": str(self.ticket.id),
                 "content": "Changed note",
                 "item_context": {"author_type": "customer"},
@@ -3241,6 +3309,55 @@ class TestTicketReplyAPI(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("own_team_upload", "personal_api_key", "own", status.HTTP_201_CREATED),
+            ("other_team_upload", "personal_api_key", "other_team", status.HTTP_400_BAD_REQUEST),
+            ("external_url", "personal_api_key", "https://attacker.example.com/pixel.png", status.HTTP_400_BAD_REQUEST),
+            ("relative_path", "personal_api_key", "own_relative", status.HTTP_400_BAD_REQUEST),
+            ("trailing_slash", "personal_api_key", "own_trailing_slash", status.HTTP_400_BAD_REQUEST),
+            ("malformed_url", "personal_api_key", "https://[invalid/image.png", status.HTTP_400_BAD_REQUEST),
+            ("in_app_external_url", "session", "https://example.com/pasted.png", status.HTTP_201_CREATED),
+            # Before the rollout, API callers keep sending any image, as they could before.
+            ("flag_off_external_url", "personal_api_key", "https://example.com/pasted.png", status.HTTP_201_CREATED),
+        ]
+    )
+    def test_reply_rich_content_image_must_be_own_team_upload(
+        self, mock_on_commit, _name, auth, source, expected_status
+    ):
+        flag_patch = patch(
+            "posthog.api.uploaded_media.posthoganalytics.feature_enabled", return_value=not _name.startswith("flag_off")
+        )
+        flag_patch.start()
+        self.addCleanup(flag_patch.stop)
+        if auth == "personal_api_key":
+            raw_key = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="ticket-write",
+                user=self.user,
+                secure_value=hash_key_value(raw_key),
+                scopes=["ticket:write"],
+            )
+            self.client.logout()
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw_key}")
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        own_media = UploadedMedia.objects.create(team=self.team, file_name="own.png", content_type="image/png")
+        other_media = UploadedMedia.objects.create(team=other_team, file_name="other.png", content_type="image/png")
+        src = {
+            "own": own_media.get_absolute_url(),
+            "other_team": other_media.get_absolute_url(),
+            "own_relative": f"/uploaded_media/{own_media.id}",
+            "own_trailing_slash": f"{own_media.get_absolute_url()}/",
+        }.get(source, source)
+        rich = {"type": "doc", "content": [{"type": "image", "attrs": {"src": src, "alt": "screenshot"}}]}
+
+        response = self.client.post(self.url, {"message": "See image", "rich_content": rich}, format="json")
+
+        assert response.status_code == expected_status, response.json()
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            assert response.json()["attr"] == "rich_content"
+            assert not Comment.objects.filter(item_id=str(self.ticket.id)).exists()
+
+    @parameterized.expand(
+        [
             ("blank", {"message": "   "}),
             ("missing", {}),
             ("rich_content_too_large", {"message": "hi", "rich_content": {"x": "y" * 200_000}}),
@@ -3406,6 +3523,116 @@ class TestTicketReplyAPI(APIBaseTest):
         assert Comment.objects.filter(scope="conversations_ticket", item_id=str(self.ticket.id)).count() == 1
 
 
+def _png_bytes() -> bytes:
+    buf = BytesIO()
+    Image.new("RGB", (1, 1), color="red").save(buf, format="PNG")
+    return buf.getvalue()
+
+
+@patch("products.conversations.backend.services.attachments.save_content_to_object_storage")
+class TestTicketAttachmentsAPI(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.SLACK,
+            widget_session_id="test-session",
+            distinct_id="user-1",
+            status=Status.OPEN,
+        )
+        self.url = f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/attachments/"
+
+    def _upload(self, upload: SimpleUploadedFile, url: str | None = None):
+        with self.settings(OBJECT_STORAGE_ENABLED=True):
+            return self.client.post(url or self.url, {"file": upload}, format="multipart")
+
+    @parameterized.expand(
+        [
+            ("pdf", "report.pdf", b"%PDF-1.4 test", "application/pdf", "application/pdf"),
+            ("log", "server.log", b"line one\nline two", "text/plain", "text/plain"),
+            ("png", "shot.png", None, "image/png", "image/png"),
+        ]
+    )
+    def test_upload_stores_file(self, _mock_save, _name, file_name, content, declared_type, expected_type):
+        upload = SimpleUploadedFile(file_name, content if content is not None else _png_bytes(), declared_type)
+
+        response = self._upload(upload)
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        body = response.json()
+        assert body["name"] == file_name
+        assert body["content_type"] == expected_type
+        media = UploadedMedia.objects.get(team=self.team, file_name=file_name)
+        assert media.purpose == CONVERSATIONS_ATTACHMENT_MEDIA_PURPOSE
+        assert media.content_type == expected_type
+        assert body["id"] == str(media.id)
+        assert body["url"] == media.get_absolute_url()
+
+    def test_upload_rejects_widget_ticket(self, _mock_save):
+        widget_ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="widget-session",
+            distinct_id="user-2",
+            status=Status.OPEN,
+        )
+
+        response = self._upload(
+            SimpleUploadedFile("report.pdf", b"%PDF-1.4", "application/pdf"),
+            url=f"/api/projects/{self.team.id}/conversations/tickets/{widget_ticket.id}/attachments/",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "channel_not_supported"
+        assert not UploadedMedia.objects.filter(team=self.team).exists()
+
+    def test_upload_rejects_disguised_image(self, _mock_save):
+        response = self._upload(SimpleUploadedFile("shot.png", b"<script>alert(1)</script>", "image/png"))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "invalid_image"
+        assert not UploadedMedia.objects.filter(team=self.team).exists()
+
+    def test_upload_rejects_large_file(self, _mock_save):
+        with patch("products.conversations.backend.api.tickets.CONVERSATIONS_MAX_IMAGE_BYTES", 4):
+            response = self._upload(SimpleUploadedFile("report.pdf", b"%PDF-1.4", "application/pdf"))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "file_too_large"
+
+    def test_upload_requires_object_storage(self, _mock_save):
+        with self.settings(OBJECT_STORAGE_ENABLED=False):
+            response = self.client.post(
+                self.url, {"file": SimpleUploadedFile("report.pdf", b"%PDF-1.4", "application/pdf")}, format="multipart"
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "object_storage_required"
+
+    def test_upload_requires_file(self, _mock_save):
+        with self.settings(OBJECT_STORAGE_ENABLED=True):
+            response = self.client.post(self.url, {}, format="multipart")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_upload_cross_team_404(self, _mock_save):
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        other_ticket = Ticket.objects.create_with_number(
+            team=other_team,
+            channel_source=Channel.SLACK,
+            widget_session_id="other-session",
+            distinct_id="user-3",
+            status=Status.OPEN,
+        )
+
+        response = self._upload(
+            SimpleUploadedFile("report.pdf", b"%PDF-1.4", "application/pdf"),
+            url=f"/api/projects/{self.team.id}/conversations/tickets/{other_ticket.id}/attachments/",
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
 @patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
 class TestAiFeedbackAPI(APIBaseTest):
     def setUp(self):
@@ -3446,36 +3673,57 @@ class TestAiFeedbackAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("bad_without_text", {"message_id": "msg-1", "rating": "bad"}, "$ai_metric", 0),
+            ("bad_without_text", {"message_id": "msg-1", "rating": "bad"}, "$ai_metric", {"$ai_metric_value": 0}),
             (
                 "bad_with_text",
                 {"message_id": "msg-1", "rating": "bad", "feedback_text": "Wrong answer"},
                 "$ai_feedback",
-                None,
+                {"$ai_feedback_text": "Wrong answer", "feedback_reasons": []},
+            ),
+            (
+                "bad_with_reasons_only",
+                {"message_id": "msg-1", "rating": "bad", "reasons": ["wrong_tone", "wrong_facts"]},
+                "$ai_feedback",
+                {"$ai_feedback_text": "", "feedback_reasons": ["wrong_facts", "wrong_tone"]},
+            ),
+            (
+                "good_ignores_reasons",
+                {"message_id": "msg-1", "rating": "good", "reasons": ["wrong_facts"]},
+                "$ai_metric",
+                {"$ai_metric_value": 1},
             ),
         ]
     )
     @patch("products.conversations.backend.api.tickets.posthoganalytics.capture")
-    def test_ai_feedback_metric_vs_text_are_mutually_exclusive(
-        self, _name, payload, expected_event, expected_metric_value, mock_capture, mock_on_commit
+    def test_ai_feedback_metric_vs_details_are_mutually_exclusive(
+        self, _name, payload, expected_event, expected_properties, mock_capture, mock_on_commit
     ):
         response = self.client.post(self.url, payload, format="json")
         assert response.status_code == status.HTTP_202_ACCEPTED
         mock_capture.assert_called_once()
         _, kwargs = mock_capture.call_args
         assert kwargs["event"] == expected_event
+        assert kwargs["groups"]["project"] == str(self.team.uuid)
+        assert kwargs["properties"]["$ai_trace_id"] == "trace-abc"
+        for key, value in expected_properties.items():
+            assert kwargs["properties"][key] == value
         if expected_event == "$ai_metric":
-            assert kwargs["properties"]["$ai_metric_value"] == expected_metric_value
             assert "$ai_feedback_text" not in kwargs["properties"]
         else:
-            assert kwargs["properties"]["$ai_feedback_text"] == "Wrong answer"
             assert "$ai_metric_name" not in kwargs["properties"]
-            assert kwargs["properties"]["$ai_trace_id"] == "trace-abc"
 
     def test_ai_feedback_rejects_invalid_rating(self, mock_on_commit):
         response = self.client.post(
             self.url,
             {"message_id": "msg-1", "rating": "meh"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_ai_feedback_rejects_unknown_reason(self, mock_on_commit):
+        response = self.client.post(
+            self.url,
+            {"message_id": "msg-1", "rating": "bad", "reasons": ["made_up"]},
             format="json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST

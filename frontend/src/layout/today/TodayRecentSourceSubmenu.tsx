@@ -1,4 +1,4 @@
-import { DropdownMenuCheckboxItem, DropdownMenuSeparator, ItemCheckbox } from '@posthog/quill'
+import { DropdownMenuCheckboxItem, DropdownMenuSeparator, ItemCheckbox, filterSummary } from '@posthog/quill'
 
 import { recentSourceLabel } from './todayRecentFilters'
 import { TodayRecentFilterSubmenu } from './TodayRecentFilterSubmenu'
@@ -14,10 +14,7 @@ interface TodayRecentSourceSubmenuProps {
 }
 
 function sourcesLabel(sources: string[]): string {
-    if (!sources.length) {
-        return 'Any source'
-    }
-    return sources.length > 2 ? `${sources.length} sources` : sources.map(recentSourceLabel).join(', ')
+    return filterSummary(sources.map(recentSourceLabel), 'Any source', 'sources')
 }
 
 export function TodayRecentSourceSubmenu({

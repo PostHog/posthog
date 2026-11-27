@@ -2,10 +2,14 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, type RenderHookResult, renderHook, waitFor } from '@testing-library/react-native'
 import type { ReactElement, ReactNode } from 'react'
 
+import { ApiError } from '@/api/client'
+import { listConversations } from '@/api/conversations'
 import type { TaskSummaryApi } from '@/api/tasks'
 import { useAuthStore } from '@/auth/authStore'
 
 import { useArchiveChat, useChatList } from './hooks'
+
+jest.mock('@/api/conversations', () => ({ listConversations: jest.fn().mockResolvedValue([]) }))
 
 jest.mock('@react-native-async-storage/async-storage', () =>
     require('@react-native-async-storage/async-storage/jest/async-storage-mock')
@@ -19,6 +23,7 @@ jest.mock('@/demo/demoMode', () => ({
     ...jest.requireActual('@/demo/demoMode'),
     useDataMode: () => 'live',
 }))
+jest.mock('@/api/reports', () => ({ ...jest.requireActual('@/api/reports'), retryUnlessMissing: () => false }))
 jest.mock('@/api/tasks', () => ({ listMySessions: jest.fn(), setTaskArchived: jest.fn() }))
 
 const mocked = jest.requireMock('@/api/tasks') as {
@@ -56,9 +61,43 @@ function renderChats(): RenderHookResult<ChatsHooks, unknown> {
 describe('chats hooks', () => {
     beforeEach(() => {
         jest.clearAllMocks()
+        jest.mocked(listConversations).mockReset().mockResolvedValue([])
     })
 
     describe('useChatList', () => {
+        test.each(['tasks', 'conversations'] as const)(
+            'preserves history when %s fail and retries',
+            async (failedSource) => {
+                useAuthStore.setState({
+                    user: { id: 7, uuid: 'u1', distinctId: 'd1', email: 'a@example.com', name: 'A' },
+                })
+                const tasks = [session('task-1', '2026-10-15T10:00:00Z')]
+                const conversations = [
+                    {
+                        id: 'conversation-1',
+                        title: 'Saved chat',
+                        task: null,
+                        created_at: '2026-10-15T10:00:00Z',
+                        updated_at: '2026-10-15T10:00:00Z',
+                    },
+                ] as unknown as Awaited<ReturnType<typeof listConversations>>
+                mocked.listMySessions.mockResolvedValue(tasks)
+                jest.mocked(listConversations).mockResolvedValue(conversations)
+                const failed = failedSource === 'tasks' ? mocked.listMySessions : jest.mocked(listConversations)
+                failed.mockRejectedValueOnce(new ApiError(500, { detail: 'Try again' }))
+                const { result } = renderChats()
+                await waitFor(() => expect(result.current.list.isError).toBe(true))
+                expect(result.current.list.data?.map((item) => item.sourceId)).toEqual([
+                    failedSource === 'tasks' ? 'conversation-1' : 'task-1',
+                ])
+                await act(async () => {
+                    await result.current.list.refetch()
+                })
+                await waitFor(() => expect(result.current.list.isError).toBe(false))
+                expect(result.current.list.data).toHaveLength(2)
+            }
+        )
+
         test.each<[string, string | null, boolean]>([
             ['shows the account error when the reload fails', 'Your account did not load.', true],
             ['shows an empty list when the reload brings no id', null, false],
@@ -92,6 +131,15 @@ describe('chats hooks', () => {
                 session('task-1', '2026-10-15T10:00:00Z'),
                 session('task-2', '2026-10-14T10:00:00Z'),
             ])
+            jest.mocked(listConversations).mockResolvedValue([
+                {
+                    id: 'conversation-1',
+                    title: 'Linked chat',
+                    task: { id: 'task-1', archived: false },
+                    created_at: '2026-10-15T10:00:00Z',
+                    updated_at: '2026-10-15T10:00:00Z',
+                },
+            ] as unknown as Awaited<ReturnType<typeof listConversations>>)
         })
 
         test.each([
@@ -186,5 +234,14 @@ describe('chats hooks', () => {
                 await waitFor(() => expect(result.current.list.data?.map((item) => item.sourceId)).toEqual(expected))
             }
         )
+
+        test('archives a directly opened task that is not in the cached list', async () => {
+            mocked.setTaskArchived.mockResolvedValue(undefined)
+            const { result } = renderChats()
+            await waitFor(() => expect(result.current.list.data).toHaveLength(2))
+            await act(async () => result.current.archive.archive({ sourceId: 'direct-task' }))
+            expect(mocked.setTaskArchived).toHaveBeenCalledWith('direct-task', true)
+            expect(result.current.list.data?.map((item) => item.sourceId)).toEqual(['task-1', 'task-2'])
+        })
     })
 })

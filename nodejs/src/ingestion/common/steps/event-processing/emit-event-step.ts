@@ -1,16 +1,16 @@
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
+import { EVENT_NAME_HEADER, TEAM_ID_HEADER } from '~/common/kafka/headers'
 import { IngestionWarningsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
+import { UsageRecord, UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { MessageSizeTooLarge } from '~/common/utils/db/error'
 import { safeClickhouseString } from '~/common/utils/db/utils'
 import { castTimestampOrNow, castTimestampToClickhouseFormat } from '~/common/utils/utils'
 import { isAiEventName } from '~/ingestion/common/ai-event-types'
 import { IngestionWarning, emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
 import { eventProcessedAndIngestedCounter } from '~/ingestion/common/metrics'
-import { EventUsageRecord } from '~/ingestion/common/steps/usage-records-steps'
 import { ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import { EventHeaders, ProcessedEvent, RawKafkaEvent, TimestampFormat } from '~/types'
@@ -18,6 +18,8 @@ import { EventHeaders, ProcessedEvent, RawKafkaEvent, TimestampFormat } from '~/
 export interface EventToEmit<O extends string> {
     event: ProcessedEvent
     output: O
+    /** Extra Kafka headers for this message. The step's own headers win on a name clash. */
+    headers?: Record<string, string>
 }
 
 export interface EmitEventStepConfig<O extends string> {
@@ -29,7 +31,7 @@ export interface EmitEventStepInput<O extends string> {
     teamId: number
     headers: EventHeaders
     message: Message
-    eventUsageRecords?: EventUsageRecord[]
+    eventUsageRecords?: UsageRecord[]
     eventUsageBatch?: UsageRecordBatch
 }
 
@@ -55,7 +57,7 @@ export interface EmitEventStepOutput {
      * been ingested. Empty when nothing was emitted.
      */
     ingested: Promise<IngestedEventInfo | null>[]
-    eventUsageRecords?: EventUsageRecord[]
+    eventUsageRecords?: UsageRecord[]
     eventUsageBatch?: UsageRecordBatch
 }
 
@@ -74,7 +76,7 @@ export function createEmitEventStep<O extends string, T extends EmitEventStepInp
 
         const ingested: Promise<IngestedEventInfo | null>[] = []
 
-        for (const { event, output } of eventsToEmit) {
+        for (const { event, output, headers: entryHeaders } of eventsToEmit) {
             const serialized = serializeEvent(event)
 
             // TODO: It's not great that we put the produce outcome in side effects, we should probably await it here
@@ -84,7 +86,12 @@ export function createEmitEventStep<O extends string, T extends EmitEventStepInp
                 .produce(output, {
                     key: serialized.uuid,
                     value: Buffer.from(JSON.stringify(serialized)),
-                    headers: { productTrack: productTrackHeader(event) },
+                    headers: {
+                        ...entryHeaders,
+                        productTrack: productTrackHeader(event),
+                        [TEAM_ID_HEADER]: String(serialized.team_id),
+                        [EVENT_NAME_HEADER]: serialized.event,
+                    },
                     teamId: serialized.team_id,
                 })
                 .then(() => {

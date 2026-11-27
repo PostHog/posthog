@@ -13,6 +13,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
+from posthog.models import User
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.data_catalog.backend.facade.api import PendingGroup, PendingKind, TeamPendingReview
@@ -24,6 +25,7 @@ from products.warehouse_suggestions.backend import today_highlights
 from products.warehouse_suggestions.backend.facade.contracts import SuggestionDraft
 from products.warehouse_suggestions.backend.facade.enums import WarehouseSuggestionKind, WarehouseSuggestionStatus
 from products.warehouse_suggestions.backend.facade.today_highlights import HIGHLIGHT_SOURCES
+from products.warehouse_suggestions.backend.logic.access import OpenCounts
 from products.warehouse_suggestions.backend.logic.suggestions import transition_to
 from products.warehouse_suggestions.backend.models import WarehouseSuggestion
 
@@ -100,8 +102,31 @@ class TestCatalogApprovalsHighlight(SimpleTestCase):
 
         assert found.items == ()
 
+    @parameterized.expand(
+        [
+            ("assigned only", 2, 0, ["2 certification suggestions assigned to you wait for approval"]),
+            (
+                "assigned and unassigned",
+                1,
+                3,
+                [
+                    "1 certification suggestion assigned to you waits for approval",
+                    "3 certification suggestions wait for approval",
+                ],
+            ),
+        ]
+    )
+    def test_suggestions_assigned_to_the_viewer_get_their_own_item(
+        self, _name: str, assigned: int, unassigned: int, titles: list[str]
+    ) -> None:
+        with self._catalog(review=None, suggested=unassigned, can_approve=True, assigned=assigned):
+            found = today_highlights.find_catalog_approvals(self._context())
+
+        assert [item.title for item in found.items] == titles
+        assert found.items[0].importance > today_highlights.IMPORTANCE
+
     def _catalog(
-        self, *, review: TeamPendingReview | None, suggested: int, can_approve: bool
+        self, *, review: TeamPendingReview | None, suggested: int, can_approve: bool, assigned: int = 0
     ) -> AbstractContextManager[object]:
         access = MagicMock()
         access.check_access_level_for_resource.side_effect = lambda resource, level: (
@@ -110,7 +135,9 @@ class TestCatalogApprovalsHighlight(SimpleTestCase):
         return patch.multiple(
             today_highlights,
             build_team_pending_review=MagicMock(return_value=review),
-            actionable_open_count=MagicMock(return_value=suggested),
+            actionable_open_counts=MagicMock(
+                return_value=OpenCounts(assigned_to_viewer=assigned, unassigned=suggested)
+            ),
             UserAccessControl=MagicMock(return_value=access),
         )
 
@@ -131,9 +158,17 @@ class TestModelSuggestionsHighlight(BaseTest):
         super().setUp()
         self.flag = self.enterContext(patch(FLAG, return_value=True))
 
-    def test_counts_the_open_model_suggestions_the_viewer_can_act_on(self) -> None:
-        self._suggest(WarehouseSuggestionKind.MATERIALIZE, self._view("orders").id)
+    def test_counts_the_open_model_suggestions_the_viewer_can_act_on_by_assignee(self) -> None:
+        teammate = User.objects.create_and_join(self.organization, "teammate@example.com", None)
+        self._suggest(WarehouseSuggestionKind.MATERIALIZE, self._view("orders").id, assignee=self.user)
+        self._suggest(WarehouseSuggestionKind.MATERIALIZE, self._view("sessions").id, assignee=teammate)
+        not_editable_by_teammate = self._view("revenue")
+        self._suggest(WarehouseSuggestionKind.MATERIALIZE, not_editable_by_teammate.id, assignee=teammate)
+        self._restrict_view(not_editable_by_teammate.id, "viewer", member=teammate)
+        former_member = User.objects.create(email="former@example.com")
+        self._suggest(WarehouseSuggestionKind.MATERIALIZE, self._view("legacy").id, assignee=former_member)
         self._suggest(WarehouseSuggestionKind.UNMATERIALIZE, self._view("events_daily").id)
+        self._suggest(WarehouseSuggestionKind.DEPRECATE, self._view("old_rollup").id)
         self._suggest(WarehouseSuggestionKind.CERTIFY, self._view("users").id)
         ingest_one(self.team.id, self._draft(WarehouseSuggestionKind.MATERIALIZE, self._view("unsurfaced").id))
         dismissed = self._suggest(WarehouseSuggestionKind.MATERIALIZE, self._view("dismissed").id)
@@ -145,7 +180,23 @@ class TestModelSuggestionsHighlight(BaseTest):
         found = today_highlights.find_model_suggestions(self._context())
 
         assert [(item.title, item.detail, item.url) for item in found.items] == [
-            ("2 model suggestions wait for review", "Review them in Models.", "/models?tab=models")
+            ("1 model suggestion assigned to you waits for review", "Review it in Models.", "/models?tab=models"),
+            ("4 model suggestions wait for review", "Review them in Models.", "/models?tab=models"),
+        ]
+
+    def test_a_view_deprecation_counts_only_in_models(self) -> None:
+        self._suggest(WarehouseSuggestionKind.DEPRECATE, self._view("old_rollup").id, assignee=self.user)
+        self._suggest(WarehouseSuggestionKind.CERTIFY, self._view("users").id, assignee=self.user)
+
+        titles = [
+            item.title
+            for find in (today_highlights.find_catalog_approvals, today_highlights.find_model_suggestions)
+            for item in find(self._context()).items
+        ]
+
+        assert titles == [
+            "1 certification suggestion assigned to you waits for approval",
+            "1 model suggestion assigned to you waits for review",
         ]
 
     @parameterized.expand(
@@ -193,10 +244,15 @@ class TestModelSuggestionsHighlight(BaseTest):
     def _draft(self, kind: WarehouseSuggestionKind, view_id: UUID) -> SuggestionDraft:
         return replace(make_draft(fingerprint=f"{kind}:{view_id}", subject_id=view_id), kind=kind)
 
-    def _suggest(self, kind: WarehouseSuggestionKind, view_id: UUID) -> WarehouseSuggestion:
-        return ingest_surfaced(self.team.id, self._draft(kind, view_id))
+    def _suggest(
+        self, kind: WarehouseSuggestionKind, view_id: UUID, assignee: User | None = None
+    ) -> WarehouseSuggestion:
+        suggestion = ingest_surfaced(self.team.id, self._draft(kind, view_id))
+        if assignee is not None:
+            WarehouseSuggestion.objects.for_team(self.team.id).filter(id=suggestion.id).update(assignee=assignee)
+        return suggestion
 
-    def _restrict_view(self, view_id: UUID, access_level: str) -> None:
+    def _restrict_view(self, view_id: UUID, access_level: str, member: User | None = None) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
@@ -205,6 +261,10 @@ class TestModelSuggestionsHighlight(BaseTest):
             team=self.team,
             resource="warehouse_view",
             resource_id=str(view_id),
-            organization_member=self.organization_membership,
+            organization_member=(
+                member.organization_memberships.get(organization=self.organization)
+                if member
+                else self.organization_membership
+            ),
             access_level=access_level,
         )

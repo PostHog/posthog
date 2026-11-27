@@ -4,10 +4,9 @@ description: >
   Author continuously-running online evaluations in PostHog AI observability, grounded in real failure
   modes you've identified. Use when the user wants evaluations that automatically score new generations or
   whole traces going forward — "create an eval to catch X", "continuously check that responses do Y",
-  "turn these failures into evals". Covers letting the explored data decide how many evals to create,
+  "turn these failures into evals", or after reading traces finds a recurring failure. Covers letting the explored data decide how many evals to create,
   proposing that set for the user to pick, choosing the target and eval type (hog / llm_judge /
-  sentiment), configuring a provider and model for an llm_judge eval (a provider key gates enabling, not
-  creation), scoping which generations trigger it via conditions, creating disabled, verifying scope,
+  sentiment), configuring an llm_judge's provider and model, scoping which generations trigger it via conditions, creating disabled, verifying scope,
   enabling, and backfilling past data. Proposes a sentiment eval when no failure mode is worth catching. Finding and ranking the
   failure modes worth evaluating is its own job — use exploring-ai-failures first. To debug or manage
   evaluations that already exist, use exploring-llm-evaluations.
@@ -265,9 +264,15 @@ Prefer pinning the chosen key so a later team-wide active-key change does not ch
 Leave `provider_key_id` as `null` to run on the team's active key; before enabling, confirm with
 `llma-evaluation-config-get` that the active key is usable and its provider matches.
 
-No usable key does not block creation. Create the disabled draft with a valid `provider` and `model` for
-the user to review. Do not spot-run or enable it, and ask the user to add or validate a key in the UI so it
-can be enabled later.
+No usable key does not block creating the judge. Keys cannot be added through MCP, so:
+
+- If the team has an `ok` key that the judge isn't set to use, pin it with `provider_key_id` instead of asking
+  for a new one.
+- If the team has no usable key, still create the judge with `enabled: false`. Do not spot-run or enable it.
+- Tell the user plainly that the judge starts scoring once a project admin adds a key in Settings > AI
+  observability > Bring your own key (BYOK) and enables it. A judge left disabled with no word to the user
+  never runs, so this message is part of the job, including when a create with `enabled: true` is rejected
+  for a missing key and you retry it disabled.
 
 ### 2.4 — Create it disabled
 
@@ -296,7 +301,7 @@ posthog:llma-evaluation-create
 ```
 
 For `llm_judge`, swap `evaluation_config` to `{ "prompt": "…" }` and add
-`"model_configuration": { "provider": "openai", "model": "gpt-5-mini", "provider_key_id": null }`.
+`"model_configuration": { "provider": "openai", "model": "gpt-6-luna", "provider_key_id": null }`.
 Pin `provider_key_id` to the UUID of an `ok`-state key from `llma-provider-key-list` to run on one specific
 key; `null` runs on the team's active key. Either value saves a draft. Full field reference:
 [references/evaluation-payload.md](references/evaluation-payload.md).
@@ -325,6 +330,9 @@ spot-run for a judge with no usable key, per 2.3). For a numeric or categorical 
 category keys the saved eval will accept.
 Both tools currently use generation samples; for a trace target they can check shared source or prompt behavior,
 but they do not reproduce the complete settled trace. Review the first live trace results before increasing rollout.
+For an LLM judge on a trace target, check `$ai_evaluation_input_truncated` on those results: `true` means the trace
+did not fit the judge's budget (300,000 characters, or 150,000 when the judge model's context window rejects the
+longer transcript) and the judge saw shortened content, so a verdict or N/A on that run can come from the missing part. Move checks that need the full input to a Hog eval, which reads the complete trace.
 
 > **Watch out:** some orgs reuse a single `$ai_trace_id` across 100k+ events. Scoping by trace-ID prefix
 > can match far more than expected — verify volume with the SQL above before enabling.
@@ -340,11 +348,15 @@ posthog:llma-evaluation-update
 
 Each now runs on every new matching generation, or once per matching trace for a trace target. This isn't
 one-and-done: the user should be aware that they need to keep an eye on results and iterate if the outcome
-is not the expected one. To wire results into a Slack feed, see `feature-usage-feed`.
+is not the expected one.
+
+If the user asked to see results before anything goes live, show the test results for the whole set and ask
+once, in the same reply: "Enable these N now?" Enable the ones they approve right away, in this session. Don't
+end the conversation on a list of drafts: an eval nobody answered about stays disabled and never runs.
 
 Close the loop across the whole set at once — one short list of what's now live with a link each, not a
-play-by-play per eval. Mention any candidate you left disabled (no usable provider key, volume too high to
-enable yet) and what would unblock it.
+play-by-play per eval. Mention any candidate you left disabled (the user said no, no usable provider key,
+volume too high to enable yet), what would unblock it, and the link to enable it later.
 
 ### 2.7 — Offer to evaluate past data
 
@@ -423,6 +435,9 @@ creating so the user can review and toggle it in the UI.
 - **A judge draft needs only a provider and model.** A usable provider key is needed to enable it, not to
   save it, so no `ok` key means keep it disabled — not stop. `provider_key_id` may be `null` to run on the
   team's active key.
+- **Online evals are for live traffic, not a registry.** Don't create disabled online evals as records or
+  placeholders for evals that run elsewhere (CI, a local eval folder, a test suite). Record those as offline
+  experiments (`analyzing-offline-evaluations`). Every online eval you create should be one you mean to enable.
 - **`bytecode` is server-written** for hog evals — never pass it; send only `evaluation_config.source`.
 - For cluster-scoped evals, identify the cluster with `exploring-llm-clusters`, then translate its event
   filter into `conditions`.

@@ -5,18 +5,17 @@ import {
     Button,
     Combobox,
     ComboboxContent,
-    ComboboxEmpty,
     ComboboxInput,
     ComboboxItem,
     ComboboxList,
-    SelectTriggerIcon,
-    Spinner,
+    ComboboxTrigger,
 } from '@posthog/quill'
 
+import { QuillMembersComboboxEmpty } from 'lib/components/QuillMembersComboboxEmpty'
 import { QuillPersonAvatar } from 'lib/components/QuillPersonAvatar/QuillPersonAvatar'
 import { fullName } from 'lib/utils/strings'
-import { membersLogic } from 'scenes/organization/membersLogic'
 
+import { membersLogic } from '~/models/membersLogic'
 import { UserBasicType } from '~/types'
 
 const ANY_USER = 'any'
@@ -86,28 +85,15 @@ export function QuillActivityMemberFilter({ value, onChange }: QuillActivityMemb
             onValueChange={onValueChange}
             itemToStringLabel={itemToStringLabel}
         >
-            <Button
+            <ComboboxTrigger
                 ref={triggerRef}
-                variant="outline"
-                className="min-w-0 shrink"
-                onClick={() => setPickerOpen(!open)}
-                data-attr="activity-member-filter"
+                render={<Button variant="outline" className="min-w-0 shrink" data-attr="activity-member-filter" />}
             >
                 <span className="ph-no-capture min-w-0 truncate">{selected ? fullName(selected) : 'Any user'}</span>
-                <SelectTriggerIcon />
-            </Button>
+            </ComboboxTrigger>
             <ComboboxContent anchor={triggerRef} className="w-64">
                 <ComboboxInput placeholder="Search members…" showTrigger={false} />
-                <ComboboxEmpty>
-                    {membersLoading ? (
-                        <span className="flex items-center gap-2">
-                            <Spinner />
-                            Loading members…
-                        </span>
-                    ) : (
-                        'No matching members'
-                    )}
-                </ComboboxEmpty>
+                <QuillMembersComboboxEmpty loading={membersLoading} />
                 <ComboboxList>
                     {(key: string) =>
                         key === ANY_USER ? (

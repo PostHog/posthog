@@ -5,7 +5,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, ensure, Context, Result};
 use sqlx::postgres::PgPool;
 
 use personhog_coordination::types::MigrationPhase;
@@ -232,6 +232,9 @@ pub async fn run(args: GateArgs) -> Result<()> {
     if args.migrate_after.is_some() && args.migrate_to_partitions.is_none_or(|n| n == 0) {
         bail!("--migrate-after needs --migrate-to-partitions >= 1");
     }
+    if args.migrate_to_kafka_hosts.is_some() && args.migrate_after.is_none() {
+        bail!("--migrate-to-kafka-hosts needs --migrate-after");
+    }
     if args.migrate_again_after.is_some() && args.migrate_again_to_partitions.is_none_or(|n| n == 0)
     {
         bail!("--migrate-again-after needs --migrate-again-to-partitions >= 1");
@@ -319,6 +322,7 @@ pub async fn run(args: GateArgs) -> Result<()> {
                     routers: args.routers,
                     partitions: args.partitions,
                     kafka_hosts: args.kafka_hosts.clone(),
+                    secondary_kafka_hosts: args.migrate_to_kafka_hosts.clone(),
                     etcd_endpoints: args.etcd_endpoints.clone(),
                     persons_db_url: args.persons_db_url.clone(),
                     writer_flush_interval_ms: 1000,
@@ -763,6 +767,7 @@ async fn run_gate(
                         pause_writer: args
                             .migrate_pause_writer
                             .then_some(args.writer_pause_duration),
+                        to_secondary: args.migrate_to_kafka_hosts.is_some(),
                     },
                     // The second migration runs clean; the first carries the chaos.
                     _ => MigrationChaos {
@@ -774,6 +779,7 @@ async fn run_gate(
                         restart_leader: false,
                         stall: None,
                         pause_writer: None,
+                        to_secondary: false,
                     },
                 };
                 let took = stack.migrate(chaos).await?;
@@ -814,6 +820,13 @@ async fn run_gate(
     let mut prober_violations = probers.await.context("prober task panicked")??;
     if let Some(stack) = stack.as_mut() {
         stack.retire_drained().await?;
+        // A cross-cluster migration the writer never followed would pass vacuously.
+        if args.migrate_to_kafka_hosts.is_some() {
+            ensure!(
+                stack.writer_rebinds() > 0,
+                "the changelog moved to another cluster but the writer never exited to follow it"
+            );
+        }
     }
     let mut unresolved_merges = Vec::new();
     if let Some(merges) = merges {

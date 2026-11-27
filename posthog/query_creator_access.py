@@ -1,9 +1,30 @@
 from typing import Any, Optional
 
+from django.db.models import Model
+
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.ph_client import ph_scoped_capture
+
+from products.access_control.backend.facade.contracts import ObjectAccessRef
+from products.access_control.backend.facade.user_access_control import (
+    UserAccessControl,
+    UserAccessControlError,
+    model_to_resource,
+)
+
+# The API error codes for a write refused because the owner can no longer run the resource, one per cause.
+# Shared by subscriptions and alerts; the frontend offers to take ownership when it sees either.
+OWNER_LEFT_ORGANIZATION_CODE = "owner_left_organization"
+OWNER_LOST_ACCESS_CODE = "owner_lost_access"
+
+
+class CreatorLeftOrganizationError(Exception):
+    """A background query refused to run because its owner is no longer in the organization."""
+
+    def __init__(self) -> None:
+        super().__init__("The owner is no longer in the organization.")
 
 
 def creator_access_revoked(user: Optional[User], team: Team) -> bool:
@@ -15,6 +36,54 @@ def creator_access_revoked(user: Optional[User], team: Team) -> bool:
     if not user.is_active:
         return True
     return not OrganizationMembership.objects.filter(organization_id=team.organization_id, user=user).exists()
+
+
+def assert_creator_can_run(user: Optional[User], team: Team, *objects: Model | ObjectAccessRef | None) -> None:
+    """Raise when `user` can no longer run a background query for `team` as its owner.
+
+    `CreatorLeftOrganizationError` when they were deleted (`user is None`), deactivated, or left the
+    team's org. `UserAccessControlError` when they are still in the org but cannot view the project
+    or one of `objects`. Background jobs load their dashboard and insight directly, so nothing else
+    checks object access for them. Organization admins pass, and a `None` object is skipped.
+
+    An object that the caller holds only as a contract passes as its `ObjectAccessRef`. The ref is
+    checked with the rules of the team that stores the object.
+    """
+    if user is None or creator_access_revoked(user, team):
+        raise CreatorLeftOrganizationError()
+    user_access_control = UserAccessControl(user=user, team=team)
+    # Object rules do not consult the project, so a member shut out of a private project is checked first.
+    if not user_access_control.has_project_access:
+        raise UserAccessControlError("project", "viewer", str(team.pk))
+    for obj in objects:
+        if obj is None:
+            continue
+        if isinstance(obj, ObjectAccessRef):
+            owner_access = user_access_control.for_team_ids([obj.team_id]).get(obj.team_id)
+            if owner_access is None or not owner_access.check_access_level_for_ref(obj, "viewer"):
+                raise UserAccessControlError(obj.resource, "viewer", obj.id)
+            continue
+        resource = model_to_resource(obj)
+        # A model with no scope has no access rules, so there is nothing to deny.
+        if resource is not None and not user_access_control.check_access_level_for_object(obj, "viewer"):
+            raise UserAccessControlError(resource, "viewer", str(obj.pk))
+
+
+def owner_unavailable_code(error: Exception) -> str:
+    """The API error code for `error`, as raised by `assert_creator_can_run`. A deleted owner counts as one who left."""
+    return OWNER_LEFT_ORGANIZATION_CODE if isinstance(error, CreatorLeftOrganizationError) else OWNER_LOST_ACCESS_CODE
+
+
+def describe_owner_unavailable(user: Optional[User], error: Exception) -> str:
+    """One sentence on why `user` can no longer run a resource, for the person trying to enable it.
+
+    `error` is what `assert_creator_can_run` raised for them.
+    """
+    if user is None:
+        return "It runs with the access of its creator, whose account was deleted."
+    if isinstance(error, CreatorLeftOrganizationError):
+        return f"It runs with the access of its creator, {user.email}, who is no longer in the organization."
+    return f"It runs with the access of its creator, {user.email}, who no longer has access to the data it reads."
 
 
 def report_creator_access_revoked(

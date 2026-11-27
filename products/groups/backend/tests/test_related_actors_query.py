@@ -18,9 +18,9 @@ from parameterized import parameterized
 from posthog.schema import PersonsOnEventsMode
 
 from posthog.clickhouse.client import sync_execute
+from posthog.constants import GroupTypeIndex
 from posthog.models import Group
 from posthog.models.event.util import create_event
-from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.group.util import create_group
 from posthog.test.persons import create_group_type_mapping
 

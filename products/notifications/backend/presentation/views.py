@@ -12,22 +12,19 @@ import posthoganalytics
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import serializers as drf_serializers
 from rest_framework.exceptions import ValidationError
-from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.mixins import ValidatedRequest, validated_request
+from posthog.api.pagination import BoundedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.models import User
 
-from products.access_control.backend.facade.user_access_control import (
-    ACCESS_CONTROL_RESOURCES,
-    UserAccessControl,
-    visible_teams_for_user,
-)
+from products.access_control.backend.facade.user_access_control import UserAccessControl, visible_teams_for_user
 from products.notifications.backend.cache import get_unread_count, invalidate_unread_count, set_unread_count
+from products.notifications.backend.facade.api import ACCESS_CHECKED_RESOURCE_TYPES
 from products.notifications.backend.models import NotificationArchiveState, NotificationEvent, NotificationReadState
 from products.notifications.backend.presentation.serializers import NotificationEventSerializer
 
@@ -45,7 +42,7 @@ class BulkNotificationIdsRequestSerializer(drf_serializers.Serializer):
     )
 
 
-class NotificationPagination(LimitOffsetPagination):
+class NotificationPagination(BoundedLimitOffsetPagination):
     default_limit = 20
     max_limit = 100
 
@@ -118,7 +115,7 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             .distinct()
         )
 
-        ac_types_to_check = resource_types_in_set.intersection(ACCESS_CONTROL_RESOURCES)
+        ac_types_to_check = resource_types_in_set.intersection(ACCESS_CHECKED_RESOURCE_TYPES)
         if not ac_types_to_check:
             return queryset
 

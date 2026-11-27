@@ -15,7 +15,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.helpers.email_utils import EmailLookupHandler
-from posthog.scopes import effective_ceiling
+from posthog.scopes.ceilings import effective_ceiling
 
 from ee.api.agentic_provisioning.accounts import handle_existing_user, handle_new_user
 from ee.api.agentic_provisioning.analytics import capture_provisioning_event
@@ -112,6 +112,7 @@ class AccountRequestsView(ProvisioningAPIView):
 
         return Response(
             handle_new_user(
+                request._request,
                 request_id,
                 data,
                 email,

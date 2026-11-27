@@ -3,10 +3,14 @@ import { urls } from 'scenes/urls'
 
 import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
-import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
+import { ActivityScope, FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Surveys',
+    activityDescribers: {
+        [ActivityScope.SURVEY]: () =>
+            import('scenes/surveys/surveyActivityDescriber').then((module) => module.surveyActivityDescriber),
+    },
     urls: {
         surveys: (tab?: `${SurveysTabs}`): string => `/surveys${tab ? `?tab=${tab}` : ''}`,
         /** @param id A UUID or 'new'. ':id' for routing. */
@@ -21,7 +25,8 @@ export const manifest: ProductManifest = {
             iconType: 'survey',
             href: (ref: string) => urls.survey(ref),
             listHref: () => urls.surveys(),
-            iconColor: ['var(--color-product-surveys-light)'],
+            listSearchParam: 'search',
+            iconColor: ['var(--color-product-surveys-light)', 'var(--color-product-surveys-dark)'],
             filterKey: 'survey',
         },
     },
@@ -31,7 +36,10 @@ export const manifest: ProductManifest = {
             type: 'survey',
             href: urls.surveyWizard('new'),
             iconType: 'survey',
-            iconColor: ['var(--color-product-surveys-light)'] as FileSystemIconColor,
+            iconColor: [
+                'var(--color-product-surveys-light)',
+                'var(--color-product-surveys-dark)',
+            ] as FileSystemIconColor,
         },
     ],
     treeItemsProducts: [
@@ -44,7 +52,10 @@ export const manifest: ProductManifest = {
             searchKeywords: ['feedback', 'nps', 'csat', 'polls'],
             searchTabs: [{ name: 'Notifications', href: urls.surveys('notifications') }],
             iconType: 'survey',
-            iconColor: ['var(--color-product-surveys-light)'] as FileSystemIconColor,
+            iconColor: [
+                'var(--color-product-surveys-light)',
+                'var(--color-product-surveys-dark)',
+            ] as FileSystemIconColor,
             sceneKey: 'Surveys',
             sceneKeys: ['Survey', 'Surveys'],
         },

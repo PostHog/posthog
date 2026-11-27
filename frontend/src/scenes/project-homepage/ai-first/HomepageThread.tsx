@@ -1,8 +1,8 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { Suspense, useEffect, useRef } from 'react'
 
-import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { ScrollableShadows } from 'lib/lemon-ui/ScrollableShadows/ScrollableShadows'
 import { uuid } from 'lib/utils/dom'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { ThreadAutoScroller } from 'scenes/max/components/ThreadAutoScroller'

@@ -1,6 +1,6 @@
 import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { initKeaTests } from '~/test/init'

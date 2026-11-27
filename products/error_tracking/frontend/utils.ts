@@ -7,11 +7,11 @@ import { ErrorTrackingException } from 'lib/components/Errors/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { componentsToDayJs, dateStringToComponents, dateStringToDayJs, isStringDateRegex } from 'lib/utils/dateFilters'
+import { escapeHogQLString } from 'lib/utils/hogql'
 import { Params } from 'scenes/sceneTypes'
 import { convertUniversalFiltersToRecordingsQuery } from 'scenes/session-recordings/filters/recordingsQueryConversions'
 
 import { DateRange, ErrorTrackingIssue } from '~/queries/schema/schema-general'
-import { escapeHogQLString } from '~/queries/utils'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -211,7 +211,6 @@ export function issueVisionScannerHandoff(
             // Error-scoped queries match few sessions, so scan them all rather than starting at
             // the wizard's narrow default rate.
             sampling_rate: 1.0,
-            sampling_mode: 'balanced',
             // 5,000 credits is $50 (1 credit = $0.01), the anchor the goal-based flow suggests.
             credit_limit: 5000,
             credit_limit_enabled: true,

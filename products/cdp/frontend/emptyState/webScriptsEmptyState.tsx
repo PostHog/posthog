@@ -33,7 +33,7 @@ export const webScriptsEmptyState: SceneProductEmptyState = {
             dataAttr: 'new-web-script',
         },
         skippable: false,
-        docsUrl: 'https://posthog.com/docs/cdp',
+        docsUrl: 'https://posthog.com/docs/js-snippets',
         previewLabel: 'Your scripts, once created',
         Preview: WebScriptPreview,
     },

@@ -3,10 +3,14 @@
  *
  * Defines scenes, routes, URLs, and navigation for this product.
  */
-import { ProductManifest } from '../../frontend/src/types'
+import { ActivityScope, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Exports',
+    activityDescribers: {
+        [ActivityScope.EXPORTED_ASSET]: () =>
+            import('scenes/exports/activityDescriptions').then((module) => module.exportedAssetActivityDescriber),
+    },
     scenes: {
         // Define scenes here
     },

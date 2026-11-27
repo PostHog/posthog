@@ -22,6 +22,8 @@ import { ApiError } from 'lib/api'
 import { isTransientServerError, shouldReportApiFailure } from 'lib/api-error'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
+import { getInsightId } from 'lib/insights/getInsightId'
+import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -31,12 +33,10 @@ import { InsightEventSource, sanitizeInsight, sanitizeQuery } from 'lib/utils/ev
 import { isEmptyObject, isObject } from 'lib/utils/guards'
 import { objectsEqual } from 'lib/utils/objects'
 import { RetainedValues } from 'lib/utils/retainedValues'
+import { retryImport } from 'lib/utils/retryImport'
 import { withBackLink } from 'scenes/analytics/analyticsBackLink'
-import { isDashboardFilterOverrideEmpty } from 'scenes/dashboard/dashboardFilterEmpty'
-import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { liveDashboardIds } from 'scenes/dashboard/liveDashboardIds'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { summarizeInsight } from 'scenes/insights/summarizeInsight'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -50,11 +50,8 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { insightsModel } from '~/models/insightsModel'
-import { tagsModel } from '~/models/tagsModel'
 import { RESPONSE_CACHE_TTL } from '~/queries/nodes/DataNode/responseCache'
-import { DashboardFilter, HogQLVariable, Node, TileFilters } from '~/queries/schema/schema-general'
 import {
-    convertDataTableNodeToDataVisualizationNode,
     isFunnelsQuery,
     isLifecycleQuery,
     isNodeWithSource,
@@ -62,8 +59,10 @@ import {
     isRetentionQuery,
     isStickinessQuery,
     isTrendsQuery,
-    isValidQueryForExperiment,
-} from '~/queries/utils'
+} from '~/queries/schema/node-guards'
+import { DashboardFilter, HogQLVariable, Node, TileFilters } from '~/queries/schema/schema-general'
+import type { QuerySchema } from '~/queries/schema/schema-general'
+import { convertDataTableNodeToDataVisualizationNode, isValidQueryForExperiment } from '~/queries/utils'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -76,7 +75,8 @@ import {
     SetInsightOptions,
 } from '~/types'
 
-import { insightAlertsLogic } from 'products/alerts/frontend/logic/insightAlertsLogic'
+import { isDashboardFilterOverrideEmpty } from 'products/dashboards/frontend/dashboardFilterEmpty'
+import { dashboardsPartialUpdate } from 'products/dashboards/frontend/generated/api'
 import {
     titleMentionsMCP,
     tryShowMCPAnalyticsNudge,
@@ -92,11 +92,9 @@ import type { ProductIntentProperties } from '../../lib/utils/product-intents'
 import type { Noun } from '../../models/groupsModel'
 import type { QueryStatus, ResolvedDateRangeResponse } from '../../queries/schema/schema-general'
 import type { QueryScanSummary } from '../../queries/schema/schema-general'
-import type { AccessControlFilterWarning, DataWarehouseSyncWarning } from '../../queries/schema/schema-general'
 import type { CohortType, DashboardTileBasicType, TeamPublicType, TeamType, UserBasicType, UserType } from '../../types'
 import { teamLogic } from '../teamLogic'
 import { insightDataLogic, isInsightSceneInstance } from './insightDataLogic'
-import { getInsightId } from './utils'
 import { insightsApi } from './utils/api'
 
 function reportInsightSaved(
@@ -116,6 +114,30 @@ function reportInsightSaved(
 
 export const UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES = 3
 
+/** Right after a save the insight state can hold only the short ID, so the numeric ID is looked up from it. */
+async function resolveInsightId(insight: Partial<InsightModel>): Promise<number> {
+    const insightId = insight.id || (insight.short_id ? await getInsightId(insight.short_id) : undefined)
+    if (!insightId) {
+        throw new Error('Cannot update insight: unable to resolve insight id')
+    }
+    return insightId
+}
+
+// The tile endpoints return no insight, and this logic's copy can carry a dashboard's overrides in its query.
+async function reloadInsightAfterTileChange(
+    insightId: number,
+    currentResult: InsightModel['result'],
+    removedDashboardIds: number[]
+): Promise<InsightModel> {
+    const savedInsight = await insightsApi.getByNumericId(insightId)
+    if (!savedInsight) {
+        throw new Error('Cannot reload the insight after changing its dashboards')
+    }
+    const updatedInsight = { ...savedInsight, result: savedInsight.result || currentResult }
+    dashboardsModel.actions.updateDashboardInsight(updatedInsight, removedDashboardIds)
+    return updatedInsight
+}
+
 export const createEmptyInsight = (shortId: InsightShortId | `new-${string}` | 'new'): Partial<InsightModel> => ({
     short_id: shortId !== 'new' && !shortId.startsWith('new-') ? (shortId as InsightShortId) : undefined,
     name: undefined,
@@ -134,6 +156,18 @@ const retainedInsights = new RetainedValues<Partial<InsightModel>>({
 
 function getRetainedInsightForProps(props: InsightLogicProps): Partial<InsightModel> | null {
     return props.retainResponseOnUnmount && props.dashboardItemId ? retainedInsights.get(props.dashboardItemId) : null
+}
+
+// A mounted insightAlertsLogic means its module is already loaded, so the import fetches nothing new.
+// A failed import means no insightAlertsLogic is mounted, so there are no alerts to refresh.
+async function refreshMountedInsightAlerts(props: InsightLogicProps, insightId: number | undefined): Promise<void> {
+    const alertsModule = await retryImport(() => import('products/alerts/frontend/logic/insightAlertsLogic')).catch(
+        () => null
+    )
+    const alertsLogic = alertsModule?.insightAlertsLogic.findMounted({ insightLogicProps: props, insightId })
+    if (alertsLogic && alertsLogic.values.alerts.length > 0) {
+        alertsLogic.actions.loadAlerts()
+    }
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
@@ -177,10 +211,34 @@ export interface insightLogicValues {
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface insightLogicActions {
-    refreshTags: () => {
-        value: true
-    } // tagsModel
     addProductIntent: (properties: ProductIntentProperties) => ProductIntentProperties // teamLogic
+    addInsightToDashboard: (
+        dashboardId: number,
+        callback?: () => void
+    ) => {
+        callback: (() => void) | undefined
+        dashboardId: number
+    }
+    addInsightToDashboardFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    addInsightToDashboardSuccess: (
+        insight: InsightModel<Node<Record<string, any>>>,
+        payload?: {
+            callback: (() => void) | undefined
+            dashboardId: number
+        }
+    ) => {
+        insight: InsightModel<Node<Record<string, any>>>
+        payload?: {
+            callback: (() => void) | undefined
+            dashboardId: number
+        }
+    }
     confirmDeleteInsight: (dashboardId: number | null) => {
         dashboardId: number | null
     }
@@ -223,46 +281,46 @@ export interface insightLogicActions {
     }
     loadInsightSuccess: (
         insight: {
-            _create_in_folder?: string | null | undefined
-            alerts?: AlertType[] | undefined
-            cache_target_age?: string | null | undefined
-            columns?: string[] | null | undefined
+            _create_in_folder?: string | null
+            alerts?: AlertType[]
+            cache_target_age?: string | null
+            columns?: string[] | null
             created_at: string
             created_by: UserBasicType | null
             dashboard_tiles: DashboardTileBasicType[] | null
-            dashboards?: number[] | undefined
+            dashboards?: number[]
             deleted: boolean
-            derived_name?: string | null | undefined
-            description?: string | undefined
-            disable_baseline?: boolean | undefined
-            favorited?: boolean | undefined
-            filter_override_context?: InsightFilterOverrideContextApi | null | undefined
+            derived_name?: string | null
+            description?: string
+            disable_baseline?: boolean
+            favorited?: boolean
+            filter_override_context?: InsightFilterOverrideContextApi | null
             id: number
-            is_cached?: boolean | undefined
+            is_cached?: boolean
             is_sample: boolean
             last_modified_at: string
             last_modified_by: UserBasicType | null
             last_refresh: string | null
-            last_viewed_at?: string | null | undefined
+            last_viewed_at?: string | null
             name: string
-            next?: string | undefined
-            next_allowed_client_refresh?: string | null | undefined
+            next?: string
+            next_allowed_client_refresh?: string | null
             order: number | null
             query: Node<Record<string, any>> | null
-            query_scan?: QueryScanSummary | undefined
-            query_status?: QueryStatus | undefined
-            resolved_date_range?: ResolvedDateRangeResponse | null | undefined
+            query_scan?: QueryScanSummary
+            query_status?: QueryStatus
+            resolved_date_range?: ResolvedDateRangeResponse | null
             result: any
             saved: boolean
             short_id: InsightShortId
-            tags?: string[] | undefined
-            timezone?: string | null | undefined
-            types?: string[][] | null | undefined
+            tags?: string[]
+            timezone?: string | null
+            types?: string[][] | null
             updated_at: string
             user_access_level: AccessControlLevel
-            view_count?: number | undefined
-            viewers?: UserBasicType[] | undefined
-            warnings?: (AccessControlFilterWarning | DataWarehouseSyncWarning)[] | null | undefined
+            view_count?: number
+            viewers?: UserBasicType[]
+            warnings?: import('~/queries/schema/schema-general').AnalyticsQueryResponseBase['warnings'] | null
         },
         payload?: {
             filtersOverride: DashboardFilter | null | undefined
@@ -272,46 +330,46 @@ export interface insightLogicActions {
         }
     ) => {
         insight: {
-            _create_in_folder?: string | null | undefined
-            alerts?: AlertType[] | undefined
-            cache_target_age?: string | null | undefined
-            columns?: string[] | null | undefined
+            _create_in_folder?: string | null
+            alerts?: AlertType[]
+            cache_target_age?: string | null
+            columns?: string[] | null
             created_at: string
             created_by: UserBasicType | null
             dashboard_tiles: DashboardTileBasicType[] | null
-            dashboards?: number[] | undefined
+            dashboards?: number[]
             deleted: boolean
-            derived_name?: string | null | undefined
-            description?: string | undefined
-            disable_baseline?: boolean | undefined
-            favorited?: boolean | undefined
-            filter_override_context?: InsightFilterOverrideContextApi | null | undefined
+            derived_name?: string | null
+            description?: string
+            disable_baseline?: boolean
+            favorited?: boolean
+            filter_override_context?: InsightFilterOverrideContextApi | null
             id: number
-            is_cached?: boolean | undefined
+            is_cached?: boolean
             is_sample: boolean
             last_modified_at: string
             last_modified_by: UserBasicType | null
             last_refresh: string | null
-            last_viewed_at?: string | null | undefined
+            last_viewed_at?: string | null
             name: string
-            next?: string | undefined
-            next_allowed_client_refresh?: string | null | undefined
+            next?: string
+            next_allowed_client_refresh?: string | null
             order: number | null
             query: Node<Record<string, any>> | null
-            query_scan?: QueryScanSummary | undefined
-            query_status?: QueryStatus | undefined
-            resolved_date_range?: ResolvedDateRangeResponse | null | undefined
+            query_scan?: QueryScanSummary
+            query_status?: QueryStatus
+            resolved_date_range?: ResolvedDateRangeResponse | null
             result: any
             saved: boolean
             short_id: InsightShortId
-            tags?: string[] | undefined
-            timezone?: string | null | undefined
-            types?: string[][] | null | undefined
+            tags?: string[]
+            timezone?: string | null
+            types?: string[][] | null
             updated_at: string
             user_access_level: AccessControlLevel
-            view_count?: number | undefined
-            viewers?: UserBasicType[] | undefined
-            warnings?: (AccessControlFilterWarning | DataWarehouseSyncWarning)[] | null | undefined
+            view_count?: number
+            viewers?: UserBasicType[]
+            warnings?: import('~/queries/schema/schema-general').AnalyticsQueryResponseBase['warnings'] | null
         }
         payload?: {
             filtersOverride: DashboardFilter | null | undefined
@@ -331,6 +389,33 @@ export interface insightLogicActions {
     }
     reloadSavedInsights: () => {
         value: true
+    }
+    removeInsightFromDashboard: (
+        dashboardId: number,
+        callback?: () => void
+    ) => {
+        callback: (() => void) | undefined
+        dashboardId: number
+    }
+    removeInsightFromDashboardFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    removeInsightFromDashboardSuccess: (
+        insight: InsightModel<Node<Record<string, any>>>,
+        payload?: {
+            callback: (() => void) | undefined
+            dashboardId: number
+        }
+    ) => {
+        insight: InsightModel<Node<Record<string, any>>>
+        payload?: {
+            callback: (() => void) | undefined
+            dashboardId: number
+        }
     }
     saveAs: (
         redirectToViewMode?: boolean,
@@ -401,46 +486,46 @@ export interface insightLogicActions {
     }
     setInsightMetadataSuccess: (
         insight: {
-            _create_in_folder?: string | null | undefined
-            alerts?: AlertType[] | undefined
-            cache_target_age?: string | null | undefined
-            columns?: string[] | null | undefined
+            _create_in_folder?: string | null
+            alerts?: AlertType[]
+            cache_target_age?: string | null
+            columns?: string[] | null
             created_at?: string | undefined
             created_by?: UserBasicType | null | undefined
             dashboard_tiles?: DashboardTileBasicType[] | null | undefined
-            dashboards?: number[] | undefined
+            dashboards?: number[]
             deleted?: boolean | undefined
-            derived_name?: string | null | undefined
-            description?: string | undefined
-            disable_baseline?: boolean | undefined
-            favorited?: boolean | undefined
-            filter_override_context?: InsightFilterOverrideContextApi | null | undefined
+            derived_name?: string | null
+            description?: string
+            disable_baseline?: boolean
+            favorited?: boolean
+            filter_override_context?: InsightFilterOverrideContextApi | null
             id?: number | undefined
-            is_cached?: boolean | undefined
+            is_cached?: boolean
             is_sample?: boolean | undefined
             last_modified_at?: string | undefined
             last_modified_by?: UserBasicType | null | undefined
             last_refresh?: string | null | undefined
-            last_viewed_at?: string | null | undefined
+            last_viewed_at?: string | null
             name?: string | undefined
-            next?: string | undefined
-            next_allowed_client_refresh?: string | null | undefined
+            next?: string
+            next_allowed_client_refresh?: string | null
             order?: number | null | undefined
             query?: Node<Record<string, any>> | null | undefined
-            query_scan?: QueryScanSummary | undefined
-            query_status?: QueryStatus | undefined
-            resolved_date_range?: ResolvedDateRangeResponse | null | undefined
+            query_scan?: QueryScanSummary
+            query_status?: QueryStatus
+            resolved_date_range?: ResolvedDateRangeResponse | null
             result?: any
             saved?: boolean | undefined
             short_id?: InsightShortId | undefined
-            tags?: string[] | undefined
-            timezone?: string | null | undefined
-            types?: string[][] | null | undefined
+            tags?: string[]
+            timezone?: string | null
+            types?: string[][] | null
             updated_at?: string | undefined
             user_access_level?: AccessControlLevel | undefined
-            view_count?: number | undefined
-            viewers?: UserBasicType[] | undefined
-            warnings?: (AccessControlFilterWarning | DataWarehouseSyncWarning)[] | null | undefined
+            view_count?: number
+            viewers?: UserBasicType[]
+            warnings?: import('~/queries/schema/schema-general').AnalyticsQueryResponseBase['warnings'] | null
         },
         payload?: {
             metadataUpdate: Partial<
@@ -449,46 +534,46 @@ export interface insightLogicActions {
         }
     ) => {
         insight: {
-            _create_in_folder?: string | null | undefined
-            alerts?: AlertType[] | undefined
-            cache_target_age?: string | null | undefined
-            columns?: string[] | null | undefined
+            _create_in_folder?: string | null
+            alerts?: AlertType[]
+            cache_target_age?: string | null
+            columns?: string[] | null
             created_at?: string | undefined
             created_by?: UserBasicType | null | undefined
             dashboard_tiles?: DashboardTileBasicType[] | null | undefined
-            dashboards?: number[] | undefined
+            dashboards?: number[]
             deleted?: boolean | undefined
-            derived_name?: string | null | undefined
-            description?: string | undefined
-            disable_baseline?: boolean | undefined
-            favorited?: boolean | undefined
-            filter_override_context?: InsightFilterOverrideContextApi | null | undefined
+            derived_name?: string | null
+            description?: string
+            disable_baseline?: boolean
+            favorited?: boolean
+            filter_override_context?: InsightFilterOverrideContextApi | null
             id?: number | undefined
-            is_cached?: boolean | undefined
+            is_cached?: boolean
             is_sample?: boolean | undefined
             last_modified_at?: string | undefined
             last_modified_by?: UserBasicType | null | undefined
             last_refresh?: string | null | undefined
-            last_viewed_at?: string | null | undefined
+            last_viewed_at?: string | null
             name?: string | undefined
-            next?: string | undefined
-            next_allowed_client_refresh?: string | null | undefined
+            next?: string
+            next_allowed_client_refresh?: string | null
             order?: number | null | undefined
             query?: Node<Record<string, any>> | null | undefined
-            query_scan?: QueryScanSummary | undefined
-            query_status?: QueryStatus | undefined
-            resolved_date_range?: ResolvedDateRangeResponse | null | undefined
+            query_scan?: QueryScanSummary
+            query_status?: QueryStatus
+            resolved_date_range?: ResolvedDateRangeResponse | null
             result?: any
             saved?: boolean | undefined
             short_id?: InsightShortId | undefined
-            tags?: string[] | undefined
-            timezone?: string | null | undefined
-            types?: string[][] | null | undefined
+            tags?: string[]
+            timezone?: string | null
+            types?: string[][] | null
             updated_at?: string | undefined
             user_access_level?: AccessControlLevel | undefined
-            view_count?: number | undefined
-            viewers?: UserBasicType[] | undefined
-            warnings?: (AccessControlFilterWarning | DataWarehouseSyncWarning)[] | null | undefined
+            view_count?: number
+            viewers?: UserBasicType[]
+            warnings?: import('~/queries/schema/schema-general').AnalyticsQueryResponseBase['warnings'] | null
         }
         payload?: {
             metadataUpdate: Partial<
@@ -546,7 +631,7 @@ export interface insightLogicMeta {
         isInViewMode: (location: { hash: string; pathname: string; search: string }) => boolean
         derivedName: (
             query: Node<Record<string, any>> | null,
-            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun, // groupsModel
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun,
             cohortsById: Partial<Record<number | string, CohortType>>,
             mathDefinitions: Partial<Record<string, MathDefinition>>
         ) => string
@@ -559,7 +644,7 @@ export interface insightLogicMeta {
         ) => boolean
         showPersonsModal: (
             query: Node<Record<string, any>> | null,
-            insightProps: InsightLogicProps<import('~/queries/schema/schema-general').QuerySchema>,
+            insightProps: InsightLogicProps<QuerySchema>,
             featureFlags: FeatureFlagsSet
         ) => boolean
         supportsCreatingExperiment: (
@@ -611,7 +696,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             sceneLogic,
             ['activeSceneId'],
         ],
-        actions: [tagsModel, ['refreshTags'], teamLogic, ['addProductIntent']],
+        actions: [teamLogic, ['addProductIntent']],
         logic: [dashboardsModel],
     })),
 
@@ -652,6 +737,8 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             insightUpdate,
             callback,
         }),
+        addInsightToDashboard: (dashboardId: number, callback?: () => void) => ({ dashboardId, callback }),
+        removeInsightFromDashboard: (dashboardId: number, callback?: () => void) => ({ dashboardId, callback }),
         setInsightMetadata: (
             metadataUpdate: Partial<Pick<InsightModel, 'name' | 'description' | 'tags' | 'favorited'>>
         ) => ({
@@ -737,15 +824,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     if (!Object.entries(insightUpdate).length) {
                         return values.insight
                     }
-                    // Resolve the numeric ID. When updateInsight races with loadInsight
-                    // (e.g. adding to a dashboard right after save), values.insight.id
-                    // may still be undefined. Fall back to resolving via short_id.
-                    const insightId =
-                        values.insight.id ||
-                        (values.insight.short_id ? await getInsightId(values.insight.short_id) : undefined)
-                    if (!insightId) {
-                        throw new Error('Cannot update insight: unable to resolve insight id')
-                    }
+                    const insightId = await resolveInsightId(values.insight)
                     const response = await insightsApi.update(insightId, insightUpdate)
                     // Call the callback before breakpoint so it fires even if a newer loader
                     // action was dispatched while the API call was in flight. The API call
@@ -766,6 +845,20 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     values.insight.short_id && refreshTreeItem('insight', String(values.insight.short_id))
                     return updatedInsight
                 },
+                addInsightToDashboard: async ({ dashboardId, callback }, breakpoint) => {
+                    const insightId = await resolveInsightId(values.insight)
+                    await insightsApi.addToDashboard(insightId, dashboardId)
+                    callback?.()
+                    breakpoint()
+                    return await reloadInsightAfterTileChange(insightId, values.insight.result, [])
+                },
+                removeInsightFromDashboard: async ({ dashboardId, callback }, breakpoint) => {
+                    const insightId = await resolveInsightId(values.insight)
+                    await insightsApi.removeFromDashboard(values.insight, dashboardId)
+                    callback?.()
+                    breakpoint()
+                    return await reloadInsightAfterTileChange(insightId, values.insight.result, [dashboardId])
+                },
                 setInsightMetadata: async ({ metadataUpdate }, breakpoint) => {
                     // new insight
                     if (values.insight.short_id == null) {
@@ -778,9 +871,6 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     }
 
                     const response = await insightsApi.update(values.insight.id as number, metadataUpdate)
-                    if ('tags' in metadataUpdate) {
-                        actions.refreshTags()
-                    }
                     await breakpoint(300)
 
                     actions.reloadSavedInsights()
@@ -928,8 +1018,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 return {
                     ...state,
                     dashboard_tiles: state.dashboard_tiles?.filter((tile) => tile.dashboard_id !== id),
-                    // An unsaved insight must not ask to be placed on the deleted dashboard. A saved insight has
-                    // no `dashboards`, and an `undefined` one would replace the list a write builds from the tiles.
+                    // An unsaved insight must not be placed on the deleted dashboard when it is saved.
                     ...(state.dashboards ? { dashboards: state.dashboards.filter((d: number) => d !== id) } : {}),
                 }
             },
@@ -949,6 +1038,14 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 updateInsightSuccess: (_, { insight }) => ({
                     ...insight,
                     query: insight.query || null,
+                }),
+                addInsightToDashboardSuccess: (state, { insight }) => ({
+                    ...state,
+                    dashboard_tiles: insight.dashboard_tiles,
+                }),
+                removeInsightFromDashboardSuccess: (state, { insight }) => ({
+                    ...state,
+                    dashboard_tiles: insight.dashboard_tiles,
                 }),
                 setInsightMetadataSuccess: (state, { insight }) => ({
                     ...state,
@@ -1167,13 +1264,9 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             const insightNumericId =
                 values.insight.id || (values.insight.short_id ? await getInsightId(values.insight.short_id) : undefined)
             const { name, description, favorited, deleted, tags } = values.insight
-            // A new insight carries the dashboards to place it on. A saved one sends back the dashboards
-            // it sits on. While its tiles are not loaded it sends nothing, because an empty list would
-            // take it off every dashboard.
-            const currentDashboards = values.insight.dashboard_tiles
+            const dashboards = insightNumericId
                 ? liveDashboardIds(values.insight.dashboard_tiles)
-                : undefined
-            const dashboards = insightNumericId ? currentDashboards : values.insight.dashboards
+                : values.insight.dashboards
 
             let savedInsight: InsightModel
 
@@ -1187,28 +1280,18 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     query: values.query,
                     deleted,
                     saved: true,
-                    dashboards,
                     tags,
                 }
 
                 savedInsight = insightNumericId
                     ? await insightsApi.update(insightNumericId, insightRequest)
-                    : await insightsApi.create({
-                          ...insightRequest,
-                          _create_in_folder: folder ?? getLastNewFolder(),
-                      })
+                    : await insightsApi.create(
+                          { ...insightRequest, _create_in_folder: folder ?? getLastNewFolder() },
+                          dashboards ?? []
+                      )
                 actions.reloadSavedInsights() // Load insights afresh
 
-                const alertsLogic = insightAlertsLogic.findMounted({
-                    insightLogicProps: props,
-                    insightId: insightNumericId,
-                })
-
-                if (alertsLogic != null) {
-                    if (alertsLogic.values.alerts.length > 0) {
-                        alertsLogic.actions.loadAlerts()
-                    }
-                }
+                void refreshMountedInsightAlerts(props, insightNumericId)
                 if (!insightNumericId) {
                     // saving the new insight consumes its draft; updating an existing insight
                     // must leave the (unrelated) draft alone
@@ -1276,14 +1359,36 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
 
             globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(tasksToComplete)
 
+            // A new insight started from a dashboard tile group's Add menu goes into that group.
+            const tileGroupParam = router.values.searchParams.tile_group
+            const tileGroupKey =
+                typeof tileGroupParam === 'string' || typeof tileGroupParam === 'number' ? String(tileGroupParam) : ''
+            const newDashboardTile =
+                !insightNumericId && dashboards?.length === 1 && tileGroupKey
+                    ? savedInsight.dashboard_tiles?.find(({ dashboard_id }) => dashboard_id === dashboards[0])
+                    : undefined
+            if (newDashboardTile) {
+                try {
+                    await dashboardsPartialUpdate(String(values.currentTeamId), newDashboardTile.dashboard_id, {
+                        tiles: [{ id: newDashboardTile.id, group_key: tileGroupKey }],
+                    })
+                } catch {
+                    lemonToast.error("Couldn't add the new tile to its group. Move it there with its Move to option.")
+                }
+            }
+
             // reload dashboards with updated insight
             // since filters on dashboard might be different from filters on insight
             // we need to trigger dashboard reload to pick up results for updated insight
-            savedInsight.dashboard_tiles?.forEach(({ dashboard_id }) =>
-                dashboardLogic
-                    .findMounted({ id: dashboard_id })
-                    ?.actions.loadDashboard({ action: DashboardLoadAction.Update })
-            )
+            if (savedInsight.dashboard_tiles?.length) {
+                // No dashboard logic can be mounted before its module loads, so a failed load has nothing to reload.
+                const dashboardModule = await import('scenes/dashboard/dashboardLogic').catch(() => null)
+                savedInsight.dashboard_tiles.forEach(({ dashboard_id }) =>
+                    dashboardModule?.dashboardLogic
+                        .findMounted({ id: dashboard_id })
+                        ?.actions.loadDashboard({ action: dashboardModule.DashboardLoadAction.Update })
+                )
+            }
 
             if (redirectToViewMode) {
                 if (!insightNumericId && dashboards?.length === 1) {
@@ -1291,9 +1396,12 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     router.actions.push(urls.dashboard(dashboards[0], savedInsight.short_id))
                 } else if (insightNumericId) {
                     if (isInsightSceneInstance(props)) {
-                        insightSceneLogic
-                            .findMounted()
-                            ?.actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
+                        const scene = insightSceneLogic.findMounted()
+                        if (scene?.values.dashboardBackPath) {
+                            router.actions.push(scene.values.dashboardBackPath)
+                        } else {
+                            scene?.actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
+                        }
                     }
                 } else {
                     router.actions.push(withBackLink(urls.insightView(savedInsight.short_id)))

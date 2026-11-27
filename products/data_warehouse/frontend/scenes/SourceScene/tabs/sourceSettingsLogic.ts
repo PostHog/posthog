@@ -36,7 +36,11 @@ import {
 } from '~/types'
 
 import { groupTablesBySchema } from 'products/data_warehouse/frontend/shared/components/forms/schemaGroupingUtils'
-import { FILE_UPLOAD_SOURCE_LABEL, isFileUploadSource } from 'products/data_warehouse/frontend/shared/fileUploadSources'
+import {
+    confirmPendingSelfManagedReload,
+    confirmPendingSelfManagedSync,
+} from 'products/data_warehouse/frontend/shared/confirmPendingSelfManagedSync'
+import { sourceTypeLabel } from 'products/data_warehouse/frontend/shared/fileUploadSources'
 import {
     clonePayloadPreservingFiles,
     findUploadedFiles,
@@ -49,7 +53,7 @@ import { SourceConfigResponseApi } from 'products/warehouse_sources/frontend/gen
 import { sourcesDataLogic } from '../../../shared/logics/sourcesDataLogic'
 import { availableSourcesLogic } from '../../NewSourceScene/availableSourcesLogic'
 import { SSH_FIELD, getErrorsForFields } from '../../NewSourceScene/sourceWizardLogic'
-import { sourceSceneLogic } from '../SourceScene'
+import { SOURCE_PLACEHOLDER_NAME, sourceSceneLogic } from '../SourceScene'
 
 export interface SourceSettingsLogicProps {
     id: string
@@ -347,16 +351,22 @@ export function schemasNeedingLookbackResync(source: ExternalDataSource | null):
 // the backend to discover and fill in default sync settings as part of the same update.
 // Blocked tables are enabled along with the rest on purpose. An operator who fixed the key or the
 // duplicates at the source for many tables at once has to be able to turn them back on in one go.
+// Migrated self-managed tables arrive with a full refresh and the model's default frequency, which
+// nobody chose, so they get the frequency the user picked in the confirm dialog.
 export function buildBulkEnablePayloads(
-    schemas: ExternalDataSourceSchema[]
+    schemas: ExternalDataSourceSchema[],
+    pendingSelfManagedSyncFrequency?: DataWarehouseSyncInterval
 ): (Partial<ExternalDataSourceSchema> & Pick<ExternalDataSourceSchema, 'id'> & { apply_sync_defaults?: boolean })[] {
     return schemas
         .filter((schema) => !schema.should_sync)
-        .map((schema) =>
-            schema.sync_type
-                ? { id: schema.id, should_sync: true }
-                : { id: schema.id, should_sync: true, apply_sync_defaults: true }
-        )
+        .map((schema) => ({
+            id: schema.id,
+            should_sync: true,
+            ...(schema.sync_type ? {} : { apply_sync_defaults: true }),
+            ...(schema.pending_self_managed_table && pendingSelfManagedSyncFrequency
+                ? { sync_frequency: clampSyncFrequency(pendingSelfManagedSyncFrequency) }
+                : {}),
+        }))
 }
 
 function reportBulkResult(verb: string, total: number, failed: number, skipped: number, skipReason = ''): void {
@@ -443,7 +453,11 @@ export interface sourceSettingsLogicActions {
     bulkDisable: (schemas: ExternalDataSourceSchema[]) => {
         schemas: ExternalDataSourceSchema[]
     }
-    bulkEnable: (schemas: ExternalDataSourceSchema[]) => {
+    bulkEnable: (
+        schemas: ExternalDataSourceSchema[],
+        pendingSelfManagedSyncFrequency?: DataWarehouseSyncInterval
+    ) => {
+        pendingSelfManagedSyncFrequency: DataWarehouseSyncInterval | undefined
         schemas: ExternalDataSourceSchema[]
     }
     bulkResync: (schemas: ExternalDataSourceSchema[]) => {
@@ -483,31 +497,31 @@ export interface sourceSettingsLogicActions {
     loadCdcStatusSuccess: (
         cdcStatus: {
             enabled: boolean
-            lag_bytes?: number | null | undefined
-            lag_critical_threshold_mb?: number | undefined
-            lag_warning_threshold_mb?: number | undefined
-            management_mode?: 'posthog' | 'self_managed' | undefined
-            publication_exists?: boolean | undefined
-            publication_name?: string | undefined
-            published_tables?: string[] | undefined
-            schedule_paused?: boolean | undefined
-            slot_exists?: boolean | undefined
-            slot_name?: string | undefined
+            lag_bytes?: number | null
+            lag_critical_threshold_mb?: number
+            lag_warning_threshold_mb?: number
+            management_mode?: 'posthog' | 'self_managed'
+            publication_exists?: boolean
+            publication_name?: string
+            published_tables?: string[]
+            schedule_paused?: boolean
+            slot_exists?: boolean
+            slot_name?: string
         },
         payload?: any
     ) => {
         cdcStatus: {
             enabled: boolean
-            lag_bytes?: number | null | undefined
-            lag_critical_threshold_mb?: number | undefined
-            lag_warning_threshold_mb?: number | undefined
-            management_mode?: 'posthog' | 'self_managed' | undefined
-            publication_exists?: boolean | undefined
-            publication_name?: string | undefined
-            published_tables?: string[] | undefined
-            schedule_paused?: boolean | undefined
-            slot_exists?: boolean | undefined
-            slot_name?: string | undefined
+            lag_bytes?: number | null
+            lag_critical_threshold_mb?: number
+            lag_warning_threshold_mb?: number
+            management_mode?: 'posthog' | 'self_managed'
+            publication_exists?: boolean
+            publication_name?: string
+            published_tables?: string[]
+            schedule_paused?: boolean
+            slot_exists?: boolean
+            slot_name?: string
         }
         payload?: any
     }
@@ -720,7 +734,10 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
         resyncSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
         cancelSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
         deleteTable: (schema: ExternalDataSourceSchema) => ({ schema }),
-        bulkEnable: (schemas: ExternalDataSourceSchema[]) => ({ schemas }),
+        bulkEnable: (
+            schemas: ExternalDataSourceSchema[],
+            pendingSelfManagedSyncFrequency?: DataWarehouseSyncInterval
+        ) => ({ schemas, pendingSelfManagedSyncFrequency }),
         setBulkEnableLoading: (loading: boolean) => ({ loading }),
         bulkDisable: (schemas: ExternalDataSourceSchema[]) => ({ schemas }),
         bulkSetFrequency: (schemas: ExternalDataSourceSchema[], frequency: DataWarehouseSyncInterval) => ({
@@ -790,6 +807,12 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                             // The API returns up to 50 jobs sorted by created_at desc, so this
                             // will refresh the status of recent jobs (e.g. Running -> Completed).
                             const freshJobs = await api.externalDataSources.jobs(values.sourceId, null, null, schemas)
+                            // The poll can outlive the source page, and reading values from the
+                            // unmounted logic throws. A breakpoint would also drop this load whenever
+                            // the 5s source refresh starts another one, so a slow query never lands.
+                            if (cache.disposables.isDisposed) {
+                                return []
+                            }
 
                             // Merge fresh jobs with existing jobs, preferring the fresh data
                             const jobsById = new Map(values.jobs.map((job) => [job.id, job]))
@@ -805,6 +828,9 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                         cache.jobsPollSoftFailureCount = 0
                         return result
                     } catch (error) {
+                        if (cache.disposables.isDisposed) {
+                            return []
+                        }
                         // Gateway timeouts / transient upstream errors are expected when the jobs
                         // query is slow. Swallow them here so the 5s poll doesn't become a source
                         // of error-tracking noise; loadJobsSuccess reschedules with backoff.
@@ -826,6 +852,9 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                             null,
                             schemas
                         )
+                        if (cache.disposables.isDisposed) {
+                            return []
+                        }
 
                         if (oldJobs.length === 0) {
                             actions.setCanLoadMoreJobs(false)
@@ -1211,6 +1240,23 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
     listeners(({ values, actions, props, cache }) => {
         const schemaUpdateCache = getSchemaUpdateCache(cache)
 
+        const setSceneBreadcrumbName = (): void => {
+            const { source } = values
+            const label = source
+                ? sourceTypeLabel(source.source_type, values.availableSources)
+                : SOURCE_PLACEHOLDER_NAME
+            const breadcrumbName = source?.access_method === 'direct' ? source.prefix || label : label
+
+            const sceneLogicInstance =
+                sourceSceneLogic.findMounted({ id: `managed-${props.id}` }) ??
+                sourceSceneLogic.findMounted({ id: props.id })
+
+            sceneLogicInstance?.actions.setBreadcrumbName(breadcrumbName)
+            if (source) {
+                sceneLogicInstance?.actions.setRecentName(source.prefix ? `${label} (${source.prefix})` : label)
+            }
+        }
+
         const scheduleSchemaUpdateFlush = (): void => {
             if (schemaUpdateCache.schemaUpdateFlushTimer) {
                 clearTimeout(schemaUpdateCache.schemaUpdateFlushTimer)
@@ -1332,6 +1378,14 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
 
         return {
             updateSchema: (schema) => {
+                const current = values.source?.schemas.find((s) => s.id === schema.id)
+                const turnsSyncingOn = schema.should_sync && !current?.should_sync
+                if (turnsSyncingOn && schema.pending_self_managed_table) {
+                    confirmPendingSelfManagedSync(schema.sync_type, (syncFrequency) =>
+                        queueSchemaUpdates([{ ...schema, sync_frequency: syncFrequency }])
+                    )
+                    return
+                }
                 queueSchemaUpdates([schema])
             },
             updateSchemas: ({ schemas }) => {
@@ -1359,13 +1413,6 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     actions.loadCdcStatus()
                 }
 
-                const breadcrumbName =
-                    values.source?.access_method === 'direct'
-                        ? values.source?.prefix || values.source?.source_type || 'Source'
-                        : isFileUploadSource(values.source)
-                          ? FILE_UPLOAD_SOURCE_LABEL
-                          : values.source?.source_type || 'Source'
-
                 if (values.pollPauseCount === 0) {
                     cache.disposables.add(() => {
                         const timerId = setTimeout(() => {
@@ -1375,12 +1422,9 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     }, 'sourceRefreshTimeout')
                 }
 
-                const sceneLogicInstance =
-                    sourceSceneLogic.findMounted({ id: `managed-${props.id}` }) ??
-                    sourceSceneLogic.findMounted({ id: props.id })
-
-                sceneLogicInstance?.actions.setBreadcrumbName(breadcrumbName)
+                setSceneBreadcrumbName()
             },
+            [availableSourcesLogic.actionTypes.loadSuccess]: setSceneBreadcrumbName,
             loadSourceFailure: () => {
                 if (values.pollPauseCount === 0) {
                     cache.disposables.add(() => {
@@ -1498,25 +1542,32 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 }
             },
             reloadSchema: async ({ schema }) => {
-                // Optimistic UI updates before sending updates to the backend
-                const clonedSource = JSON.parse(JSON.stringify(values.source)) as ExternalDataSource
-                const schemaIndex = clonedSource.schemas.findIndex((n) => n.id === schema.id)
-                clonedSource.status = ExternalDataJobStatus.Running
-                clonedSource.schemas[schemaIndex].status = ExternalDataSchemaStatus.Running
+                const runReload = async (): Promise<void> => {
+                    // Optimistic UI updates before sending updates to the backend
+                    const clonedSource = JSON.parse(JSON.stringify(values.source)) as ExternalDataSource
+                    const schemaIndex = clonedSource.schemas.findIndex((n) => n.id === schema.id)
+                    clonedSource.status = ExternalDataJobStatus.Running
+                    clonedSource.schemas[schemaIndex].status = ExternalDataSchemaStatus.Running
 
-                actions.loadSourceSuccess(clonedSource)
+                    actions.loadSourceSuccess(clonedSource)
 
-                try {
-                    await api.externalDataSchemas.reload(schema.id)
+                    try {
+                        await api.externalDataSchemas.reload(schema.id)
 
-                    posthog.capture('schema reloaded', { sourceType: clonedSource.source_type })
-                } catch (e: any) {
-                    if (e.message) {
-                        lemonToast.error(e.message)
-                    } else {
-                        lemonToast.error('Cant reload schema at this time')
+                        posthog.capture('schema reloaded', { sourceType: clonedSource.source_type })
+                    } catch (e: any) {
+                        if (e.message) {
+                            lemonToast.error(e.message)
+                        } else {
+                            lemonToast.error('Cant reload schema at this time')
+                        }
                     }
                 }
+                if (schema.pending_self_managed_table) {
+                    confirmPendingSelfManagedReload(schema.sync_type, () => void runReload())
+                    return
+                }
+                await runReload()
             },
             resyncSchema: async ({ schema }) => {
                 // Optimistic UI updates before sending updates to the backend
@@ -1581,7 +1632,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     }
                 }
             },
-            bulkEnable: async ({ schemas }) => {
+            bulkEnable: async ({ schemas, pendingSelfManagedSyncFrequency }) => {
                 // Guard against concurrent submissions — a rapid double-click (e.g. on the
                 // imperative dialog's Enable button, which can't reactively disable) would
                 // otherwise fire the PATCH twice and prepare duplicate schedule side effects.
@@ -1589,7 +1640,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     return
                 }
                 cache.bulkEnableInFlight = true
-                const payloads = buildBulkEnablePayloads(schemas)
+                const payloads = buildBulkEnablePayloads(schemas, pendingSelfManagedSyncFrequency)
                 if (payloads.length === 0) {
                     lemonToast.info('All selected schemas are already enabled')
                     actions.setBulkEnableLoading(false)
@@ -1608,6 +1659,10 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                         sourceType: values.source?.source_type,
                         count: payloads.length,
                         defaultsApplied: defaultsCount,
+                        pendingSelfManagedCount: schemas.filter(
+                            (schema) => !schema.should_sync && schema.pending_self_managed_table
+                        ).length,
+                        pendingSelfManagedSyncFrequency,
                     })
                     lemonToast.success(
                         defaultsCount > 0

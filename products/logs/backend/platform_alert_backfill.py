@@ -1,9 +1,7 @@
 """One-way copy of logs alert configurations into the skeleton shared tables.
 
 The control plane stays with the logs product: this reads, never writes back. Each check reads the
-logs alert's current settings, so an edit counts without a rerun. A check can only see a copy that
-is enabled, so the logs API copies an alert created or turned back on in a team that already runs
-logs on the platform.
+logs alert's current settings, so an edit counts without a rerun.
 
 `legacy_configuration_id` carries the row each copy came from, so a second run updates
 rather than duplicates, and a later comparison can line the two stacks up per alert.
@@ -11,6 +9,7 @@ rather than duplicates, and a later comparison can line the two stacks up per al
 
 from collections.abc import Collection
 from datetime import datetime
+from functools import partial
 from typing import Final
 from uuid import UUID
 
@@ -18,11 +17,16 @@ import structlog
 
 from posthog.dataclasses import frozen
 
-from products.alerts_platform.backend.facade.api import disable_configurations, upsert_configuration, upsert_if_running
+from products.alerts_platform.backend.facade.api import (
+    disable_configurations,
+    match_first_enabled_at,
+    team_ids_with_copies,
+    upsert_configuration,
+)
 from products.alerts_platform.backend.facade.contracts import PlatformAlertUpsert, SourceKind
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, PlatformAlertState
 from products.logs.backend.alert_state_machine import AlertState
-from products.logs.backend.models import LogsAlertConfiguration
+from products.logs.backend.models import CONDITION_FIELDS, LogsAlertConfiguration
 from products.logs.backend.platform_source_config import logs_source_config
 
 logger = structlog.get_logger(__name__)
@@ -46,8 +50,6 @@ SETTINGS_FIELDS: Final = (
     "cooldown_minutes",
     "schedule_restriction",
 )
-# The logs alert's columns that make up `source_config["condition"]` on the copy.
-CONDITION_FIELDS: Final = ("threshold_count", "threshold_operator", "window_minutes")
 
 
 def platform_upsert_of(alert: LogsAlertConfiguration) -> PlatformAlertUpsert:
@@ -70,6 +72,9 @@ def platform_upsert_of(alert: LogsAlertConfiguration) -> PlatformAlertUpsert:
         schedule_restriction=alert.schedule_restriction,
         next_check_at=alert.next_check_at,
         snooze_until=alert.snooze_until,
+        created_by_id=alert.created_by_id,
+        created_at=alert.created_at,
+        first_enabled_at=alert.first_enabled_at,
     )
 
 
@@ -172,6 +177,46 @@ def backfill_platform_alert_configurations(
     return BackfillCounts(created=created, updated=updated, skipped=skipped, failed=failed)
 
 
+@frozen
+class FirstEnabledBackfill:
+    """How many copies each team had to change, or would have with a dry run, and the teams that failed."""
+
+    matched: dict[int, int]
+    failed_team_ids: tuple[int, ...]
+
+
+def backfill_copies_first_enabled_at(*, team_ids: Collection[int] | None, dry_run: bool) -> FirstEnabledBackfill:
+    """Gives each copy of a logs alert its logs row's `first_enabled_at`, for every team with a copy or
+    only `team_ids`, one team at a time. A rerun changes nothing, because only a copy that differs from
+    its row is written."""
+    matched: dict[int, int] = {}
+    failed: list[int] = []
+    for team_id in team_ids if team_ids is not None else team_ids_with_copies(SourceKind.LOGS):
+        try:
+            matched[team_id] = match_first_enabled_at(
+                source_kind=SourceKind.LOGS,
+                team_id=team_id,
+                first_enabled_of=partial(_first_enabled_of, team_id),
+                dry_run=dry_run,
+            )
+        except Exception:
+            logger.exception("platform_alert_backfill.first_enabled_at.failed", team_id=team_id)
+            failed.append(team_id)
+            continue
+        logger.info(
+            "platform_alert_backfill.first_enabled_at",
+            team_id=team_id,
+            matched=matched[team_id],
+            dry_run=dry_run,
+        )
+    return FirstEnabledBackfill(matched=matched, failed_team_ids=tuple(failed))
+
+
+def _first_enabled_of(team_id: int, alert_ids: Collection[UUID]) -> dict[UUID, datetime]:
+    rows = LogsAlertConfiguration.objects.filter(team_id=team_id, id__in=alert_ids, first_enabled_at__isnull=False)
+    return dict(rows.values_list("id", "first_enabled_at"))
+
+
 def disable_platform_alert_configurations(
     *, team_id: int | None = None, alert_ids: Collection[UUID] | None = None
 ) -> int:
@@ -182,12 +227,3 @@ def disable_platform_alert_configurations(
     disabled = disable_configurations(SourceKind.LOGS, team_id=team_id, legacy_configuration_ids=alert_ids)
     logger.info("platform_alert_backfill.disabled", disabled=disabled, team_id=team_id)
     return disabled
-
-
-def follow_logs_alert(alert: LogsAlertConfiguration) -> None:
-    """Copies a logs alert that was just created or turned back on, if its team runs logs on the platform.
-
-    Checks only read enabled copies, so no check would ever see this alert otherwise, and it would
-    stay off the platform until the next backfill.
-    """
-    upsert_if_running(platform_upsert_of(alert), revive=True)

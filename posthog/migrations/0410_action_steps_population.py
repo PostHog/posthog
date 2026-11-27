@@ -5,7 +5,8 @@ from django.db import migrations
 
 
 def copy_action_steps_to_json(apps, schema_editor):
-    from products.actions.backend.models.action import Action
+    # The model as it stood at this migration, from the historical registry rather than the live code.
+    Action = apps.get_model("posthog", "Action")
 
     all_actions_with_steps = Action.objects.prefetch_related("action_steps").order_by("pk").all()
 
@@ -32,7 +33,8 @@ def copy_action_steps_to_json(apps, schema_editor):
                 }
                 for step in action.action_steps.all()
             ]
-            action.steps = new_steps
+            # Every step key in field order, which is what the model's `steps` setter stored.
+            action.steps_json = new_steps
 
             objects_to_update.append(action)
 

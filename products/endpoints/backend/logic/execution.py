@@ -8,9 +8,9 @@ response post-processing, metrics, and failure signals. Kind-specific behavior
 ``EndpointQueryStrategy`` classes.
 """
 
-import re
 import time
 import uuid
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Literal, Union, cast
 
@@ -21,10 +21,11 @@ from django.utils import timezone
 import structlog
 import posthoganalytics
 from asgiref.sync import async_to_sync
+from clickhouse_driver.errors import Error as ClickHouseDriverError
 from dateutil.parser import isoparse
 from pydantic import BaseModel
 from rest_framework import status
-from rest_framework.exceptions import Throttled, ValidationError
+from rest_framework.exceptions import APIException, Throttled, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -48,6 +49,7 @@ from posthog.auth import SessionAuthentication
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import (
+    AccessMethod,
     Feature,
     Product,
     get_query_tag_value,
@@ -55,7 +57,14 @@ from posthog.clickhouse.query_tagging import (
     tag_queries,
     tags_context,
 )
-from posthog.errors import ExposedCHQueryError
+from posthog.errors import (
+    CHQueryErrorUnknownIdentifier,
+    CHQueryErrorUnknownTable,
+    CHQueryErrorUnsupportedMethod,
+    ExposedCHQueryError,
+    clickhouse_error_message,
+    error_code_from_type,
+)
 from posthog.event_usage import get_request_analytics_properties, report_user_action
 from posthog.exceptions import (
     APIQueriesBudgetExceeded,
@@ -66,19 +75,24 @@ from posthog.exceptions import (
     ClickHouseQueryTimeOut,
 )
 from posthog.exceptions_capture import capture_exception
+from posthog.hogql_queries.user_query_errors import USER_QUERY_ERRORS
 from posthog.models import Team, User
 from posthog.permissions import is_authenticated_via_project_secret_api_key
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.synthetic_user import SyntheticUser
 
-from products.data_modeling.backend.facade.api import materialize_saved_query, saved_query_materialized_at
+from products.data_modeling.backend.facade.api import (
+    MaterializationRunTrigger,
+    materialize_saved_query,
+    saved_query_materialized_at,
+)
 from products.endpoints.backend.exceptions import EndpointAtCapacity, EndpointQueryTooExpensive
 from products.endpoints.backend.insight_transformers import MaterializedSeriesMismatchError
 from products.endpoints.backend.logic.materialized_serving import serving_state_for_version
 from products.endpoints.backend.logic.pagination import EndpointPagination
 from products.endpoints.backend.logic.rate_limit_signal import EndpointRateLimitReason, record_endpoint_rate_limited
 from products.endpoints.backend.logic.strategies import EndpointQueryStrategy, strategy_for
-from products.endpoints.backend.logs import build_execution_message, log_endpoint_execution
+from products.endpoints.backend.logs import RunRequestShape, build_execution_message, log_endpoint_execution
 from products.endpoints.backend.metrics import (
     ENDPOINT_CACHE_RESULT_TOTAL,
     ENDPOINT_EXECUTION_DURATION_SECONDS,
@@ -97,6 +111,18 @@ from common.hogvm.python.utils import HogVMException
 logger = structlog.get_logger(__name__)
 
 LAST_EXECUTED_THROTTLE = timedelta(minutes=30)
+
+
+def access_method_stamps_execution(access_method: AccessMethod | str | None) -> bool:
+    """Whether a run under this access method counts as the endpoint being used from code.
+
+    The stale-materialization cleanup reads the execution stamps to decide what nobody uses, so every
+    credential a caller can automate with has to stamp: API keys, OAuth tokens from agents, and the
+    ID-JAG and OIDC workload tokens. A session (no access method) is a person in the playground, and a
+    sharing token cannot run an endpoint; neither justifies keeping a materialization alive.
+    """
+    return access_method is not None and access_method != AccessMethod.SHARING_TOKEN
+
 
 ExecutionType = Literal["materialized", "materialized_fallback", "inline"]
 
@@ -125,27 +151,23 @@ _QUERY_PERFORMANCE_ERRORS: dict[type[Exception], tuple[str, str]] = {
     ),
 }
 
-# Cost guardrails, budget refusals and transient capacity: customer problems, not faults. Skipped
-# from capture and re-raised past the materialized/ducklake inline fallback.
-_QUERY_GUARDRAIL_ERRORS: tuple[type[Exception], ...] = (
+_ENDPOINT_USER_QUERY_ERRORS = tuple(
+    error for error in USER_QUERY_ERRORS if error not in (CHQueryErrorUnknownIdentifier, CHQueryErrorUnsupportedMethod)
+)
+
+_NON_REPORTABLE_QUERY_ERRORS: tuple[type[Exception], ...] = (
     *_QUERY_PERFORMANCE_ERRORS,
+    *_ENDPOINT_USER_QUERY_ERRORS,
     ClickHouseAtCapacity,
     APIQueriesBudgetExceeded,
+    ConcurrencyLimitExceeded,
 )
 
 
-def _is_query_guardrail_error(error: BaseException) -> bool:
-    return isinstance(error, _QUERY_GUARDRAIL_ERRORS)
-
-
-# ClickHouse cannot parse a value the customer sent (e.g. a bad date variable). execute() returns a 400.
-_CUSTOMER_INPUT_ERROR_CODES = frozenset(
-    {"cannot_parse_date", "cannot_parse_datetime", "cannot_parse_number", "decimal_overflow"}
-)
-
-
-def _is_customer_input_error(error: BaseException) -> bool:
-    return isinstance(error, ExposedCHQueryError) and error.code_name in _CUSTOMER_INPUT_ERROR_CODES
+def _is_non_reportable_query_error(error: Exception, *, materialized: bool) -> bool:
+    if materialized and isinstance(error, CHQueryErrorUnknownTable):
+        return False
+    return isinstance(error, _NON_REPORTABLE_QUERY_ERRORS)
 
 
 # Connection loss outside SQLSTATE class 08 (connection_exception).
@@ -223,7 +245,7 @@ def _emit_endpoint_failure_signal(
 
     try:
         error_class = type(exc).__name__
-        error_msg = str(exc)
+        error_msg = clickhouse_error_message(exc) if isinstance(exc, ClickHouseDriverError) else str(exc)
         version_str = f" v{version}" if version else ""
 
         if materialized:
@@ -516,12 +538,25 @@ class EndpointExecutionService(PydanticModelMixin):
         version_obj: EndpointVersion | None,
         limit: int | None = None,
         offset: int | None = None,
+        before_inline_fallback: Callable[[], None] | None = None,
     ) -> Response:
         """Run an endpoint version and return the HTTP response.
 
         Assumes the caller has resolved the version (or established that none was
         requested explicitly) and parsed limit/offset.
         """
+        posthoganalytics.tag("product", Product.ENDPOINTS)
+        posthoganalytics.tag("team_id", self.team.pk)
+        posthoganalytics.tag("endpoint_id", str(endpoint.id))
+        posthoganalytics.tag("endpoint_name", endpoint.name)
+        posthoganalytics.tag(
+            "$groups",
+            {
+                "organization": str(self.team.organization_id),
+                "project": str(self.team.uuid),
+            },
+        )
+
         if version_obj is None:
             return Response(
                 {"error": "No version found for this endpoint"},
@@ -568,6 +603,10 @@ class EndpointExecutionService(PydanticModelMixin):
         query_kind_metric = query_kind_label(version_obj.query)
         execution_status: str | None = None
         execution_id = str(uuid.uuid4())
+        # A cache hit runs no query, and a fallback or a stale cache runs two. This tag is the
+        # only key that joins the queries of a run to its log_entries row.
+        tag_queries(endpoint_execution_id=execution_id)
+        request_shape = self._request_shape(data, limit=limit, offset=offset)
         error_label: str | None = None
         _start_time = time.monotonic()
         _duration = 0.0
@@ -603,6 +642,8 @@ class EndpointExecutionService(PydanticModelMixin):
                     result = None
 
             if result is None:
+                if materialized_failed and before_inline_fallback is not None:
+                    before_inline_fallback()
                 result = self._execute_inline_endpoint(
                     endpoint,
                     data,
@@ -642,6 +683,10 @@ class EndpointExecutionService(PydanticModelMixin):
                 endpoint_name=endpoint.name,
             )
             raise ValidationError("Query resolution failed: unable to resolve table or field references.")
+        except ValidationError:
+            execution_status = "user_error"
+            error_label = "ValidationError"
+            raise
         except ConcurrencyLimitExceeded:
             record_endpoint_rate_limited(
                 team_id=self.team.pk,
@@ -671,6 +716,8 @@ class EndpointExecutionService(PydanticModelMixin):
             code, detail = _query_performance_code_and_detail(e)
             logger.warning("Endpoint query hit a performance limit", endpoint_name=endpoint.name, reason=error_label)
             raise EndpointQueryTooExpensive(detail, code=code)
+        except Throttled:
+            raise
         except ClickHouseAtCapacity as e:
             execution_status = "capacity"
             error_label = "ClickHouseAtCapacity"
@@ -679,6 +726,8 @@ class EndpointExecutionService(PydanticModelMixin):
         except Exception as e:
             execution_status = "error"
             error_label = type(e).__name__
+            if isinstance(e, ClickHouseDriverError):
+                raise APIException(clickhouse_error_message(e), code=error_code_from_type(e)) from e
             raise
         finally:
             self._track_last_executed(endpoint, version_obj)
@@ -699,8 +748,10 @@ class EndpointExecutionService(PydanticModelMixin):
                     message=build_execution_message(
                         succeeded=False,
                         execution_type=execution_type,
+                        duration_ms=round(_duration * 1000),
                         version=version_obj.version,
                         error=error_label,
+                        request=request_shape,
                     ),
                 )
 
@@ -717,6 +768,7 @@ class EndpointExecutionService(PydanticModelMixin):
                 duration_ms=round(_duration * 1000),
                 rows=result_row_count,
                 version=version_obj.version,
+                request=request_shape,
             ),
         )
 
@@ -761,9 +813,20 @@ class EndpointExecutionService(PydanticModelMixin):
             logger.debug("Failed to record endpoint result metrics", exc_info=True)
         return cache_outcome, result_row_count
 
+    def _request_shape(self, data: EndpointRunRequest, *, limit: int | None, offset: int | None) -> RunRequestShape:
+        access = get_query_tag_value("access_method")
+        return RunRequestShape(
+            refresh=data.refresh.value if data.refresh else None,
+            access=str(access) if access else ("session" if self._is_interactive_session() else None),
+            variables=len(data.variables) if data.variables else 0,
+            filters_override=bool(data.filters_override),
+            limit=limit,
+            offset=offset,
+        )
+
     def _track_last_executed(self, endpoint: Endpoint, version_obj: EndpointVersion) -> None:
-        """Record last execution time (30-minute granularity, API key calls only)."""
-        if not is_api_key_access_method(get_query_tag_value("access_method")):
+        """Record last execution time (30-minute granularity, programmatic calls only)."""
+        if not access_method_stamps_execution(get_query_tag_value("access_method")):
             return
         now = timezone.now()
         if endpoint.last_executed_at is None or (now - endpoint.last_executed_at > LAST_EXECUTED_THROTTLE):
@@ -794,6 +857,7 @@ class EndpointExecutionService(PydanticModelMixin):
         try:
             if not saved_query:
                 raise ValidationError("No materialized query found for this endpoint")
+            data_freshness_seconds = version.data_freshness_seconds
 
             strategy = strategy_for(endpoint, version, self.team)
             query_kind = strategy.query_kind
@@ -835,16 +899,16 @@ class EndpointExecutionService(PydanticModelMixin):
             ):
                 # Compute dynamic cache TTL: time remaining until data_freshness window expires
                 cache_ttl = None
-                if materialized_at and version.data_freshness_seconds:
+                if materialized_at and data_freshness_seconds:
                     remaining = (
-                        materialized_at + timedelta(seconds=version.data_freshness_seconds) - timezone.now()
+                        materialized_at + timedelta(seconds=data_freshness_seconds) - timezone.now()
                     ).total_seconds()
                     if remaining <= 0:
                         logger.warning(
                             "endpoint_materialization_behind_sla",
                             endpoint_name=endpoint.name,
                             team_id=self.team.pk,
-                            data_freshness_seconds=version.data_freshness_seconds,
+                            data_freshness_seconds=data_freshness_seconds,
                             last_run_at=materialized_at.isoformat(),
                             remaining_seconds=remaining,
                         )
@@ -890,7 +954,7 @@ class EndpointExecutionService(PydanticModelMixin):
                 try:
                     # Nobody asked for this run, so it must not clear the suspension or reset the
                     # failure window that stopped a repeatedly failing model.
-                    materialize_saved_query(saved_query, resume=False)
+                    materialize_saved_query(saved_query, trigger=MaterializationRunTrigger.ENDPOINT, resume=False)
                 except Exception:
                     # The caller still has to see the mismatch to fall back to inline, so a refresh
                     # we could not start must not replace it on the way out.
@@ -903,14 +967,13 @@ class EndpointExecutionService(PydanticModelMixin):
 
             # Freshness relative to the configured target: >1.0 means behind SLA.
             # Absolute age is meaningless across endpoints with different frequencies.
-            if materialized_at and version.data_freshness_seconds:
+            if materialized_at and data_freshness_seconds:
                 age_seconds = max((timezone.now() - materialized_at).total_seconds(), 0.0)
-                ENDPOINT_MATERIALIZED_FRESHNESS_RATIO.observe(age_seconds / version.data_freshness_seconds)
+                ENDPOINT_MATERIALIZED_FRESHNESS_RATIO.observe(age_seconds / data_freshness_seconds)
 
             return result
         except Exception as e:
-            # Guardrail and input errors are customer-caused, not faults: skip capture and let execute() classify them.
-            if _is_query_guardrail_error(e) or _is_customer_input_error(e):
+            if _is_non_reportable_query_error(e, materialized=True):
                 raise
             logger.exception(
                 "Materialized endpoint execution failed",
@@ -1018,9 +1081,7 @@ class EndpointExecutionService(PydanticModelMixin):
             return result
 
         except Exception as e:
-            self.handle_column_ch_error(e)
-            # Guardrail and input errors are customer-caused, not faults: skip capture and let execute() classify them.
-            if _is_query_guardrail_error(e) or _is_customer_input_error(e):
+            if _is_non_reportable_query_error(e, materialized=False):
                 raise
             logger.exception(
                 "Inline endpoint execution failed",
@@ -1099,6 +1160,9 @@ class EndpointExecutionService(PydanticModelMixin):
         if isinstance(result, BaseModel):
             result = result.model_dump(by_alias=True)
 
+        if isinstance(result, dict):
+            result.pop("warehouse_suggestions", None)
+
         if isinstance(result, dict) and extra_result_fields:
             result.update(extra_result_fields)
 
@@ -1126,14 +1190,6 @@ class EndpointExecutionService(PydanticModelMixin):
             result = {"results": result.pop("results"), **result}
 
         return Response(result, status=status.HTTP_200_OK, headers=headers)
-
-    def handle_column_ch_error(self, error) -> None:
-        if getattr(error, "message", None):
-            match = re.search(r"There's no column.*in table", error.message)
-            if match:
-                # TODO: remove once we support all column types
-                raise ValidationError(match.group(0) + ". Not all column types are fully supported yet.")
-        return
 
     def _tag_client_query_id(self, query_id: str | None) -> None:
         if query_id is None:

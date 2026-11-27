@@ -21,6 +21,8 @@ import {
     SceneMenuBarSubMenu,
 } from '~/layout/scenes/components/SceneMenuBar'
 
+import { ContentAutopilotMenuBarItems } from 'products/web_analytics/frontend/contentAutopilot/ContentAutopilotMenuBarItems'
+
 import { isWebAnalyticsAchievementsEnabled } from './achievements/gating'
 import { webAnalyticsAchievementsLogic } from './achievements/webAnalyticsAchievementsLogic'
 import { webAnalyticsAchievementsPreferencesLogic } from './achievements/webAnalyticsAchievementsPreferencesLogic'
@@ -99,9 +101,16 @@ function WebAnalyticsSceneMenuBarInner(): JSX.Element {
         shouldFilterTestAccounts,
         showFocusMode,
         tiles,
+        webQueryModifiers,
     } = useValues(webAnalyticsLogic)
-    const { enterFocusMode, exitFocusMode, openFocusModeModal, setShouldFilterTestAccounts, setTileVisibility } =
-        useActions(webAnalyticsLogic)
+    const {
+        enterFocusMode,
+        exitFocusMode,
+        openFocusModeModal,
+        setShouldFilterTestAccounts,
+        setTileVisibility,
+        setWebQueryModifiers,
+    } = useActions(webAnalyticsLogic)
     const { exportTriggered } = useActions(shareNudgeLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { hasFileItems } = useValues(sceneFileLogic)
@@ -156,6 +165,12 @@ function WebAnalyticsSceneMenuBarInner(): JSX.Element {
                 </SceneMenuBarMenu>
             )}
             <SceneMenuBarMenu label="View" dataAttr="web-analytics-menubar-view">
+                {productTab === ProductTab.CONTENT_AUTOPILOT && (
+                    <>
+                        <ContentAutopilotMenuBarItems />
+                        <SceneMenuBarSeparator />
+                    </>
+                )}
                 {showRecap && (
                     <SceneMenuBarItem
                         onClick={() => router.actions.push(urls.webAnalyticsRecap())}
@@ -225,6 +240,17 @@ function WebAnalyticsSceneMenuBarInner(): JSX.Element {
                 >
                     Filter out internal and test users
                 </SceneMenuBarCheckboxItem>
+                {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_QUERY_MODIFIERS] && (
+                    <SceneMenuBarCheckboxItem
+                        checked={webQueryModifiers.useDimensionalTables !== false}
+                        onCheckedChange={(checked) =>
+                            setWebQueryModifiers({ useDimensionalTables: checked ? undefined : false })
+                        }
+                        data-attr="web-analytics-menubar-dimensional-tables"
+                    >
+                        Use dimensional tables
+                    </SceneMenuBarCheckboxItem>
+                )}
                 {showTileToggles && availableTiles.length > 0 && (
                     <SceneMenuBarSubMenu label="Visible tiles">
                         {availableTiles.map((tileId) => (

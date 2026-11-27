@@ -3,40 +3,25 @@ import { LogicWrapper, MakeLogicType, actions, connect, kea, key, listeners, pat
 import { buildTeamScopedPersistenceConfig } from 'lib/logic/persistence'
 import { marketingAnalyticsLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 
-import {
-    OverviewMetricConfiguration,
-    OverviewMetricGroup,
-    OverviewMetricGroupConfiguration,
-    defaultOverviewMetricConfiguration,
-    hiddenOverviewMetricGroups,
-} from './overviewMetricConfiguration'
+import { hiddenOverviewMetricSources } from './overviewMetricConfiguration'
 
 export interface OverviewMetricsLogicProps {
     viewKey: string
 }
 
 export interface overviewMetricsLogicValues {
-    configuration: OverviewMetricConfiguration
-    draftConfiguration: OverviewMetricConfiguration | null
+    /** Saved metric keys in display order, or null to use the default selection. */
+    selection: string[] | null
+    editorOpen: boolean
+    draftSelection: string[] | null
 }
 
 export interface overviewMetricsLogicActions {
-    configureMetrics: (configuration: OverviewMetricConfiguration) => { configuration: OverviewMetricConfiguration }
-    closeConfiguration: () => void
-    applyConfiguration: (configuration: OverviewMetricConfiguration) => { configuration: OverviewMetricConfiguration }
-    updateDraftGroup: (
-        group: OverviewMetricGroup,
-        configuration: Partial<OverviewMetricGroupConfiguration>
-    ) => {
-        group: OverviewMetricGroup
-        configuration: Partial<OverviewMetricGroupConfiguration>
-    }
-    resetDraft: () => void
+    openEditor: () => void
+    closeEditor: () => void
+    setDraftSelection: (selection: string[]) => { selection: string[] }
+    applySelection: (selection: string[]) => { selection: string[] }
     reportDashboardControlUsed: (section: string, control: string, value?: boolean | string) => void
-    setGroupCollapsed: (
-        group: OverviewMetricGroup,
-        collapsed: boolean
-    ) => { group: OverviewMetricGroup; collapsed: boolean }
 }
 
 export type overviewMetricsLogicType = MakeLogicType<
@@ -52,46 +37,43 @@ export const overviewMetricsLogic: LogicWrapper<overviewMetricsLogicType> = kea<
     path((key) => ['products', 'marketingAnalytics', 'overviewMetricsLogic', key]),
     connect(() => ({ actions: [marketingAnalyticsLogic, ['reportDashboardControlUsed']] })),
     actions({
-        configureMetrics: (configuration: OverviewMetricConfiguration) => ({ configuration }),
-        closeConfiguration: () => ({}),
-        applyConfiguration: (configuration: OverviewMetricConfiguration) => ({ configuration }),
-        updateDraftGroup: (group: OverviewMetricGroup, configuration: Partial<OverviewMetricGroupConfiguration>) => ({
-            group,
-            configuration,
-        }),
-        resetDraft: () => ({}),
-        setGroupCollapsed: (group: OverviewMetricGroup, collapsed: boolean) => ({ group, collapsed }),
+        openEditor: () => ({}),
+        closeEditor: () => ({}),
+        setDraftSelection: (selection: string[]) => ({ selection }),
+        applySelection: (selection: string[]) => ({ selection }),
     }),
     reducers(() => ({
-        configuration: [
-            defaultOverviewMetricConfiguration(),
+        selection: [
+            null as string[] | null,
             buildTeamScopedPersistenceConfig(),
             {
-                applyConfiguration: (_, { configuration }) => configuration,
-                setGroupCollapsed: (state, { group, collapsed }) => ({
-                    ...state,
-                    [group]: { ...state[group], collapsed },
-                }),
+                applySelection: (_, { selection }) => selection,
             },
         ],
-        draftConfiguration: [
-            null as OverviewMetricConfiguration | null,
+        editorOpen: [
+            false,
             {
-                configureMetrics: (_, { configuration }) => configuration,
-                closeConfiguration: () => null,
-                applyConfiguration: () => null,
-                resetDraft: () => defaultOverviewMetricConfiguration(),
-                updateDraftGroup: (state, { group, configuration }) =>
-                    state ? { ...state, [group]: { ...state[group], ...configuration } } : state,
+                openEditor: () => true,
+                closeEditor: () => false,
+                applySelection: () => false,
+            },
+        ],
+        draftSelection: [
+            null as string[] | null,
+            {
+                setDraftSelection: (_, { selection }) => selection,
+                openEditor: () => null,
+                closeEditor: () => null,
+                applySelection: () => null,
             },
         ],
     })),
     listeners(({ actions }) => ({
-        applyConfiguration: ({ configuration }) => {
+        applySelection: ({ selection }) => {
             actions.reportDashboardControlUsed(
                 'overview',
                 'metric_configuration_applied',
-                hiddenOverviewMetricGroups(configuration)
+                hiddenOverviewMetricSources(selection)
             )
         },
     })),

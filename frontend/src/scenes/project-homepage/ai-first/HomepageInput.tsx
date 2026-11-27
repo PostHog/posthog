@@ -23,9 +23,9 @@ import { MaxThreadLogicProps, maxThreadLogic } from 'scenes/max/maxThreadLogic'
 import { HOMEPAGE_SUGGESTION_TOPICS } from 'scenes/max/suggestionTopics'
 import { AIAccessRequest } from 'scenes/settings/organization/AIAccessRequest'
 import { openAIConsentLegalDialog } from 'scenes/settings/organization/aiConsentCopy'
-import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 import { ProductIconWrapper, iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 
@@ -181,6 +181,7 @@ function IdleInput(): JSX.Element {
 export function HomepageAiInput(): JSX.Element {
     const { threadLogicKey, conversation } = useValues(maxLogic)
     const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
+    const { dataProcessingLocked } = useValues(aiConsentLogic)
     const { acceptDataProcessing } = useAsyncActions(aiConsentLogic)
 
     const fallbackConversationId = useMemo(() => uuid(), [])
@@ -188,6 +189,14 @@ export function HomepageAiInput(): JSX.Element {
         panelId: HOMEPAGE_TAB_ID,
         conversationId: threadLogicKey || fallbackConversationId,
         conversation,
+    }
+
+    if (!dataProcessingAccepted && dataProcessingLocked) {
+        return (
+            <div className="border border-primary rounded-lg bg-surface-primary p-4">
+                <AIAccessRequest size="small" />
+            </div>
+        )
     }
 
     if (!dataProcessingAccepted) {

@@ -28,12 +28,41 @@ class FindBlockingCalls(TraversingVisitor):
         super().visit_call(node)
 
 
+def is_filters_placeholder(node: ast.Placeholder) -> bool:
+    if node.chain:
+        return node.chain[0] == "filters"
+    # The column-bound form {filters(expr AS key, ...)} is resolved by replace_filters;
+    # classifying it as a generic expression placeholder would send it to the Hog VM instead.
+    if isinstance(node.expr, ast.Call):
+        return node.expr.name == "filters"
+    # Dotted call forms like {filters.interval('week')} and {filters.breakdown(...)} are
+    # resolved by replace_filters too.
+    return (
+        isinstance(node.expr, ast.ExprCall)
+        and isinstance(node.expr.expr, ast.Field)
+        and bool(node.expr.expr.chain)
+        and node.expr.expr.chain[0] == "filters"
+    )
+
+
+def is_filters_predicate_placeholder(node: ast.Placeholder) -> bool:
+    if node.chain:
+        return node.chain in (["filters"], ["filters", "previous"])
+    if isinstance(node.expr, ast.Call):
+        return node.expr.name == "filters"
+    return (
+        isinstance(node.expr, ast.ExprCall)
+        and isinstance(node.expr.expr, ast.Field)
+        and node.expr.expr.chain in (["filters", "previous"], ["filters", "native"], ["filters", "previous", "native"])
+    )
+
+
 class FindPlaceholders(TraversingVisitor):
     def __init__(self):
         super().__init__()
         self.has_filters = False  # Legacy fallback: treat filters as before
-        # The filters forms that expand into a predicate, so a date range can bound the query
-        # through them. The dotted call forms substitute a value and cannot add one.
+        self.has_predicate_filters = False
+        # Predicates and date bounds can constrain the query's range; interval and breakdown values cannot.
         self.has_date_filters = False
         self.placeholder_fields: list[list[str | int]] = []  # Did we find simple fields
         self.placeholder_expressions: list[ast.Expr] = []  # Did we find complex expressions
@@ -42,34 +71,26 @@ class FindPlaceholders(TraversingVisitor):
         super().visit(node.expr)
 
     def visit_placeholder(self, node: ast.Placeholder):
-        if chain := node.chain:
-            if chain[0] == "filters":
-                self.has_filters = True
-                self.has_date_filters = True
-            else:
+        if not is_filters_placeholder(node):
+            if chain := node.chain:
                 self.placeholder_fields.append(chain)
-        elif isinstance(node.expr, ast.Call) and node.expr.name == "filters":
-            # The column-bound form {filters(expr AS key, ...)} is resolved by replace_filters;
-            # classifying it as a generic expression placeholder would send it to the Hog VM instead.
-            self.has_filters = True
-            self.has_date_filters = True
-        elif (
-            isinstance(node.expr, ast.ExprCall)
-            and isinstance(node.expr.expr, ast.Field)
-            and node.expr.expr.chain
-            and node.expr.expr.chain[0] == "filters"
+            else:
+                self.placeholder_expressions.append(node.expr)
+            return
+        self.has_filters = True
+        if is_filters_predicate_placeholder(node):
+            self.has_predicate_filters = True
+        if is_filters_predicate_placeholder(node) or node.chain in (
+            ["filters", "dateRange", "from"],
+            ["filters", "dateRange", "to"],
+            ["filters", "previous", "dateRange", "from"],
+            ["filters", "previous", "dateRange", "to"],
         ):
-            # Dotted call forms like {filters.interval('week')} and {filters.breakdown(...)} are
-            # resolved by replace_filters too.
-            self.has_filters = True
-            if node.expr.expr.chain in (
-                ["filters", "previous"],
-                ["filters", "native"],
-                ["filters", "previous", "native"],
-            ):
-                self.has_date_filters = True
-        else:
-            self.placeholder_expressions.append(node.expr)
+            self.has_date_filters = True
+
+    @property
+    def has_variables(self) -> bool:
+        return any(len(chain) > 1 and chain[0] == "variables" for chain in self.placeholder_fields)
 
 
 def find_placeholders(node: ast.Expr) -> FindPlaceholders:
@@ -91,6 +112,9 @@ class ReplacePlaceholders(CloningVisitor):
         from posthog.hogql.compiler.bytecode import create_bytecode
 
         from common.hogvm.python.execute import execute_bytecode
+
+        if is_filters_placeholder(node) and "filters" not in (self.placeholders or {}):
+            return super().visit_placeholder(node)
 
         if self._deadline is None:
             self._deadline = time.monotonic() + PLACEHOLDER_EXPANSION_BUDGET.total_seconds()

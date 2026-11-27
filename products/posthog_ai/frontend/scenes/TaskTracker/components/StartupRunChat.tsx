@@ -1,11 +1,12 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { type MutableRefObject, useRef } from 'react'
 
+import type { AttachedContextItem } from '~/layout/ai/attachedContext'
+
 import { RunSurface } from 'products/posthog_ai/frontend/api/runSurface'
 
 import { RunEscapeBoundary, type RunEscapeBoundaryProps } from '../../../components/RunEscapeBoundary'
 import { runInteractionLogic, type RunInteractionLogicProps } from '../../../logics/runInteractionLogic'
-import type { AttachedContextItem } from '../../../types/contextTypes'
 import { taskTrackerSceneLogic } from '../taskTrackerSceneLogic'
 import { TaskRunComposer } from './TaskRunComposer'
 

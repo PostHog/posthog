@@ -14,6 +14,19 @@
             "description": "Optional. The project_id from the rules being changed. The update is rejected when it does not match the current project, so a change never lands in a project the user did not look at.",
             "type": "number"
         },
+        "marketing_frequency_cap_hold_hours": {
+            "anyOf": [
+                {
+                    "maximum": 168,
+                    "minimum": 1,
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "How many hours a marketing message over the frequency cap waits for a free slot before it is skipped. Null skips it right away. A held message sends as soon as one of the person's earlier messages leaves the window."
+        },
         "marketing_frequency_cap_max_messages": {
             "anyOf": [
                 {

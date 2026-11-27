@@ -1,3 +1,5 @@
+import '~/taxonomy/registerCoreFilterDefinitions'
+
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import type { EventType } from '~/types'
 

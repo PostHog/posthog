@@ -43,6 +43,10 @@ describe('trendLine', () => {
         }
     })
 
+    it('fits against x positions when given', () => {
+        expect(trendLine([0, 1, 4], undefined, [0, 1, 4])).toEqual([0, 1, 4])
+    })
+
     it('fits over finite points only, ignoring gaps (NaN)', () => {
         // The fit should follow y = x from the finite points; the gap must not poison it.
         const result = trendLine([0, 1, NaN, 3, 4])
@@ -89,6 +93,10 @@ describe('trendLine', () => {
 describe('movingAverage', () => {
     it('returns the input when fewer points than the window', () => {
         expect(movingAverage([1, 2, 3], 7)).toEqual([1, 2, 3])
+    })
+
+    it('uses only finite points up to the current point in a trailing window', () => {
+        expect(movingAverage([NaN, 2, 4, 12, NaN, NaN], 2, 'trailing')).toEqual([NaN, 2, 3, 8, 12, NaN])
     })
 
     it('smooths uniform input to itself', () => {

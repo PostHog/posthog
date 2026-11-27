@@ -4,6 +4,12 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/product_analytics/api'
 import { castStringToInt, normalizeParamAliases } from '@/tools/cast-helpers'
+import { getConfirmedActionRuntime } from '@/tools/confirmed-action-registry'
+import {
+    executeConfirmedAction,
+    prepareConfirmedAction,
+    type PrepareConfirmedActionResult,
+} from '@/tools/confirmed-action-runtime'
 import {
     withPostHogUrl,
     withAgentNote,
@@ -14,58 +20,58 @@ import {
 } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const HogQLExpression = z.string()
+const HogQLExpressionOpen = z.string()
 
-const AssistantEventsQuery = z
-    .object({
+const AssistantEventsQueryOpen = z
+    .looseObject({
         kind: z.literal('EventsQuery').default('EventsQuery'),
-        select: z.array(HogQLExpression).describe('Event columns as HogQL expressions.'),
+        select: z.array(HogQLExpressionOpen).describe('Event columns as HogQL expressions.'),
     })
     .catchall(z.unknown())
 
-const AssistantDataTableNode = z
-    .object({
+const AssistantDataTableNodeOpen = z
+    .looseObject({
         kind: z.literal('DataTableNode').default('DataTableNode'),
-        source: AssistantEventsQuery,
+        source: AssistantEventsQueryOpen,
     })
     .catchall(z.unknown())
 
-const AssistantBareHogQLQuery = z
-    .object({
+const AssistantBareHogQLQueryOpen = z
+    .looseObject({
         kind: z.literal('HogQLQuery').default('HogQLQuery'),
         query: z.string().describe('The HogQL query to run.'),
     })
     .catchall(z.unknown())
 
-const AssistantBIVisualizationNode = z
-    .object({
+const AssistantBIVisualizationNodeOpen = z
+    .looseObject({
         config: z
             .record(z.string(), z.unknown())
             .describe('Complete worksheet configuration, including shelves and filters. Validated by the insight API.'),
         kind: z.literal('BIVisualizationNode').default('BIVisualizationNode'),
-        source: AssistantBareHogQLQuery,
+        source: AssistantBareHogQLQueryOpen,
     })
     .catchall(z.unknown())
 
-const AssistantPieChartOptions = z.object({
+const AssistantPieChartOptionsOpen = z.looseObject({
     hideAggregation: z.coerce.boolean().describe('Hide the total on a pie chart.').optional(),
 })
 
-const AssistantVizSpecificOptions = z.object({
-    ActionsPie: AssistantPieChartOptions.optional(),
+const AssistantVizSpecificOptionsOpen = z.looseObject({
+    ActionsPie: AssistantPieChartOptionsOpen.optional(),
 })
 
-const AssistantInsightVizNode = z.object({
+const AssistantInsightVizNodeOpen = z.looseObject({
     kind: z.literal('InsightVizNode').default('InsightVizNode'),
     source: z
         .record(z.string(), z.unknown())
         .describe(
             'Product analtycs query objects like TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery'
         ),
-    vizSpecificOptions: AssistantVizSpecificOptions.describe('Chart rendering options.').optional(),
+    vizSpecificOptions: AssistantVizSpecificOptionsOpen.describe('Chart rendering options.').optional(),
 })
 
-const AssistantDataVisualizationBoxPlotSettings = z.object({
+const AssistantDataVisualizationBoxPlotSettingsOpen = z.looseObject({
     excludeOutliers: z.coerce
         .boolean()
         .describe('Clip whiskers to 1.5 times the interquartile range. Defaults to true.')
@@ -90,12 +96,12 @@ const AssistantDataVisualizationBoxPlotSettings = z.object({
         .optional(),
 })
 
-const AssistantDataVisualizationGoalLine = z.object({
+const AssistantDataVisualizationGoalLineOpen = z.looseObject({
     label: z.string().describe('Label rendered next to the goal line.'),
     value: z.coerce.number().describe('Y-axis value at which the goal line is drawn.'),
 })
 
-const AssistantDataVisualizationYAxisSettings = z.object({
+const AssistantDataVisualizationYAxisSettingsOpen = z.looseObject({
     label: z.string().describe('Label rendered beside this Y axis.').optional(),
     scale: z.enum(['linear', 'logarithmic']).describe('Scale used for this Y axis.').optional(),
     showGridLines: z.coerce.boolean().describe('Show grid lines for this Y axis.').optional(),
@@ -103,12 +109,12 @@ const AssistantDataVisualizationYAxisSettings = z.object({
     startAtZero: z.coerce.boolean().describe('Whether this Y axis should start at zero.').optional(),
 })
 
-const AssistantDataVisualizationMetricSettings = z.object({
+const AssistantDataVisualizationMetricSettingsOpen = z.looseObject({
     showChange: z.coerce.boolean().optional(),
     summary: z.enum(['total', 'average', 'latest']).optional(),
 })
 
-const PieChartSettings = z.object({
+const PieChartSettingsOpen = z.looseObject({
     showTotal: z.coerce
         .boolean()
         .describe('Whether to show the aggregation total. Defaults to on only when slices show values.')
@@ -125,21 +131,11 @@ const PieChartSettings = z.object({
         .optional(),
 })
 
-const AssistantDataVisualizationAxisDisplaySettings = z.object({
-    color: z.string().describe('Custom color for this series as a hex string (e.g. `#1d4aff`).').optional(),
-    displayType: z.enum(['auto', 'line', 'bar', 'area']).describe('Chart type. `auto` uses `display`.').optional(),
-    label: z.string().describe('Series label in legends and tooltips; replaces the column name.').optional(),
-    trendLine: z.coerce
-        .boolean()
-        .describe('Draw a linear trend line for this series. Only meaningful for line, bar, and area charts.')
-        .optional(),
-    yAxisPosition: z
-        .enum(['left', 'right'])
-        .describe('Which Y axis this numeric series should use. Use `right` for a secondary Y axis.')
-        .optional(),
+const AssistantDataVisualizationColumnDisplaySettingsOpen = z.looseObject({
+    description: z.string().describe('Table column description shown in the header tooltip.').optional(),
 })
 
-const AssistantDataVisualizationAxisFormatting = z.object({
+const AssistantDataVisualizationAxisFormattingOpen = z.looseObject({
     decimalPlaces: z.coerce.number().describe('Number of decimal places to display.').optional(),
     prefix: z.string().describe('Text prepended to each value (e.g. `$`).').optional(),
     style: z
@@ -151,40 +147,86 @@ const AssistantDataVisualizationAxisFormatting = z.object({
     suffix: z.string().describe('Value suffix (e.g. ` ms`). Omit for `percent`, which adds `%`.').optional(),
 })
 
-const AssistantDataVisualizationAxisSettings = z.object({
-    display: AssistantDataVisualizationAxisDisplaySettings.describe(
+const AssistantDataVisualizationColumnSettingsOpen = z.looseObject({
+    display: AssistantDataVisualizationColumnDisplaySettingsOpen.describe(
+        'Display settings for this column.'
+    ).optional(),
+    formatting: AssistantDataVisualizationAxisFormattingOpen.describe(
+        'Number-formatting settings for the values in this column.'
+    ).optional(),
+})
+
+const AssistantDataVisualizationColumnOpen = z.looseObject({
+    column: z.string().describe('Name of a column returned by the SQL query.'),
+    settings: AssistantDataVisualizationColumnSettingsOpen.describe(
+        'Optional display and number-formatting settings for this column.'
+    ).optional(),
+})
+
+const AssistantDataVisualizationAxisDisplaySettingsOpen = z.looseObject({
+    color: z.string().describe('Custom color for this series as a hex string (e.g. `#1d4aff`).').optional(),
+    displayType: z.enum(['auto', 'line', 'bar', 'area']).describe('Chart type. `auto` uses `display`.').optional(),
+    excludeFromTotal: z.coerce
+        .boolean()
+        .describe(
+            "Keep this series out of the tooltip's total row, e.g. a target line over stacked bars. A bar series still stacks, so set `displayType` to `line` for a series drawn over the stack."
+        )
+        .optional(),
+    label: z.string().describe('Series label in legends and tooltips; replaces the column name.').optional(),
+    trendLine: z.coerce
+        .boolean()
+        .describe('Draw a linear trend line for this series. Only meaningful for line, bar, and area charts.')
+        .optional(),
+    valueLabels: z
+        .enum(['auto', 'show', 'hide'])
+        .describe(
+            'Per-series override of chart-level `showValuesOnSeries`. `show` labels this series even when the chart setting is off, `hide` leaves it unlabeled when the setting is on, `auto` follows the chart.'
+        )
+        .optional(),
+    yAxisPosition: z
+        .enum(['left', 'right'])
+        .describe('Which Y axis this numeric series should use. Use `right` for a secondary Y axis.')
+        .optional(),
+})
+
+const AssistantDataVisualizationAxisSettingsOpen = z.looseObject({
+    display: AssistantDataVisualizationAxisDisplaySettingsOpen.describe(
         'Display settings for a plotted Y series.'
     ).optional(),
-    formatting: AssistantDataVisualizationAxisFormatting.describe(
+    formatting: AssistantDataVisualizationAxisFormattingOpen.describe(
         'Number-formatting settings for the values on this axis or series.'
     ).optional(),
 })
 
-const AssistantDataVisualizationAxis = z.object({
+const AssistantDataVisualizationAxisOpen = z.looseObject({
     column: z.string().describe('Name of a column returned by the SQL query to map onto this axis.'),
-    settings: AssistantDataVisualizationAxisSettings.describe(
+    settings: AssistantDataVisualizationAxisSettingsOpen.describe(
         'Optional series settings. Only applies to Y-axis series.'
     ).optional(),
 })
 
-const AssistantDataVisualizationChartSettings = z.object({
-    boxPlot: AssistantDataVisualizationBoxPlotSettings.describe(
+const AssistantDataVisualizationChartSettingsOpen = z.looseObject({
+    boxPlot: AssistantDataVisualizationBoxPlotSettingsOpen.describe(
         'Column mappings for `BoxPlot`. The SQL must return one pre-aggregated row per X-axis and series pair.'
     ).optional(),
+    colorBarsByCategory: z.coerce
+        .boolean()
+        .describe('Color each X-axis category in single-series `ActionsBar` and `ActionsBarValue` charts.')
+        .optional(),
     goalLines: z
-        .array(AssistantDataVisualizationGoalLine)
+        .array(AssistantDataVisualizationGoalLineOpen)
         .describe('Horizontal goal lines drawn across the chart.')
         .optional(),
-    leftYAxisSettings: AssistantDataVisualizationYAxisSettings.describe('Settings for the left Y axis.').optional(),
+    leftYAxisSettings: AssistantDataVisualizationYAxisSettingsOpen.describe('Settings for the left Y axis.').optional(),
     legendPosition: z
         .enum(['top', 'bottom', 'left', 'right'])
         .describe('Where the legend sits. Defaults to right for pie and donut, top for other charts.')
         .optional(),
-    metric: AssistantDataVisualizationMetricSettings.describe(
+    metric: AssistantDataVisualizationMetricSettingsOpen.describe(
         'Settings for `Metric`. `summary` defaults to `latest`.'
     ).optional(),
-    pie: PieChartSettings.describe('Settings for `ActionsPie` and `ActionsDonut`.').optional(),
-    rightYAxisSettings: AssistantDataVisualizationYAxisSettings.describe(
+    pie: PieChartSettingsOpen.describe('Settings for `ActionsPie` and `ActionsDonut`.').optional(),
+    rightYAxisSettings: AssistantDataVisualizationYAxisSettingsOpen.describe(
         'Settings for the right Y axis. Only applies when a Y series uses `settings.display.yAxisPosition: "right"`.'
     ).optional(),
     seriesBreakdownColumn: z
@@ -192,6 +234,12 @@ const AssistantDataVisualizationChartSettings = z.object({
         .nullable()
         .describe(
             'Column that splits a single Y series into multiple colored series — e.g. breaking down a line chart by `country`. Set to `null` or omit to disable. A breakdown buckets rows by x value, so it is ignored when `display` is `ScatterPlot`.'
+        )
+        .optional(),
+    showAnnotations: z.coerce
+        .boolean()
+        .describe(
+            'Show annotations on the chart. Only applies to line, area, bar, and stacked bar charts whose X axis is a date or datetime column.'
         )
         .optional(),
     showLegend: z.coerce.boolean().describe('Show the chart legend.').optional(),
@@ -208,17 +256,17 @@ const AssistantDataVisualizationChartSettings = z.object({
         .boolean()
         .describe('Stack bars to 100% of the total. Only meaningful with `ActionsStackedBar`.')
         .optional(),
-    xAxis: AssistantDataVisualizationAxis.describe(
+    xAxis: AssistantDataVisualizationColumnOpen.describe(
         'Column used as the X axis. Typically a time bucket or categorical column, but `ScatterPlot` plots two measures against each other, so it needs a numeric column here too.'
     ).optional(),
     xAxisLabel: z.string().describe('Label rendered under the X axis.').optional(),
     yAxis: z
-        .array(AssistantDataVisualizationAxis)
+        .array(AssistantDataVisualizationAxisOpen)
         .describe('One or more numeric columns plotted as Y series.')
         .optional(),
 })
 
-const AssistantDataVisualizationDisplayType = z.enum([
+const AssistantDataVisualizationDisplayTypeOpen = z.enum([
     'ActionsTable',
     'BoldNumber',
     'Metric',
@@ -235,30 +283,30 @@ const AssistantDataVisualizationDisplayType = z.enum([
     'BoxPlot',
 ])
 
-const AssistantDataVisualizationTableSettings = z.object({
+const AssistantDataVisualizationTableSettingsOpen = z.looseObject({
     columns: z
-        .array(AssistantDataVisualizationAxis)
+        .array(AssistantDataVisualizationColumnOpen)
         .describe('Columns to display and their order. Omit to show every column returned by the query.')
         .optional(),
     pinnedColumns: z.array(z.string()).describe('Column names to pin to the left of the table.').optional(),
     transpose: z.coerce.boolean().describe('Transpose rows and columns.').optional(),
 })
 
-const AssistantDataVisualizationNode = z.object({
-    chartSettings: AssistantDataVisualizationChartSettings.describe(
+const AssistantDataVisualizationNodeOpen = z.looseObject({
+    chartSettings: AssistantDataVisualizationChartSettingsOpen.describe(
         'Chart configuration. Ignored when `display` is `ActionsTable` or `BoldNumber`.'
     ).optional(),
-    display: AssistantDataVisualizationDisplayType.describe(
+    display: AssistantDataVisualizationDisplayTypeOpen.describe(
         'Chart type (default `ActionsTable`): `BoldNumber` = one value; `Metric` = KPI; `ActionsLineGraph` / `ActionsAreaGraph` = time series; `ActionsPie` / `ActionsDonut` / `ActionsProportionBar` = shares; `ActionsBar` / `ActionsStackedBar` = categories; `ActionsBarValue` = horizontal rankings; `TwoDimensionalHeatmap` = 2D aggregates; `ScatterPlot` = two measures; `BoxPlot` = distribution summaries with `chartSettings.boxPlot`.'
     ).optional(),
     kind: z.literal('DataVisualizationNode').default('DataVisualizationNode'),
     source: z.record(z.string(), z.unknown()).describe('HogQL query object that produces the rows to visualize.'),
-    tableSettings: AssistantDataVisualizationTableSettings.describe(
+    tableSettings: AssistantDataVisualizationTableSettingsOpen.describe(
         'Table configuration. Only applies when `display` is `ActionsTable` or omitted.'
     ).optional(),
 })
 
-const InsightNodeKind = z.enum([
+const InsightNodeKindOpen = z.enum([
     'TrendsQuery',
     'FunnelsQuery',
     'RetentionQuery',
@@ -270,22 +318,22 @@ const InsightNodeKind = z.enum([
     'WebOverviewQuery',
 ])
 
-const AssistantMetricsNodeKind = z.enum(['MetricsQuery', 'MetricsHistogramQuery'])
+const AssistantMetricsNodeKindOpen = z.enum(['MetricsQuery', 'MetricsHistogramQuery'])
 
-const AssistantBareInsightQuery = z
-    .object({
-        kind: z.union([InsightNodeKind, AssistantMetricsNodeKind]),
+const AssistantBareInsightQueryOpen = z
+    .looseObject({
+        kind: z.union([InsightNodeKindOpen, AssistantMetricsNodeKindOpen]),
     })
     .catchall(z.unknown())
 
-const InsightQuery = z.union([
-    AssistantDataTableNode,
-    AssistantBIVisualizationNode,
-    AssistantInsightVizNode,
-    AssistantDataVisualizationNode,
-    AssistantBareInsightQuery,
-    AssistantBareHogQLQuery,
-    AssistantEventsQuery,
+const InsightQueryOpen = z.union([
+    AssistantDataTableNodeOpen,
+    AssistantBIVisualizationNodeOpen,
+    AssistantInsightVizNodeOpen,
+    AssistantDataVisualizationNodeOpen,
+    AssistantBareInsightQueryOpen,
+    AssistantBareHogQLQueryOpen,
+    AssistantEventsQueryOpen,
 ])
 
 const ElementsStatsRetrieveSchema = () => {
@@ -320,10 +368,123 @@ const elementsStatsRetrieve = (): ToolBase<
     },
 })
 
+const EventsRetentionDeletionCountSchema = () => {
+    const EventsRetentionDeletionCountQueryParams = orvalSchemas.EventsRetentionDeletionCountQueryParams()
+    return EventsRetentionDeletionCountQueryParams
+}
+
+const eventsRetentionDeletionCount = (): ToolBase<
+    ReturnType<typeof EventsRetentionDeletionCountSchema>,
+    Schemas.EventsDeleted
+> => ({
+    name: 'events-retention-deletion-count',
+    schema: EventsRetentionDeletionCountSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof EventsRetentionDeletionCountSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.EventsDeleted>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/events_retention/deletion_count/`,
+            query: {
+                retention_months: params.retention_months,
+            },
+        })
+        return result
+    },
+})
+
+const EventsRetentionGetSchema = () => z.object({})
+
+const eventsRetentionGet = (): ToolBase<ReturnType<typeof EventsRetentionGetSchema>, Schemas.EventsRetention> => ({
+    name: 'events-retention-get',
+    schema: EventsRetentionGetSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof EventsRetentionGetSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.EventsRetention>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/events_retention/`,
+        })
+        return result
+    },
+})
+
+const EventsRetentionUpdateSchema = () => {
+    const EventsRetentionUpdateBody = orvalSchemas.EventsRetentionUpdateBody()
+    return EventsRetentionUpdateBody.extend({
+        retention_months: EventsRetentionUpdateBody.shape['retention_months'].describe(
+            "The period in months. It also has to be between `min_retention_months` and `max_retention_months` from events-retention-get. Null removes the project's period, so the project uses the organization's period, or the default period when the organization has none."
+        ),
+    })
+}
+
+const EventsRetentionUpdateSchemaExecute = z.strictObject({
+    confirmation_hash: z
+        .string()
+        .describe('The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.'),
+    confirmation: z.string().describe('The literal string "confirm", typed by the user in chat. Required to proceed.'),
+})
+
+const eventsRetentionUpdatePrepare = (): ToolBase<
+    ReturnType<typeof EventsRetentionUpdateSchema>,
+    PrepareConfirmedActionResult
+> => ({
+    name: 'events-retention-update-prepare',
+    schema: EventsRetentionUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof EventsRetentionUpdateSchema>>) => {
+        const __runtime = getConfirmedActionRuntime()
+        const __scopeProjectId = await context.stateManager.getProjectId()
+        return await prepareConfirmedAction(context, {
+            args: params,
+            purpose: 'events-retention-update',
+            inputSchema: EventsRetentionUpdateSchema(),
+            actionLabel: 'set events retention period',
+            messageTemplate:
+                "About to change how long this project keeps events. If the new period is shorter, events in this project that are older than it will be deleted, and deleted events can't be restored. Reply 'confirm' to proceed.\n",
+            codec: __runtime.codec,
+            stash: __runtime.stash,
+            boundScope: { projectId: String(__scopeProjectId) },
+        })
+    },
+})
+
+const eventsRetentionUpdateExecute = (): ToolBase<
+    typeof EventsRetentionUpdateSchemaExecute,
+    Schemas.EventsRetention
+> => ({
+    name: 'events-retention-update-execute',
+    schema: EventsRetentionUpdateSchemaExecute,
+    handler: async (context: Context, confirmationParams: z.infer<typeof EventsRetentionUpdateSchemaExecute>) => {
+        const __runtime = getConfirmedActionRuntime()
+        const __scopeProjectId = await context.stateManager.getProjectId()
+        const __guard = await executeConfirmedAction<z.infer<ReturnType<typeof EventsRetentionUpdateSchema>>>(context, {
+            incomingArgs: confirmationParams,
+            purpose: 'events-retention-update',
+            inputSchema: EventsRetentionUpdateSchema(),
+            codec: __runtime.codec,
+            stash: __runtime.stash,
+            expectedScope: { projectId: String(__scopeProjectId) },
+        })
+        if (!__guard.ok) {
+            return __guard.result as never
+        }
+        const params = __guard.verifiedArgs
+        const projectId = __scopeProjectId
+        const body: Record<string, unknown> = {}
+        if (params.retention_months !== undefined) {
+            body['retention_months'] = params.retention_months
+        }
+        const result = await context.api.request<Schemas.EventsRetention>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/events_retention/`,
+            body,
+        })
+        return result
+    },
+})
+
 const InsightCreateSchema = () => {
     const InsightsCreateBody = orvalSchemas.InsightsCreateBody()
     return InsightsCreateBody.omit({ derived_name: true, order: true, deleted: true, _create_in_folder: true }).extend({
-        query: InsightQuery,
+        query: InsightQueryOpen,
         dashboards: InsightsCreateBody.shape['dashboards'].describe(
             'Dashboard IDs this insight should belong to. This is a full replacement — always include all existing dashboard IDs when adding a new one.'
         ),
@@ -376,7 +537,7 @@ const insightCreate = (): ToolBase<
         ]) as typeof result
         return withAgentNote(
             await withPostHogUrl(context, filtered, `/insights/${filtered.short_id}`),
-            'When you tell the user about this insight, name the display you chose and one or two other displays that also fit this query, in one short sentence, and offer to change it. If the user agrees, change it with insight-update. Suggest only displays that the insight kind supports and that fit the question:\n\n- Trends (`trendsFilter.display`): for change over time `ActionsLineGraph`, `ActionsAreaGraph`, `ActionsBar` or `ActionsUnstackedBar`; for totals per breakdown value or series `ActionsBarValue`, `ActionsPie` or `ActionsTable`; for one number `Metric` or `BoldNumber`, never with a breakdown or more than one series; `WorldMap` only for a `$geoip_country_code` breakdown.\n- Funnels (`funnelsFilter.funnelVizType`): `steps` for drop-off per step, `trends` for conversion over time, or `time_to_convert` for how long users take.\n- Retention (`retentionFilter.display`): `ActionsLineGraph` or `ActionsBar`.\n- Stickiness (`stickinessFilter.display`): `ActionsLineGraph`, `ActionsBar` or `ActionsAreaGraph`.\n- Lifecycle: stacked or side-by-side bars (`lifecycleFilter.stacked`).\n- SQL (`DataVisualizationNode` `display`): only displays that fit the columns the query returns.\n- Paths: suggest nothing.\n\nUse the chart names a person sees, such as "bar chart per category" or "line chart", not enum values or tool names. If the user named the chart they want, do not suggest others. If you create several insights in this task, give one short list of alternatives at the end, not one per insight.\n\nAfter creating a Trends, SQL (HogQL), Funnels or Metrics insight, call insight-query with the returned short_id, read the current value, and offer an alert when the metric is one someone would act on if it moved sharply (signups, active users, revenue, conversion rate, error or failure counts, latency). Name an actual number, never a placeholder such as X, for example "want me to alert you when daily signups drop below 400?". A count sitting at zero, such as errors or failures, is a strong case, so offer an upper bound of 1. Offer nothing when the insight returned no rows. When no absolute number fits and the insight supports it, offer a relative-change alert on a sudden increase or decrease. Skip metrics nobody acts on, such as raw pageview or event-volume counts, and skip high-cardinality breakdowns. Judge the metric, not the request. A newly created insight, or one the user just asked to see, is not throwaway for that reason. If the user already declined an alert in this conversation, do not offer again. If alert-create is unavailable, say nothing about alerts. Wait for the user to accept before creating an alert. After substantial visual changes, check the final saved insight once if browser access is already available. Skip browser checks for small edits.\n'
+            'When you tell the user about this insight, name the display you chose and one or two other displays that also fit this query, in one short sentence, and offer to change it. If the user agrees, change it with insight-update. Suggest only displays that the insight kind supports and that fit the question:\n\n- Trends (`trendsFilter.display`): for change over time `ActionsLineGraph`, `ActionsAreaGraph`, `ActionsBar` or `ActionsUnstackedBar`; for totals per breakdown value or series `ActionsBarValue`, `ActionsPie` or `ActionsTable`; for one number `Metric` or `BoldNumber`, never with a breakdown or more than one series; `WorldMap` only for a `$geoip_country_code` breakdown.\n- Funnels (`funnelsFilter.funnelVizType`): `steps` for drop-off per step, `trends` for conversion over time, or `time_to_convert` for how long users take.\n- Retention (`retentionFilter.display`): `ActionsLineGraph` or `ActionsBar`.\n- Stickiness (`stickinessFilter.display`): `ActionsLineGraph`, `ActionsBar` or `ActionsAreaGraph`.\n- Lifecycle: stacked or side-by-side bars (`lifecycleFilter.stacked`).\n- SQL (`DataVisualizationNode` `display`): only displays that fit the columns the query returns.\n- Paths: suggest nothing.\n\nUse the chart names a person sees, such as "bar chart per category" or "line chart", not enum values or tool names. If the user named the chart they want, do not suggest others. If you create several insights in this task, give one short list of alternatives at the end, not one per insight.\n\nAfter creating a Trends, SQL (HogQL), Funnels or Metrics insight, call insight-query with the returned short_id, read the current value, and offer an alert when the metric is one someone would act on if it moved sharply (signups, active users, revenue, conversion rate, error or failure counts, latency). Name an actual number, never a placeholder such as X, for example "want me to alert you when daily signups drop below 400?". A count sitting at zero, such as errors or failures, is a strong case, so offer an upper bound of 1. Offer nothing when the insight returned no rows. When no absolute number fits and the insight supports it, offer a relative-change alert on a sudden increase or decrease. When neither fits because the metric is noisy or seasonal, offer an anomaly detection alert on Trends and SQL insights. If you offer the AI detector, say that each of its checks uses AI credits. Skip metrics nobody acts on, such as raw pageview or event-volume counts, and skip high-cardinality breakdowns. Judge the metric, not the request. A newly created insight, or one the user just asked to see, is not throwaway for that reason. If the user already declined an alert in this conversation, do not offer again. If alert-create is unavailable, say nothing about alerts. Wait for the user to accept before creating an alert. After substantial visual changes, check the final saved insight once if browser access is already available. Skip browser checks for small edits.\n'
         )
     },
 })
@@ -469,7 +630,7 @@ const InsightUpdateSchema = () => {
                 }).shape
             )
             .extend({
-                query: InsightQuery.optional(),
+                query: InsightQueryOpen.optional(),
                 dashboards: InsightsPartialUpdateBody.shape['dashboards'].describe(
                     'Dashboard IDs this insight should belong to. This is a full replacement — always include all existing dashboard IDs when adding a new one.'
                 ),
@@ -659,11 +820,20 @@ const insightsList = (): ToolBase<
                     'favorited',
                     'dashboards',
                     'created_at',
-                    'created_by',
+                    'created_by.id',
+                    'created_by.first_name',
+                    'created_by.last_name',
+                    'created_by.email',
                     'last_modified_at',
-                    'last_modified_by',
+                    'last_modified_by.id',
+                    'last_modified_by.first_name',
+                    'last_modified_by.last_name',
+                    'last_modified_by.email',
                     'last_viewed_at',
-                    'alerts',
+                    'alerts.*.id',
+                    'alerts.*.name',
+                    'alerts.*.state',
+                    'alerts.*.enabled',
                 ])
             ),
         } as typeof result
@@ -738,8 +908,137 @@ const insightsTrendingRetrieve = (): ToolBase<
     },
 })
 
+const OrganizationEventsRetentionDeletionCountSchema = () => {
+    const OrganizationEventsRetentionDeletionCountQueryParams =
+        orvalSchemas.OrganizationEventsRetentionDeletionCountQueryParams()
+    return OrganizationEventsRetentionDeletionCountQueryParams
+}
+
+const organizationEventsRetentionDeletionCount = (): ToolBase<
+    ReturnType<typeof OrganizationEventsRetentionDeletionCountSchema>,
+    Schemas.EventsDeleted
+> => ({
+    name: 'organization-events-retention-deletion-count',
+    schema: OrganizationEventsRetentionDeletionCountSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof OrganizationEventsRetentionDeletionCountSchema>>
+    ) => {
+        const orgId = await context.stateManager.getOrgID()
+        const result = await context.api.request<Schemas.EventsDeleted>({
+            method: 'GET',
+            path: `/api/organizations/${encodeURIComponent(String(orgId))}/events_retention_setting/deletion_count/`,
+            query: {
+                retention_months: params.retention_months,
+            },
+        })
+        return result
+    },
+})
+
+const OrganizationEventsRetentionGetSchema = () => z.object({})
+
+const organizationEventsRetentionGet = (): ToolBase<
+    ReturnType<typeof OrganizationEventsRetentionGetSchema>,
+    Schemas.OrganizationEventsRetention
+> => ({
+    name: 'organization-events-retention-get',
+    schema: OrganizationEventsRetentionGetSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof OrganizationEventsRetentionGetSchema>>) => {
+        const orgId = await context.stateManager.getOrgID()
+        const result = await context.api.request<Schemas.OrganizationEventsRetention>({
+            method: 'GET',
+            path: `/api/organizations/${encodeURIComponent(String(orgId))}/events_retention_setting/`,
+        })
+        return result
+    },
+})
+
+const OrganizationEventsRetentionUpdateSchema = () => {
+    const OrganizationEventsRetentionUpdateBody = orvalSchemas.OrganizationEventsRetentionUpdateBody()
+    return OrganizationEventsRetentionUpdateBody.extend({
+        retention_months: OrganizationEventsRetentionUpdateBody.shape['retention_months'].describe(
+            "The period in months. It also has to be between `min_retention_months` and `max_retention_months` from organization-events-retention-get. Null removes the organization's period, so projects without their own period use the default period."
+        ),
+    })
+}
+
+const OrganizationEventsRetentionUpdateSchemaExecute = z.strictObject({
+    confirmation_hash: z
+        .string()
+        .describe('The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.'),
+    confirmation: z.string().describe('The literal string "confirm", typed by the user in chat. Required to proceed.'),
+})
+
+const organizationEventsRetentionUpdatePrepare = (): ToolBase<
+    ReturnType<typeof OrganizationEventsRetentionUpdateSchema>,
+    PrepareConfirmedActionResult
+> => ({
+    name: 'organization-events-retention-update-prepare',
+    schema: OrganizationEventsRetentionUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof OrganizationEventsRetentionUpdateSchema>>) => {
+        const __runtime = getConfirmedActionRuntime()
+        const __scopeOrgId = await context.stateManager.getOrgID()
+        return await prepareConfirmedAction(context, {
+            args: params,
+            purpose: 'organization-events-retention-update',
+            inputSchema: OrganizationEventsRetentionUpdateSchema(),
+            actionLabel: 'set organization events retention period',
+            messageTemplate:
+                "About to change how long projects without their own period keep events. If the new period is shorter, events in those projects that are older than it will be deleted, and deleted events can't be restored. Reply 'confirm' to proceed.\n",
+            codec: __runtime.codec,
+            stash: __runtime.stash,
+            boundScope: { orgId: String(__scopeOrgId) },
+        })
+    },
+})
+
+const organizationEventsRetentionUpdateExecute = (): ToolBase<
+    typeof OrganizationEventsRetentionUpdateSchemaExecute,
+    Schemas.OrganizationEventsRetention
+> => ({
+    name: 'organization-events-retention-update-execute',
+    schema: OrganizationEventsRetentionUpdateSchemaExecute,
+    handler: async (
+        context: Context,
+        confirmationParams: z.infer<typeof OrganizationEventsRetentionUpdateSchemaExecute>
+    ) => {
+        const __runtime = getConfirmedActionRuntime()
+        const __scopeOrgId = await context.stateManager.getOrgID()
+        const __guard = await executeConfirmedAction<
+            z.infer<ReturnType<typeof OrganizationEventsRetentionUpdateSchema>>
+        >(context, {
+            incomingArgs: confirmationParams,
+            purpose: 'organization-events-retention-update',
+            inputSchema: OrganizationEventsRetentionUpdateSchema(),
+            codec: __runtime.codec,
+            stash: __runtime.stash,
+            expectedScope: { orgId: String(__scopeOrgId) },
+        })
+        if (!__guard.ok) {
+            return __guard.result as never
+        }
+        const params = __guard.verifiedArgs
+        const orgId = __scopeOrgId
+        const body: Record<string, unknown> = {}
+        if (params.retention_months !== undefined) {
+            body['retention_months'] = params.retention_months
+        }
+        const result = await context.api.request<Schemas.OrganizationEventsRetention>({
+            method: 'POST',
+            path: `/api/organizations/${encodeURIComponent(String(orgId))}/events_retention_setting/`,
+            body,
+        })
+        return result
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'elements-stats-retrieve': elementsStatsRetrieve,
+    'events-retention-deletion-count': eventsRetentionDeletionCount,
+    'events-retention-get': eventsRetentionGet,
+    'events-retention-update-prepare': eventsRetentionUpdatePrepare,
+    'events-retention-update-execute': eventsRetentionUpdateExecute,
     'insight-create': insightCreate,
     'insight-delete': insightDelete,
     'insight-get': insightGet,
@@ -748,4 +1047,8 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'insights-all-activity-retrieve': insightsAllActivityRetrieve,
     'insights-list': insightsList,
     'insights-trending-retrieve': insightsTrendingRetrieve,
+    'organization-events-retention-deletion-count': organizationEventsRetentionDeletionCount,
+    'organization-events-retention-get': organizationEventsRetentionGet,
+    'organization-events-retention-update-prepare': organizationEventsRetentionUpdatePrepare,
+    'organization-events-retention-update-execute': organizationEventsRetentionUpdateExecute,
 }

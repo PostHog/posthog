@@ -78,6 +78,7 @@ describe('TeamManager()', () => {
                   "heatmaps_opt_in": null,
                   "id": "<TEAM_ID>",
                   "ingested_event": true,
+                  "keep_writing_flag_calls_to_events": false,
                   "logs_settings": null,
                   "minimal_flag_called_events": false,
                   "name": "TEST PROJECT",
@@ -85,7 +86,6 @@ describe('TeamManager()', () => {
                   "person_display_name_properties": [],
                   "person_processing_opt_out": null,
                   "project_id": "<PROJECT_ID>",
-                  "secret_api_token": null,
                   "session_recording_opt_in": true,
                   "timezone": "UTC",
                   "uuid": "<REPLACED-UUID-0>",
@@ -115,6 +115,25 @@ describe('TeamManager()', () => {
             const result3 = await teamManager.getTeamByToken(result!.api_token)
             expect(result3?.id).toEqual(teamId)
             expect(fetchTeamsSpy).toHaveBeenCalledTimes(1)
+        })
+
+        it('does not resolve a numeric token as a team id', async () => {
+            expect(await teamManager.getTeamByToken(String(teamId))).toBeNull()
+
+            // Also once the team is cached by its id
+            expect((await teamManager.getTeam(teamId))?.id).toEqual(teamId)
+            expect(await teamManager.getTeamByToken(String(teamId))).toBeNull()
+
+            // A real token made only of digits still resolves by token
+            const numericToken = String(9_000_000_000 + teamId)
+            const numericTeamId = await createTeam(hub.postgres, organizationId, numericToken)
+            expect((await teamManager.getTeamByToken(numericToken))?.id).toEqual(numericTeamId)
+        })
+
+        it('getTeamsByTokens only matches real tokens', async () => {
+            const result = await teamManager.getTeamsByTokens([String(teamId), teamToken])
+            expect(result[String(teamId)]).toBeNull()
+            expect(result[teamToken]?.id).toEqual(teamId)
         })
 
         it('efficiently loads multiple teams', async () => {
@@ -251,13 +270,16 @@ describe('TeamManager()', () => {
             const otherTeamId = await createTeam(postgres, otherOrganizationId)
             await insertRow(postgres, 'feature_flags_organizationfeatureflagsconfig', {
                 organization_id: organizationId,
-                flag_evaluations_mode: FlagEvaluationsMode.ReadFlagEvaluations,
+                flag_evaluations_mode: FlagEvaluationsMode.FlagEvaluationsOnly,
+                keep_writing_flag_calls_to_events: true,
             })
 
-            expect((await teamManager.getTeam(newTeamId))!.flag_evaluations_mode).toBe(
-                FlagEvaluationsMode.ReadFlagEvaluations
-            )
-            expect((await teamManager.getTeam(otherTeamId))!.flag_evaluations_mode).toBe(FlagEvaluationsMode.Events)
+            const team = (await teamManager.getTeam(newTeamId))!
+            expect(team.flag_evaluations_mode).toBe(FlagEvaluationsMode.FlagEvaluationsOnly)
+            expect(team.keep_writing_flag_calls_to_events).toBe(true)
+            const otherTeam = (await teamManager.getTeam(otherTeamId))!
+            expect(otherTeam.flag_evaluations_mode).toBe(FlagEvaluationsMode.Events)
+            expect(otherTeam.keep_writing_flag_calls_to_events).toBe(false)
         })
 
         it('does not leak minimal_flag_called_events across teams', async () => {
@@ -331,7 +353,7 @@ describe('TeamManager()', () => {
             expect(mockCaptureTeamEvent).toHaveBeenCalledWith(
                 newTeam,
                 'first team event ingested',
-                expect.objectContaining({ sdk: 'web' }),
+                expect.objectContaining({ sdk: 'web', $update_person_last_seen_at: false }),
                 expect.any(String)
             )
         })

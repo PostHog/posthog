@@ -16,6 +16,7 @@ use serde_json::json;
 use std::{
     fs,
     path::{Path, PathBuf},
+    process::Command,
 };
 use test_log::test;
 
@@ -35,6 +36,67 @@ fn get_case_path(relative_path: &str) -> PathBuf {
 fn assert_file_eq(base_path: &Path, path: &str, actual: impl Into<String>) {
     let expected = fs::read_to_string(base_path.join(path)).expect("Failed to read expected file");
     assert_eq!(expected, actual.into());
+}
+
+#[test]
+fn standalone_upload_warns_once_when_release_coordinates_are_incomplete() {
+    for (command, release_version) in [
+        ("upload", Some("abc123")),
+        ("process", Some("abc123")),
+        ("upload", None),
+        ("process", None),
+    ] {
+        let dir = tempfile::tempdir().expect("Failed to create Git-free build directory");
+        fs::write(
+            dir.path().join("app.js"),
+            "console.log(1);\n//# debugId=11111111-2222-4333-8444-555555555555\n//# sourceMappingURL=app.js.map\n",
+        )
+        .expect("Failed to write source file");
+        fs::write(
+            dir.path().join("app.js.map"),
+            r#"{"version":3,"sources":[],"names":[],"mappings":"","debugId":"11111111-2222-4333-8444-555555555555"}"#,
+        )
+        .expect("Failed to write empty sourcemap");
+
+        let mut subprocess = Command::new(env!("CARGO_BIN_EXE_posthog-cli"));
+        subprocess
+            .args([
+                "sourcemap",
+                command,
+                "--directory",
+                dir.path().to_str().expect("Valid temporary directory"),
+                "--release-mode",
+                "symbol-set",
+            ])
+            .args(
+                release_version
+                    .iter()
+                    .flat_map(|version| ["--release-version", *version]),
+            )
+            .current_dir(dir.path())
+            .env("POSTHOG_CLI_API_KEY", "phx_dummy")
+            .env("POSTHOG_CLI_PROJECT_ID", "1")
+            .env("POSTHOG_CLI_HOST", "http://127.0.0.1:9")
+            .env("RUST_LOG", "posthog_cli=warn");
+        for (name, _) in std::env::vars_os() {
+            if name.to_string_lossy().starts_with("GITHUB_")
+                || name.to_string_lossy().starts_with("VERCEL")
+            {
+                subprocess.env_remove(name);
+            }
+        }
+        let output = subprocess.output().expect("Failed to run CLI");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+
+        assert!(output.status.success(), "{command}: {stderr}");
+        assert_eq!(
+            stderr
+                .matches("Sourcemaps will upload without a release.")
+                .count(),
+            1,
+            "{command}: {stderr}"
+        );
+    }
 }
 
 pub fn read_pairs(

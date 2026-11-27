@@ -64,6 +64,7 @@ _INVALID_VALUE_ERROR = (
 
 class AccountPropertySyncPhase(StrEnum):
     LOAD_STATE = "load_state"
+    LOAD_SEGMENT_ACCOUNTS = "load_segment_accounts"
     READ_STAGED_ROWS = "read_staged_rows"
     DIFF_VALUES = "diff_values"
     MATCH_ACCOUNTS = "match_accounts"
@@ -225,8 +226,13 @@ def _source_values(rows: list[dict[str, Any]], key_column: str, source_column: s
     }
 
 
-def _decode_parquet_rows(data: bytes) -> list[dict[str, Any]]:
-    return pq.read_table(io.BytesIO(data)).to_pylist()
+def _merge_snapshot_file(data: bytes, hashes: dict[str, str]) -> None:
+    for batch in _parquet_batches(data):
+        external_ids = batch.column("external_id").to_pylist()
+        value_hashes = batch.column("value_hash").to_pylist()
+        hashes.update(
+            (str(external_id), str(value_hash)) for external_id, value_hash in zip(external_ids, value_hashes)
+        )
 
 
 def _encode_snapshot(hashes: dict[str, str]) -> bytes:
@@ -310,8 +316,7 @@ async def _merge_snapshot_files(s3_client: _SnapshotS3Client, file_keys: list[st
         except FileNotFoundError:
             complete = False
             continue
-        for row in await asyncio.to_thread(_decode_parquet_rows, data):
-            hashes[str(row["external_id"])] = str(row["value_hash"])
+        await asyncio.to_thread(_merge_snapshot_file, data, hashes)
     return _SnapshotMerge(hashes=hashes, complete=complete)
 
 
@@ -375,20 +380,25 @@ async def _write_snapshot_hashes(
                         continue
 
 
+def _segment_accounts(team_id: int, segment: AccountPropertySyncSegment) -> QuerySet[Account]:
+    accounts = Account.objects.for_team(team_id).filter(churned_at__isnull=True)
+    if segment == AccountPropertySyncSegment.TRACKED:
+        return accounts.filter(ignored_at__isnull=True)
+    return accounts.filter(ignored_at__isnull=False)
+
+
+def _segment_external_ids(team_id: int, segment: AccountPropertySyncSegment) -> frozenset[str]:
+    external_ids = _segment_accounts(team_id, segment).values_list("external_id", flat=True)
+    return frozenset(external_id for external_id in external_ids.iterator() if external_id)
+
+
 def _matching_account_ids(
     team_id: int, segment: AccountPropertySyncSegment, external_ids: list[str]
 ) -> dict[str, UUID]:
     matching: dict[str, UUID] = {}
     for start in range(0, len(external_ids), _ACCOUNT_LOOKUP_CHUNK_SIZE):
         chunk = external_ids[start : start + _ACCOUNT_LOOKUP_CHUNK_SIZE]
-        accounts = Account.objects.for_team(team_id).filter(
-            external_id__in=chunk,
-            churned_at__isnull=True,
-        )
-        if segment == AccountPropertySyncSegment.TRACKED:
-            accounts = accounts.filter(ignored_at__isnull=True)
-        else:
-            accounts = accounts.filter(ignored_at__isnull=False)
+        accounts = _segment_accounts(team_id, segment).filter(external_id__in=chunk)
         matching.update(
             (external_id, account_id)
             for external_id, account_id in accounts.values_list("external_id", "id")
@@ -577,6 +587,16 @@ async def _apply_staged_rows(
     start_batch: int = 0,
     on_batch_applied: Callable[[int], Awaitable[None]] | None = None,
 ) -> None:
+    phase_started_at = asyncio.get_running_loop().time()
+    # Load the set on every run: an account that joins the segment has no hash here yet, so its next run syncs it.
+    segment_external_ids = await database_sync_to_async(_segment_external_ids, thread_sensitive=False)(team_id, segment)
+    _record_phase_duration(
+        log,
+        segment,
+        AccountPropertySyncPhase.LOAD_SEGMENT_ACCOUNTS,
+        phase_started_at,
+        {"segment_accounts": len(segment_external_ids)},
+    )
     batch_index = start_batch
     batches = aiter(_iter_parquet_row_batches(team_id, binding, job_id, columns=columns, skip_batches=start_batch))
     while True:
@@ -605,7 +625,7 @@ async def _apply_staged_rows(
             changed = {
                 external_id: value
                 for external_id, value in values_by_external_id.items()
-                if state.prior_hashes.get(external_id) != _value_hash(value)
+                if external_id in segment_external_ids and state.prior_hashes.get(external_id) != _value_hash(value)
             }
             state.changed += len(changed)
             counts["changed"] += len(changed)

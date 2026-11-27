@@ -16,13 +16,11 @@
     "result": [
         [
             {
-                "action_id": "$pageview",
                 "name": "$pageview",
                 "custom_name": null,
                 "order": 0,
                 "people": [],
                 "count": 597,
-                "type": "events",
                 "average_conversion_time": null,
                 "median_conversion_time": null,
                 "breakdown": [
@@ -36,13 +34,11 @@
                 "compare_label": "current"
             },
             {
-                "action_id": "$pageview",
                 "name": "$pageview",
                 "custom_name": null,
                 "order": 1,
                 "people": [],
                 "count": 1,
-                "type": "events",
                 "average_conversion_time": 0,
                 "median_conversion_time": 0,
                 "breakdown": [
@@ -56,13 +52,11 @@
                 "compare_label": "current"
             },
             {
-                "action_id": "$pageview",
                 "name": "$pageview",
                 "custom_name": null,
                 "order": 2,
                 "people": [],
                 "count": 0,
-                "type": "events",
                 "average_conversion_time": null,
                 "median_conversion_time": null,
                 "breakdown": [
@@ -78,13 +72,11 @@
         ],
         [
             {
-                "action_id": "$pageview",
                 "name": "$pageview",
                 "custom_name": null,
                 "order": 0,
                 "people": [],
                 "count": 19568,
-                "type": "events",
                 "average_conversion_time": null,
                 "median_conversion_time": null,
                 "breakdown": [
@@ -98,13 +90,11 @@
                 "compare_label": "current"
             },
             {
-                "action_id": "$pageview",
                 "name": "$pageview",
                 "custom_name": null,
                 "order": 1,
                 "people": [],
                 "count": 8436,
-                "type": "events",
                 "average_conversion_time": 370.4660714933768,
                 "median_conversion_time": 0,
                 "breakdown": [
@@ -118,13 +108,11 @@
                 "compare_label": "current"
             },
             {
-                "action_id": "$pageview",
                 "name": "$pageview",
                 "custom_name": null,
                 "order": 2,
                 "people": [],
                 "count": 2863,
-                "type": "events",
                 "average_conversion_time": 398.24871074618267,
                 "median_conversion_time": 0,
                 "breakdown": [
@@ -140,13 +128,11 @@
         ],
         [
             {
-                "action_id": "$pageview",
                 "name": "$pageview",
                 "custom_name": null,
                 "order": 0,
                 "people": [],
                 "count": 1,
-                "type": "events",
                 "average_conversion_time": null,
                 "median_conversion_time": null,
                 "breakdown": [
@@ -160,13 +146,11 @@
                 "compare_label": "current"
             },
             {
-                "action_id": "$pageview",
                 "name": "$pageview",
                 "custom_name": null,
                 "order": 1,
                 "people": [],
                 "count": 1,
-                "type": "events",
                 "average_conversion_time": 930.7985074626865,
                 "median_conversion_time": 2,
                 "breakdown": [
@@ -180,13 +164,11 @@
                 "compare_label": "current"
             },
             {
-                "action_id": "$pageview",
                 "name": "$pageview",
                 "custom_name": null,
                 "order": 2,
                 "people": [],
                 "count": 1,
-                "type": "events",
                 "average_conversion_time": 930.0074626865671,
                 "median_conversion_time": 2,
                 "breakdown": [
@@ -202,13 +184,11 @@
         ],
         [
             {
-                "action_id": "$pageview",
                 "name": "$pageview",
                 "custom_name": null,
                 "order": 0,
                 "people": [],
                 "count": 418,
-                "type": "events",
                 "average_conversion_time": null,
                 "median_conversion_time": null,
                 "breakdown": [
@@ -222,13 +202,11 @@
                 "compare_label": "previous"
             },
             {
-                "action_id": "$pageview",
                 "name": "$pageview",
                 "custom_name": null,
                 "order": 1,
                 "people": [],
                 "count": 1,
-                "type": "events",
                 "average_conversion_time": 0,
                 "median_conversion_time": 0,
                 "breakdown": [
@@ -242,13 +220,11 @@
                 "compare_label": "previous"
             },
             {
-                "action_id": "$pageview",
                 "name": "$pageview",
                 "custom_name": null,
                 "order": 2,
                 "people": [],
                 "count": 0,
-                "type": "events",
                 "average_conversion_time": null,
                 "median_conversion_time": null,
                 "breakdown": [
@@ -264,13 +240,11 @@
         ],
         [
             {
-                "action_id": "$pageview",
                 "name": "$pageview",
                 "custom_name": null,
                 "order": 0,
                 "people": [],
                 "count": 13698,
-                "type": "events",
                 "average_conversion_time": null,
                 "median_conversion_time": null,
                 "breakdown": [
@@ -284,13 +258,11 @@
                 "compare_label": "previous"
             },
             {
-                "action_id": "$pageview",
                 "name": "$pageview",
                 "custom_name": null,
                 "order": 1,
                 "people": [],
                 "count": 5905,
-                "type": "events",
                 "average_conversion_time": 370.4660714933768,
                 "median_conversion_time": 0,
                 "breakdown": [
@@ -304,13 +276,11 @@
                 "compare_label": "previous"
             },
             {
-                "action_id": "$pageview",
                 "name": "$pageview",
                 "custom_name": null,
                 "order": 2,
                 "people": [],
                 "count": 2004,
-                "type": "events",
                 "average_conversion_time": 398.24871074618267,
                 "median_conversion_time": 0,
                 "breakdown": [
@@ -326,13 +296,11 @@
         ],
         [
             {
-                "action_id": "$pageview",
                 "name": "$pageview",
                 "custom_name": null,
                 "order": 0,
                 "people": [],
                 "count": 1,
-                "type": "events",
                 "average_conversion_time": null,
                 "median_conversion_time": null,
                 "breakdown": [
@@ -346,13 +314,11 @@
                 "compare_label": "previous"
             },
             {
-                "action_id": "$pageview",
                 "name": "$pageview",
                 "custom_name": null,
                 "order": 1,
                 "people": [],
                 "count": 1,
-                "type": "events",
                 "average_conversion_time": 930.7985074626865,
                 "median_conversion_time": 2,
                 "breakdown": [
@@ -366,13 +332,11 @@
                 "compare_label": "previous"
             },
             {
-                "action_id": "$pageview",
                 "name": "$pageview",
                 "custom_name": null,
                 "order": 2,
                 "people": [],
                 "count": 1,
-                "type": "events",
                 "average_conversion_time": 930.0074626865671,
                 "median_conversion_time": 2,
                 "breakdown": [

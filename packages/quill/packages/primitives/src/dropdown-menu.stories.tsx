@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { Copy, ExpandIcon, Folder, MoreVertical, Pencil, TrashIcon } from 'lucide-react'
+import * as React from 'react'
 import { useState } from 'react'
 
 import { Button } from './button'
@@ -7,6 +8,10 @@ import {
     DropdownMenu,
     DropdownMenuGroup,
     DropdownMenuContent,
+    DropdownMenuEmpty,
+    DropdownMenuFilterProvider,
+    DropdownMenuInput,
+    DropdownMenuList,
     DropdownMenuTrigger,
     DropdownMenuItem,
     DropdownMenuSelectAll,
@@ -153,6 +158,49 @@ export const Checkboxes: Story = {
             </DropdownMenu>
         )
     },
+} satisfies Story
+
+function FilterableMenu({
+    trigger,
+    placeholder,
+    searchLabel = placeholder,
+    emptyText,
+    modal,
+    autoFocus,
+    children,
+}: {
+    trigger: React.ReactNode
+    placeholder: string
+    searchLabel?: string
+    emptyText: string
+    modal?: boolean
+    autoFocus?: boolean
+    children: React.ReactNode
+}): React.ReactElement {
+    const [open, setOpen] = useState(true)
+    return (
+        <DropdownMenuFilterProvider autoHighlight>
+            <DropdownMenu modal={modal} open={open} onOpenChange={setOpen}>
+                <DropdownMenuTrigger render={<Button variant="outline" size="sm" />}>{trigger}</DropdownMenuTrigger>
+                <DropdownMenuContent className="w-64" flush>
+                    <DropdownMenuInput autoFocus={autoFocus} placeholder={placeholder} aria-label={searchLabel} />
+                    <DropdownMenuEmpty>{emptyText}</DropdownMenuEmpty>
+                    <DropdownMenuList>{children}</DropdownMenuList>
+                </DropdownMenuContent>
+            </DropdownMenu>
+        </DropdownMenuFilterProvider>
+    )
+}
+
+export const Filterable: Story = {
+    render: () => (
+        <FilterableMenu trigger="Click me" placeholder="Search projects" emptyText="No project matches" autoFocus>
+            <DropdownMenuItem>Analytics</DropdownMenuItem>
+            <DropdownMenuItem>Billing</DropdownMenuItem>
+            <DropdownMenuItem>Marketing site</DropdownMenuItem>
+            <DropdownMenuItem>Onboarding</DropdownMenuItem>
+        </FilterableMenu>
+    ),
 } satisfies Story
 
 export const DescriptionsAndDisabledReasons: Story = {
@@ -396,15 +444,64 @@ export const Overflow: Story = {
                     {timezone ?? 'Pick a timezone'}
                 </DropdownMenuTrigger>
                 <DropdownMenuContent className="w-auto min-w-56">
-                    <DropdownMenuRadioGroup value={timezone} onValueChange={setTimezone}>
-                        {TIMEZONES.map((tz) => (
-                            <DropdownMenuRadioItem key={tz} value={tz}>
-                                {tz}
-                            </DropdownMenuRadioItem>
-                        ))}
-                    </DropdownMenuRadioGroup>
+                    {TIMEZONES.map((tz) => (
+                        <DropdownMenuItem key={tz} onClick={() => setTimezone(tz)}>
+                            {tz}
+                        </DropdownMenuItem>
+                    ))}
                 </DropdownMenuContent>
             </DropdownMenu>
+        )
+    },
+} satisfies Story
+
+export const OverflowAndFiltering: Story = {
+    render: () => {
+        const [timezone, setTimezone] = useState<string | undefined>(undefined)
+        const [timezones, setTimezones] = useState<string[]>([])
+        return (
+            <div className="flex gap-4">
+                <div className="w-64">
+                    <FilterableMenu
+                        trigger={timezone ?? 'Pick a timezone'}
+                        placeholder="Search timezones"
+                        emptyText="No timezone matches"
+                        modal={false}
+                    >
+                        <DropdownMenuRadioGroup value={timezone} onValueChange={setTimezone}>
+                            {TIMEZONES.map((tz) => (
+                                <DropdownMenuRadioItem key={tz} value={tz}>
+                                    {tz}
+                                </DropdownMenuRadioItem>
+                            ))}
+                        </DropdownMenuRadioGroup>
+                    </FilterableMenu>
+                </div>
+                <div className="w-64">
+                    <FilterableMenu
+                        trigger={timezones.length > 0 ? `${timezones.length} timezones` : 'Pick timezones'}
+                        placeholder="Search timezones"
+                        searchLabel="Search several timezones"
+                        emptyText="No timezone matches"
+                        modal={false}
+                    >
+                        {TIMEZONES.map((tz) => (
+                            <DropdownMenuCheckboxItem
+                                key={tz}
+                                checked={timezones.includes(tz)}
+                                closeOnClick={false}
+                                onCheckedChange={(checked) =>
+                                    setTimezones((current) =>
+                                        checked ? [...current, tz] : current.filter((item) => item !== tz)
+                                    )
+                                }
+                            >
+                                {tz}
+                            </DropdownMenuCheckboxItem>
+                        ))}
+                    </FilterableMenu>
+                </div>
+            </div>
         )
     },
 } satisfies Story

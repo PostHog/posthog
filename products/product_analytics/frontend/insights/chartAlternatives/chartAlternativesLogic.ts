@@ -1,17 +1,24 @@
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 
+import {
+    applyChartDisplay,
+    getChartDisplayOptions,
+    hasTrendsFormula,
+} from 'lib/components/ChartFilter/chartDisplayOptions'
+import type { ChartDisplayOption, ChartDisplayOptionGroup } from 'lib/components/ChartFilter/chartDisplayOptions'
+import { isBoxPlotMissingProperty } from 'lib/components/ChartFilter/isBoxPlotMissingProperty'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { isBoxPlotMissingProperty } from 'scenes/insights/utils/queryUtils'
+import type { QuerySourceUpdate } from 'scenes/insights/insightVizDataLogic'
 
 import type { FeatureFlagsSet } from '~/lib/logic/featureFlagLogic'
+import { isTrendsQuery } from '~/queries/schema/node-guards'
 import type { Node, TrendsQuery } from '~/queries/schema/schema-general'
-import { isTrendsQuery } from '~/queries/utils'
 import type { InsightLogicProps } from '~/types'
 import { ChartDisplayType } from '~/types'
 
@@ -29,8 +36,6 @@ import type {
     WebOverviewQuery,
     WebStatsTableQuery,
 } from '../../../../../frontend/src/queries/schema/schema-general'
-import { applyChartDisplay, getChartDisplayOptions, hasTrendsFormula } from './chartDisplayOptions'
-import type { ChartDisplayOption, ChartDisplayOptionGroup } from './chartDisplayOptions'
 import { getChartAlternatives } from './chartRecommendations'
 
 export type ChartAlternativeSource = 'gallery' | 'preview' | 'recommended'
@@ -50,7 +55,7 @@ const optionForDisplay = (
 export interface chartAlternativesLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     canEditInsight: boolean // insightLogic
-    editingDisabledReason: null // insightLogic
+    editingDisabledReason: 'Discard overrides to edit the insight.' | null // insightLogic
     display: ChartDisplayType | null | undefined // insightVizDataLogic
     insightDataLoading: boolean // insightVizDataLogic
     isSingleSeriesOutput: boolean // insightVizDataLogic
@@ -92,8 +97,8 @@ export interface chartAlternativesLogicActions {
         fromUrl: boolean
         query: Node<Record<string, any>> | null
     } // insightDataLogic
-    updateQuerySource: (querySource: import('scenes/insights/insightVizDataLogic').QuerySourceUpdate) => {
-        querySource: import('scenes/insights/insightVizDataLogic').QuerySourceUpdate
+    updateQuerySource: (querySource: QuerySourceUpdate) => {
+        querySource: QuerySourceUpdate
     } // insightVizDataLogic
     closeGallery: () => {
         value: true
@@ -160,7 +165,7 @@ export interface chartAlternativesLogicMeta {
         selectionDisabledReason: (
             canShowAlternatives: boolean,
             insightDataLoading: boolean,
-            editingDisabledReason: null
+            editingDisabledReason: 'Discard overrides to edit the insight.' | null
         ) => string | undefined
     }
 }

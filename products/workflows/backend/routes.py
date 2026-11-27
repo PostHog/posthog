@@ -11,8 +11,11 @@ from products.workflows.backend.presentation.views import (
     hog_flow,
     hog_flow_template,
     people_imports,
+    push_token_imports,
+    workflow_advent_calendar,
     workflow_classifications,
     workflow_data_suggestions,
+    workflow_email_sandbox,
     workflow_imports,
     workflow_message_opt_outs,
     workflow_scout_runs,
@@ -57,6 +60,12 @@ def register_routes(routers: RouterRegistry) -> None:
         ["team_id"],
     )
     routers.projects.register(
+        r"workflow_email_sandbox",
+        workflow_email_sandbox.WorkflowEmailSandboxViewSet,
+        "project_workflow_email_sandbox",
+        ["team_id"],
+    )
+    routers.projects.register(
         r"workflow_setup", workflow_setup.WorkflowSetupViewSet, "project_workflow_setup", ["team_id"]
     )
     routers.projects.register(
@@ -90,6 +99,12 @@ def register_routes(routers: RouterRegistry) -> None:
         ["team_id"],
     )
     routers.projects.register(
+        r"push_token_imports",
+        push_token_imports.PushTokenImportViewSet,
+        "project_push_token_imports",
+        ["team_id"],
+    )
+    routers.projects.register(
         r"workflow_vision_requests",
         workflow_vision_requests.WorkflowVisionRequestViewSet,
         "project_workflow_vision_requests",
@@ -111,6 +126,12 @@ def register_routes(routers: RouterRegistry) -> None:
         r"hog_flow_templates",
         hog_flow_template.HogFlowTemplateViewSet,
         "project_hog_flow_templates",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"workflow_advent_calendar",
+        workflow_advent_calendar.WorkflowAdventCalendarViewSet,
+        "project_workflow_advent_calendar",
         ["team_id"],
     )
     routers.root.register(

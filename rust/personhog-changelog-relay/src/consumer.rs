@@ -4,6 +4,7 @@ use std::sync::RwLock;
 
 use common_kafka::config::KafkaConfig;
 use personhog_coordination::follow::ChangelogSubscription;
+use personhog_coordination::types::ClusterEndpoint;
 use rdkafka::consumer::{CommitMode, Consumer, StreamConsumer};
 use rdkafka::error::KafkaError;
 use rdkafka::message::{BorrowedMessage, Message};
@@ -63,6 +64,7 @@ impl Record {
 pub struct ChangelogConsumer {
     consumer: StreamConsumer,
     topic: RwLock<String>,
+    cluster: Option<ClusterEndpoint>,
     draining: AtomicBool,
 }
 
@@ -73,8 +75,14 @@ impl ChangelogConsumer {
         Ok(Self {
             consumer,
             topic: RwLock::new(topic),
+            cluster: None,
             draining: AtomicBool::new(false),
         })
+    }
+
+    pub fn on_cluster(mut self, cluster: Option<ClusterEndpoint>) -> Self {
+        self.cluster = cluster;
+        self
     }
 
     pub async fn recv(&self) -> Result<Record, KafkaError> {
@@ -115,6 +123,10 @@ impl ChangelogConsumer {
 impl ChangelogSubscription for ChangelogConsumer {
     fn topic(&self) -> String {
         self.topic.read().expect("topic lock poisoned").clone()
+    }
+
+    fn cluster(&self) -> Option<ClusterEndpoint> {
+        self.cluster.clone()
     }
 
     fn resubscribe(&self, topic: &str) -> Result<(), String> {

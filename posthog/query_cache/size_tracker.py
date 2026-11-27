@@ -71,6 +71,11 @@ CACHE_SIZE_HISTOGRAM = Histogram(
     ],
 )
 
+# Expiry scores come from the writing host's clock, so keep a margin for clock skew between hosts.
+TRACKING_PRUNE_GRACE_SECONDS = 60
+# Bounds the work of one write. A backlog drains over the next writes.
+TRACKING_PRUNE_BATCH_SIZE = 100
+
 # Lua script for atomic cache write tracking
 # Handles overwrite detection and counter updates in a single atomic operation
 TRACK_CACHE_WRITE_SCRIPT = """
@@ -82,6 +87,20 @@ local cache_key = ARGV[1]
 local size_bytes = tonumber(ARGV[2])
 local expires_at = tonumber(ARGV[3])
 local tracking_ttl = tonumber(ARGV[4])
+local prune_before = tonumber(ARGV[5])
+local prune_batch = tonumber(ARGV[6])
+
+-- The structure TTL refreshes on every write, so without this a team under its limit keeps
+-- tracking every cache_key it ever wrote, long after the entries expired.
+local expired = redis.call('ZRANGEBYSCORE', entries_key, '-inf', prune_before, 'LIMIT', 0, prune_batch)
+for _, expired_key in ipairs(expired) do
+    local expired_size = redis.call('HGET', sizes_key, expired_key)
+    if expired_size then
+        redis.call('HDEL', sizes_key, expired_key)
+        redis.call('INCRBY', total_key, -tonumber(expired_size))
+    end
+    redis.call('ZREM', entries_key, expired_key)
+end
 
 -- Atomically handle overwrite: only decrement if key exists
 local old_size = redis.call('HGET', sizes_key, cache_key)
@@ -210,7 +229,7 @@ class TeamCacheSizeTracker:
     Tracks cache size per team using Redis data structures.
 
     Redis keys used:
-    - posthog:cache_sizes:{team_id} - Sorted set: member=cache_key, score=timestamp (for LRU ordering)
+    - posthog:cache_sizes:{team_id} - Sorted set: member=cache_key, score=entry expiry time (eviction and pruning order)
     - posthog:cache_entry_sizes:{team_id} - Hash: field=cache_key, value=size (for O(1) size lookup)
     - posthog:cache_total:{team_id} - String counter: total bytes (for O(1) total size lookup)
     """
@@ -299,9 +318,17 @@ class TeamCacheSizeTracker:
     def track_cache_write(self, cache_key: str, size_bytes: int, applied_ttl: int) -> "TeamCacheTotals":
         """Track a cache write with its size, returning the team's totals after it. Atomic via Lua script."""
         tracking_ttl = settings.CACHED_RESULTS_TTL + 86400
+        now = time.time()
         total_bytes, entry_count = self._track_write_script(
             keys=[self.entries_key, self.sizes_key, self.total_key],
-            args=[cache_key, size_bytes, time.time() + applied_ttl, tracking_ttl],
+            args=[
+                cache_key,
+                size_bytes,
+                now + applied_ttl,
+                tracking_ttl,
+                now - TRACKING_PRUNE_GRACE_SECONDS,
+                TRACKING_PRUNE_BATCH_SIZE,
+            ],
         )
         return TeamCacheTotals(total_bytes=int(total_bytes), entry_count=int(entry_count))
 

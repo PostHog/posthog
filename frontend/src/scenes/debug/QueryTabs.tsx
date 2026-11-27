@@ -9,8 +9,8 @@ import { CodeEditor } from 'lib/monaco/CodeEditor'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { Timings } from '~/queries/nodes/DataNode/ElapsedTime'
 import { Query } from '~/queries/Query/Query'
+import { isDataTableNode, isHogQLQuery, isInsightQueryNode, isInsightVizNode } from '~/queries/schema/node-guards'
 import { HogQLMetadataResponse, InsightVizNode, Node, NodeKind, QueryTiming } from '~/queries/schema/schema-general'
-import { isDataTableNode, isHogQLQuery, isInsightQueryNode, isInsightVizNode } from '~/queries/utils'
 
 import { QueryLogTable } from './QueryLogTable'
 

@@ -13,6 +13,7 @@ import {
   RadioGroupItem,
   Textarea,
 } from "@posthog/quill";
+import { hasOpenImplementationPr } from "@posthog/shared";
 import {
   DISMISSAL_REASON_OPTIONS,
   type DismissalReasonOptionValue,
@@ -91,9 +92,7 @@ function DismissReportDialogBody({
   const pausesReport = reason != null && isDismissalReasonSnooze(reason);
   const reportNoun = selectedCount > 1 ? "reports" : "report";
   const title = report.title?.trim() ? report.title : "Untitled report";
-  const hasOpenPr =
-    Boolean(report.implementation_pr_url) &&
-    report.implementation_pr_merged !== true;
+  const hasOpenPr = hasOpenImplementationPr(report);
   const pauseOptions = DISMISSAL_REASON_OPTIONS.filter((option) =>
     isDismissalReasonSnooze(option.value),
   );

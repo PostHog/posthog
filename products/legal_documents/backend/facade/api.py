@@ -10,9 +10,10 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import timedelta
+from typing import IO
 from uuid import UUID
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
 from django.utils import timezone
 
@@ -31,7 +32,14 @@ from ..logic import (
 from ..logic.pandadoc import PandaDocError
 from ..models import LegalDocument
 from . import contracts
-from .enums import BaaBlockReason, LegalDocumentStatus
+from .enums import (
+    BaaBlockReason,
+    DocumentType,
+    LegalDocumentStatus,
+    StaffRefetchOutcome,
+    StaffResendOutcome,
+    StaffUploadOutcome,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -149,8 +157,8 @@ def delete_document(document_id: UUID, organization_id: UUID) -> None:
     original signer with a still-completable document.
 
     Refuses signed documents — those are completed legal artifacts and stay
-    admin-only (Django admin bypasses this guard by calling
-    `logic.delete_document` directly with `strict_pandadoc=False`).
+    staff-only (`delete_as_staff` skips this guard and calls
+    `logic.delete_document` with `strict_pandadoc=False`).
 
     Raises:
         LegalDocumentNotFound: row doesn't exist or belongs to a different org.
@@ -182,6 +190,108 @@ def delete_document(document_id: UUID, organization_id: UUID) -> None:
         raise LegalDocumentVoidFailed(
             f"Failed to cancel the PandaDoc envelope for legal document {document_id}: {exc}"
         ) from exc
+
+
+def list_for_staff(organization_id: UUID) -> list[contracts.StaffLegalDocument]:
+    return [
+        contracts.StaffLegalDocument(
+            id=document.id,
+            document_type=document.document_type,
+            status=document.status,
+            signed_pdf_stored=document.signed_pdf_stored,
+            has_pandadoc_envelope=bool(document.pandadoc_document_id),
+            created_at=document.created_at,
+        )
+        for document in logic.list_for_organization(organization_id)
+    ]
+
+
+def can_refetch_signed_pdf(document: contracts.StaffLegalDocument) -> bool:
+    # PandaDoc only has a final PDF for a completed envelope. Storing anything
+    # else would put an unsigned document behind the customer download link.
+    return document.status == LegalDocumentStatus.SIGNED and document.has_pandadoc_envelope
+
+
+def can_resend_signing_email(document: contracts.StaffLegalDocument) -> bool:
+    return document.status != LegalDocumentStatus.SIGNED and document.has_pandadoc_envelope
+
+
+def refetch_signed_pdf(document_id: UUID, organization_id: UUID) -> StaffRefetchOutcome:
+    """
+    Pull the document PandaDoc serves right now and overwrite the stored copy.
+    Recovers a row whose archive job failed every retry, and refreshes a copy
+    that no longer matches PandaDoc, for example after a counter-signature.
+    """
+    document = logic.get_for_organization(document_id, organization_id)
+    if document is None:
+        return StaffRefetchOutcome.NOT_FOUND
+    if document.status != LegalDocumentStatus.SIGNED or not document.pandadoc_document_id:
+        return StaffRefetchOutcome.UNAVAILABLE
+    if not logic.download_and_store_signed_pdf(document):
+        return StaffRefetchOutcome.FAILED
+    logic.mark_signed_pdf_stored(document)
+    return StaffRefetchOutcome.STORED
+
+
+def resend_signing_email(document_id: UUID, organization_id: UUID) -> StaffResendOutcome:
+    """
+    Recovery path for an envelope stranded because the `document.draft` webhook
+    that normally triggers the send was missed. The send is idempotent on
+    PandaDoc's side, so the signer gets their link without a delete and regenerate.
+    """
+    document = logic.get_for_organization(document_id, organization_id)
+    if document is None:
+        return StaffResendOutcome.NOT_FOUND
+    if document.status == LegalDocumentStatus.SIGNED or not document.pandadoc_document_id:
+        return StaffResendOutcome.NOTHING_TO_SEND
+    if not logic.send_pandadoc_envelope(document):
+        return StaffResendOutcome.FAILED
+    return StaffResendOutcome.SENT
+
+
+def get_organization_id_for_staff(document_id: UUID) -> UUID | None:
+    """The organization of a document, for staff links that only carry the document ID."""
+    document = logic.get_by_id(document_id)
+    return document.organization_id if document is not None else None
+
+
+def uploadable_document_types(documents: list[contracts.StaffLegalDocument]) -> list[str]:
+    """The document types an organization has no document of yet, since it can hold one of each."""
+    taken = {document.document_type for document in documents}
+    return [document_type.value for document_type in DocumentType if document_type.value not in taken]
+
+
+def upload_signed_document_as_staff(upload: contracts.StaffSignedDocumentUpload, pdf: IO[bytes]) -> StaffUploadOutcome:
+    try:
+        document = logic.create_signed_document_from_upload(
+            organization_id=upload.organization_id,
+            created_by_id=upload.created_by_id,
+            document_type=upload.document_type,
+            company_name=upload.company_name,
+            company_address=upload.company_address,
+            representative_email=upload.representative_email,
+            pdf=pdf,
+        )
+    except IntegrityError:
+        return StaffUploadOutcome.ALREADY_EXISTS
+    except logic.SignedPdfUploadFailed:
+        return StaffUploadOutcome.STORAGE_FAILED
+    # A signed BAA turns AI processing and AI training off, the same as one signed through PandaDoc.
+    logic.apply_baa_signed_side_effects(document)
+    return StaffUploadOutcome.STORED
+
+
+def delete_as_staff(document_id: UUID, organization_id: UUID) -> bool:
+    """
+    Staff delete, including signed documents, which the self-serve delete refuses.
+    The PandaDoc void and the PDF cleanup are best effort here, so a PandaDoc
+    outage cannot block staff. Returns False when the document does not exist.
+    """
+    document = logic.get_for_organization(document_id, organization_id)
+    if document is None:
+        return False
+    logic.delete_document(document)
+    return True
 
 
 def create_document(data: contracts.CreateLegalDocumentInput) -> contracts.LegalDocumentDTO:

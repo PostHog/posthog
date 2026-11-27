@@ -9,9 +9,10 @@ import sortBy from 'lodash.sortby'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { dateMapping } from 'lib/utils/dateFilters'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Params } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -30,7 +31,6 @@ import {
     syncBillingSearchParams,
     updateBillingSearchParams,
 } from './billing-utils'
-import { billingLogic } from './billingLogic'
 import type { BillingPeriodMarker } from './BillingPeriodMarkers'
 import { BillingReads, billingReadsLogic } from './billingReads'
 import { DEFAULT_TOP_PROJECTS } from './constants'
@@ -176,11 +176,11 @@ export interface billingUsageLogicValues {
     emptySeriesIDs: number[]
     excludeEmptySeries: boolean
     filters: {
-        breakdowns?: ('team' | 'type')[] | undefined
-        interval?: 'day' | 'month' | 'week' | undefined
-        team_ids?: number[] | undefined
-        top_projects?: number | null | undefined
-        usage_types?: string[] | undefined
+        breakdowns?: ('team' | 'type')[]
+        interval?: 'day' | 'month' | 'week'
+        team_ids?: number[]
+        top_projects?: number | null
+        usage_types?: string[]
     }
     finalHiddenSeries: number[]
     heading: string
@@ -297,11 +297,11 @@ export interface billingUsageLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         usageExportUrl: (
             filters: {
-                breakdowns?: ('team' | 'type')[] | undefined
-                interval?: 'day' | 'month' | 'week' | undefined
-                team_ids?: number[] | undefined
-                top_projects?: number | null | undefined
-                usage_types?: string[] | undefined
+                breakdowns?: ('team' | 'type')[]
+                interval?: 'day' | 'month' | 'week'
+                team_ids?: number[]
+                top_projects?: number | null
+                usage_types?: string[]
             },
             dateFrom: string,
             dateTo: string | null,
@@ -310,11 +310,11 @@ export interface billingUsageLogicMeta {
         ) => string
         usageChartExportUrl: (
             filters: {
-                breakdowns?: ('team' | 'type')[] | undefined
-                interval?: 'day' | 'month' | 'week' | undefined
-                team_ids?: number[] | undefined
-                top_projects?: number | null | undefined
-                usage_types?: string[] | undefined
+                breakdowns?: ('team' | 'type')[]
+                interval?: 'day' | 'month' | 'week'
+                team_ids?: number[]
+                top_projects?: number | null
+                usage_types?: string[]
             },
             dateFrom: string,
             dateTo: string | null,
@@ -347,11 +347,11 @@ export interface billingUsageLogicMeta {
             }[]
         ) => number[]
         canStackSeries: (filters: {
-            breakdowns?: ('team' | 'type')[] | undefined
-            interval?: 'day' | 'month' | 'week' | undefined
-            team_ids?: number[] | undefined
-            top_projects?: number | null | undefined
-            usage_types?: string[] | undefined
+            breakdowns?: ('team' | 'type')[]
+            interval?: 'day' | 'month' | 'week'
+            team_ids?: number[]
+            top_projects?: number | null
+            usage_types?: string[]
         }) => boolean
         effectiveChartType: (
             chartType: BillingChartType | null,
@@ -381,20 +381,20 @@ export interface billingUsageLogicMeta {
             billingUsageError: BillingUsageError | null
         ) => boolean
         heading: (filters: {
-            breakdowns?: ('team' | 'type')[] | undefined
-            interval?: 'day' | 'month' | 'week' | undefined
-            team_ids?: number[] | undefined
-            top_projects?: number | null | undefined
-            usage_types?: string[] | undefined
+            breakdowns?: ('team' | 'type')[]
+            interval?: 'day' | 'month' | 'week'
+            team_ids?: number[]
+            top_projects?: number | null
+            usage_types?: string[]
         }) => string
         headingTooltip: (dateTo: string | null) => string | null
         effectiveTeamIds: (
             filters: {
-                breakdowns?: ('team' | 'type')[] | undefined
-                interval?: 'day' | 'month' | 'week' | undefined
-                team_ids?: number[] | undefined
-                top_projects?: number | null | undefined
-                usage_types?: string[] | undefined
+                breakdowns?: ('team' | 'type')[]
+                interval?: 'day' | 'month' | 'week'
+                team_ids?: number[]
+                top_projects?: number | null
+                usage_types?: string[]
             },
             teamOptions: {
                 key: string

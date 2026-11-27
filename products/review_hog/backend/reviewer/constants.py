@@ -16,7 +16,7 @@ from products.review_hog.backend.reviewer.review_design import (
     REVIEW_DESIGN_REASON_KILL_SWITCH,
     REVIEW_DESIGN_SINGLE_AGENT,
 )
-from products.signals.backend.enums import ReportPriority
+from products.signals.backend.facade.taxonomy import ReportPriority
 from products.tasks.backend.facade.run_config import (
     ReasoningEffort,
     RuntimeAdapter,
@@ -37,18 +37,6 @@ REVIEW_REASONING_EFFORT = ReasoningEffort.XHIGH
 # stalls on the skill pull without "full-access". (Claude sandboxes bypass permissions by default
 # and take None here.)
 REVIEW_INITIAL_PERMISSION_MODE = "full-access"
-
-# Least-privilege PostHog MCP scopes for every ReviewHog sandbox session. The sessions process
-# untrusted PR-comment text, and their only legitimate MCP use is reading their criteria skill
-# (skill-get / skill-file-get) — without this the context defaults to "full", handing an injectable
-# agent execute-sql and every write tool. Internal sandbox-plumbing scopes are re-added by the
-# resolver, so this cannot break session mechanics. `user:read` is the MCP handshake: the MCP
-# server resolves the calling user (`/api/users/@me/`) when a session opens and refuses the whole
-# connection without it, so the agent never gets `skill-get` and silently reviews without its skill.
-# `project:read` is deliberately NOT granted: the handshake's project fetch is best-effort, so the
-# scope buys only analytics attribution, but `GET /api/projects/<id>/` returns the team's unmasked
-# `secret_api_token`, which an injected agent reading untrusted PR text must never be able to read.
-REVIEW_MCP_SCOPES: list[str] = ["llm_skill:read", "user:read"]
 
 
 @dataclass(frozen=True)
@@ -245,6 +233,14 @@ FLASH_LENSES: dict[str, FlashLens] = {
     ),
 }
 
+DEVEX_LENS_NAME = "devex"
+DEVEX_OWNER_TEAM = "team-devex"
+# Not in FLASH_LENSES, because that table feeds the fan-out and the fingerprint of every single-agent turn.
+DEVEX_LENS = FlashLens(pass_number=2003, prompt_file="lens_devex.md", source="flash-lens-devex")
+# The devex lens posts in its own lane: at most this many findings, must-fix included, none of them in a slot of the
+# turn cap or the pull request's finding budget. A routed turn then posts the same other findings as an unrouted one.
+DEVEX_LENS_MAX_FINDINGS = 2
+
 # One sub-agent per review unit: the main review and every lens part. Codex runs only 3 sub-agents
 # at once by default, so a larger PR would lose the lenses past that.
 COORDINATOR_MAX_SUBAGENTS = 1 + len(FLASH_LENSES) * FLASH_LENS_MAX_CHUNKS
@@ -330,12 +326,13 @@ _TIER_BY_PRIORITY: dict[ReportPriority, ReviewTier] = {
 
 # The trigger sources (`temporal/types.py`) that carry an explicit ask for a review: a Stamphog handoff,
 # the CLI, the Code review scene and its MCP tool (both stamped `ui`, so an agent driving the MCP
-# tool on someone's behalf counts as that person asking), or an `@posthog review` comment. Inbox
+# tool on someone's behalf counts as that person asking), an `@posthog review` comment, or a review
+# request for the `posthog-review` team. Inbox
 # and automatic authored-PR triggers fire without a per-PR request. A trigger from this set on an inbox-created report lifts its tier
 # (`upsert_review_report`). Spelled out here because persistence cannot import the temporal
 # package (its `__init__` imports the activities, which import persistence); `test_constants.py`
 # locks the set to the trigger constants.
-HUMAN_TRIGGER_SOURCES = frozenset({"stamphog", "label", "manual", "ui", "comment"})
+HUMAN_TRIGGER_SOURCES = frozenset({"stamphog", "label", "manual", "ui", "comment", "review_request"})
 
 
 def select_review_tier(*, agent_pr: bool, signal_priority: ReportPriority | None) -> ReviewTier:
@@ -628,6 +625,7 @@ OUTCOME_JUDGE_REASONING_EFFORT = "high"
 # The judge's stated reason is persisted with the outcome so a classification can be explained later.
 # It is asked for a sentence or two; this only trims a malfunctioning one before it lands in the row.
 OUTCOME_JUDGE_REASONING_MAX_CHARS = 2_000
+OUTCOME_REPLY_EXCERPT_MAX_CHARS = 280
 # A post-review commit counts as touching a finding when it changes lines within this many lines of
 # the finding's range — absorbs small drift (an import added above, a line renumbered) without
 # matching an unrelated edit elsewhere in the same file. The judge is the real arbiter; this only

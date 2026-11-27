@@ -20,7 +20,6 @@ import type {
     ExperimentFlagCleanupTargetApi,
     ExperimentFlagCleanupTaskApi,
     ExperimentHealthApi,
-    ExperimentHealthInputsApi,
     ExperimentHoldoutApi,
     ExperimentHoldoutsListParams,
     ExperimentInSessionExposureApi,
@@ -38,8 +37,10 @@ import type {
     ExperimentSessionEventDeltaResponseApi,
     ExperimentSetupContextInputApi,
     ExperimentSetupContextResponseApi,
+    ExperimentTimeseriesResultsApi,
     ExperimentWriteApi,
     ExperimentsActivityRetrieveParams,
+    ExperimentsHealthRetrieveParams,
     ExperimentsListParams,
     ExperimentsMatchingIdsRetrieveParams,
     ExperimentsPromptTemplatesRetrieve200Item,
@@ -695,8 +696,24 @@ export const experimentsFreezeExposureCreate = async (
     })
 }
 
-export const getExperimentsHealthRetrieveUrl = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/experiments/${id}/health/`
+export const getExperimentsHealthRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params?: ExperimentsHealthRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/experiments/${id}/health/?${stringifiedParams}`
+        : `/api/projects/${projectId}/experiments/${id}/health/`
 }
 
 /**
@@ -712,9 +729,12 @@ export const getExperimentsHealthRetrieveUrl = (projectId: string, id: number) =
  * for exposure criteria that name an event without property filters. When the split changed
  * after launch and the criteria have filters or an action, or an API key lacks `query:read`,
  * it returns an info finding with the subcode `not_checked` and the cause in
- * `evidence.reason`. A caller who can't view the linked flag's history (viewer access to the
+ * `reason`. A caller who can't view the linked flag's history (viewer access to the
  * flag and, with an API key, `activity_log:read`) gets that finding for every running
- * experiment, because the changes are not read.
+ * experiment, because the changes are not read. A finding that tells the reader to
+ * move the start date offers `move_start_date`, and `evidence.suggested_start_date` holds that
+ * date in UTC: set the experiment's `start_date` to it. When one variant was set to 100% of the
+ * split, the finding offers `end_experiment` instead.
  *
  * Two checks read whether the project received an event from its event definitions: a
  * definition without `last_seen_at`, such as one Wizard wrote for a planned event, counts as
@@ -737,15 +757,13 @@ export const getExperimentsHealthRetrieveUrl = (projectId: string, id: number) =
  * warning in every state, `filter_on_property_not_ingested` also reports after the end, and
  * the other findings stop at the end.
  *
- * `exposure_filters` reads the cohort and event property filters of the exposure criteria and
- * of the activation, not the test account filters. `exposure_filter_on_dynamic_cohort` is a
- * warning in every state: the results use the members of a dynamic cohort at the calculation,
- * not at exposure. Its subcode is `cohort_forces_variant` when a release condition of the flag
- * that matches the cohort's members gives one variant, `cohort_in_release_conditions` when the
- * release conditions match its members otherwise, and `evidence.cohort_ids` names the cohorts.
- * Both subcodes need the exposure criteria to keep the members too, not to leave them out.
- * `exposure_filter_excludes_events` is info: a negated filter on an event property leaves out
- * events, not users (`evidence.properties`).
+ * `exposure_filters` reads the cohort filters of the exposure criteria and of the activation,
+ * not the test account filters. `exposure_filter_on_dynamic_cohort` is a warning in every
+ * state: the results use the members of a dynamic cohort at the calculation, not at exposure.
+ * Its subcode is `cohort_forces_variant` when a release condition of the flag that matches the
+ * cohort's members gives one variant, `cohort_in_release_conditions` when the release
+ * conditions match its members otherwise, and `evidence.cohort_ids` names the cohorts. Both
+ * subcodes need the exposure criteria to keep the members too, not to leave them out.
  *
  * `metric_cannot_compile` builds and compiles the query of each metric without running it, as
  * the caller, so a metric that every calculation fails on shows before launch. A metric that
@@ -769,15 +787,55 @@ export const getExperimentsHealthRetrieveUrl = (projectId: string, id: number) =
  * wrote for users), and `calculated_at` is when the calculation finished. It is a
  * warning when a primary metric fails for a kind that a change fixes (`query_limit`,
  * `settings`, `experiment_too_old`), also after the end, because the calculation after the fix
- * reads the events up to the end. It is info otherwise.
+ * reads the events up to the end. It is info otherwise. When the first failure reached the
+ * read, memory or time limit, `reason` names the cause that the calculation shows: `metric`
+ * when another metric of the same calculation completed the same read of the exposures, or
+ * `exposure_criteria` when every metric reached a limit and an exposure or test account filter
+ * makes each query read all the properties of an event, person or group. `evidence.properties`
+ * then names the filters. A query that read precomputed exposures doesn't apply those filters,
+ * so it can't get `exposure_criteria`. It is null otherwise.
+ *
+ * `metric_all_zero` reports a metric that reads zero in every variant, from the same latest
+ * finished calculation, so the results page shows "Not enough data yet" at any sample size.
+ * Each side of a ratio that is zero in every variant counts on its own. It reads the stored
+ * result and the project's event definitions, and no events. A primary metric needs 1,000
+ * exposures in the result and 72 hours of data, because most zeros before that are outcomes
+ * that take time. A retention metric counts those hours from the start of its retention
+ * window. The subcode is the cause of the first metric: `blank_event` (an event with an empty
+ * name), `event_stopped` (the project last received the event before launch, while ingestion
+ * still records the project), `outlier_bound` (an upper outlier bound that is 0 while some
+ * exposures have a value) or null when none shows a cause. `blank_event` and `outlier_bound`
+ * also report a secondary metric, and need only 100 exposures and 12 hours of data, because
+ * they read 0 at any traffic. A bound on the largest value of the exposures can't be 0 while
+ * one has a value, so it is no cause. Neither is a bound on a metric with breakdowns, which
+ * gets one bound per breakdown group. Until the end, the check leaves out a metric that uses an
+ * event `metric_event_not_ingested` reports. Each metric, or side of a ratio, is in the
+ * `evidence` keys `metric_N`, `metric_N_role`, `metric_N_side`, `metric_N_exposures` and
+ * `metric_N_cause`. It is a warning for a primary metric. After the end it stays a warning only
+ * for a cause that a setting fixes, because the calculation after the fix reads the events up
+ * to the end. It is info otherwise.
+ *
+ * `metric_uses_feature_flag_called` names each metric that reads `$feature_flag_called`
+ * events, in the `evidence` keys `metric_N` and `metric_N_role`. PostHog is reducing how long
+ * it keeps these events, so the fix is to read `$experiment_exposure` instead. It is a warning
+ * when a primary metric reads them and info otherwise. It runs only on PostHog Cloud, and not
+ * after the end or on an archived experiment. A metric that matches the event through an
+ * action step isn't found.
+ *
+ * A launched experiment that has not ended gets the info `stale_experiment` more than 60 days
+ * after its start date, when the daily calculation leaves it out, with `days_running` from the
+ * start date in `evidence`.
+ * It offers `freeze_exposure` next to `end_experiment` when the experiment can freeze exposure.
  *
  * The severity of the `some_conditions_pinned` finding follows the largest share that the
  * users of the pinned release conditions make up among the users who got one variant from
  * the flag, in the last 7 days, or since launch or the flag's last save if later. It reads
- * the flag's calls that name the matched condition, not the experiment's exposure criteria:
- * info up to 5%, warning above, and no finding under 1% when at least half of the calls
+ * the flag's calls that name the matched condition, not the experiment's exposure criteria.
+ * When the experiment applies the filter for internal and test users, the counts leave out the
+ * calls that the filter excludes, so pinned users that the filter excludes add nothing. The
+ * severity is info up to 5%, warning above, and no finding under 1% when at least half of the calls
  * that returned a variant name a condition. The finding is info when the share is unknown,
- * and `evidence.reason` says why: `not_measured` (for example an API key without
+ * and `reason` says why: `not_measured` (for example an API key without
  * `query:read`, or a caller denied a flag call property), `too_few_people` (under 100), or
  * `evaluated_outside_flag_service` (most calls come from local evaluation, a bootstrap or
  * the caller's own assignment). A pin to a variant with 0% in the split adds an info,
@@ -787,9 +845,14 @@ export const getExperimentsHealthRetrieveUrl = (projectId: string, id: number) =
  * Two findings say that the variants are assigned outside PostHog, as info. A running
  * experiment whose flag has a 0% rollout gets `assigned_outside_flag_service` instead of
  * `running_but_no_rollout` when 10 or more people got a variant from flag calls without a
- * flag version that are no local evaluation, from an hour after the window starts. When
+ * flag version that are no local evaluation, from an hour after the window starts. The
+ * count leaves out the calls that the filter for internal and test users excludes, when the
+ * experiment applies it. When
  * every condition that includes users pins the variant whose key one property holds,
- * `assigned_by_property` replaces `all_conditions_pinned`.
+ * `assigned_by_property` replaces `all_conditions_pinned`. When none of them includes
+ * everyone, so that every other user gets no variant, `closed_to_matched_users` replaces it,
+ * as a warning. A condition without filters, or with only filters that leave users out,
+ * includes everyone.
  *
  * A draft whose flag has no recorded call gets the info `new_flag_no_traffic`. The record
  * is the flag's `last_called_at`, which a periodic task updates, so it trails a call. The
@@ -801,10 +864,14 @@ export const getExperimentsHealthRetrieveUrl = (projectId: string, id: number) =
  * `running_but_flag_disabled`, as a warning. A caller who can't view the linked flag's
  * history gets the warning, because the pause is not read. A draft whose flag is already
  * active with multiple variants gets `not_started_but_multiple_variants_rolled_out` as info.
- * An ended experiment whose flag is still active with multiple variants gets
- * `ended_but_multiple_variants_rolled_out` as a warning, or `ended_flag_not_called` as info
- * when the flag's `last_called_at` shows no call in the 3 days after the end. The info waits
- * an extra hour, because `last_called_at` trails a call.
+ * An ended experiment whose flag is still active with multiple variants gets no finding when
+ * another experiment on the flag is running or launched after the end. Otherwise it gets
+ * `ended_flag_shared_with_draft` as info when a draft experiment uses the flag,
+ * `ended_but_multiple_variants_rolled_out` as a warning when the flag's `last_called_at` is
+ * after the end and within the last 3 days, and `ended_flag_not_called` as info when it is
+ * not, from 3 days and an hour after the end, because `last_called_at` trails a call. Until
+ * then without such a call, or when the organization's flag calls can't be read, it gets
+ * `ended_flag_calls_unknown` as info.
  *
  * A running experiment whose first primary metric is a funnel gets the info
  * `early_significance` (subcode `below_detectable_effect`) when a significant variant's
@@ -812,35 +879,32 @@ export const getExperimentsHealthRetrieveUrl = (projectId: string, id: number) =
  * sample is below the one the running time estimate plans for the minimum detectable
  * effect. It reads the metric's current stored result, the one the results page shows
  * after its last calculation, and the running time calculator's formula.
+ *
+ * A running experiment gets the info `result_ready` when its first primary metric has an
+ * answer, with `end_experiment`. Subcode `stayed_significant`: every stored result for 3 days
+ * or more shows a variant as significant, named in `evidence` with `significant_since` and
+ * `days_significant`. The results count from the earliest result in that unbroken run up to
+ * the current one, both daily points and recalculations, so an edit of the metric starts
+ * over. Subcode `target_reached_not_significant`: the current result counts at least the
+ * sample that the running time estimate plans for, and shows every variant as not
+ * significant. Neither fires while `early_significance` reports the experiment.
+ *
+ * A running experiment with `only_count_matured_users` on gets the info
+ * `metrics_not_matured` while it is younger than the conversion or retention window of
+ * every primary metric, because no user can count for those metrics until a window passes.
+ *
+ * With `at_launch=true`, a draft is checked as it will be when its launch succeeds: a check
+ * that runs only after launch, such as `no_metric`, also runs as if the experiment launched
+ * now. A check that needs exposures, a calculation or a flag change keeps the reason
+ * "Runs after launch".
  */
 export const experimentsHealthRetrieve = async (
     projectId: string,
     id: number,
+    params?: ExperimentsHealthRetrieveParams,
     options?: RequestInit
 ): Promise<ExperimentHealthApi> => {
-    return apiMutator<ExperimentHealthApi>(getExperimentsHealthRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getExperimentsHealthInputsRetrieveUrl = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/experiments/${id}/health_inputs/`
-}
-
-/**
- * Staff only. The inputs that the health checks read for this reader, to debug why a finding shows or not:
- * the context of the checks in `health`, the exposure query's answer that the exposure checks read, and facts
- * about the project from the setup context's providers (the team's experiment defaults and which SDKs call
- * flags). The exposure answer comes from the cache. When it is missing or stale, a calculation starts in the
- * background and `exposures.status` says so.
- */
-export const experimentsHealthInputsRetrieve = async (
-    projectId: string,
-    id: number,
-    options?: RequestInit
-): Promise<ExperimentHealthInputsApi> => {
-    return apiMutator<ExperimentHealthInputsApi>(getExperimentsHealthInputsRetrieveUrl(projectId, id), {
+    return apiMutator<ExperimentHealthApi>(getExperimentsHealthRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
@@ -1289,11 +1353,14 @@ export const experimentsTimeseriesResultsRetrieve = async (
     id: number,
     params: ExperimentsTimeseriesResultsRetrieveParams,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExperimentsTimeseriesResultsRetrieveUrl(projectId, id, params), {
-        ...options,
-        method: 'GET',
-    })
+): Promise<ExperimentTimeseriesResultsApi> => {
+    return apiMutator<ExperimentTimeseriesResultsApi>(
+        getExperimentsTimeseriesResultsRetrieveUrl(projectId, id, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getExperimentsUnarchiveCreateUrl = (projectId: string, id: number) => {

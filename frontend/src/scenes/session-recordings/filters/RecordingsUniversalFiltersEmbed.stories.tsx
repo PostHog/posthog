@@ -78,7 +78,6 @@ export const ProductAnalyticsUnderLimit: Story = {
 // those alone leaves it disabled.
 export const ScannerCrossSell: Story = {
     parameters: {
-        featureFlags: [FEATURE_FLAGS.VISION_ENTRYPOINT_REPLAY_FILTERS],
         pageUrl: combineUrl(urls.replay(), {
             showFilters: true,
             filters: {

@@ -8,8 +8,15 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 
-import { aeoPromptsList, aeoPromptsPartialUpdate, aeoPromptsTopics } from '../generated/api'
-import type { AEOPromptApi } from '../generated/api.schemas'
+import {
+    aeoPromptsBulkImport,
+    aeoPromptsList,
+    aeoPromptsPartialUpdate,
+    aeoPromptsTopics,
+    aeoSetupContext,
+} from '../generated/api'
+import type { AEOPromptApi, AEOSetupContextApi } from '../generated/api.schemas'
+import { contentAutopilotFiltersLogic } from './contentAutopilotFiltersLogic'
 import { PROMPTS_PAGE_SIZE, contentAutopilotPromptsLogic } from './contentAutopilotPromptsLogic'
 import { EXAMPLE_PROMPT_TOPICS, EXAMPLE_PROMPTS } from './contentAutopilotStoryFixtures'
 
@@ -17,32 +24,57 @@ jest.mock('../generated/api', () => ({
     aeoPromptsList: jest.fn(),
     aeoPromptsTopics: jest.fn(),
     aeoPromptsPartialUpdate: jest.fn(),
+    aeoPromptsBulkImport: jest.fn(),
+    aeoSetupContext: jest.fn(),
 }))
 
-jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({ lemonToast: { error: jest.fn() } }))
+jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({ lemonToast: { error: jest.fn(), success: jest.fn() } }))
 
 const mockPromptsList = jest.mocked(aeoPromptsList)
 const mockPromptsTopics = jest.mocked(aeoPromptsTopics)
 const mockPromptsPartialUpdate = jest.mocked(aeoPromptsPartialUpdate)
+const mockPromptsBulkImport = jest.mocked(aeoPromptsBulkImport)
+const mockSetupContext = jest.mocked(aeoSetupContext)
+
+const setupContext = (activePrompts: number, maxActivePrompts: number): AEOSetupContextApi => ({
+    websites: [],
+    own_domains: ['hedgebox.net'],
+    active_prompts: activePrompts,
+    max_active_prompts: maxActivePrompts,
+    paused_prompts: 0,
+    keywords: 0,
+    has_checks: true,
+    ai_data_processing_approved: true,
+    first_run_available: true,
+    prompt_target: 20,
+    prompt_count_max: 50,
+    website_days: 7,
+    first_run_checks: [],
+    engines: [],
+})
 
 describe('contentAutopilotPromptsLogic', () => {
     let logic: ReturnType<typeof contentAutopilotPromptsLogic.build>
 
     beforeEach(() => {
         jest.clearAllMocks()
+        // The branded segment persists in local storage, so a choice made in one test must not leak into the next.
+        localStorage.clear()
         initKeaTests()
         mockPromptsList.mockResolvedValue({ count: 120, next: null, previous: null, results: EXAMPLE_PROMPTS })
         mockPromptsTopics.mockResolvedValue(EXAMPLE_PROMPT_TOPICS)
+        mockSetupContext.mockResolvedValue(setupContext(3, 100))
     })
 
     afterEach(() => {
         logic?.unmount()
     })
 
-    it('resets to the first page and sends the filters when the topic or archived filter changes', async () => {
+    it('resets to the first page and sends the filters when a shared filter, archived or needs improvement changes', async () => {
         logic = contentAutopilotPromptsLogic()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
+        const filters = contentAutopilotFiltersLogic
 
         logic.actions.setPromptsPage(3)
         await expectLogic(logic).toFinishAllListeners()
@@ -50,24 +82,56 @@ describe('contentAutopilotPromptsLogic', () => {
             limit: PROMPTS_PAGE_SIZE,
             offset: 2 * PROMPTS_PAGE_SIZE,
             topic: undefined,
+            branded: false,
         })
 
-        logic.actions.setPromptsTopic('')
+        filters.actions.setTopic('', 'prompts')
         await expectLogic(logic).toFinishAllListeners().toMatchValues({ promptsPage: 1 })
         expect(mockPromptsList).toHaveBeenLastCalledWith(String(MOCK_DEFAULT_TEAM.id), {
             limit: PROMPTS_PAGE_SIZE,
             offset: 0,
             topic: '',
+            branded: false,
         })
 
         logic.actions.setPromptsPage(2)
         logic.actions.setShowArchived(true)
+        filters.actions.setBrandedSegment('all', 'prompts')
         await expectLogic(logic).toFinishAllListeners().toMatchValues({ promptsPage: 1 })
         expect(mockPromptsList).toHaveBeenLastCalledWith(String(MOCK_DEFAULT_TEAM.id), {
             limit: PROMPTS_PAGE_SIZE,
             offset: 0,
             topic: '',
             include_archived: true,
+            branded: undefined,
+        })
+
+        // The date range and the engine only narrow the needs improvement view.
+        filters.actions.setDates('-7d', null, 'prompts')
+        filters.actions.setEngine('exa-answer', 'prompts')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(mockPromptsList).toHaveBeenLastCalledWith(String(MOCK_DEFAULT_TEAM.id), {
+            limit: PROMPTS_PAGE_SIZE,
+            offset: 0,
+            topic: '',
+            include_archived: true,
+            branded: undefined,
+        })
+
+        logic.actions.setPromptsPage(2)
+        logic.actions.setNeedsImprovement(true)
+        await expectLogic(logic)
+            .toFinishAllListeners()
+            .toMatchValues({ promptsPage: 1, promptEngines: ['exa-answer'] })
+        expect(mockPromptsList).toHaveBeenLastCalledWith(String(MOCK_DEFAULT_TEAM.id), {
+            limit: PROMPTS_PAGE_SIZE,
+            offset: 0,
+            topic: '',
+            include_archived: true,
+            branded: undefined,
+            needs_improvement: true,
+            date_from: '-7d',
+            engine: 'exa-answer',
         })
     })
 
@@ -99,7 +163,7 @@ describe('contentAutopilotPromptsLogic', () => {
         )
         logic = contentAutopilotPromptsLogic()
         logic.mount()
-        logic.actions.setPromptsTopic('pricing')
+        contentAutopilotFiltersLogic.actions.setTopic('pricing', 'prompts')
         await expectLogic(logic).toDispatchActions(['loadAeoPrompts', 'loadAeoPrompts'])
         expect(settlers).toHaveLength(2)
 
@@ -110,25 +174,6 @@ describe('contentAutopilotPromptsLogic', () => {
             .toFinishAllListeners()
             .toNotHaveDispatchedActions(['loadAeoPromptsFailure'])
             .toMatchValues({ promptsError: null, prompts: expect.objectContaining({ count: 1 }) })
-    })
-
-    it('flags a topics failure and clears it when a retry succeeds', async () => {
-        mockPromptsTopics.mockRejectedValueOnce(new ApiError('Server error', 500))
-        silenceKeaLoadersErrors()
-        try {
-            logic = contentAutopilotPromptsLogic()
-            logic.mount()
-            await expectLogic(logic)
-                .toFinishAllListeners()
-                .toMatchValues({ promptTopicsError: true, promptTopics: [], promptsError: null })
-
-            logic.actions.loadAeoPromptTopics()
-            await expectLogic(logic)
-                .toFinishAllListeners()
-                .toMatchValues({ promptTopicsError: false, promptTopics: EXAMPLE_PROMPT_TOPICS })
-        } finally {
-            resumeKeaLoadersErrors()
-        }
     })
 
     it.each([
@@ -158,5 +203,71 @@ describe('contentAutopilotPromptsLogic', () => {
         expect(logic.values.prompts?.results[0].active).toBe(expectedActive)
         expect(logic.values.promptActiveUpdating).toEqual({})
         expect(lemonToast.error).toHaveBeenCalledTimes(succeeds ? 0 : 1)
+    })
+
+    it.each([
+        ['closes the dialog and reloads the list', true],
+        ['keeps the dialog open and shows why', false],
+    ])('sends one prompt per unique line, then %s', async (_name, succeeds) => {
+        if (succeeds) {
+            mockPromptsBulkImport.mockResolvedValue({ created: 2, updated: 0, skipped: 0 })
+        } else {
+            mockPromptsBulkImport.mockRejectedValue(
+                new ApiError('Bad request', 400, undefined, { detail: 'Prompt is too long' })
+            )
+        }
+        logic = contentAutopilotPromptsLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        mockPromptsList.mockClear()
+
+        logic.actions.openAddPrompts()
+        logic.actions.addPrompts(
+            '  Best session replay tool?\n\nbest session replay tool?\nHow do I track signups?  ',
+            ' Replay '
+        )
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(mockPromptsBulkImport).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), {
+            prompts: [
+                { prompt: 'Best session replay tool?', topic: 'Replay' },
+                { prompt: 'How do I track signups?', topic: 'Replay' },
+            ],
+        })
+        expect(logic.values).toMatchObject({ addPromptsOpen: !succeeds, addPromptsSubmitting: false })
+        expect(mockPromptsList).toHaveBeenCalledTimes(succeeds ? 1 : 0)
+        expect(jest.mocked(lemonToast.error).mock.calls.map(([message]) => message)).toEqual(
+            succeeds ? [] : ['Prompt is too long']
+        )
+    })
+
+    it('reads the prompt limit, shows why a refused toggle failed, and reloads the count after a change', async () => {
+        const prompt = EXAMPLE_PROMPTS.find((example) => !example.active) as AEOPromptApi
+        const activeOf = (): boolean | undefined =>
+            logic.values.prompts?.results.find((row) => row.id === prompt.id)?.active
+        mockSetupContext.mockResolvedValue(setupContext(100, 100))
+        logic = contentAutopilotPromptsLogic()
+        logic.mount()
+        await expectLogic(logic)
+            .toFinishAllListeners()
+            .toMatchValues({ setupContext: setupContext(100, 100), promptLimitReached: true })
+
+        const limitMessage =
+            "You're tracking 100 prompts, and this project can track up to 100. Turn off some prompts first."
+        mockPromptsPartialUpdate.mockRejectedValueOnce(
+            new ApiError('Bad request', 400, undefined, { detail: limitMessage })
+        )
+        logic.actions.setPromptActive(prompt.id, true)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(activeOf()).toBe(false)
+        expect(lemonToast.error).toHaveBeenCalledWith(limitMessage)
+
+        mockSetupContext.mockResolvedValue(setupContext(101, 150))
+        mockPromptsPartialUpdate.mockResolvedValueOnce({ ...prompt, active: true })
+        logic.actions.setPromptActive(prompt.id, true)
+        await expectLogic(logic)
+            .toFinishAllListeners()
+            .toMatchValues({ setupContext: setupContext(101, 150), promptLimitReached: false })
+        expect(activeOf()).toBe(true)
     })
 })

@@ -24,9 +24,17 @@ describe('OfflineExperimentContent', () => {
         initKeaTests()
         jest.clearAllMocks()
         jest.mocked(api.aiObservabilityOfflineExperimentsRetrieve).mockResolvedValue(detailExperiment)
-        readSummaries.mockResolvedValue({ count: 25, next_cursor: null, results: detailSummaries })
+        readSummaries.mockResolvedValue({
+            count: 25,
+            next: null,
+            previous: null,
+            next_cursor: null,
+            results: detailSummaries,
+        })
         jest.mocked(api.aiObservabilityOfflineExperimentsItemsList).mockResolvedValue({
             count: 8,
+            next: null,
+            previous: null,
             next_cursor: null,
             results: detailItems,
             scorer_versions: [],
@@ -41,6 +49,8 @@ describe('OfflineExperimentContent', () => {
         const fullName = 'Checks whether the answer is supported by the supplied reference material'
         readSummaries.mockResolvedValue({
             count: 1,
+            next: null,
+            previous: null,
             next_cursor: null,
             results: [
                 {
@@ -59,14 +69,14 @@ describe('OfflineExperimentContent', () => {
 
     it('keeps a scorer summary panel the user opened open after a refresh', async () => {
         render(<OfflineExperimentContent teamId={997} experimentId={detailExperiment.id} />)
-        const title = await screen.findByText('Scorer summaries (25)')
+        const title = await screen.findByText('Item scores (25)')
         const panel = title.closest('details') as HTMLDetailsElement
         expect(panel.open).toBe(false)
         panel.open = true
 
         fireEvent.click(screen.getByText('Refresh'))
         await waitFor(() => expect(readSummaries).toHaveBeenCalledTimes(2))
-        await screen.findByText('Scorer summaries (25)')
+        await screen.findByText('Item scores (25)')
 
         expect(panel.open).toBe(true)
     })

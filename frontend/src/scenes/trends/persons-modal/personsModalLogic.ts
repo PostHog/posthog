@@ -14,11 +14,12 @@ import {
 import { loaders } from 'kea-loaders'
 import { combineUrl, urlToAction } from 'kea-router'
 
-import api from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { assignField, isGroupType, isSessionType } from 'lib/utils/guards'
 import { cohortSavedToast } from 'scenes/cohorts/cohortSavedToast'
 import { sceneLogic } from 'scenes/sceneLogic'
+import type { SessionPlayerModalRecordingListEntry } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -26,6 +27,7 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { extractValidationError } from '~/queries/nodes/InsightViz/utils'
 import { performQuery } from '~/queries/query'
+import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import {
     ActorsQuery,
     DataTableNode,
@@ -39,7 +41,6 @@ import {
     TrendsQuery,
     insightActorsQueryOptionsResponseKeys,
 } from '~/queries/schema/schema-general'
-import { setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     ActivityTab,
     ActorType,
@@ -50,12 +51,60 @@ import {
     RecordingUniversalFilters,
 } from '~/types'
 
+import { cohortsCreate } from 'products/cohorts/frontend/generated/api'
+import { groupDisplayId } from 'products/persons/frontend/components/GroupActorDisplay'
+import { asDisplay } from 'products/persons/frontend/person-utils'
+
 import type { Noun } from '../../../models/groupsModel'
 import type { InsightQueryNode } from '../../../queries/schema/schema-general'
 import type { GroupType, GroupTypeIndex } from '../../../types'
 import { getPersonsRecordingFilters } from './getPersonsRecordingFilters'
 
 const RESULTS_PER_PAGE = 100
+
+export interface PersonsModalPlayerRecordingList {
+    entries: SessionPlayerModalRecordingListEntry[]
+    firstPositionByActorId: Record<string, number>
+}
+
+function playerRecordingDisplayName(actor: ActorType): string | null {
+    if (isGroupType(actor)) {
+        return groupDisplayId(actor.group_key, actor.properties)
+    }
+    if (isSessionType(actor)) {
+        return actor.person ? asDisplay(actor.person) : null
+    }
+    return asDisplay(actor)
+}
+
+function buildPlayerRecordingList(actors: ActorType[]): PersonsModalPlayerRecordingList {
+    const entries: SessionPlayerModalRecordingListEntry[] = []
+    const firstPositionByActorId: Record<string, number> = {}
+    for (const actor of actors) {
+        const actorId = String(actor.id)
+        // A session row is the recording itself. Its row button opens it without matching events, so its entry
+        // does the same.
+        const sessionRecordings: SessionPlayerModalRecordingListEntry['sessionRecording'][] = isSessionType(actor)
+            ? [{ id: actorId }]
+            : (actor.matched_recordings ?? []).flatMap((recording) =>
+                  recording.session_id
+                      ? [
+                            {
+                                id: recording.session_id,
+                                matching_events: [{ session_id: recording.session_id, events: recording.events }],
+                            },
+                        ]
+                      : []
+              )
+        if (sessionRecordings.length === 0) {
+            continue
+        }
+        firstPositionByActorId[actorId] = entries.length
+        const personDisplayName = playerRecordingDisplayName(actor)
+        entries.push(...sessionRecordings.map((sessionRecording) => ({ sessionRecording, personDisplayName })))
+    }
+    return { entries, firstPositionByActorId }
+}
 
 export interface PersonModalLogicProps {
     query?: InsightActorsQuery | FunnelsActorsQuery | ExperimentActorsQuery | PathsV2ActorsQuery | null
@@ -86,12 +135,14 @@ export interface personsModalLogicValues {
     actorsResponseLoading: boolean
     errorObject: Record<string, any> | null
     exploreUrl: string | null
+    hasMoreActorsToLoad: boolean
     insightActorsQueryOptions: InsightActorsQueryOptionsResponse | null
     insightActorsQueryOptionsLoading: boolean
     insightEventsQueryUrl: string | null
     isCohortModalOpen: boolean
     isModalOpen: boolean
     missingActorsCount: number
+    playerRecordingList: PersonsModalPlayerRecordingList
     propertiesTimelineQuery: InsightActorsQuery | null
     query: FunnelsActorsQuery | InsightActorsQuery | null
     recordingFilters: Partial<RecordingUniversalFilters>
@@ -105,8 +156,8 @@ export interface personsModalLogicValues {
 export interface personsModalLogicActions {
     reportPersonsModalSearched: (params: { actorType?: string; teamId?: number | null }) => {
         params: {
-            actorType?: string | undefined
-            teamId?: number | null | undefined
+            actorType?: string
+            teamId?: number | null
         }
     } // eventUsageLogic
     reportPersonsModalViewed: (params: any) => {
@@ -185,7 +236,7 @@ export interface personsModalLogicActions {
         search: string
     }
     updateActorsQuery: (query: Partial<InsightActorsQuery> | Partial<FunnelsActorsQuery>) => {
-        query: Partial<InsightActorsQuery<InsightQueryNode>> | Partial<FunnelsActorsQuery>
+        query: Partial<FunnelsActorsQuery> | Partial<InsightActorsQuery<InsightQueryNode>>
     }
     updateQuery: (query: FunnelsActorsQuery | InsightActorsQuery) => {
         query: FunnelsActorsQuery | InsightActorsQuery<InsightQueryNode>
@@ -217,6 +268,8 @@ export interface personsModalLogicMeta {
             actorsQuery: ActorsQuery | null,
             sessionIdsFromLoadedActors: string[]
         ) => Partial<RecordingUniversalFilters>
+        playerRecordingList: (actors: ActorType[]) => PersonsModalPlayerRecordingList
+        hasMoreActorsToLoad: (actorsResponse: ListActorsResponse | null) => boolean
     }
 }
 
@@ -453,8 +506,10 @@ export const personsModalLogic = kea<personsModalLogicType>([
                 is_static: true,
                 name: cohortName,
             }
-            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use cohortsCreate() from 'products/cohorts/frontend/generated/api' instead.
-            const cohort = await api.create('api/cohort', { ...cohortParams, query: values.actorsQuery })
+            const cohort = await cohortsCreate(String(ApiConfig.getCurrentProjectId()), {
+                ...cohortParams,
+                query: values.actorsQuery,
+            })
             cohortsModel.actions.cohortCreated(cohort)
             cohortSavedToast(cohort, 'persons_modal', `cohort-saved-${cohort.id}`)
             actions.setIsCohortModalOpen(false)
@@ -636,6 +691,14 @@ export const personsModalLogic = kea<personsModalLogicType>([
             (s) => [s.actorsQuery, s.sessionIdsFromLoadedActors],
             (actorsQuery: ActorsQuery | null, sessionIds: string[]): Partial<RecordingUniversalFilters> =>
                 getPersonsRecordingFilters(actorsQuery, sessionIds),
+        ],
+        playerRecordingList: [
+            (s) => [s.actors],
+            (actors: ActorType[]): PersonsModalPlayerRecordingList => buildPlayerRecordingList(actors),
+        ],
+        hasMoreActorsToLoad: [
+            (s) => [s.actorsResponse],
+            (actorsResponse: ListActorsResponse | null): boolean => !!(actorsResponse?.next || actorsResponse?.offset),
         ],
     }),
 

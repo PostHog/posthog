@@ -15,7 +15,6 @@ import {
     signalsScoutConfigSync,
     signalsScoutConfigUpdate,
     signalsScoutRunsRecentPerScout,
-    signalsScoutRunsTokenCosts,
     signalsScoutSuggestionsDismiss,
     signalsScoutSuggestionsList,
     signalsScoutSuggestionsRefresh,
@@ -46,7 +45,6 @@ jest.mock('products/signals/frontend/generated/api', () => ({
     signalsScoutRunsFindingsSummary: jest.fn(),
     signalsScoutRunsList: jest.fn(),
     signalsScoutRunsRecentPerScout: jest.fn(),
-    signalsScoutRunsTokenCosts: jest.fn(),
     signalsScoutSuggestionsDismiss: jest.fn(),
     signalsScoutSuggestionsList: jest.fn(),
     signalsScoutSuggestionsRefresh: jest.fn(),
@@ -61,7 +59,6 @@ const mockConfigUpdate = signalsScoutConfigUpdate as jest.MockedFunction<typeof 
 const mockRunsRecentPerScout = signalsScoutRunsRecentPerScout as jest.MockedFunction<
     typeof signalsScoutRunsRecentPerScout
 >
-const mockRunsTokenCosts = signalsScoutRunsTokenCosts as jest.MockedFunction<typeof signalsScoutRunsTokenCosts>
 const mockSkillRetrieve = llmSkillsNameRetrieve as jest.MockedFunction<typeof llmSkillsNameRetrieve>
 
 const CANONICAL_ITEM: ScoutSuggestionItemApi = {
@@ -108,6 +105,8 @@ const CONFIG: SignalScoutConfigApi = {
     structured_output_schema: null,
     mcp_gateway_server_ids: [],
     write_scopes: [],
+    report_actions: [],
+    max_report_actions_per_day: 3,
     allowed_mcp_tools: null,
     tool_preset: null,
     last_run_at: null,
@@ -118,6 +117,7 @@ const CONFIG: SignalScoutConfigApi = {
     lifecycle_locked: false,
     network_access: 'trusted',
     model: null,
+    custom_image_id: null,
     precheck_query: null,
     precheck_disabled: false,
     effective_precheck_query: null,
@@ -157,7 +157,6 @@ describe('scoutSuggestionsLogic', () => {
         mockConfigSync.mockReset().mockResolvedValue([CONFIG])
         mockConfigUpdate.mockReset().mockResolvedValue({ ...CONFIG, enabled: true })
         mockRunsRecentPerScout.mockReset().mockResolvedValue([])
-        mockRunsTokenCosts.mockReset().mockResolvedValue({ costs: [], available: true })
         mockSkillRetrieve.mockReset().mockResolvedValue({
             name: CANONICAL_ITEM.skill_name,
             description: 'Watches web vitals.',

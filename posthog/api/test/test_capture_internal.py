@@ -70,7 +70,13 @@ class InstallV1Spy:
     Thread-safe: concurrent calls from chunked batch submissions are serialized via lock.
     """
 
-    def __init__(self, mock_session_fn: MagicMock, responses: list[MockResponse] | None = None):
+    def __init__(
+        self,
+        mock_session_fn: MagicMock,
+        responses: list[MockResponse] | None = None,
+        *,
+        responses_by_url: dict[str, MockResponse] | None = None,
+    ):
         self.calls: list[dict[str, Any]] = []
         self._responses = list(responses or [MockResponse(body={})])
         self._call_idx = 0
@@ -79,6 +85,8 @@ class InstallV1Spy:
         def spy_post(url: str, **kwargs: Any) -> MockResponse:
             with self._lock:
                 self.calls.append({"url": url, **kwargs})
+                if responses_by_url is not None:
+                    return responses_by_url[url]
                 resp = self._responses[min(self._call_idx, len(self._responses) - 1)]
                 self._call_idx += 1
                 return resp
@@ -1552,10 +1560,12 @@ class TestAiLaneRouting(SimpleTestCase):
         ]
         spy = InstallV1Spy(
             mock_session_fn,
-            [
-                MockResponse(body=_ok_results(an_uid)),
-                MockResponse(body={"results": {ai_uid: {"result": "ok"}, ai_uid2: {"result": "drop"}}}),
-            ],
+            responses_by_url={
+                EXPECTED_URL: MockResponse(body=_ok_results(an_uid)),
+                EXPECTED_AI_URL: MockResponse(
+                    body={"results": {ai_uid: {"result": "ok"}, ai_uid2: {"result": "drop"}}}
+                ),
+            },
         )
         entry_point = capture_batch_ai_internal if ai_lane else capture_batch_internal
 

@@ -22,6 +22,10 @@ function App() {
 
 For RTL apps, wrap with `DirectionProvider` (re-exported from Base UI) — directional pieces (Collapsible chevrons, menu alignment) read it via `useDirection`.
 
+Every workspace package that imports a quill package lists that exact package in its own `package.json` `dependencies`, for example `"@posthog/quill": "workspace:*"` in `products/<name>/package.json`.
+pnpm links only the packages a workspace declares, so an undeclared import fails in Vite with `Failed to resolve import`, even when another quill package is declared there.
+Run `pnpm install` after you add one, and commit the `pnpm-lock.yaml` change with it.
+
 ---
 
 ## The `render` prop
@@ -66,7 +70,11 @@ Pick by intent, not appearance. Each cluster below lists the discriminating ques
 | Combobox     | Pick one or many values from a long/dynamic list, with search. Multi-select renders chips                 | Action menus                                |
 | Autocomplete | Search-first text input with suggestions where the typed text itself is the value                         | Constrained choices — use Select/Combobox   |
 
+To search a menu's rows, wrap `DropdownMenu` or `DropdownMenuSub` in `DropdownMenuFilterProvider`, then add `DropdownMenuInput` and `DropdownMenuEmpty`, and put the rows in `DropdownMenuList`. Base UI marks this API as a preview.
+
 For a custom menu-like list inside a Popover (when DropdownMenu's open/close semantics don't fit), use `Item variant="menuItem"` with `ItemMenuItem`/`ItemCheckbox`/`ItemRadio` — don't restyle Buttons into menu rows. Inside quill, a primitive that renders a Button as a list row passes `size="row"` rather than pinning width, weight and text size per caller. `MenuLabel` is the shared section-label primitive the menu families render internally (DropdownMenuLabel, ComboboxLabel); it's exported for these custom menu-like lists.
+
+Every menu-like list marks its active row the same way: the row that keyboard input or a filter would act on (`data-highlighted`) gets a ring, and a row under the pointer gets the plain hover fill. Don't override this per component.
 
 ### Disclosure
 
@@ -87,18 +95,22 @@ For a custom menu-like list inside a Popover (when DropdownMenu's open/close sem
 | Dialog      | Modal, blocking flow — focused forms, multi-step content. `size="wide"`/`"full"` for big content                                        |
 | AlertDialog | Confirmation that must be resolved — destructive/irreversible actions. Backdrop clicks never dismiss, no X button, `role="alertdialog"` |
 | Drawer      | Mobile-first slide-up sheet; touch contexts                                                                                             |
+| Credenza    | A Dialog on a wide viewport and a bottom Drawer on a phone, from one set of parts. Lives in `@posthog/quill-components`                 |
 | Popover     | Non-modal panel anchored to a trigger, with interactive content (filters, pickers)                                                      |
 | Tooltip     | Hover-only text hint; never interactive content, never essential information                                                            |
 | Toast       | Async outcome notification (`toast.success({ title })`) — fire and forget                                                               |
 
+Toast vs Callout: a toast reports an outcome and goes away; a Callout stays in the layout next to the content it is about.
+
 ### Status and labels
 
-| Component | Use when                                                                   |
-| --------- | -------------------------------------------------------------------------- |
-| Badge     | Semantic status text — variants info/warning/success/completed/destructive |
-| Chip      | Removable token (selected tags, active filters) — pair with ChipClose      |
-| Dot       | Tiny presence/status indicator next to text; `pulse` for live state        |
-| Kbd       | Keyboard shortcut display, with KbdGroup for combos                        |
+| Component | Use when                                                                                                     |
+| --------- | ------------------------------------------------------------------------------------------------------------ |
+| Badge     | Semantic status text — variants info/warning/success/completed/destructive                                   |
+| Callout   | Static inline message on the page (warning above a form, error after a failed load) — replaces `LemonBanner` |
+| Chip      | Removable token (selected tags, active filters) — pair with ChipClose                                        |
+| Dot       | Tiny presence/status indicator next to text; `pulse` for live state                                          |
+| Kbd       | Keyboard shortcut display, with KbdGroup for combos                                                          |
 
 ### Form controls
 
@@ -113,6 +125,17 @@ For a custom menu-like list inside a Popover (when DropdownMenu's open/close sem
 | Textarea    | Multi-line free text — a styled `<textarea>`, same conventions as Input           |
 
 Always wrap form controls in `Field` (see Composition Patterns below).
+
+To disable a control, pass `disabledReason`, not `disabled`. It disables the control and shows the reason in a tooltip that a keyboard user can also reach. These take it: `Button`, every menu item, `ComboboxItem`, `Checkbox`, `Switch`, `RadioGroupItem`, `ToggleGroupItem`, `SelectTrigger`, `SelectItem`, `NumberFieldRoot`, `Slider`, `ComboboxInput`, `ComboboxChips`, `Input`, `InputGroupInput` and `Textarea`. Never hand-wrap a disabled control in a Tooltip.
+
+- `Checkbox`, `Switch` and `RadioGroupItem` also describe themselves with the reason (`aria-describedby` on hidden text), because screen readers and touch never see a tooltip.
+- A choice card (a `FieldLabel` wrapping a `Field` with the control) takes `disabledReason` on the `FieldLabel`, not the control. The whole card shows the tooltip and joins the tab order, and the control inside disables itself and takes the same description. Write the reason once.
+- `SelectTrigger` passes the reason to its Button, which stays focusable. A `render` that replaces that Button takes its own `disabledReason`.
+- `NumberFieldRoot`, `Slider`, `ComboboxInput` (its input group) and `ComboboxChips` show the tooltip on the whole field, which joins the tab order while the reason is set.
+- `ComboboxChips` also disables its `ComboboxChipsInput` and each chip's remove button.
+- `Input`, `InputGroupInput` and `Textarea` turn read-only with `aria-disabled` instead of natively disabled, so they keep the pointer and their place in the tab order. A read-only field is still submitted with its form.
+- `InputGroupInput` dims its whole `InputGroup`.
+- `SelectItem` opens its reason beside the row. Arrow keys skip a disabled item, so the reason is hover-only.
 
 For a run of questions asked one at a time — an agent needing a few decisions before it can carry on — use `Questionnaire` rather than stacking Fields yourself; it owns the ordering, progress, validation, and navigation. See its section below.
 
@@ -135,22 +158,22 @@ Don't hand-roll `<p className="text-xs text-muted-foreground">` when `<Text size
 
 ## Component Catalog
 
-| Component    | Variants                                                                                 | Sizes                                                             | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| ------------ | ---------------------------------------------------------------------------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Button       | default, primary, secondary, outline, destructive, destructive-outline, link, link-muted | default, xs, sm, lg, icon, icon-xs, icon-sm, icon-lg, row, inline | `loading` overlays a centered spinner and disables the button (width stays stable). `row` is the full-width, regular-weight list row that menu, combobox and autocomplete items render. `inline` is a link inside a sentence: no height or padding, and it inherits the sentence's font size and line height. `elevated` adds heavy CTA chrome — see Elevated button. `tooltip` adds a hover and focus tooltip. `indicator="default"` puts a dot on the top-right corner for something waiting behind the button (`"warning"` or `"destructive"` for a problem); say what it means in the `aria-label`, and set `--quill-button-indicator-ring` when the button sits off the app background. `disabledReason` disables the button and shows the reason in that tooltip. A `render` that carries a link destination (`to`, `href`) or is a non-button element turns off `nativeButton` by itself; a disabled button drops that destination. |
-| Badge        | default, info, destructive, warning, success, completed                                  | —                                                                 | Semantic status                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| Toggle       | default, outline                                                                         | default, sm, lg, icon                                             | `ToggleGroupItem` takes `disabledReason`, which disables the item and shows the reason in a tooltip on hover. Arrow keys in a `ToggleGroup` skip disabled items, so the reason is hover-only.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| Chip         | outline                                                                                  | sm                                                                | Use with ChipClose                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| Separator    | —                                                                                        | —                                                                 | orientation: horizontal/vertical                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| Spinner      | —                                                                                        | —                                                                 | SVG, accepts svg props                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| Skeleton     | —                                                                                        | —                                                                 | Pulsing placeholder div                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| SkeletonText | —                                                                                        | —                                                                 | lines, minWidth, maxWidth                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| Progress     | —                                                                                        | —                                                                 | value: 0-100                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| Slider       | —                                                                                        | —                                                                 | value, min, max                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| Avatar       | —                                                                                        | lg, default, sm, xs                                               | Compose `Avatar > AvatarImage + AvatarFallback`; image errors fall back to initials/icon                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| ChatGlobe    | —                                                                                        | —                                                                 | Sweeping globe for "browsing the web"; sizes from its container. Still globe under reduced motion                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| AvatarGroup  | —                                                                                        | default, sm, xs                                                   | Row of Avatars; `stacked` overlaps + spreads on hover (no reflow), `reverse` spreads left; `size` forwards to children                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| IconStack    | —                                                                                        | —                                                                 | Fanned colored icon tiles (`IconStackItem`, `color` per product, grey default); spreads on hover. The Empty icon, or a trailing set of items after text                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Component    | Variants                                                                                                  | Sizes                                                             | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ------------ | --------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Button       | default, primary, secondary, outline, destructive, destructive-outline, link, link-foreground, link-muted | default, xs, sm, lg, icon, icon-xs, icon-sm, icon-lg, row, inline | `loading` overlays a centered spinner and disables the button (width stays stable). `row` is the full-width, regular-weight list row that menu, combobox and autocomplete items render. `inline` is a link inside a sentence: no height or padding, and it inherits the sentence's font size and line height. `tooltip` adds a hover and focus tooltip. `indicator="default"` puts a dot on the top-right corner for something waiting behind the button (`"warning"` or `"destructive"` for a problem); say what it means in the `aria-label`, and set `--quill-button-indicator-ring` when the button sits off the app background. `disabledReason` disables the button and shows the reason in that tooltip. A `render` that carries a link destination (`to`, `href`) or is a non-button element turns off `nativeButton` by itself; a disabled button drops that destination. |
+| Badge        | default, info, destructive, warning, success, completed                                                   | —                                                                 | Semantic status                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Toggle       | default, outline                                                                                          | default, sm, lg, icon                                             | The selected `ToggleGroupItem` sits on a brand-color (`--primary`) shelf, so a column of groups shows which item is on at a glance. `ToggleGroupItem` takes `disabledReason`, which disables the item and shows the reason in a tooltip on hover. Arrow keys in a `ToggleGroup` skip disabled items, so the reason is hover-only.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| Chip         | outline                                                                                                   | sm                                                                | Use with ChipClose                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| Separator    | —                                                                                                         | —                                                                 | orientation: horizontal/vertical                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Spinner      | —                                                                                                         | —                                                                 | SVG, accepts svg props                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| Skeleton     | —                                                                                                         | —                                                                 | Pulsing placeholder div                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| SkeletonText | —                                                                                                         | —                                                                 | lines, minWidth, maxWidth                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| Progress     | —                                                                                                         | —                                                                 | value: 0-100                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| Slider       | —                                                                                                         | —                                                                 | value, min, max                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Avatar       | —                                                                                                         | lg, default, sm, xs                                               | Compose `Avatar > AvatarImage + AvatarFallback`; image errors fall back to initials/icon                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| ChatGlobe    | —                                                                                                         | —                                                                 | Sweeping globe for "browsing the web"; sizes from its container. Still globe under reduced motion                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| AvatarGroup  | —                                                                                                         | default, sm, xs                                                   | Row of Avatars; `stacked` overlaps + spreads on hover (no reflow), `reverse` spreads left; `size` forwards to children                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| IconStack    | —                                                                                                         | —                                                                 | Fanned colored icon tiles (`IconStackItem`, `color` per product, grey default); spreads on hover. The Empty icon, or a trailing set of items after text                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 
 ---
 
@@ -321,6 +344,25 @@ Grouped fields with fieldset:
 </InputGroup>
 ```
 
+`InputGroupInput`'s `placeholder` also takes a node, for a hint with markup or motion that a native placeholder can't hold.
+The node covers the input's own box with the input's padding, so it starts where the caret sits whatever the addons do, and hides once the input has a value.
+It is visual only, so give the input an `aria-label`.
+
+A rich text editor works as the control too: put its `contenteditable` element (TipTap's `EditorContent`, for example) where the input would go.
+The group draws its focus ring around it, and a click on an addon's empty space focuses it, the same as for an input.
+The editor's own padding and height are the caller's, because the group's control padding only reaches `InputGroupInput` and `InputGroupTextarea`.
+
+```tsx
+<InputGroupInput
+  aria-label="Search"
+  placeholder={
+    <>
+      Search… try <span className="font-medium">is:dashboard</span>
+    </>
+  }
+/>
+```
+
 ### Checkbox / Switch
 
 ```tsx
@@ -339,7 +381,13 @@ For a select-all over a partly selected list, pass `indeterminate`: the box fill
 
 Switch has sizes: `<Switch size="sm" />` or `<Switch size="default" />`
 
-`disabledReason` on a Checkbox or Switch disables it and shows the reason in a tooltip.
+`disabledReason` on a Checkbox, Switch or `RadioGroupItem` disables it and shows the reason in a tooltip.
+When the control has a disabled reason, pass its label as `children` rather than as a sibling `Label`. For a choice card, put `disabledReason` on the card's `FieldLabel` instead (see Form controls). The label then wraps the control and opens the tooltip too, so hovering the text explains why it is off. A sibling `Label` stays outside the tooltip.
+
+```tsx
+<Checkbox disabledReason="Add a phone number to get SMS alerts">Text me when an alert fires</Checkbox>
+<Switch disabledReason="Only admins can change this">Autocapture</Switch>
+```
 
 ### Select
 
@@ -362,6 +410,10 @@ Switch has sizes: `<Switch size="sm" />` or `<Switch size="default" />`
 
 Small trigger: `<SelectTrigger size="sm">`
 
+Disabled with a reason: `<SelectTrigger disabledReason="Only admins can change this">`
+
+A disabled option with a reason: `<SelectItem value="daily" disabledReason="Upgrade to sync daily">`
+
 Attached panel outside the popup: pass `popupSibling` on `SelectContent` — rendered in the positioner beside the popup, outside its overflow and scroll mask; position it absolute so it never resizes the option list.
 
 ### Combobox (searchable select)
@@ -382,7 +434,27 @@ Attached panel outside the popup: pass `popupSibling` on `SelectContent` — ren
 </Combobox>
 ```
 
-`ComboboxItem` takes `tooltip` and `disabledReason` like the menu items. Never hand-wrap a disabled `ComboboxItem` in a Tooltip. Pass `action` on a row that runs an action instead of picking a value, such as "New project": it is never selected, so it drops the check mark's gutter. The selection check in `Combobox` and `Select` takes lucide's stroke of 2. An app whose row icons draw thinner lines sets `--quill-indicator-stroke-width` to match them.
+A Combobox in a `DropdownMenuSubContent` takes `inline` and no `ComboboxContent`: the submenu is its popup, and its items keep the check mark's gutter. `ComboboxItem` takes `tooltip` and `disabledReason` like the menu items. Never hand-wrap a disabled `ComboboxItem` in a Tooltip. Pass `action` on a row that runs an action instead of picking a value, such as "New project": it is never selected, so it drops the check mark's gutter. The selection check in `Combobox` and `Select` takes lucide's stroke of 2. An app whose row icons draw thinner lines sets `--quill-indicator-stroke-width` to match them.
+
+A button that opens the popup, with `ComboboxInput` inside `ComboboxContent`: render the button through `ComboboxTrigger` and anchor the popup to it. Never open the popup from the button's `onClick`, because the Combobox then does not know the button is its trigger: the button gets no `aria-expanded` and does not stay pressed while the popup is open. `ComboboxTrigger` appends the chevron, so never add `SelectTriggerIcon` to the button. Pass `showChevron={false}` only for a button that shows no chevron, such as an "Add" button.
+
+```tsx
+<Combobox items={items} open={open} onOpenChange={setOpen}>
+  <ComboboxTrigger ref={triggerRef} render={<Button variant="outline" />}>
+    {value ?? 'Select framework'}
+  </ComboboxTrigger>
+  <ComboboxContent anchor={triggerRef}>
+    <ComboboxInput placeholder="Search..." showTrigger={false} />
+    <ComboboxList>
+      {(item: string) => (
+        <ComboboxItem key={item} value={item}>
+          {item}
+        </ComboboxItem>
+      )}
+    </ComboboxList>
+  </ComboboxContent>
+</Combobox>
+```
 
 Something attached to the popup's edge, such as a resize handle: pass `popupSibling` on `ComboboxContent`, as on `SelectContent`. It renders in the positioner beside the popup, outside the popup's overflow, so it can sit across the edge. Position it absolute so it never resizes the popup.
 
@@ -425,7 +497,7 @@ The typed text is the value; items are suggestions. Pass `items` to the root and
 </Autocomplete>
 ```
 
-Grouped items: pass `items={[{ label, items }]}` shapes, render `AutocompleteGroup items={group.items}` > `AutocompleteLabel` + `AutocompleteCollection` inside `AutocompleteList`. To anchor the popup to an external trigger, pass `anchor={triggerRef}` to `AutocompleteContent`.
+Grouped items: pass `items={[{ label, items }]}` shapes, render `AutocompleteGroup items={group.items}` > `AutocompleteLabel` + `AutocompleteCollection` inside `AutocompleteList`. To open the popup from a button, render the button through `AutocompleteTrigger` (`render={<Button />}`) and pass its ref as `anchor` to `AutocompleteContent`, as with Combobox.
 
 ### Dialog
 
@@ -447,6 +519,8 @@ Grouped items: pass `items={[{ label, items }]}` shapes, render `AutocompleteGro
 ```
 
 Hide close button: `<DialogContent showCloseButton={false}>`
+
+Style the backdrop of one dialog with `overlayClassName`, for example a darker backdrop for a one-off announcement. Keep the backdrop's `[data-starting-style]` and `[data-ending-style]` opacity at 0 so it still fades.
 
 `DialogBody` defaults its `render` to a `ScrollArea` (scroll shadows and a pinned footer for free).
 To style the scrollable viewport (`data-slot="scroll-area-viewport"`), pass `viewportClassName`.
@@ -484,14 +558,17 @@ Same shell as Dialog (shared `quill-dialog__*` styles) but `role="alertdialog"`,
       <DrawerTitle>Title</DrawerTitle>
       <DrawerDescription>Description</DrawerDescription>
     </DrawerHeader>
-    {/* content */}
+    <DrawerBody>{/* content */}</DrawerBody>
     <DrawerFooter>
-      <Button>Submit</Button>
       <DrawerClose render={<Button variant="outline" />}>Cancel</DrawerClose>
+      <Button variant="primary">Submit</Button>
     </DrawerFooter>
   </DrawerContent>
 </Drawer>
 ```
+
+`DrawerBody` works like `DialogBody`: a `ScrollArea` that takes the height the header and footer leave, with `viewportClassName` and `render`.
+`DrawerFooter` stacks its buttons in reverse, so write Cancel first and the main action last, as in a `DialogFooter`. The main action shows on top.
 
 ### Dropdown Menu
 
@@ -603,15 +680,15 @@ Vertical: `<Tabs orientation="vertical">`
 </Collapsible>
 ```
 
-Icon-only trigger — only the chevron toggles, so the label can be its own button/link and the row can carry trailing content; composes with `variant="folder"` for sidebar trees. Inside `CollapsibleHeader` the trigger overlays the row's start, so give the full-width label button `ps-6` to clear it — hovering anywhere then highlights the whole row while the chevron stays its own click target. An optional `icon` shows at rest and swaps to the chevron when the row is hovered or the trigger focused. The chevron mirrors in RTL; use `ms-auto` (not `ml-auto`) for trailing content. Trigger children become the screen-reader label:
+Icon-only trigger — only the chevron toggles, so the label can be its own button/link and the row can carry trailing content; composes with `variant="folder"` for sidebar trees. Inside `CollapsibleHeader` the trigger overlays the row's start, and the header pads its start to keep row content (text, badges) clear of the chevron, so a plain row needs no padding of its own. For a full-width label button, set `ps-0` on the header and give the button `ps-8` instead — hovering anywhere then highlights the whole row while the chevron stays its own click target. An optional `icon` shows at rest and swaps to the chevron when the row is hovered or the trigger focused. The chevron mirrors in RTL; use `ms-auto` (not `ml-auto`) for trailing content. Trigger children become the screen-reader label:
 
 ```tsx
 <Collapsible variant="folder">
-  <CollapsibleHeader>
+  <CollapsibleHeader className="ps-0">
     <CollapsibleTrigger iconOnly icon={<DatabaseZapIcon />}>
       Toggle sources
     </CollapsibleTrigger>
-    <Button variant="default" size="sm" left className="w-full ps-6">
+    <Button variant="default" size="sm" left className="w-full ps-8">
       Sources
       <Text size="xs" variant="muted" render={<span />} className="ms-auto">
         2
@@ -653,7 +730,7 @@ The arrow inherits the popup's border and background, so restyling the popover c
 
 ### Tooltip
 
-A Button, menu item, Checkbox or Switch that only needs a text tooltip or a disabled reason takes the `tooltip` / `disabledReason` prop; reach for the composed form below for anything else.
+A Button or menu item that only needs a text tooltip takes the `tooltip` prop, and every control in the `disabledReason` list under Form controls takes that prop for a disabled reason; reach for the composed form below for anything else.
 
 ```tsx
 <Tooltip>
@@ -681,6 +758,19 @@ const [tooltip] = React.useState(() => createTooltipHandle<string>())
 
 ### Radio Group
 
+A `RadioGroupItem` takes its label as `children`, like Checkbox and Switch. Use it for an item with a `disabledReason`, so the label shows the reason too:
+
+```tsx
+<RadioGroup value={value} onValueChange={setValue}>
+  <RadioGroupItem value="email">Email</RadioGroupItem>
+  <RadioGroupItem value="sms" disabledReason="Add a phone number to get SMS notifications">
+    SMS
+  </RadioGroupItem>
+</RadioGroup>
+```
+
+With a sibling `Label`:
+
 ```tsx
 <RadioGroup value={value} onValueChange={setValue}>
   <div className="flex items-center gap-2">
@@ -692,26 +782,6 @@ const [tooltip] = React.useState(() => createTooltipHandle<string>())
     <Label htmlFor="b">Option B</Label>
   </div>
 </RadioGroup>
-```
-
-### Elevated button (strong CTA)
-
-`elevated` adds a heavy edge and a solid bottom ledge that presses down on click. It has two looks: `variant="primary"` (brand fill) and `variant="outline"` (neutral white in light mode, black in dark mode). Do not combine it with other variants. Use it for the strongest action in an area: the "New" button at the top of a sidebar, the CTA in an empty state, the confirm action of a flow.
-
-**At most two elevated buttons in a row.** The only allowed pair is one elevated `primary` plus one elevated `outline`. A third button in the row must be flat `variant="default"` (ghost): it has no border or fill, so it does not compete with the ledge. Never place an elevated button next to a flat button with chrome (`outline`, `secondary`, flat `primary`): it looks broken beside the ledge. Do not use `elevated` in toolbars, menus, table rows, button groups or with `xs`/`sm` sizes.
-
-```tsx
-<div className="flex justify-end gap-2">
-  <Button variant="default" size="lg">
-    Cancel
-  </Button>
-  <Button elevated variant="outline" size="lg">
-    Save draft
-  </Button>
-  <Button elevated variant="primary" size="lg">
-    Launch
-  </Button>
-</div>
 ```
 
 ### Button Group
@@ -801,7 +871,42 @@ For tooltips on the tiles, use one shared tooltip (see Tooltip) so it slides bet
 Item variants: default, outline, muted, menuItem
 Item sizes: default, sm, xs
 `<ItemGroup>` spaces items with a gap by default; pass `combined` to merge them into one flush list (no gap, squared interior corners, collapsed shared borders, rounded outer corners — like CardGroup)
-Item tones (the `tone` prop — named `tone`, not `color`, to avoid colliding with the DOM `color` attribute when Base UI render props are spread onto ItemCheckbox/ItemRadio): default, info, success, warning, completed, destructive — a semantic tint orthogonal to `variant`, for callouts such as a warning or an incident notice (e.g. `<Item variant="outline" tone="warning">`)
+Item tones (the `tone` prop — named `tone`, not `color`, to avoid colliding with the DOM `color` attribute when Base UI render props are spread onto ItemCheckbox/ItemRadio): default, info, success, warning, completed, destructive — a semantic tint orthogonal to `variant`, for tinted rows such as a status list. For an inline message (a warning or an incident notice), use `Callout`, which is built on it
+
+### Callout
+
+A static, inline message that stays in the layout — the quill replacement for `LemonBanner`. `Callout` is an outline `Item` with a `tone`, so it shares Item's tint, tone border and spacing. Use Callout instead of a hand-built `<Item variant="outline" tone>` for a message.
+
+```tsx
+<Callout tone="warning">
+  <CalloutIcon />
+  <CalloutContent>
+    <CalloutTitle>Your event volume is close to the billing limit</CalloutTitle>
+    <CalloutDescription>New events stop when the project reaches the limit.</CalloutDescription>
+  </CalloutContent>
+  <CalloutActions>
+    <Button variant="outline">Increase limit</Button>
+  </CalloutActions>
+  <CalloutClose onClick={dismiss} />
+</Callout>
+```
+
+Callout tones: default, info, success, warning, destructive. The default tone uses a muted surface. Callout has one size and takes no `size` prop.
+`CalloutIcon` renders the tone's default lucide icon when it has no children; pass an icon as children to replace it, or leave `CalloutIcon` out for no icon.
+`CalloutTitle` is optional. `CalloutDescription` is a `div`, so it can hold links, inline code or a list; it does not clamp and uses the foreground color.
+The icon and the close button line up with the first line of text. With `CalloutActions`, the first row is as tall as a button, so they center on that row.
+`CalloutClose` is the dismiss X and stays in the top-right corner. The caller owns the dismissed state and any persistence, such as a localStorage key.
+When the text would get narrower than 16rem, `CalloutActions` wrap to a row under the text. The tab order stays the text, the actions, then the close button. The callout needs no width: in a `w-fit` or other shrink-to-fit parent it sizes to its content.
+For a router link action, pass the app's link through `render`: `<Button variant="outline" render={<Link to={url} />}>`.
+Callout sets no live-region role. Pass `role="alert"` (urgent) or `role="status"` (polite) only when the callout appears after a user action and screen readers must announce it.
+Accessibility:
+
+- A hidden prefix names the tone for screen readers ("Warning: …"), because the tint and icon are visual only. Override it with `toneLabel` (rendered as given, so include the separator), or pass `toneLabel={null}` when the text already names it. The default tone has none.
+- Give `CalloutClose` an `aria-label` that names the callout ("Dismiss retention warning") when a page can show more than one.
+- On dismiss, move focus to a sensible nearby element. Otherwise focus falls back to the page body.
+- Keep the DOM order `CalloutIcon`, `CalloutContent`, `CalloutActions`, `CalloutClose`. It is the reading and tab order, and the layout depends on it.
+
+`LemonBanner` map: `type` info/warning/success → same `tone`, error → `destructive`, ai → `info` with a sparkles icon in `CalloutIcon`; children → `CalloutDescription`; `action` → `Button variant="outline"` in `CalloutActions`; `onClose` / `dismissKey` → `CalloutClose` + caller state; `icon` → `CalloutIcon` children; `hideIcon` → leave out `CalloutIcon`.
 
 ### Avatar
 
@@ -961,7 +1066,7 @@ When the tool returned pages, fill the body with `ChatSourceList` > `ChatSource`
 </ChatMarker>
 ```
 
-`ChatGlobe` is exported on its own: a globe whose meridians sweep, for when you can say _what_ is loading rather than only that something is (`Spinner` covers the rest). It sizes and tints from its container like any icon. It animates with SMIL, which **CSS cannot disable** — it reads `useReducedMotion()` and renders a still globe instead. Reach for that hook only where a media query can't reach; CSS is the right place for everything else.
+`ChatGlobe` is exported on its own: a globe whose meridians sweep, for when you can say _what_ is loading rather than only that something is (`Spinner` covers the rest). It sizes and tints from its container like any icon. It animates with SMIL, which **CSS cannot disable** — it reads `useReducedMotion()` and renders a still globe instead. The hook is exported. Reach for it only where a media query can't reach, such as Web Animations API calls or timers; CSS is the right place for everything else.
 
 ### Chat task list (a plan, worked through)
 
@@ -1082,7 +1187,7 @@ Reduced motion shows the finished highlight at once.
 </ResizablePanelGroup>
 ```
 
-For an edge that resizes something outside a panel group, such as a popup, use `ResizeGrip`. It has the handle's look and no behavior: the caller runs the drag. It forwards its ref, so it can be a `TooltipTrigger` render target. Set `--quill-resizable-hit-size` to widen the hit area, and pass `className="bg-transparent"` when a border already draws the line.
+For an edge that resizes something outside a panel group, such as a popup, use `ResizeGrip`. `size="sm"` is a shorter, thinner handle for a tight edge. It has the handle's look and no behavior: the caller runs the drag. It forwards its ref, so it can be a `TooltipTrigger` render target. Set `--quill-resizable-hit-size` to widen the hit area, and pass `className="bg-transparent"` when a border already draws the line.
 
 ### Scroll Area
 
@@ -1132,6 +1237,8 @@ const range = getPaginationRange(pageCount, pageIndex)
 ### Table
 
 Compose `Table > TableHeader/TableBody/TableFooter > TableRow > TableHead/TableCell`. Per-cell options on `TableHead`/`TableCell`: `sticky="left" | "right"` (frozen column), `align="left" | "center" | "right"` (horizontal), `valign="top" | "middle" | "bottom"` (vertical), `expand` (absorb leftover width). `align` also positions an inline-flex header Button. On `Table`: `stickyHeader` (or `"page"`) for a sticky header, `fullWidth` to fill the container — pair `fullWidth` with `expand` on one column to choose which one stretches, `size="sm"` to tighten head/cell inline padding to `0.75rem` (from `1rem`) for dense tables and to align edge columns with a `Card size="sm"`.
+
+For resizable columns, pass `columnWidths` on `Table`, one width in pixels per column, and put a `TableColumnResizer` last in each `TableHead`: `<Table columnWidths={[width, 200]}><TableHead>Name<TableColumnResizer value={width} onValueCommitted={setWidth} min={80} /></TableHead>`. `Table` owns the rest: the `<col>` widths, the table's width as their sum, clipping the cells, and moving the column on each frame of a drag. A drag never renders: `onValueCommitted` reports the width once, when it ends, and the `columnWidths` you pass must then follow it. `onReset` runs on a double click. In a `fullWidth` table, end each row with `<TableCell filler />` and the header with `<TableHead filler />`, to fill the space the columns leave. `columnWidths="content"` keeps the columns fitting their content until you pass the array. A `DataTable` does all of this with `resizableColumns`, so reach for this only in a table built from the primitives.
 
 **Backgrounds: transparent by default, opaque when sticky.** Plain cells and headers are transparent, so a `Table` inherits whatever surface it sits on (inside a `Card`, a tinted panel). Sticky parts (`stickyHeader`, `stickyHeader="page"`, `sticky="left"/"right"`) get an opaque background automatically — they'd otherwise bleed scrolled-under content — so you don't add `bg-background` yourself. It defaults to the app background; if the table sits on a different surface, override the inherited `--quill-table-sticky-bg` custom property on the `Table` so the frozen cells match — e.g. inside a `Card`, `className="[--quill-table-sticky-bg:var(--card)]"`.
 
@@ -1324,6 +1431,45 @@ Live text: a highlight sweeping a line to say work is still in flight. Put it on
 - **Retune** with `--quill-shimmer-base` / `--quill-shimmer-highlight`; defaults read as muted brightening to full.
 - Reduced motion hands the color back rather than just stopping — otherwise the text would stay invisible.
 
+### `quill-scroll-fade`
+
+Edge fades for a scroller that keeps a visible scrollbar. Put it on the scrolling element.
+
+```tsx
+<div className="quill-scroll-fade overflow-y-auto [--quill-scroll-fade-top-offset:1.25rem]">{/* rows */}</div>
+```
+
+- **Use it instead of `scroll-mask-*` when the scrollbar shows.** A mask fades everything the scroller paints, its scrollbar included. These fades are sticky gradients inside the content box, which ends at the scrollbar.
+- **Tune** with `--quill-scroll-fade-size` (default `1rem`), `--quill-scroll-fade-top-offset` (start the top fade below a sticky header, so the header stays solid) and `--quill-scroll-fade-color` (default `--card`; it must match the scroller's background).
+- Each fade shows only while content is past its edge, driven by scroll-driven animations. Firefox and reduced motion get no fade, and the content scrolls normally.
+- It sets `scroll-padding-block` from the offset and size, so a row scrolled into view stops clear of the fades and the header. A `scroll-p*` utility overrides it.
+
+### `quill-fade-cycle`
+
+One cycle of a rotating example, such as the `is:` hint in a search placeholder: it fades and slides in over 250ms, holds, then fades out over 200ms (2.5s in all).
+
+- Rotate a list by remounting on `key` and moving to the next item in `onAnimationEnd`. Count cycles, not indexes, so returning to the first item still animates.
+- Add `quill-fade-cycle--settled` to the first item only: it shows at once instead of fading in each time its surface opens.
+- Reduced motion drops the animation, so `animationend` never fires and the first item stays. See the `AnimatedPlaceholder` story in Input.
+
+### Inverted surface — `data-quill-inverted`
+
+A container in the opposite theme: a dark floating selection bar in light mode, a light one in dark mode.
+Put `data-quill-inverted` on the container and paint it with `bg-background text-foreground`.
+
+```tsx
+<div data-quill-inverted className="flex items-center gap-2 rounded-lg bg-background px-3 py-2 text-foreground">
+  <Text size="sm">3 tables selected</Text>
+  <Button variant="outline">Export</Button>
+  <Button variant="primary">Certify</Button>
+</div>
+```
+
+- **Every token in the subtree takes the other mode's value**, including on elements that set `data-quill` themselves, such as Button. So Button variants, `Text variant="muted"`, Checkbox and focus rings stay legible with no per-component overrides.
+- The rule ships in the token CSS (`color-system.css` and the scoped variant), not in `primitives.css`.
+- Portaled popups (menus, tooltips) open outside the subtree, so they keep the page theme.
+- The `dark:` variant and `.dark` component rules still follow the page theme. Keep them out of an inverted subtree.
+
 ---
 
 ## Icons
@@ -1344,6 +1490,8 @@ Each container's CSS handles `flex-shrink: 0` and the per-context size via `svg:
 | Button                                | 1rem (size-4)       |
 | Menu items (Dropdown/Context/Menubar) | 0.875rem (size-3.5) |
 | TabsTrigger                           | 0.75rem (size-3)    |
+
+Whether a labelled Button or menu item takes a leading icon, a trailing icon or neither is a fixed decision order, shown in the `Examples/Icon rules` story: reveals options or navigates → trailing icon; familiar symbol → leading icon; one of a group of actions → leading icon on every action in the group; otherwise no icon. The trailing `…` is a separate check: an action that needs more input before it runs ends with `…`, with or without a leading icon. A trailing icon and `…` never go together, and a confirm-only destructive action takes no `…`.
 
 **Don't add `size-*` classes to icons inside primitives.** The `:not([class*='size-'])` guard means an explicit `size-*` class is treated as a deliberate override and the component's sizing steps aside — so reserve it for the rare case where you genuinely need a different size. Color also inherits (`currentColor`), so don't set icon colors either; variants tint their icons themselves.
 

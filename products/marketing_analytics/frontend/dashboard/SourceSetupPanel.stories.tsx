@@ -7,7 +7,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 
 import { mswDecorator } from '~/mocks/browser'
 
-import { expect, userEvent } from 'storybook/test'
+import { expect } from 'storybook/test'
 
 import { SearchConsoleSource } from './SearchConsoleSource'
 import { SourceSetupPanel } from './SourceSetupPanel'
@@ -16,6 +16,8 @@ const meta: Meta<typeof SourceSetupPanel> = {
     title: 'Scenes-App/Marketing Analytics/Source setup panel',
     component: SourceSetupPanel,
     parameters: { layout: 'padded', mockDate: '2026-10-07', testOptions: { waitForLoadersToDisappear: false } },
+    // The expanded groups persist in localStorage, so without this a story inherits what an earlier run left open.
+    beforeEach: () => localStorage.removeItem('products.marketingAnalytics.sourceConnectionGroups.setup.expansion'),
     decorators: [
         mswDecorator({
             get: {
@@ -58,27 +60,7 @@ const suggestions = ['GoogleAds', 'MetaAds'].map((kind) => ({
     event_volume: 12,
 }))
 const footer = <LemonButton>Browse integrations</LemonButton>
-export const Checking: Story = { args: { state: 'checking' } }
-export const Scanning: Story = { args: { state: 'scanning', footer } }
 export const DetectedPlatforms: Story = { args: { state: 'suggestions', suggestions, footer } }
-export const NoDetectedPlatforms: Story = { args: { state: 'empty', footer } }
-export const ScanFailed: Story = { args: { state: 'error', onRetry: () => {}, footer } }
-export const Connected: Story = {
-    args: {
-        state: 'waiting',
-        connections: [
-            {
-                id: 'demo-google',
-                name: 'Google Ads',
-                sourceType: 'GoogleAds',
-                status: 'Connected',
-                detail: 'Waiting for the first sync to finish.',
-            },
-        ],
-        suggestions: [suggestions[1]],
-        footer: <LemonButton>Browse integrations</LemonButton>,
-    },
-}
 export const Syncing: Story = {
     args: {
         state: 'waiting',
@@ -92,7 +74,7 @@ export const Syncing: Story = {
             },
         ],
         suggestions: [suggestions[1]],
-        footer: <LemonButton>Browse integrations</LemonButton>,
+        footer,
     },
 }
 export const Narrow: Story = {
@@ -195,8 +177,8 @@ export const GroupedConnectionErrors: Story = {
             'href',
             expect.stringContaining('managed-example-google-one')
         )
-        await userEvent.click(canvas.getByRole('button', { name: /TikTok Ads/ }))
-        expect(await canvas.findByText('Example video')).toBeVisible()
+        expect(canvas.getByRole('button', { name: /TikTok Ads/ })).toHaveAttribute('aria-expanded', 'true')
+        expect(canvas.getByText('Example video')).toBeVisible()
     },
 }
 

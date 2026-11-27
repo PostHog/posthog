@@ -6,6 +6,7 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { ensureStringIsNotBlank } from 'lib/utils/strings'
 import { getResultSeries } from 'scenes/insights/utils/resultSeries'
 
+import { isTrendsQuery } from '~/queries/schema/node-guards'
 import {
     EventsHeatMapColumnAggregationResult,
     EventsHeatMapDataResult,
@@ -17,7 +18,6 @@ import {
     TrendsQuery,
     TrendsQueryResponse,
 } from '~/queries/schema/schema-general'
-import { isTrendsQuery } from '~/queries/utils'
 import { ChartDisplayType, ExporterFormat } from '~/types'
 
 export interface ExportAdapter {

@@ -25,8 +25,6 @@ DEFAULT_USER_COST_LIMIT = UserCostLimit(
 )
 
 DEFAULT_PRODUCT_COST_LIMITS: dict[str, ProductCostLimit] = {
-    "llm_gateway": ProductCostLimit(limit_usd=1000.0, window_seconds=86400),
-    "ci": ProductCostLimit(limit_usd=1000.0, window_seconds=2592000),  # $1000 / 30 days
     "wizard": ProductCostLimit(limit_usd=10000.0, window_seconds=86400),
     "posthog_code": ProductCostLimit(limit_usd=5000.0, window_seconds=3600),
     "background_agents": ProductCostLimit(limit_usd=1000.0, window_seconds=3600),
@@ -141,6 +139,13 @@ def _parse_model_dict(
     return {_normalize_cost_key(key): model_cls(**config) for key, config in parsed.items()}
 
 
+# A `sync_mode` PostHog client sends, and retries, in the calling thread. One retry recovers a
+# send whose connection dropped, and it bounds how long a capture thread waits when capture is down.
+POSTHOG_SYNC_SEND_MAX_RETRIES = 1
+# The same limit as an analytics send, so an AI event waits no longer than any other capture.
+POSTHOG_AI_CAPTURE_TIMEOUT_SECONDS = 15
+
+
 class Settings(BaseSettings):
     debug: bool = False
 
@@ -183,11 +188,6 @@ class Settings(BaseSettings):
     modal_key: str | None = None
     modal_secret: str | None = None
 
-    # User-sticky fraction (0..1) of GLM traffic served by Modal; per-product entries override the
-    # global value. The tasks-glm-modal-inference flag ORs with this.
-    glm_modal_traffic_fraction: float = 0.0
-    glm_modal_product_traffic_fractions: dict[str, float] = {}
-
     # Project token for AI observability events
     posthog_project_token: str | None = None
     posthog_host: str = "https://us.i.posthog.com"
@@ -197,8 +197,9 @@ class Settings(BaseSettings):
     posthog_secondary_project_token: str | None = None
     posthog_secondary_host: str | None = None
 
-    # Set false on local dev stacks whose ingestion-ai forwarder rejects AI-lane batches
-    # (401 on /batch/, events silently dropped) — capture falls back to the standard lane.
+    # Has no effect on what the gateway sends. The gateway captures with `capture_ai`, which sends
+    # AI content as given to /i/v1/ai/events, and posthoganalytics 8 reads the matching client
+    # setting (`enable_full_ai_capture`) only in its provider wrappers.
     posthog_ai_lane_capture: bool = True
 
     metrics_enabled: bool = True
@@ -279,38 +280,6 @@ class Settings(BaseSettings):
     @classmethod
     def parse_user_cost_limits(cls, v: str | dict | None) -> dict[str, UserCostLimit]:
         return _parse_model_dict(v, UserCostLimit, DEFAULT_USER_COST_LIMITS, "user_cost_limits")
-
-    @field_validator("glm_modal_traffic_fraction")
-    @classmethod
-    def validate_glm_modal_traffic_fraction(cls, v: float) -> float:
-        if not 0.0 <= v <= 1.0:
-            raise ValueError(f"glm_modal_traffic_fraction must be between 0 and 1, got {v}")
-        return v
-
-    @field_validator("glm_modal_product_traffic_fractions", mode="before")
-    @classmethod
-    def parse_glm_modal_product_traffic_fractions(cls, v: str | dict[str, float] | None) -> dict[str, float]:
-        if v is None or v == "":
-            return {}
-        if isinstance(v, str):
-            try:
-                v = json.loads(v)
-            except json.JSONDecodeError as e:
-                raise ValueError(f"Invalid JSON in glm_modal_product_traffic_fractions: {e}") from e
-        if not isinstance(v, dict):
-            raise ValueError("glm_modal_product_traffic_fractions must be a JSON object")
-        result: dict[str, float] = {}
-        for product, fraction in v.items():
-            try:
-                value = float(fraction)
-            except (TypeError, ValueError) as e:
-                raise ValueError(f"glm_modal_product_traffic_fractions values must be numbers: {e}") from e
-            if not 0.0 <= value <= 1.0:
-                raise ValueError(
-                    f"glm_modal_product_traffic_fractions values must be between 0 and 1, got {value} for {product}"
-                )
-            result[_normalize_cost_key(str(product))] = value
-        return result
 
     @field_validator("staff_rate_limit_multiplier")
     @classmethod

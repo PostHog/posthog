@@ -8,6 +8,7 @@ from typing import Union
 import structlog
 import temporalio
 from asgiref.sync import async_to_sync
+from temporalio.exceptions import ApplicationError
 
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
@@ -41,6 +42,7 @@ from products.signals.backend.temporal.types import SignalCandidate, SignalData,
 logger = structlog.get_logger(__name__)
 
 
+REPORT_RESEARCH_SIGNAL_LIMIT = 100
 WAIT_POLL_INTERVAL_SECONDS = 10
 
 # For this long, ClickHouse is polled only when the recently-seen store confirms the
@@ -121,6 +123,25 @@ def soft_delete_report_signals(report_id: str, team_id: int, team: Team) -> None
         signal_ids=[row[0] for row in result.results or []],
         change=SignalMetadataChange(deleted=True, expected_report_id=report_id),
     )
+
+
+def fetch_report_signal_ids(*, team: Team, report_id: str, limit: int) -> list[str]:
+    """Return the ids of every signal a report holds, deleted ones included, up to `limit`."""
+    result = execute_hogql_query(
+        query_type="SignalsFetchIdsForReport",
+        query=f"""
+            SELECT document_id
+            FROM ({_deduped_signals_subquery(include_content=False, candidate_document_filter="JSONExtractString(metadata, 'report_id') = {report_id}")})
+            WHERE JSONExtractString(metadata, 'report_id') = {{report_id}}
+            ORDER BY document_id ASC
+            LIMIT {limit}
+        """,
+        team=team,
+        placeholders=_report_placeholders(report_id),
+        ch_user=ClickHouseUser.SIGNALS,
+        workload=Workload.OFFLINE,
+    )
+    return [str(row[0]) for row in result.results or []]
 
 
 _RETRACT_PAGE_SIZE = 500
@@ -604,15 +625,17 @@ async def wait_for_signal_in_clickhouse_activity(input: WaitForClickHouseInput) 
 # ---------------------------------------------------------------------------
 
 
-@dataclass
+@frozen
 class FetchSignalsForReportInput:
     team_id: int
     report_id: str
+    required_signal_id: str | None = None
 
 
-@dataclass
+@frozen
 class FetchSignalsForReportOutput:
     signals: list[SignalData]
+    processed_pending_signal_id: str | None = None
 
 
 @temporalio.activity.defn
@@ -620,16 +643,54 @@ class FetchSignalsForReportOutput:
 @close_db_connections
 async def fetch_signals_for_report_activity(input: FetchSignalsForReportInput) -> FetchSignalsForReportOutput:
     try:
-        team = await Team.objects.aget(pk=input.team_id)
+        team = await Team.objects.select_related("organization").aget(pk=input.team_id)
 
+        pending_id = await (
+            SignalReport.objects.using("default")
+            .filter(team_id=input.team_id, id=input.report_id)
+            .values_list("pending_triggering_signal_id", flat=True)
+            .afirst()
+        )
+        pending_signal_id = str(pending_id) if pending_id else None
+        required_ids = set(filter(None, [input.required_signal_id]))
+        priority_ids = required_ids | set(filter(None, [pending_signal_id]))
+        placeholders = {
+            **_report_placeholders(input.report_id),
+            "priority_signal_ids": ast.Tuple(
+                exprs=[ast.Constant(value=signal_id) for signal_id in sorted(priority_ids)]
+            ),
+        }
         result = await execute_hogql_query_with_retry(
             query_type="SignalsFetchForReport",
-            query=_signals_for_report_query(),
+            query=_signals_for_report_query(
+                limit=REPORT_RESEARCH_SIGNAL_LIMIT, prioritize_signal_ids=bool(priority_ids)
+            ),
             team=team,
-            placeholders=_report_placeholders(input.report_id),
+            placeholders=placeholders,
         )
 
-        signals = [_parse_signal_row(row) for row in (result.results or [])]
+        signals = sorted(
+            (_parse_signal_row(row) for row in (result.results or [])),
+            key=lambda signal: (signal.timestamp, signal.signal_id),
+        )
+        fetched_ids = {signal.signal_id for signal in signals}
+        if not required_ids.issubset(fetched_ids):
+            raise ApplicationError(
+                "Required report signal is not visible in ClickHouse yet", type="RequiredReportSignalNotVisible"
+            )
+
+        if required_ids:
+            await (
+                SignalReport.objects.using("default")
+                .filter(
+                    team_id=input.team_id,
+                    id=input.report_id,
+                    status=SignalReport.Status.IN_PROGRESS,
+                    triggering_signal_id=input.required_signal_id,
+                    pending_triggering_signal_id=input.required_signal_id,
+                )
+                .aupdate(pending_triggering_signal_id=None)
+            )
 
         logger.debug(
             f"Fetched {len(signals)} signals for report {input.report_id}",
@@ -637,7 +698,12 @@ async def fetch_signals_for_report_activity(input: FetchSignalsForReportInput) -
             report_id=input.report_id,
             signal_count=len(signals),
         )
-        return FetchSignalsForReportOutput(signals=signals)
+        return FetchSignalsForReportOutput(
+            signals=signals,
+            processed_pending_signal_id=pending_signal_id if pending_signal_id in fetched_ids else None,
+        )
+    except ApplicationError:
+        raise
     except Exception as e:
         logger.exception(
             f"Failed to fetch signals for report {input.report_id}: {e}",

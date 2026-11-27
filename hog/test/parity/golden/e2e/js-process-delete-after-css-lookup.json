@@ -1,0 +1,74 @@
+{
+  "exitCode": 0,
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/projects/1/error_tracking/releases/hash/a59184886017fd23032c5d7e8e23b3780be229599cc0d9416b3c0ef0fbdb0baa65af2fd905b59c37464ef7c4658c6fc0c0e57a24fca88541388041682ab9d97d",
+      "headers": {
+        "authorization": "Bearer phx_<key>",
+        "content-type": "application/json"
+      },
+      "status": 404
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/1/error_tracking/releases",
+      "headers": {
+        "authorization": "Bearer phx_<key>",
+        "content-type": "application/json"
+      },
+      "body": "{\"hash_id\":\"a59184886017fd23032c5d7e8e23b3780be229599cc0d9416b3c0ef0fbdb0baa65af2fd905b59c37464ef7c4658c6fc0c0e57a24fca88541388041682ab9d97d\",\"version\":\"2.1.0\",\"project\":\"web\"}",
+      "status": 201
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/1/error_tracking/symbol_sets/bulk_check_upload",
+      "headers": {
+        "authorization": "Bearer phx_<key>",
+        "content-type": "application/json"
+      },
+      "body": "{\"symbol_sets\":[{\"chunk_id\":\"3f161e6c-fc03-5fe2-a9e9-08e5ae65fd15\",\"release_id\":null,\"content_hash\":\"132ba998d0dc6f057040d336e10ab39ecc898e7aca3ed94017340e2278b6e2a4632ecf9f5fb93740409e6989f760275051e42de00f54360681dca651f6c6b3a2\",\"content_length\":395}],\"force\":true,\"skip_on_conflict\":false}",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/1/error_tracking/symbol_sets/bulk_start_upload",
+      "headers": {
+        "authorization": "Bearer phx_<key>",
+        "content-type": "application/json"
+      },
+      "body": "{\"symbol_sets\":[{\"chunk_id\":\"3f161e6c-fc03-5fe2-a9e9-08e5ae65fd15\",\"release_id\":null,\"content_hash\":\"132ba998d0dc6f057040d336e10ab39ecc898e7aca3ed94017340e2278b6e2a4632ecf9f5fb93740409e6989f760275051e42de00f54360681dca651f6c6b3a2\",\"content_length\":395}],\"upload_attempt_id\":\"<attempt-1>\",\"upload_run_id\":\"<run>\",\"force\":true,\"skip_on_conflict\":false}",
+      "status": 201
+    },
+    {
+      "method": "PUT",
+      "path": "/s3/put/symbolsets/2d4d3dba-abfc-5ade-87d8-5fde76602b70?length=395",
+      "headers": {
+        "authorization": "<none>"
+      },
+      "upload": {
+        "sha512": "307d35e8ee3fccaa788d867886d5cbee300c1b82899764746c7641efd38595f158b008b7e9fabd55713b6513d714be6e76130f5d2e8b87e01b337703336a5a7b",
+        "length": 395
+      },
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/1/error_tracking/symbol_sets/bulk_finish_upload",
+      "headers": {
+        "authorization": "Bearer phx_<key>",
+        "content-type": "application/json"
+      },
+      "body": "{\"content_hashes\":{\"2d4d3dba-abfc-5ade-87d8-5fde76602b70\":\"132ba998d0dc6f057040d336e10ab39ecc898e7aca3ed94017340e2278b6e2a4632ecf9f5fb93740409e6989f760275051e42de00f54360681dca651f6c6b3a2\"},\"upload_attempt_id\":\"<attempt-1>\",\"upload_run_id\":\"<run>\"}",
+      "status": 201
+    }
+  ],
+  "files": {
+    "dist/a.js": "utf8:!function(){try{var e=\"undefined\"!=typeof window?window:\"undefined\"!=typeof global?global:\"undefined\"!=typeof globalThis?globalThis:\"undefined\"!=typeof self?self:{};e._posthogReleaseId=e._posthogReleaseId||\"e7ccdce0-e172-5444-b00e-bec22162f00f\";var n=(new e.Error).stack;n&&(e._posthogChunkIds=e._posthogChunkIds||{},e._posthogChunkIds[n]=\"3f161e6c-fc03-5fe2-a9e9-08e5ae65fd15\")}catch(e){}}();a();\n\n//# chunkId=3f161e6c-fc03-5fe2-a9e9-08e5ae65fd15",
+    "dist/a.js.map": null,
+    "dist/cdn.css": "utf8:.a{}\n",
+    "dist/cdn.css.map": null,
+    "dist/stale.css": "utf8:.b{}\n",
+    "dist/stale.css.map": null
+  }
+}

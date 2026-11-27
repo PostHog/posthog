@@ -4,14 +4,21 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { AllowedProperties, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { isOperatorSemver } from 'lib/utils/operators'
-import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
+import { cdpFiltersToSeries, seriesToCdpFilters } from 'scenes/hog-functions/filters/cdpFilterSeries'
+import { SeriesActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
 
 import { groupsModel } from '~/models/groupsModel'
 import { PropValue } from '~/models/propertyDefinitionsModel'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { DatabaseSchemaField, NodeKind } from '~/queries/schema/schema-general'
-import { FilterType, PropertyDefinition, PropertyOperator } from '~/types'
+import {
+    AnyPropertyFilter,
+    ChartDisplayCategory,
+    FilterLogicalOperator,
+    PropertyDefinition,
+    PropertyOperator,
+} from '~/types'
 
 import { workflowLogic } from '../../workflowLogic'
 import { HogFlowAction } from '../types'
@@ -67,6 +74,7 @@ export type HogFlowFiltersProps = {
     singleLine?: boolean
     showRemoveButton?: boolean
     hasRowOperator?: boolean
+    propertyGroupType?: FilterLogicalOperator
 }
 
 /**
@@ -89,7 +97,7 @@ export function HogFlowEventFilters({
     }
 
     // WorkflowVariables comes first so its dedicated tab renders first in the category list.
-    // ActionFilter does not pipe `taxonomicFilterOptionsFromProp`, so the All/Suggestions tab
+    // SeriesActionFilter does not pipe `taxonomicFilterOptionsFromProp`, so the All/Suggestions tab
     // does not aggregate variables here — variable surfacing in All/Suggestions only kicks in
     // for the property-level filter (HogFlowPropertyFilters below).
     const propertyTaxonomicGroupTypes = [
@@ -106,12 +114,10 @@ export function HogFlowEventFilters({
     }
 
     return (
-        <ActionFilter
-            filters={filters ?? {}}
-            setFilters={(filters: FilterType): void => {
-                // TODO: Improve the types here...
-                setFilters(filters as HogFlowAction['filters'])
-            }}
+        <SeriesActionFilter
+            series={cdpFiltersToSeries(filters)}
+            onChange={(series) => setFilters(seriesToCdpFilters(series))}
+            trendsDisplayCategory={ChartDisplayCategory.TimeSeries}
             typeKey={typeKey ?? 'hogflow-filters'}
             mathAvailability={MathAvailability.None}
             hideRename
@@ -152,6 +158,7 @@ export function HogFlowPropertyFilters({
     singleLine,
     showRemoveButton,
     hasRowOperator,
+    propertyGroupType,
 }: HogFlowFiltersProps): JSX.Element {
     const sampleGlobals = useSampleGlobals()
     const { groupsTaxonomicTypes } = useValues(groupsModel)
@@ -169,7 +176,7 @@ export function HogFlowPropertyFilters({
     return (
         <PropertyFilters
             propertyFilters={filters?.properties}
-            onChange={(properties: FilterType['properties']): void => {
+            onChange={(properties: AnyPropertyFilter[]): void => {
                 setFilters({ ...filters, properties: properties ?? [] } as HogFlowAction['filters'])
             }}
             pageKey={`HogFlowPropertyFilters.${filtersKey}`}
@@ -180,6 +187,8 @@ export function HogFlowPropertyFilters({
             singleLine={singleLine}
             showRemoveButton={showRemoveButton}
             hasRowOperator={hasRowOperator}
+            propertyGroupType={propertyGroupType}
+            orFiltering={!!propertyGroupType}
             taxonomicGroupTypes={
                 taxonomicGroupTypes ??
                 // Warehouse rows are row-scoped — only the synced row's columns make sense to filter on,

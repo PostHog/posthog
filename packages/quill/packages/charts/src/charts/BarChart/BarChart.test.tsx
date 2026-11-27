@@ -266,6 +266,21 @@ describe('BarChart', () => {
             expect(tooltip.series.b.value).toBe(15)
         })
 
+        it('stacks a negative value below zero without divergingStack', async () => {
+            const series: Series[] = [
+                { key: 'a', label: 'A', data: [10, -5, 10] },
+                { key: 'b', label: 'B', data: [4, 4, 4] },
+            ]
+            const { chart } = renderChart(
+                <BarChart series={series} labels={LABELS} theme={THEME} config={{ barLayout: 'stacked' }} />
+            )
+            expect(chart.yTicks().some((tick) => tick.startsWith('-'))).toBe(true)
+
+            chart.hoverAtIndex(1)
+            const tooltip = await chart.waitForTooltip()
+            expect(tooltip.series.a.value).toBe(-5)
+        })
+
         it('stacked tooltip keeps series in declaration order regardless of cursor height', async () => {
             // At index 1: a=20 (bottom of stack), b=15 (on top). The tooltip lists the whole stack in
             // declaration order — visual top-to-bottom ordering is handled downstream by DefaultTooltip's

@@ -113,12 +113,14 @@ class FunnelQueryBuilder:
             )
             later_step_extracts = [f"arrayElement(t.steps, {i + 1}) AS step_{i}" for i in range(1, num_steps)]
             step_extracts = ", ".join([step_0_extract, *later_step_extracts])
-            entity_id_cast = "toUUID(t.entity_id)" if self._b.entity_key == "person_id" else "t.entity_id"
+            entity_id_sql = self._b.context.precomputed_entity_id_sql()
 
             # Filter by experiment date range: jobs can cover broader time ranges
             # than the experiment for cache reusability, so we must filter on read.
             # Upper bound includes conversion window since funnel step events can
-            # occur after experiment end.
+            # occur after experiment end. The lower bound rolls back by the CUPED
+            # lookback, which the build stores too; step_0 above keeps the experiment
+            # start, so a pre-start exposure never anchors a funnel.
             conversion_window_seconds = self._b._get_conversion_window_seconds()
             if conversion_window_seconds > 0:
                 upper_bound = f"{{metric_events_date_to}} + toIntervalSecond({conversion_window_seconds})"
@@ -128,14 +130,14 @@ class FunnelQueryBuilder:
             metric_events_cte_str = f"""
                     metric_events AS (
                         SELECT
-                            {entity_id_cast} AS entity_id,
+                            {entity_id_sql} AS entity_id,
                             t.timestamp AS timestamp,
                             t.event_uuid AS uuid,
                             {step_extracts}
                         FROM experiment_metric_events_preaggregated AS t
                         WHERE t.job_id IN {{metric_events_job_ids}}
                             AND t.team_id = {{metric_events_team_id}}
-                            AND t.timestamp >= {{metric_events_date_from}}
+                            AND t.timestamp >= {{metric_events_scan_from}}
                             AND t.timestamp <= {upper_bound}
                     )
             """
@@ -241,6 +243,9 @@ class FunnelQueryBuilder:
             placeholders["metric_events_team_id"] = ast.Constant(value=self._b.team.id)
             placeholders["metric_events_date_from"] = self._b.date_range_query.date_from_as_hogql()
             placeholders["metric_events_date_to"] = self._b.date_range_query.date_to_as_hogql()
+            placeholders["metric_events_scan_from"] = self._b._extend_date_from_for_funnel_cuped(
+                self._b.date_range_query.date_from_as_hogql()
+            )
 
         query = parse_select(
             f"""
@@ -508,6 +513,12 @@ class FunnelQueryBuilder:
             AND {test_accounts_filter}
             AND {variant_property} IN {variants}
         """
+        # CUPED rolls the step scan back by lookback_days, but an exposure before the experiment never
+        # anchors a funnel, so the exposure branch keeps the experiment start. Only a CUPED build gets
+        # the extra placeholder: its rolled-back start already gives it a job hash of its own, and the
+        # template of every other funnel build stays byte for byte.
+        if self._b.cuped_config.enabled:
+            exposure_filter_sql = exposure_filter_sql.replace("{experiment_date_from}", "{exposure_date_from}")
         # The stored step_0 flag must be date-independent: {experiment_date_to} resolves to the
         # build horizon at INSERT time, and jobs are reused by reads with an earlier end date
         # (recalculation as_of, timeseries backfill). A baked date bound would mark exposures
@@ -534,13 +545,14 @@ class FunnelQueryBuilder:
             AND {funnel_steps_filter}
             """
 
+        distinct_id_column_sql = self._b.context.precompute_distinct_id_column_sql("distinct_id")
         query_string = f"""
             SELECT
                 {{entity_key}} AS entity_id,
                 timestamp AS timestamp,
                 uuid AS event_uuid,
                 `$session_id` AS session_id,
-                {steps_array_sql} AS steps
+                {steps_array_sql} AS steps{distinct_id_column_sql}
             FROM events
             WHERE timestamp >= {{time_window_min}}
                 AND timestamp < {{time_window_max}}
@@ -554,11 +566,18 @@ class FunnelQueryBuilder:
             "test_accounts_filter": self._b._exposure_query_builder().build_test_accounts_filter(),
             "variant_property": self._b._build_variant_property(),
             "variants": ast.Constant(value=list(self._b.variants)),
-            "experiment_date_from": self._b.date_range_query.date_from_as_hogql(),
+            # With CUPED the step scan starts lookback_days earlier, so the stored rows also cover the
+            # pre-exposure covariate window. The rolled-back date is part of the job hash, so a CUPED
+            # metric builds its own jobs.
+            "experiment_date_from": self._b._extend_date_from_for_funnel_cuped(
+                self._b.date_range_query.date_from_as_hogql()
+            ),
             "experiment_date_to": self._b.date_range_query.date_to_as_hogql(),
             "conversion_window_seconds": ast.Constant(value=conversion_window_seconds),
             "funnel_steps_filter": funnel_steps_to_filter(self._b.team, self._b.metric.series),
         }
+        if self._b.cuped_config.enabled:
+            placeholders["exposure_date_from"] = self._b.date_range_query.date_from_as_hogql()
 
         return query_string, placeholders
 

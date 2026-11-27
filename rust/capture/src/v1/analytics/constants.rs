@@ -134,8 +134,8 @@ pub(super) const ILLEGAL_DISTINCT_IDS: &[&str] = &[
 // Timestamp normalization
 // ---------------------------------------------------------------------------
 
-/// Events whose skew-adjusted timestamp is more than 23 hours in the future
-/// (in milliseconds) are clamped to server `now`.
+/// Events whose timestamp, after any skew correction, is more than 23 hours in
+/// the future (in milliseconds) are clamped to server `now`.
 pub(super) const FUTURE_EVENT_HOURS_CUTOFF_MS: i64 = 23 * 3600 * 1000;
 
 /// Counter for adjustments applied to accepted events (label: reason).

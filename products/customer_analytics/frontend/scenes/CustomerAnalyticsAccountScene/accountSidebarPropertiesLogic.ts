@@ -17,8 +17,8 @@ import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 import { userHasAccess } from 'lib/utils/accessControlUtils'
-import { membersLogic } from 'scenes/organization/membersLogic'
 
+import { membersLogic } from '~/models/membersLogic'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { AccessControlLevel, AccessControlResourceType, OrganizationMemberType } from '~/types'
 
@@ -785,6 +785,8 @@ export const accountSidebarPropertiesLogic: LogicWrapper<accountSidebarPropertie
                 [accountSidebarConfigLogic({ projectId: props.projectId }).actionTypes.loadConfigSuccess]: () =>
                     actions.loadPropertyData(),
                 [accountSidebarConfigLogic({ projectId: props.projectId }).actionTypes.persistPinnedPropertiesSuccess]:
+                    () => actions.loadPropertyData(),
+                [accountSidebarConfigLogic({ projectId: props.projectId }).actionTypes.persistFollowedDefaultSuccess]:
                     () => actions.loadPropertyData(),
                 [accountSidebarConfigLogic({ projectId: props.projectId }).actionTypes.loadAvailableDefinitionsSuccess]:
                     () => actions.loadPropertyData(),

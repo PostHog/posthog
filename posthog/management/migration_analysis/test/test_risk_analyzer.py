@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 from django.db import migrations, models
@@ -15,6 +15,7 @@ from posthog.management.migration_analysis.policies import (
     GeneratedNameDropPolicy,
     HotTableAlterPolicy,
     LockPhaseTransactionPolicy,
+    NonDbAlterFieldPolicy,
     OrphanedForeignKeyPolicy,
 )
 from posthog.management.migration_analysis.utils import _model_name_for_table
@@ -1532,6 +1533,127 @@ class TestCombinationRisks:
         assert any("CRITICAL" in warning for warning in combination_risks)
         assert any("DML" in warning for warning in combination_risks)
 
+    @parameterized.expand(
+        [
+            (
+                "trigger_event_and_function_body",
+                "CREATE OR REPLACE FUNCTION bump() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN "
+                "UPDATE audit SET n = n + 1; RETURN NEW; END $$; "
+                "CREATE TRIGGER t BEFORE UPDATE OR DELETE ON test_table FOR EACH ROW EXECUTE FUNCTION bump();",
+                False,
+            ),
+            (
+                "trigger_event_with_columns",
+                "CREATE TRIGGER t AFTER UPDATE OF a, b ON test_table EXECUTE FUNCTION f();",
+                False,
+            ),
+            ("do_block_runs_now", "DO $$ BEGIN UPDATE test_table SET foo = 'bar'; END $$;", True),
+            (
+                "function_called_by_select",
+                "CREATE FUNCTION f() RETURNS void AS $$ UPDATE test_table SET x = 1 $$ LANGUAGE sql; SELECT f();",
+                True,
+            ),
+            (
+                "function_called_as_table_function",
+                "CREATE FUNCTION f() RETURNS void LANGUAGE sql AS $$ UPDATE test_table SET x = 1 $$; "
+                "SELECT * FROM f();",
+                True,
+            ),
+            (
+                "schema_qualified_function_called",
+                'CREATE FUNCTION public."f"() RETURNS void LANGUAGE sql AS $$ UPDATE test_table SET x = 1 $$; '
+                "SELECT 1 FROM public.f();",
+                True,
+            ),
+            (
+                "quoted_name_with_dash_called",
+                'CREATE FUNCTION "f-g"() RETURNS void LANGUAGE sql AS $$ UPDATE test_table SET x = 1 $$; '
+                'SELECT * FROM "f-g"();',
+                True,
+            ),
+            (
+                "quoted_name_with_space_called",
+                'CREATE FUNCTION "my func"() RETURNS void LANGUAGE sql AS $$ UPDATE test_table SET x = 1 $$; '
+                'SELECT "my func"();',
+                True,
+            ),
+            (
+                "quoted_schema_with_space_called",
+                'CREATE FUNCTION "my schema".f() RETURNS void LANGUAGE sql AS $$ UPDATE test_table SET x = 1 $$; '
+                'SELECT "my schema".f();',
+                True,
+            ),
+            (
+                "comment_between_name_and_paren",
+                "CREATE FUNCTION f() RETURNS void LANGUAGE sql AS $$ UPDATE test_table SET x = 1 $$; "
+                "SELECT f /* run it */ ();",
+                True,
+            ),
+            (
+                "name_with_dollar_called",
+                "CREATE FUNCTION f$1() RETURNS void LANGUAGE sql AS $$ UPDATE test_table SET x = 1 $$; SELECT f$1();",
+                True,
+            ),
+            (
+                "quoted_name_ending_in_escaped_quote_called",
+                'CREATE FUNCTION "ab"""() RETURNS void LANGUAGE sql AS $$ UPDATE test_table SET x = 1 $$; '
+                'SELECT "ab"""();',
+                True,
+            ),
+            (
+                "unquoted_name_called_with_quotes",
+                'CREATE FUNCTION f() RETURNS void LANGUAGE sql AS $$ UPDATE test_table SET x = 1 $$; SELECT "f"();',
+                True,
+            ),
+            (
+                "prefix_of_called_name_leaves_body_out",
+                "CREATE FUNCTION f() RETURNS void LANGUAGE sql AS $$ UPDATE test_table SET x = 1 $$; SELECT f$1();",
+                False,
+            ),
+            (
+                "quoted_name_not_called_leaves_body_out",
+                'CREATE FUNCTION "f-g"() RETURNS void LANGUAGE sql AS $$ UPDATE test_table SET x = 1 $$; SELECT g();',
+                False,
+            ),
+            (
+                "unrelated_call_leaves_body_out",
+                "CREATE FUNCTION f() RETURNS void LANGUAGE sql AS $$ UPDATE test_table SET x = 1 $$; SELECT now();",
+                False,
+            ),
+            (
+                "procedure_called_by_call",
+                "CREATE PROCEDURE p() LANGUAGE sql AS $$ DELETE FROM test_table $$; CALL p();",
+                True,
+            ),
+            (
+                "single_quoted_body_before_do_block",
+                "CREATE FUNCTION f() RETURNS int LANGUAGE sql AS 'SELECT 1'; "
+                "DO $$ BEGIN UPDATE test_table SET a = 1; END $$;",
+                True,
+            ),
+            (
+                "update_after_function",
+                "CREATE FUNCTION f() RETURNS int AS $$ SELECT 1 $$; UPDATE test_table SET a = 1;",
+                True,
+            ),
+        ]
+    )
+    def test_runsql_dml_counts_only_sql_run_by_the_migration(self, _name, sql, expect_dml):
+        mock_migration = MagicMock()
+        mock_migration.atomic = True
+        mock_migration.operations = [
+            create_mock_operation(
+                migrations.AddField, model_name="test", name="new_field", field=models.CharField(null=True)
+            ),
+            create_mock_operation(migrations.RunSQL, sql=sql),
+        ]
+
+        operation_risks = [self.analyzer.analyze_operation(op) for op in mock_migration.operations]
+        combination_risks = self.analyzer.check_operation_combinations(mock_migration, operation_risks)
+
+        assert any("DML" in warning for warning in combination_risks) == expect_dml
+        assert (operation_risks[1].level == RiskLevel.BLOCKED) == expect_dml
+
     def test_runsql_with_ddl_and_schema_operations(self):
         """DDL + schema ops should give specific message about splitting"""
         mock_migration = MagicMock()
@@ -2509,7 +2631,7 @@ class TestHotTableAlterPolicy:
         risk = self._analyze([op])
         assert not any("ACCESS EXCLUSIVE" in v for v in risk.policy_violations)
 
-    def test_acknowledged_migration_not_flagged(self, tmp_path, monkeypatch):
+    def test_acknowledged_migration_needs_review_instead_of_blocked(self, tmp_path, monkeypatch):
         ack_file = tmp_path / "acks.txt"
         ack_file.write_text("# comment\nposthog.0001_test\n")
         monkeypatch.setattr(HotTableAlterPolicy, "ACKNOWLEDGMENTS_FILE", ack_file)
@@ -2518,6 +2640,9 @@ class TestHotTableAlterPolicy:
         )
         risk = self._analyze([op])
         assert not any("ACCESS EXCLUSIVE" in v for v in risk.policy_violations)
+        # The acknowledgment allows the lock, so the Migration risk check must not pass it as safe.
+        assert risk.level == RiskLevel.NEEDS_REVIEW
+        assert any("every query on the table" in note for note in risk.review_notes)
 
     def test_violation_names_the_acknowledgment_entry(self):
         op = create_mock_operation(
@@ -2777,6 +2902,8 @@ class TestHotTableAlterPolicy:
         )
         risk = self._analyze_product([op])
         assert not any("SHARE ROW EXCLUSIVE" in v for v in risk.policy_violations)
+        assert risk.level == RiskLevel.NEEDS_REVIEW
+        assert any("every write on the table" in note for note in risk.review_notes)
 
     def test_add_foreign_key_not_valid_on_hot_child_blocked(self):
         """The helper run against a hot child still ALTERs posthog_team itself - gate it."""
@@ -2804,6 +2931,8 @@ class TestGuardedCatchupMigrations:
         'REFERENCES "other_table" ("id") NOT VALID;\nEND IF; END $$;'
     )
     GUARDED_INDEX_SQL = 'CREATE INDEX CONCURRENTLY IF NOT EXISTS "my_idx" ON "my_table" ("col"); -- trailing-marker'
+    VALIDATE_SQL = 'ALTER TABLE "my_table" VALIDATE CONSTRAINT "my_fk";'
+    STORAGE_PARAMETERS_SQL = "SET lock_timeout = '5s';\nALTER TABLE my_table SET (autovacuum_vacuum_scale_factor = 0.02);\nRESET lock_timeout;"
 
     def setup_method(self):
         self.analyzer = RiskAnalyzer()
@@ -2818,8 +2947,10 @@ class TestGuardedCatchupMigrations:
         return [
             AddFieldIfMissing(model_name="mymodel", name="col", field=models.IntegerField(null=False)),
             AddIndexIfMissing(model_name="mymodel", index=models.Index(fields=["col"], name="my_idx")),
-            migrations.RunSQL(sql=self.GUARDED_FK_SQL, reverse_sql=migrations.RunSQL.noop),
+            migrations.RunSQL(sql=self.GUARDED_FK_SQL + "\n" + self.VALIDATE_SQL, reverse_sql=migrations.RunSQL.noop),
             migrations.RunSQL(sql=self.GUARDED_INDEX_SQL, reverse_sql=migrations.RunSQL.noop),
+            migrations.RunSQL(sql=self.VALIDATE_SQL, reverse_sql=migrations.RunSQL.noop),
+            migrations.RunSQL(sql=self.STORAGE_PARAMETERS_SQL, reverse_sql=migrations.RunSQL.noop),
             ValidateConstraint(model_name="mymodel", name="my_fk"),
         ]
 
@@ -3158,3 +3289,82 @@ class TestGeneratedNameDropPolicy:
 
         assert len(violations) == 1
         assert "DropIndexConcurrently drops posthog_x_owner_id_5a6b7c8d" in violations[0]
+
+
+class TestNonDbAlterFieldPolicy:
+    def _state(self):
+        state = ProjectState()
+        state.add_model(
+            ModelState(
+                app_label="posthog",
+                name="Task",
+                fields=[
+                    ("id", models.AutoField(primary_key=True)),
+                    ("status", models.CharField(max_length=20, choices=[("open", "Open")])),
+                    ("owner", models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)),
+                ],
+            )
+        )
+        return state
+
+    @parameterized.expand(
+        [
+            (
+                "new_choice",
+                migrations.AlterField(
+                    "task", "status", models.CharField(max_length=20, choices=[("open", "Open"), ("done", "Done")])
+                ),
+                1,
+            ),
+            (
+                "help_text_wrapped_to_dodge_the_hot_table_check",
+                migrations.SeparateDatabaseAndState(
+                    state_operations=[
+                        migrations.AlterField(
+                            "task",
+                            "status",
+                            models.CharField(max_length=20, choices=[("open", "Open")], help_text="Lifecycle"),
+                        )
+                    ]
+                ),
+                1,
+            ),
+            (
+                "column_change",
+                migrations.AlterField("task", "status", models.CharField(max_length=40, choices=[("open", "Open")])),
+                0,
+            ),
+            (
+                "default_change",
+                migrations.AlterField(
+                    "task", "status", models.CharField(max_length=20, choices=[("open", "Open")], default="open")
+                ),
+                0,
+            ),
+            (
+                "foreign_key_repoint_after_a_model_move",
+                migrations.SeparateDatabaseAndState(
+                    state_operations=[
+                        migrations.AlterField(
+                            "task",
+                            "owner",
+                            models.ForeignKey("posthog.Project", on_delete=models.CASCADE, db_constraint=False),
+                        )
+                    ]
+                ),
+                0,
+            ),
+        ]
+    )
+    def test_flags_only_alter_fields_the_database_never_sees(self, _name, operation, expected):
+        migration = MagicMock()
+        migration.app_label = "posthog"
+        migration.name = "0001_test"
+        migration.operations = [operation]
+        state = self._state()
+
+        with patch.object(NonDbAlterFieldPolicy, "_state_before", lambda _self, _migration: state):
+            migration_risk = RiskAnalyzer().analyze_migration(migration, "posthog/migrations/0001_test.py")
+
+        assert len([message for message in migration_risk.info_messages if "AlterField" in message]) == expected
+        assert not any("AlterField" in violation for violation in migration_risk.policy_violations)

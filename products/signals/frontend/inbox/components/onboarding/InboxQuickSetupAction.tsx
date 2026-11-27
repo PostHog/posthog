@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { combineUrl } from 'kea-router'
 import { useEffect } from 'react'
 
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
@@ -9,13 +8,12 @@ import { TeamMembershipLevel } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { GithubIntegration } from 'scenes/integrations/components/GithubIntegration'
 import { IntegrationAccessRequest } from 'scenes/integrations/components/IntegrationAccessRequest'
-import { urls } from 'scenes/urls'
 
 import { inboxSetupLogic } from '../../logics/inboxSetupLogic'
 import { useScoutCreateDisabledReason } from '../config/scouts/ScoutCreateModalHost'
 
 export function InboxQuickSetupAction(): JSX.Element {
-    const { startSetup, connectGithub, activateQuickSetup, resumeQuickSetup, retry } = useActions(inboxSetupLogic)
+    const { connectGithub, activateQuickSetup, resumeQuickSetup, retry } = useActions(inboxSetupLogic)
     const {
         hasGithubIntegration,
         isGithubOptionalSetup,
@@ -23,7 +21,7 @@ export function InboxQuickSetupAction(): JSX.Element {
         saving,
         error,
         shouldResumeQuickSetup,
-        failedOperation,
+        quickSetupGithubReturnUrl,
     } = useValues(inboxSetupLogic)
     const { integrations, integrationsLoading } = useValues(integrationsLogic)
     const scoutDisabledReason = useScoutCreateDisabledReason()
@@ -51,13 +49,13 @@ export function InboxQuickSetupAction(): JSX.Element {
                     disabledReason={restrictionReason || scoutDisabledReason}
                     data-attr="inbox-quick-activate"
                 >
-                    Activate Self-Driving
+                    Activate Self-driving
                 </LemonButton>
             ) : restrictionReason ? (
                 <IntegrationAccessRequest kind="github" name="GitHub" />
             ) : (
                 <GithubIntegration
-                    next={combineUrl(urls.inbox(), { onboarding_step: 'quick' }).url}
+                    next={quickSetupGithubReturnUrl}
                     connectSurface="inbox_welcome"
                     onAuthorize={connectGithub}
                     authorizing={saving || (integrationsLoading && integrations === null)}
@@ -70,17 +68,11 @@ export function InboxQuickSetupAction(): JSX.Element {
                 />
             )}
             {error && (
-                <LemonBanner type="error">
-                    {error}
+                <LemonBanner type="error" className="w-full">
+                    <span>{error}</span>
                     <LemonButton
                         size="small"
-                        onClick={
-                            failedOperation === 'scouts' || failedOperation === 'sources'
-                                ? retry
-                                : hasGithubIntegration
-                                  ? () => activateQuickSetup('retry')
-                                  : startSetup
-                        }
+                        onClick={retry}
                         loading={busy}
                         disabledReason={restrictionReason || scoutDisabledReason}
                     >

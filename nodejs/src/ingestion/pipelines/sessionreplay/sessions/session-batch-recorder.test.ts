@@ -5,7 +5,6 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { KafkaOffsetManager } from '~/ingestion/pipelines/sessionreplay/kafka/offset-manager'
 import { ParsedMessageData, SnapshotEvent } from '~/ingestion/pipelines/sessionreplay/kafka/types'
 import { RetentionPeriod } from '~/ingestion/pipelines/sessionreplay/shared/constants'
-import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
 import { SessionMetadataStore } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
 import { createMockEncryptor, createMockSessionKey } from '~/ingestion/pipelines/sessionreplay/shared/test-helpers'
 import { RecordingEncryptor, SessionKey } from '~/ingestion/pipelines/sessionreplay/shared/types'
@@ -17,7 +16,6 @@ import { BLOCK_BUILD_CONCURRENCY, SessionBatchRecorder } from './session-batch-r
 import { EndResult, SessionBlockRecorder } from './session-block-recorder'
 import { SessionConsoleLogRecorder } from './session-console-log-recorder'
 import { SessionConsoleLogStore } from './session-console-log-store'
-import { SessionFeatureRecorder } from './session-feature-recorder'
 
 // RRWeb event type constants
 const enum EventType {
@@ -129,53 +127,6 @@ jest.mock('./session-console-log-recorder', () => ({
     })),
 }))
 
-jest.mock('./session-feature-recorder', () => ({
-    SessionFeatureRecorder: jest.fn().mockImplementation((_sessionId, _teamId, _batchId) => ({
-        recordMessage: jest.fn().mockReturnValue(undefined),
-        end: jest.fn().mockReturnValue({
-            startDateTime: null,
-            endDateTime: null,
-            eventCount: 0,
-            mousePositionCount: 0,
-            mouseSumX: 0,
-            mouseSumXSquared: 0,
-            mouseSumY: 0,
-            mouseSumYSquared: 0,
-            mouseDistanceTraveled: 0,
-            mouseDirectionChangeCount: 0,
-            mouseVelocitySum: 0,
-            mouseVelocitySumOfSquares: 0,
-            mouseVelocityCount: 0,
-            scrollEventCount: 0,
-            totalScrollMagnitude: 0,
-            scrollDirectionReversalCount: 0,
-            rapidScrollReversalCount: 0,
-            clickCount: 0,
-            keypressCount: 0,
-            mouseActivityCount: 0,
-            rageClickCount: 0,
-            deadClickCount: 0,
-            interActionGapCount: 0,
-            interActionGapSumMs: 0,
-            interActionGapSumOfSquaresMs: 0,
-            maxIdleGapMs: 0,
-            quickBackCount: 0,
-            pageVisitCount: 0,
-            visitedUrls: [],
-            consoleErrorCount: 0,
-            consoleErrorAfterClickCount: 0,
-            networkRequestCount: 0,
-            networkFailedRequestCount: 0,
-            networkRequestDurationSum: 0,
-            networkRequestDurationSumOfSquares: 0,
-            networkRequestDurationCount: 0,
-            maxScrollY: 0,
-            clickTargetIds: [],
-            textSelectionCount: 0,
-        }),
-    })),
-}))
-
 jest.setTimeout(1000)
 
 jest.mock('./metrics', () => ({
@@ -210,7 +161,6 @@ describe('SessionBatchRecorder', () => {
     let mockStorage: jest.Mocked<SessionBatchFileStorage>
     let mockMetadataStore: jest.Mocked<SessionMetadataStore>
     let mockConsoleLogStore: jest.Mocked<SessionConsoleLogStore>
-    let mockFeatureStore: jest.Mocked<SessionFeatureStore>
     let mockEncryptor: jest.Mocked<RecordingEncryptor>
 
     // Records a message with its resolved retention and encryption key (both resolved upstream in
@@ -218,8 +168,9 @@ describe('SessionBatchRecorder', () => {
     const record = (
         message: MessageWithTeam,
         retentionPeriod: RetentionPeriod = '30d',
-        sessionKey: SessionKey = createMockSessionKey()
-    ): Promise<number> => recorder.record(message, retentionPeriod, sessionKey)
+        sessionKey: SessionKey = createMockSessionKey(),
+        captureTimestampMs?: number
+    ): Promise<number> => recorder.record(message, retentionPeriod, sessionKey, captureTimestampMs)
 
     beforeEach(() => {
         jest.clearAllMocks()
@@ -251,10 +202,6 @@ describe('SessionBatchRecorder', () => {
             flush: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<SessionConsoleLogStore>
 
-        mockFeatureStore = {
-            storeSessionFeatures: jest.fn().mockResolvedValue(undefined),
-        } as unknown as jest.Mocked<SessionFeatureStore>
-
         mockStorage = {
             newBatch: jest.fn().mockReturnValue(mockWriter),
         } as unknown as jest.Mocked<SessionBatchFileStorage>
@@ -266,7 +213,6 @@ describe('SessionBatchRecorder', () => {
             mockStorage,
             mockMetadataStore,
             mockConsoleLogStore,
-            mockFeatureStore,
             mockEncryptor,
             Number.MAX_SAFE_INTEGER
         )
@@ -341,23 +287,6 @@ describe('SessionBatchRecorder', () => {
     })
 
     describe('recording and writing', () => {
-        it('skips the feature recorder for pre-serialized (native-anonymizer) messages', async () => {
-            // The feature recorder throws on pre-serialized input; calling it per message would
-            // spam Sentry and stop feature blocks. The call site must skip it instead.
-            const message = createMessage('session1', [])
-            message.message.eventsByWindowId = {}
-            message.message.preSerialized = {
-                lines: Buffer.from('["window1",{"type":3,"timestamp":1000}]\n'),
-                events: [{ ts: 1000, flags: 0 }],
-                consoleLogCount: 0,
-                consoleWarnCount: 0,
-                consoleErrorCount: 0,
-            }
-            await record(message)
-            const featureRecorder = jest.mocked(SessionFeatureRecorder).mock.results[0].value
-            expect(featureRecorder.recordMessage).not.toHaveBeenCalled()
-        })
-
         it('should write events in correct format', async () => {
             const message = createMessage('session1', [
                 {
@@ -384,9 +313,10 @@ describe('SessionBatchRecorder', () => {
                 },
             ])
 
-            await record(message)
+            await record(message, '30d', createMockSessionKey(), 1_700_000_000_000)
 
-            await recorder.flush()
+            const persistedSessions = await recorder.flush()
+            expect(persistedSessions[0].captureTimestampMs).toBe(1_700_000_000_000)
             const writtenData = captureWrittenData(mockWriter.writeSession as jest.Mock)
 
             expect(mockWriter.finish).toHaveBeenCalledTimes(1)
@@ -1434,7 +1364,6 @@ describe('SessionBatchRecorder', () => {
                 mockStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
-                mockFeatureStore,
                 mockEncryptor,
                 Number.MAX_SAFE_INTEGER
             )
@@ -1635,7 +1564,6 @@ describe('SessionBatchRecorder', () => {
                 mockStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
-                mockFeatureStore,
                 mockEncryptor,
                 3
             )
@@ -1662,7 +1590,6 @@ describe('SessionBatchRecorder', () => {
                 mockStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
-                mockFeatureStore,
                 mockEncryptor,
                 2
             )
@@ -1681,7 +1608,8 @@ describe('SessionBatchRecorder', () => {
             expect(bytesWritten2).toBeGreaterThan(0)
             expect(bytesWritten3).toBe(0)
 
-            await recorder.flush()
+            const persistedSessions = await recorder.flush()
+            expect(persistedSessions).toEqual([])
             const writtenData = captureWrittenData(mockWriter.writeSession as jest.Mock)
             expect(writtenData).toHaveLength(0)
         })
@@ -1692,7 +1620,6 @@ describe('SessionBatchRecorder', () => {
                 mockStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
-                mockFeatureStore,
                 mockEncryptor,
                 1
             )
@@ -1715,7 +1642,6 @@ describe('SessionBatchRecorder', () => {
                 mockStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
-                mockFeatureStore,
                 mockEncryptor,
                 2
             )
@@ -1751,7 +1677,6 @@ describe('SessionBatchRecorder', () => {
                 mockStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
-                mockFeatureStore,
                 mockEncryptor,
                 2
             )
@@ -1787,7 +1712,6 @@ describe('SessionBatchRecorder', () => {
                 mockStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
-                mockFeatureStore,
                 mockEncryptor,
                 1
             )
@@ -1819,7 +1743,6 @@ describe('SessionBatchRecorder', () => {
                 mockStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
-                mockFeatureStore,
                 mockEncryptor,
                 2
             )
@@ -1848,7 +1771,6 @@ describe('SessionBatchRecorder', () => {
                 mockStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
-                mockFeatureStore,
                 mockEncryptor,
                 1
             )
@@ -1876,7 +1798,6 @@ describe('SessionBatchRecorder', () => {
                 mockStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
-                mockFeatureStore,
                 mockEncryptor,
                 1
             )
@@ -1905,7 +1826,6 @@ describe('SessionBatchRecorder', () => {
                 mockStorage,
                 mockMetadataStore,
                 mockConsoleLogStore,
-                mockFeatureStore,
                 mockEncryptor,
                 1
             )

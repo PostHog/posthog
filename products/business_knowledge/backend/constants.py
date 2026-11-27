@@ -194,6 +194,12 @@ BK_RERANK_MODEL = "claude-haiku-4-5"
 # Max chars of chunk content included in the rerank prompt per candidate.
 BK_RERANK_SNIPPET_CHARS = 500
 BK_RERANK_TIMEOUT = httpx.Timeout(30.0, connect=5.0)
+BK_RERANK_MAX_RETRIES = 3
+# Rerank budget for a search a caller waits on. Every attempt at the default budget
+# can add up to more than an MCP or HTTP client waits for one request, and then the
+# caller times out before the fused-order fallback returns.
+BK_RERANK_REQUEST_TIMEOUT = httpx.Timeout(10.0, connect=5.0)
+BK_RERANK_REQUEST_MAX_RETRIES = 1
 # Timeout (seconds) for the async embedding call on the query path. If the
 # embedding service is slow, FTS alone fires (graceful degradation).
 BK_QUERY_EMBEDDING_TIMEOUT = 5.0
@@ -204,6 +210,9 @@ BK_QUERY_EMBEDDING_TIMEOUT = 5.0
 # `search_knowledge` also clamps its anchor count to the max.
 BK_SEARCH_DEFAULT_LIMIT = 10
 BK_SEARCH_MAX_LIMIT = 20
+# The whole query goes to the embedding worker and into the full-text search, so the cap bounds the
+# work one request can ask for. A query in a POST body has no URL length limit to bound it.
+BK_SEARCH_MAX_QUERY_CHARS = 2000
 # A library-scoped semantic query filters ClickHouse by document id. The query
 # already carries a 1,536-float embedding (~30 KB). Past this many ids the IN
 # list is dropped and the Postgres rejoin does the filter instead.
@@ -252,3 +261,40 @@ BK_MCP_SCOPE = "business_knowledge:read"
 # It reads the project to find its organization, and the business knowledge tools sit behind a flag
 # targeted by organization, so without project:read the search tool is hidden.
 BK_MCP_SCOPES = [BK_MCP_SCOPE, "user:read", "project:read"]
+
+DOCS_SEARCH_TOOL = "docs-search"
+# Read tools the token's scopes unlock but the answer never needs. Knowledge content can carry
+# injected instructions, so hide anything that reads the asker's own data.
+BK_HIDDEN_TOOLS = (
+    DOCS_SEARCH_TOOL,
+    "user-get",
+    "user-home-settings-get",
+    "llma-personal-spend",
+    "reminder-get",
+    "reminders-list",
+    "project-get",
+    "mcp-connections-list",
+    "mcp-connection-tools-list",
+    "tasks-list",
+    "tasks-retrieve",
+    "tasks-runs-list",
+    "tasks-runs-retrieve",
+    "tasks-runs-session-logs-retrieve",
+    "tasks-artifacts-list",
+    "tasks-config-list",
+    "tasks-me-config-list",
+    "tasks-models-retrieve",
+    "channel-list",
+    "channel-retrieve",
+    "channel-instructions-retrieve",
+    "inbox-reports-list",
+    "inbox-reports-retrieve",
+    "inbox-report-artefacts-list",
+    "inbox-report-artefacts-retrieve",
+    "inbox-report-checks-list",
+    "inbox-report-checks-retrieve",
+    "inbox-source-configs-list",
+    "inbox-source-configs-retrieve",
+    "task-context-wiki-channel-resolve",
+    "task-context-wiki-page-retrieve",
+)

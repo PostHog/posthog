@@ -1,11 +1,9 @@
+import { attachedContextItemKey } from '~/layout/ai/attachedContext'
+import { attachedContextLogic } from '~/layout/ai/attachedContextLogic'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
-import {
-    attachedContextItemKey,
-    attachedContextLogic,
-    toolStreamEventsLogic,
-} from 'products/posthog_ai/frontend/api/logics'
+import { toolStreamEventsLogic } from 'products/posthog_ai/frontend/api/logics'
 import { foregroundStreamLogic } from 'products/posthog_ai/frontend/logics/foregroundStreamLogic'
 import type { ToolStreamEvent } from 'products/posthog_ai/frontend/types/streamTypes'
 

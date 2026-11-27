@@ -3,7 +3,7 @@ import time
 import dataclasses
 from collections.abc import Callable
 from datetime import timedelta
-from typing import Literal, Optional
+from typing import Literal, Optional, Unpack
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
@@ -50,9 +50,11 @@ from posthog.models.oauth import OAuthApplication
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.organization_invite import OrganizationInvite
+from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.user import User
+from posthog.models.workload_trust_policy import WorkloadTrustPolicy, WorkloadTrustPolicyRequest
 from posthog.session.activity import session_activity_credential
 from posthog.session.models import Session
 from posthog.utils import get_ip_address, get_short_user_agent
@@ -325,6 +327,46 @@ def log_user_change_activity(
         capture_exception(e)
 
 
+@mutable_receiver(model_activity_signal, sender=OrganizationIPRestrictions)
+def handle_organization_ip_restrictions_change(
+    sender: type[OrganizationIPRestrictions],
+    scope: ActivityScope,
+    before_update: OrganizationIPRestrictions | None,
+    after_update: OrganizationIPRestrictions | None,
+    activity: str,
+    user: User | None,
+    was_impersonated: bool = False,
+    **kwargs: object,
+) -> None:
+    instance = after_update or before_update
+    if instance is None:
+        return
+    changes = changes_between(scope, previous=before_update, current=after_update)
+    if before_update is None and after_update is not None:
+        changes = [
+            Change(
+                type=scope,
+                field=field_name_overrides[scope][field],
+                action="created",
+                after=getattr(after_update, field),
+            )
+            for field in ("ip_restrictions", "enabled")
+        ]
+    log_activity(
+        organization_id=instance.organization_id,
+        team_id=None,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=instance.id,
+        scope=scope,
+        activity=activity,
+        detail=Detail(
+            changes=changes,
+            name="Organization IP restrictions",
+        ),
+    )
+
+
 @dataclasses.dataclass(frozen=True)
 class OrganizationDomainContext(ActivityContextBase):
     organization_id: str
@@ -494,6 +536,65 @@ def handle_oauth_application_scopes_change(
     )
 
 
+def _log_workload_trust_activity(
+    scope: ActivityScope,
+    before_update: WorkloadTrustPolicy | WorkloadTrustPolicyRequest | None,
+    after_update: WorkloadTrustPolicy | WorkloadTrustPolicyRequest | None,
+    activity: str,
+    user: User | None,
+    was_impersonated: bool,
+) -> None:
+    instance = after_update or before_update
+    if instance is None:
+        return
+    log_activity(
+        organization_id=instance.team.organization_id,
+        team_id=instance.team_id,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=instance.pk,
+        scope=scope,
+        activity=activity,
+        detail=Detail(
+            name=instance.name,
+            changes=changes_between(scope, previous=before_update, current=after_update),
+        ),
+    )
+
+
+@mutable_receiver(model_activity_signal, sender=WorkloadTrustPolicy)
+def handle_workload_trust_policy_change(
+    sender: type[WorkloadTrustPolicy],
+    scope: ActivityScope,
+    before_update: WorkloadTrustPolicy | None,
+    after_update: WorkloadTrustPolicy | None,
+    activity: str,
+    user: User | None,
+    was_impersonated: bool = False,
+    **kwargs,
+) -> None:
+    _log_workload_trust_activity(scope, before_update, after_update, activity, user, was_impersonated)
+
+
+@mutable_receiver(model_activity_signal, sender=WorkloadTrustPolicyRequest)
+def handle_workload_trust_policy_request_change(
+    sender: type[WorkloadTrustPolicyRequest],
+    scope: ActivityScope,
+    before_update: WorkloadTrustPolicyRequest | None,
+    after_update: WorkloadTrustPolicyRequest | None,
+    activity: str,
+    user: User | None,
+    was_impersonated: bool = False,
+    **kwargs,
+) -> None:
+    if activity == "updated":
+        # A request is immutable apart from its resolution, so an update is an approval or a rejection.
+        if before_update is None or after_update is None or before_update.status == after_update.status:
+            return
+        activity = after_update.status
+    _log_workload_trust_activity(scope, before_update, after_update, activity, user, was_impersonated)
+
+
 # --- Receivers relocated from posthog.api viewset modules ---------------------------------
 # These used to live next to their viewsets and wired in as an import side effect of the
 # eager API router. With the lazy router, AppConfig.ready() imports this module instead, so
@@ -570,8 +671,22 @@ RELATED_OBJECT_ACTIVITY_LOGGERS: dict[str, RelatedObjectActivityLogger] = {
 
 @mutable_receiver(model_activity_signal, sender=TaggedItem)
 def handle_tagged_item_change(
-    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
+    sender,
+    scope,
+    before_update,
+    after_update,
+    activity,
+    user,
+    was_impersonated=False,
+    log_entries: list[LogActivityEntry] | None = None,
+    **kwargs,
 ):
+    def record_activity(**entry: Unpack[LogActivityEntry]) -> None:
+        if log_entries is not None:
+            log_entries.append(entry)
+        else:
+            log_activity(**entry)
+
     # Use after_update for create/update, before_update for delete
     tagged_item = after_update or before_update
 
@@ -595,7 +710,20 @@ def handle_tagged_item_change(
     # Set by ActivityTriggerContext when the change comes from an automated source (e.g. a workflow)
     trigger = get_current_trigger()
 
-    log_activity(
+    changes = changes_between(scope, previous=before_update, current=after_update)
+    if (
+        before_update is not None
+        and after_update is not None
+        and before_update.tag_id == after_update.tag_id
+        and before_update.tag.name != after_update.tag.name
+    ):
+        changes.append(
+            Change(
+                type=scope, field="tag", action="changed", before=before_update.tag.name, after=after_update.tag.name
+            )
+        )
+
+    record_activity(
         organization_id=organization_id,
         team_id=team_id,
         user=user,
@@ -604,7 +732,7 @@ def handle_tagged_item_change(
         scope=scope,
         activity=activity,
         detail=Detail(
-            changes=changes_between(scope, previous=before_update, current=after_update),
+            changes=changes,
             name=tagged_item.tag.name,
             context=context,
             trigger=trigger,
@@ -615,8 +743,10 @@ def handle_tagged_item_change(
     # (e.g. so a tag added to a Ticket shows up on that ticket's timeline).
     related_logger = RELATED_OBJECT_ACTIVITY_LOGGERS.get(related_object.type or "")
     if related_logger and related_object.id:
-        tag_action: Literal["created", "deleted"] = "created" if activity == "created" else "deleted"
-        log_activity(
+        tag_action: Literal["created", "deleted", "changed"] = (
+            "created" if activity == "created" else "changed" if activity == "updated" else "deleted"
+        )
+        record_activity(
             organization_id=organization_id,
             team_id=team_id,
             user=user,
@@ -631,8 +761,8 @@ def handle_tagged_item_change(
                         type=related_logger.scope,
                         field="tag",
                         action=tag_action,
-                        after=tagged_item.tag.name if activity == "created" else None,
-                        before=tagged_item.tag.name if activity == "deleted" else None,
+                        after=after_update.tag.name if after_update is not None else None,
+                        before=before_update.tag.name if before_update is not None else None,
                     )
                 ],
                 trigger=trigger,
@@ -644,6 +774,15 @@ def handle_tagged_item_change(
 def handle_organization_change(
     sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
 ):
+    # The organization reads its own log, so a staff member who deactivates it for abuse stays unnamed there.
+    deactivated_from_outside = (
+        activity == "updated"
+        and user is not None
+        and before_update is not None
+        and before_update.is_active is not False
+        and after_update.is_active is False
+        and not after_update.memberships.filter(user_id=user.id).exists()
+    )
     log_activity(
         organization_id=after_update.id,
         team_id=None,
@@ -656,6 +795,7 @@ def handle_organization_change(
             changes=changes_between(scope, previous=before_update, current=after_update),
             name=after_update.name,
         ),
+        external_actor=deactivated_from_outside,
     )
 
 
@@ -806,7 +946,7 @@ def handle_project_secret_api_key_change(
     sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
 ):
     changes = changes_between(scope, previous=before_update, current=after_update)
-    log_project_secret_api_key_activity(after_update, activity, user, was_impersonated, changes)
+    log_project_secret_api_key_activity(after_update, activity, user, was_impersonated, changes, previous=before_update)
 
 
 @receiver(pre_delete, sender=ProjectSecretAPIKey)

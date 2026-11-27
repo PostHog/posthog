@@ -2,8 +2,9 @@ import { MakeLogicType, actions, afterMount, kea, key, listeners, path, props, r
 import { loaders } from 'kea-loaders'
 
 import { captureAccessControlEvent } from 'lib/utils/accessControlUtils'
-import { membersLogic } from 'scenes/organization/membersLogic'
 import { rolesLogic } from 'scenes/settings/organization/Permissions/Roles/rolesLogic'
+
+import { membersLogic } from '~/models/membersLogic'
 
 import {
     propertyAccessControlsCreate,
@@ -14,6 +15,8 @@ import type {
     AccessLevelEnumApi,
     PropertyAccessControlStateApi,
 } from 'products/access_control/frontend/generated/api.schemas'
+
+import type { OrganizationMemberType, RoleType } from '../../../types'
 
 export interface PropertyAccessControlLogicProps {
     propertyDefinitionId: string
@@ -103,13 +106,13 @@ export interface propertyAccessControlLogicMeta {
         defaultLevel: (localState: LocalAccessControlState | null) => AccessLevelEnumApi
         memberOverrides: (localState: LocalAccessControlState | null) => Record<string, AccessLevelEnumApi | null>
         roleOverrides: (localState: LocalAccessControlState | null) => Record<string, AccessLevelEnumApi | null>
-        allMembers: (members: import('../../../types').OrganizationMemberType[] | null) => {
+        allMembers: (members: OrganizationMemberType[] | null) => {
             email: string
             first_name: string
             id: string
             last_name: string
         }[]
-        allRoles: (roles: import('../../../types').RoleType[]) => {
+        allRoles: (roles: RoleType[]) => {
             id: string
             members: any[]
             name: string

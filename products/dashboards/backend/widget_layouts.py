@@ -83,7 +83,7 @@ def collect_dashboard_sm_layouts(dashboard_tiles: list[Any]) -> list[dict[str, A
 
 def _pack_at_bottom(column_heights: list[int], width: int, height: int) -> dict[str, int]:
     """Lowest-segment greedy placement, mirroring the dirty-tile packing in
-    ``frontend/src/scenes/dashboard/tileLayouts.ts``: pick the leftmost ``width``-wide
+    ``products/dashboards/frontend/tileLayouts.ts``: pick the leftmost ``width``-wide
     segment with the lowest top, ties keeping the leftmost."""
     w = max(1, min(width, DASHBOARD_GRID_COLUMN_COUNT))
     h = max(1, height)

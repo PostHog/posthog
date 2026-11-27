@@ -1,0 +1,72 @@
+{
+  "exitCode": 0,
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/api/projects/1/error_tracking/symbol_sets/bulk_check_upload",
+      "headers": {
+        "authorization": "Bearer phx_<key>",
+        "content-type": "application/json"
+      },
+      "body": "{\"symbol_sets\":[{\"chunk_id\":\"11111111-2222-4333-8444-555555555555\",\"release_id\":null,\"content_hash\":\"0fc402a98a41edab34970bf3a0838dd1c2e265197a0559de84901542e47d2c1f2c2d96988b30794268f84a488cea5306f1574f3d210934ab01d3032c223a5146\",\"content_length\":181},{\"chunk_id\":\"1111111122224333844455555555555F\",\"release_id\":null,\"content_hash\":\"bc523363f7feec2bbf2eb2485d6ad5f6213878ed13359cacd18cb566e445ef0b0f297c22cdb176666b727db71d7b623414ebad776a5bcaa35587144b6f4eccd3\",\"content_length\":169},{\"chunk_id\":\"not-a-uuid\",\"release_id\":null,\"content_hash\":\"9e3722a574ab6692035377ae638d639bb2590a607101f1aaed9d01bda2f568a67032694e5bbcc268aaa85f352097cbd062d2593aa1694857b786028f17922ee3\",\"content_length\":158}],\"force\":true,\"skip_on_conflict\":false}",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/1/error_tracking/symbol_sets/bulk_start_upload",
+      "headers": {
+        "authorization": "Bearer phx_<key>",
+        "content-type": "application/json"
+      },
+      "body": "{\"symbol_sets\":[{\"chunk_id\":\"11111111-2222-4333-8444-555555555555\",\"release_id\":null,\"content_hash\":\"0fc402a98a41edab34970bf3a0838dd1c2e265197a0559de84901542e47d2c1f2c2d96988b30794268f84a488cea5306f1574f3d210934ab01d3032c223a5146\",\"content_length\":181},{\"chunk_id\":\"1111111122224333844455555555555F\",\"release_id\":null,\"content_hash\":\"bc523363f7feec2bbf2eb2485d6ad5f6213878ed13359cacd18cb566e445ef0b0f297c22cdb176666b727db71d7b623414ebad776a5bcaa35587144b6f4eccd3\",\"content_length\":169},{\"chunk_id\":\"not-a-uuid\",\"release_id\":null,\"content_hash\":\"9e3722a574ab6692035377ae638d639bb2590a607101f1aaed9d01bda2f568a67032694e5bbcc268aaa85f352097cbd062d2593aa1694857b786028f17922ee3\",\"content_length\":158}],\"upload_attempt_id\":\"<attempt-1>\",\"upload_run_id\":\"<run>\",\"force\":true,\"skip_on_conflict\":false}",
+      "status": 201
+    },
+    {
+      "method": "PUT",
+      "path": "/s3/put/symbolsets/2e299ed0-dad3-5805-bcde-4d2d98f6a808?length=181",
+      "headers": {
+        "authorization": "<none>"
+      },
+      "upload": {
+        "sha512": "83b13f16e4206535ad809eb28be15b30c72d576209bc0512a619885fc9a32aa6907a8892e3c1b0ddfcc525daf025eed1945bb5a6c0b4cb85d09290c57dd158d5",
+        "length": 181
+      },
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/s3/put/symbolsets/610d3f3c-ff95-5e10-9b99-e38c2e4de773?length=158",
+      "headers": {
+        "authorization": "<none>"
+      },
+      "upload": {
+        "sha512": "c145122acd97f6d19ee71706eb9da02d82f2a52246b0eb514a153e04dc965fb26047c78cfdf2e0e5f7a06a7d018d38db4c429ed5d2cbb99a9a73651dfbd4606d",
+        "length": 158
+      },
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/s3/put/symbolsets/a052c2f8-3aac-5499-bf9a-16e82ccaba42?length=169",
+      "headers": {
+        "authorization": "<none>"
+      },
+      "upload": {
+        "sha512": "af5009969dff06b1fd46dfe101f8a3f23a0b6ab79cfba3d3fbd57ea29334ed3dac321f9e85de4147b0639c26b5424095381db6b4cf7523265bbb94aeb244d40d",
+        "length": 169
+      },
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/1/error_tracking/symbol_sets/bulk_finish_upload",
+      "headers": {
+        "authorization": "Bearer phx_<key>",
+        "content-type": "application/json"
+      },
+      "body": "{\"content_hashes\":{\"2e299ed0-dad3-5805-bcde-4d2d98f6a808\":\"0fc402a98a41edab34970bf3a0838dd1c2e265197a0559de84901542e47d2c1f2c2d96988b30794268f84a488cea5306f1574f3d210934ab01d3032c223a5146\",\"610d3f3c-ff95-5e10-9b99-e38c2e4de773\":\"9e3722a574ab6692035377ae638d639bb2590a607101f1aaed9d01bda2f568a67032694e5bbcc268aaa85f352097cbd062d2593aa1694857b786028f17922ee3\",\"a052c2f8-3aac-5499-bf9a-16e82ccaba42\":\"bc523363f7feec2bbf2eb2485d6ad5f6213878ed13359cacd18cb566e445ef0b0f297c22cdb176666b727db71d7b623414ebad776a5bcaa35587144b6f4eccd3\"},\"upload_attempt_id\":\"<attempt-1>\",\"upload_run_id\":\"<run>\"}",
+      "status": 201
+    }
+  ],
+  "files": {}
+}

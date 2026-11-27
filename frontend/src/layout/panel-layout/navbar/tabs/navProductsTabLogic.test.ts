@@ -6,8 +6,8 @@ import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -35,6 +35,7 @@ describe('navProductsTabLogic', () => {
         const registry = [...getDefaultTreeProducts(), ...getDefaultTreeData()]
         const flags = Object.fromEntries(registry.flatMap((item) => (item.flag ? [[item.flag, enabled]] : [])))
         const definitionsTabHrefs = new Set([
+            urls.tagDefinitions(),
             urls.coreEvents(),
             urls.propertyDefinitions(),
             urls.schemaManagement(),
@@ -56,17 +57,6 @@ describe('navProductsTabLogic', () => {
         ].map((item) => item.href)
         expect(new Set(actual)).toEqual(expected)
         expect(actual).toHaveLength(expected.size)
-    })
-
-    it('pins the welcome page first for a new project on the simple onboarding arm', () => {
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.ONBOARDING_SIMPLE_FLOW]: 'test' })
-        teamLogic.actions.loadCurrentTeamSuccess({
-            ...teamLogic.values.currentTeam!,
-            created_at: new Date().toISOString(),
-        })
-        expect(navProductsTabLogic.values.pinnedItems[0]).toEqual(
-            expect.objectContaining({ path: 'Welcome', href: urls.onboardingWelcome() })
-        )
     })
 
     it('searches display names and sorts categories in a fixed order and products alphabetically', async () => {

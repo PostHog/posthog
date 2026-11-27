@@ -11,7 +11,7 @@ facade boundary instead of producing a malformed payload further downstream.
 
 from dataclasses import field
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic.dataclasses import dataclass
@@ -24,6 +24,17 @@ ERROR_TRACKING_ISSUE_SEVERITIES = ("low", "medium", "high", "critical")
 class BuiltInFilterEvaluation(LabeledStrEnum):
     CLIENT = "client"
     SERVER = "server"
+
+
+class LifecycleFilterOutcome(LabeledStrEnum):
+    """Why compiled lifecycle filters admitted or skipped one issue transition."""
+
+    MATCH = "match"
+    EXCLUDED_BY_FILTER = "excluded_by_filter"
+    # A filter key needs exception properties that the transition does not carry.
+    DATA_UNAVAILABLE = "data_unavailable"
+    # Missing bytecode, or bytecode that failed to evaluate.
+    FILTER_ERROR = "filter_error"
 
 
 class IssueTrendDirection(LabeledStrEnum):
@@ -106,11 +117,59 @@ class GitHubExternalReferenceJob:
 
 
 @dataclass(frozen=True)
+class LinearExternalReferenceJob:
+    team_id: int
+    # The Linear workspace id, which is the `integration_id` of the team's `linear` integration.
+    organization_id: str
+    # The immutable ticket id survives moves between Linear teams.
+    ticket_id: UUID
+    actor_id: UUID
+    identifier: str
+    issue_id: UUID | None = None
+    fingerprint: str | None = field(default=None, repr=False)
+
+    def __post_init__(self) -> None:
+        if (self.issue_id is None) == (self.fingerprint is None):
+            raise ValueError("Provide exactly one PostHog issue identifier.")
+
+
+@dataclass(frozen=True)
+class LinearStatusSyncJob:
+    # The Linear workspace id, which is the `integration_id` of the team's `linear` integration.
+    organization_id: str
+    # The ticket's identifier first, then any identifiers it had before it moved between Linear teams.
+    identifiers: tuple[str, ...]
+    # The workflow state the ticket left. The task reads its category to tell a reopen from a move
+    # between two open states. None reconciles a newly linked ticket without inferring a reopen.
+    previous_state_id: str | None
+
+    def __post_init__(self) -> None:
+        if not self.identifiers:
+            raise ValueError("Provide at least one Linear issue identifier.")
+
+
+@dataclass(frozen=True)
 class ErrorTrackingFingerprint:
     id: UUID
     fingerprint: str
     issue_id: UUID
     created_at: datetime
+
+
+@dataclass(frozen=True)
+class ErrorTrackingIssueImpact:
+    id: UUID
+    name: str | None
+    description: str | None
+    severity: str | None
+    is_assigned: bool
+    source: str | None
+    first_seen: datetime
+    last_seen: datetime
+    occurrences: int
+    users: int
+    sessions: int
+    daily_occurrences: tuple[int, ...]
 
 
 @dataclass(frozen=True)
@@ -124,6 +183,46 @@ class ErrorTrackingIssuePreview:
     assignee: ErrorTrackingIssueAssignee | None
 
 
+class IssueTagColor(LabeledStrEnum):
+    # Hue names, not status names such as danger or success, so a team's tag does not read as an alert state.
+    BLUE = "blue"
+    TEAL = "teal"
+    GREEN = "green"
+    YELLOW = "yellow"
+    ORANGE = "orange"
+    RED = "red"
+    PINK = "pink"
+    PURPLE = "purple"
+
+
+@dataclass(frozen=True)
+class ErrorTrackingIssueTagDefinition:
+    key: str
+    label: str
+    description: str
+    color: IssueTagColor | None
+
+
+@dataclass(frozen=True)
+class ErrorTrackingIssueTag:
+    key: str
+    label: str
+    description: str
+    color: IssueTagColor | None
+    # The tagger that applied the tag. Postgres stores it, the ClickHouse copy of the tags does not.
+    source: str | None = None
+
+
+@dataclass(frozen=True)
+class ErrorTrackingIssueTagCorrection:
+    tag: ErrorTrackingIssueTag
+    # The answer that the correction replaced. Source and probability are None when the issue had no answer.
+    previous_source: str | None
+    previous_applied: bool
+    previous_probability: float | None
+    changed: bool
+
+
 @dataclass(frozen=True)
 class ErrorTrackingIssue:
     id: UUID
@@ -135,6 +234,8 @@ class ErrorTrackingIssue:
     assignee: ErrorTrackingIssueAssignee | None
     external_issues: list[ErrorTrackingExternalReference] = field(default_factory=list)
     cohort: ErrorTrackingIssueCohort | None = None
+    # None when the tags were not read, so a response leaves the field out.
+    tags: list[ErrorTrackingIssueTag] | None = None
 
 
 @dataclass(frozen=True)
@@ -172,10 +273,12 @@ class ErrorTrackingIssueAssignmentNotification:
 
 @dataclass(frozen=True)
 class ErrorTrackingSettings:
+    adaptive_ingestion_enabled: bool
     project_rate_limit_value: int | None
     project_rate_limit_bucket_size_minutes: int | None
     per_issue_rate_limit_value: int | None
     per_issue_rate_limit_bucket_size_minutes: int | None
+    ai_issue_summaries_enabled: bool
     ingestion_enabled: bool
 
 
@@ -265,6 +368,21 @@ class ErrorTrackingSeverityRule:
     id: UUID
     filters: dict
     severity: Literal["low", "medium", "high", "critical"]
+    order_key: int
+    disabled_data: dict | None
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True)
+class ErrorTrackingIssueTagRule:
+    id: UUID
+    key: str
+    label: str
+    description: str
+    color: IssueTagColor | None
+    filters: dict
+    version: int
     order_key: int
     disabled_data: dict | None
     created_at: datetime
@@ -450,15 +568,6 @@ class ErrorTrackingAlert:
     updated_at: datetime
 
 
-class IssueSummaryCategory(LabeledStrEnum):
-    OWN_CODE = "own_code"
-    THIRD_PARTY = "third_party"
-    NETWORK = "network"
-    BOTS = "bots"
-    EXPECTED = "expected"
-    UNCLEAR = "unclear"
-
-
 @dataclass(frozen=True)
 class ErrorTrackingIssueSummary:
     issue_id: UUID
@@ -467,9 +576,137 @@ class ErrorTrackingIssueSummary:
     likely_cause: str
     who_is_affected: str
     suggested_next_step: str
-    # None when the category model did not answer.
-    category: IssueSummaryCategory | None
     model: str
     generated_at: datetime
-    # When the summary was last generated or confirmed unchanged. The 24h regenerate interval runs from it.
+    # When generation last wrote the summary.
     checked_at: datetime
+
+
+class ErrorTrackingAIFeature(LabeledStrEnum):
+    ISSUE_SUMMARIES = "issue_summaries"
+
+
+class IssueSummaryStatus(LabeledStrEnum):
+    READY = "ready"
+    NOT_GENERATED = "not_generated"
+    UNAVAILABLE = "unavailable"
+
+
+class IssueSummaryUnavailableReason(LabeledStrEnum):
+    RESTRICTED = "restricted"
+    DISABLED = "disabled"
+    AI_NOT_APPROVED = "ai_not_approved"
+    SETTING_OFF = "setting_off"
+
+
+@dataclass(frozen=True)
+class IssueSummaryRead:
+    status: IssueSummaryStatus
+    summary: ErrorTrackingIssueSummary | None
+    # Set only when the status is unavailable.
+    reason: IssueSummaryUnavailableReason | None
+
+
+class IssueSummarizeOutcome(LabeledStrEnum):
+    READY = "ready"
+    DISABLED = "disabled"
+    RESTRICTED = "restricted"
+    SETTING_OFF = "setting_off"
+    AI_NOT_APPROVED = "ai_not_approved"
+    OUT_OF_CREDITS = "out_of_credits"
+    RATE_LIMITED = "rate_limited"
+    IN_PROGRESS = "in_progress"
+    ISSUE_MISSING = "issue_missing"
+    NO_EXCEPTION = "no_exception"
+    FAILED = "failed"
+
+
+@dataclass(frozen=True)
+class IssueSummarize:
+    outcome: IssueSummarizeOutcome
+    # Set only when the outcome is ready.
+    summary: ErrorTrackingIssueSummary | None
+
+
+class SentryMigrationCategory(LabeledStrEnum):
+    RATE_LIMIT = "rate_limit", "Rate limit"
+    ERROR_MESSAGE = "error_message", "Error message filter"
+    RELEASE = "release", "Release filter"
+    INBOUND_FILTER = "inbound_filter", "Inbound filter"
+
+
+class SentryMigrationFit(LabeledStrEnum):
+    GOOD = "good", "Good"
+    PARTIAL = "partial", "Partial"
+    UNSUPPORTED = "unsupported", "Unsupported"
+
+
+@dataclass(frozen=True)
+class SentryConnection:
+    """Credentials for one Sentry API. The token is used for the request and never stored."""
+
+    auth_token: str = field(repr=False)
+    base_url: str
+
+
+@dataclass(frozen=True)
+class SentryProjectRef:
+    organization_slug: str
+    project_slug: str
+    # Sentry hosts each organization in a region, for example https://de.sentry.io.
+    region_url: str | None
+
+
+@dataclass(frozen=True)
+class SentryProject:
+    organization_slug: str
+    organization_name: str
+    project_slug: str
+    project_name: str
+    platform: str | None
+    region_url: str | None
+
+
+@dataclass(frozen=True)
+class SentryMigrationRateLimit:
+    value: int
+    bucket_size_minutes: int
+
+
+@dataclass(frozen=True)
+class SentryMigrationBuiltInFilter:
+    """An automatic suppression rule that PostHog maintains, which the import turns on."""
+
+    key: str
+    name: str
+    description: str
+    # Short points on what the PostHog rule adds to the Sentry filter, or does differently.
+    compared_with_sentry: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class SentryMigrationItem:
+    """One Sentry setting and the PostHog configuration it becomes."""
+
+    id: str
+    category: SentryMigrationCategory
+    sentry_setting: str
+    sentry_value: str
+    fit: SentryMigrationFit
+    note: str | None
+    suppression_rule_filters: dict[str, Any] | None
+    rate_limit: SentryMigrationRateLimit | None
+    built_in_filter: SentryMigrationBuiltInFilter | None
+    already_in_posthog: bool
+    limits_other_client_keys: bool = False
+
+    @property
+    def importable(self) -> bool:
+        return self.fit != SentryMigrationFit.UNSUPPORTED
+
+
+@dataclass(frozen=True)
+class SentryMigrationResult:
+    suppression_rules_created: int
+    built_in_filters_enabled: int
+    rate_limit_updated: bool

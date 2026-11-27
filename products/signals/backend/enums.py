@@ -24,6 +24,8 @@ class ReportTaskActionKind(LabeledStrEnum):
     # A report action that starts an agent run from the API. See `report_task_actions.py`.
     GET_IT_MERGED = "get_it_merged", "Get it merged"
     MAKE_IT_GREEN = "make_it_green", "Make it green"
+    RESOLVE_CONFLICTS = "resolve_conflicts", "Resolve conflicts"
+    IMPLEMENT = "implement", "Implement"
     SUGGESTED_PROMPT = "suggested_prompt", "Suggested prompt"
     ASK = "ask", "Ask"
 
@@ -83,10 +85,12 @@ class ReportLinkWritePath(StrEnum):
     # Which surface wrote a `report_link`. `EMIT` writes it with the report, before auto-start reads
     # the link gates. `EDIT` writes it on a report that exists, possibly after auto-start ran.
     # `MERGE` writes the `duplicate_of` link when the merge endpoint folds a report into another.
+    # `PLAN_EDIT` writes the `part_of` and `depends_on` links of a person's or agent's plan edit.
     EMIT = "emit"
     EDIT = "edit"
     PIPELINE = "pipeline"
     MERGE = "merge"
+    PLAN_EDIT = "plan_edit"
 
 
 class SignalSourceProduct(StrEnum):
@@ -104,10 +108,15 @@ class SignalSourceProduct(StrEnum):
     # A report check that failed after its report was resolved. Not a source a team connects:
     # the inbox emits it to itself so a fix that stopped holding starts a fresh report.
     SIGNALS_CHECK = "signals_check"
+    # A report a project member filed by hand through the report API. Not a source a team connects.
+    USER_AUTHORED = "user_authored"
     LOGS = "logs"
     HEALTH_CHECKS = "health_checks"
     REPLAY_VISION = "replay_vision"
     ANALYTICS = "analytics"
+    # Slack channels synced to the data warehouse. Only scouts use it so far: a Slack channel scout records the Slack
+    # warehouse source it reads as its owner (`slack_channel_scouts.py`).
+    SLACK = "slack"
     # Tier-1 data-warehouse inbox sources (support / issue trackers / error tracking)
     FRESHDESK = "freshdesk"
     FRESHSERVICE = "freshservice"
@@ -148,6 +157,10 @@ class SignalSourceProduct(StrEnum):
     ENGINEERING_ANALYTICS = "engineering_analytics"
     # Search analytics (record kind: search_opportunity)
     GOOGLE_SEARCH_CONSOLE = "google_search_console"
+    # SEO site audits (record kind: search_opportunity)
+    BING_WEBMASTER_TOOLS = "bing_webmaster_tools"
+    AHREFS = "ahrefs"
+    SEMRUSH = "semrush"
     # Incident management / on-call (record kind: incident)
     PAGERDUTY = "pagerduty"
     OPSGENIE = "opsgenie"
@@ -196,6 +209,16 @@ class SignalSourceProduct(StrEnum):
     STATUSPAGE = "statuspage"
     CRONITOR = "cronitor"
     INSTATUS = "instatus"
+    # More incident tools (record kind: incident)
+    ROOTLY = "rootly"
+    ZENDUTY = "zenduty"
+    SPLUNK_OBSERVABILITY_CLOUD = "splunk_observability_cloud"
+    UPTIMEROBOT = "uptimerobot"
+    # On-call alert tables, toggled apart from the vendor's incident table (record kind: incident)
+    ROOTLY_ALERTS = "rootly_alerts"
+    INCIDENT_IO_ALERTS = "incident_io_alerts"
+    FIREHYDRANT_ALERTS = "firehydrant_alerts"
+    GRAFANA_IRM_ALERT_GROUPS = "grafana_irm_alert_groups"
     # Tier-2 trackers
     ASANA = "asana"
     MONDAY = "monday"
@@ -205,6 +228,8 @@ class SignalSourceProduct(StrEnum):
     HELPSCOUT = "helpscout"
     DECAGON = "decagon"
     VITALLY = "vitally"
+    INTERCOM_TICKETS = "intercom_tickets"
+    PYLON = "pylon"
     # Tier-2 feedback and surveys
     USERSNAP = "usersnap"
     TYPEFORM = "typeform"
@@ -222,6 +247,44 @@ class SignalSourceProduct(StrEnum):
     AZURE_APPLICATION_INSIGHTS = "azure_application_insights"
     APPSIGNAL = "appsignal"
     CURSOR = "cursor"
+    # GitHub security alerts, one product per table so each has its own toggle
+    GITHUB_DEPENDABOT = "github_dependabot"
+    GITHUB_CODE_SCANNING = "github_code_scanning"
+    GITHUB_SECRET_SCANNING = "github_secret_scanning"
+    # Feedback, NPS and review tools
+    BEAMER = "beamer"
+    BEAMER_NPS = "beamer_nps"
+    CHAMELEON = "chameleon"
+    ETSY = "etsy"
+    FEATUREBASE_SURVEYS = "featurebase_surveys"
+    G2 = "g2"
+    GUMROAD = "gumroad"
+    TRUSTPILOT_PRODUCT_REVIEWS = "trustpilot_product_reviews"
+    USERVOICE_NPS = "uservoice_nps"
+    VITALLY_NPS = "vitally_nps"
+    WOOCOMMERCE = "woocommerce"
+    YOTPO = "yotpo"
+    # Monitoring alerts and error tracking
+    AIRBRAKE = "airbrake"
+    AMAZON_CLOUDWATCH = "amazon_cloudwatch"
+    LOGICMONITOR = "logicmonitor"
+    MUX = "mux"
+    # Tier-2 code, secret and cloud security scanners
+    SONARCLOUD = "sonarcloud"
+    CHECKMARX = "checkmarx"
+    VERACODE = "veracode"
+    VERACODE_SCA = "veracode_sca"
+    SEMGREP_SCA = "semgrep_sca"
+    GITGUARDIAN = "gitguardian"
+    INFISICAL = "infisical"
+    AWS_MACIE = "aws_macie"
+    SENTINELONE = "sentinelone"
+    JFROG_XRAY = "jfrog_xray"
+    DYNATRACE_SECURITY = "dynatrace_security"
+    # App reviews and error-report feedback
+    APP_STORE_CONNECT = "app_store_connect"
+    # Sentry user feedback has its own product so it can be toggled apart from Sentry issues.
+    SENTRY_FEEDBACK = "sentry_feedback"
 
 
 class SignalSourceType(StrEnum):
@@ -243,6 +306,7 @@ class SignalSourceType(StrEnum):
     HEALTH_ISSUE = "health_issue"
     SCANNER_FINDING = "scanner_finding"
     ANOMALY_INVESTIGATION = "anomaly_investigation"
+    ALERT_FIRING = "alert_firing"
     FEEDBACK = "feedback"
     REVIEW = "review"
     CI_FLAKY_CHECK = "ci_flaky_check"
@@ -250,6 +314,7 @@ class SignalSourceType(StrEnum):
     CI_DURATION_REGRESSION = "ci_duration_regression"
     SEARCH_OPPORTUNITY = "search_opportunity"
     CHECK_FAILED = "check_failed"
+    MONITORING_UNRESOLVED = "monitoring_unresolved"
     INCIDENT = "incident"
 
 
@@ -272,11 +337,13 @@ SIGNAL_SOURCE_PRODUCT_LABELS: dict[SignalSourceProduct, str] = {
     SignalSourceProduct.PGANALYZE: "pganalyze",
     SignalSourceProduct.SIGNALS_SCOUT: "Signals scout",
     SignalSourceProduct.SIGNALS_CHECK: "Report check",
+    SignalSourceProduct.USER_AUTHORED: "Team member",
     SignalSourceProduct.LOGS: "Logs",
     SignalSourceProduct.HEALTH_CHECKS: "Health checks",
     SignalSourceProduct.ENDPOINTS: "Endpoints",
     SignalSourceProduct.REPLAY_VISION: "Replay Vision",
     SignalSourceProduct.ANALYTICS: "Product analytics",
+    SignalSourceProduct.SLACK: "Slack",
     SignalSourceProduct.FRESHDESK: "Freshdesk",
     SignalSourceProduct.FRESHSERVICE: "Freshservice",
     SignalSourceProduct.FRONT: "Front",
@@ -312,6 +379,9 @@ SIGNAL_SOURCE_PRODUCT_LABELS: dict[SignalSourceProduct, str] = {
     SignalSourceProduct.HUBSPOT: "HubSpot",
     SignalSourceProduct.ENGINEERING_ANALYTICS: "Engineering analytics",
     SignalSourceProduct.GOOGLE_SEARCH_CONSOLE: "Google Search Console",
+    SignalSourceProduct.BING_WEBMASTER_TOOLS: "Bing Webmaster Tools",
+    SignalSourceProduct.AHREFS: "Ahrefs",
+    SignalSourceProduct.SEMRUSH: "Semrush",
     SignalSourceProduct.PAGERDUTY: "PagerDuty",
     SignalSourceProduct.OPSGENIE: "Opsgenie",
     SignalSourceProduct.INCIDENT_IO: "incident.io",
@@ -352,6 +422,14 @@ SIGNAL_SOURCE_PRODUCT_LABELS: dict[SignalSourceProduct, str] = {
     SignalSourceProduct.STATUSPAGE: "Statuspage",
     SignalSourceProduct.CRONITOR: "Cronitor",
     SignalSourceProduct.INSTATUS: "Instatus",
+    SignalSourceProduct.ROOTLY: "Rootly",
+    SignalSourceProduct.ZENDUTY: "Zenduty",
+    SignalSourceProduct.SPLUNK_OBSERVABILITY_CLOUD: "Splunk Observability Cloud",
+    SignalSourceProduct.UPTIMEROBOT: "UptimeRobot",
+    SignalSourceProduct.ROOTLY_ALERTS: "Rootly alerts",
+    SignalSourceProduct.INCIDENT_IO_ALERTS: "incident.io alerts",
+    SignalSourceProduct.FIREHYDRANT_ALERTS: "FireHydrant alerts",
+    SignalSourceProduct.GRAFANA_IRM_ALERT_GROUPS: "Grafana IRM alert groups",
     SignalSourceProduct.ASANA: "Asana",
     SignalSourceProduct.MONDAY: "monday.com",
     SignalSourceProduct.PLANE: "Plane",
@@ -359,6 +437,8 @@ SIGNAL_SOURCE_PRODUCT_LABELS: dict[SignalSourceProduct, str] = {
     SignalSourceProduct.HELPSCOUT: "Help Scout",
     SignalSourceProduct.DECAGON: "Decagon",
     SignalSourceProduct.VITALLY: "Vitally",
+    SignalSourceProduct.INTERCOM_TICKETS: "Intercom tickets",
+    SignalSourceProduct.PYLON: "Pylon",
     SignalSourceProduct.USERSNAP: "Usersnap",
     SignalSourceProduct.TYPEFORM: "Typeform",
     SignalSourceProduct.QUALTRICS: "Qualtrics",
@@ -373,6 +453,38 @@ SIGNAL_SOURCE_PRODUCT_LABELS: dict[SignalSourceProduct, str] = {
     SignalSourceProduct.AZURE_APPLICATION_INSIGHTS: "Azure Application Insights",
     SignalSourceProduct.APPSIGNAL: "AppSignal",
     SignalSourceProduct.CURSOR: "Cursor",
+    SignalSourceProduct.GITHUB_DEPENDABOT: "GitHub Dependabot",
+    SignalSourceProduct.GITHUB_CODE_SCANNING: "GitHub code scanning",
+    SignalSourceProduct.GITHUB_SECRET_SCANNING: "GitHub secret scanning",
+    SignalSourceProduct.BEAMER: "Beamer",
+    SignalSourceProduct.BEAMER_NPS: "Beamer NPS",
+    SignalSourceProduct.CHAMELEON: "Chameleon",
+    SignalSourceProduct.ETSY: "Etsy",
+    SignalSourceProduct.FEATUREBASE_SURVEYS: "Featurebase surveys",
+    SignalSourceProduct.G2: "G2",
+    SignalSourceProduct.GUMROAD: "Gumroad",
+    SignalSourceProduct.TRUSTPILOT_PRODUCT_REVIEWS: "Trustpilot product reviews",
+    SignalSourceProduct.USERVOICE_NPS: "UserVoice NPS",
+    SignalSourceProduct.VITALLY_NPS: "Vitally NPS",
+    SignalSourceProduct.WOOCOMMERCE: "WooCommerce",
+    SignalSourceProduct.YOTPO: "Yotpo",
+    SignalSourceProduct.AIRBRAKE: "Airbrake",
+    SignalSourceProduct.AMAZON_CLOUDWATCH: "Amazon CloudWatch",
+    SignalSourceProduct.LOGICMONITOR: "LogicMonitor",
+    SignalSourceProduct.MUX: "Mux",
+    SignalSourceProduct.SONARCLOUD: "SonarCloud",
+    SignalSourceProduct.CHECKMARX: "Checkmarx",
+    SignalSourceProduct.VERACODE: "Veracode",
+    SignalSourceProduct.VERACODE_SCA: "Veracode SCA",
+    SignalSourceProduct.SEMGREP_SCA: "Semgrep Supply Chain",
+    SignalSourceProduct.GITGUARDIAN: "GitGuardian",
+    SignalSourceProduct.INFISICAL: "Infisical",
+    SignalSourceProduct.AWS_MACIE: "AWS Macie",
+    SignalSourceProduct.SENTINELONE: "SentinelOne",
+    SignalSourceProduct.JFROG_XRAY: "JFrog Xray",
+    SignalSourceProduct.DYNATRACE_SECURITY: "Dynatrace Application Security",
+    SignalSourceProduct.APP_STORE_CONNECT: "App Store Connect",
+    SignalSourceProduct.SENTRY_FEEDBACK: "Sentry user feedback",
 }
 
 

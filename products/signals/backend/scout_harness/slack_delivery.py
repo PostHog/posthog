@@ -9,20 +9,37 @@ from typing import Literal, TypeVar
 from urllib.parse import quote
 
 from django.conf import settings
+from django.utils import timezone
 
 import structlog
 from slack_sdk.errors import SlackApiError
 from slack_sdk.web import SlackResponse, WebClient
 
 from posthog.dataclasses import frozen
-from posthog.models.integration import Integration, SlackIntegration
+from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
+from posthog.models.integration import SlackIntegration
+from posthog.models.team.team import Team
 from posthog.redis import get_client
+from posthog.slack.channels import is_shared_channel
 from posthog.slack.formatting import channel_id_from_target, escape_slack_mrkdwn
 from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN, slack_markdown_block
 
 from products.signals.backend.assignment_flags import assignment_side_effects_allowed
-from products.signals.backend.models import SignalReport, SignalReportSlackThread, SignalScoutEmission, SignalScoutRun
+from products.signals.backend.models import (
+    SignalReport,
+    SignalReportSlackThread,
+    SignalScoutEmission,
+    SignalScoutMessage,
+    SignalScoutMessageDelivery,
+    SignalScoutRun,
+)
 from products.signals.backend.report_urls import ReportLinkSource, build_report_url
+from products.signals.backend.scout_harness.message_routes import (
+    UNSENDABLE_REPORT_STATUSES,
+    find_message_route,
+    scout_send_message_enabled,
+)
+from products.signals.backend.scout_harness.scout_naming import scout_display_name
 from products.signals.backend.scout_harness.slack_charts import (
     ChartRenderBudget,
     build_scout_report_chart_blocks,
@@ -31,6 +48,7 @@ from products.signals.backend.scout_harness.slack_charts import (
     strip_chart_blocks,
 )
 from products.signals.backend.slack_formatting import (
+    bare_misleading_link_labels,
     chunk_slack_text,
     defuse_slack_tokens,
     group_segments_to_limit,
@@ -87,7 +105,7 @@ _SCOUT_SLACK_REPLY_PACE_SECONDS = 1
 
 _SlackResult = TypeVar("_SlackResult")
 
-ScoutSlackOutputType = Literal["finding", "report"]
+ScoutSlackOutputType = Literal["finding", "report", "message"]
 ScoutSlackReplyRetryScheduler = Callable[[int, list[list[dict]], int, str, str], None]
 
 # Each member gets an individual DM (a group DM would need the `mpim:write` scope the Slack app
@@ -170,7 +188,7 @@ def _slack_retry_after_seconds(exc: Exception) -> int | None:
     return min(retry_after, 3600) if retry_after is not None and retry_after > 0 else None
 
 
-def _scout_invite_footer(integration: Integration, *, scout_team_id: int, channel_id: str) -> list[dict]:
+def _scout_invite_footer(integration: IntegrationRecord, *, scout_team_id: int, channel_id: str) -> list[dict]:
     """The follow-up invite footer, when the Slack connection uses the scout's environment.
 
     A mention is answered from the connected project, so a connection pointing somewhere else would
@@ -193,18 +211,23 @@ def _scout_invite_footer(integration: Integration, *, scout_team_id: int, channe
     return [invite] if invite is not None else []
 
 
-def _prettify_scout_name(skill_name: str) -> str:
-    cleaned = skill_name.removeprefix("signals-scout-").replace("-", " ").replace("_", " ").strip()
-    return cleaned[:1].upper() + cleaned[1:] if cleaned else "Scout"
+def _scout_name(run: SignalScoutRun) -> str:
+    config = run.scout_config
+    return scout_display_name(skill_name=run.skill_name, display_name=config.display_name if config else None)
 
 
-def _slack_integration_for_project(*, integration_id: int, project_id: int) -> Integration:
-    # nosemgrep: environment-model-scoped-by-project -- scout configs are project-level, so a Slack integration from any environment of the project is valid
-    integration = Integration.objects.filter(
-        id=integration_id,
-        team__project_id=project_id,
-        kind=Integration.IntegrationKind.SLACK,
-    ).first()
+def find_project_slack_integration(*, integration_id: int, project_id: int) -> IntegrationRecord | None:
+    # Scout configs are project-level, so a Slack integration from any environment of the project is valid.
+    for team_id in Team.objects.filter(project_id=project_id).values_list("id", flat=True):
+        try:
+            return IntegrationManager.slack.oauth.get(team_id, integration_id)
+        except IntegrationNotFound:
+            continue
+    return None
+
+
+def _slack_integration_for_project(*, integration_id: int, project_id: int) -> IntegrationRecord:
+    integration = find_project_slack_integration(integration_id=integration_id, project_id=project_id)
     if integration is None:
         raise ScoutSlackPermanentDeliveryError(
             "The configured Slack integration no longer exists on this project",
@@ -243,7 +266,7 @@ def _slack_channel_id(channel: str) -> str:
 
 def build_scout_slack_message(emission: SignalScoutEmission) -> tuple[list[dict], str]:
     """Render a direct scout finding, with its description delivered as Markdown."""
-    scout_name = _prettify_scout_name(emission.scout_run.skill_name)
+    scout_name = _scout_name(emission.scout_run)
     blocks: list[dict] = [
         {
             "type": "context",
@@ -382,7 +405,7 @@ def build_scout_report_slack_message(
     delivery_id: str | None = None,
     render_budget: ChartRenderBudget | None = None,
 ) -> tuple[list[dict], str]:
-    scout_name = _prettify_scout_name(run.skill_name)
+    scout_name = _scout_name(run)
     header = _report_header(report)
     blocks: list[dict] = [
         {
@@ -514,7 +537,7 @@ def build_scout_report_thread_slack_messages(
     the thread holds the report's sections in order, with nothing clipped at the block's cap. A
     summary that opens with a heading puts that first section in the lead, so the channel never
     shows a title-only stub."""
-    scout_name = _prettify_scout_name(run.skill_name)
+    scout_name = _scout_name(run)
     header = _report_header(report)
     lead_blocks: list[dict] = [
         {
@@ -545,7 +568,7 @@ def build_scout_report_note_slack_message(
     Such an edit leaves the title and summary the report message shows unchanged, so re-sending
     `build_scout_report_slack_message` would post a message identical to the one already in the
     channel. The addition is what's new, so that's what gets delivered."""
-    scout_name = _prettify_scout_name(run.skill_name)
+    scout_name = _scout_name(run)
     header = _report_header(report)
     blocks: list[dict] = [
         {
@@ -841,7 +864,7 @@ def post_scout_report_to_slack(
         scout_report_slack_message(
             team_id=report.team_id,
             report_id=str(report.id),
-            slack_workspace_id=integration.integration_id,
+            slack_workspace_id=integration.integration_id or "",
             target=channel_id,
         )
         if edit_note is None
@@ -905,7 +928,7 @@ def post_scout_report_to_slack(
         reply_ts = []
         if thread_ts:
             record_report_slack_thread(
-                slack_workspace_id=integration.integration_id,
+                slack_workspace_id=integration.integration_id or "",
                 team_id=report.team_id,
                 report_id=str(report.id),
                 integration_id=integration.id,
@@ -922,7 +945,7 @@ def post_scout_report_to_slack(
     def _record_reply_ts(posted: list[str]) -> None:
         record_scout_report_slack_replies(
             team_id=report.team_id,
-            slack_workspace_id=integration.integration_id,
+            slack_workspace_id=integration.integration_id or "",
             channel=conversation,
             thread_ts=str(thread_ts),
             reply_ts=posted,
@@ -945,3 +968,142 @@ def post_scout_report_to_slack(
         # The report was threaded before and is not now, so its lead carries the whole summary.
         _delete_scout_report_replies(client, conversation=conversation, reply_ts=reply_ts)
         _record_reply_ts([])
+
+
+def _scout_url(team_id: int, skill_name: str) -> str:
+    return f"{settings.SITE_URL.rstrip('/')}/project/{team_id}/inbox/scouts/{quote(skill_name, safe='')}"
+
+
+def build_scout_message_slack_message(message: SignalScoutMessage) -> tuple[list[dict], str]:
+    """Render one scout message: the scout, the title, the body, then links to its report and scout."""
+    scout_name = _scout_name(message.run)
+    title = " ".join(message.title.split())[:150] or "Scout message"
+    blocks: list[dict] = [
+        {
+            "type": "context",
+            "elements": [{"type": "mrkdwn", "text": f"*Scout · {escape_slack_mrkdwn(scout_name)}*"}],
+        },
+        {"type": "header", "text": {"type": "plain_text", "text": title}},
+    ]
+    rendered_body = prepare_slack_markdown(bare_misleading_link_labels(message.body.strip()))
+    if rendered_body:
+        blocks.append(slack_markdown_block(rendered_body))
+    buttons: list[dict] = []
+    if message.report_id is not None:
+        buttons.append(
+            {
+                "type": "button",
+                "text": {"type": "plain_text", "text": "View report in PostHog"},
+                "url": build_report_url(message.team_id, message.report_id, ReportLinkSource.SLACK_SCOUT),
+            }
+        )
+    buttons.append(
+        {
+            "type": "button",
+            "text": {"type": "plain_text", "text": "View scout"},
+            "url": _scout_url(message.team_id, message.skill_name),
+        }
+    )
+    blocks.append({"type": "actions", "elements": buttons})
+    fallback = f"Scout · {escape_slack_mrkdwn(scout_name)}: {escape_slack_mrkdwn(title[:200])}"
+    return blocks, fallback
+
+
+def _ensure_channel_not_shared(client: WebClient, channel_id: str) -> None:
+    """Refuse a channel shared with another workspace. Checked at send time, because a channel can
+    be connected to another workspace after the route was saved."""
+    channel = client.conversations_info(channel=channel_id)["channel"]
+    if is_shared_channel(channel):
+        raise ScoutSlackPermanentDeliveryError(
+            "Scout messages are never posted to a channel shared with another workspace",
+            error_code="shared_channel",
+        )
+
+
+def _ensure_message_delivery_authorized(delivery: SignalScoutMessageDelivery, *, integration_id: int) -> None:
+    """Refuse a delivery its route no longer allows. Checked before every post and retry, because an owner
+    can remove a recipient, a route or the integration, or turn `emit` or the flag off, while it waits in the queue."""
+    message = delivery.message
+    config = message.run.scout_config
+    destinations = config.output_destinations if config is not None else None
+    refusal: str | None = None
+    if not scout_send_message_enabled(message.run.team):
+        refusal = "flag_off"
+    elif config is not None and not config.emit:
+        refusal = "emit_off"
+    elif (route := find_message_route(destinations, message.route_key)) is None:
+        refusal = "route_removed"
+    elif not any(
+        target.target_id == delivery.target_id and target.type == delivery.target_type for target in route.targets
+    ):
+        refusal = "recipient_removed"
+    elif (
+        not isinstance(destinations, dict)
+        or not isinstance(destinations.get("slack"), dict)
+        or destinations["slack"].get("integration_id") != integration_id
+    ):
+        refusal = "integration_changed"
+    elif message.report is None or message.report.status in UNSENDABLE_REPORT_STATUSES:
+        refusal = "report_hidden"
+    if refusal is not None:
+        raise ScoutSlackPermanentDeliveryError(
+            f"The scout message route no longer allows this delivery ({refusal})", error_code=refusal
+        )
+
+
+def post_scout_message_to_slack(
+    delivery: SignalScoutMessageDelivery,
+    *,
+    delivery_id: str,
+    integration_id: int,
+    channel: str,
+) -> None:
+    # The task acks late, so a worker lost after the post retries a delivery that already landed.
+    if delivery.status == SignalScoutMessageDelivery.Status.SENT:
+        return
+    message = delivery.message
+    _ensure_message_delivery_authorized(delivery, integration_id=integration_id)
+    integration = _slack_integration_for_project(integration_id=integration_id, project_id=message.run.team.project_id)
+    channel_id = _slack_channel_id(channel)
+    blocks, fallback = build_scout_message_slack_message(message)
+    slack = SlackIntegration(integration, source="signals_scout")
+    client = slack.client
+    try:
+        if delivery.target_type == SignalScoutMessageDelivery.TargetType.SLACK_DM:
+            _ensure_dm_recipient_eligible(slack, channel_id)
+        else:
+            _ensure_channel_not_shared(client, channel_id)
+        response = _send_shortening_markdown(
+            lambda message_blocks: client.chat_postMessage(
+                channel=channel_id,
+                blocks=message_blocks,
+                text=fallback,
+                client_msg_id=delivery_id,
+                unfurl_links=False,
+                unfurl_media=False,
+            ),
+            blocks,
+            delivery_id=delivery_id,
+        )
+    except SlackApiError as exc:
+        error_code = slack_api_error_code(exc)
+        if error_code in _PERMANENT_SLACK_ERROR_CODES:
+            raise ScoutSlackPermanentDeliveryError(
+                f"Slack rejected the scout message with {error_code}",
+                error_code=error_code,
+            ) from exc
+        raise
+    delivery.status = SignalScoutMessageDelivery.Status.SENT
+    delivery.slack_ts = str(response.get("ts") or "") or None
+    delivery.error_code = None
+    delivery.save(update_fields=["status", "slack_ts", "error_code", "updated_at"])
+
+
+def mark_scout_message_delivery_failed(*, team_id: int, delivery_id: str, error_code: str | None) -> None:
+    SignalScoutMessageDelivery.all_teams.filter(team_id=team_id, id=delivery_id).exclude(
+        status=SignalScoutMessageDelivery.Status.SENT
+    ).update(
+        status=SignalScoutMessageDelivery.Status.FAILED,
+        error_code=(error_code or "unknown")[:64],
+        updated_at=timezone.now(),
+    )

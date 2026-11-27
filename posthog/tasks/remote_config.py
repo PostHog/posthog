@@ -111,8 +111,8 @@ def refresh_expiring_remote_config_cache_entries() -> None:
 )
 def cleanup_stale_remote_config_expiry_tracking_task() -> None:
     """
-    Daily task that prunes expiry-tracking entries for deleted teams, keeping the
-    remote_config_cache_expiry sorted set from growing unbounded.
+    Daily task that deletes the cache entries of deleted teams and removes their members
+    from the remote_config_cache_expiry sorted set.
     """
     if not settings.FLAGS_REDIS_URL:
         logger.info("Flags Redis URL not set, skipping remote config expiry tracking cleanup")

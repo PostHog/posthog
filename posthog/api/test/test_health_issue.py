@@ -201,15 +201,36 @@ class TestHealthIssueAPI(APIBaseTest):
         response = self.client.get(self._url("/00000000-0000-0000-0000-000000000000"))
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    def test_resolve_action(self):
+    @parameterized.expand(
+        [
+            ("session", None),
+            ("personal_api_key_with_write_scope", ["health_issue:write"]),
+        ]
+    )
+    def test_resolve_action(self, _name, scopes):
         issue = self._create_issue()
+        if scopes is not None:
+            self.client.logout()
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {self.create_personal_api_key_with_scopes(scopes)}")
 
         response = self.client.post(self._url(f"/{issue.id}/resolve"))
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         self.assertEqual(response.json()["status"], "resolved")
 
         issue.refresh_from_db()
         self.assertEqual(issue.status, HealthIssue.Status.RESOLVED)
+
+    def test_resolve_action_rejects_personal_api_key_with_read_scope_only(self):
+        issue = self._create_issue()
+        api_key = self.create_personal_api_key_with_scopes(["health_issue:read"])
+        self.client.logout()
+
+        response = self.client.post(self._url(f"/{issue.id}/resolve"), HTTP_AUTHORIZATION=f"Bearer {api_key}")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["detail"], "API key missing required scope 'health_issue:write'")
+
+        issue.refresh_from_db()
+        self.assertEqual(issue.status, HealthIssue.Status.ACTIVE)
 
     def test_patch_dismiss(self):
         issue = self._create_issue()
@@ -381,13 +402,26 @@ class TestHealthIssueAPI(APIBaseTest):
         issue.refresh_from_db()
         self.assertIsNone(issue.snoozed_until)
 
+    def test_summary_reports_the_worst_severity_of_each_kind(self):
+        self._create_issue(severity=HealthIssue.Severity.WARNING, kind="external_data_failure", unique_hash="h1")
+        self._create_issue(severity=HealthIssue.Severity.CRITICAL, kind="external_data_failure", unique_hash="h2")
+        self._create_issue(severity=HealthIssue.Severity.INFO, kind="sdk_outdated", unique_hash="h3")
+
+        response = self.client.get(self._url("/summary"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()["unsnoozed"]
+        self.assertEqual(data["worst_severity_by_kind"], {"external_data_failure": "critical", "sdk_outdated": "info"})
+        self.assertEqual(data["by_kind"], {"external_data_failure": 2, "sdk_outdated": 1})
+
     def test_summary_empty(self):
         response = self.client.get(self._url("/summary"))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         data = response.json()
-        self.assertEqual(data["unsnoozed"], {"total": 0, "by_severity": {}, "by_kind": {}})
-        self.assertEqual(data["snoozed"], {"total": 0, "by_severity": {}, "by_kind": {}})
+        empty = {"total": 0, "by_severity": {}, "by_kind": {}, "worst_severity_by_kind": {}}
+        self.assertEqual(data["unsnoozed"], empty)
+        self.assertEqual(data["snoozed"], empty)
 
     def test_sdk_issue_visible_even_when_latest_release_is_fresh(self):
         # A fresh upstream release (<7 days old) must not hide sdk_outdated issues — fast-releasing

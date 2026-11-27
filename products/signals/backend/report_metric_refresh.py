@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import math
 import time
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -26,6 +26,7 @@ from django.db import transaction
 from django.utils import timezone
 
 import structlog
+from prometheus_client import Counter
 
 from posthog.schema import ChartDisplayType
 
@@ -33,6 +34,7 @@ from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
+from posthog.hogql_queries.utils.formula_ast import FormulaAST
 from posthog.models import Team
 
 from products.product_analytics.backend.facade.queries import run_cached_trends_query
@@ -52,8 +54,21 @@ MAX_REPORT_METRIC_REFRESH_REPORTS = 20
 MAX_REPORT_METRIC_SOURCE_RUNS_PER_REQUEST = 40
 REPORT_METRIC_REFRESH_TIME_BUDGET_SECONDS = 20.0
 REPORT_METRIC_REFRESH_QUERY_TIMEOUT_SECONDS = 20
+# A query that gets less than this per source series mostly hits the ClickHouse execution limit and
+# still spends the budget. Such a metric keeps its previous snapshot until the next open instead.
+REPORT_METRIC_REFRESH_MIN_QUERY_TIMEOUT_SECONDS = 5
 
 CURRENT_REPORT_STATUSES = (SignalReport.Status.READY, SignalReport.Status.PENDING_INPUT)
+# A Monitoring row draws its metric's trend across the fix, so its snapshots keep refreshing while the
+# outcome is checked. The request decides whether Monitoring is enabled for the caller.
+REFRESHABLE_REPORT_STATUSES = (*CURRENT_REPORT_STATUSES, SignalReport.Status.MONITORING)
+
+
+REPORT_METRIC_REFRESH_OUTCOMES = Counter(
+    "signals_report_metric_refresh_outcomes_total",
+    "Report metrics the read-time refresh considered, by outcome.",
+    labelnames=["outcome"],
+)
 
 
 class MetricQueryBudgetExhausted(TimeoutError):
@@ -61,10 +76,19 @@ class MetricQueryBudgetExhausted(TimeoutError):
 
 
 @frozen
+class MetricSeries:
+    values: list[float]
+    # The Trends `days` label of each bucket, so a reader can date the buckets without guessing.
+    buckets: list[str] | None
+
+
+@frozen
 class MetricMeasurement:
     value: float
     measured_at: datetime
     series: list[float] | None
+    series_buckets: list[str] | None = None
+    source_values: list[float] | None = None
 
 
 @frozen
@@ -115,8 +139,8 @@ def _run_metric_query(
     require_full_timeout: bool = False,
     ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
     workload: Workload = Workload.DEFAULT,
-) -> tuple[dict, datetime | None]:
-    """Run the stored query in one derived display shape and return its first series and response.
+) -> tuple[list[dict[str, object]], datetime | None]:
+    """Run the stored query in one derived display shape and return its series and response.
 
     The derived shapes match the ones the report detail sends through the frontend Query path, so
     both sides read and warm the same cache entries.
@@ -135,13 +159,13 @@ def _run_metric_query(
     shaped_source["trendsFilter"] = shaped_filter
     remaining = deadline - time.monotonic()
     source_count = _source_count(query)
-    if remaining < source_count:
-        raise MetricQueryBudgetExhausted("report metric refresh budget expired")
     timeout = (
         REPORT_METRIC_REFRESH_QUERY_TIMEOUT_SECONDS
         if math.isinf(remaining)
         else min(REPORT_METRIC_REFRESH_QUERY_TIMEOUT_SECONDS, int(remaining / source_count))
     )
+    if timeout < REPORT_METRIC_REFRESH_MIN_QUERY_TIMEOUT_SECONDS:
+        raise MetricQueryBudgetExhausted("report metric refresh budget expired")
     if require_full_timeout and timeout < REPORT_METRIC_REFRESH_QUERY_TIMEOUT_SECONDS:
         raise MetricQueryBudgetExhausted("report metric query needs its full timeout allowance")
     tag_queries(trigger="signals_report_metric_refresh")
@@ -154,9 +178,9 @@ def _run_metric_query(
         workload=workload,
     )
     results = response.results
-    if not isinstance(results, list) or not results or not isinstance(results[0], dict):
+    if not isinstance(results, list) or not results or any(not isinstance(result, dict) for result in results):
         raise ValueError("metric query returned no series")
-    return results[0], response.last_refresh
+    return results, response.last_refresh
 
 
 def _finite_number(raw: object, *, what: str) -> float:
@@ -168,6 +192,31 @@ def _finite_number(raw: object, *, what: str) -> float:
     return value
 
 
+def whole_window_values(
+    query: dict[str, Any],
+    team: Team,
+    *,
+    deadline: float = math.inf,
+    require_full_timeout: bool = False,
+    ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
+    workload: Workload = Workload.DEFAULT,
+) -> tuple[list[float], datetime]:
+    results, last_refresh = _run_metric_query(
+        query,
+        team,
+        ChartDisplayType.BOLD_NUMBER,
+        deadline=deadline,
+        require_full_timeout=require_full_timeout,
+        ch_user=ch_user,
+        workload=workload,
+    )
+    values = [_finite_number(result.get("aggregated_value"), what="aggregate") for result in results]
+    measured_at = last_refresh if isinstance(last_refresh, datetime) else timezone.now()
+    if measured_at.tzinfo is None or measured_at.utcoffset() is None:
+        measured_at = measured_at.replace(tzinfo=UTC)
+    return values, measured_at
+
+
 def whole_window_value(
     query: dict[str, Any],
     team: Team,
@@ -177,20 +226,15 @@ def whole_window_value(
     ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
     workload: Workload = Workload.DEFAULT,
 ) -> tuple[float, datetime]:
-    first_series, last_refresh = _run_metric_query(
+    values, measured_at = whole_window_values(
         query,
         team,
-        ChartDisplayType.BOLD_NUMBER,
         deadline=deadline,
         require_full_timeout=require_full_timeout,
         ch_user=ch_user,
         workload=workload,
     )
-    value = _finite_number(first_series.get("aggregated_value"), what="aggregate")
-    measured_at = last_refresh if isinstance(last_refresh, datetime) else timezone.now()
-    if measured_at.tzinfo is None or measured_at.utcoffset() is None:
-        measured_at = measured_at.replace(tzinfo=UTC)
-    return value, measured_at
+    return values[0], measured_at
 
 
 def longitudinal_values(
@@ -200,16 +244,23 @@ def longitudinal_values(
     deadline: float = math.inf,
     ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
     workload: Workload = Workload.DEFAULT,
-) -> list[float]:
-    """The trailing per-bucket values, oldest first, for the row-sized trend strip."""
+) -> MetricSeries:
+    """The trailing per-bucket values and their bucket labels, oldest first, for the row-sized trend strip."""
 
-    first_series, _ = _run_metric_query(
+    results, _ = _run_metric_query(
         query, team, ChartDisplayType.ACTIONS_BAR, deadline=deadline, ch_user=ch_user, workload=workload
     )
-    raw_points = first_series.get("data")
+    raw_points = results[0].get("data")
     if not isinstance(raw_points, list):
         raise ValueError("metric query returned no buckets")
-    return [_finite_number(point, what="bucket") for point in raw_points[-MAX_METRIC_SERIES_POINTS:]]
+    values = [_finite_number(point, what="bucket") for point in raw_points[-MAX_METRIC_SERIES_POINTS:]]
+    raw_days = results[0].get("days")
+    buckets = (
+        [str(day) for day in raw_days[-MAX_METRIC_SERIES_POINTS:]]
+        if isinstance(raw_days, list) and len(raw_days) == len(raw_points)
+        else None
+    )
+    return MetricSeries(values=values, buckets=buckets)
 
 
 def measure_metric(
@@ -221,7 +272,24 @@ def measure_metric(
     require_full_timeout: bool = False,
     ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
     workload: Workload = Workload.DEFAULT,
+    formula: str | None = None,
 ) -> MetricMeasurement:
+    """An explicit formula consumes raw source series and omits bucket series.
+
+    Keeping its value and source values in one cached response prevents evidence from
+    qualifying a formula calculated from a different snapshot.
+    """
+    if formula is not None:
+        source_values, measured_at = whole_window_values(
+            query,
+            team,
+            deadline=deadline,
+            require_full_timeout=require_full_timeout,
+            ch_user=ch_user,
+            workload=workload,
+        )
+        value = _finite_number(FormulaAST([[item] for item in source_values]).call(formula)[0], what="formula")
+        return MetricMeasurement(value=value, measured_at=measured_at, series=None, source_values=source_values)
     value, measured_at = whole_window_value(
         query,
         team,
@@ -230,16 +298,23 @@ def measure_metric(
         ch_user=ch_user,
         workload=workload,
     )
-    series: list[float] | None
+    series: MetricSeries | None
     if not include_series or time.monotonic() >= deadline:
         return MetricMeasurement(value=value, measured_at=measured_at, series=None)
     try:
         series = longitudinal_values(query, team, deadline=deadline, ch_user=ch_user, workload=workload)
+    except MetricQueryBudgetExhausted:
+        series = None
     except Exception:
         # The buckets only decorate the row, so losing them must not cost the headline value.
         logger.exception("signals.report_metric_refresh.series_query_failed", team_id=team.id)
         series = None
-    return MetricMeasurement(value=value, measured_at=measured_at, series=series)
+    return MetricMeasurement(
+        value=value,
+        measured_at=measured_at,
+        series=series.values if series else None,
+        series_buckets=series.buckets if series else None,
+    )
 
 
 def _persist_metric_snapshot(
@@ -261,7 +336,7 @@ def _persist_metric_snapshot(
     with transaction.atomic():
         report = (
             SignalReport.objects.select_for_update()
-            .filter(team_id=team_id, id=report_id, status__in=CURRENT_REPORT_STATUSES)
+            .filter(team_id=team_id, id=report_id, status__in=REFRESHABLE_REPORT_STATUSES)
             .first()
         )
         if report is None or report.metrics != expected_metrics:
@@ -288,6 +363,7 @@ def _persist_metric_snapshot(
             "value": measurement.value,
             "value_at": measurement.measured_at.isoformat(),
             "series": measurement.series,
+            "series_buckets": measurement.series_buckets,
             "comparison": None,
         }
         # The kind's own rules decide what a valid number is (a count is a whole non-negative
@@ -307,11 +383,13 @@ def refresh_report_metric_snapshots(
     team: Team,
     reports: Sequence[SignalReport],
     policy: ReportMetricAccessPolicy,
+    row_metric_ids: Mapping[str, str] | None = None,
 ) -> ReportMetricRefreshSummary:
     """Refresh the stale snapshots on the given reports, in place, within one request's budget.
 
     Every report's row metric comes first, then the supporting metrics, so an inbox page refreshes
-    what each row shows before any report's tiles. Each report's in-memory `metrics` is updated as
+    what each row shows before any report's tiles. `row_metric_ids` names the metric a row shows
+    when it is not the card metric, as on a Monitoring row, which draws its lead check's metric. Each report's in-memory `metrics` is updated as
     snapshots land, so the caller can serialize the instances it passed in.
     """
 
@@ -322,14 +400,14 @@ def refresh_report_metric_snapshots(
     for report in reports:
         if not isinstance(report.metrics, list):
             continue
-        card_id = card_metric_id(report.metrics)
+        card_id = (row_metric_ids or {}).get(str(report.id)) or card_metric_id(report.metrics)
         for row in report.metrics:
             if not isinstance(row, dict) or not isinstance(row.get("metric_id"), str):
                 continue
             (planned if row["metric_id"] == card_id else supporting).append((report, row["metric_id"]))
     planned.extend(supporting)
 
-    refreshed = skipped = failed = 0
+    refreshed = skipped = failed = out_of_budget = 0
     source_runs = 0
     for report, metric_id in planned:
         row = next((r for r in report.metrics if isinstance(r, dict) and r.get("metric_id") == metric_id), None)
@@ -355,6 +433,10 @@ def refresh_report_metric_snapshots(
                 metric_id=metric_id,
                 measurement=measurement,
             )
+        except MetricQueryBudgetExhausted:
+            skipped += 1
+            out_of_budget += 1
+            continue
         except Exception:
             failed += 1
             logger.exception(
@@ -370,4 +452,16 @@ def refresh_report_metric_snapshots(
         report.metrics = metrics
         refreshed += 1
 
+    REPORT_METRIC_REFRESH_OUTCOMES.labels(outcome="refreshed").inc(refreshed)
+    REPORT_METRIC_REFRESH_OUTCOMES.labels(outcome="skipped").inc(skipped - out_of_budget)
+    REPORT_METRIC_REFRESH_OUTCOMES.labels(outcome="out_of_budget").inc(out_of_budget)
+    REPORT_METRIC_REFRESH_OUTCOMES.labels(outcome="failed").inc(failed)
+    logger.info(
+        "signals.report_metric_refresh.completed",
+        team_id=team.id,
+        refreshed=refreshed,
+        skipped=skipped,
+        out_of_budget=out_of_budget,
+        failed=failed,
+    )
     return ReportMetricRefreshSummary(refreshed=refreshed, skipped=skipped, failed=failed)

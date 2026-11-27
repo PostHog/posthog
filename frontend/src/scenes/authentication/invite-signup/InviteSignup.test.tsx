@@ -49,7 +49,34 @@ describe('InviteSignup', () => {
         expect(screen.getByText('Please enter your password to continue')).toBeInTheDocument()
     })
 
+    it('states the password rules before the first submit, then shows live feedback for a short password', async () => {
+        const passwordInput = await screen.findByPlaceholderText('••••••••••')
+        expect(screen.getByText(/At least 8 characters/)).toBeInTheDocument()
+
+        await userEvent.type(passwordInput, 'abc')
+
+        expect(await screen.findByText('Must be at least 8 characters long')).toBeInTheDocument()
+    })
+
     it('marks the role as optional, because this form submits without one', async () => {
         expect((await screen.findByText('What is your role?')).closest('label')).toHaveTextContent('(optional)')
+    })
+
+    it('sends a signed-out person reopening an accepted invite to login, returning to the invite after', async () => {
+        useMocks({
+            get: {
+                '/api/signup/accepted/': () => [
+                    400,
+                    { type: 'validation_error', code: 'invalid_input', detail: 'The provided invite ID is not valid.' },
+                ],
+            },
+        })
+        router.actions.push('/signup/accepted')
+
+        expect(await screen.findByText('This invite link is no longer valid')).toBeInTheDocument()
+        expect(document.querySelector('[data-attr="invite-invalid-login"]')).toHaveAttribute(
+            'href',
+            '/login?next=%2Fsignup%2Faccepted'
+        )
     })
 })

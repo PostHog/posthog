@@ -1,6 +1,7 @@
-import { ExperimentExposureTimeSeries } from '~/queries/schema/schema-general'
+import { ExperimentEventExposureConfig, ExperimentExposureTimeSeries, NodeKind } from '~/queries/schema/schema-general'
+import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { buildExposureSeries } from './exposuresTransforms'
+import { buildExposureSeries, getExposureCriteriaLabel } from './exposuresTransforms'
 
 describe('buildExposureSeries', () => {
     it('passes the backend days through as labels, one series per variant', () => {
@@ -45,5 +46,23 @@ describe('buildExposureSeries', () => {
         const { labels, series } = buildExposureSeries(timeseries)
 
         expect(series.map((s) => s.data.length)).toEqual([labels.length])
+    })
+})
+
+describe('getExposureCriteriaLabel', () => {
+    it.each<[string, AnyPropertyFilter[] | undefined, string]>([
+        ['no config', undefined, 'Default ($experiment_exposure)'],
+        ['an unfiltered $feature_flag_called config', [], 'Default ($experiment_exposure)'],
+        [
+            'a filtered $feature_flag_called config',
+            [{ key: 'plan', value: ['pro'], operator: PropertyOperator.Exact, type: PropertyFilterType.Person }],
+            'Default ($experiment_exposure), with filters',
+        ],
+    ])('labels %s', (_, properties, expected) => {
+        const exposureConfig: ExperimentEventExposureConfig | undefined = properties
+            ? { kind: NodeKind.ExperimentEventExposureConfig, event: '$feature_flag_called', properties }
+            : undefined
+
+        expect(getExposureCriteriaLabel({ exposure_config: exposureConfig }, '$experiment_exposure')).toEqual(expected)
     })
 })

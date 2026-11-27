@@ -3,16 +3,19 @@ import { useMemo, useState } from 'react'
 
 import { LemonButton, Link } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { integrationAuthorizeUrl, integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
+import type { IntegrationConnectSurface } from 'lib/integrations/utils'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { SLACK_INTEGRATION_SCOPES } from '~/types'
 
+import { QuillSlackIntegration } from './QuillSlackIntegration'
 import { useSlackRequiredScopes } from './slackScopes'
 
 // Modified version of https://app.slack.com/app-settings/TSS5W8YQZ/A03KWE2FJJ2/app-manifest to match current instance.
@@ -51,9 +54,14 @@ const getSlackAppManifest = (): any => ({
     },
 })
 
-export function SlackIntegration({ next, centered }: { next?: string; centered?: boolean } = {}): JSX.Element {
+export function SlackIntegration({
+    next,
+    centered,
+    connectSurface,
+}: { next?: string; centered?: boolean; connectSurface?: IntegrationConnectSurface } = {}): JSX.Element {
     const { slackIntegrations, slackAvailable } = useValues(integrationsLogic)
     const { startPolling, stopPolling } = useActions(integrationsLogic)
+    const { reportIntegrationConnectClicked } = useActions(eventUsageLogic)
     const [showSlackInstructions, setShowSlackInstructions] = useState(false)
 
     useOnMountEffect(() => {
@@ -64,6 +72,29 @@ export function SlackIntegration({ next, centered }: { next?: string; centered?:
 
     const requiredScopesArr = useSlackRequiredScopes()
     const requiredScopes = useMemo(() => requiredScopesArr.join(' '), [requiredScopesArr])
+    const todayRailNav = useQuillSurface()
+
+    // Silent without `connectSurface`, because the OAuth landing page reports its own clicks.
+    const handleConnectClick = connectSurface
+        ? () => reportIntegrationConnectClicked('slack', 'slack', connectSurface)
+        : undefined
+
+    if (todayRailNav) {
+        return (
+            <QuillSlackIntegration
+                slackIntegrations={slackIntegrations}
+                slackAvailable={slackAvailable}
+                isStaff={!!user?.is_staff}
+                showSlackInstructions={showSlackInstructions}
+                requiredScopes={requiredScopes}
+                authorizeUrl={integrationAuthorizeUrl({ kind: 'slack', next })}
+                centered={centered}
+                slackAppManifest={JSON.stringify(getSlackAppManifest(), null, 2)}
+                onConnectClick={handleConnectClick}
+                onShowInstructions={() => setShowSlackInstructions(true)}
+            />
+        )
+    }
 
     return (
         <div>
@@ -75,7 +106,11 @@ export function SlackIntegration({ next, centered }: { next?: string; centered?:
                 <div>
                     {slackAvailable ? (
                         <div className={centered ? 'flex flex-col items-center gap-2 text-center' : undefined}>
-                            <Link to={api.integrations.authorizeUrl({ kind: 'slack', next })} disableClientSideRouting>
+                            <Link
+                                to={integrationAuthorizeUrl({ kind: 'slack', next })}
+                                disableClientSideRouting
+                                onClick={handleConnectClick}
+                            >
                                 <img
                                     alt="Connect to Slack workspace"
                                     height="40"

@@ -7,11 +7,20 @@ Three GitHub Actions workflows cover the app. They install the independent `prod
 `.github/workflows/mobile-ci.yml` is a reusable workflow. `pr-housekeeping.yml` calls it on every pull request, and `mobile-release.yml` calls it for each release commit.
 Direct pushes to `master` that match the workflow's paths only install dependencies and warm the pnpm store cache. They do not repeat validation.
 
-A `changes` job reads the pull request diff. When nothing under `products/mobile/**` (Markdown excluded), the generated Signals API types, or the workflow changed, the check job is skipped and the run ends in seconds.
+A `changes` job reads the pull request diff and selects the mobile checks.
+
+| Changed files                                                         | Mobile checks                            |
+| --------------------------------------------------------------------- | ---------------------------------------- |
+| `products/mobile/**` (Markdown excluded) or `mobile-ci.yml`           | Typecheck, lint, Jest and release checks |
+| Generated Signals or Error Tracking API types, with no mobile changes | Typecheck                                |
+| Neither group                                                         | Status report only                       |
+
+The generated API files are type-only imports in the app, so typechecking checks compatibility without repeating runtime tests.
+Changes in both groups run the full suite. Release commits also run the full suite.
 The `Mobile CI Pass` job reports a verdict on every run, so it can be a required branch-protection check.
 A trigger-level `paths:` filter cannot do this: a required check that never dispatches leaves the pull request waiting for a status that never arrives. See `/authoring-ci-workflows`.
 
-The check job runs these steps for pull requests and release commits, using the same commands you run locally:
+The full check job runs these steps, using the same commands you run locally:
 
 ```sh
 pnpm install --frozen-lockfile
@@ -34,19 +43,35 @@ Markdown, MDX, SCSS and YAML use the repository's Oxfmt configuration. The share
 
 Details:
 
-- The checkout includes the mobile app and its existing generated Signals API types. Keep new runtime dependencies inside the mobile workspace.
+- The checkout includes the mobile app and its imported generated Signals and Error Tracking API types. Keep new runtime dependencies inside the mobile workspace.
 - pnpm comes from `packageManager` in `products/mobile/package.json`, not from the repo root.
 - Node comes from `products/mobile/.node-version`. Keep it equal to the repo's `.nvmrc` and to `node` in `eas.json`.
 - The pnpm store cache is keyed on `products/mobile/pnpm-lock.yaml`. Pull requests only restore it. Pushes to `master` save it.
+- Generated API type changes do not trigger a separate cache-warming run on `master`; they do not change the mobile dependencies.
 - Change detection uses the existing paths-filter GitHub App. Both reusable-workflow callers pass `GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY` by name. The workflow creates a token with pull-request read access only for same-repository PRs; fork and Dependabot PRs use `GITHUB_TOKEN` because they do not receive the app secret. No credential value belongs in the repository.
 - A newer push to the same pull request cancels the older run.
 - Push runs use a separate concurrency group for each commit, so a later release cannot replace an earlier pending validation run. Publication stays serialized; see [release ordering and retries](RELEASING.md#receipts-ordering-and-retries).
 - After this workflow reaches `master`, ask a repository administrator through `@PostHog/team-devex` to add `mobile-ci / Mobile CI Pass` to the `master` ruleset's required status checks with GitHub Actions as its source. Keep the other required checks. YAML comments do not configure repository rules.
 - The release workflow calls Mobile CI on the merged commit. A push has no pull request diff to filter, so the checks always run there.
 
-`@cvolzer3` owns both mobile app trees and all mobile workflow files in `CODEOWNERS`, including release requests, release tooling and the public OTA certificate.
-
 The simulator demo flows do not run in CI. Run them locally before you merge a change to a screen. See [TESTING.md](TESTING.md#demo-flows-before-you-merge) and the `/running-mobile-demo-flows` skill.
+
+### Mobile rebuild acknowledgement
+
+The **Mobile Rebuild / Native rebuild acknowledged** check flags changes to build configuration, dependencies, packaging, native source and iOS extension targets. It compares the production EAS build and submission profiles, including inherited settings. Preview-only profile edits pass this check. For image assets, CI compares production iOS and Android fingerprints using the base branch's tooling. Changes to other asset types require acknowledgement.
+
+When the check finds a possible rebuild or cannot verify native inputs, it fails and a PR comment tags `@PostHog/team-mobile-app`. Anyone with repository write access, including the PR author, can acknowledge the current commit.
+
+1. Copy the `/ack-mobile-rebuild <head-sha>` command from the bot comment or check summary and post it as a separate PR comment.
+2. Select **Re-run failed jobs** on the workflow run. The check reads the comment and passes for that commit.
+
+If the check flags a later commit, repeat both steps with the new command. Acknowledgement clears this check only. Building the app, approving the PR and approving a production deployment are separate steps.
+
+If the comparison job itself fails, the bot tags the Mobile App team with a link to the failed run. Check the error and select **Re-run failed jobs** so CI can finish the comparison.
+
+The app's `product.yaml` and `.github/owners.yaml` route optional Mobile App reviews for app code, mobile workflows, build configuration and release tooling. DevEx approval is required for changes to the acknowledgement gate and its tests.
+
+A repository administrator must add **Mobile Rebuild / Native rebuild acknowledged** from GitHub Actions to the `master` ruleset as part of the ownership rollout. Update the branch of any open PR that lacks the check so it picks up the new workflow.
 
 ## Mobile Build
 
@@ -61,6 +86,7 @@ The simulator demo flows do not run in CI. Run them locally before you merge a c
 - This workflow makes internal builds only. Store submission is owned by Mobile Release.
 - The build message is `<branch>@<commit>`, because EAS cannot read git when it uploads only this directory.
 - eas-cli is pinned in the workflow. Raise it on purpose, after reading its changelog.
+- For managed builds, EAS derives the Xcode scheme from the Expo project name. The production project name generates `PostHogApp`, which avoids the CocoaPods `PostHog` scheme. The native display labels keep the app name users see.
 - It needs a dedicated `MOBILE_BUILD_EXPO_TOKEN` secret only in the `mobile-build` environment. Store keys stay on EAS. See the protected environment setup in [RELEASING.md](RELEASING.md#one-time-hosted-release-setup).
 
 ## Mobile Release

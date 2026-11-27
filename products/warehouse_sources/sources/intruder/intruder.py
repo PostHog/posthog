@@ -1,0 +1,224 @@
+import dataclasses
+from typing import Any, Optional
+
+from products.warehouse_sources.sources.intruder.settings import (
+    INTRUDER_ENDPOINTS,
+    IntruderEndpointConfig,
+    IntruderFanOut,
+)
+from products.warehouse_sources.sources.sdk import (
+    ClientConfig,
+    JSONResponsePaginator,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    make_parent_key_name,
+    make_tracked_session,
+    rest_api_resource,
+    rest_api_resources,
+    validate_via_probe,
+)
+
+INTRUDER_BASE_URL = "https://api.intruder.io/v1"
+# Intruder caps authenticated requests at 5000/hour, so we page as large as the API allows to keep
+# the request count down. Its list endpoints default to 25 per page and accept a `limit` param.
+PAGE_SIZE = 100
+
+
+@dataclasses.dataclass(frozen=True)
+class IntruderResumeConfig:
+    # Full URL of the next page to fetch for a standard (non-fan-out) endpoint. Intruder returns a
+    # ready-to-follow `next` URL on every paginated response. None means "start at the first page".
+    next_url: str | None = None
+    # Legacy field from the hand-rolled fan-out bookmark, kept so state saved by an older build still
+    # parses (ResumableSourceManager does dataclass(**saved)). No longer written.
+    issue_id: int | None = None
+    # Framework fan-out resume state for the per-issue fan-out endpoints:
+    # {"completed": [child_path, ...], "current": child_path | None, "child_state": {"next_url": ...} | None}.
+    fanout_state: dict | None = None
+
+
+def _non_secret_headers() -> dict[str, str]:
+    # Auth (Bearer) is supplied via the framework auth config so the token is redacted out of logs
+    # and raised error messages; only the non-secret Accept header is set here.
+    return {"Accept": "application/json"}
+
+
+def _client_config(access_token: str) -> ClientConfig:
+    # allowed_hosts=[] pins every request — including API-returned `next` links and seeded resume
+    # URLs — to the base_url host (api.intruder.io), so a poisoned resume cursor or a spoofed `next`
+    # can't exfiltrate the bearer token off-origin. allow_redirects=False refuses any 3xx (a redirect
+    # could retarget the authenticated request at another host). Together these reproduce the
+    # hand-rolled SSRF guard.
+    return {
+        "base_url": INTRUDER_BASE_URL,
+        "headers": _non_secret_headers(),
+        "auth": {"type": "bearer", "token": access_token},
+        "paginator": JSONResponsePaginator(next_url_path="next"),
+        "allowed_hosts": [],
+        "allow_redirects": False,
+    }
+
+
+def _source_response(endpoint: str, config: IntruderEndpointConfig, items: Any) -> SourceResponse:
+    return SourceResponse(
+        name=endpoint,
+        items=lambda: items,
+        primary_keys=config.primary_keys,
+        partition_count=1,
+        partition_size=1,
+        partition_mode="datetime" if config.partition_key else None,
+        partition_format="month" if config.partition_key else None,
+        partition_keys=[config.partition_key] if config.partition_key else None,
+    )
+
+
+def _list_source(
+    access_token: str,
+    endpoint: str,
+    config: IntruderEndpointConfig,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[IntruderResumeConfig],
+) -> SourceResponse:
+    rest_config: RESTAPIConfig = {
+        "client": _client_config(access_token),
+        "resource_defaults": {},
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": {
+                    "path": config.path,
+                    "params": {"limit": PAGE_SIZE, **config.params},
+                    "data_selector": "results",
+                },
+            }
+        ],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and resume.next_url:
+            initial_paginator_state = {"next_url": resume.next_url}
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        # Persist only when a next page remains; save AFTER a page is yielded so a crash re-yields the
+        # last page (merge dedupes on the primary key) rather than skipping it.
+        if state and state.get("next_url"):
+            resumable_source_manager.save_state(IntruderResumeConfig(next_url=state["next_url"]))
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        None,  # full refresh only — no Intruder list endpoint exposes a verifiable server-side cursor
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+    return _source_response(endpoint, config, resource)
+
+
+def _fan_out_source(
+    access_token: str,
+    endpoint: str,
+    config: IntruderEndpointConfig,
+    fan_out: IntruderFanOut,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[IntruderResumeConfig],
+) -> SourceResponse:
+    """Fan out over every parent row, materializing the child endpoint's rows tagged with the parent id.
+
+    Each child row gets the owning parent id injected (e.g. `issue_id`) so the composite primary key
+    stays unique table-wide. Full refresh only — re-pulled rows on resume are deduped by the primary
+    key on merge.
+    """
+    injected_key = make_parent_key_name(fan_out.parent, "id")
+
+    def rename_parent_id(row: dict[str, Any]) -> dict[str, Any]:
+        # `include_from_parent=["id"]` injects the parent id as `_<parent>_id`; expose it under the
+        # name the composite primary key uses.
+        if injected_key in row:
+            row[fan_out.parent_id_key] = row.pop(injected_key)
+        return row
+
+    rest_config: RESTAPIConfig = {
+        "client": _client_config(access_token),
+        "resource_defaults": {},
+        "resources": [
+            {
+                "name": fan_out.parent,
+                "endpoint": {
+                    "path": INTRUDER_ENDPOINTS[fan_out.parent].path,
+                    "params": {"limit": PAGE_SIZE, **INTRUDER_ENDPOINTS[fan_out.parent].params},
+                    "data_selector": "results",
+                },
+            },
+            {
+                "name": endpoint,
+                "include_from_parent": ["id"],
+                "endpoint": {
+                    "path": config.path,
+                    "params": {
+                        fan_out.parent_id_key: {"type": "resolve", "resource": fan_out.parent, "field": "id"},
+                        "limit": PAGE_SIZE,
+                        **config.params,
+                    },
+                    "data_selector": "results",
+                },
+                "data_map": rename_parent_id,
+            },
+        ],
+    }
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and resume.fanout_state:
+            initial_paginator_state = resume.fanout_state
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        resumable_source_manager.save_state(IntruderResumeConfig(fanout_state=state))
+
+    resources = rest_api_resources(
+        rest_config,
+        team_id,
+        job_id,
+        None,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+    )
+    child = next(resource for resource in resources if resource.name == endpoint)
+    return _source_response(endpoint, config, child)
+
+
+def intruder_source(
+    access_token: str,
+    endpoint: str,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[IntruderResumeConfig],
+) -> SourceResponse:
+    config = INTRUDER_ENDPOINTS[endpoint]
+    if config.fan_out is not None:
+        return _fan_out_source(
+            access_token, endpoint, config, config.fan_out, team_id, job_id, resumable_source_manager
+        )
+    return _list_source(access_token, endpoint, config, team_id, job_id, resumable_source_manager)
+
+
+def validate_credentials(access_token: str) -> bool:
+    # `/targets/` requires a valid token (401 otherwise) and returns 200 even for accounts with no
+    # targets, making it a cheap, side-effect-free probe. `/health/` can't be used — it returns 200
+    # regardless of whether the token is valid. validate_via_probe swallows transport errors and maps
+    # them to "not validated".
+    ok, _status = validate_via_probe(
+        lambda: make_tracked_session(redact_values=(access_token,)),
+        f"{INTRUDER_BASE_URL}/targets/?limit=1",
+        headers={"Authorization": f"Bearer {access_token}", **_non_secret_headers()},
+    )
+    return ok
+
+
+__all__ = ["IntruderResumeConfig", "intruder_source", "validate_credentials"]

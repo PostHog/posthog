@@ -2,6 +2,7 @@ import {
     GroupingModeEnumApi,
     LogsAlertConfigurationApi,
     LogsAlertConfigurationStateEnumApi,
+    LogsAlertConfigurationThresholdOperatorEnumApi,
     LogsAlertGroupingApi,
 } from 'products/logs/frontend/generated/api.schemas'
 
@@ -22,6 +23,33 @@ export const SIMULATION_NEEDS_UNGROUPED =
     'Simulation can\'t show grouped alerts. Set Group by to "Don\'t group" to run one.'
 
 export const MAX_INSTANCES_LIMIT = 100
+
+export const GROUP_BY_NOT_AVAILABLE = "Grouping by other fields isn't available for this project yet."
+
+export const GROUP_BY_HELP: Record<LogsAlertGroupBy, string> = {
+    none: 'Split the count by service or severity to alert on each one separately.',
+    service:
+        'Each service fires and notifies on its own, so several services over the threshold send several notifications.',
+    severity:
+        'Each severity fires and notifies on its own, so several severities over the threshold send several notifications.',
+    service_and_severity:
+        'Each service and severity pair fires and notifies on its own, so several pairs over the threshold send several notifications.',
+}
+
+/** Why a Group by option can't be picked, or undefined when it can. */
+export function groupByOptionDisabledReason(
+    groupBy: LogsAlertGroupBy,
+    thresholdOperator: LogsAlertConfigurationThresholdOperatorEnumApi,
+    lockedGroupBy: LogsAlertGroupBy | null
+): string | undefined {
+    if (groupBy === 'none') {
+        return undefined
+    }
+    if (lockedGroupBy !== null && groupBy !== lockedGroupBy) {
+        return GROUP_BY_NOT_AVAILABLE
+    }
+    return thresholdOperator === LogsAlertConfigurationThresholdOperatorEnumApi.Above ? undefined : GROUPING_NEEDS_ABOVE
+}
 
 const GROUP_BY_KEYS: Record<LogsAlertGroupBy, string[]> = {
     none: [],
@@ -75,18 +103,40 @@ export function isRegroup(alert: LogsAlertConfigurationApi | null, groupBy: Logs
     return alert !== null && groupByOf(alert.grouping) !== groupBy
 }
 
+/** The team's logs alerts as the alert list loaded them. A created-by filter on the list hides some of them. */
+export interface LoadedTeamAlerts {
+    alerts: LogsAlertConfigurationApi[]
+    complete: boolean
+}
+
 /**
- * Only an alert the alerts platform evaluates can group. A new alert goes to the platform once the
- * team has any logs alert there, which mirrors the backend's cutover check.
+ * Only an alert the alerts platform evaluates can group. A new alert goes to the platform when the
+ * platform owns another of the team's alerts, or when the team has no other alert, which mirrors the
+ * backend's cutover check. Until the team's alerts load, an empty list says nothing, so a new alert
+ * can't group yet. An alert that already groups keeps the field even with the flag off, so its
+ * grouping stays visible and can be removed.
  */
 export function canGroupAlert(
     alert: LogsAlertConfigurationApi | null,
-    teamAlerts: LogsAlertConfigurationApi[]
+    teamAlerts: LoadedTeamAlerts | null,
+    groupingFlagEnabled: boolean
 ): boolean {
-    if (!alert) {
-        return teamAlerts.some((candidate) => candidate.platform_owned)
+    if (alert?.grouping?.mode === GroupingModeEnumApi.ByResultLabels) {
+        return true
     }
-    return alert.platform_owned || alert.grouping?.mode === GroupingModeEnumApi.ByResultLabels
+    if (!groupingFlagEnabled) {
+        return false
+    }
+    if (alert) {
+        return alert.platform_owned
+    }
+    if (!teamAlerts) {
+        return false
+    }
+    return (
+        teamAlerts.alerts.some((candidate) => candidate.platform_owned) ||
+        (teamAlerts.complete && teamAlerts.alerts.length === 0)
+    )
 }
 
 /** What a save that changes the grouping does to the state the alert tracks now. */

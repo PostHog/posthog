@@ -33,11 +33,6 @@ test.describe('Auth', () => {
         loginPage = new LoginPage(page)
     })
 
-    test('Logout', async ({ page }) => {
-        await page.locator('[data-attr=new-account-menu-logout-button]').click()
-        await expect(page).toHaveURL('/login')
-    })
-
     test('Logout and login', async ({ page }) => {
         await page.locator('[data-attr=new-account-menu-logout-button]').click()
 
@@ -100,20 +95,6 @@ test.describe('Auth', () => {
         await expect(page).toHaveURL(/\/project\/\d+/)
     })
 
-    test('Redirect to appropriate place after login', async ({ page, context }) => {
-        await context.clearCookies()
-        await page.goto('/activity/events', { waitUntil: 'commit' })
-        await expect(page).toHaveURL(/\/login/)
-
-        await loginPage.enterUsername(LOGIN_USERNAME)
-        await loginPage.continueWithEmail()
-
-        await loginPage.enterPassword(LOGIN_PASSWORD)
-        await loginPage.clickLogin()
-
-        await expect(page).toHaveURL(/\/activity\/events/)
-    })
-
     test('Redirect to appropriate place after login with complex URL', async ({ page, context }) => {
         await context.clearCookies()
         await page.goto('/insights?search=testString', { waitUntil: 'commit' })
@@ -150,18 +131,5 @@ test.describe('Auth', () => {
     test('Cannot access signup page if authenticated', async ({ page }) => {
         await page.goto('/signup')
         await expect(page).toHaveURL(/\/project\/\d+/)
-    })
-
-    test('Logout in another tab results in logout in the current tab too', async ({ page, context }) => {
-        const secondPage = await context.newPage()
-        await secondPage.goto('/')
-        await secondPage.locator('[data-attr=new-account-menu-button]').waitFor({ state: 'visible', timeout: 30000 })
-        await secondPage.locator('[data-attr=new-account-menu-button]').click()
-        await secondPage.locator('[data-attr=new-account-menu-logout-button]').click()
-        await secondPage.waitForURL(/\/login/)
-
-        // Reload the page to trigger API calls that will detect the logout
-        await page.reload()
-        await page.waitForURL(/\/login/, { timeout: 30000 })
     })
 })

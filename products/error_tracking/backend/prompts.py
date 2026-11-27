@@ -201,6 +201,7 @@ export const COMMON_LIB_VALUES = new Set([
     'posthog-android',
     'posthog-go',
     'posthog-php',
+    'posthog-laravel',
     'posthog-flutter',
     'posthog-java',
 ])

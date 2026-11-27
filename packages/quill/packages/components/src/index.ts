@@ -8,7 +8,30 @@
 // top of Table primitives. Opinionated wrappers you'd otherwise hand-roll
 // in every app.
 
+export {
+    Credenza,
+    CredenzaBody,
+    CredenzaClose,
+    CredenzaContent,
+    CredenzaDescription,
+    CredenzaFooter,
+    CredenzaHeader,
+    CredenzaTitle,
+    CredenzaTrigger,
+    type CredenzaProps,
+} from './credenza'
 export { DataTable, type DataTableProps } from './data-table'
+export {
+    FilterCheckboxSubMenu,
+    FilterClearItem,
+    FilterMenuTrigger,
+    type FilterMenuOpenTiming,
+    type FilterOption,
+    FilterRadioSubMenu,
+    FilterSearchSubMenu,
+    FilterSubMenu,
+    filterSummary,
+} from './filter-menu'
 export { DateTimePicker, type DateTimePickerProps, type DateTimeValue, type DateFormatOrder } from './date-time-picker'
 export { DatePicker, type DatePickerProps } from './date-picker'
 export { quickRanges, CUSTOM_RANGE, type DateTimeRange, type DateTimeRangeName } from './date-time-ranges'

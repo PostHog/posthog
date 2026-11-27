@@ -3,10 +3,32 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 13 enabled ops
+ * PostHog API - MCP 15 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
+
+export const ConversationsMacrosListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const ConversationsMacrosListQueryParams = () => zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+})
+
+export const ConversationsMacrosRetrieveParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this ticket macro.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
 
 /**
  * List tickets with person data attached.
@@ -18,6 +40,8 @@ export const ConversationsTicketsListParams = () => zod.object({
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
+
+export const conversationsTicketsListQueryLimitMax = 1000
 
 export const ConversationsTicketsListQueryParams = () => zod.object({
     ai_triage_result: zod
@@ -69,7 +93,11 @@ export const ConversationsTicketsListQueryParams = () => zod.object({
         .describe(
             'Comma-separated list of email addresses to filter by, matched case-insensitively against `email_from` (max 100). When combined with `distinct_ids`, tickets matching either the distinct_ids or the emails are returned (OR).'
         ),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(conversationsTicketsListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     order_by: zod
         .string()
@@ -194,7 +222,12 @@ export const ConversationsTicketsPartialUpdateBody = () => zod
             .datetime({ offset: true })
             .nullish()
             .describe('Time to reopen the ticket. Pass null to reopen it now.'),
-        tags: zod.array(zod.string()).optional().describe('Tag names to set on the ticket.'),
+        tags: zod
+            .array(zod.string())
+            .optional()
+            .describe(
+                "Tag names to set on the ticket. The list replaces the ticket's current tags. A request can add up to 100 new tags."
+            ),
     })
     .describe('Fields accepted when updating a ticket.')
 
@@ -210,8 +243,14 @@ export const ConversationsTicketsMessagesListParams = () => zod.object({
         ),
 })
 
+export const conversationsTicketsMessagesListQueryLimitMax = 200
+
 export const ConversationsTicketsMessagesListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(conversationsTicketsMessagesListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
@@ -243,7 +282,9 @@ export const ConversationsTicketsNotesCreateBody = () => zod
         rich_content: zod
             .unknown()
             .optional()
-            .describe('Optional TipTap rich content JSON for the note. Omit it to show the markdown message.'),
+            .describe(
+                'Optional TipTap rich content JSON for the note. Omit it to show the markdown message. Each image src must be the url of an image uploaded to this project.'
+            ),
     })
     .describe('Payload for adding a private note to a ticket. It has no privacy field: the note is always private.')
 
@@ -276,7 +317,7 @@ export const ConversationsTicketsNotesPartialUpdateBody = () => zod
             .unknown()
             .optional()
             .describe(
-                'Optional TipTap rich content JSON. Omit or pass null to clear previous rich content so the thread falls back to the markdown message.'
+                'Optional TipTap rich content JSON. Omit or pass null to clear previous rich content so the thread falls back to the markdown message. Each image src must be the url of an image uploaded to this project.'
             ),
     })
     .describe('Payload for updating a private note on a ticket.')
@@ -330,7 +371,12 @@ export const ConversationsTicketsReplyCreateBody = () => zod
             .describe(
                 "If true, store as an internal note (not sent to the customer). If false, the reply is delivered to the customer over the ticket's channel."
             ),
-        rich_content: zod.unknown().optional().describe('Optional TipTap rich content JSON for formatted messages.'),
+        rich_content: zod
+            .unknown()
+            .optional()
+            .describe(
+                'Optional TipTap rich content JSON for formatted messages. When set, channels deliver this instead of message. Images need it: add a node {\"type\": \"image\", \"attrs\": {\"src\": <url>, \"alt\": <text>}} to the \"doc\" content. Each src must be the url of an image uploaded to this project, or the request fails with a 400.'
+            ),
     })
     .describe('Payload for posting a reply or internal note to a ticket.')
 
@@ -378,7 +424,12 @@ export const ConversationsTicketsComposeCreateBody = () => zod.object({
             "ID of the support email channel to send from. Omit it to send from the team's default support channel."
         ),
     message: zod.string().max(conversationsTicketsComposeCreateBodyMessageMax).describe('Message content in markdown.'),
-    rich_content: zod.unknown().optional().describe('TipTap rich content JSON for formatted messages.'),
+    rich_content: zod
+        .unknown()
+        .optional()
+        .describe(
+            'TipTap rich content JSON for formatted messages. Each image src must be the url of an image uploaded to this project.'
+        ),
     tags: zod
         .array(zod.string().max(conversationsTicketsComposeCreateBodyTagsItemMax))
         .max(conversationsTicketsComposeCreateBodyTagsMax)

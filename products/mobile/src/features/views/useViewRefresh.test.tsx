@@ -3,7 +3,7 @@ import { act, renderHook } from '@testing-library/react-native'
 
 import type { Freshness } from '@/model/views'
 
-import { REFRESH_MIN_MS } from './freshness'
+import { READ_FLOOR_MS, REFRESH_MIN_MS } from './freshness'
 import type { ReadResult, RefreshMode } from './refreshQueue'
 import { viewsQueue } from './refreshQueue'
 import { type RefreshContainer, type RefreshItem, useViewRefresh, type ViewRefreshOptions } from './useViewRefresh'
@@ -104,6 +104,103 @@ describe('useViewRefresh on a dashboard', () => {
         viewsQueue.reset()
     })
 
+    test('reconnect retries tile work interrupted while awaiting its dashboard container', async () => {
+        const current = {
+            ...options('7d', tiles('7d', 2, false)),
+            container: { ...dashboard('7d'), read: read('7d-dashboard', true) },
+        }
+        const { rerender, unmount } = renderHook(
+            ({ enabled }: { enabled: boolean }) => useViewRefresh({ ...current, enabled }),
+            { initialProps: { enabled: true } }
+        )
+        try {
+            await flush()
+            expect(reads).toEqual(['7d-dashboard'])
+            rerender({ enabled: false })
+            await flush()
+            rerender({ enabled: true })
+            await flush()
+            await settle('7d-dashboard')
+            expect(reads).toEqual(['7d-dashboard', '7d-tile-0', '7d-tile-1'])
+        } finally {
+            unmount()
+        }
+    })
+
+    test.each(
+        (['insight', 'web_analytics'] as const).flatMap((screen) =>
+            (['uncached', 'cached', 'still pending'] as const).map((state) => ({ screen, state }))
+        )
+    )(
+        '$screen retries a $state interrupted read on reconnect while successful reads keep their floor',
+        async ({ screen, state }) => {
+            jest.useFakeTimers()
+            let finish: ((value: ReadResult) => void) | undefined
+            let snapshot: Freshness | undefined = state === 'cached' ? oldValue() : undefined
+            const itemRead = jest.fn(
+                () =>
+                    new Promise<ReadResult>((resolve) => {
+                        finish = resolve
+                    })
+            )
+            const item: RefreshItem = {
+                key: 'interrupted',
+                family: screen === 'insight' ? 'insights' : 'query',
+                windowMode: 'blocking',
+                snapshot: () => snapshot,
+                read: itemRead,
+            }
+            const current: ViewRefreshOptions = {
+                screen,
+                dataScope: 'demo',
+                screenKey: screen,
+                items: [item],
+                enabled: true,
+            }
+            const { rerender, unmount } = renderHook((props: ViewRefreshOptions) => useViewRefresh(props), {
+                initialProps: current,
+            })
+            try {
+                await flush()
+                expect(itemRead).toHaveBeenCalledTimes(1)
+                rerender({ ...current, enabled: false })
+                const fail = async (): Promise<void> => {
+                    await act(async () => {
+                        if (snapshot) snapshot = { ...snapshot, readAt: Date.now(), refreshFailed: true }
+                        finish?.({ status: 'failed', computed: false })
+                    })
+                }
+                if (state !== 'still pending') await fail()
+                rerender(current)
+                await flush()
+                if (state === 'still pending') {
+                    expect(itemRead).toHaveBeenCalledTimes(1)
+                    await fail()
+                }
+                expect(itemRead).toHaveBeenCalledTimes(2)
+                await act(async () => {
+                    snapshot = {
+                        lastRefreshAt: new Date().toISOString(),
+                        readAt: Date.now(),
+                        cacheTargetAge: null,
+                        nextAllowedRefreshAt: null,
+                        refreshFailed: false,
+                    }
+                    finish?.(OK)
+                })
+                rerender({ ...current, enabled: false })
+                rerender(current)
+                await flush()
+                expect(itemRead).toHaveBeenCalledTimes(2)
+                await act(async () => jest.advanceTimersByTime(READ_FLOOR_MS))
+                expect(itemRead).toHaveBeenCalledTimes(2)
+            } finally {
+                unmount()
+                jest.useRealTimers()
+            }
+        }
+    )
+
     test('computes only the first rows before the list reports what it shows', async () => {
         const { unmount } = renderHook(() => useViewRefresh(options('7d', tiles('7d', 10, false))))
         await flush()
@@ -157,6 +254,169 @@ describe('useViewRefresh on a dashboard', () => {
             refreshFailed: false,
         }
     }
+
+    test.each([
+        ['eligible', ['force_blocking']],
+        ['cooling', []],
+        ['unknown', []],
+        ['dashboard floor', []],
+        ['failed dashboard read', []],
+        ['expired cache', ['blocking']],
+    ] as const)('opening a dashboard with %s freshness', async (window, expectedModes) => {
+        const now = Date.now()
+        let snapshot: Freshness = {
+            ...oldValue(),
+            cacheTargetAge: new Date(now + 60_000).toISOString(),
+            nextAllowedRefreshAt: null,
+        }
+        const itemRead = jest.fn(async (_mode: RefreshMode) => OK)
+        const item: RefreshItem = {
+            key: 'dashboard-tile',
+            family: 'insights',
+            windowMode: 'force_cache',
+            snapshot: () => snapshot,
+            read: itemRead,
+        }
+        const props = options('7d', [item])
+        const { unmount } = renderHook(() =>
+            useViewRefresh({
+                ...props,
+                container: {
+                    ...dashboard('7d'),
+                    lastRefresh: () => (window === 'dashboard floor' ? new Date(now).toISOString() : null),
+                    read: async () => {
+                        await read('7d-dashboard', true)()
+                        snapshot = {
+                            ...snapshot,
+                            lastRefreshAt:
+                                window === 'dashboard floor' ? new Date(now).toISOString() : snapshot.lastRefreshAt,
+                            cacheTargetAge:
+                                window === 'expired cache' ? snapshot.lastRefreshAt : snapshot.cacheTargetAge,
+                            nextAllowedRefreshAt:
+                                window === 'unknown'
+                                    ? null
+                                    : new Date(now + (window === 'cooling' ? 60_000 : -60_000)).toISOString(),
+                        }
+                        return window === 'failed dashboard read' ? { status: 'failed', computed: false } : OK
+                    },
+                },
+            })
+        )
+        try {
+            await flush()
+            expect(itemRead).not.toHaveBeenCalled()
+            await settle('7d-dashboard')
+            expect(itemRead.mock.calls.map(([mode]) => mode)).toEqual(expectedModes)
+        } finally {
+            unmount()
+        }
+    })
+
+    test.each([
+        ['successful', ['force_blocking']],
+        ['failed', []],
+    ] as const)('opening a dashboard after a %s preview read', async (outcome, expectedModes) => {
+        const container = { ...dashboard('7d'), readAt: () => Date.now() }
+        if (outcome === 'failed') {
+            useItemErrors.getState().set(container.key, 'failed')
+        }
+        const itemRead = jest.fn(async (_mode: RefreshMode) => OK)
+        const items = tiles('7d', 1, false).map((item) => ({
+            ...item,
+            snapshot: () => ({ ...oldValue(), cacheTargetAge: new Date(Date.now() + 60_000).toISOString() }),
+            read: itemRead,
+        }))
+        const { unmount } = renderHook(() => useViewRefresh({ ...options('7d', items), container }))
+        try {
+            await flush()
+            expect(reads).toEqual([])
+            expect(itemRead.mock.calls.map(([mode]) => mode)).toEqual(expectedModes)
+        } finally {
+            unmount()
+        }
+    })
+
+    test('a dashboard refreshes on return, while scrolling uses the normal cache lifetime', async () => {
+        jest.useFakeTimers()
+        const itemRead = jest.fn(async (_mode: RefreshMode) => OK)
+        const items = tiles('7d', 2, false).map((item) => ({
+            ...item,
+            snapshot: () => ({
+                ...oldValue(),
+                cacheTargetAge: new Date(Date.now() + 60_000).toISOString(),
+            }),
+            read: itemRead,
+        }))
+        const props = { ...options('7d', items), visibleKeys: new Set(['7d-tile-0']) }
+        const { rerender, unmount } = renderHook((options: ViewRefreshOptions) => useViewRefresh(options), {
+            initialProps: props,
+        })
+        try {
+            await flush()
+            expect(itemRead.mock.calls.map(([mode]) => mode)).toEqual(['force_blocking'])
+
+            const scrolled = { ...props, visibleKeys: new Set(['7d-tile-1']) }
+            rerender(scrolled)
+            await flush()
+            expect(itemRead).toHaveBeenCalledTimes(1)
+
+            mockFocused = false
+            rerender(scrolled)
+            await act(async () => jest.advanceTimersByTimeAsync(READ_FLOOR_MS))
+            mockFocused = true
+            rerender(scrolled)
+            await flush()
+            expect(itemRead.mock.calls.map(([mode]) => mode)).toEqual(['force_blocking', 'force_blocking'])
+        } finally {
+            unmount()
+            jest.useRealTimers()
+        }
+    })
+
+    test('a visible dashboard refreshes eligible tiles after a minute in the background', async () => {
+        jest.useFakeTimers()
+        const now = Date.now()
+        const snapshot: Freshness = {
+            ...oldValue(),
+            cacheTargetAge: new Date(now + 600_000).toISOString(),
+            nextAllowedRefreshAt: new Date(now + 30_000).toISOString(),
+        }
+        const itemRead = jest.fn(async (_mode: RefreshMode) => OK)
+        const items = tiles('7d', 1, false).map((item) => ({ ...item, snapshot: () => snapshot, read: itemRead }))
+        let readAt: number | null = null
+        const container: RefreshContainer = {
+            ...dashboard('7d'),
+            readAt: () => readAt,
+            read: async () => {
+                readAt = Date.now()
+                return read('7d-dashboard', false)()
+            },
+        }
+        const { unmount } = renderHook(() => useViewRefresh({ ...options('7d', items), container }))
+        try {
+            await flush()
+            expect(reads).toEqual(['7d-dashboard'])
+            expect(itemRead).not.toHaveBeenCalled()
+
+            act(() => focusManager.setFocused(false))
+            await act(async () => jest.advanceTimersByTimeAsync(READ_FLOOR_MS - 1))
+            act(() => focusManager.setFocused(true))
+            await flush()
+            expect(reads).toEqual(['7d-dashboard'])
+            expect(itemRead).not.toHaveBeenCalled()
+
+            act(() => focusManager.setFocused(false))
+            await act(async () => jest.advanceTimersByTimeAsync(READ_FLOOR_MS))
+            act(() => focusManager.setFocused(true))
+            await flush()
+            expect(reads).toEqual(['7d-dashboard', '7d-dashboard'])
+            expect(itemRead.mock.calls.map(([mode]) => mode)).toEqual(['force_blocking'])
+        } finally {
+            unmount()
+            focusManager.setFocused(undefined)
+            jest.useRealTimers()
+        }
+    })
 
     test.each(['fresh list', 'refresh window', 'fast list', 'slow list', 'failed list'] as const)(
         'a pull gives feedback and settles with %s',
@@ -420,6 +680,36 @@ describe('useViewRefresh on a dashboard', () => {
         expect(reads).toEqual(['7d-dashboard', '7d-tile-0', '7d-tile-1', '30d-dashboard', '30d-tile-0', '30d-tile-1'])
         await settle('30d-tile-0')
         await settle('30d-tile-1')
+        unmount()
+    })
+
+    test('switching selections drops only replaced queued reads and allows switching back', async () => {
+        const [first, second, oldTab, retained] = tiles('web', 4, true) as [
+            RefreshItem,
+            RefreshItem,
+            RefreshItem,
+            RefreshItem,
+        ]
+        const [newTab] = tiles('new', 1, false) as [RefreshItem]
+        const initial = {
+            ...options('web', [first, second, oldTab, retained]),
+            screen: 'web_analytics' as const,
+            screenKey: 'web',
+            container: null,
+        }
+        const { rerender, unmount } = renderHook((props: ViewRefreshOptions) => useViewRefresh(props), {
+            initialProps: initial,
+        })
+        expect(reads).toEqual([first.key, second.key])
+
+        rerender({ ...initial, items: [first, second, newTab, retained] })
+        await settle(first.key)
+        await settle(second.key)
+
+        expect(reads).toEqual([first.key, second.key, retained.key, newTab.key])
+        rerender(initial)
+        await flush()
+        expect(reads).toEqual([first.key, second.key, retained.key, newTab.key, oldTab.key])
         unmount()
     })
 

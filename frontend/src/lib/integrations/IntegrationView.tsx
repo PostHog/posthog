@@ -13,6 +13,8 @@ import { TeamMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { GitHubRepoSummary } from 'lib/integrations/GitHubRepoSummary'
 import { IntegrationScopesWarning } from 'lib/integrations/IntegrationScopesWarning'
+import { LemonBannerAction } from 'lib/lemon-ui/LemonBanner/LemonBanner'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -20,16 +22,22 @@ import { urls } from 'scenes/urls'
 import { IntegrationType } from '~/types'
 
 import { integrationAuthorizeUrl, integrationsLogic, reconnectReturnUrl } from './integrationsLogic'
-import { DARK_MODE_INVERT_ICON_KINDS, getIntegrationNameFromKind } from './utils'
+import { QuillIntegrationView } from './QuillIntegrationView'
+import { DARK_MODE_INVERT_ICON_KINDS, IntegrationConnectSurface, getIntegrationNameFromKind } from './utils'
 
 export function IntegrationView({
     integration,
     suffix,
+    actions,
     schema,
+    hideWebhookReconnect,
 }: {
     integration: IntegrationType
     suffix?: JSX.Element
+    /** Shown before the default Disconnect button. Ignored when `suffix` is set. */
+    actions?: JSX.Element | null
     schema?: { requiredScopes?: string }
+    hideWebhookReconnect?: boolean
 }): JSX.Element {
     const { deleteIntegration } = useActions(integrationsLogic)
     const { reportIntegrationConnectClicked } = useActions(eventUsageLogic)
@@ -37,6 +45,26 @@ export function IntegrationView({
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
+    const quillSurface = useQuillSurface()
+
+    const disconnect = (): void => deleteIntegration(integration.id)
+
+    const reconnectUrl = (): string =>
+        integrationAuthorizeUrl({
+            kind: integration.kind,
+            next: reconnectReturnUrl(window.location.pathname, window.location.search),
+        })
+
+    const reportReconnect = (surface: IntegrationConnectSurface): void =>
+        reportIntegrationConnectClicked(integration.kind, integration.kind, surface)
+
+    const reconnectAction = (surface: IntegrationConnectSurface): LemonBannerAction => ({
+        children: 'Reconnect',
+        disableClientSideRouting: true,
+        to: reconnectUrl(),
+        onClick: () => reportReconnect(surface),
+        disabledReason: restrictedReason,
     })
 
     const errors = (integration.errors && integration.errors?.split(',')) || []
@@ -59,12 +87,56 @@ export function IntegrationView({
         }
     }, [isGitHub, integration.id, integration.config?.repository_selection, loadGitHubRepositories])
 
+    const githubRepoSummary = isGitHub ? (
+        <GitHubRepoSummary
+            repoNames={repositories}
+            loading={githubRepositoriesLoading}
+            installationId={integration.config?.installation_id}
+            accountType={integration.config?.account?.type}
+            accountName={integration.config?.account?.name}
+            repositorySelection={integration.config?.repository_selection}
+            total={repositoriesTotal}
+            onBeforeManage={
+                currentTeam?.id
+                    ? async () => {
+                          // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. integrationsGithubPrepareCallbackCreate() from 'products/integrations/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
+                          await api.create(`api/projects/${currentTeam.id}/integrations/github/prepare_callback/`, {
+                              next: urls.project(currentTeam.id, urls.settings('project-integrations')),
+                              installation_id: integration.config?.installation_id,
+                          })
+                      }
+                    : undefined
+            }
+        />
+    ) : null
+
+    if (quillSurface) {
+        return (
+            <QuillIntegrationView
+                integration={integration}
+                suffix={suffix}
+                actions={actions}
+                schema={schema}
+                hideWebhookReconnect={hideWebhookReconnect}
+                restrictedReason={restrictedReason}
+                errors={errors}
+                installationUnavailable={installationUnavailable}
+                refreshedAtTimestamp={refreshedAtTimestamp}
+                githubRepoSummary={githubRepoSummary}
+                onDisconnect={disconnect}
+                reconnectUrl={reconnectUrl()}
+                onReconnectClick={reportReconnect}
+            />
+        )
+    }
+
     suffix = suffix || (
         <div className="flex flex-row gap-2">
+            {actions}
             <LemonButton
                 type="secondary"
                 status="danger"
-                onClick={() => deleteIntegration(integration.id)}
+                onClick={disconnect}
                 icon={<IconTrash />}
                 disabledReason={restrictedReason}
             >
@@ -119,34 +191,7 @@ export function IntegrationView({
                                 />
                             </div>
                         ) : null}
-                        {isGitHub && (
-                            <GitHubRepoSummary
-                                repoNames={repositories}
-                                loading={githubRepositoriesLoading}
-                                installationId={integration.config?.installation_id}
-                                accountType={integration.config?.account?.type}
-                                accountName={integration.config?.account?.name}
-                                repositorySelection={integration.config?.repository_selection}
-                                total={repositoriesTotal}
-                                onBeforeManage={
-                                    currentTeam?.id
-                                        ? async () => {
-                                              // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. integrationsGithubPrepareCallbackCreate() from 'products/integrations/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
-                                              await api.create(
-                                                  `api/projects/${currentTeam.id}/integrations/github/prepare_callback/`,
-                                                  {
-                                                      next: urls.project(
-                                                          currentTeam.id,
-                                                          urls.settings('project-integrations')
-                                                      ),
-                                                      installation_id: integration.config?.installation_id,
-                                                  }
-                                              )
-                                          }
-                                        : undefined
-                                }
-                            />
-                        )}
+                        {githubRepoSummary}
                     </div>
                 </div>
 
@@ -165,7 +210,7 @@ export function IntegrationView({
                                     type="secondary"
                                     status="danger"
                                     size="small"
-                                    onClick={() => deleteIntegration(integration.id)}
+                                    onClick={disconnect}
                                     disabledReason={restrictedReason}
                                 >
                                     Remove
@@ -174,17 +219,8 @@ export function IntegrationView({
                                     type="secondary"
                                     size="small"
                                     disableClientSideRouting
-                                    to={integrationAuthorizeUrl({
-                                        kind: integration.kind,
-                                        next: reconnectReturnUrl(window.location.pathname, window.location.search),
-                                    })}
-                                    onClick={() =>
-                                        reportIntegrationConnectClicked(
-                                            integration.kind,
-                                            integration.kind,
-                                            'unavailable_banner_reconnect'
-                                        )
-                                    }
+                                    to={reconnectUrl()}
+                                    onClick={() => reportReconnect('unavailable_banner_reconnect')}
                                     disabledReason={restrictedReason}
                                 >
                                     Reconnect
@@ -195,27 +231,19 @@ export function IntegrationView({
                 </div>
             ) : errors.length > 0 ? (
                 <div className="p-2">
-                    <LemonBanner
-                        type="error"
-                        action={{
-                            children: 'Reconnect',
-                            disableClientSideRouting: true,
-                            to: integrationAuthorizeUrl({
-                                kind: integration.kind,
-                                next: reconnectReturnUrl(window.location.pathname, window.location.search),
-                            }),
-                            onClick: () =>
-                                reportIntegrationConnectClicked(
-                                    integration.kind,
-                                    integration.kind,
-                                    'error_banner_reconnect'
-                                ),
-                            disabledReason: restrictedReason,
-                        }}
-                    >
+                    <LemonBanner type="error" action={reconnectAction('error_banner_reconnect')}>
                         {errors[0] === 'TOKEN_REFRESH_FAILED'
                             ? 'Authentication token could not be refreshed. You can reconnect this account or disconnect it and connect a different one.'
                             : `There was an error with this integration: ${errors[0]}`}
+                    </LemonBanner>
+                </div>
+            ) : integration.needs_webhook_reconnect && !hideWebhookReconnect ? (
+                <div className="p-2">
+                    <LemonBanner type="info" action={reconnectAction('webhook_banner_reconnect')}>
+                        <span>
+                            Error tracking issues can now sync their status with linked Linear tickets. To turn this on,
+                            switch to <strong>{integration.display_name}</strong> in Linear and reconnect.
+                        </span>
                     </LemonBanner>
                 </div>
             ) : (

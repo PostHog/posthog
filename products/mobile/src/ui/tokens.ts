@@ -110,6 +110,8 @@ export const layout = {
     minTapTarget: 44,
     /** Status bar height in the prototype frame. Top paddings in the handoff include it. */
     designStatusBar: 54,
+    /** Leaves room above chrome when the system status area moves to a side. */
+    minTopInset: 12,
     /** Home indicator height in the prototype frame. Bottom paddings in the handoff include it. */
     designHomeIndicator: 34,
     /** Smallest bottom padding, for devices with a home button, where the safe-area inset is 0. */

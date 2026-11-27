@@ -40,9 +40,10 @@ MAX_BUNDLE_SKILLS = 100
 # Zip-bomb defense for import: bound member count and per-member *decompressed* read so a small
 # zip can't inflate into GBs of memory. These are coarse hard stops — the precise per-field/per-file
 # size caps are enforced downstream by the import validator. Member count is kept comfortably above
-# legit limits (≤200 bundled files plus SKILL.md and directory entries); the total is a memory stop
-# rather than a content limit, since MAX_IMPORT_ZIP_BYTES already bounds the compressed upload.
-_MAX_ZIP_MEMBERS = 500
+# a skill at the limit (MAX_SKILL_FILE_COUNT bundled files plus SKILL.md and directory entries); the
+# total is a memory stop rather than a content limit, since MAX_IMPORT_ZIP_BYTES already bounds the
+# compressed upload.
+_MAX_ZIP_MEMBERS = 1000
 _MAX_ZIP_MEMBER_BYTES = 2_000_000
 _MAX_ZIP_TOTAL_UNCOMPRESSED_BYTES = 80_000_000
 
@@ -283,6 +284,8 @@ def parse_skill_md(content: str) -> dict:
         frontmatter = yaml.safe_load(match.group(1))
     except yaml.YAMLError as err:
         raise SkillImportError(f"SKILL.md frontmatter is not valid YAML: {err}")
+    except RecursionError:
+        raise SkillImportError("SKILL.md frontmatter is nested too deeply. Flatten the YAML and try again.")
     if not isinstance(frontmatter, dict):
         raise SkillImportError("SKILL.md frontmatter must be a key/value mapping.")
 

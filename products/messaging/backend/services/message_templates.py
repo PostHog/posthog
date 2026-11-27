@@ -11,8 +11,10 @@ from django.utils import timezone
 from posthog.api.tagged_item import current_tag_names, replace_tags_on_object, set_tags_on_object
 from posthog.models import TaggedItem
 from posthog.models.tag import tagify
+from posthog.models.utils import strict_fetch
 
-from products.messaging.backend.facade.contracts import EmailTemplateSummary
+from products.cdp.backend.validation import build_html_wrap_design, html_wrap_design_needs_refresh
+from products.messaging.backend.facade.contracts import EmailTemplateSummary, MessageTemplateListFilter
 from products.messaging.backend.models import MessageCategory, MessageTemplate
 
 
@@ -47,31 +49,51 @@ def find_ids_containing(text: str, *, team_ids: list[int] | None, template_id: s
     queryset = _templates(team_ids)
     if template_id:
         queryset = queryset.filter(id=template_id)
-    # The text cast stays in the WHERE clause, so the scan never returns a full copy of each content blob.
-    return list(
-        queryset.annotate(_text_content=Cast("content", models.TextField()))
-        .filter(_text_content__contains=text)
-        .order_by("id")
-        .values_list("id", flat=True)
-    )
+    return list(_containing(queryset, text).order_by("id").values_list("id", flat=True))
+
+
+def find_team_ids_containing(text: str) -> set[int]:
+    return set(_containing(_templates(None), text).values_list("team_id", flat=True).distinct())
+
+
+def _containing(queryset: models.QuerySet[MessageTemplate], text: str) -> models.QuerySet[MessageTemplate]:
+    # The text casts stay in the WHERE clause, so the scan never returns a full copy of each content blob.
+    return queryset.annotate(
+        _text_content=Cast("content", models.TextField()),
+        _text_draft=Cast("draft_content", models.TextField()),
+    ).filter(models.Q(_text_content__contains=text) | models.Q(_text_draft__contains=text))
 
 
 def rewrite_content(
     template_id: UUID, rewrite: Callable[[Any], tuple[Any, int]], *, team_ids: list[int] | None, dry_run: bool
 ) -> int:
     if dry_run:
-        return rewrite(_templates(team_ids).get(pk=template_id).content)[1]
+        template = _templates(team_ids).get(pk=template_id)
+        return sum(rewrite(getattr(template, field))[1] for field in _CONTENT_FIELDS)
 
     # Read the row again under a row lock, so a concurrent save is not overwritten with a stale blob.
     with transaction.atomic():
         template = _templates(team_ids).select_for_update().get(pk=template_id)
-        new_content, occurrences = rewrite(template.content)
+        changed: list[str] = []
+        occurrences = 0
+        for field in _CONTENT_FIELDS:
+            value = getattr(template, field)
+            if value is None:
+                continue
+            new_value, found = rewrite(value)
+            if found:
+                setattr(template, field, new_value)
+                changed.append(field)
+                occurrences += found
         if not occurrences:
             return 0
-        template.content = new_content
         # updated_at is auto_now, so listing it bumps it. The editor's stale-write check reads it.
-        template.save(update_fields=["content", "updated_at"])
+        template.save(update_fields=[*changed, "updated_at"])
     return occurrences
+
+
+# An unpublished draft becomes the sent content when it is published, so it is rewritten too.
+_CONTENT_FIELDS = ("content", "draft_content")
 
 
 def _with_tags(queryset: models.QuerySet[MessageTemplate]) -> models.QuerySet[MessageTemplate]:
@@ -81,9 +103,38 @@ def _with_tags(queryset: models.QuerySet[MessageTemplate]) -> models.QuerySet[Me
     )
 
 
-def team_templates(team_id: int) -> models.QuerySet[MessageTemplate]:
+def team_templates(team_id: int, filters: MessageTemplateListFilter) -> models.QuerySet[MessageTemplate]:
+    queryset = _filtered(MessageTemplate.objects.filter(team_id=team_id, deleted=False), filters)
     # The pk tiebreak keeps pages stable, as the mixin ordering did for the queryset view.
-    return _with_tags(MessageTemplate.objects.filter(team_id=team_id, deleted=False)).order_by("-created_at", "-pk")
+    return _with_tags(queryset).order_by("-created_at", "-pk")
+
+
+def _filtered(
+    queryset: models.QuerySet[MessageTemplate], filters: MessageTemplateListFilter
+) -> models.QuerySet[MessageTemplate]:
+    if filters.transactional is not None:
+        queryset = queryset.filter(transactional_hog_flow_id__isnull=not filters.transactional)
+    if filters.created_by_id is not None:
+        queryset = queryset.filter(created_by_id=filters.created_by_id)
+    if filters.tags:
+        queryset = queryset.filter(
+            pk__in=queryset.filter(tagged_items__tag__name__in=[tagify(tag) for tag in filters.tags]).values("pk")
+        )
+    if filters.search:
+        queryset = queryset.filter(
+            models.Q(name__icontains=filters.search)
+            | models.Q(description__icontains=filters.search)
+            | models.Q(pk__in=queryset.filter(tagged_items__tag__name__icontains=filters.search).values("pk"))
+        )
+    return queryset
+
+
+def team_basic_templates(team_id: int, filters: MessageTemplateListFilter) -> models.QuerySet[MessageTemplate]:
+    return strict_fetch(
+        team_templates(team_id, filters)
+        .defer("content", "draft_content")
+        .annotate(has_draft=models.ExpressionWrapper(models.Q(draft_content__isnull=False), models.BooleanField()))
+    )
 
 
 def team_template(team_id: int, template_id: UUID | str) -> MessageTemplate:
@@ -98,6 +149,13 @@ def category_id_for_team(team_id: int, category_id: Any) -> UUID:
 def _apply_fields(template: MessageTemplate, fields: dict[str, Any]) -> None:
     for attr, value in fields.items():
         setattr(template, "message_category_id" if attr == "message_category" else attr, value)
+
+
+def with_editor_design(email: dict[str, Any]) -> dict[str, Any]:
+    """The email with a design that holds its html, so the visual editor can open a template written as html."""
+    if email.get("html") and html_wrap_design_needs_refresh(email["html"], email.get("design")):
+        return {**email, "design": build_html_wrap_design(email["html"])}
+    return email
 
 
 def create_template(team_id: int, created_by_id: int | None, fields: dict[str, Any]) -> MessageTemplate:
@@ -122,6 +180,12 @@ def update_template(team_id: int, template_id: UUID | str, fields: dict[str, Any
         # Tags live on their own rows. Saving the template too would write back every column this
         # read saw, so a tag edit would overwrite content a concurrent publish had just committed.
         if fields:
+            if (
+                "sensitive" in fields
+                and fields["sensitive"] != template.sensitive
+                and "click_tracking_enabled" not in fields
+            ):
+                fields["click_tracking_enabled"] = None
             _apply_fields(template, fields)
             template.save()
         if tags_changed:

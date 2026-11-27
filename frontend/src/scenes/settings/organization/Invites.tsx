@@ -1,24 +1,27 @@
 import { useActions, useValues } from 'kea'
 
 import { IconX } from '@posthog/icons'
-import { LemonTag } from '@posthog/lemon-ui'
+import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { RestrictionScope } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { inviteLogic } from 'lib/logic/inviteLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { OrganizationInviteType } from '~/types'
 
-import { inviteLogic } from './inviteLogic'
+import { cancelInvite } from './cancelInvite'
 import { EmailUnavailableForInvitesBanner } from './InviteModal'
+import { QuillInvites } from './QuillInvites'
+import { QuillInvitesTable } from './QuillInvitesTable'
 
 function InviteLinkComponent(id: string, invite: OrganizationInviteType): JSX.Element {
     const url = new URL(`/signup/${id}`, document.baseURI).href
@@ -41,22 +44,7 @@ function makeActionsComponent(
                 data-attr="invite-delete"
                 icon={<IconX />}
                 status="danger"
-                onClick={() => {
-                    invite.is_expired
-                        ? deleteInvite(invite)
-                        : LemonDialog.open({
-                              title: 'Cancel invite',
-                              description: `Do you want to cancel the invite for ${invite.target_email}?`,
-                              primaryButton: {
-                                  children: 'Yes, cancel invite',
-                                  status: 'danger',
-                                  onClick: () => deleteInvite(invite),
-                              },
-                              secondaryButton: {
-                                  children: 'No, keep invite',
-                              },
-                          })
-                }}
+                onClick={() => cancelInvite(invite, deleteInvite)}
             />
         )
     }
@@ -70,6 +58,12 @@ export function InvitesTable(): JSX.Element {
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
         scope: RestrictionScope.Organization,
     })
+
+    const quillSurface = useQuillSurface()
+
+    if (quillSurface) {
+        return <QuillInvitesTable />
+    }
 
     const columns: LemonTableColumns<OrganizationInviteType> = [
         {
@@ -85,9 +79,18 @@ export function InvitesTable(): JSX.Element {
             key: 'target_email',
             render: function TargetEmail(_, invite): JSX.Element | string {
                 return invite.target_email ? (
-                    <div className="ph-no-capture flex items-center">
-                        {invite.target_email}
-                        {invite.first_name ? ` (${invite.first_name})` : ''}
+                    <div className="flex flex-wrap items-center gap-2">
+                        <span className="ph-no-capture">
+                            {invite.target_email}
+                            {invite.first_name ? ` (${invite.first_name})` : ''}
+                        </span>
+                        {invite.email_suppressed && (
+                            <Tooltip title="Our email provider is blocking email to this address, usually because an earlier email bounced. Share the invite link with them directly, or contact support to unblock the address.">
+                                <LemonTag type="danger" data-attr="invite-email-suppressed">
+                                    Email not delivered
+                                </LemonTag>
+                            </Tooltip>
+                        )}
                     </div>
                 ) : (
                     <i>no one</i>
@@ -141,7 +144,19 @@ export function Invites(): JSX.Element {
         scope: RestrictionScope.Organization,
     })
 
+    const todayRailNav = useQuillSurface()
+
     const userCannotInvite = restrictionReason && !currentOrganization?.members_can_invite
+
+    if (todayRailNav) {
+        return (
+            <QuillInvites
+                emailServiceAvailable={!!preflight?.email_service_available}
+                onInvite={showInviteModal}
+                inviteDisabledReason={userCannotInvite ? "You can't invite other members or view invites" : undefined}
+            />
+        )
+    }
 
     return (
         <div className="deprecated-space-y-4">

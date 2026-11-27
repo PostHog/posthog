@@ -11,6 +11,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import type { ScoutChatType } from '../../../inboxAnalytics'
+import { inboxSceneLogic } from '../../../inboxSceneLogic'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import { scoutSuggestionsLogic } from '../../../logics/scoutSuggestionsLogic'
 import { useScoutCreateDisabledReason } from './ScoutCreateModalHost'
@@ -24,8 +25,19 @@ export function ScoutsRosterActions(): JSX.Element {
     // Every trial endpoint requires skill editor access, so the page is empty without it.
     const trialsDisabledReason = useScoutCreateDisabledReason()
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const { scoutsInAutomate } = useValues(inboxSceneLogic)
     return (
         <>
+            {scoutsInAutomate && (
+                <Button
+                    variant="outline"
+                    nativeButton={false}
+                    render={<LinkPrimitive to={urls.inbox('reports')} />}
+                    data-attr="scouts-see-inbox-reports"
+                >
+                    See all reports in Inbox
+                </Button>
+            )}
             {currentTeamId === 2 && user?.is_staff && todayRailNav ? (
                 <Button
                     variant="outline"
@@ -58,7 +70,7 @@ export function ScoutsRosterActions(): JSX.Element {
  * reopens the closed strip; with none it opens the authoring chat.
  */
 function ShowSuggestionsButton(): JSX.Element | null {
-    const { suggestButtonVisible, hasPicks, isRefreshing, suggestionSetLoading, aiConsentDisabledReason } =
+    const { suggestButtonVisible, hasPicks, isRefreshing, suggestionSetLoading, scoutChatDisabledReason } =
         useValues(scoutSuggestionsLogic)
     const { runningChatType } = useValues(scoutFleetLogic)
     const { askForSuggestions } = useActions(scoutSuggestionsLogic)
@@ -69,7 +81,7 @@ function ShowSuggestionsButton(): JSX.Element | null {
         return null
     }
     const busyReason = showSuggestionsBusyReason({ hasPicks, isRefreshing, suggestionSetLoading, runningChatType })
-    const gateReason = hasPicks ? null : (creationDisabledReason ?? aiConsentDisabledReason)
+    const gateReason = hasPicks ? null : (creationDisabledReason ?? scoutChatDisabledReason)
     if (todayRailNav) {
         return (
             <Button
@@ -138,7 +150,7 @@ function showSuggestionsBusyReason({
  */
 function AskAboutScoutsMenu(): JSX.Element {
     const { startScoutChatTask } = useActions(scoutFleetLogic)
-    const { runningChatType, aiConsentDisabledReason } = useValues(scoutFleetLogic)
+    const { runningChatType, scoutChatDisabledReason } = useValues(scoutFleetLogic)
     const prompts: { label: string; chatType: ScoutChatType }[] = [
         { label: 'How is my scout troop performing?', chatType: 'fleet_overview' },
         { label: 'What signals were emitted recently?', chatType: 'recent_signals' },
@@ -168,7 +180,7 @@ function AskAboutScoutsMenu(): JSX.Element {
                     {prompts.map(({ label, chatType }) => (
                         <DropdownMenuItem
                             key={chatType}
-                            disabled={anotherTaskIsStarting || isStarting || !!aiConsentDisabledReason}
+                            disabled={anotherTaskIsStarting || isStarting || !!scoutChatDisabledReason}
                             onClick={() => startScoutChatTask(chatType, label)}
                         >
                             {label}
@@ -188,7 +200,7 @@ function AskAboutScoutsMenu(): JSX.Element {
                     ? 'Starting another task…'
                     : isStarting
                       ? 'Starting a task…'
-                      : (aiConsentDisabledReason ?? undefined),
+                      : (scoutChatDisabledReason ?? undefined),
             }))}
         >
             <LemonButton

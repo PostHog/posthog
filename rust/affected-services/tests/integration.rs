@@ -113,6 +113,7 @@ fn every_deployable_binary_has_an_image_entry() {
         "stl_dump",
         "run", // hogvm dev/diff CLI, not a service
         "hermes",
+        "logs-ingestion-bench",   // logs consumer benchmark CLI, not a service
         "personhog-stateright",   // model-checker explorer CLI, not a service
         "personhog-test-harness", // e2e load/correctness harness CLI, not a service
         "reconcile_dispatch",     // operator-invoked cohort reconcile dispatcher CLI, not a service
@@ -316,6 +317,16 @@ fn multi_binary_crate_produces_all_images() {
     "posthog/api/feature_flag.py",
     false,
     &["feature-flags", "hypercache-server", "common-hypercache"],
+)]
+#[case::cohorts_migration_rule_fires_before_catch_all(
+    "products/cohorts/backend/migrations/0024_example.py",
+    false,
+    &["common-cohort-team-access", "cohort-core"],
+)]
+#[case::cymbal_fixture_rule_fires_before_catch_all(
+    "products/error_tracking/backend/tests/fixtures/issue_change_data.json",
+    false,
+    &["cymbal"],
 )]
 #[case::catch_all_ignores_unrelated_non_rust_files(
     "frontend/src/foo.tsx",

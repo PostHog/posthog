@@ -250,15 +250,15 @@
         padding-inline: 0.5rem 0;
     }
 
-    .quill-questionnaire__input-wrapper .quill-questionnaire__input-group:has(> [data-align='inline-start']) > input {
-        padding-inline-start: 0.5rem;
+    .quill-questionnaire__input-wrapper .quill-questionnaire__input-group:has(> [data-align='inline-start']) {
+        --quill-input-group-control-ps: 0.5rem;
     }
 
     /*
      * The engine's input keeps its own `data-slot`, so the group's control-scoped focus rule can't see
      * it — the row wears the ring itself, the way a choice row does for its overlaid control.
      */
-    .quill-questionnaire__input-wrapper .quill-questionnaire__input-group:has(> input:focus-visible) {
+    .quill-questionnaire__input-wrapper .quill-questionnaire__input-group:has(input:focus-visible) {
         border-color: color-mix(in oklab, var(--ring) 50%, transparent);
         box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring) 30%, transparent);
     }

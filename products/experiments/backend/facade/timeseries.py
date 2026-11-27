@@ -1,9 +1,11 @@
 """Timeseries capabilities, re-exported for callers outside the experiments product."""
 
+from products.experiments.backend.demo_timeseries import seed_cloned_demo_timeseries, seed_master_demo_timeseries
 from products.experiments.backend.metric_calculation.keys import (
     daily_inline_metric_calculations,
     daily_saved_metric_calculations,
     metric_calculation_keys,
+    saved_metric_link_for_calculation_key,
 )
 from products.experiments.backend.metric_calculation.results import (
     previous_completed_metric_result,
@@ -23,6 +25,8 @@ from products.experiments.backend.timeseries_sync import sync_timeseries_recalcu
 __all__ = [
     "METRIC_BUILDERS",
     "backfill_experiment_timeseries",
+    "seed_cloned_demo_timeseries",
+    "seed_master_demo_timeseries",
     "build_metric",
     "daily_inline_metric_calculations",
     "daily_saved_metric_calculations",
@@ -33,5 +37,6 @@ __all__ = [
     "record_daily_metric_failure",
     "record_daily_metric_result",
     "apply_saved_metric_overrides",
+    "saved_metric_link_for_calculation_key",
     "sync_timeseries_recalculation",
 ]

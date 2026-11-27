@@ -33,8 +33,8 @@ If your work overlaps it, read the companion skill first.
 ## Core principles
 
 1. **Business logic lives in a logic, not in a component.**
-   [CLAUDE.md](../../../CLAUDE.md) is explicit: "If there is a kea logic file, write all
-   business logic there, avoid React hooks at all costs." Hooks are for view concerns.
+   [`.agents/code-style.md`](../../code-style.md) is explicit: "Business logic goes in the
+   kea logic file, not a React hook." Hooks are for view concerns.
 
 2. **One concept, one source of truth.** Pick exactly one of: action-driven reducer,
    derived selector, async loader. Don't mirror the same value into multiple places.
@@ -160,7 +160,7 @@ export type fooLogicType = MakeLogicType<fooLogicValues, fooLogicActions>
 export const fooLogic = kea<fooLogicType>([...])
 ```
 
-Inline type blocks are produced by `kea-typegen` 3.8.3. Commands:
+Inline type blocks are produced by `kea-typegen`. Commands:
 
 - `pnpm --filter=@posthog/frontend typegen:watch` — watch mode while writing logics
 - `pnpm --filter=@posthog/frontend typegen:write` — one-shot write
@@ -176,7 +176,7 @@ logic, scope typegen to that file:
 pnpm --filter=@posthog/frontend typegen:file frontend/src/scenes/foo/fooLogic.ts
 ```
 
-Use this loop while writing the logic. The current `tsgo` does not support combining
+Use this loop while writing the logic. The current `tsc` does not support combining
 the project config with a file argument, so run the full `typegen:check` and
 `typescript:check` once at the end to confirm nothing else broke.
 

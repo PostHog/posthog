@@ -3,6 +3,8 @@ import { fireEvent, waitFor, within } from '@testing-library/dom'
 import type { XYPosition } from '@xyflow/react'
 import { MakeLogicType, actions, kea, path, reducers, useActions, useValues } from 'kea'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+
 import { mswDecorator } from '~/mocks/browser'
 import { DataModelingEdge, DataModelingNode } from '~/types'
 
@@ -10,6 +12,7 @@ import { LineageGraph } from './LineageGraph'
 import { bridgeHiddenNodes, nodesWithHubs } from './lineageHiddenNodes'
 import { modelsLineageLogic } from './modelsLineageLogic'
 import { ModelsLineageTab } from './ModelsLineageTab'
+import { QuillModelsLineageTab } from './QuillModelsLineageTab'
 
 function mockNode(
     partial: Pick<DataModelingNode, 'id' | 'name' | 'type'> & Partial<DataModelingNode>
@@ -318,6 +321,11 @@ const modelsTabDecorator = mswDecorator({
     },
 })
 
+const CATALOG_PARAMETERS = {
+    featureFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE],
+    testOptions: { snapshotBrowsers: [] },
+}
+
 export const DraggableNodes: Story = {
     render: () => <ModelsLineageTab />,
     decorators: [modelsTabDecorator],
@@ -499,6 +507,67 @@ export const SearchFocus: Story = {
             throw new Error('Cycling results must return focus to the search input')
         }
     },
+}
+
+export const TypeFilterKeepsHubs: Story = {
+    parameters: { testOptions: { snapshotBrowsers: [] } },
+    render: () => <ModelsLineageTab />,
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/environments/:team_id/data_modeling_nodes/': {
+                    count: HIDDEN_TYPES_NODES.length,
+                    results: HIDDEN_TYPES_NODES,
+                },
+                '/api/environments/:team_id/data_modeling_edges/': {
+                    count: HIDDEN_TYPES_EDGES.length,
+                    results: HIDDEN_TYPES_EDGES,
+                },
+            },
+        }),
+    ],
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await canvas.findByText('weekly_orders')
+        modelsLineageLogic.actions.setTypeFilter(['table', 'view', 'endpoint'])
+        await waitFor(
+            () => {
+                const graph = canvasElement.querySelector<HTMLElement>('.react-flow')
+                const shownIds = [...(graph?.querySelectorAll('.react-flow__node') ?? [])].map(
+                    (node) => node.getAttribute('data-id') ?? ''
+                )
+                if (shownIds.includes('weekly_orders') || shownIds.includes('monthly_report')) {
+                    throw new Error('Hidden node types must leave the graph')
+                }
+                if (
+                    !graph?.querySelector(
+                        '.react-flow__node[data-id="enriched_orders"] [data-attr="lineage-collapsed-node"]'
+                    )
+                ) {
+                    throw new Error('A hidden node that joins many paths must stay as a collapsed hub')
+                }
+            },
+            { timeout: VIEWPORT_SETTLE_MS }
+        )
+    },
+}
+
+export const CatalogTypeFilterKeepsHubs: Story = {
+    ...TypeFilterKeepsHubs,
+    render: () => <QuillModelsLineageTab />,
+    parameters: CATALOG_PARAMETERS,
+}
+
+export const CatalogDraggableNodes: Story = {
+    ...DraggableNodes,
+    render: () => <QuillModelsLineageTab />,
+    parameters: CATALOG_PARAMETERS,
+}
+
+export const CatalogSearchFocus: Story = {
+    ...SearchFocus,
+    render: () => <QuillModelsLineageTab />,
+    parameters: CATALOG_PARAMETERS,
 }
 
 export const SelectorFocus: Story = {

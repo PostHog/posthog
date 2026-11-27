@@ -2,11 +2,11 @@ import { dayjs } from 'lib/dayjs'
 import { componentsToDayJs, dateStringToComponents, dateStringToDayJs } from 'lib/utils/dateFilters'
 
 import { FlagEvaluationsModeEnumApi } from '~/generated/core/api.schemas'
-import { CompareFilter, ResolvedDateRangeResponse } from '~/queries/schema/schema-general'
+import { CompareFilter, EventsQuery, ResolvedDateRangeResponse } from '~/queries/schema/schema-general'
 import type { TeamPublicType, TeamType } from '~/types'
 
-// Not a root table, so the `posthog.` prefix is part of the name. A team on the Events mode has no
-// such table. Queries on it fail to resolve for that team.
+// Not a root table, so the `posthog.` prefix is part of the name. On a self-hosted instance, a team on the
+// Events mode has no such table. Queries on it fail to resolve for that team.
 export const FLAG_EVALUATIONS_TABLE = 'posthog.flag_evaluations'
 
 export const FEATURE_FLAG_CALLED_EVENT = '$feature_flag_called'
@@ -20,7 +20,16 @@ export function readsFlagEvaluationsTable(team: TeamPublicType | TeamType | null
 
 /** Whether ingestion writes the team's flag calls to flag_evaluations instead of `events`. */
 export function storesFlagCallsOutsideEvents(team: TeamPublicType | TeamType | null): boolean {
-    return team?.flag_evaluations_mode === FLAG_EVALUATIONS_ONLY_MODE
+    // An organization that keeps writing flag calls to events reads flag_evaluations only, but `events` holds the calls.
+    return team?.flag_evaluations_mode === FLAG_EVALUATIONS_ONLY_MODE && !!team.flag_calls_only_in_flag_evaluations
+}
+
+/**
+ * Whether the events table that the team's queries read holds none of its new flag calls. Unlike
+ * storesFlagCallsOutsideEvents, it is also true for a team that reads the native JSON events table.
+ */
+export function flagCallsOnlyInFlagEvaluations(team: TeamPublicType | TeamType | null): boolean {
+    return !!team?.flag_calls_only_in_flag_evaluations
 }
 
 /**
@@ -87,6 +96,32 @@ export function reachesPastFlagEvaluationsRetention(dateFrom: string | null): bo
     return !parsed || parsed.isBefore(flagEvaluationsRetentionStart())
 }
 
+// Mirrors EventsQueryRunner._list_table, which reads flag_evaluations only for a list of nothing but flag calls.
+export function listsOnlyFlagCalls({ source, actionId, actionSteps, event, events }: EventsQuery): boolean {
+    if (source || actionId || actionSteps?.length) {
+        return false
+    }
+    const eventNames = [event, ...(events ?? [])].filter(Boolean)
+    return eventNames.length > 0 && eventNames.every((name) => name === FEATURE_FLAG_CALLED_EVENT)
+}
+
+/** Whether an events list of only flag calls reads flag_evaluations. Mirrors reads_flag_calls_from_flag_evaluations. */
+function listReadsFlagEvaluations(team: TeamPublicType | TeamType | null): boolean {
+    return readsFlagEvaluationsTable(team) || flagCallsOnlyInFlagEvaluations(team)
+}
+
+/** Whether an events list reads flag_evaluations over a range that starts before the table's oldest retained day. */
+export function flagCallsListReachesPastRetention(
+    team: TeamPublicType | TeamType | null,
+    source: EventsQuery
+): boolean {
+    if (!listReadsFlagEvaluations(team) || !listsOnlyFlagCalls(source)) {
+        return false
+    }
+    // The runner reads a missing start as the last 24 hours, which the retention window covers.
+    return !!source.after && reachesPastFlagEvaluationsRetention(source.after)
+}
+
 // Trends sends the compared range it resolved in the team timezone. The Metric display's change pill gets one
 // even though its query has no compareFilter. Stickiness and funnels send none, so this estimates the range in the
 // browser's timezone. Across a DST change, the estimate can move the start to the previous day.
@@ -95,9 +130,9 @@ function comparedPeriodStart(
     response: FlagCallsInsightResponse | null | undefined,
     compareFilter: CompareFilter | null | undefined
 ): dayjs.Dayjs {
-    const resolvedFrom = response?.resolved_compare_date_range?.date_from
-    if (resolvedFrom) {
-        return dayjs(resolvedFrom)
+    const resolvedCompareDateRange = response?.resolved_compare_date_range
+    if (resolvedCompareDateRange?.date_from) {
+        return dayjs(resolvedCompareDateRange.date_from)
     }
     if (!compareFilter?.compare) {
         return start
@@ -108,8 +143,15 @@ function comparedPeriodStart(
         : start.subtract(dayjs(response?.resolved_date_range?.date_to ?? undefined).diff(start), 'millisecond')
 }
 
-/** Whether the range an insight ran over, or the period it compares against, starts before the table's oldest day. */
-export function insightReachesPastFlagEvaluationsRetention({
+/**
+ * Which part of an insight reads days the table no longer holds.
+ * `periods`: its range, or the period it compares against, starts before the table's oldest day.
+ * `first-period`: only the rows the query reads before its range are gone. Lifecycle reads the interval before
+ * its first one, so that first interval can count a returning person as resurrecting.
+ */
+export type FlagCallsRetentionGap = 'periods' | 'first-period'
+
+export function flagCallsRetentionGap({
     dateFrom,
     response,
     compareFilter,
@@ -118,18 +160,26 @@ export function insightReachesPastFlagEvaluationsRetention({
     dateFrom: string | null | undefined
     response: FlagCallsInsightResponse | null | undefined
     compareFilter: CompareFilter | null | undefined
-}): boolean {
+}): FlagCallsRetentionGap | null {
     // All time resolves to the oldest row the table still holds, so the resolved range never shows the cutoff.
     if (dateFrom === 'all') {
-        return true
+        return 'periods'
     }
     const resolvedDateRange = response?.resolved_date_range
     if (!resolvedDateRange?.date_from) {
-        return false
+        return null
     }
-    const comparedStart = comparedPeriodStart(dayjs(resolvedDateRange.date_from), response, compareFilter)
     // The window covers whole days in the team timezone. This compares dates, not instants. A DST change can
     // repeat midnight. The backend starts the 90-day preset at the first midnight. An instant comparison against
     // the second midnight would show the notice for the preset.
-    return dateInTimezone(comparedStart, insightTimezone(response)) < flagEvaluationsRetentionStartDate(response)
+    const retentionStartDate = flagEvaluationsRetentionStartDate(response)
+    const isBeforeRetention = (instant: dayjs.Dayjs): boolean =>
+        dateInTimezone(instant, insightTimezone(response)) < retentionStartDate
+    if (isBeforeRetention(comparedPeriodStart(dayjs(resolvedDateRange.date_from), response, compareFilter))) {
+        return 'periods'
+    }
+    if (resolvedDateRange.read_from && isBeforeRetention(dayjs(resolvedDateRange.read_from))) {
+        return 'first-period'
+    }
+    return null
 }

@@ -5,22 +5,27 @@ import { createJSONStorage, persist } from 'zustand/middleware'
 
 import { createPersistHydrationGate } from '@/lib/persistHydration'
 
+import { MAX_NAV_PINS } from './navPinSlot'
+
 // Which lists sit in the nav pill after Views. A device preference: it holds no account data, so sign-out keeps it,
 // like the pin hint, and it applies to every project.
 
-export type NavPin = 'errors' | 'replay'
+// Live is Home, so it is not a pin, and a saved Live pin is dropped when the list loads.
+export type NavPin = 'errors' | 'replay' | 'web_analytics'
 
-export const NAV_PINS: readonly NavPin[] = ['errors', 'replay']
+export const NAV_PINS: readonly NavPin[] = ['errors', 'replay', 'web_analytics']
 
-/**
- * The pill fits Home, Chats, Views and this many 44pt pin slots next to the labelled Chat button on a 375pt phone.
- * The store keeps a list, so a larger cap needs no change to the saved format.
- */
-export const MAX_NAV_PINS = 1
+/** How a pinnable screen draws: as its navigation tab, or pushed above the tabs. */
+export type NavChrome = 'tab' | 'stack'
 
 const NO_PINS: readonly NavPin[] = []
 
-function isNavPin(value: unknown): value is NavPin {
+/** The last `MAX_NAV_PINS` entries. `slice(-MAX_NAV_PINS)` would keep every entry when the cap is 0. */
+export function newestNavPins(pins: readonly NavPin[]): readonly NavPin[] {
+    return pins.slice(Math.max(0, pins.length - MAX_NAV_PINS))
+}
+
+export function isNavPin(value: unknown): value is NavPin {
     return typeof value === 'string' && (NAV_PINS as readonly string[]).includes(value)
 }
 
@@ -32,7 +37,7 @@ export function nextNavPins(pins: readonly NavPin[], pin: NavPin, pinned: boolea
     if (without.length !== pins.length) {
         return pins
     }
-    return [...without, pin].slice(-MAX_NAV_PINS)
+    return newestNavPins([...without, pin])
 }
 
 /** A saved list with unknown or repeated entries, such as one from a later app version, keeps only what fits. */

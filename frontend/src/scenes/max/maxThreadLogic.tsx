@@ -24,10 +24,10 @@ import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils/dom'
 import { objectsEqual } from 'lib/utils/objects'
-import { billingLogic } from 'scenes/billing/billingLogic'
 import { maxContextLogic } from 'scenes/max/maxContextLogic'
 import { NotebookTarget } from 'scenes/notebooks/types'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -36,6 +36,8 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { SIDE_PANEL_PANEL_ID } from '~/layout/ai/aiPanelIds'
+import { attachedContextLogic } from '~/layout/ai/attachedContextLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import {
     AgentMode,
@@ -65,9 +67,9 @@ import {
     PendingApproval,
     SidePanelTab,
 } from '~/types'
+import type { UserType } from '~/types'
 
 import {
-    attachedContextLogic,
     getRandomThinkingMessage,
     getWebSearchResultsByToolUseId,
     isTerminalRunStatus,
@@ -75,16 +77,17 @@ import {
     runStreamLogic,
     WebSearchResultsByToolUseId,
 } from 'products/posthog_ai/frontend/api/logics'
+import type { ReplySuggestions } from 'products/posthog_ai/frontend/api/types'
 import { LogEntry, parseLogEvent } from 'products/posthog_ai/frontend/lib/parse-logs'
 import { isPiTaskRuntime } from 'products/posthog_ai/frontend/types/taskTypes'
 
 import type { PermissionRequestRecord } from '../../../../products/posthog_ai/frontend/types/streamTypes'
+import type { StagedAttachment } from '../../../../products/posthog_ai/frontend/types/streamTypes'
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type { BillingType } from '../../types'
 import {
     EnhancedToolCall,
     MESSAGE_TOO_LONG,
-    MODE_DEFINITIONS,
     TOOL_DEFINITIONS,
     ToolRegistration,
     getToolDefinition,
@@ -94,8 +97,9 @@ import {
 import { PENDING_AI_PROMPT_KEY } from './max-storage-keys'
 import { MaxBillingContext, maxBillingContextLogic } from './maxBillingContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
-import { SCENE_PANEL_ID, SIDE_PANEL_PANEL_ID, maxLogic } from './maxLogic'
-import { AttachedContext, MaxUIContext } from './maxTypes'
+import { SCENE_PANEL_ID, maxLogic } from './maxLogic'
+import { AttachedContext, MaxContextItem, MaxUIContext } from './maxTypes'
+import { agentModeFromParam } from './modeChoices'
 import { posthogAiContextLogic } from './posthogAiContextLogic'
 import { MAX_SLASH_COMMANDS, SlashCommand, SlashCommandName } from './slash-commands'
 import { canCreateSupportTicket, isTicketCommand } from './ticketUtils'
@@ -104,6 +108,7 @@ import {
     activeSceneLogicHasMaxContext,
     findPendingClientToolCall,
     getAgentModeForScene,
+    getContextSourceProperties,
     isAssistantMessage,
     isAssistantToolCallMessage,
     isHumanMessage,
@@ -166,6 +171,7 @@ export interface maxThreadLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     billingContext: MaxBillingContext | null // maxBillingContextLogic
     compiledContext: MaxUIContext | null // maxContextLogic
+    sceneContext: MaxContextItem[] // maxContextLogic
     availableStaticTools: ToolRegistration[] // maxGlobalLogic
     dataProcessingAccepted: boolean // maxGlobalLogic
     toolMap: {
@@ -182,6 +188,7 @@ export interface maxThreadLogicValues {
     sandboxAttachments: AttachedContext[] // posthogAiContextLogic
     pendingSandboxPermissionRequest: PermissionRequestRecord | null // runStreamLogic
     sandboxCurrentMode: string | null // runStreamLogic
+    sandboxReplySuggestions: ReplySuggestions | null // runStreamLogic
     sceneId: string | null // sceneLogic
     activeDangerousOperationApproval: {
         payload: Record<string, any>
@@ -261,9 +268,11 @@ export interface maxThreadLogicActions {
     askMax: (
         prompt: string | null,
         addToThread?: boolean | undefined,
-        uiContext?: Partial<MaxUIContext> | undefined
+        uiContext?: Partial<MaxUIContext> | undefined,
+        agentMode?: AgentMode | null | undefined
     ) => {
         addToThread: boolean
+        agentMode: AgentMode | null | undefined
         prompt: string | null
         uiContext: Partial<MaxUIContext> | undefined
     } // maxLogic
@@ -322,13 +331,13 @@ export interface maxThreadLogicActions {
         taskRuntime?: string | null
         traceId?: string
     }) => {
-        justCreatedRun?: boolean | undefined
-        pagedHistory?: boolean | undefined
-        retainedMessage?: string | undefined
+        justCreatedRun?: boolean
+        pagedHistory?: boolean
+        retainedMessage?: string
         runId: string
         taskId: string
-        taskRuntime?: string | null | undefined
-        traceId?: string | undefined
+        taskRuntime?: string | null
+        traceId?: string
     } // runStreamLogic
     cancelSandboxRun: (
         run?:
@@ -347,9 +356,9 @@ export interface maxThreadLogicActions {
     } // runStreamLogic
     openSandboxSse: (payload: { runId: string; startLatest?: boolean; taskId: string; traceId?: string }) => {
         runId: string
-        startLatest?: boolean | undefined
+        startLatest?: boolean
         taskId: string
-        traceId?: string | undefined
+        traceId?: string
     } // runStreamLogic
     pushSandboxError: (
         errorMessage: string,
@@ -360,14 +369,10 @@ export interface maxThreadLogicActions {
     } // runStreamLogic
     pushSandboxHumanMessage: (
         content: string,
-        stagedAttachments?:
-            | import('../../../../products/posthog_ai/frontend/types/streamTypes').StagedAttachment[]
-            | undefined
+        stagedAttachments?: StagedAttachment[] | undefined
     ) => {
         content: string
-        stagedAttachments:
-            | import('../../../../products/posthog_ai/frontend/types/streamTypes').StagedAttachment[]
-            | undefined
+        stagedAttachments: StagedAttachment[] | undefined
     } // runStreamLogic
     resetSandboxStream: () => {
         value: true
@@ -441,11 +446,11 @@ export interface maxThreadLogicActions {
         contextualTools?: Record<string, any>
         uiContext?: MaxUIContext
     }) => {
-        agentMode?: AgentMode | null | undefined
-        billingContext?: MaxBillingContext | null | undefined
+        agentMode?: AgentMode | null
+        billingContext?: MaxBillingContext | null
         content: string
-        contextualTools?: Record<string, any> | undefined
-        uiContext?: MaxUIContext | undefined
+        contextualTools?: Record<string, any>
+        uiContext?: MaxUIContext
     }
     executePendingClientToolCall: () => {
         value: true
@@ -598,10 +603,10 @@ export interface maxThreadLogicActions {
         streamData: {
             agent_mode: AgentMode | null
             content: string | null
-            contextual_tools?: Record<string, any> | undefined
-            conversation?: string | undefined
-            is_sandbox?: boolean | undefined
-            resume_payload?: ResumePayload | null | undefined
+            contextual_tools?: Record<string, any>
+            conversation?: string
+            is_sandbox?: boolean
+            resume_payload?: ResumePayload | null
             ui_context?: any
         }
     }
@@ -640,11 +645,11 @@ export interface maxThreadLogicMeta {
                 status: ApprovalDecisionStatus
             }
         >
-        isSharedThread: (conversation: Conversation | null, user: null | import('~/types').UserType) => boolean
+        isSharedThread: (conversation: Conversation | null, user: UserType | null) => boolean
         isImpersonatingExistingConversation: (
             conversation: Conversation | null,
             supportOverrideEnabled: boolean,
-            user: null | import('~/types').UserType
+            user: UserType | null
         ) => boolean
         threadLoading: (conversationLoading: boolean, streamingActive: boolean) => boolean
         queueingEnabled: (featureFlags: FeatureFlagsSet, isSandboxMode: boolean) => boolean
@@ -782,7 +787,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 'pendingBindTaskId',
             ],
             maxContextLogic,
-            ['compiledContext'],
+            ['compiledContext', 'sceneContext'],
             maxBillingContextLogic,
             ['billingContext'],
             billingLogic,
@@ -802,7 +807,11 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             // BindLogic subtree (the input area renders for LangGraph conversations too, so they
             // can't bind the keyed stream logic themselves).
             runStreamLogic({ streamKey: conversationId, conversationId }),
-            ['pendingPermissionRequest as pendingSandboxPermissionRequest', 'currentMode as sandboxCurrentMode'],
+            [
+                'pendingPermissionRequest as pendingSandboxPermissionRequest',
+                'currentMode as sandboxCurrentMode',
+                'replySuggestions as sandboxReplySuggestions',
+            ],
         ],
         actions: [
             maxLogic({ panelId }),
@@ -1286,6 +1295,16 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             // otherwise invisible outside session recordings, because no send event records a length.
             // Null content means resume/continue rather than a new message.
             const promptLength = typeof streamData.content === 'string' ? messageLength(streamData.content) : undefined
+            // Snapshot on the user's send only. A retry may run after the user navigated away, and a
+            // reconnect or resume sends no `ui_context`, yet both continue the same turn.
+            if (generationAttempt === 0 && streamData.content !== null) {
+                cache.turnContextSourceProperties = getContextSourceProperties(
+                    streamData.ui_context,
+                    values.sceneContext
+                )
+            }
+            const contextSourceProperties: ReturnType<typeof getContextSourceProperties> =
+                cache.turnContextSourceProperties ?? getContextSourceProperties(undefined, [])
 
             // Sandbox runtime: route the message to a non-streaming products/tasks Run, then hand the
             // SSE connection off to runStreamLogic. The LangGraph EventSource loop below is never
@@ -1527,6 +1546,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                         agent_mode: agentMode,
                         generation_attempt: generationAttempt,
                         prompt_length: promptLength,
+                        ...contextSourceProperties,
                     })
                 }
 
@@ -1546,7 +1566,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     //   Safari:      "Load failed"
                     //   handleFetch: ApiError with status === undefined (fetch itself threw)
                     const isNetworkError =
-                        (e instanceof Error && /failed to fetch|network\s*error|load failed/i.test(e.message)) ||
+                        (e instanceof Error &&
+                            /failed to fetch|network\s*error|load failed|error in input stream/i.test(e.message)) ||
                         (e instanceof ApiError && !e.status)
 
                     if (isNetworkError) {
@@ -1642,6 +1663,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                                   ? 'api_error'
                                   : 'unknown_error',
                             prompt_length: promptLength,
+                            ...contextSourceProperties,
                         })
                         // Remove streaming messages and reload from server (source of truth)
                         actions.finalizeStreamingMessages()
@@ -1667,6 +1689,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                         agent_mode: agentMode,
                         generation_attempt: generationAttempt,
                         prompt_length: promptLength,
+                        ...contextSourceProperties,
                     })
                 }
                 actions.completeThreadGeneration()
@@ -1729,15 +1752,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             }
             // Sync agentMode from conversation only if user hasn't manually selected a mode after submission
             if (!values.agentModeLockedByUser && conversation?.agent_mode) {
-                const conversationAgentMode = conversation.agent_mode as AgentMode
-                // Older conversations can store the retired user interview mode, which has no selector
-                // option. Use the default mode, as ee/hogai/chat_agent/mode_manager.py does. Match the
-                // retired mode exactly, because live modes such as Research also have no MODE_DEFINITIONS entry.
-                actions.syncAgentModeFromConversation(
-                    conversationAgentMode === AgentMode.UserInterview
-                        ? AgentMode.ProductAnalytics
-                        : conversationAgentMode
-                )
+                actions.syncAgentModeFromConversation(conversation.agent_mode as AgentMode)
             }
             if (conversation?.is_sandbox) {
                 actions.setIsSandboxMode(true)
@@ -1978,10 +1993,13 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 actions.clearQueuedMessages()
             }
         },
-        askMax: async ({ prompt, addToThread = true, uiContext }, breakpoint) => {
+        askMax: async ({ prompt, addToThread = true, uiContext, agentMode: requestedAgentMode }, breakpoint) => {
             // Only process if this thread is the currently active one
             if (values.conversationId !== values.activeThreadKey) {
                 return
+            }
+            if (requestedAgentMode !== undefined) {
+                actions.setAgentMode(requestedAgentMode)
             }
             // Enforced here (not just hidden from the autocomplete) so typing /ticket by hand
             // can't create a ticket the support panel would refuse.
@@ -3010,29 +3028,13 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             if (typeof options === 'string' && options.startsWith('mode=')) {
                 const colonIndex = options.indexOf(':', 5)
                 const modeValue = colonIndex === -1 ? options.slice(5) : options.slice(5, colonIndex)
-                // Parse the mode value (gated modes fall back to null if their feature flags are off)
-                let parsedMode: AgentMode | null = null
-                if (modeValue === 'auto') {
-                    parsedMode = null
-                } else if (modeValue === 'research') {
-                    parsedMode = values.featureFlags[FEATURE_FLAGS.MAX_DEEP_RESEARCH] ? AgentMode.Research : null
-                } else if (modeValue === 'plan') {
-                    parsedMode = values.featureFlags[FEATURE_FLAGS.PHAI_PLAN_MODE] ? AgentMode.Plan : null
-                } else if (modeValue === 'sandbox') {
+                if (modeValue === 'sandbox') {
                     if (values.featureFlags[FEATURE_FLAGS.PHAI_SANDBOX_MODE]) {
                         actions.setIsSandboxMode(true)
                     }
-                    parsedMode = null
-                } else if ((Object.values(AgentMode) as string[]).includes(modeValue)) {
-                    const modeDef = MODE_DEFINITIONS[modeValue as keyof typeof MODE_DEFINITIONS]
-                    if (modeDef?.flag && !values.featureFlags[FEATURE_FLAGS[modeDef.flag]]) {
-                        parsedMode = null
-                    } else {
-                        parsedMode = modeValue as AgentMode
-                    }
-                }
-                if (parsedMode !== undefined) {
-                    actions.setAgentMode(parsedMode)
+                    actions.setAgentMode(null)
+                } else {
+                    actions.setAgentMode(agentModeFromParam(modeValue, values.featureFlags))
                 }
             }
         }

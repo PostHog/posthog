@@ -1,6 +1,6 @@
 """Concrete scanner implementations + factory keyed off `ReplayScanner.scanner_type`."""
 
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 
 from pydantic import Field, TypeAdapter, ValidationError
 from temporalio.exceptions import ApplicationError
@@ -22,7 +22,7 @@ AnyScanner = Annotated[
     ClassifierScanner | ExperimentScanner | MonitorScanner | ScorerScanner | SummarizerScanner,
     Field(discriminator="scanner_type"),
 ]
-_SCANNER_ADAPTER: TypeAdapter[AnyScanner] = TypeAdapter(AnyScanner)
+_SCANNER_ADAPTER: TypeAdapter[AnyScanner] = TypeAdapter(cast(Any, AnyScanner))
 
 
 def validate_scanner_config(

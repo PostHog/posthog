@@ -7,7 +7,7 @@ Found a bug or want to share feedback? Open the account menu in PostHog Desktop 
 
 # PostHog Desktop
 
-This is the source for the PostHog desktop and mobile apps and the agent framework that powers them.
+This is the source for the PostHog desktop and web hosts and the agent framework that powers them.
 
 > [!NOTE]
 > This directory lives at `products/desktop` inside [posthog/posthog](https://github.com/PostHog/posthog). If you already have that repo checked out, there is no separate clone: `cd products/desktop` and follow the setup below. It is a standalone pnpm workspace with its own lockfile and Node version.
@@ -67,7 +67,6 @@ Scripts in `scripts/` for development and debugging:
 products/desktop/
 ├── apps/
 │   ├── code/            # Electron desktop app (React, Vite)
-│   ├── mobile/          # React Native mobile app (Expo)
 │   └── web/             # Web host (cloud-only)
 ├── packages/
 │   ├── agent/           # TypeScript agent framework
@@ -84,7 +83,7 @@ products/desktop/
 |------|-------------|
 | [Documentation index](./docs/README.md) | Development, architecture, testing, operations, and feature guides |
 | [Desktop app guide](./apps/code/README.md) | Building, signing, distribution, and workspace configuration |
-| [Mobile app guide](./apps/mobile/README.md) | Expo setup, EAS builds, and TestFlight deployment |
+| [Proposed mobile replacement](https://github.com/PostHog/posthog/pull/118584) | Independent native app proposed for `products/mobile` |
 | [Architecture and code rules](./AGENTS.md) | Source of truth for architecture, code style, and testing rules |
 | [Contributing](./CONTRIBUTING.md) | How to contribute to PostHog Desktop |
 

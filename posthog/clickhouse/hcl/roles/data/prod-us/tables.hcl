@@ -795,9 +795,6 @@ database "posthog" {
     column "entry_has_fbclid" {
       type = "AggregateFunction(argMin, Bool, DateTime64(6, 'UTC'))"
     }
-    column "entry_ad_ids_map" {
-      type = "AggregateFunction(argMin, Map(String, String), DateTime64(6, 'UTC'))"
-    }
     column "entry_ad_ids_set" {
       type = "AggregateFunction(argMin, Array(String), DateTime64(6, 'UTC'))"
     }
@@ -805,13 +802,13 @@ database "posthog" {
       type = "AggregateFunction(argMin, Tuple(Nullable(String), Nullable(String), Nullable(String), Nullable(String), Bool, Bool, Nullable(String)), DateTime64(6, 'UTC'))"
     }
     column "pageview_uniq" {
-      type = "AggregateFunction(uniqExact, Nullable(UUID))"
+      type = "AggregateFunction(uniq, Nullable(UUID))"
     }
     column "autocapture_uniq" {
-      type = "AggregateFunction(uniqExact, Nullable(UUID))"
+      type = "AggregateFunction(uniq, Nullable(UUID))"
     }
     column "screen_uniq" {
-      type = "AggregateFunction(uniqExact, Nullable(UUID))"
+      type = "AggregateFunction(uniq, Nullable(UUID))"
     }
     column "page_screen_uniq_up_to" {
       type = "AggregateFunction(uniqUpTo(1), Nullable(UUID))"
@@ -821,12 +818,6 @@ database "posthog" {
     }
     column "flag_key_values" {
       type = "SimpleAggregateFunction(groupUniqArrayArray(10000), Array(String))"
-    }
-    column "flag_values" {
-      type = "AggregateFunction(groupUniqArrayMap, Map(String, String))"
-    }
-    column "flag_keys" {
-      type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
     }
     column "event_names" {
       type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
@@ -845,15 +836,10 @@ database "posthog" {
       type        = "bloom_filter()"
       granularity = 1
     }
-    index "flag_keys_bloom_filter" {
-      expr        = "flag_keys"
-      type        = "bloom_filter()"
-      granularity = 1
-    }
-    index "flag_key_values_bloom_filter" {
+    index "flag_key_values_text" {
       expr        = "flag_key_values"
-      type        = "bloom_filter()"
-      granularity = 1
+      type        = "text(tokenizer = splitByString(['=']))"
+      granularity = 100000000
     }
     index "hosts_bloom_filter" {
       expr        = "hosts"
@@ -1424,17 +1410,6 @@ SQL
     }
   }
 
-  patch_table "cohort_membership" {
-    settings = {
-      default_compression_codec = "lz4"
-    }
-    engine "replicated_replacing_merge_tree" {
-      zoo_path       = "/clickhouse/prod/tables/posthog.cohort_membership"
-      replica_name   = "{replica}-{shard}"
-      version_column = "last_updated"
-    }
-  }
-
   patch_table "cohortpeople" {
     order_by     = ["team_id", "cohort_id", "person_id"]
     partition_by = "team_id % 16"
@@ -1669,6 +1644,15 @@ SQL
       cluster_name    = "sessions"
       remote_database = "posthog"
       remote_table    = "raw_sessions"
+      sharding_key    = "cityHash64(session_id_v7)"
+    }
+  }
+
+  patch_table "raw_sessions_v3" {
+    engine "distributed" {
+      cluster_name    = "sessions"
+      remote_database = "posthog"
+      remote_table    = "raw_sessions_v3"
       sharding_key    = "cityHash64(session_id_v7)"
     }
   }

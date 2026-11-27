@@ -138,6 +138,7 @@ export const McpAnalyticsSessionsListParams = () => zod.object({
         ),
 })
 
+export const mcpAnalyticsSessionsListQueryFeedbackOnlyDefault = false
 export const mcpAnalyticsSessionsListQueryFilterTestAccountsDefault = false
 export const mcpAnalyticsSessionsListQueryLimitDefault = 100
 export const mcpAnalyticsSessionsListQueryLimitMax = 500
@@ -160,6 +161,10 @@ export const McpAnalyticsSessionsListQueryParams = () => zod.object({
         .string()
         .optional()
         .describe('End of the window. PostHog date string or absolute ISO timestamp. Defaults to now.'),
+    feedback_only: zod
+        .boolean()
+        .default(mcpAnalyticsSessionsListQueryFeedbackOnlyDefault)
+        .describe('Only sessions where the agent sent feedback or reported a missing capability.'),
     filter_test_accounts: zod
         .boolean()
         .default(mcpAnalyticsSessionsListQueryFilterTestAccountsDefault)
@@ -253,6 +258,12 @@ export const McpAnalyticsSessionsToolCallsQueryParams = () => zod.object({
         .optional()
         .describe(
             "Absolute ISO timestamp lower bound for the event scan — pass the session's start so older sessions resolve. Defaults to a 7-day lookback when omitted or unparseable."
+        ),
+    date_to: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe(
+            "Absolute ISO timestamp upper bound for the event scan. Pass the session's end so the scan stops there instead of reading up to now. Unbounded when omitted or unparseable."
         ),
     filter_test_accounts: zod
         .boolean()

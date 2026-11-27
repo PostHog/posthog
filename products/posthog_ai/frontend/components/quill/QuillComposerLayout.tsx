@@ -109,7 +109,8 @@ export function QuillComposerLayout({
                     // The textarea is Lemon's, so quill's own focus rule, keyed to its input slot, never fires here.
                     'h-auto cursor-text flex-col bg-[var(--card)] focus-within:border-[color-mix(in_oklab,var(--ring)_50%,transparent)] focus-within:shadow-[0_0_0_3px_color-mix(in_oklab,var(--ring)_30%,transparent)] ' +
                     // LemonTextArea puts the composer's padding on both its wrapper and the textarea. The wrapper keeps it, so the textarea drops it. The textarea keeps 2px on the left because it clips the caret at x=0.
-                    '[&_[data-slot=composer-placeholder]]:top-2 [&_[data-slot=composer-placeholder]]:left-2.5 [&_[data-slot=composer-placeholder]]:right-0 [&_[data-slot=composer-placeholder]]:truncate [&_textarea]:p-0 [&_textarea]:pl-0.5 ' +
+                    '[&_textarea]:p-0 [&_textarea]:pl-0.5 ' +
+                    '[&_:has(>[data-slot=composer-placeholder])]:grid [&_:has(>[data-slot=composer-placeholder])>*]:[grid-area:1/1] [&_[data-slot=composer-placeholder]]:static [&_[data-slot=composer-placeholder]]:min-w-0 [&_[data-slot=composer-placeholder]]:truncate [&_[data-slot=composer-placeholder]]:py-2 [&_[data-slot=composer-placeholder]]:pl-2.5 [&_[data-slot=composer-placeholder]]:pr-2.5 ' +
                     // One line tall at rest: the field is only as tall as the send button and its ledge need, then grows with the text.
                     '[&_:has(>textarea)]:min-h-10 [&_:has(>textarea)]:pr-1 [&_textarea]:min-h-0'
                 }
@@ -118,11 +119,11 @@ export function QuillComposerLayout({
                     <InputGroupAddon
                         ref={chipsRowRef}
                         align="block-start"
-                        className="min-h-0 overflow-hidden data-[ready=true]:transition-[height] data-[ready=true]:duration-200 data-[ready=true]:ease-[cubic-bezier(0.25,1,0.5,1)] motion-reduce:transition-none!"
+                        className="min-h-0 overflow-hidden px-1.5 data-[ready=true]:transition-[height] data-[ready=true]:duration-200 data-[ready=true]:ease-[cubic-bezier(0.25,1,0.5,1)] motion-reduce:transition-none!"
                     >
                         <div
                             ref={chipsContentRef}
-                            className="flex w-full flex-wrap items-center gap-2 pt-2.5 pb-1.5 [&_.LemonTag]:h-6 [&_.LemonTag]:gap-1 [&_.LemonTag]:rounded-sm [&_.LemonTag]:px-2 [&_.LemonTag]:text-xs *:transition-[opacity,translate] *:duration-[180ms] *:ease-[cubic-bezier(0.19,1,0.22,1)] *:starting:-translate-y-1 *:starting:opacity-0 motion-reduce:*:transition-[opacity] motion-reduce:*:starting:translate-y-0"
+                            className="flex w-full flex-wrap items-center gap-2 py-1.5 [&_.LemonTag]:h-6 [&_.LemonTag]:gap-1 [&_.LemonTag]:rounded-sm [&_.LemonTag]:px-2 [&_.LemonTag]:text-xs *:transition-[opacity,translate] *:duration-[180ms] *:ease-[cubic-bezier(0.19,1,0.22,1)] *:starting:-translate-y-1 *:starting:opacity-0 motion-reduce:*:transition-[opacity] motion-reduce:*:starting:translate-y-0"
                         >
                             {chips}
                         </div>

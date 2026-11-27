@@ -1,18 +1,28 @@
 from posthog.api.routing import RouterRegistry
 from posthog.settings import EE_AVAILABLE
 
+from products.experiments.backend.presentation.web_experiments import WebExperimentViewSet, web_experiments
+
+# posthog-js calls `web_experiments` at `api/web_experiments`, which is outside the `api/experiments/`
+# mount that `api_urlpatterns` gets. So `posthog/urls.py` keeps that path. It imports the view from here
+# because core loads `backend.routes` by name, while `backend.presentation.web_experiments` is internal.
+__all__ = ["register_routes", "web_experiments"]
+
 
 def register_routes(routers: RouterRegistry) -> None:
-    # All experiments viewsets currently live in `ee/clickhouse/views/` and
-    # `products/experiments/backend/presentation/views.py` — both unavailable
-    # without EE installed, so the entire surface is EE-gated.
+    # The web experiments API does not need EE, so it registers before the EE gate.
+    routers.projects.register(r"web_experiments", WebExperimentViewSet, "web_experiments", ["project_id"])
+
+    # The holdout viewset lives in `ee/clickhouse/views/`, and the experiments and saved metric
+    # viewsets live in `products/experiments/backend/presentation/`. All three are EE-only, so
+    # these routes register only when EE is installed.
     if not EE_AVAILABLE:
         return
 
+    from products.experiments.backend.presentation.saved_metrics import ExperimentSavedMetricViewSet
     from products.experiments.backend.presentation.views import EnterpriseExperimentsViewSet
 
     from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutViewSet
-    from ee.clickhouse.views.experiment_saved_metrics import ExperimentSavedMetricViewSet
 
     routers.projects.register(r"experiments", EnterpriseExperimentsViewSet, "project_experiments", ["project_id"])
     routers.projects.register(

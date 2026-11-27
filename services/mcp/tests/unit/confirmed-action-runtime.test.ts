@@ -1,11 +1,12 @@
 import { beforeEach, describe, expect, it } from 'vitest'
+import { z } from 'zod'
 
 import {
     confirmedActionExecutesTotal,
     confirmedActionPreparesTotal,
     confirmedActionRefusalsTotal,
 } from '@/hono/metrics'
-import { NonceLedger, PayloadStash, SignedStateCodec } from '@/lib/signed-state'
+import { PayloadStash, SignedStateCodec } from '@/lib/signed-state'
 import {
     CONFIRMATION_HASH_ARG,
     CONFIRMATION_WORD,
@@ -29,28 +30,14 @@ function makeContext(distinctId: string = 'did-1', connectionId?: string): Conte
     } as Context
 }
 
+const inputSchema = z.object({})
+
 function makeCodec(): SignedStateCodec {
     return new SignedStateCodec(Buffer.alloc(32, 0x42), {
         now: () => 1_700_000_000_000,
         randomNonce: () => 'nonce-fixed',
         ttlSeconds: 300,
     })
-}
-
-function makeLedger(): { ledger: NonceLedger; consumed: Set<string> } {
-    const consumed = new Set<string>()
-    const ledger = new NonceLedger({
-        set: async (key, _value, ..._args) => {
-            const args = _args.map((a) => (typeof a === 'string' ? a.toUpperCase() : a))
-            const nx = args.includes('NX')
-            if (nx && consumed.has(key)) {
-                return null
-            }
-            consumed.add(key)
-            return 'OK'
-        },
-    })
-    return { ledger, consumed }
 }
 
 function makeStash(): { stash: PayloadStash; store: Map<string, string>; quotas: Map<string, number> } {
@@ -93,6 +80,7 @@ describe('prepareConfirmedAction', () => {
         const result = await prepareConfirmedAction(makeContext('did-1'), {
             args: { orgId: 'acme' },
             purpose: 'organization-enforce-2fa-update',
+            inputSchema,
             actionLabel: 'enforce 2FA',
             messageTemplate: 'About to enable enforce 2FA on organization {orgId}.',
             codec,
@@ -115,6 +103,7 @@ describe('prepareConfirmedAction', () => {
         const result = await prepareConfirmedAction(makeContext('did-1'), {
             args: { name: 'resource-big', body: 'x'.repeat(200_000) },
             purpose: 'resource-create',
+            inputSchema,
             actionLabel: 'create resource',
             messageTemplate: 'msg',
             codec,
@@ -133,6 +122,7 @@ describe('prepareConfirmedAction', () => {
             prepareConfirmedAction(makeContext('did-1'), {
                 args: { body: 'x'.repeat(1_100_000) },
                 purpose: 'resource-create',
+                inputSchema,
                 actionLabel: 'create resource',
                 messageTemplate: 'msg',
                 codec,
@@ -160,6 +150,7 @@ describe('prepareConfirmedAction', () => {
             await prepareConfirmedAction(makeContext('did-1'), {
                 args,
                 purpose: 'resource-create',
+                inputSchema,
                 actionLabel: 'create resource',
                 messageTemplate: 'msg',
                 codec,
@@ -170,6 +161,7 @@ describe('prepareConfirmedAction', () => {
             prepareConfirmedAction(makeContext('did-1'), {
                 args,
                 purpose: 'resource-create',
+                inputSchema,
                 actionLabel: 'create resource',
                 messageTemplate: 'msg',
                 codec,
@@ -185,6 +177,7 @@ describe('prepareConfirmedAction', () => {
         const result = await prepareConfirmedAction(makeContext(), {
             args: {},
             purpose: 'p',
+            inputSchema,
             actionLabel: 'a',
             messageTemplate: 'Delete {missing}',
             codec,
@@ -199,6 +192,7 @@ describe('prepareConfirmedAction', () => {
         const result = await prepareConfirmedAction(makeContext(), {
             args: { filters: { team: 1 }, tags: ['a', 'b'] },
             purpose: 'p',
+            inputSchema,
             actionLabel: 'a',
             messageTemplate: 'Apply {filters} for {tags}',
             codec,
@@ -211,14 +205,12 @@ describe('prepareConfirmedAction', () => {
 describe('executeConfirmedAction', () => {
     function setup(): {
         codec: SignedStateCodec
-        ledger: NonceLedger
         stash: PayloadStash
         store: Map<string, string>
     } {
         const codec = makeCodec()
-        const { ledger } = makeLedger()
         const { stash, store } = makeStash()
-        return { codec, ledger, stash, store }
+        return { codec, stash, store }
     }
 
     async function mintToken(
@@ -232,6 +224,7 @@ describe('executeConfirmedAction', () => {
         const result = await prepareConfirmedAction(ctx, {
             args: payload as Record<string, unknown>,
             purpose,
+            inputSchema,
             actionLabel: 'x',
             messageTemplate: 'msg',
             codec,
@@ -241,7 +234,7 @@ describe('executeConfirmedAction', () => {
     }
 
     it('verifies a fresh token and returns verifiedArgs', async () => {
-        const { codec, ledger, stash } = setup()
+        const { codec, stash } = setup()
         const hash = await mintToken(codec, stash, 'did-1', 'enforce-2fa', { orgId: 'acme' })
         const outcome = await executeConfirmedAction(makeContext('did-1'), {
             incomingArgs: {
@@ -249,8 +242,8 @@ describe('executeConfirmedAction', () => {
                 [CONFIRMATION_WORD_ARG]: 'confirm',
             },
             purpose: 'enforce-2fa',
+            inputSchema,
             codec,
-            ledger,
             stash,
         })
         expect(outcome.ok).toBe(true)
@@ -260,13 +253,13 @@ describe('executeConfirmedAction', () => {
     })
 
     it('refuses if the literal confirmation word is wrong', async () => {
-        const { codec, ledger, stash } = setup()
+        const { codec, stash } = setup()
         const hash = await mintToken(codec, stash, 'did-1', 'p', {})
         const outcome = await executeConfirmedAction(makeContext('did-1'), {
             incomingArgs: { [CONFIRMATION_HASH_ARG]: hash, [CONFIRMATION_WORD_ARG]: 'yes' },
             purpose: 'p',
+            inputSchema,
             codec,
-            ledger,
             stash,
         })
         expect(outcome.ok).toBe(false)
@@ -276,13 +269,13 @@ describe('executeConfirmedAction', () => {
     })
 
     it('refuses on user mismatch', async () => {
-        const { codec, ledger, stash } = setup()
+        const { codec, stash } = setup()
         const hash = await mintToken(codec, stash, 'did-victim', 'p', {})
         const outcome = await executeConfirmedAction(makeContext('did-attacker'), {
             incomingArgs: { [CONFIRMATION_HASH_ARG]: hash, [CONFIRMATION_WORD_ARG]: 'confirm' },
             purpose: 'p',
+            inputSchema,
             codec,
-            ledger,
             stash,
         })
         expect(outcome.ok).toBe(false)
@@ -291,38 +284,85 @@ describe('executeConfirmedAction', () => {
         }
     })
 
-    it('refuses on purpose mismatch', async () => {
-        const { codec, ledger, stash } = setup()
-        const hash = await mintToken(codec, stash, 'did-1', 'tool-A', {})
-        const outcome = await executeConfirmedAction(makeContext('did-1'), {
-            incomingArgs: { [CONFIRMATION_HASH_ARG]: hash, [CONFIRMATION_WORD_ARG]: 'confirm' },
-            purpose: 'tool-B',
+    const sendSchema = z.object({ to: z.string() })
+    const sendSchemaWithCc = z.object({ to: z.string(), cc: z.array(z.string()).optional() })
+
+    it.each([
+        ['another action', 'email-delete', sendSchema, sendSchema],
+        [
+            'a build of this action whose input schema has a field this build lacks',
+            'email-send',
+            sendSchemaWithCc,
+            sendSchema,
+        ],
+        [
+            'a build of this action without a check this build adds',
+            'email-send',
+            sendSchemaWithCc,
+            sendSchemaWithCc.refine((args) => args.cc === undefined),
+        ],
+    ])('refuses a confirmation prepared by %s', async (_case, preparedPurpose, preparedSchema, executeSchema) => {
+        const { codec, stash } = setup()
+        const prep = await prepareConfirmedAction(makeContext('did-1'), {
+            args: { to: 'jane@example.com', cc: ['joe@example.com'] },
+            purpose: preparedPurpose,
+            inputSchema: preparedSchema,
+            actionLabel: 'send email',
+            messageTemplate: 'msg',
             codec,
-            ledger,
             stash,
         })
-        expect(outcome.ok).toBe(false)
-        if (!outcome.ok) {
-            expect(outcome.result.content[0]!.text).toContain('different action')
-        }
+
+        const outcome = await executeConfirmedAction(makeContext('did-1'), {
+            incomingArgs: { [CONFIRMATION_HASH_ARG]: prep.confirmation_hash, [CONFIRMATION_WORD_ARG]: 'confirm' },
+            purpose: 'email-send',
+            inputSchema: executeSchema,
+            codec,
+            stash,
+        })
+
+        expect(outcome).toMatchObject({
+            ok: false,
+            result: { content: [{ text: expect.stringContaining('Run the prepare step again') }] },
+        })
+    })
+
+    it('refuses a confirmation prepared by a server that did not bind the input schema', async () => {
+        const { codec, stash, store } = setup()
+        const preSchemaBindingToken =
+            'eyJhbGciOiJIUzI1NiIsInR5cCI6Ik1DUC1TSUdORUQtU1RBVEUifQ.eyJwYXlsb2FkIjp7ImRpZ2VzdCI6ImRhYjc3ZjY1OTYxMGU3YjU3M2NhYzA5OTdiOGE0YjlmNDg5YzczOTM4ZjVkZGIwNWY5YmEyZjM2ZTQwZTYyOTgifSwic3ViIjoiZGlkLTEiLCJhdWQiOiJlbmZvcmNlLTJmYSIsImlhdCI6MTcwMDAwMDAwMCwiZXhwIjoxNzAwMDAwMzAwLCJqdGkiOiJub25jZS1maXhlZCJ9.WHqe6xjbxV0JQs51c4f11lPoXjuVuklfg9dDyD279E8'
+        store.set('mcp:signed-state:payload:nonce-fixed', '{"args":{"orgId":"acme"},"scope":null}')
+
+        const outcome = await executeConfirmedAction(makeContext('did-1'), {
+            incomingArgs: { [CONFIRMATION_HASH_ARG]: preSchemaBindingToken, [CONFIRMATION_WORD_ARG]: 'confirm' },
+            purpose: 'enforce-2fa',
+            inputSchema,
+            codec,
+            stash,
+        })
+
+        expect(outcome).toMatchObject({
+            ok: false,
+            result: { content: [{ text: expect.stringContaining('Run the prepare step again') }] },
+        })
     })
 
     it('refuses on replay of the same hash', async () => {
-        const { codec, ledger, stash } = setup()
+        const { codec, stash } = setup()
         const hash = await mintToken(codec, stash, 'did-1', 'p', { orgId: 'x' })
         const first = await executeConfirmedAction(makeContext('did-1'), {
             incomingArgs: { [CONFIRMATION_HASH_ARG]: hash, [CONFIRMATION_WORD_ARG]: 'confirm' },
             purpose: 'p',
+            inputSchema,
             codec,
-            ledger,
             stash,
         })
         expect(first.ok).toBe(true)
         const second = await executeConfirmedAction(makeContext('did-1'), {
             incomingArgs: { [CONFIRMATION_HASH_ARG]: hash, [CONFIRMATION_WORD_ARG]: 'confirm' },
             purpose: 'p',
+            inputSchema,
             codec,
-            ledger,
             stash,
         })
         expect(second.ok).toBe(false)
@@ -335,7 +375,7 @@ describe('executeConfirmedAction', () => {
         // Redis contents are not covered by the token signature — only the
         // digest binds them. Without this check, anything able to write the
         // stash key could swap in arbitrary args under a valid confirmation.
-        const { codec, ledger, stash, store } = setup()
+        const { codec, stash, store } = setup()
         const hash = await mintToken(codec, stash, 'did-1', 'p', { orgId: 'acme' })
         for (const key of store.keys()) {
             store.set(key, JSON.stringify({ args: { orgId: 'evil' }, scope: null }))
@@ -343,8 +383,8 @@ describe('executeConfirmedAction', () => {
         const outcome = await executeConfirmedAction(makeContext('did-1'), {
             incomingArgs: { [CONFIRMATION_HASH_ARG]: hash, [CONFIRMATION_WORD_ARG]: 'confirm' },
             purpose: 'p',
+            inputSchema,
             codec,
-            ledger,
             stash,
         })
         expect(outcome.ok).toBe(false)
@@ -353,48 +393,15 @@ describe('executeConfirmedAction', () => {
         }
     })
 
-    it('executes an inline-payload token once and refuses its replay via the ledger', async () => {
-        // Mixed-version deploys: a server on the older token format signs
-        // {args, scope} directly into the claim instead of stashing. The
-        // newer execute path must still honor it exactly once.
-        const { codec, ledger, stash } = setup()
-        const { token } = await codec.encode({
-            sub: 'did-1',
-            purpose: 'p',
-            payload: { args: { orgId: 'acme' }, scope: null },
-        })
-        const first = await executeConfirmedAction(makeContext('did-1'), {
-            incomingArgs: { [CONFIRMATION_HASH_ARG]: token, [CONFIRMATION_WORD_ARG]: 'confirm' },
-            purpose: 'p',
-            codec,
-            ledger,
-            stash,
-        })
-        expect(first.ok).toBe(true)
-        if (first.ok) {
-            expect(first.verifiedArgs).toEqual({ orgId: 'acme' })
-        }
-        const second = await executeConfirmedAction(makeContext('did-1'), {
-            incomingArgs: { [CONFIRMATION_HASH_ARG]: token, [CONFIRMATION_WORD_ARG]: 'confirm' },
-            purpose: 'p',
-            codec,
-            ledger,
-            stash,
-        })
-        expect(second.ok).toBe(false)
-        if (!second.ok) {
-            expect(second.result.content[0]!.text).toContain('already been used')
-        }
-    })
-
     it('refuses when the active scope no longer matches the scope bound at prepare time', async () => {
         // Cross-project replay: prepare while project A is active, then run
         // execute after switch-project made B active. The signed scope (A)
         // must not authorize the action against B.
-        const { codec, ledger, stash } = setup()
+        const { codec, stash } = setup()
         const prep = await prepareConfirmedAction(makeContext('did-1'), {
             args: { name: 'mrr' },
             purpose: 'metric-approve',
+            inputSchema,
             actionLabel: 'approve metric',
             messageTemplate: 'msg',
             codec,
@@ -407,8 +414,8 @@ describe('executeConfirmedAction', () => {
                 [CONFIRMATION_WORD_ARG]: 'confirm',
             },
             purpose: 'metric-approve',
+            inputSchema,
             codec,
-            ledger,
             stash,
             expectedScope: { projectId: '2' },
         })
@@ -425,10 +432,11 @@ describe('executeConfirmedAction', () => {
         // Project ids are only unique within a region, and `sub` is the local user either way, so
         // without the connection in the scope a confirmation given for one connected project would
         // spend against another organization's project that happens to share the number.
-        const { codec, ledger, stash } = setup()
+        const { codec, stash } = setup()
         const prep = await prepareConfirmedAction(makeContext('did-1', 'connection-a'), {
             args: { name: 'mrr' },
             purpose: 'metric-approve',
+            inputSchema,
             actionLabel: 'approve metric',
             messageTemplate: 'msg',
             codec,
@@ -442,8 +450,8 @@ describe('executeConfirmedAction', () => {
                 [CONFIRMATION_WORD_ARG]: 'confirm',
             },
             purpose: 'metric-approve',
+            inputSchema,
             codec,
-            ledger,
             stash,
             expectedScope: { projectId: '4242' },
         })
@@ -455,10 +463,11 @@ describe('executeConfirmedAction', () => {
     })
 
     it('succeeds when the confirmation is executed through the connection it was prepared in', async () => {
-        const { codec, ledger, stash } = setup()
+        const { codec, stash } = setup()
         const prep = await prepareConfirmedAction(makeContext('did-1', 'connection-a'), {
             args: { name: 'mrr' },
             purpose: 'metric-approve',
+            inputSchema,
             actionLabel: 'approve metric',
             messageTemplate: 'msg',
             codec,
@@ -472,8 +481,8 @@ describe('executeConfirmedAction', () => {
                 [CONFIRMATION_WORD_ARG]: 'confirm',
             },
             purpose: 'metric-approve',
+            inputSchema,
             codec,
-            ledger,
             stash,
             expectedScope: { projectId: '4242' },
         })
@@ -482,10 +491,11 @@ describe('executeConfirmedAction', () => {
     })
 
     it('succeeds when the active scope still matches the scope bound at prepare time', async () => {
-        const { codec, ledger, stash } = setup()
+        const { codec, stash } = setup()
         const prep = await prepareConfirmedAction(makeContext('did-1'), {
             args: { name: 'mrr' },
             purpose: 'metric-approve',
+            inputSchema,
             actionLabel: 'approve metric',
             messageTemplate: 'msg',
             codec,
@@ -498,8 +508,8 @@ describe('executeConfirmedAction', () => {
                 [CONFIRMATION_WORD_ARG]: 'confirm',
             },
             purpose: 'metric-approve',
+            inputSchema,
             codec,
-            ledger,
             stash,
             expectedScope: { projectId: '1' },
         })
@@ -510,53 +520,22 @@ describe('executeConfirmedAction', () => {
     })
 
     it('refuses on tampered signature', async () => {
-        const { codec, ledger, stash } = setup()
+        const { codec, stash } = setup()
         const hash = await mintToken(codec, stash, 'did-1', 'p', {})
         const segs = hash.split('.')
-        const tampered = `${segs[0]}.${segs[1]}.${segs[2]!.slice(0, -1)}A`
+        const lastChar = segs[2]!.slice(-1)
+        const tampered = `${segs[0]}.${segs[1]}.${segs[2]!.slice(0, -1)}${lastChar === 'A' ? 'Q' : 'A'}`
         const outcome = await executeConfirmedAction(makeContext('did-1'), {
             incomingArgs: { [CONFIRMATION_HASH_ARG]: tampered, [CONFIRMATION_WORD_ARG]: 'confirm' },
             purpose: 'p',
+            inputSchema,
             codec,
-            ledger,
             stash,
         })
         expect(outcome.ok).toBe(false)
         if (!outcome.ok) {
             expect(outcome.result.content[0]!.text).toContain('signature is invalid')
         }
-    })
-
-    it('sources the ledger TTL from the codec clock, not the wall clock, for inline-payload tokens', async () => {
-        // Pin the codec's clock 100s before exp. If the runtime ever
-        // sources the TTL from the wall clock instead, the codec's fake
-        // clock and real Date.now() will diverge by ~years and the
-        // observed TTL will collapse to 1 — re-allowing replay against
-        // a real Redis. Only inline-payload tokens touch the ledger.
-        const codec = makeCodec() // ttlSeconds: 300, clock pinned 100s before exp
-        const { stash } = makeStash()
-        let observedTtl: number | undefined
-        const ledger = new NonceLedger({
-            set: async (_key, _value, ..._args) => {
-                // arg order from NonceLedger.consume: ('EX', ttl, 'NX')
-                observedTtl = _args[1] as number
-                return 'OK'
-            },
-        })
-        const { token } = await codec.encode({
-            sub: 'did-1',
-            purpose: 'tool-A',
-            payload: { args: { x: 1 }, scope: null },
-        })
-        const outcome = await executeConfirmedAction(makeContext('did-1'), {
-            incomingArgs: { [CONFIRMATION_HASH_ARG]: token, [CONFIRMATION_WORD_ARG]: 'confirm' },
-            purpose: 'tool-A',
-            codec,
-            ledger,
-            stash,
-        })
-        expect(outcome.ok).toBe(true)
-        expect(observedTtl).toBe(300)
     })
 })
 
@@ -590,6 +569,7 @@ describe('confirmed-action metrics', () => {
         await prepareConfirmedAction(makeContext('did-1'), {
             args: {},
             purpose: 'tool-A',
+            inputSchema,
             actionLabel: 'A',
             messageTemplate: 'msg',
             codec,
@@ -600,11 +580,11 @@ describe('confirmed-action metrics', () => {
 
     it('increments executes_total ok on a successful execute', async () => {
         const codec = makeCodec()
-        const { ledger } = makeLedger()
         const { stash } = makeStash()
         const prep = await prepareConfirmedAction(makeContext('did-1'), {
             args: { id: 'x' },
             purpose: 'tool-B',
+            inputSchema,
             actionLabel: 'B',
             messageTemplate: 'msg',
             codec,
@@ -616,8 +596,8 @@ describe('confirmed-action metrics', () => {
                 [CONFIRMATION_WORD_ARG]: 'confirm',
             },
             purpose: 'tool-B',
+            inputSchema,
             codec,
-            ledger,
             stash,
         })
         expect(await metricValue(confirmedActionExecutesTotal, { tool: 'tool-B', status: 'ok' })).toBe(1)
@@ -625,11 +605,11 @@ describe('confirmed-action metrics', () => {
 
     it('increments refusals_total with the right reason label per failure mode', async () => {
         const codec = makeCodec()
-        const { ledger } = makeLedger()
         const { stash } = makeStash()
         const prep = await prepareConfirmedAction(makeContext('did-1'), {
             args: {},
             purpose: 'tool-C',
+            inputSchema,
             actionLabel: 'C',
             messageTemplate: 'msg',
             codec,
@@ -639,16 +619,16 @@ describe('confirmed-action metrics', () => {
         await executeConfirmedAction(makeContext('did-1'), {
             incomingArgs: { [CONFIRMATION_HASH_ARG]: prep.confirmation_hash, [CONFIRMATION_WORD_ARG]: 'yes' },
             purpose: 'tool-C',
+            inputSchema,
             codec,
-            ledger,
             stash,
         })
         // user mismatch
         await executeConfirmedAction(makeContext('did-attacker'), {
             incomingArgs: { [CONFIRMATION_HASH_ARG]: prep.confirmation_hash, [CONFIRMATION_WORD_ARG]: 'confirm' },
             purpose: 'tool-C',
+            inputSchema,
             codec,
-            ledger,
             stash,
         })
         expect(await metricValue(confirmedActionRefusalsTotal, { tool: 'tool-C', reason: 'wrong_word' })).toBe(1)

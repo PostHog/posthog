@@ -51,6 +51,13 @@ def _raised_from(error: BaseException, cause: BaseException) -> BaseException:
             ),
             True,
         ),
+        (
+            OperationalError(
+                'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
+                "FATAL:  remaining connection slots are reserved for roles with the SUPERUSER attribute"
+            ),
+            True,
+        ),
         (OperationalError("connection failed: FATAL: password authentication failed for user"), False),
         (OperationalError("no such database"), False),
         (OperationalError("[Errno -3] Temporary failure in name resolution"), True),
@@ -107,6 +114,16 @@ def _raised_from(error: BaseException, cause: BaseException) -> BaseException:
         ),
         (psycopg.errors.ProtocolViolation("query_wait_timeout"), True),
         (psycopg.errors.SyntaxErrorOrAccessRuleViolation("syntax error"), False),
+        # psycopg raises this directly (no "connection failed:" prefix) when its own connect
+        # deadline elapses while still polling the socket for a handshake that never completed.
+        (psycopg.errors.ConnectionTimeout("connection timeout expired"), True),
+        (
+            _raised_from(
+                OperationalError("connection timeout expired"),
+                psycopg.errors.ConnectionTimeout("connection timeout expired"),
+            ),
+            True,
+        ),
     ],
 )
 def test_is_transient_db_error_by_message(error: BaseException, expected: bool) -> None:

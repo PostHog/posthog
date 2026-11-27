@@ -1,10 +1,26 @@
 from posthog.enums import LabeledStrEnum
 
 
+class AccountPersonsSortDirection(LabeledStrEnum):
+    ASC = "asc", "Ascending"
+    DESC = "desc", "Descending"
+
+
 class AccountPropertyPinKind(LabeledStrEnum):
     CUSTOM_PROPERTY = "custom_property", "Custom property"
     RELATIONSHIP = "relationship", "Relationship"
     ACCOUNT_FIELD = "account_field", "Account field"
+
+
+class PinnedAccountPropertiesSourceKind(LabeledStrEnum):
+    PERSONAL = "personal", "Personal"
+    ROLE = "role", "Role"
+    PROJECT = "project", "Project"
+
+
+class DefaultPinnedAccountPropertiesSourceKind(LabeledStrEnum):
+    PROJECT = "project", "Project"
+    ROLE = "role", "Role"
 
 
 # Mirrors OPTION_COLOR_TOKENS in the frontend's customPropertyTypes.ts (DataColorToken presets).
@@ -25,6 +41,11 @@ class CustomPropertyOptionColor(LabeledStrEnum):
 class AccountViewVisibility(LabeledStrEnum):
     PRIVATE = "private", "Personal"
     TEAM = "team", "Team"
+
+
+class WarehousePersonPropertyMissingRowBehavior(LabeledStrEnum):
+    KEEP = "keep", "Keep the last synced values"
+    REMOVE = "remove", "Remove mapped properties"
 
 
 class TaskDigestCadence(LabeledStrEnum):
@@ -65,11 +86,15 @@ class OwnershipRoleDiagnostic(LabeledStrEnum):
 
 
 __all__ = [
+    "AccountPersonsSortDirection",
     "AccountPropertyPinKind",
     "AccountViewVisibility",
     "CustomPropertyOptionColor",
+    "DefaultPinnedAccountPropertiesSourceKind",
     "AccountRelationshipSource",
     "OwnershipRoleDiagnostic",
     "OwnershipRoleState",
+    "PinnedAccountPropertiesSourceKind",
     "TaskDigestCadence",
+    "WarehousePersonPropertyMissingRowBehavior",
 ]

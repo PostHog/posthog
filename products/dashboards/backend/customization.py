@@ -3,13 +3,15 @@ from typing import Any
 
 from rest_framework import serializers
 
-from products.dashboards.backend.constants import MAX_GROUP_KEY_LENGTH, MAX_GROUPS
-from products.dashboards.backend.models.dashboard import (
+from products.dashboards.backend.constants import MAX_GROUP_KEY_LENGTH, MAX_GROUP_TITLE_LENGTH, MAX_GROUPS
+from products.dashboards.backend.facade.contracts import DashboardCustomizationRejected
+from products.dashboards.backend.facade.enums import (
     DASHBOARD_GRID_COMPACTION_MODES,
     DASHBOARD_GRID_SPACING_GAPS,
+    DASHBOARD_TILE_GROUP_DEFAULTS,
     DASHBOARD_TILE_GROUP_DISPLAY_MODES,
+    DashboardTileGroupColor,
 )
-from products.dashboards.backend.widget_specs.openapi import DASHBOARD_TILE_GROUP_DEFAULTS, DashboardTileGroupSerializer
 
 
 def normalize_dashboard_customization(customization: Any) -> dict[str, Any]:
@@ -19,7 +21,7 @@ def normalize_dashboard_customization(customization: Any) -> dict[str, Any]:
 def normalized_group_key(group_key: str) -> str:
     group_key = group_key.strip()
     if "\x00" in group_key:
-        raise serializers.ValidationError("Group keys can't contain null characters.")
+        raise DashboardCustomizationRejected("Group keys can't contain null characters.")
     return group_key
 
 
@@ -28,7 +30,7 @@ def stored_group_key(group_key: Any) -> str | None:
         return None
     try:
         group_key = normalized_group_key(group_key)
-    except serializers.ValidationError:
+    except DashboardCustomizationRejected:
         return None
     return group_key if group_key and len(group_key) <= MAX_GROUP_KEY_LENGTH else None
 
@@ -37,30 +39,30 @@ def validated_group_key(group_key: Any) -> str | None:
     if group_key is None:
         return None
     if not isinstance(group_key, str):
-        raise serializers.ValidationError({"group_key": "Group key must be a string or null."})
+        raise DashboardCustomizationRejected("Group key must be a string or null.", field="group_key")
     try:
         group_key = normalized_group_key(group_key)
-    except serializers.ValidationError as error:
-        raise serializers.ValidationError({"group_key": error.detail}) from error
+    except DashboardCustomizationRejected as rejected:
+        raise DashboardCustomizationRejected(rejected.message, field="group_key") from rejected
     if len(group_key) > MAX_GROUP_KEY_LENGTH:
-        raise serializers.ValidationError(
-            {"group_key": f"Group key can have at most {MAX_GROUP_KEY_LENGTH} characters."}
+        raise DashboardCustomizationRejected(
+            f"Group key can have at most {MAX_GROUP_KEY_LENGTH} characters.", field="group_key"
         )
     return group_key or None
 
 
-def validated_group_keys[T](value: dict[str, T]) -> dict[str, T]:
+def validated_group_keys[T](value: Mapping[str, T]) -> dict[str, T]:
     if len(value) > MAX_GROUPS:
-        raise serializers.ValidationError(f"A dashboard can have at most {MAX_GROUPS} groups.")
+        raise DashboardCustomizationRejected(f"A dashboard can have at most {MAX_GROUPS} groups.")
     normalized: dict[str, T] = {}
     for key, item in value.items():
         group_key = normalized_group_key(key)
         if not group_key:
-            raise serializers.ValidationError("Group keys can't be empty.")
+            raise DashboardCustomizationRejected("Group keys can't be empty.")
         if len(group_key) > MAX_GROUP_KEY_LENGTH:
-            raise serializers.ValidationError(f"Group keys can have at most {MAX_GROUP_KEY_LENGTH} characters.")
+            raise DashboardCustomizationRejected(f"Group keys can have at most {MAX_GROUP_KEY_LENGTH} characters.")
         if group_key in normalized:
-            raise serializers.ValidationError(f'Group key "{group_key}" is used more than once.')
+            raise DashboardCustomizationRejected(f'Group key "{group_key}" is used more than once.')
         normalized[group_key] = item
     return normalized
 
@@ -76,19 +78,25 @@ def validate_template_groups(customization: Any, tiles: Any) -> None:
         validated_group_keys(
             {**_dict_or_empty(customization.get("groups")), **_dict_or_empty(customization.get("group_titles"))}
         )
-    except serializers.ValidationError as error:
-        raise serializers.ValidationError({"customization": error.detail}) from error
+    except DashboardCustomizationRejected as rejected:
+        raise DashboardCustomizationRejected(rejected.message, field="customization") from rejected
     for tile in tiles if isinstance(tiles, list) else []:
         try:
             validated_group_key(_dict_or_empty(tile).get("group_key"))
-        except serializers.ValidationError as error:
-            detail = error.detail
-            raise serializers.ValidationError(
-                {"tiles": detail["group_key"] if isinstance(detail, dict) else detail}
-            ) from error
+        except DashboardCustomizationRejected as rejected:
+            raise DashboardCustomizationRejected(rejected.message, field="tiles") from rejected
 
 
 _NO_DEFAULT = object()
+
+
+# The fields of DashboardTileGroupSerializer, which validates group settings on a write and documents
+# them in the API schema. Internals cannot import presentation, so stored settings are validated with
+# this copy. test_dashboard_groups.py checks that the two accept and coerce the same settings.
+class _StoredGroupSerializer(serializers.Serializer):
+    title = serializers.CharField(max_length=MAX_GROUP_TITLE_LENGTH, required=False, allow_blank=True)
+    collapsed = serializers.BooleanField(required=False)
+    color = serializers.ChoiceField(choices=DashboardTileGroupColor.choices, required=False, allow_null=True)
 
 
 def _is_stored_group_setting(field: str, setting: Any) -> bool:
@@ -102,7 +110,7 @@ def without_default_settings(group: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _sparse_group(group_settings: Any) -> dict[str, Any] | None:
-    group = DashboardTileGroupSerializer(data=group_settings)
+    group = _StoredGroupSerializer(data=group_settings)
     if not group.is_valid():
         return None
     return without_default_settings(group.validated_data)
@@ -118,7 +126,7 @@ def stored_groups(customization: Any) -> dict[str, dict[str, Any]]:
             continue
         try:
             group_key = normalized_group_key(raw_key)
-        except serializers.ValidationError:
+        except DashboardCustomizationRejected:
             continue
         group = _sparse_group(groups.get(raw_key, {}))
         # Only a server from before `groups` writes `group_titles`, so a stored title there is the newer one.

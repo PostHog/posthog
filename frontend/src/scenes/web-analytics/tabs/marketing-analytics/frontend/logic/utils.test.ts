@@ -24,6 +24,7 @@ import { NativeSource } from './marketingAnalyticsLogic'
 import {
     conversionGoalToSeries,
     createMarketingTile,
+    externalTableTypeLabel,
     findSchemaByFieldName,
     getEnabledNativeMarketingSources,
     getOrderBy,
@@ -757,6 +758,15 @@ describe('marketing analytics utils', () => {
         }
     )
 
+    it.each([
+        ['BigQuery', 'Data warehouse'],
+        ['FileUpload', 'Files'],
+        ['google-cloud', 'Self-managed'],
+        ['Postgres', null],
+    ])('labels a %s table as %s in the source settings', (sourceType, label) => {
+        expect(externalTableTypeLabel(sourceType)).toBe(label)
+    })
+
     describe('sanitizeIntegrationFilter', () => {
         it('drops a key the query schema no longer accepts', () => {
             const stored = { integrationSourceIds: ['abc'], removedOption: true }
@@ -786,6 +796,7 @@ describe('marketing analytics utils', () => {
             conversion_goal_id: 'goal-1',
             conversion_goal_name: 'Purchases',
             counts_as_customer: true,
+            use_in_recommendations: true,
         }
         const schemaMap = {
             utm_campaign_name: 'utm_campaign',

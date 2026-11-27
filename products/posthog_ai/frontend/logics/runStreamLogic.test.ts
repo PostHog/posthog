@@ -6,6 +6,8 @@ import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { projectLogic } from 'scenes/projectLogic'
 
+import type { AttachedContextItem } from '~/layout/ai/attachedContext'
+import { attachedContextLogic } from '~/layout/ai/attachedContextLogic'
 import { initKeaTests } from '~/test/init'
 
 import {
@@ -20,7 +22,6 @@ import { lookupToolRenderer, toolRegistry } from '../components/tool/toolRegistr
 import { extractQueryResult } from '../components/tool/widgets/extractors'
 import { turnSuggestionsStateRetrieve } from '../generated/api'
 import { defaultPermissionDecision } from '../policy/toolPolicy'
-import type { AttachedContextItem } from '../types/contextTypes'
 import type { ThreadItem } from '../types/streamTypes'
 import { TaskRunEnvironment, TaskRunStatus } from '../types/taskTypes'
 import type { PermissionRequestFrame, StoredLogEntry } from '../types/wireTypes'
@@ -28,7 +29,6 @@ import { contextItemLine, wrapWithPosthogContext } from '../utils/posthogContext
 import { resolveToolCall } from '../utils/toolResolver'
 import { SUGGESTION_FRAMES } from '../utils/turnSuggestionFixtures'
 import { computeTurnTrailers } from '../utils/turnTrailers'
-import { attachedContextLogic } from './attachedContextLogic'
 import {
     appendToRunLog,
     emptyRunLog,
@@ -513,6 +513,51 @@ describe('runStreamLogic', () => {
             }).toFinishAllListeners()
 
             expect(logic.values.currentMode).toEqual('plan')
+        })
+
+        it.each([
+            [
+                'both values',
+                [
+                    { id: 'model', currentValue: 'claude-opus-4-8' },
+                    { id: 'effort', currentValue: 'high' },
+                ],
+                ['claude-opus-4-8', 'high'],
+            ],
+            [
+                'a model alone keeps the last effort',
+                [{ id: 'model', currentValue: 'claude-opus-4-8' }],
+                ['claude-opus-4-8', 'low'],
+            ],
+        ])(
+            'reads the confirmed model and effort off a config_option_update frame: %s',
+            async (_name, configOptions, expected) => {
+                logic.actions.setSessionConfig(null, 'low')
+                await expectLogic(logic, () => {
+                    logic.actions.ingestAcpFrame(
+                        sessionUpdate({ sessionUpdate: 'config_option_update', configOptions })
+                    )
+                }).toFinishAllListeners()
+
+                expect([logic.values.sessionModel, logic.values.sessionEffort]).toEqual(expected)
+            }
+        )
+
+        it('forgets the confirmed model and effort at the next run boundary', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({
+                        sessionUpdate: 'config_option_update',
+                        configOptions: [
+                            { id: 'model', currentValue: 'claude-opus-4-8' },
+                            { id: 'effort', currentValue: 'high' },
+                        ],
+                    })
+                )
+                logic.actions.ingestAcpFrame(notification('_posthog/run_started', {}))
+            }).toFinishAllListeners()
+
+            expect([logic.values.sessionModel, logic.values.sessionEffort]).toEqual([null, null])
         })
 
         it('replaces availableCommands on each available_commands_update frame', async () => {
@@ -1203,6 +1248,15 @@ describe('runStreamLogic', () => {
             expect(logic.values.toolInvocations.get('b')).toEqual(
                 expect.objectContaining({ status: 'failed', output: 'b1b2' })
             )
+        })
+    })
+
+    describe('reply suggestions', () => {
+        it('keeps the newer turn when an older frame lands late', () => {
+            logic.actions.setReplySuggestions({ turnIndex: 3, replies: ['Newer'] })
+            logic.actions.setReplySuggestions({ turnIndex: 2, replies: ['Older'] })
+
+            expect(logic.values.replySuggestionsFrame).toEqual({ turnIndex: 3, replies: ['Newer'] })
         })
     })
 
@@ -3666,6 +3720,23 @@ describe('runStreamLogic', () => {
             ).toBe(true)
         })
 
+        it('reconciles and deduplicates coalesced thought chunks', () => {
+            const thought = (text: string, id: string, first?: string): StoredLogEntry => ({
+                ...sessionUpdate({ sessionUpdate: 'agent_thought_chunk', content: { text } }),
+                event_id: id,
+                first_event_id: first,
+            })
+            const saved = thought('abc', 'boot-3', 'boot-1')
+            const chunks = [thought('a', 'boot-1'), thought('b', 'boot-2'), thought('c', 'boot-3')]
+            const result = reconcileRunLog([saved], [], [...chunks, saved])
+            expect(result.entries.map(({ entry }) => entry)).toEqual([saved])
+            const merged = mergeCoalescedRunLog(
+                { entries: chunks.map((entry) => ({ entry, source: 'live' as const })), toolUpdateIndex: {} },
+                saved
+            )
+            expect(merged.entries.map(({ entry }) => entry)).toEqual([saved])
+        })
+
         it('merges a coalesced frame into a long transcript without losing unrelated entries', () => {
             const entries = Array.from({ length: 2000 }, (_, index) => ({
                 entry: chunk(`Message ${index}`, `boot-${index * 2 + 2}`, `boot-${index * 2 + 1}`),
@@ -3731,10 +3802,12 @@ describe('runStreamLogic', () => {
                     'Saved output.'
                 )
                 await MockStream.latest().emitMessage(saved, '200-0')
+                await new Promise(requestAnimationFrame)
                 expect(logic.values.threadItems.find((item) => item.type === 'assistant_message')?.text).toBe(
                     'Saved output.Saved output.'
                 )
                 await MockStream.latest().emitMessage(saved, 'log-2')
+                await new Promise(requestAnimationFrame)
                 expect(logic.values.threadItems.find((item) => item.type === 'assistant_message')?.text).toBe(
                     'Saved output.Saved output.Saved output.'
                 )
@@ -4937,6 +5010,36 @@ describe('runStreamLogic', () => {
     })
 
     describe('wire frame parsing through the SSE reader', () => {
+        it.each(['turn completion', 'connection close', 'reset'])(
+            'batches live text safely across %s',
+            async (ending) => {
+                logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
+                await flushPromises()
+                const source = MockStream.latest()
+                await source.emitOpen()
+                const log = logic.values.log
+                await source.emitMessage(
+                    sessionUpdate({ sessionUpdate: 'agent_message_chunk', content: { text: 'Hello ' } })
+                )
+                await source.emitMessage(
+                    sessionUpdate({ sessionUpdate: 'agent_message_chunk', content: { text: 'world' } })
+                )
+                expect(logic.values.log).toBe(log)
+                if (ending === 'reset') {
+                    logic.actions.reset()
+                    expect(logic.values.log.entries).toHaveLength(0)
+                    return
+                }
+                if (ending === 'connection close') {
+                    logic.actions.closeSse()
+                } else {
+                    await source.emitMessage(notification('_posthog/turn_complete', {}))
+                    expect(logic.values.turnComplete).toBe(true)
+                }
+                expect(logic.values.threadItems.some((item) => item.text === 'Hello world')).toBe(true)
+            }
+        )
+
         it('reads the snake_case error_message off task_run_state frames', async () => {
             logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1' })
             await flushPromises()

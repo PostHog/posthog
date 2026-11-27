@@ -11,7 +11,6 @@ import {
     ProductAnalyticsSDKTagOverrides,
 } from 'scenes/onboarding/sdks/product-analytics/ProductAnalyticsSDKInstructions'
 import { INSTALL_DEDUP_KEYS, type ProductOnboardingProvider } from 'scenes/onboarding/types'
-import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { OnboardingStepKey, type TeamPublicType, type TeamType } from '~/types'
@@ -150,5 +149,4 @@ export const productAnalyticsOnboarding: ProductOnboardingProvider = {
             },
         ]
     },
-    completeRedirectUrl: () => urls.insightQuickStart(),
 }

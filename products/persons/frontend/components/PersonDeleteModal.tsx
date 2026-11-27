@@ -69,12 +69,6 @@ export function PersonDeleteModal(): JSX.Element | null {
                         autoFocus
                     />
                 </div>
-                {matchesConfirmationText(deleteConfirmationText, DELETE_CONFIRMATION_TEXT) && (
-                    <LemonBanner type="warning">
-                        Do NOT delete this person if you want to re-use the distinct IDs. Instead use split ID. Re-using
-                        the distinct ID of a deleted person is not supported and will result in a bad application state.
-                    </LemonBanner>
-                )}
             </div>
             <div className="flex justify-end gap-2 mt-4">
                 <LemonButton type="secondary" onClick={handleClose} data-attr="delete-person-cancel">

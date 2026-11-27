@@ -34,7 +34,7 @@ from posthog.rate_limit import BurstRateThrottle, SustainedRateThrottle
 from posthog.renderers import SafeJSONRenderer
 
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
-from products.ai_observability.backend.api.metrics import llma_track_latency
+from products.skills.backend.api.metrics import skills_track_latency
 
 from ..models.skills import LLMSkill, LLMSkillFile
 from .skill_analytics import record_skill_event, skill_analytics_props
@@ -178,7 +178,7 @@ class LLMSkillViewSet(
         required_scopes=["llm_skill:read"],
         pagination_class=None,
     )
-    @llma_track_latency("llma_skills_search")
+    @skills_track_latency("llma_skills_search")
     @monitor(feature=None, endpoint="llma_skills_search", method="GET")
     def search(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         query = cast(str, self._validated_query(LLMSkillSearchQuerySerializer, request)["query"])
@@ -202,7 +202,10 @@ class LLMSkillViewSet(
     def perform_create(self, serializer: BaseSerializer[Any]) -> None:
         instance = cast(LLMSkill, serializer.save())
 
-        props = skill_analytics_props(instance)
+        props = {
+            **skill_analytics_props(instance),
+            "version_description_set": instance.version_description is not None,
+        }
         record_skill_event(
             log_event="llma_skill_created",
             action="llma skill created",
@@ -221,7 +224,7 @@ class LLMSkillViewSet(
             ),
         },
     )
-    @llma_track_latency("llma_skills_list")
+    @skills_track_latency("llma_skills_list")
     @monitor(feature=None, endpoint="llma_skills_list", method="GET")
     def list(self, request: Request, *args, **kwargs) -> HttpResponseBase:
         version = team_skills_version(self.team)
@@ -237,7 +240,7 @@ class LLMSkillViewSet(
         },
     )
     @action(methods=["GET"], detail=False, url_path="manifests", required_scopes=["llm_skill:read"])
-    @llma_track_latency("llma_skills_manifests")
+    @skills_track_latency("llma_skills_manifests")
     @monitor(feature=None, endpoint="llma_skills_manifests", method="GET")
     def manifests(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponseBase:
         """The resource manifest of the latest version of each skill, paged and filtered like the list."""
@@ -337,7 +340,7 @@ class LLMSkillViewSet(
     # create serializer and the generated `llmSkillsCreate` / MCP `skill-create` types would drop
     # (or mistype) the returned owners.
     @extend_schema(request=LLMSkillCreateSerializer, responses={201: LLMSkillSerializer})
-    @llma_track_latency("llma_skills_create")
+    @skills_track_latency("llma_skills_create")
     @monitor(feature=None, endpoint="llma_skills_create", method="POST")
     def create(self, request, *args, **kwargs):
         auth_error = self._ensure_web_authenticated(request)

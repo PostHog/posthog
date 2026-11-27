@@ -1,6 +1,8 @@
 import { Message } from 'node-rdkafka'
 
 import { KafkaConsumerV2 } from '~/common/kafka/consumer/consumer-v2'
+import { UsageIngestionClient } from '~/common/usage-ingestion/client'
+import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { DependencyUnavailableError, MessageSizeTooLarge } from '~/common/utils/db/error'
 import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
 import { createTestTeam } from '~/tests/helpers/team'
@@ -30,15 +32,22 @@ describe('MetricsPipelineConsumer', () => {
     let outputs: ReturnType<typeof createMockIngestionOutputs>
     let teamManager: { getTeam: jest.Mock; getTeamByToken: jest.Mock; setTeamsIngestedData: jest.Mock }
     let consumer: MetricsPipelineConsumer
+    let usageClient: { ingest: jest.Mock }
 
     const message: Message = {
         value: Buffer.from('opaque avro packet'),
         key: null,
-        headers: [{ token: Buffer.from(team.api_token) }, { record_count: Buffer.from('1') }],
+        headers: [
+            { token: Buffer.from(team.api_token) },
+            { record_count: Buffer.from('1') },
+            { bytes_uncompressed: Buffer.from('100') },
+            { bytes_uncompressed_records: Buffer.from('400') },
+        ],
         topic: 'metrics_ingestion',
         partition: 0,
         offset: 0,
         size: 0,
+        timestamp: 1_700_000_000_000,
     }
 
     beforeEach(() => {
@@ -48,10 +57,15 @@ describe('MetricsPipelineConsumer', () => {
             getTeamByToken: jest.fn().mockResolvedValue(team),
             setTeamsIngestedData: jest.fn().mockResolvedValue(undefined),
         }
+        usageClient = { ingest: jest.fn().mockResolvedValue(undefined) }
         consumer = new MetricsPipelineConsumer(getDefaultMetricsIngestionConsumerConfig(), {
             teamManager,
             quotaLimiting: { isTeamTokenQuotaLimited: jest.fn().mockResolvedValue(false) },
             outputs,
+            usageBatch: new UsageRecordBatch(usageClient as unknown as UsageIngestionClient, {
+                unit: 'bytes',
+                isTeamEnabled: () => true,
+            }),
         } as unknown as MetricsPipelineConsumerDeps)
     })
 
@@ -68,12 +82,33 @@ describe('MetricsPipelineConsumer', () => {
 
         expect(outputs.queueMessages).not.toHaveBeenCalled()
         expect(teamManager.setTeamsIngestedData).not.toHaveBeenCalled()
+        expect(usageClient.ingest).not.toHaveBeenCalled()
 
         ack()
         await backgroundTask
         expect(outputs.produce).toHaveBeenCalledTimes(1)
         expect(outputs.queueMessages).toHaveBeenCalled()
         expect(teamManager.setTeamsIngestedData).toHaveBeenCalledWith([team.id])
+        expect(usageClient.ingest).toHaveBeenCalledTimes(1)
+        expect(usageClient.ingest.mock.calls[0][0]).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    recordId: 'metrics_ingestion:0:0',
+                    timestampMs: 1_700_000_000_000,
+                    teamId: team.id,
+                    usageKey: 'metrics_bytes',
+                    unit: 'bytes',
+                    quantity: 100,
+                }),
+                expect.objectContaining({
+                    teamId: team.id,
+                    usageKey: 'metrics_bytes_records',
+                    unit: 'bytes',
+                    quantity: 400,
+                }),
+                expect.objectContaining({ teamId: team.id, usageKey: 'metrics_records', unit: 'records', quantity: 1 }),
+            ])
+        )
     })
 
     it('runs on consumer-v2, which stores no offsets when the background task rejects', () => {

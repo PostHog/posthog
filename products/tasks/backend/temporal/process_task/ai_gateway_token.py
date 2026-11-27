@@ -2,10 +2,10 @@
 
 Routed runs authenticate with a short-lived `phe_` token minted here from the worker's
 gateway credential: pinned product and on-behalf-of team, per-run spend cap, one internal
-wallet. Minting is best-effort and the matching must agree with `resolveGatewayTarget` in
+wallet. The matching must agree with `resolveGatewayTarget` in
 packages/agent/packages/agent/src/utils/gateway.ts; the agent routes to the Go gateway
-only when the product is allowlisted AND a token is present, so a mint failure or matcher
-disagreement degrades ordinary runs to the Python gateway. Private trials fail closed.
+only when the product is allowlisted AND a token is present. A run that gets no token
+fails at provisioning with `gateway_token_unavailable`.
 """
 
 import time
@@ -39,7 +39,7 @@ from products.tasks.backend.logic.services.gateway_model_pin import (
     model_allowed_by_product_pin,
 )
 from products.tasks.backend.logic.services.run_actor import is_slack_interaction_state
-from products.tasks.backend.logic.services.sandbox_config import MAX_SANDBOX_TTL_SECONDS
+from products.tasks.backend.logic.services.sandbox_config import MAX_SANDBOX_TTL_SECONDS, sandbox_ai_gateway_worker_url
 
 if TYPE_CHECKING:
     from posthog.llm.gateway_client import AIGatewayConfig
@@ -53,12 +53,13 @@ AI_GATEWAY_TOKEN_MINTS = Counter(
     labelnames=["result"],
 )
 
-# Mirrors resolveGatewayProduct in packages/agent/packages/agent/src/utils/gateway.ts.
 _ORIGIN_TO_GATEWAY_PRODUCT: dict[str, str] = {
+    "feature_flags": "posthog_ai",
     "loop": "posthog_code",
     "metrics_import": "posthog_ai",
     "onboarding": "onboarding",
     "account_audit": "account_audit",
+    "autoresearch": "autoresearch",
     "posthog_ai": "posthog_ai",
     "review_hog": "review_hog",
     "scout_suggestions": "signals",
@@ -79,14 +80,16 @@ _SCOUT_STAGE_PREFIX = "scout:"
 # Products whose runs may mint an internally funded token. Mint scope needs
 # server-side provenance: `internal` and some origin_product values are
 # API-settable, so an unmapped origin marked internal resolves to
-# background_agents and must never mint. Signals products qualify because their
+# background_agents and mints only from an origin validate_origin_product reserves
+# (BACKGROUND_AGENTS_ORIGINS). Signals products qualify because their
 # stages are set only by server flows: pipeline stages by the flows that start
 # them, `inbox` / `chat` by `Task.create_run`. A caller owning a report can reach
 # `signals_inbox`, so the per-run cap and the product's daily budget bound those two.
 # review_hog qualifies because validate_origin_product reserves the origin and
 # the resolver requires the server-stamped `internal` flag; rows predating the
-# reservation resolve to posthog_code and mint under its gates. slack_app needs server
-# provenance too (has_slack_provenance), older rows included.
+# reservation resolve to posthog_code and mint under its gates. account_audit and
+# autoresearch qualify the same way, and mint_refusal also requires their own origin.
+# slack_app needs server provenance too (has_slack_provenance), older rows included.
 # workflows qualifies because validate_origin_product reserves its origin for the
 # workflow_tasks endpoint. posthog_ai is API-settable but not internally funded: its token
 # bills the run's own team to AI credits, and the mint refuses an exhausted balance.
@@ -96,6 +99,10 @@ MINTABLE_PRODUCTS = frozenset(
     {
         "posthog_ai",
         "account_audit",
+        "autoresearch",
+        "onboarding",
+        "conversations",
+        "background_agents",
         "posthog_code",
         "review_hog",
         "slack_app",
@@ -110,6 +117,8 @@ MINTABLE_PRODUCTS = frozenset(
         "signals_scout_suggestions",
     }
 )
+
+BACKGROUND_AGENTS_ORIGINS = frozenset({"business_knowledge", "context_layer", "knowledge_writer", "task_analysis"})
 
 # Exempt from the background run-duration cap, so their tokens need the longer interactive
 # ceiling. Mirrors the stages `Task.create_run` stamps.
@@ -129,23 +138,33 @@ _MINT_ATTEMPTS = 2
 _MINT_TIMEOUT_SECONDS = 3
 
 
-def resolve_sandbox_ai_product(
-    origin_product: str | None, ai_stage: str | None, *, internal: bool = False, billing_product: str | None = None
-) -> str:
-    """The `ai_product` the agent server will resolve for this run."""
-    if origin_product in ("signal_report", "signals_scout") and billing_product == "posthog_ai":
-        return "posthog_ai"
+def _origin_gateway_product(origin_product: str | None, *, internal: bool) -> str:
     gateway_product = _ORIGIN_TO_GATEWAY_PRODUCT.get(origin_product or "")
     # Stored rows may carry a caller-set review_hog origin predating its
     # reservation; only the server-stamped `internal` flag admits the mintable product.
     if gateway_product == "review_hog" and not internal:
         logger.warning("review_hog origin without server-stamped internal flag; resolving posthog_code")
         return "posthog_code"
-    if origin_product == "account_audit" and not internal:
-        logger.warning("account_audit origin without server-stamped internal flag; resolving posthog_code")
+    if origin_product in ("account_audit", "autoresearch") and not internal:
+        logger.warning("%s origin without server-stamped internal flag; resolving posthog_code", origin_product)
         return "posthog_code"
     if gateway_product is None:
-        gateway_product = "background_agents" if internal else "posthog_code"
+        return "background_agents" if internal else "posthog_code"
+    return gateway_product
+
+
+def resolve_sandbox_ai_product(
+    origin_product: str | None,
+    ai_stage: str | None,
+    *,
+    internal: bool = False,
+    billing_product: str | None = None,
+    profile_billing_product: str | None = None,
+) -> str:
+    """The `ai_product` the agent server will resolve for this run."""
+    if origin_product in ("signal_report", "signals_scout") and billing_product == "posthog_ai":
+        return "posthog_ai"
+    gateway_product = profile_billing_product or _origin_gateway_product(origin_product, internal=internal)
     if gateway_product == "signals" and ai_stage:
         stage = "scout" if ai_stage.startswith(_SCOUT_STAGE_PREFIX) else ai_stage
         if stage in _SIGNALS_STAGE_PRODUCTS:
@@ -246,6 +265,12 @@ def mint_refusal(
     """Why a routed run must not mint."""
     if ai_product == "account_audit" and (origin_product != "account_audit" or not internal):
         return "no_account_audit_provenance"
+    if ai_product == "autoresearch" and (origin_product != "autoresearch" or not internal):
+        return "no_autoresearch_provenance"
+    if ai_product == "conversations" and (origin_product != "support_reply" or not internal):
+        return "no_conversations_provenance"
+    if ai_product == "background_agents" and (origin_product not in BACKGROUND_AGENTS_ORIGINS or not internal):
+        return "no_background_agents_provenance"
     if ai_product == "slack_app" and not has_slack_provenance(
         state, internal=internal, prior_slack_run=prior_slack_run
     ):
@@ -269,7 +294,7 @@ def mint_refusal(
         return _team_credit_refusal(team_id, bucket)
     except Exception:
         logger.warning(
-            "ai_gateway_token: credit lookup failed, run stays on the Python gateway",
+            "ai_gateway_token: credit lookup failed",
             extra={"team_id": team_id, "bucket": bucket},
             exc_info=True,
         )
@@ -323,8 +348,8 @@ def token_cap_usd(team_id: int, ai_product: str) -> str:
 
 
 def revoke_scoped_token(token: str, *, gateway_config: "AIGatewayConfig | None" = None) -> None:
-    gateway_url = gateway_config.url if gateway_config is not None else settings.SANDBOX_AI_GATEWAY_URL
-    base_url = (gateway_url or "").rstrip("/").removesuffix("/v1")
+    gateway_url = gateway_config.url if gateway_config is not None else sandbox_ai_gateway_worker_url()
+    base_url = gateway_url.rstrip("/").removesuffix("/v1")
     mint_key = gateway_config.api_key if gateway_config is not None else settings.SANDBOX_AI_GATEWAY_MINT_KEY
     if not base_url or not mint_key:
         raise GatewayNotConfiguredError("The AI gateway mint configuration is required to revoke a private token")
@@ -355,6 +380,42 @@ def revoke_scoped_token(token: str, *, gateway_config: "AIGatewayConfig | None" 
     raise GatewayNotConfiguredError("The private AI gateway credential could not be revoked")
 
 
+def revoke_scoped_token_hashes(token_hashes: list[str]) -> bool:
+    base_url = sandbox_ai_gateway_worker_url().rstrip("/").removesuffix("/v1")
+    mint_key = settings.SANDBOX_AI_GATEWAY_MINT_KEY
+    if not base_url or not mint_key or not token_hashes:
+        return False
+    try:
+        response = requests.post(
+            f"{base_url}/v1/tokens/revoke",
+            json={"token_hashes": token_hashes},
+            headers={"Authorization": f"Bearer {mint_key}"},
+            timeout=_MINT_TIMEOUT_SECONDS,
+            allow_redirects=False,
+        )
+    except requests.RequestException:
+        return False
+    return response.status_code == 200
+
+
+def _remember_run_token(run_id: str, token: str) -> bool:
+    from products.tasks.backend.run_token_fencing import record_run_gateway_token
+
+    try:
+        record_run_gateway_token(run_id, token)
+    except Exception:
+        logger.warning("could not record the gateway mint on run %s", run_id, exc_info=True)
+        return False
+    return True
+
+
+def _revoke_unrecorded_token(token: str) -> None:
+    try:
+        revoke_scoped_token(token)
+    except GatewayNotConfiguredError:
+        logger.warning("an unrecorded gateway mint could not be revoked")
+
+
 def mint_scoped_token(
     *,
     ai_product: str,
@@ -366,6 +427,7 @@ def mint_scoped_token(
     expires_in_seconds: int | None = None,
     gateway_config: "AIGatewayConfig | None" = None,
     raise_on_failure: bool = False,
+    run_id: str | None = None,
 ) -> str | None:
     """Mint a `phe_` scoped token pinned to (ai_product, obo=team_id), or None on failure.
 
@@ -376,8 +438,8 @@ def mint_scoped_token(
     backoff. Private callers require an acknowledged capture pin and fail closed on None.
     `raise_on_failure` preserves retryability for callers that cannot use a fallback gateway.
     """
-    gateway_url = gateway_config.url if gateway_config is not None else settings.SANDBOX_AI_GATEWAY_URL
-    base_url = (gateway_url or "").rstrip("/").removesuffix("/v1")
+    gateway_url = gateway_config.url if gateway_config is not None else sandbox_ai_gateway_worker_url()
+    base_url = gateway_url.rstrip("/").removesuffix("/v1")
     mint_key = gateway_config.api_key if gateway_config is not None else settings.SANDBOX_AI_GATEWAY_MINT_KEY
     if not base_url or not mint_key:
         return None
@@ -393,6 +455,8 @@ def mint_scoped_token(
     }
     if user:
         body["user"] = user
+    if run_id:
+        body["run"] = run_id
     pin = allowed_models if allowed_models is not None else _PRODUCT_ALLOWED_MODELS.get(ai_product)
     if pin:
         body["allowed_models"] = gateway_pin(pin)
@@ -427,6 +491,10 @@ def mint_scoped_token(
                         revoke_scoped_token(token, gateway_config=gateway_config)
                         last_error = "mint response did not acknowledge capture suppression"
                         retryable = False
+                        break
+                    if run_id and gateway_config is None and not _remember_run_token(run_id, token):
+                        _revoke_unrecorded_token(token)
+                        last_error = "the token could not be recorded on its run"
                         break
                     AI_GATEWAY_TOKEN_MINTS.labels(result="ok").inc()
                     return token

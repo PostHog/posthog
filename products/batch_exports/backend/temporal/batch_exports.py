@@ -27,6 +27,7 @@ from posthog.temporal.common.logger import get_logger, get_write_only_logger
 from posthog.usage_ingestion.client import UsageRecord, areport_usage
 
 from products.batch_exports.backend.billing import is_billable_run
+from products.batch_exports.backend.events_table import exports_feature_flag_called_events
 from products.batch_exports.backend.facade.enums import BatchExportRunStatus
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportRun
 from products.batch_exports.backend.service import (
@@ -48,8 +49,9 @@ from products.batch_exports.backend.temporal.sql.events import (
     SELECT_FROM_EVENTS_VIEW,
     SELECT_FROM_EVENTS_VIEW_BACKFILL,
     SELECT_FROM_EVENTS_VIEW_RECENT,
-    SELECT_FROM_EVENTS_VIEW_UNBOUNDED,
+    build_select_list,
     native_events_export_query,
+    native_recent_events_export_query,
 )
 from products.cdp.backend.internal_events import InternalEventEvent, create_internal_event, internal_event_to_dict
 from products.notifications.backend.facade.api import (
@@ -148,6 +150,13 @@ def _dispatch_batch_export_failure_realtime(batch_export_run_id: str | UUIDT) ->
         )
 
 
+def with_inserted_at_field(fields: list[BatchExportField]) -> list[BatchExportField]:
+    """The fields, with an `_inserted_at` field added unless one already has that alias."""
+    if any(field["alias"] == "_inserted_at" for field in fields):
+        return fields
+    return [*fields, BatchExportField(expression="_inserted_at", alias="_inserted_at")]
+
+
 def default_fields() -> list[BatchExportField]:
     """Return list of default batch export Fields."""
     return [
@@ -227,40 +236,65 @@ def select_events_query_template(
         is_backfill=is_backfill, backfill_details=backfill_details, data_interval_start=start_at
     ):
         return SELECT_FROM_DISTRIBUTED_EVENTS_RECENT
-    if str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
-        return SELECT_FROM_EVENTS_VIEW_UNBOUNDED
     if is_backfill:
         return SELECT_FROM_EVENTS_VIEW_BACKFILL
     return SELECT_FROM_EVENTS_VIEW
 
 
-def reads_native_events_source(
+def reads_recent_events_table(
     *,
-    use_new_events_schema: bool,
     team_id: int,
     interval_start: str | None,
     interval_end: str,
+    use_new_events_schema: bool,
     is_backfill: bool = False,
     backfill_details: BackfillDetails | None = None,
 ) -> bool:
-    """Whether a run reads the native events source instead of a legacy events table.
-
-    Only the native source projects the `$unset` and `$group_set` columns, so a caller that asks for
-    them on a run routed to a legacy table builds a query ClickHouse cannot resolve. The routing is
-    wider than `is_backfill`: a backfill over recent data still reads `distributed_events_recent`.
-    """
-    if not use_new_events_schema:
-        return False
-    return (
-        select_events_query_template(
-            team_id=team_id,
-            interval_start=interval_start,
-            interval_end=interval_end,
-            is_backfill=is_backfill,
+    """Whether `iter_records` reads a recent events table, which the batch exports cluster stores."""
+    if use_new_events_schema:
+        start_at = dt.datetime.fromisoformat(interval_start) if interval_start is not None else None
+        return use_distributed_events_recent_table(
+            is_backfill=(backfill_details is not None) or is_backfill,
             backfill_details=backfill_details,
+            data_interval_start=start_at,
         )
-        is SELECT_FROM_EVENTS_VIEW_BACKFILL
+    template = select_events_query_template(
+        team_id=team_id,
+        interval_start=interval_start,
+        interval_end=interval_end,
+        is_backfill=is_backfill,
+        backfill_details=backfill_details,
     )
+    return template in (SELECT_FROM_EVENTS_VIEW_RECENT, SELECT_FROM_DISTRIBUTED_EVENTS_RECENT)
+
+
+def _build_new_events_records_query(
+    *,
+    team_id: int,
+    interval_start: str | None,
+    fields: list[BatchExportField],
+    filters_str: str,
+    is_backfill: bool,
+    backfill_details: BackfillDetails | None,
+    reads_typed_columns: bool,
+) -> str:
+    """The `iter_records` query on the new events tables, which `events_json_recent` serves for the ranges it holds."""
+    start_at = dt.datetime.fromisoformat(interval_start) if interval_start is not None else None
+    # TODO: this can be simplified once all backfill inputs are migrated
+    is_backfill = (backfill_details is not None) or is_backfill
+    order = "ORDER BY _inserted_at, event"
+
+    if use_distributed_events_recent_table(
+        is_backfill=is_backfill, backfill_details=backfill_details, data_interval_start=start_at
+    ):
+        return native_recent_events_export_query(
+            fields,
+            filters_str,
+            includes_feature_flag_called=exports_feature_flag_called_events(team_id),
+            reads_typed_columns=reads_typed_columns,
+            order=order,
+        )
+    return native_events_export_query(fields, filters_str, order=order)
 
 
 def iter_records(
@@ -277,6 +311,7 @@ def iter_records(
     backfill_details: BackfillDetails | None = None,
     *,
     use_new_events_schema: bool,
+    reads_typed_columns: bool = False,
 ) -> RecordsGenerator:
     """Iterate over Arrow batch records for a batch export.
 
@@ -292,6 +327,8 @@ def iter_records(
         fields: The fields that will be queried from ClickHouse. Will call default_fields if not set.
         extra_query_parameters: A dictionary of additional query parameters to pass to the query execution.
             Useful if fields contains any fields with placeholders.
+        reads_typed_columns: Whether the fields or filters read the typed JSON columns of the new events schema.
+            On `events_json_recent`, such a query reads through `typed_events_json_recent`.
 
     Returns:
         A generator that yields tuples of batch records as Python dictionaries and their schema.
@@ -313,15 +350,7 @@ def iter_records(
     else:
         events_to_include_array = []
 
-    if fields is None:
-        query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in default_fields())
-    else:
-        if "_inserted_at" not in [field["alias"] for field in fields]:
-            control_fields = [BatchExportField(expression="_inserted_at", alias="_inserted_at")]
-        else:
-            control_fields = []
-
-        query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in fields + control_fields)
+    select_fields = default_fields() if fields is None else with_inserted_at_field(fields)
 
     base_query_parameters = {
         "team_id": team_id,
@@ -331,22 +360,31 @@ def iter_records(
         "include_events": events_to_include_array,
     }
 
-    query = select_events_query_template(
-        team_id=team_id,
-        interval_start=interval_start,
-        interval_end=interval_end,
-        is_backfill=is_backfill,
-        backfill_details=backfill_details,
-    )
-
-    if query is SELECT_FROM_EVENTS_VIEW:
-        base_query_parameters["lookback_days"] = settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(
-            team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS
+    if use_new_events_schema:
+        query_str = _build_new_events_records_query(
+            team_id=team_id,
+            interval_start=interval_start,
+            fields=select_fields,
+            filters_str=filters_str or "",
+            is_backfill=is_backfill,
+            backfill_details=backfill_details,
+            reads_typed_columns=reads_typed_columns,
+        )
+    else:
+        query = select_events_query_template(
+            team_id=team_id,
+            interval_start=interval_start,
+            interval_end=interval_end,
+            is_backfill=is_backfill,
+            backfill_details=backfill_details,
         )
 
-    if query is SELECT_FROM_EVENTS_VIEW_BACKFILL and use_new_events_schema:
-        query_str = native_events_export_query(query_fields, filters_str or "", order="ORDER BY _inserted_at, event")
-    else:
+        if query is SELECT_FROM_EVENTS_VIEW:
+            base_query_parameters["lookback_days"] = settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(
+                team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS
+            )
+
+        query_fields = build_select_list(select_fields)
         if filters_str:
             filters_str = f"AND {filters_str}"
         query_str = query.safe_substitute(

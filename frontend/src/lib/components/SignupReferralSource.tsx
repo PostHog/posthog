@@ -6,6 +6,8 @@ import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 // Used to trigger the AI prompt when the user enters an AI-related referral source. This is a simple heuristic and can be adjusted as needed.
+// posthog/helpers/ai_signup_attribution.py mirrors this list and SOCIAL_REFERRAL_PATTERNS to attribute signups to AI,
+// and a parity test fails until both sides change together.
 const AI_REFERRAL_PATTERNS = [
     // AI labs
     'open ?ai',
@@ -144,7 +146,9 @@ export function getReferralFollowUp(referralSource: string): 'ai' | 'influencer'
 
 export default function SignupReferralSource({ disabled }: { disabled: boolean }): JSX.Element {
     return (
-        <>
+        // A collapsed follow-up placed directly in the form would still take a form gap, so the
+        // follow-ups share this column and carry their own top padding instead
+        <div className="flex flex-col">
             <LemonField name="referral_source" label="Where did you hear about us?" showOptional>
                 {({ value, onChange }) => (
                     <LemonInput
@@ -166,6 +170,7 @@ export default function SignupReferralSource({ disabled }: { disabled: boolean }
                         <>
                             <AnimatedCollapsible collapsed={followUp !== 'ai'}>
                                 <LemonField
+                                    className="pt-4"
                                     name="referral_source_ai_prompt"
                                     label="What prompt or search led you to PostHog?"
                                     help="Paste the prompt or search queries if you remember, even roughly"
@@ -182,6 +187,7 @@ export default function SignupReferralSource({ disabled }: { disabled: boolean }
                             </AnimatedCollapsible>
                             <AnimatedCollapsible collapsed={followUp !== 'influencer'}>
                                 <LemonField
+                                    className="pt-4"
                                     name="referral_source_influencer"
                                     label="Which account or person led you to PostHog?"
                                     help="Name the account, channel, or person if you remember"
@@ -200,6 +206,6 @@ export default function SignupReferralSource({ disabled }: { disabled: boolean }
                     )
                 }}
             </KeaField>
-        </>
+        </div>
     )
 }

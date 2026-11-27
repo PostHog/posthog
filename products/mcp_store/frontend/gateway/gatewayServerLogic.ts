@@ -37,6 +37,7 @@ import {
 } from '../generated/api.schemas'
 import type { MCPServiceAccountApi } from '../generated/api.schemas'
 import type { TeamMCPGatewayConfigApi } from '../generated/api.schemas'
+import type { ToolPolicyEntryApi } from '../generated/api.schemas'
 import { defaultAgentGrantPolicy, isPolicyStateAllowedByCeiling } from './gatewayPolicyUtils'
 import { AgentServerShare, agentServerShare, mcpGatewayLogic } from './mcpGatewayLogic'
 
@@ -56,6 +57,12 @@ export interface PolicyScope {
 export type AgentToolPolicyState = 'approved' | 'do_not_use'
 
 export const TOOL_PREVIEW_LIMIT = 10
+
+export interface ToolPolicyGroup {
+    key: 'read_only' | 'write_or_delete'
+    label: string
+    policies: ResolvedToolPolicyApi[]
+}
 
 function currentProjectId(): string {
     return String(teamLogic.values.currentTeamId)
@@ -157,6 +164,7 @@ export interface gatewayServerLogicValues {
     teamToolPoliciesLoading: boolean
     toolPolicies: ResolvedToolPolicyApi[]
     toolPoliciesLoading: boolean
+    toolPolicyGroups: ToolPolicyGroup[] | null
     toolSearch: string
     toolsExpanded: boolean
 }
@@ -219,11 +227,11 @@ export interface gatewayServerLogicActions {
         serverId: string,
         enabled: boolean,
         scope?: MCPAgentGrantScopeEnumApi | undefined,
-        policies?: import('../generated/api.schemas').ToolPolicyEntryApi[] | undefined
+        policies?: ToolPolicyEntryApi[] | undefined
     ) => {
         accountId: string
         enabled: boolean
-        policies: import('../generated/api.schemas').ToolPolicyEntryApi[] | undefined
+        policies: ToolPolicyEntryApi[] | undefined
         scope: MCPAgentGrantScopeEnumApi
         serverId: string
     } // mcpGatewayLogic
@@ -418,6 +426,7 @@ export interface gatewayServerLogicMeta {
             toolsExpanded: boolean,
             toolSearch: string
         ) => ResolvedToolPolicyApi[]
+        toolPolicyGroups: (filteredToolPolicies: ResolvedToolPolicyApi[]) => ToolPolicyGroup[] | null
         availableScopes: (
             server: MCPGatewayServerApi | null,
             serviceAccounts: MCPServiceAccountApi[],
@@ -783,6 +792,19 @@ export const gatewayServerLogic = kea<gatewayServerLogicType>([
                 toolsExpanded || toolSearch.trim()
                     ? filteredToolPolicies
                     : filteredToolPolicies.slice(0, TOOL_PREVIEW_LIMIT),
+        ],
+        toolPolicyGroups: [
+            (s) => [s.filteredToolPolicies],
+            (filteredToolPolicies: ResolvedToolPolicyApi[]): ToolPolicyGroup[] | null => {
+                const readOnly = filteredToolPolicies.filter((policy) => policy.is_read_only)
+                const writeOrDelete = filteredToolPolicies.filter((policy) => !policy.is_read_only)
+                return readOnly.length && writeOrDelete.length
+                    ? [
+                          { key: 'read_only', label: 'Read-only tools', policies: readOnly },
+                          { key: 'write_or_delete', label: 'Write or delete tools', policies: writeOrDelete },
+                      ]
+                    : null
+            },
         ],
         // Members always manage their own policy. Admins can also manage the
         // team baseline, and agent scopes follow the team setting.

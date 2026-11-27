@@ -9,6 +9,8 @@ import dataclasses
 from datetime import timedelta
 from typing import Any
 
+from django.utils import timezone
+
 import structlog
 import temporalio.exceptions
 from temporalio import activity, workflow
@@ -72,13 +74,13 @@ async def emit_conversations_signals_activity(inputs: EmitConversationsSignalsIn
         return {"status": "skipped", "reason": "no_config_registered", "signals_emitted": 0}
     async with Heartbeater():
         try:
-            team = await Team.objects.aget(id=inputs.team_id)
+            team = await Team.objects.select_related("organization").aget(id=inputs.team_id)
         except Team.DoesNotExist:
             log.warning("Team no longer exists, skipping")
             return {"status": "skipped", "reason": "team_deleted", "signals_emitted": 0}
-        # Before the record fetch: the conversations fetcher records emission optimistically, so a
-        # failure after it returns would permanently skip this batch on the Temporal retry.
         source_config = await afetch_source_config(team.id, config.source_product, config.source_type)
+        # Completion time would hide messages arriving while this snapshot is being processed.
+        snapshot_at = timezone.now()
         records = await database_sync_to_async(config.record_fetcher, thread_sensitive=False)(team, config, {})
         return await run_signal_pipeline(
             team=team,
@@ -86,6 +88,7 @@ async def emit_conversations_signals_activity(inputs: EmitConversationsSignalsIn
             records=records,
             extra=inputs.properties_to_log,
             source_config=source_config,
+            snapshot_at=snapshot_at,
         )
 
 

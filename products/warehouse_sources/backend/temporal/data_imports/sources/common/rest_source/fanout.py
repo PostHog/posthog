@@ -315,6 +315,7 @@ def build_dependent_resource(
     source_id: str | None = None,
     use_warehouse_parent: bool = False,
     parent_snapshot_at: datetime | None = None,
+    resume_parent_pagination: bool = False,
 ) -> Iterable[Any]:
     parent_config = endpoint_configs[fanout.parent_name]
     child_config = endpoint_configs[child_endpoint]
@@ -357,6 +358,8 @@ def build_dependent_resource(
         incremental_field=incremental_field,
         incremental_config_factory=incremental_config_factory,
     )
+    if resume_parent_pagination:
+        child_resource["resume_parent_pagination"] = True
 
     config: RESTAPIConfig = {
         "client": client_config,

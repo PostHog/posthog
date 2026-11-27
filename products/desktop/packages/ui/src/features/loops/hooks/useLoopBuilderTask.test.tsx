@@ -34,6 +34,7 @@ async function buildInputFor(instructions: string): Promise<TaskCreationInput> {
       return true;
     },
     isRunning: false,
+    checkPrerequisites: () => true,
   }));
   const { result } = renderHook(() => useLoopBuilderTask());
   await result.current.runTask(instructions);

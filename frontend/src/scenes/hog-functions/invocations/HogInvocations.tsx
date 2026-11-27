@@ -14,25 +14,20 @@ import {
     LemonTable,
     LemonTableColumns,
     LemonTag,
-    LemonTagProps,
     Popover,
     ProfilePicture,
     Spinner,
-    Tooltip,
 } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
-import { dayjs } from 'lib/dayjs'
 import { Link } from 'lib/lemon-ui/Link'
-import { DATE_TIME_FORMAT, formatDateRange } from 'lib/utils/datetime'
+import { escapeHogQLString, hogql } from 'lib/utils/hogql'
 import { urls } from 'scenes/urls'
 
-import { escapeHogQLString, hogql } from '~/queries/utils'
-import { DateMappingOption, HogFunctionTypeType, PersonType } from '~/types'
+import { HogFunctionTypeType, PersonType } from '~/types'
 
 import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 import { asDisplay } from 'products/persons/frontend/person-utils'
@@ -53,7 +48,9 @@ import {
     isRerunnableHogFunctionType,
     isRerunWrapperKind,
 } from './hogInvocationsLogic'
+import { INVOCATIONS_DATE_OPTIONS } from './invocationsDateOptions'
 import { InvocationsSparkline } from './InvocationsSparkline'
+import { RunStatusCell } from './RunStatusCell'
 
 const STATUS_OPTIONS: { value: RunStatus; label: string }[] = [
     { value: 'running', label: 'Running' },
@@ -61,72 +58,6 @@ const STATUS_OPTIONS: { value: RunStatus; label: string }[] = [
     { value: 'failed', label: 'Failed' },
     { value: 'canceled', label: 'Canceled' },
 ]
-
-/**
- * Preset windows mirroring the Logs viewer — covers minute-level scoping
- * (5m / 30m / 1h) plus the longer windows the table already supported.
- * Pairs with `allowTimePrecision` + `allowFixedRangeWithTime` so custom
- * ranges accept minute-precision timestamps.
- */
-const INVOCATIONS_DATE_OPTIONS: DateMappingOption[] = [
-    { key: CUSTOM_OPTION_KEY, values: [] },
-    {
-        key: 'Last 5 minutes',
-        values: ['-5M'],
-        getFormattedDate: (date) => date.subtract(5, 'minute').format(DATE_TIME_FORMAT),
-        defaultInterval: 'minute',
-    },
-    {
-        key: 'Last 30 minutes',
-        values: ['-30M'],
-        getFormattedDate: (date) => date.subtract(30, 'minute').format(DATE_TIME_FORMAT),
-        defaultInterval: 'minute',
-    },
-    {
-        key: 'Last 1 hour',
-        values: ['-1h'],
-        getFormattedDate: (date: dayjs.Dayjs) => formatDateRange(date.subtract(1, 'h'), date),
-        defaultInterval: 'hour',
-    },
-    {
-        key: 'Last 4 hours',
-        values: ['-4h'],
-        getFormattedDate: (date: dayjs.Dayjs) => formatDateRange(date.subtract(4, 'h'), date),
-        defaultInterval: 'hour',
-    },
-    {
-        key: 'Last 24 hours',
-        values: ['-24h'],
-        getFormattedDate: (date: dayjs.Dayjs) => formatDateRange(date.subtract(24, 'h'), date.endOf('d')),
-        defaultInterval: 'hour',
-    },
-    {
-        key: 'Last 7 days',
-        values: ['-7d'],
-        getFormattedDate: (date: dayjs.Dayjs) => formatDateRange(date.subtract(7, 'd'), date.endOf('d')),
-        defaultInterval: 'day',
-    },
-    {
-        key: 'Last 30 days',
-        values: ['-30d'],
-        getFormattedDate: (date: dayjs.Dayjs) => formatDateRange(date.subtract(30, 'd'), date.endOf('d')),
-        defaultInterval: 'day',
-    },
-]
-
-const tagTypeForStatus = (status: RunStatus): LemonTagProps['type'] => {
-    switch (status) {
-        case 'succeeded':
-            return 'success'
-        case 'failed':
-            return 'danger'
-        case 'canceled':
-            return 'muted'
-        case 'running':
-        default:
-            return 'warning'
-    }
-}
 
 const formatDurationMs = (ms: number | null): string => {
     if (ms === null || ms === undefined) {
@@ -238,6 +169,8 @@ export interface HogInvocationsProps extends HogInvocationsLogicProps {
      * this undefined.
      */
     hogFunctionType?: HogFunctionTypeType
+    /** Disables every re-run control with this reason, for a caller whose runs can't be sent again. */
+    rerunDisabledReason?: string
 }
 
 /**
@@ -252,6 +185,7 @@ export function HogInvocations({
     parentRunId,
     defaultDateFrom,
     hogFunctionType,
+    rerunDisabledReason,
 }: HogInvocationsProps): JSX.Element | null {
     const logic = hogInvocationsLogic({ id, functionKind, parentRunId, defaultDateFrom })
     const {
@@ -291,9 +225,10 @@ export function HogInvocations({
     // rejects it with a 400, so disable the controls here rather than letting a click fail.
     // Hog flows always execute on cyclotron, so they leave `hogFunctionType` undefined.
     const rerunUnsupportedReason: string | undefined =
-        functionKind === 'hog_function' && !isRerunnableHogFunctionType(hogFunctionType)
+        rerunDisabledReason ??
+        (functionKind === 'hog_function' && !isRerunnableHogFunctionType(hogFunctionType)
             ? "Re-run isn't available for this function type"
-            : undefined
+            : undefined)
 
     useEffect(() => {
         refresh()
@@ -343,28 +278,7 @@ export function HogInvocations({
             key: 'status',
             dataIndex: 'status',
             width: 0,
-            render: (_, row) => (
-                <div className="flex items-center gap-1">
-                    <LemonTag type={tagTypeForStatus(row.status)}>{row.status.toUpperCase()}</LemonTag>
-                    {row.problem_log_level && row.status === 'succeeded' ? (
-                        <Tooltip
-                            title={
-                                row.problem_log_level === 'error'
-                                    ? 'This run finished but logged an error. Expand the row to view it.'
-                                    : 'This run finished but logged a warning. Expand the row to view it.'
-                            }
-                        >
-                            <IconWarning
-                                className={
-                                    row.problem_log_level === 'error'
-                                        ? 'text-danger text-base'
-                                        : 'text-warning text-base'
-                                }
-                            />
-                        </Tooltip>
-                    ) : null}
-                </div>
-            ),
+            render: (_, row) => <RunStatusCell row={row} />,
         },
         {
             title: 'Attempts',

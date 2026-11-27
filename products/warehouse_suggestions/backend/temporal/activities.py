@@ -1,4 +1,5 @@
 from collections import Counter
+from functools import partial
 from itertools import batched
 from uuid import UUID
 
@@ -16,12 +17,19 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.rollout import filter_ids_for_rollout
 
-from ..logic.flags import is_warehouse_suggestions_enabled
 from ..logic.job import TeamRunStatus, run_team, team_ids_with_suggestions_to_maintain
-from ..logic.reads import ReadWindow, read_rollup_days
+from ..logic.reads import (
+    ReadWindow,
+    RollupDays,
+    TeamReads,
+    has_team_query_limits,
+    read_rollup_days,
+    read_team_reads,
+    read_teams_reads,
+)
 from ..logic.rules import RULES
 from ..logic.view_costs import MeasurementOutcome, measure_view_cost
-from .contracts import BatchOutcome, ViewCostRequest, WarehouseSuggestionsInputs
+from .contracts import BatchOutcome, ViewCostRequest, WarehouseSuggestionsInputs, most_recomputed
 
 LOGGER = get_logger(__name__)
 FULL_ROLLOUT = 1.0
@@ -38,42 +46,65 @@ def team_batches(inputs: WarehouseSuggestionsInputs) -> list[list[int]]:
         LOGGER.info("warehouse_suggestions.skipped_by_kill_switch")
         return []
     candidate_ids = inputs.team_ids if inputs.team_ids is not None else _teams_to_run()
-    teams = (
+    team_ids = list(
         Team.objects.filter(
             id__in=candidate_ids, is_demo=False, parent_team__isnull=True, organization__for_internal_metrics=False
         )
-        .select_related("organization")
         .order_by("id")
+        .values_list("id", flat=True)
     )
-    team_ids = [team.pk for team in teams if is_warehouse_suggestions_enabled(team)]
     if inputs.rollout_percentage < FULL_ROLLOUT:
         team_ids = filter_ids_for_rollout(team_ids, inputs.rollout_percentage)
     return [list(batch) for batch in batched(team_ids, inputs.batch_size, strict=False)]
 
 
 def run_batch(team_ids: list[int], run_id: str) -> BatchOutcome:
-    today = timezone.now().date()
-    rollup_days = read_rollup_days(ReadWindow.ending(today, RULES))
+    window = ReadWindow.ending(timezone.now().date(), RULES)
+    rollup_days = read_rollup_days(window)
+    shared_reads = _read_shared(team_ids, window, rollup_days)
     outcomes: Counter[str] = Counter()
     view_costs_to_measure: list[ViewCostRequest] = []
     for team_id in team_ids:
         try:
-            result = run_team(team_id, run_id=run_id, today=today, rollup_days=rollup_days)
+            load_reads = partial(_team_reads, team_id, shared_reads, window, rollup_days)
+            result = run_team(team_id, run_id=run_id, load_reads=load_reads)
         except Exception:
             LOGGER.exception("warehouse_suggestions.team_failed", team_id=team_id)
             outcomes["failed"] += 1
             continue
         outcomes[result.status] += 1
         view_costs_to_measure.extend(
-            ViewCostRequest(team_id=team_id, saved_query_id=str(subject.id)) for subject in result.measurement_requests
+            ViewCostRequest(
+                team_id=team_id,
+                saved_query_id=str(request.subject.id),
+                consumer_runs_per_month=request.consumer_runs_per_month,
+            )
+            for request in result.measurement_requests
         )
     return BatchOutcome(
         processed=outcomes[TeamRunStatus.PROCESSED],
         not_eligible=outcomes[TeamRunStatus.NOT_ELIGIBLE],
         disabled=outcomes[TeamRunStatus.DISABLED],
         failed=outcomes["failed"],
-        view_costs_to_measure=view_costs_to_measure[: RULES.measurement.max_per_run],
+        view_costs_to_measure=most_recomputed(view_costs_to_measure, RULES.measurement.max_per_run),
     )
+
+
+def _read_shared(team_ids: list[int], window: ReadWindow, rollup_days: RollupDays) -> dict[int, TeamReads]:
+    shared_team_ids = [team_id for team_id in team_ids if not has_team_query_limits(team_id)]
+    if not shared_team_ids:
+        return {}
+    try:
+        return read_teams_reads(shared_team_ids, window, RULES, rollup_days)
+    except Exception:
+        LOGGER.exception("warehouse_suggestions.shared_read_failed", team_ids=shared_team_ids)
+        return {}
+
+
+def _team_reads(
+    team_id: int, shared_reads: dict[int, TeamReads], window: ReadWindow, rollup_days: RollupDays
+) -> TeamReads:
+    return shared_reads.get(team_id) or read_team_reads(team_id, window, RULES, rollup_days)
 
 
 def measure_view_costs_sync(requests: list[ViewCostRequest]) -> int:

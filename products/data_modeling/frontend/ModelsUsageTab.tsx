@@ -1,12 +1,10 @@
 import { useActions, useValues } from 'kea'
-import { useRef } from 'react'
+import { ReactNode, useRef } from 'react'
 
 import { IconRefresh } from '@posthog/icons'
 import { BarChart, TimeSeriesBarChart, type BarChartConfig } from '@posthog/quill-charts'
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
-import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { dayjs } from 'lib/dayjs'
 import {
     Button,
     Card,
@@ -33,8 +31,6 @@ import {
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { humanFriendlyNumber, humanizeBytes } from 'lib/utils/numbers'
 
-import type { DateMappingOption } from '~/types'
-
 import { DataModelingUsageListEngine } from './generated/api.schemas'
 import { MaterializationJobsTable } from './MaterializationJobsTable'
 import { ModelsUsageByModelTable } from './ModelsUsageByModelTable'
@@ -44,14 +40,7 @@ import {
     modelStatusLabel,
     modelsUsageLogic,
 } from './modelsUsageLogic'
-
-const DATE_OPTIONS: DateMappingOption[] = [7, 30, 90].map((days) => ({
-    key: `Last ${days} complete days`,
-    values: [`-${days}d`],
-    getFormattedDate: (date: dayjs.Dayjs): string =>
-        `${date.subtract(days, 'day').format('MMM D, YYYY')} – ${date.subtract(1, 'day').format('MMM D, YYYY')}`,
-    defaultInterval: 'day',
-}))
+import { ModelsUsageSkeleton } from './ModelsUsageSkeleton'
 
 function MetricTile({ title, value }: { title: string; value: string }): JSX.Element {
     return (
@@ -68,15 +57,15 @@ function MetricTile({ title, value }: { title: string; value: string }): JSX.Ele
 
 export function ModelsUsageTab({
     savedQueryIdToNodeId,
+    dateFilter,
 }: {
     savedQueryIdToNodeId: Record<string, string>
+    dateFilter: ReactNode
 }): JSX.Element {
     const {
         usage,
         usageLoading,
         failed,
-        dateFrom,
-        dateTo,
         chartLabels,
         chartSeries,
         statusChartLabels,
@@ -88,8 +77,7 @@ export function ModelsUsageTab({
         selectedSavedQueryIds,
         viewFilterOptions,
     } = useValues(modelsUsageLogic)
-    const { refresh, setDateRange, loadUsage, setSelectedEngine, setSelectedSavedQueryIds } =
-        useActions(modelsUsageLogic)
+    const { refresh, loadUsage, setSelectedEngine, setSelectedSavedQueryIds } = useActions(modelsUsageLogic)
     const viewFilterRef = useRef<HTMLButtonElement>(null)
     const selectedViewsLabel =
         selectedSavedQueryIds.length === 0
@@ -199,17 +187,7 @@ export function ModelsUsageTab({
                             </SelectContent>
                         </Select>
                     ) : null}
-                    <div data-attr="models-usage-date-range">
-                        <DateFilter
-                            dateFrom={dateFrom}
-                            dateTo={dateTo}
-                            onChange={setDateRange}
-                            dateOptions={DATE_OPTIONS}
-                            showRollingRangePicker={false}
-                            forceGranularity="day"
-                            disabled={usageLoading || jobsLoading}
-                        />
-                    </div>
+                    {dateFilter}
                     <Button
                         variant="outline"
                         onClick={refresh}
@@ -236,9 +214,7 @@ export function ModelsUsageTab({
                     </CardContent>
                 </Card>
             ) : !usage ? (
-                <div className="flex justify-center py-16">
-                    <Spinner />
-                </div>
+                <ModelsUsageSkeleton />
             ) : usage.overview.runs === 0 && statusChartLabels.length === 0 ? (
                 <Card size="sm">
                     <CardContent>

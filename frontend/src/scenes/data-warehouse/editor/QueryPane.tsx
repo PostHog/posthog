@@ -5,8 +5,8 @@ import { IconCheck, IconX } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 
 import { AutoSizer } from 'lib/components/AutoSizer'
-import { Resizer } from 'lib/components/Resizer/Resizer'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { Resizer } from 'lib/lemon-ui/Resizer/Resizer'
 import { CodeEditor, CodeEditorProps } from 'lib/monaco/CodeEditor'
 import { cn } from 'lib/utils/css-classes'
 
@@ -30,15 +30,17 @@ interface QueryPaneProps {
 export function QueryPane(props: QueryPaneProps): JSX.Element {
     const { queryPaneHeight, queryPaneDesiredSize, queryPaneResizerProps } = useValues(editorSizingLogic)
     const { onAcceptSuggestedQueryInput, onRejectSuggestedQueryInput } = useActions(sqlEditorLogic)
-    const { acceptText, rejectText, diffShowRunButton, insightLoading } = useValues(sqlEditorLogic)
+    const { acceptText, rejectText, diffShowRunButton, insightLoading, suggestionPayload, viewUpdateInProgress } =
+        useValues(sqlEditorLogic)
     const queryLoading = insightLoading && !props.queryInput
+    const readOnly = queryLoading || viewUpdateInProgress || !!suggestionPayload?.readOnly
     const editorOptions = useMemo<CodeEditorProps['options']>(
         () => ({
             minimap: {
                 enabled: false,
             },
             wordWrap: 'on',
-            scrollBeyondLastLine: !!props.originalValue,
+            scrollBeyondLastLine: props.originalValue !== undefined,
             automaticLayout: true,
             fixedOverflowWidgets: true,
             glyphMargin: true,
@@ -46,9 +48,10 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                 showInlineDetails: true,
             },
             quickSuggestionsDelay: 300,
-            readOnly: queryLoading,
+            readOnly,
+            placeholder: 'Write a SQL query.',
         }),
-        [props.originalValue, queryLoading]
+        [props.originalValue, readOnly]
     )
     // Without an output pane beneath it the editor owns its column, so it takes whatever height the
     // database tree gives the row rather than leaving dead space next to the schema list.
@@ -68,7 +71,9 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                 }}
                 ref={queryPaneResizerProps.containerRef}
             >
-                <div className="relative flex flex-col w-full min-h-0">
+                {/* AutoSizer hands the editor a px width, and a flex item cannot shrink below its content
+                    without min-w-0, so the pane would keep the widest width it was ever given. */}
+                <div className="relative flex flex-col w-full min-h-0 min-w-0">
                     {/*
                      * A notebook cell puts this pane in a container that the browser sizes from
                      * its content. The pane is a flex item there, so the editor inside it sets
@@ -109,7 +114,7 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                             <span>Loading query…</span>
                         </div>
                     )}
-                    {props.originalValue && (
+                    {props.originalValue !== undefined && (
                         <div
                             className="absolute flex gap-1 bg-bg-light rounded border py-1 px-1.5 z-10 left-1/2 -translate-x-1/2 bottom-4 whitespace-nowrap"
                             // eslint-disable-next-line react/forbid-dom-props

@@ -9,9 +9,9 @@ query-time computation:
      three properties — the ones the `@posthog/mcp` / `posthog.mcp` SDK schemas can
      emit: the x-anthropic-client vendor header (`$mcp_vendor_client`, with the
      legacy server-stamped `mcp_vendor_client` as a fallback for historical rows),
-     then Claude Code's User-Agent surface, then the Grok and Kimchi User-Agent surfaces, then
-     the clientInfo.name (`$mcp_client_name`), then the generic User-Agent product
-     token (`$mcp_client_user_agent`) — `HARNESS_TOKEN_SQL`.
+     then Claude Code's User-Agent surface, then the PostHog Wizard User-Agent, then the
+     User-Agents in `_UA_FIRST_PRODUCTS`, then the clientInfo.name (`$mcp_client_name`),
+     then the generic User-Agent product token (`$mcp_client_user_agent`) — `HARNESS_TOKEN_SQL`.
   2. Bucket that token into a customer label — `harness_label_sql` when the result must
      stay inside `HARNESS_LABELS`, or `harness_label_or_token_sql` when an unrecognized
      client is better named by its own self-report than collapsed into "Other".
@@ -20,13 +20,12 @@ Read the token, never a raw property: `$mcp_client_name` is absent on every call
 isn't the session's `initialize`, so anything grouping on it alone leaves the bulk of
 traffic unattributed.
 
-This module is the single source of truth for harness classification. The frontend no
-longer classifies — `products/mcp_analytics/frontend/dashboard/harnessRegistry.ts` keeps
-only a label-to-logo/colour map (`HARNESS_BY_LABEL`), keyed by the labels this module
-emits, and a cross-language test pins those keys to `HARNESS_LABELS`. Two documented
-copies must move in lockstep: the query in the `querying-posthog-data` skill's
-`models-mcp.md`, and the vocabulary table in `.agents/skills/debugging-mcp-analytics/`
-skill.
+This module is the single source of truth for harness classification. HogQL exposes its
+result as the `$virt_mcp_harness` event property, so SQL, docs and skills select that
+property instead of copying the logic. `products/mcp_analytics/frontend/dashboard/harnessRegistry.ts`
+keeps only a label-to-logo/colour map (`HARNESS_BY_LABEL`) keyed by the labels this module
+emits. A label with no entry there gets the generic "Other harnesses" mark, so give each
+new label an entry.
 
 Because the token appears many times in the bucketing `multiIf`, callers compute
 it once as a column (`{HARNESS_TOKEN_SQL} AS h`, or `argMax(..., timestamp)` for a
@@ -34,6 +33,12 @@ per-session value) and pass that column name to `harness_label_sql` — never in
 the token into the `multiIf`. `token_col` is always a SQL identifier the caller
 controls, never request input.
 """
+
+from collections.abc import Sequence
+
+from posthog.hogql.escape_sql import escape_hogql_string
+
+from products.mcp_analytics.backend.facade.contracts import CustomHarnessRule
 
 # Leading product token of the User-Agent, e.g. "claude-code" from "claude-code/2.1.x (cli)".
 _UA_PRODUCT = "extract(toString(properties.$mcp_client_user_agent), '^([^/]+)')"
@@ -53,8 +58,10 @@ _VENDOR = (
     " nullIf(toString(properties.mcp_vendor_client), '')))"
 )
 
-# The ordered resolution steps: vendor header, then the two User-Agent surfaces
-# that outrank clientInfo.name, then clientInfo.name, then the generic UA token.
+# Prefer these User-Agents because the client name can identify a shared transport or SDK.
+_UA_FIRST_PRODUCTS = ("grok", "kimchi", "devin", "cloudflare-mcp-portal", "opencode")
+_UA_FIRST = " OR ".join(f"startsWith(lower({_UA_PRODUCT}), '{product}')" for product in _UA_FIRST_PRODUCTS)
+
 _RAW_TOKEN = f"""coalesce(
     multiIf(
         -- The header is captured verbatim and its value arrives in both spellings
@@ -63,19 +70,14 @@ _RAW_TOKEN = f"""coalesce(
         {_VENDOR} IN ('claudeai', 'claude-ai'), 'claude-ai',
         {_VENDOR} = 'cowork', 'cowork',
         {_VENDOR} IN ('claudedesign', 'claude-design'), 'claude-design',
+        {_VENDOR} IN ('claudeartifacts', 'claude-artifacts'), 'claude-artifacts',
         NULL
     ),
     if(lower({_UA_PRODUCT}) = 'claude-code', {_UA_TOKEN}, NULL),
-    -- grok.com Connectors self-identifies as grok only in the User-Agent
-    -- (`grok-connectors-manager/…`); its clientInfo.name is the generic
-    -- "connectors-manager", which would otherwise win below and drop the vendor.
-    -- Promote the grok UA above it. (grok-shell keeps its `grok-`-prefixed
-    -- clientInfo.name and buckets to Grok without help.)
-    if(startsWith(lower({_UA_PRODUCT}), 'grok'), {_UA_TOKEN}, NULL),
-    -- Kimchi (kimchi.dev) is built on pi and reports the generic pi-mcp
-    -- `pi-mcp-<server>` as its clientInfo.name; only its `kimchi/…` User-Agent
-    -- names it, so promote that above the name the same way.
-    if(startsWith(lower({_UA_PRODUCT}), 'kimchi'), {_UA_TOKEN}, NULL),
+    -- The Wizard runs on pi and reports pi-mcp's `pi-mcp-posthog`. Its UA product
+    -- token is the bare "posthog", which PostHog's SDKs share, so match the full prefix.
+    if(startsWith(lower(toString(properties.$mcp_client_user_agent)), 'posthog/wizard'), 'posthog-wizard', NULL),
+    if({_UA_FIRST}, {_UA_TOKEN}, NULL),
     nullIf(nullIf(toString(properties.$mcp_client_name), ''), 'mcp'),
     nullIf({_UA_TOKEN}, ''),
     ''
@@ -102,11 +104,12 @@ UNIDENTIFIED_HARNESS_LABEL = "Unidentified client"
 _MAX_TOKEN_LABEL_LENGTH = 200
 
 
-def harness_label_sql(token_col: str = "h") -> str:
+def harness_label_sql(token_col: str = "h", custom_rules: Sequence[CustomHarnessRule] = ()) -> str:
     """Bucket a normalized harness token column into a customer label.
 
     Every unrecognized token collapses into "Other", so the result is always one of
-    `HARNESS_LABELS`. Callers that aggregate labels into a per-row array need that
+    `HARNESS_LABELS` or a team's custom rule names. A custom rule is tried before the built-in
+    buckets, so a team can also rename a built-in client. Callers that aggregate labels into a per-row array need that
     bound; callers that rank a top-N list should prefer `harness_label_or_token_sql`,
     which names an unrecognized client instead of discarding it.
 
@@ -115,14 +118,16 @@ def harness_label_sql(token_col: str = "h") -> str:
     Surface-specific entries are listed before the generic prefix matches so
     `find`-style first-match precedence matches the frontend registry order.
     """
-    return _label_multi_if(token_col, "'Other'")
+    return _label_multi_if(token_col, "'Other'", custom_rules)
 
 
-def harness_label_or_token_sql(token_col: str = "h", display_col: str = "client_display") -> str:
+def harness_label_or_token_sql(
+    token_col: str = "h", display_col: str = "client_display", custom_rules: Sequence[CustomHarnessRule] = ()
+) -> str:
     """Same bucketing as `harness_label_sql`, but names unrecognized clients verbatim.
 
     An unrecognized token is not noise — it is the client's own self-reported name
-    ("posthog-attribution-service", "openclaw-bundle-mcp"), which is strictly more
+    (for example, "example-unrecognized-mcp"), which is strictly more
     useful in a ranked list of callers than "Other". `display_col` holds
     `HARNESS_DISPLAY_NAME_SQL` so that name keeps its own capitalization; matching still
     happens on the lower-cased `token_col`. The name is event-supplied and unbounded, so
@@ -137,10 +142,18 @@ def harness_label_or_token_sql(token_col: str = "h", display_col: str = "client_
     fallback = (
         f"if({token_col} = '', '{UNIDENTIFIED_HARNESS_LABEL}', substring({display_col}, 1, {_MAX_TOKEN_LABEL_LENGTH}))"
     )
-    return _label_multi_if(token_col, fallback)
+    return _label_multi_if(token_col, fallback, custom_rules)
 
 
-def _label_multi_if(token_col: str, fallback_sql: str) -> str:
+def custom_arms_sql(token_col: str, custom_rules: Sequence[CustomHarnessRule]) -> str:
+    # Rule fields are team-supplied. They are escaped here and also restricted to a safe character set on save.
+    return "".join(
+        f"position({token_col}, {escape_hogql_string(rule.pattern.lower())}) > 0, {escape_hogql_string(rule.name)},\n        "
+        for rule in custom_rules
+    )
+
+
+def _label_multi_if(token_col: str, fallback_sql: str, custom_rules: Sequence[CustomHarnessRule] = ()) -> str:
     """The shared bucketing `multiIf`, parameterized by its final (else) arm.
 
     `token_col` is interpolated into SQL, so it must be a bare identifier — never
@@ -149,7 +162,7 @@ def _label_multi_if(token_col: str, fallback_sql: str) -> str:
     if not token_col.isidentifier():
         raise ValueError(f"token_col must be a SQL identifier, got {token_col!r}")
     return f"""multiIf(
-        {token_col} = 'claude-code claude-desktop', 'Claude Desktop',
+        {custom_arms_sql(token_col, custom_rules)}{token_col} = 'claude-code claude-desktop', 'Claude Desktop',
         {token_col} = 'claude-code claude-vscode', 'Claude Code (VS Code)',
         startsWith({token_col}, 'claude-code sdk'), 'Claude Agent SDK',
         startsWith({token_col}, 'claude-code'), 'Claude Code',
@@ -157,6 +170,7 @@ def _label_multi_if(token_col: str, fallback_sql: str) -> str:
         {token_col} = 'anthropic/api', 'Anthropic API',
         {token_col} = 'cowork', 'Cowork',
         {token_col} = 'claude-design', 'Claude Design',
+        {token_col} IN ('claude-artifacts', 'claudeartifacts'), 'Claude Artifacts',
         {token_col} = 'openai-mcp chatgpt', 'ChatGPT',
         {token_col} = 'openai-mcp agent builder', 'OpenAI Agent Builder',
         {token_col} = 'openai-mcp responses api', 'OpenAI Responses API',
@@ -178,7 +192,8 @@ def _label_multi_if(token_col: str, fallback_sql: str) -> str:
         startsWith({token_col}, 'notion'), 'Notion',
         startsWith({token_col}, 'linear'), 'Linear',
         position({token_col}, 'librechat') > 0, 'LibreChat',
-        startsWith({token_col}, 'pi-client'), 'Pi',
+        {token_col} = 'pi' OR startsWith({token_col}, 'pi-client'), 'Pi',
+        {token_col} IN ('omp', 'omp-coding-agent'), 'Oh My Pi',
         startsWith({token_col}, 'kimchi'), 'Kimchi',
         startsWith({token_col}, 'antigravity'), 'Antigravity',
         {token_col} = 'poke', 'Poke',
@@ -190,6 +205,26 @@ def _label_multi_if(token_col: str, fallback_sql: str) -> str:
         -- the AGENTS.md snippet it installs, and it forwards no identity for whoever
         -- invoked it, so these calls can only ever be attributed to the CLI itself.
         {token_col} = 'posthog-cli', 'PostHog CLI',
+        {token_col} = 'posthog-wizard', 'PostHog Wizard',
+        {token_col} = 'posthog-webmcp', 'PostHog WebMCP',
+        {token_col} = 'posthog-harness-mcp', 'PostHog Harness',
+        startsWith({token_col}, 'devin'), 'Devin',
+        startsWith({token_col}, 'amp-'), 'Amp',
+        startsWith({token_col}, 'copilot-cli'), 'Copilot CLI',
+        startsWith({token_col}, 'gemini-cli'), 'Gemini CLI',
+        startsWith({token_col}, 'openclaw'), 'OpenClaw',
+        {token_col} = 'hermes-agent', 'Hermes Agent',
+        {token_col} = 'mcporter', 'MCPorter',
+        {token_col} IN ('executor-mcp', 'executor-apps'), 'Executor',
+        {token_col} = 'paperclip', 'Paperclip',
+        startsWith({token_col}, 'perplexity'), 'Perplexity',
+        startsWith({token_col}, 'cloudflare-mcp-portal'), 'Cloudflare MCP Portal',
+        -- SDK defaults: a client built on an SDK that never set its own name. The Python
+        -- SDK reports clientInfo.name "mcp", which the token skips for its httpx UA.
+        {token_col} = 'ai-sdk-mcp-client', 'Vercel AI SDK',
+        {token_col} = '@langchain/mcp-adapters', 'LangChain',
+        startsWith({token_col}, 'python-httpx'), 'Python MCP SDK',
+        {token_col} = 'rmcp', 'Rust MCP SDK',
         {fallback_sql}
     )"""
 
@@ -207,6 +242,7 @@ HARNESS_LABELS: tuple[str, ...] = (
     "Anthropic API",
     "Cowork",
     "Claude Design",
+    "Claude Artifacts",
     "ChatGPT",
     "OpenAI Agent Builder",
     "OpenAI Responses API",
@@ -224,6 +260,7 @@ HARNESS_LABELS: tuple[str, ...] = (
     "Linear",
     "LibreChat",
     "Pi",
+    "Oh My Pi",
     "Kimchi",
     "Antigravity",
     "Poke",
@@ -231,5 +268,27 @@ HARNESS_LABELS: tuple[str, ...] = (
     "Kiro",
     "Desktop Commander",
     "PostHog CLI",
+    "PostHog Wizard",
+    "PostHog WebMCP",
+    "PostHog Harness",
+    "Devin",
+    "Amp",
+    "Copilot CLI",
+    "Gemini CLI",
+    "OpenClaw",
+    "Hermes Agent",
+    "MCPorter",
+    "Executor",
+    "Paperclip",
+    "Perplexity",
+    "Cloudflare MCP Portal",
+    "Vercel AI SDK",
+    "LangChain",
+    "Python MCP SDK",
+    "Rust MCP SDK",
     "Other",
 )
+
+# Client names the classifier keeps as they are, but that the frontend shows with a brand mark
+# (`HARNESS_BY_LABEL` in harnessRegistry.ts). A frontend test pins that map to these two tuples.
+MARKED_CLIENT_NAMES: tuple[str, ...] = ("PostHog AI", "Slack")

@@ -1,3 +1,5 @@
+import { isEmail } from 'lib/utils/url'
+
 import {
     CustomerioCampaignApi,
     CustomerioSegmentApi,
@@ -62,9 +64,62 @@ function toTemplate(value: unknown): JsonObject | null {
     return isObject(value) && value.id !== undefined && ('body' in value || 'subject' in value) ? value : null
 }
 
+/** Snippets as the importer's own name to content map, or the list the CLI returns. */
+function snippetsIn(value: unknown): Record<string, string> {
+    if (Array.isArray(value)) {
+        return Object.fromEntries(
+            value
+                .filter((snippet) => isObject(snippet) && snippet.name)
+                .map((snippet) => [String(snippet.name), String(snippet.value ?? '')])
+        )
+    }
+    return isObject(value) ? (value as Record<string, string>) : {}
+}
+
+/** Layouts as the importer's own id to body map, or the CLI's `{layout}` and `{layouts: [...]}`, which templates carry too. */
+function layoutsIn(value: unknown): Record<string, string> {
+    if (!isObject(value)) {
+        return {}
+    }
+    if (isObject(value.layouts)) {
+        return value.layouts as Record<string, string>
+    }
+    const layouts = Array.isArray(value.layouts) ? value.layouts : [value.layout]
+    return Object.fromEntries(
+        layouts
+            .filter((layout) => isObject(layout) && layout.id !== undefined && typeof layout.body === 'string')
+            .map((layout) => [String(layout.id), layout.body])
+    )
+}
+
+/** The CLI's identities also hold phone numbers and senders with no fixed address, which one email can't match. */
+function identitiesIn(value: unknown): CustomerioSenderIdentityApi[] {
+    if (!Array.isArray(value)) {
+        return []
+    }
+    return value
+        .filter((identity) => isObject(identity) && isEmail(String(identity.email ?? '')))
+        .map((identity) => ({
+            id: String(identity.id),
+            email: identity.email,
+            name: String(identity.name ?? ''),
+        }))
+}
+
+function segmentsIn(value: JsonObject): CustomerioSegmentApi[] {
+    if (Array.isArray(value.segments)) {
+        return value.segments as CustomerioSegmentApi[]
+    }
+    if (isObject(value.segment) && value.segment.id !== undefined) {
+        return [value.segment as unknown as CustomerioSegmentApi]
+    }
+    return []
+}
+
 /**
  * Reads the automations out of files a person saved from the Customer.io CLI or MCP. Accepts one automation, a list of
- * them, `{campaigns: [...]}`, and loose template files, which attach to the automations whose steps use them.
+ * them, `{campaigns: [...]}`, loose template files, which attach to the automations whose steps use them, and segment
+ * files, whose rules let the import turn a segment into a cohort.
  */
 export function parseCustomerioFiles(contents: string[]): ParsedCustomerioFile {
     const campaigns: CustomerioCampaignApi[] = []
@@ -87,6 +142,7 @@ export function parseCustomerioFiles(contents: string[]): ParsedCustomerioFile {
         }
         const template = toTemplate(value)
         if (template) {
+            layouts = { ...layouts, ...layoutsIn(value) }
             looseTemplates.push(template)
             return
         }
@@ -100,21 +156,16 @@ export function parseCustomerioFiles(contents: string[]): ParsedCustomerioFile {
             if (Array.isArray(value.templates)) {
                 value.templates.forEach(collect)
             }
-            if (isObject(value.snippets)) {
-                snippets = { ...snippets, ...(value.snippets as Record<string, string>) }
-            }
-            if (isObject(value.layouts)) {
-                layouts = { ...layouts, ...(value.layouts as Record<string, string>) }
-            }
+            snippets = { ...snippets, ...snippetsIn(value.snippets) }
+            layouts = { ...layouts, ...layoutsIn(value) }
             if (isObject(value.segment_cohorts)) {
                 segmentCohorts = { ...segmentCohorts, ...(value.segment_cohorts as Record<string, number>) }
             }
             if (Array.isArray(value.sender_identities)) {
                 senderIdentities.push(...(value.sender_identities as CustomerioSenderIdentityApi[]))
             }
-            if (Array.isArray(value.segments)) {
-                segments.push(...(value.segments as CustomerioSegmentApi[]))
-            }
+            senderIdentities.push(...identitiesIn(value.identities))
+            segments.push(...segmentsIn(value))
         }
     }
 

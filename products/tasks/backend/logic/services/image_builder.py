@@ -8,6 +8,7 @@ from products.tasks.backend.constants import (
     vm_sandbox_default_base_origin_products,
     vm_sandbox_origin_rollout_percentages,
 )
+from products.tasks.backend.facade.profiles import TaskRunOptions
 from products.tasks.backend.logic.services.image_spec import (
     SANDBOX_IMAGE_SPEC_PATH,
     SandboxImageSpec,
@@ -15,6 +16,7 @@ from products.tasks.backend.logic.services.image_spec import (
     parse_image_spec_yaml,
 )
 from products.tasks.backend.models import SandboxCustomImage, Task, TaskRun
+from products.tasks.backend.task_profiles import IMAGE_BUILDER
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +47,7 @@ IMAGE_BUILDER_PROMPT = """You are an expert at building sandbox base images for 
 The user wants to create a custom base image named "{image_name}" for their cloud task sandboxes. Your job is to converse with them, figure out what they need installed or configured, and maintain a declarative image spec that captures it.
 
 CONTEXT:
-- You are running inside the exact VM sandbox base that custom images layer on top of (Ubuntu 24.04, Node 24, uv, gh CLI, Docker-in-Docker via `start-dockerd`). Anything you can do here, the built image can bake in.
+- You are running inside the exact VM sandbox base that custom images layer on top of (Ubuntu 24.04, Node 26, uv, gh CLI, Docker-in-Docker via `start-dockerd`). Anything you can do here, the built image can bake in.
 - The custom image is built by replaying your spec on top of this base image, then published. It never replaces the base — agent tooling and git remain present.
 - The spec lives at {spec_path}. Keep it up to date at all times: after every change the user agrees to, write the full spec file.
 
@@ -115,43 +117,59 @@ def build_image_builder_prompt(image: SandboxCustomImage) -> str:
     return prompt
 
 
-def ensure_image_builder_task(image: SandboxCustomImage, user_id: int) -> Task:
-    """Reuse the builder task while its run is live; once terminal, spawn a fresh session seeded with the stored spec."""
-    existing_task = image.builder_task
-    if existing_task is not None:
-        latest_run = existing_task.runs.order_by("-created_at").first()
-        if latest_run is not None and not latest_run.is_terminal:
-            return existing_task
+def _live_builder_task(image: SandboxCustomImage, user_id: int) -> Task | None:
+    task = (
+        Task.objects.filter(
+            team_id=image.team_id,
+            created_by_id=user_id,
+            origin_product=Task.OriginProduct.IMAGE_BUILDER,
+            deleted=False,
+            runs__state__custom_image_builder_id=str(image.id),
+        )
+        .order_by("-created_at")
+        .first()
+    )
+    if task is None:
+        return None
+    latest_run = task.runs.order_by("-created_at").first()
+    return task if latest_run is not None and not latest_run.is_terminal else None
 
-    task = Task.create_and_run(
+
+def ensure_image_builder_task(image: SandboxCustomImage, user_id: int) -> Task:
+    """Attach the caller's latest builder task for this image while its run is live; otherwise spawn a fresh session seeded with the stored spec."""
+    task = _live_builder_task(image, user_id) or Task.create_and_run(
         team=image.team,
         title=f"Custom image: {image.name}",
         description=f"Image-builder session for custom sandbox image '{image.name}'",
-        origin_product=Task.OriginProduct.IMAGE_BUILDER,
+        profile=IMAGE_BUILDER,
         user_id=user_id,
         repository=image.repository or None,
+        options=TaskRunOptions(
+            adapter="claude", model=IMAGE_BUILDER_MODEL, reasoning_effort=IMAGE_BUILDER_REASONING_EFFORT
+        ),
         create_pr=False,
         mode="interactive",
         interaction_origin="desktop",
-        runtime_adapter="claude",
-        model=IMAGE_BUILDER_MODEL,
-        reasoning_effort=IMAGE_BUILDER_REASONING_EFFORT,
         pending_user_message=build_image_builder_prompt(image),
         custom_image_builder_id=str(image.id),
     )
-    image.builder_task = task
-    image.save(update_fields=["builder_task", "updated_at"])
+    if image.builder_task_id != task.id:
+        image.builder_task = task
+        image.save(update_fields=["builder_task", "updated_at"])
     return task
 
 
-def read_spec_from_builder_sandbox(image: SandboxCustomImage) -> SandboxImageSpec:
-    """Read and validate the spec file from the builder task's live sandbox."""
+def read_spec_from_builder_sandbox(image: SandboxCustomImage, user_id: int) -> SandboxImageSpec:
+    """Read and validate the spec file from the live sandbox of the caller's own builder task."""
     from products.tasks.backend.logic.services.sandbox import get_sandbox_class_for_sandbox_id
 
-    if image.builder_task_id is None:
+    builder_task = image.builder_task
+    if builder_task is None:
         raise SandboxImageSpecError("This image has no builder session; provide a spec directly instead")
+    if builder_task.created_by_id != user_id:
+        raise SandboxImageSpecError("Open the image builder for this image, then build again")
 
-    runs = TaskRun.objects.filter(task_id=image.builder_task_id).order_by("-created_at").only("id", "state")[:10]
+    runs = TaskRun.objects.filter(task_id=builder_task.id).order_by("-created_at").only("id", "state")[:10]
     sandbox_id = next(
         (run.state.get("sandbox_id") for run in runs if isinstance(run.state, dict) and run.state.get("sandbox_id")),
         None,

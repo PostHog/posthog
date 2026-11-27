@@ -1,0 +1,115 @@
+"""The exposure curve of a flag edit: in each time bucket, how many people carry the flag, how many of them get the
+value that the edit started serving, how many don't, and how many of each hit an error.
+
+Flag rollback suggestions read the curve as the clock of an observation window. The new value reaches people only when
+their app reloads flags, so the share of people with the new value rises over time and then stabilizes. The window
+compares errors against this curve, not against the edit time.
+
+The query reads every event, because `$feature/<key>` is on every event. An error counts only under the value that its
+event carries: client SDKs attach the flags to `$exception`, but server SDKs mostly don't. The exposure and the errors
+come from one query, because a query of only the errors can't tell that a person was exposed at another event.
+`flag_windows/query.py` holds the counting rules. The people whose events don't carry the flag are only in the counts of
+`flag_windows/last_values.py`, so the score reads the curve from those when it has them.
+"""
+
+from collections.abc import Mapping, Sequence
+from dataclasses import field
+from datetime import datetime, timedelta
+
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_expr
+
+from posthog.dataclasses import frozen
+from posthog.models import Team
+
+from products.feature_flags.backend.flag_windows.query import (
+    SPLIT_COLUMNS,
+    ConditionMatch,
+    EditCounts,
+    FlagRead,
+    SplitCounts,
+    WatchedEdit,
+    counts_by_bucket,
+    in_condition_columns,
+    read_in_condition,
+    split_columns,
+    split_counts,
+)
+
+
+@frozen
+class ExposureCounts(SplitCounts):
+    """`with_flag` holds the people (or groups) whose events carry the flag, or that loaded flags when the edit enables
+    the flag."""
+
+    # The people (or groups) with each variant that the flag serves. Empty for a boolean flag.
+    by_variant: Mapping[str, int]
+    # The split of only the people (or groups) in the watched conditions. Empty without watched conditions.
+    in_condition: Mapping[ConditionMatch, SplitCounts] = field(default_factory=dict)
+
+
+def exposure_share(counts: SplitCounts) -> float:
+    return counts.exposed / counts.with_flag if counts.with_flag else 0.0
+
+
+@frozen
+class ExposureBucket:
+    start: datetime
+    in_bucket: ExposureCounts
+    # From the edit, or from the range start when it is later, to the end of this bucket. Each person counts once.
+    since_edit: ExposureCounts
+
+
+def exposure_by_bucket(
+    team: Team, edits: Sequence[WatchedEdit], start: datetime, end: datetime, bucket: timedelta
+) -> dict[str, list[ExposureBucket]]:
+    """The exposure of each edit in each bucket of `[start, end)`, by edit id, oldest bucket first. A bucket in which
+    nobody carried the flag after the edit has no entry."""
+    counts = counts_by_bucket(team, edits, _counts, start, end, bucket, query_type="flag_exposure_by_bucket")
+    return {edit.id: _buckets(edit, counts[edit.id]) for edit in edits}
+
+
+def _buckets(edit: WatchedEdit, counts: EditCounts) -> list[ExposureBucket]:
+    return [
+        ExposureBucket(
+            start=row.start,
+            in_bucket=_exposure(edit, counts.matches, row.in_bucket),
+            since_edit=_exposure(edit, counts.matches, row.since_edit),
+        )
+        for row in counts.buckets
+        if _exposure(edit, counts.matches, row.in_bucket).with_flag
+    ]
+
+
+def _counts(edit: WatchedEdit, read: FlagRead) -> list[ast.Expr]:
+    is_error = parse_expr("event = '$exception'")
+    split = split_columns(
+        read.actor,
+        with_flag=read.with_flag,
+        exposed=read.exposed,
+        exposed_error=ast.And(exprs=[read.exposed, is_error]),
+        unexposed_error=ast.And(exprs=[read.unexposed, is_error]),
+    )
+    return [
+        *split,
+        *[read.has_variant(variant) for variant in edit.variants],
+        *in_condition_columns(read, split),
+    ]
+
+
+def _exposure(edit: WatchedEdit, matches: Sequence[ConditionMatch], values: tuple[int, ...]) -> ExposureCounts:
+    variants_end = SPLIT_COLUMNS + len(edit.variants)
+    split = split_counts(values[:SPLIT_COLUMNS])
+    by_variant, in_condition_values = values[SPLIT_COLUMNS:variants_end], values[variants_end:]
+    return ExposureCounts(
+        with_flag=split.with_flag,
+        exposed=split.exposed,
+        unexposed=split.unexposed,
+        exposed_with_errors=split.exposed_with_errors,
+        unexposed_with_errors=split.unexposed_with_errors,
+        unexposed_one_in=split.unexposed_one_in,
+        by_variant=dict(zip(edit.variants, by_variant, strict=True)),
+        in_condition={
+            match: split_counts(counts) for match, counts in read_in_condition(matches, in_condition_values).items()
+        },
+    )

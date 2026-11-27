@@ -6,7 +6,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -175,6 +175,17 @@ describe('earlyAccessFeatureLogic', () => {
 
     // PostHog's own project (US cloud, id 2) requires a description on newly created features.
     // These guard that the frontend validator matches the backend's create-only + US-cloud scope.
+    it('disables save while the image uploads', () => {
+        logic = earlyAccessFeatureLogic({ id: 'new' })
+        logic.mount()
+
+        logic.actions.setImageUploading(true)
+        expect(logic.values.saveDisabledReason).toBe('Wait for the image to finish uploading')
+
+        logic.actions.setImageUploading(false)
+        expect(logic.values.saveDisabledReason).toBeUndefined()
+    })
+
     describe('description requirement', () => {
         beforeEach(() => {
             useMocks({

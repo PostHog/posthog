@@ -6,12 +6,12 @@ from posthog.test.base import BaseTest
 from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
-from posthog.models import OrganizationMembership, Team
+from posthog.models import OrganizationMembership, Team, User
 from posthog.schema_enums import AlertState
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.alerts.backend.facade import api, contracts
-from products.alerts.backend.models.alert import AlertConfiguration
+from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription
 from products.product_analytics.backend.facade.models import Insight
 
 
@@ -122,3 +122,73 @@ class TestListFiringAlertsCreatedBy(BaseTest):
         self._alert(self.team, {"query": query}, {})
 
         assert len(self._firing(include_metrics_insights)) == (1 if listed else 0)
+
+
+class TestListEnabledAlerts(BaseTest):
+    def _alert(
+        self, team: Team, insight_fields: dict[str, object], alert_fields: dict[str, object]
+    ) -> AlertConfiguration:
+        insight = Insight.objects.create(**{"team": team, "name": "Checkout funnel", **insight_fields})
+        return AlertConfiguration.objects.create(
+            **{"team": team, "insight": insight, "name": "Checkout conversion", "enabled": True, **alert_fields}
+        )
+
+    def test_lists_enabled_alerts_on_live_insights_in_this_project(self) -> None:
+        named = self._alert(self.team, {}, {"created_by": self._create_user("other@example.com")})
+        unnamed = self._alert(self.team, {"name": None, "derived_name": "Pageview count"}, {"name": ""})
+        self._alert(self.team, {}, {"enabled": False})
+        self._alert(self.team, {"deleted": True}, {})
+        self._alert(Team.objects.create(organization=self.organization, name="Other project"), {}, {})
+
+        assert api.list_enabled_alerts(self.team, self.user, limit=10) == [
+            contracts.EnabledAlert(
+                id=unnamed.id, name="", insight_name="Pageview count", insight_short_id=unnamed.insight.short_id
+            ),
+            contracts.EnabledAlert(
+                id=named.id,
+                name="Checkout conversion",
+                insight_name="Checkout funnel",
+                insight_short_id=named.insight.short_id,
+            ),
+        ]
+
+    def test_leaves_out_an_alert_whose_insight_you_cannot_view(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        viewable = self._alert(self.team, {"created_by": self.user}, {})
+        hidden = self._alert(self.team, {"created_by": self._create_user("other@example.com")}, {})
+        AccessControl.objects.create(
+            resource="insight", resource_id=hidden.insight.id, team=self.team, access_level="none"
+        )
+
+        assert [alert.id for alert in api.list_enabled_alerts(self.team, self.user, limit=1)] == [viewable.id]
+
+
+class TestInsightShortIdsWatchedBy(BaseTest):
+    def test_lists_enabled_alerts_you_created_or_subscribe_to(self) -> None:
+        other = self._user("other@example.com")
+        rows = {
+            "created": (self.user, True, None),
+            "subscribed": (other, True, True),
+            "unsubscribed": (other, True, False),
+            "disabled": (self.user, False, None),
+            "someone_else": (other, True, None),
+        }
+        for name, (creator, enabled, subscribed) in rows.items():
+            insight = Insight.objects.create(team=self.team, name=name, short_id=name[:12])
+            alert = AlertConfiguration.objects.create(
+                team=self.team, insight=insight, name=name, enabled=enabled, created_by=creator
+            )
+            if subscribed is not None:
+                AlertSubscription.objects.create(alert_configuration=alert, user=self.user, subscribed=subscribed)
+
+        found = api.insight_short_ids_watched_by(team_id=self.team.id, user_id=self.user.id, limit=10)
+
+        assert sorted(found) == ["created", "subscribed"]
+
+    def _user(self, email: str) -> User:
+        return User.objects.create_and_join(self.organization, email, None)

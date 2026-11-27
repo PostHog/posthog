@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
@@ -8,10 +9,17 @@ import { emailChangeVerificationLogic } from 'scenes/settings/user/emailChangeVe
 import { EmailChangeVerificationModal } from 'scenes/settings/user/EmailChangeVerificationModal'
 import { userLogic } from 'scenes/userLogic'
 
+import { QuillUserDetails } from './QuillUserDetails'
+
 export function UserDetails(): JSX.Element {
     const { userLoading, isUserDetailsSubmitting, userDetailsChanged, user } = useValues(userLogic)
     const { cancelEmailChangeRequest } = useActions(userLogic)
     const { openModal } = useActions(emailChangeVerificationLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav) {
+        return <QuillUserDetails />
+    }
 
     return (
         <>

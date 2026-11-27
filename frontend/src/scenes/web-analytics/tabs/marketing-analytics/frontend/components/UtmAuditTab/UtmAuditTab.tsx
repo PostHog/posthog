@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconCheck, IconEllipsis, IconWarning } from '@posthog/icons'
+import { IconCheck, IconEllipsis, IconInfo, IconWarning } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -24,6 +24,7 @@ import {
 } from '~/queries/schema/schema-general'
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
+import { formatMarketingMoney } from '../../logic/utils'
 import type {
     AggregatedUtmSource,
     CampaignAuditResult,
@@ -123,10 +124,6 @@ function issueTooltip(record: CampaignAuditResult): string {
 function issueLabel(record: CampaignAuditResult): string {
     const kind = record.issues[0]?.kind
     return (kind && ISSUE_LABELS[kind]) || 'Source mismatch'
-}
-
-function formatCurrency(value: number, currency: string = 'USD'): string {
-    return new Intl.NumberFormat('en-US', { style: 'currency', currency, maximumFractionDigits: 0 }).format(value)
 }
 
 function formatNumber(value: number): string {
@@ -252,7 +249,7 @@ function CampaignTabContent(): JSX.Element {
                                             <div className="font-medium">{record.campaign_name}</div>
                                             <div className="text-xs text-secondary">
                                                 {record.source_name} · ID: {record.campaign_id} ·{' '}
-                                                {formatCurrency(record.spend, baseCurrency)} ·{' '}
+                                                {formatMarketingMoney(record.spend, baseCurrency)} ·{' '}
                                                 {formatNumber(record.clicks)} clicks
                                             </div>
                                         </div>
@@ -531,9 +528,9 @@ export function UtmAuditTab(): JSX.Element {
             {/* Explainer */}
             <p className="text-secondary text-sm">
                 PostHog uses UTM parameters (utm_source, utm_campaign) from your pageview events to connect website
-                traffic back to your ad platform campaigns. This connection powers{' '}
+                traffic back to your ad platform campaigns. This connection powers marketing conversion goal{' '}
                 <Tooltip title="Conversion goals are events or actions you define in settings (e.g. purchase, sign up) that are tracked and attributed to your marketing campaigns.">
-                    <span className="underline decoration-dotted cursor-help">marketing conversion goal</span>
+                    <IconInfo className="inline-block align-text-bottom text-base" />
                 </Tooltip>{' '}
                 attribution. If campaigns aren't linked to UTM events, their conversion goals won't be tracked. The best
                 fix is to update your UTM parameters directly in your ad platform campaigns. If that's not possible, you

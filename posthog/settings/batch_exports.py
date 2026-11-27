@@ -103,17 +103,27 @@ BATCH_EXPORT_WORKFLOWS_MAX_PENDING_REQUESTS: int = get_from_env(
 BATCH_EXPORT_HEARTBEAT_TIMEOUT_SECONDS: int = get_from_env("BATCH_EXPORT_HEARTBEAT_TIMEOUT_SECONDS", 30, type_cast=int)
 
 BATCH_EXPORT_ORDERLESS_TEAM_IDS: list[str] = get_list(os.getenv("BATCH_EXPORT_ORDERLESS_TEAM_IDS", ""))
-UNCONSTRAINED_TIMESTAMP_TEAM_IDS: list[str] = get_list(os.getenv("UNCONSTRAINED_TIMESTAMP_TEAM_IDS", ""))
 DEFAULT_TIMESTAMP_LOOKBACK_DAYS = 7
 # Comma separated list of overrides in the format "team_id:lookback_days"
 OVERRIDE_TIMESTAMP_TEAM_IDS: dict[int, int] = dict(
     [map(int, o.split(":")) for o in os.getenv("OVERRIDE_TIMESTAMP_TEAM_IDS", "").split(",") if o]  # type: ignore
 )
 
-CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST: str | None = os.getenv("CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST", None)
-# Used in internal stage to cap Arrow record batch size
+
+# Teams whose exports from `events_json_recent` include `$feature_flag_called` events.
+# This is a temporary workaround until HogQL exports are generally available and these events can be
+# exported from `flag_evaluations`. Note that `events_json` does not include FFC events regardless.
+BATCH_EXPORTS_INCLUDE_FEATURE_FLAG_CALLED_TEAM_IDS: list[str] = get_list(
+    os.getenv("BATCH_EXPORTS_INCLUDE_FEATURE_FLAG_CALLED_TEAM_IDS", "")
+)
+
+# Insert blocks are formed before ClickHouse partitions the rows into staging files.
 BATCH_EXPORTS_CLICKHOUSE_MAX_INSERT_BLOCK_SIZE_BYTES: int = get_from_env(
     "BATCH_EXPORTS_CLICKHOUSE_MAX_INSERT_BLOCK_SIZE_BYTES", 64 * 1024 * 1024, type_cast=int
+)
+# Each Arrow file can buffer small chunks independently. Zero (default) leaves batching to ClickHouse.
+BATCH_EXPORT_CLICKHOUSE_RECORD_BATCH_SIZE_BYTES: int = get_from_env(
+    "BATCH_EXPORT_CLICKHOUSE_RECORD_BATCH_SIZE_BYTES", 0, type_cast=int
 )
 
 BATCH_EXPORT_PARQUET_MAX_BUFFERED_ARROW_BYTES: int = get_from_env(
@@ -193,3 +203,20 @@ BATCH_EXPORT_HOGQL_MAX_MEMORY_USAGE: int = get_from_env(
 BATCH_EXPORT_HOGQL_MAX_BYTES_TO_READ: int = get_from_env(
     "BATCH_EXPORT_HOGQL_MAX_BYTES_TO_READ", 500 * 1024**3, type_cast=int
 )  # 500GiB (again, rather arbitrary for now)
+
+# TODO: Remove once every batch export reads events_json.
+# Which teams' batch exports read events_json instead of the legacy events table. An excluded team stays on the
+# legacy table whatever the other two say. Otherwise a listed team moves, and the rest move when their team id
+# modulo 100 is below the percentage.
+BATCH_EXPORTS_NEW_EVENTS_TABLE_TEAM_IDS: list[str] = get_list(os.getenv("BATCH_EXPORTS_NEW_EVENTS_TABLE_TEAM_IDS", ""))
+BATCH_EXPORTS_NEW_EVENTS_TABLE_EXCLUDED_TEAM_IDS: list[str] = get_list(
+    os.getenv("BATCH_EXPORTS_NEW_EVENTS_TABLE_EXCLUDED_TEAM_IDS", "")
+)
+BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE: int = get_from_env(
+    "BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE", 0, type_cast=int
+)
+
+# When false, the Temporal worker hosts no batch export workflows and loads none of the destination
+# SDKs, and the batch export API routes are not registered. Schedules of exports that already exist
+# keep firing with no worker to run them, so pause or delete those exports first.
+BATCH_EXPORTS_ENABLED: bool = get_from_env("BATCH_EXPORTS_ENABLED", True, type_cast=str_to_bool)

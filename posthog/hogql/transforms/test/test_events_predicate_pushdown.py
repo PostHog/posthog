@@ -40,7 +40,7 @@ from posthog.hogql.printer.utils import prepare_and_print_ast
 from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.resolver import resolve_types
-from posthog.hogql.test.utils import json_dynamic_read_sql, pretty_print_in_tests
+from posthog.hogql.test.utils import pretty_print_in_tests
 from posthog.hogql.transforms.events_predicate_pushdown import (
     EventsPredicatePushdownTransform,
     EventsSubexprHoister,
@@ -50,11 +50,12 @@ from posthog.hogql.transforms.logical_property_lowering import lower_property_ac
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.clickhouse.client import sync_execute
-from posthog.models import MaterializedColumnSlot, MaterializedColumnSlotState, PropertyDefinition
+from posthog.models import MaterializedColumnSlot, MaterializedColumnSlotState
 from posthog.uuidt import uuid7
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import recalculate_cohortpeople
+from products.event_definitions.backend.models import PropertyDefinition
 from products.event_definitions.backend.models.property_definition import PropertyType
 
 
@@ -1026,7 +1027,7 @@ class _PushdownExecutionTestBase(ClickhouseTestMixin, APIBaseTest):
             assert "JSONExtractKeysAndValuesRaw" not in subquery, (
                 f"new events schema should not reconstruct JSON paths:\n{subquery}"
             )
-            assert f"isNotNull({json_dynamic_read_sql('events.properties', ['tier'])})" in subquery, (
+            assert "isNotNull(events.properties.tier)" in subquery, (
                 f"expected a JSON subcolumn existence check:\n{subquery}"
             )
         else:

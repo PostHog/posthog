@@ -1,13 +1,13 @@
 import math
 import hashlib
 from collections import Counter
+from functools import cached_property
 from typing import Any, Literal, cast
 from uuid import UUID
 
-from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Q, QuerySet
 from django.http import Http404, JsonResponse
 from django.utils.timezone import now
@@ -28,10 +28,17 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
+from rest_framework.throttling import BaseThrottle
 
-from posthog.hogql.direct_connection import get_direct_connection_source
+from posthog.hogql.direct_connection import (
+    get_direct_connection_source,
+    raw_query_uses_organization_grant,
+    require_browser_session_for_organization_grant,
+)
+from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
+from posthog.api.pagination import offset_page_links
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.sharing_publish_gate import denied_resources_in_notebook_edit, is_publicly_shared
@@ -45,6 +52,7 @@ from posthog.models import User
 from posthog.models.activity_logging.activity_log import Change, changes_between, load_activity
 from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
 from posthog.models.utils import UUIDT
+from posthog.permissions import request_subject
 from posthog.renderers import ServerSentEventRenderer
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 from posthog.utils import relative_date_parse
@@ -53,6 +61,9 @@ from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.notebooks.backend import collab_stream, markdown_collab, presence
 from products.notebooks.backend.activity_logging import log_notebook_activity
 from products.notebooks.backend.analytics import (
@@ -63,6 +74,13 @@ from products.notebooks.backend.analytics import (
 )
 from products.notebooks.backend.collab import submit_steps
 from products.notebooks.backend.facade.api import to_markdown_notebook_content
+from products.notebooks.backend.facade.app_releases import (
+    plan_viewer_queries,
+    read_published_run_rows,
+    read_release,
+    record_release,
+    review_release,
+)
 from products.notebooks.backend.facade.compute_pricing import (
     COMPUTE_PRESETS,
     DEFAULT_COMPUTE_PRESET_KEY,
@@ -71,6 +89,7 @@ from products.notebooks.backend.facade.compute_pricing import (
     get_compute_rates,
 )
 from products.notebooks.backend.facade.contracts import (
+    AppBlockSource,
     NotebookContentNotConvertible,
     NotebookRunBusy,
     TeamRunCapacityFull,
@@ -89,7 +108,6 @@ from products.notebooks.backend.facade.notebook_run import (
 from products.notebooks.backend.facade.sql_v2 import (
     NodeRunDispatchFailed,
     NodeRunInvalid,
-    NodeRunNotPermitted,
     NodeRunRequest,
     build_ref_specs,
     dispatch_cell_run,
@@ -114,8 +132,26 @@ from products.notebooks.backend.facade.widgets import (
     set_widget_instance_version,
     start_widget_generation,
 )
-from products.notebooks.backend.kernel_runtime import build_notebook_sandbox_config, get_kernel_runtime
+from products.notebooks.backend.kernel_runtime import (
+    KernelSandboxLimitExceeded,
+    build_notebook_sandbox_config,
+    get_kernel_runtime,
+)
 from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun
+from products.notebooks.backend.presentation.app_serializers import (
+    NotebookAppLayoutField,
+    NotebookAppLayoutSerializer,
+    notebook_app_builder_enabled,
+    update_app_revision,
+)
+from products.notebooks.backend.presentation.notebook_throttles import (
+    NotebookAppQueryBurstThrottle,
+    NotebookAppQuerySustainedThrottle,
+    NotebookCreateBurstThrottle,
+    NotebookCreateSustainedThrottle,
+    NotebookKernelStartBurstThrottle,
+    NotebookKernelStartSustainedThrottle,
+)
 from products.notebooks.backend.presentation.reusable_widget_serializers import (
     ReusableWidgetAttachRequestSerializer,
     ReusableWidgetDetailSerializer,
@@ -157,7 +193,6 @@ from products.notebooks.backend.sql_v2 import (
     fetch_sql_v2_page,
     interrupt_sql_v2_run,
     introspect_in_kernel,
-    is_sql_v2_enabled,
     sql_v2_page_lock_key,
 )
 from products.notebooks.backend.sql_v2_direct import cancel_direct_run, sync_direct_run
@@ -177,6 +212,7 @@ from products.notebooks.backend.sql_v2_serializers import (
     NotebookRunStatusResponseSerializer,
     NotebookSQLV2InterruptResponseSerializer,
     NotebookSQLV2PageRequestSerializer,
+    NotebookSQLV2PageResponseSerializer,
     NotebookSQLV2RunRequestSerializer,
     NotebookSQLV2RunResponseSerializer,
     NotebookSQLV2RunStatusResponseSerializer,
@@ -273,7 +309,51 @@ class NotebookMinimalSerializer(serializers.ModelSerializer, UserAccessControlSe
         extra_kwargs = _NOTEBOOK_FIELD_HELP_TEXTS
 
 
+class NotebookAppReleaseReviewSerializer(serializers.Serializer):
+    has_previous = serializers.BooleanField()
+    problems = serializers.ListField(child=serializers.CharField())
+    results_as_of = serializers.DateTimeField(allow_null=True)
+
+
+class NotebookAppViewerRequestSerializer(serializers.Serializer):
+    revision = serializers.IntegerField(min_value=0)
+    variables: serializers.ListSerializer[dict[str, object]] = serializers.ListSerializer(
+        child=NotebookVariableSerializer(), max_length=MAX_VARIABLES_PER_NOTEBOOK
+    )
+
+
+class NotebookAppViewerQuerySerializer(serializers.Serializer):
+    node_id = serializers.CharField()
+    query = serializers.CharField()
+    matches_defaults = serializers.BooleanField()
+
+
+class NotebookAppReleaseSerializer(serializers.Serializer):
+    revision = serializers.IntegerField()
+    published_at = serializers.DateTimeField(allow_null=True)
+    results_as_of = serializers.DateTimeField(allow_null=True)
+    title = serializers.CharField(allow_blank=True)
+    layout = NotebookAppLayoutSerializer()
+    markdown = serializers.CharField(allow_blank=True)
+    variables = NotebookVariableSerializer(many=True)
+    has_previous = serializers.BooleanField()
+
+
 class NotebookSerializer(NotebookMinimalSerializer):
+    restore_previous_app_release = serializers.BooleanField(required=False, write_only=True)
+    app_draft = NotebookAppLayoutField(
+        required=False, allow_null=True, help_text="Editable app layout. Does not change the published layout."
+    )
+    app_published = NotebookAppLayoutField(
+        required=False,
+        allow_null=True,
+        help_text="Publish this layout with the saved notebook sources and input defaults. Null unpublishes the app.",
+    )
+    app_revision = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        help_text="Current app revision. Required when saving or publishing a layout; stale revisions return 409.",
+    )
     variables = NotebookVariableSerializer(
         many=True,
         required=False,
@@ -310,6 +390,10 @@ class NotebookSerializer(NotebookMinimalSerializer):
             "user_access_level",
             "parent_resource",
             "variables",
+            "restore_previous_app_release",
+            "app_draft",
+            "app_published",
+            "app_revision",
             "_create_in_folder",
         ]
         read_only_fields = [
@@ -332,6 +416,37 @@ class NotebookSerializer(NotebookMinimalSerializer):
                 "help_text": "Version number for optimistic concurrency control. Must match the current version when updating content."
             },
         }
+
+    @cached_property
+    def app_builder_enabled(self) -> bool:
+        request = self.context.get("request")
+        return bool(
+            request
+            and request.user.is_authenticated
+            and notebook_app_builder_enabled(request.user, self.context["get_team"]())
+        )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if {"app_draft", "app_published", "app_revision", "restore_previous_app_release"}.intersection(
+            attrs
+        ) and not self.app_builder_enabled:
+            raise PermissionDenied("App builder is not available for this project.")
+        if "restore_previous_app_release" in attrs and (
+            not self.instance
+            or set(attrs) != {"restore_previous_app_release", "app_revision"}
+            or not attrs["restore_previous_app_release"]
+        ):
+            raise serializers.ValidationError("Restore a previous app release with its current app revision.")
+        if set(attrs) == {"app_revision"}:
+            raise serializers.ValidationError({"app_revision": "Include an app layout or notebook change to save."})
+        return super().validate(attrs)
+
+    def to_representation(self, instance: Notebook) -> dict[str, Any]:
+        data = super().to_representation(instance)
+        if not self.app_builder_enabled:
+            for field in ("app_draft", "app_published", "app_revision"):
+                data.pop(field, None)
+        return data
 
     def validate_variables(self, value: list[dict]) -> list[dict]:
         # A Python cell reads variables and cell dataframes out of one namespace, so a duplicate
@@ -386,12 +501,47 @@ class NotebookSerializer(NotebookMinimalSerializer):
         validated_data["text_content"] = markdown_collab.get_markdown_notebook_markdown(validated_data["content"])
 
         created_by = validated_data.pop("created_by", request.user)
-        notebook = Notebook.objects.create(
-            team=team,
-            created_by=created_by,
-            last_modified_by=request.user,
-            **validated_data,
-        )
+        try:
+            with transaction.atomic():
+                notebook = Notebook.objects.create(
+                    team=team,
+                    created_by=created_by,
+                    last_modified_by=request.user,
+                    **validated_data,
+                )
+                if notebook.app_published is not None:
+                    record_release(notebook.team_id, notebook.pk)
+        except IntegrityError:
+            existing_notebook = (
+                Notebook.objects.filter(team=team, short_id=short_id)
+                .only("id", "team_id", "created_by_id", "deleted")
+                .first()
+                if short_id
+                else None
+            )
+            if existing_notebook is not None:
+                access_control = self.user_access_control
+                if (
+                    existing_notebook.deleted
+                    or access_control is None
+                    or not authorization.check(
+                        resource=Resource(
+                            type=ResourceType.NOTEBOOK,
+                            id=str(existing_notebook.id),
+                            project_id=team.pk,
+                            created_by_id=existing_notebook.created_by_id,
+                        ),
+                        action=Action.VIEW,
+                        subject=request_subject(request),
+                    )
+                ):
+                    raise serializers.ValidationError(
+                        {"short_id": "This notebook ID is unavailable. Use a different ID."}
+                    )
+                raise serializers.ValidationError(
+                    {"short_id": "A notebook with this ID already exists. Open the existing notebook."}, code="unique"
+                )
+            raise
 
         log_notebook_activity(
             activity="created",
@@ -427,6 +577,15 @@ class NotebookSerializer(NotebookMinimalSerializer):
             # select_for_update locks the database row so we ensure version updates are atomic
             locked_instance = Notebook.objects.select_for_update().get(pk=instance.pk)
             should_publish_update = False
+            restore = validated_data.pop("restore_previous_app_release", False)
+            if restore:
+                if locked_instance.app_published is None:
+                    raise serializers.ValidationError("Publish the app before restoring a previous release.")
+                previous = read_release(locked_instance.team_id, locked_instance.pk, previous=True)
+                if previous is None:
+                    raise serializers.ValidationError("There is no previous published version to restore.")
+                validated_data["app_published"] = previous.layout
+            update_app_revision(validated_data, locked_instance.app_revision)
 
             if validated_data.keys():
                 locked_instance.last_modified_at = now()
@@ -446,7 +605,11 @@ class NotebookSerializer(NotebookMinimalSerializer):
                     if (
                         locked_instance.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL)
                         # org admins have full access, so skip the gate for a faster save
-                        and not (self.user_access_control and self.user_access_control.is_organization_admin)
+                        and not authorization.check(
+                            resource=Resource.organization(locked_instance.team.organization_id),
+                            action=Action.EDIT,
+                            subject=request_subject(self.context["request"]),
+                        )
                         and is_publicly_shared(locked_instance)
                     ):
                         denied_resources = denied_resources_in_notebook_edit(
@@ -465,6 +628,8 @@ class NotebookSerializer(NotebookMinimalSerializer):
                     should_publish_update = True
 
                 updated_notebook = super().update(locked_instance, validated_data)
+                if validated_data.get("app_published") is not None:
+                    record_release(updated_notebook.team_id, updated_notebook.pk, restore_previous=restore)
                 if should_publish_update:
                     notify_team_id = updated_notebook.team_id
                     notify_notebook_id = str(updated_notebook.short_id)
@@ -728,6 +893,60 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
     def get_serializer_class(self) -> type[BaseSerializer]:
         return NotebookMinimalSerializer if self.action == "list" else NotebookSerializer
 
+    def get_throttles(self) -> list[BaseThrottle]:
+        throttles = super().get_throttles()
+        if self.action == "create":
+            return [*throttles, NotebookCreateBurstThrottle(), NotebookCreateSustainedThrottle()]
+        if self.action == "app_queries":
+            return [*throttles, NotebookAppQueryBurstThrottle(), NotebookAppQuerySustainedThrottle()]
+        if self.action in ("kernel_start", "kernel_restart"):
+            return [*throttles, NotebookKernelStartBurstThrottle(), NotebookKernelStartSustainedThrottle()]
+        return throttles
+
+    @extend_schema(request=NotebookAppLayoutSerializer, responses=NotebookAppReleaseReviewSerializer)
+    @action(methods=["POST"], detail=True, url_path="app_preview", required_scopes=["notebook:write"])
+    def app_preview(self, request: Request, **kwargs) -> Response:
+        notebook = self.get_object()
+        if not notebook_app_builder_enabled(request.user, self.team):
+            raise Http404()
+        layout = NotebookAppLayoutSerializer(data=request.data)
+        layout.is_valid(raise_exception=True)
+        review = review_release(
+            notebook.team_id, notebook.pk, [AppBlockSource(**block) for block in layout.validated_data["blocks"]]
+        )
+        return Response(NotebookAppReleaseReviewSerializer(review).data)
+
+    @extend_schema(responses=NotebookAppReleaseSerializer)
+    @action(methods=["GET"], detail=True, url_path="app_release", required_scopes=["notebook:read"])
+    def app_release(self, request: Request, **kwargs) -> Response:
+        notebook = self.get_object()
+        if notebook.app_published is None or not notebook_app_builder_enabled(request.user, self.team):
+            raise Http404()
+        release = read_release(notebook.team_id, notebook.pk)
+        if release is None:
+            raise Http404()
+        return Response(NotebookAppReleaseSerializer(release).data)
+
+    @extend_schema(request=NotebookAppViewerRequestSerializer, responses=NotebookAppViewerQuerySerializer(many=True))
+    @action(
+        methods=["POST"],
+        detail=True,
+        url_path="app_queries",
+        pagination_class=None,
+        filter_backends=[],
+        required_scopes=["notebook:read", "query:read"],
+    )
+    def app_queries(self, request: Request, **kwargs) -> Response:
+        notebook = self.get_object()
+        if not notebook_app_builder_enabled(request.user, self.team):
+            raise Http404()
+        self._require_query_access()
+        params = NotebookAppViewerRequestSerializer(data=request.data)
+        params.is_valid(raise_exception=True)
+        inputs = {v["name"]: v.get("value") for v in params.validated_data["variables"]}
+        plans = plan_viewer_queries(notebook.team_id, notebook.pk, params.validated_data["revision"], inputs)
+        return Response(NotebookAppViewerQuerySerializer(plans, many=True).data)
+
     def _get_notebook_for_kernel(self) -> Notebook:
         if self.kwargs.get(self.lookup_field) == "scratchpad":
             notebook = Notebook(
@@ -743,7 +962,11 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         return self.get_object()
 
     def _has_query_access(self) -> bool:
-        return bool(self.user_access_control.check_access_level_for_resource("query", "viewer"))
+        return authorization.check(
+            resource=Resource(type=ResourceType.QUERY, project_id=self.team.pk),
+            action=Action.VIEW,
+            subject=request_subject(self.request),
+        )
 
     def _require_query_access(self) -> None:
         # SQLV2 runs arbitrary HogQL and returns analytics rows, so notebook access alone is not
@@ -760,16 +983,19 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         # colleague's run pulled from it. Notebook + query access does not imply source access.
         if not run.connection_id:
             return
-        if (
-            get_direct_connection_source(
-                self.team,
-                str(run.connection_id),
-                user=user,
-                require_pure_direct=run.send_raw_query,
-            )
-            is None
-        ):
+        source = get_direct_connection_source(
+            self.team,
+            str(run.connection_id),
+            user=user,
+            require_pure_direct=run.send_raw_query,
+        )
+        if source is None:
             raise PermissionDenied("You need access to this cell's data source to read its results.")
+        if run.send_raw_query and raw_query_uses_organization_grant(source):
+            try:
+                require_browser_session_for_organization_grant()
+            except ExposedHogQLError as error:
+                raise PermissionDenied(str(error)) from error
 
     def _current_user(self) -> User | None:
         return self.request.user if isinstance(self.request.user, User) else None
@@ -1206,16 +1432,20 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             raise Http404()
         query = WidgetVersionQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
+        offset = query.validated_data["offset"]
+        limit = query.validated_data["limit"]
         try:
             result = list_widget_versions(
                 notebook=self.get_object(),
                 node_id=node_id,
-                offset=query.validated_data["offset"],
-                limit=query.validated_data["limit"],
+                offset=offset,
+                limit=limit,
             )
         except WidgetError as error:
             return self._widget_error_response(error)
-        return Response(WidgetVersionPageSerializer(result).data)
+        data = WidgetVersionPageSerializer(result).data
+        data.update(offset_page_links(request, offset=offset, limit=limit, next_offset=result.next_offset))
+        return Response(data)
 
     @extend_schema(
         operation_id="notebooks_widget_source",
@@ -1418,7 +1648,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             # The list serializer omits content/text_content, but both are large columns
             # (ProseMirror JSON + full plaintext) that we'd otherwise load and JSON-decode per row.
             # search/contains filters run as WHERE-clause predicates, so they don't need the columns in Python.
-            queryset = queryset.defer("content", "text_content")
+            queryset = queryset.defer("content", "text_content", "app_draft", "app_published")
         elif self.action in IDENTITY_ONLY_DETAIL_ACTIONS:
             queryset = queryset.defer("content", "text_content")
 
@@ -1537,6 +1767,8 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         notebook = self._get_notebook_for_kernel()
         try:
             kernel_runtime = get_kernel_runtime(notebook, self._current_user()).ensure()
+        except KernelSandboxLimitExceeded as err:
+            return Response({"detail": str(err)}, status=429)
         except SandboxProvisionError:
             logger.exception("notebook_kernel_start_failed", notebook_short_id=notebook.short_id)
             return Response({"detail": "Failed to start notebook kernel."}, status=503)
@@ -1560,6 +1792,8 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         notebook = self._get_notebook_for_kernel()
         try:
             kernel_runtime = get_kernel_runtime(notebook, self._current_user()).restart()
+        except KernelSandboxLimitExceeded as err:
+            return Response({"detail": str(err)}, status=429)
         except SandboxProvisionError:
             logger.exception("notebook_kernel_restart_failed", notebook_short_id=notebook.short_id)
             return Response({"detail": "Failed to restart notebook kernel."}, status=503)
@@ -1873,8 +2107,6 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
     def _introspect_kernel(self, route: Literal["complete", "inspect"], payload: dict) -> dict | None:
         # Completion evaluates attribute access in the user's kernel, so it takes the access a run takes.
         user = self._current_user()
-        if not (settings.DEBUG or is_sql_v2_enabled(user)):
-            raise Http404()
         notebook = self._get_notebook_for_kernel()
         self._require_query_access()
         return introspect_in_kernel(notebook, user, route, payload)
@@ -1894,6 +2126,8 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 variable_names=variable_names,
                 timeout=serializer.validated_data.get("timeout"),
             )
+        except KernelSandboxLimitExceeded as err:
+            return Response({"detail": str(err)}, status=429)
         except SandboxProvisionError:
             logger.exception("notebook_kernel_execute_failed", notebook_short_id=notebook.short_id)
             return Response({"detail": "Failed to execute notebook code."}, status=503)
@@ -1909,14 +2143,12 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             "The full notebook view for agents: title, document source (markdown, or raw content for "
             "legacy rich-text notebooks), the notebook's declared variables, every cell with its "
             "dependency edges and derived run status (including staleness), and the kernel's runtime "
-            "state and compute config. Flag-gated (revamped-py-notebooks)."
+            "state and compute config."
         ),
     )
     @action(methods=["GET"], url_path="sql_v2/state", detail=True, required_scopes=["notebook:read", "query:read"])
     def sql_v2_state(self, request: Request, **kwargs):
         user = self._current_user()
-        if not (settings.DEBUG or is_sql_v2_enabled(user)):
-            raise Http404()
         notebook = self._get_notebook_for_kernel()
         # Cell code and result metadata derive from the user's data, so the same query
         # gate as run results applies.
@@ -1974,23 +2206,14 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         description=(
             "Dispatch an asynchronous run of a notebook SQL or Python cell. Returns a run_id immediately; "
             "poll the run result endpoint until the status is terminal. One run at a time per notebook. "
-            "Python notebooks enable all run types. HogQL runs without a connection or kernel are always available."
+            "HogQL runs without a connection or kernel are always available."
         ),
     )
     @action(methods=["POST"], url_path="sql_v2/run", detail=True, required_scopes=["notebook:write", "query:read"])
     def sql_v2_run(self, request: Request, **kwargs):
         user = self._current_user()
-        # Server-side gate is permissive in local dev (frontend still gates the UI); prod is flag-gated.
-        full_compute_enabled = settings.DEBUG or is_sql_v2_enabled(user)
-
         serializer = NotebookSQLV2RunRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        if not full_compute_enabled and (
-            serializer.validated_data["node_type"] != "hogql"
-            or serializer.validated_data.get("connection_id") is not None
-            or any(ref["kind"] == "local" for ref in serializer.validated_data["refs"].values())
-        ):
-            raise Http404()
         notebook = self._get_notebook_for_kernel()
         self._require_query_access()
 
@@ -2009,7 +2232,6 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             connection_id=connection_id,
             send_raw_query=bool(serializer.validated_data["send_raw_query"]) and connection_id is not None,
             reuse_results=serializer.validated_data["reuse_results"],
-            allow_sandbox=full_compute_enabled,
         )
         try:
             dispatch = dispatch_cell_run(
@@ -2018,10 +2240,6 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 user_id=user.id if isinstance(user, User) else None,
                 request=run_request,
             )
-        except NodeRunNotPermitted:
-            # The plan resolved to the sandbox for a caller without full compute. 404 like
-            # the gates above: they are not told the lane exists.
-            raise Http404()
         except NodeRunInvalid as e:
             return Response({"detail": str(e)}, status=400)
         except NotebookRunBusy as e:
@@ -2045,25 +2263,18 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             ).data
         )
 
-    def _require_notebook_runs_enabled(self, user: User | None) -> None:
-        # Server-side gate is permissive in local dev (the frontend still gates the UI);
-        # prod is flag-gated, the same as every other SQL v2 endpoint.
-        if not (settings.DEBUG or is_sql_v2_enabled(user)):
-            raise Http404()
-
     @extend_schema(
         request=NotebookRunStartRequestSerializer,
         responses={200: NotebookRunStartResponseSerializer},
         description=(
             "Run every SQL and Python cell of a markdown notebook, in document order, stopping at the "
             "first cell that does not finish. Returns as soon as the run starts; poll the run status "
-            "endpoint until the status is terminal. Flag-gated (revamped-py-notebooks)."
+            "endpoint until the status is terminal."
         ),
     )
     @action(methods=["POST"], url_path="runs", detail=True, required_scopes=["notebook:write", "query:read"])
     def notebook_runs(self, request: Request, **kwargs):
         user = self._current_user()
-        self._require_notebook_runs_enabled(user)
 
         serializer = NotebookRunStartRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -2094,7 +2305,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                     trigger=classify_request_source(request)[0],
                     include_prepared_insights=include_prepared_insights,
                 )
-        except (NotebookRunNothingToRun, NotebookCellLimitExceeded) as e:
+        except (NotebookRunNothingToRun, NotebookCellLimitExceeded, ExposedHogQLError) as e:
             return Response({"detail": str(e)}, status=400)
         except NotebookRunAlreadyRunning as e:
             # 409, not 429: a conflict with the notebook's state rather than a rate — the same
@@ -2140,7 +2351,6 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         description=(
             "Read a whole-notebook run: its state, which cell it is on, and one line per planned cell. "
             "Carries no result rows — fetch a cell's result from the cell run result endpoint. "
-            "Flag-gated (revamped-py-notebooks)."
         ),
     )
     @action(
@@ -2151,7 +2361,6 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
     )
     def notebook_run_detail(self, request: Request, run_id: str | None = None, **kwargs):
         user = self._current_user()
-        self._require_notebook_runs_enabled(user)
         if run_id is None:
             raise Http404()
 
@@ -2205,7 +2414,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         responses={200: NotebookRunInterruptResponseSerializer},
         description=(
             "Stop a whole-notebook run and the cell it is on. Idempotent: stopping a run that already "
-            "finished returns its outcome unchanged. Flag-gated (revamped-py-notebooks)."
+            "finished returns its outcome unchanged."
         ),
     )
     @action(
@@ -2217,8 +2426,6 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
     def notebook_run_interrupt(self, request: Request, run_id: str | None = None, **kwargs):
         # A control call, not a data read: it stops a run, so it needs notebook write access
         # but neither query scope nor the RBAC query gate.
-        user = self._current_user()
-        self._require_notebook_runs_enabled(user)
         if run_id is None:
             raise Http404()
 
@@ -2241,7 +2448,8 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 type=OpenApiTypes.UUID,
                 location=OpenApiParameter.PATH,
                 description="ID of the run, as returned by the run dispatch endpoint.",
-            )
+            ),
+            OpenApiParameter("node_id", str, description="Only return the run if it belongs to this cell."),
         ],
         responses={200: NotebookSQLV2RunStatusResponseSerializer},
         description=(
@@ -2273,12 +2481,12 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             run = NotebookNodeRun.objects.for_team(self.team_id).filter(id=run_id, notebook=notebook).first()
         except DjangoValidationError:  # malformed run_id (not a UUID)
             raise Http404()
-        if run is None:
+        if run is None or request.query_params.get("node_id", run.node_id) != run.node_id:
             raise Http404()
 
         # Direct (hogql) runs have no callback: this poll advances the row from the async
         # query status, and while the manager's result is alive it also returns the full
-        # capped row set for client-side paging (`rows`, absent once expired).
+        # capped row set for client-side paging. Published runs may retain those rows.
         #
         # It runs before the access gate on purpose. This poll is the only thing that moves a
         # direct run to a terminal state, and the only place its expiry watchdog fires, so
@@ -2291,6 +2499,14 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         # The two are mutually exclusive — each is a no-op for the other's node types.
         expire_stale_kernel_run(run)
         self._require_run_connection_access(run, user)
+        if (
+            rows is None
+            and notebook.app_published is not None
+            and run.node_type == NotebookNodeRun.NodeType.HOGQL
+            and run.status == NotebookNodeRun.Status.DONE
+            and (run.envelope or {}).get("has_more")
+        ):
+            rows = read_published_run_rows(self.team_id, notebook.pk, run.id)
 
         # Interrupted runs keep their envelope too: the walkthrough (Journey 9) promises the
         # captured stdout/stderr arrive with the final envelope even when the user stopped it.
@@ -2304,7 +2520,16 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             payload["rows"] = rows
         return Response(payload)
 
-    @extend_schema(exclude=True)
+    @extend_schema(
+        parameters=[
+            NotebookSQLV2PageRequestSerializer,
+            OpenApiParameter(
+                "run_id", OpenApiTypes.UUID, OpenApiParameter.PATH, description="ID of the completed run."
+            ),
+        ],
+        responses={200: NotebookSQLV2PageResponseSerializer},
+        summary="Read a page of a notebook run's stored result frame",
+    )
     @action(
         methods=["GET"],
         url_path="sql_v2/runs/(?P<run_id>[^/.]+)/page",
@@ -2315,7 +2540,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         # A page fetch is not a run: a bounded synchronous
         # re-query of the run's code with LIMIT/OFFSET, proxied through the running kernel.
         user = self._current_user()
-        if not (settings.DEBUG or is_sql_v2_enabled(user)) or run_id is None:
+        if run_id is None:
             raise Http404()
 
         serializer = NotebookSQLV2PageRequestSerializer(data=request.query_params)
@@ -2403,8 +2628,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             202: NotebookSQLV2InterruptResponseSerializer,
         },
         description=(
-            "Stop a running cell. Idempotent: interrupting an already-finished run returns its outcome "
-            "unchanged. Flag-gated (revamped-py-notebooks)."
+            "Stop a running cell. Idempotent: interrupting an already-finished run returns its outcome unchanged."
         ),
     )
     @action(
@@ -2418,7 +2642,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         # but neither query scope nor the RBAC query gate (no analytics rows flow either way).
         # The terminal state still arrives through the normal callback -> run row -> poll.
         user = self._current_user()
-        if not (settings.DEBUG or is_sql_v2_enabled(user)) or run_id is None:
+        if run_id is None:
             raise Http404()
 
         notebook = self._get_notebook_for_kernel()
@@ -2500,7 +2724,11 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         if (
             notebook.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL)
             # org admins have full access, so skip the gate for a faster save
-            and not self.user_access_control.is_organization_admin
+            and not authorization.check(
+                resource=Resource.organization(self.team.organization_id),
+                action=Action.EDIT,
+                subject=request_subject(request),
+            )
             and is_publicly_shared(notebook)
         ):
             denied_resources = denied_resources_in_notebook_edit(user, notebook, data.get("content"))
@@ -2602,7 +2830,11 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         if (
             notebook.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL)
             # org admins have full access, so skip the gate for a faster save
-            and not self.user_access_control.is_organization_admin
+            and not authorization.check(
+                resource=Resource.organization(self.team.organization_id),
+                action=Action.EDIT,
+                subject=request_subject(request),
+            )
             and is_publicly_shared(notebook)
         ):
             denied_resources = denied_resources_in_notebook_edit(user, notebook, submitted_content)

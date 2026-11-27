@@ -144,7 +144,6 @@ export interface TaskRunStartedProperties {
   model?: string;
   initial_mode?: string;
   adapter?: string;
-  gateway_mode?: "legacy" | "go";
 }
 
 export interface TaskRunCompletedProperties {
@@ -806,6 +805,7 @@ export type InboxReportActionType =
   | "reingest"
   | "implement"
   | "create_pr"
+  | "claim_dialog"
   | "refund"
   | "open_pr"
   | "open_task"
@@ -992,6 +992,12 @@ export interface InboxReportActionProperties {
   has_question?: boolean;
   // True when the user submitted Create PR with extra feedback via the popover.
   has_feedback?: boolean;
+  // What the claim asked of Create PR: start straight away, take over a teammate's claim, or confirm a run
+  // next to the user's own agent.
+  claim_step?: "start" | "take_over" | "confirm_own_agent";
+  // For `claim_dialog`: whether confirming starts a run, and whether the user confirmed.
+  starts_run?: boolean;
+  confirmed?: boolean;
 }
 
 export interface InboxReportActionResultProperties {
@@ -1273,6 +1279,8 @@ type ChannelActionType =
   | "expand_channel"
   | "activity_unreads_toggle"
   | "activity_mark_all_read"
+  | "mark_task_read"
+  | "mark_task_unread"
   | "activity_load_more";
 
 type TaskFeedActionType = "create" | "update" | "delete" | "open";

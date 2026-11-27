@@ -49,7 +49,7 @@ export type { MetricCardProps, ChangeColor, MetricChange } from './components/Me
 export { resolveDelta } from './components/MetricCard/resolveDelta'
 export type { ResolvedDelta } from './components/MetricCard/resolveDelta'
 export { computeFallbackChangePercent } from './components/MetricCard/internals'
-export { useAnimatedNumber } from './components/MetricCard/useAnimatedNumber'
+export { useAnimatedNumber } from './core/hooks/useAnimatedNumber'
 export { useHoverIntent } from './components/MetricCard/useHoverIntent'
 
 // Base chart (for building new chart types)
@@ -115,6 +115,14 @@ export { useRadialLayout } from './core/radial-context'
 export type { RadialLayoutContextValue } from './core/radial-context'
 export type { RadialSlicePayload } from './core/hooks/useRadialInteraction'
 
+// Gauge
+export { Gauge } from './charts/Gauge/Gauge'
+export type { GaugeConfig, GaugeProps, GaugeTarget } from './charts/Gauge/Gauge'
+export { formatGaugeBand, GaugeTooltip } from './charts/Gauge/GaugeTooltip'
+export type { GaugeTooltipContext, GaugeTooltipProps, GaugeTooltipThreshold } from './charts/Gauge/GaugeTooltip'
+export { resolveGaugeBounds } from './charts/Gauge/gauge-layout'
+export type { GaugeBounds, GaugeThreshold, ResolveGaugeBoundsInput } from './charts/Gauge/gauge-layout'
+
 // Proportion bar
 export { ProportionBar } from './charts/ProportionBar/ProportionBar'
 export type { ProportionBarConfig, ProportionBarProps } from './charts/ProportionBar/ProportionBar'
@@ -124,6 +132,21 @@ export { BarList } from './charts/BarList/BarList'
 export type { BarListConfig, BarListProps } from './charts/BarList/BarList'
 export { StackedBarList } from './charts/BarList/StackedBarList'
 export type { StackedBarListConfig, StackedBarListProps } from './charts/BarList/StackedBarList'
+
+// Flame graph
+export { FlameGraph } from './charts/FlameGraph/FlameGraph'
+export type {
+    FlameBundleDatum,
+    FlameChange,
+    FlameChangeKind,
+    FlameDiffConfig,
+    FlameGraphConfig,
+    FlameGraphProps,
+    FlameHit,
+    FlameNode,
+    FlameNodeDatum,
+    FlameTooltipContext,
+} from './charts/FlameGraph/types'
 
 // Sankey
 export { SankeyChart } from './charts/SankeyChart/SankeyChart'
@@ -191,6 +214,7 @@ export type {
     ResolveValueFn,
     Series,
     SeriesType,
+    TimeScale,
     TooltipConfig,
     TooltipContext,
     ValueDomain,
@@ -231,8 +255,11 @@ export type {
     ReferenceLineStyle,
     ReferenceLineVariant,
 } from './overlays/ReferenceLine'
+export { ChartHoverSync } from './core/hover-sync'
 export { HighlightedRange } from './overlays/HighlightedRange'
 export type { HighlightedRangeProps } from './overlays/HighlightedRange'
+export { ValueBand } from './overlays/ValueBand'
+export type { ValueBandProps } from './overlays/ValueBand'
 export { ValueLabels } from './overlays/ValueLabels'
 export type { ValueLabelContext, ValueLabelFormatter, ValueLabelsProps } from './overlays/ValueLabels'
 export { AxisTitles } from './overlays/AxisTitles'
@@ -262,7 +289,13 @@ export { ciRanges, linearRegression, movingAverage, trendLine } from './utils/st
 
 // Generic UI primitives (no canvas) — composed alongside charts by adapters
 export { Legend } from './components/Legend/Legend'
-export type { LegendItem, LegendItemClickModifiers, LegendProps } from './components/Legend/Legend'
+export type {
+    LegendItem,
+    LegendItemClickModifiers,
+    LegendProps,
+    LegendTableConfig,
+    LegendValue,
+} from './components/Legend/Legend'
 export { ChartLegend } from './components/Legend/ChartLegend'
 export type { ChartLegendProps } from './components/Legend/ChartLegend'
 export { legendItemsFromSeries } from './components/Legend/legendItemsFromSeries'

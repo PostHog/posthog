@@ -99,11 +99,22 @@ describe('composeToolSchema', () => {
         expect(result.toolInputsImports).toEqual([])
     })
 
-    it('requires a PATCH field without removing its Orval description', () => {
+    it.each([
+        {
+            name: 'keeps the Orval description',
+            override: { required: true },
+            expected: "ThingsPartialUpdateBody.shape['destination'].nonoptional()",
+        },
+        {
+            name: 'with an input_schema',
+            override: { required: true, input_schema: 'DestinationSchema' },
+            expected: 'destination: DestinationSchema }',
+        },
+    ])('requires a PATCH field: $name', ({ override, expected }) => {
         const config: ToolConfig = {
             operation: 'things_partial_update',
             enabled: true,
-            param_overrides: { destination: { required: true } },
+            param_overrides: { destination: override },
         }
         const resolved = makeResolved({
             method: 'PATCH',
@@ -122,7 +133,7 @@ describe('composeToolSchema', () => {
 
         const result = composeToolSchema(config, resolved, makeSpec(), stubGetQuerySchema)
 
-        expect(result.schemaExpr).toContain("ThingsPartialUpdateBody.shape['destination'].nonoptional()")
+        expect(result.schemaExpr).toContain(expected)
     })
 
     it('collects toolInputsImports from param_overrides with input_schema', () => {
@@ -460,6 +471,32 @@ describe('generateToolCode with input_schema', () => {
         expect(result.code).toContain('.min(1)')
         // And the response filter must honor it, falling back to the full allowlist when omitted.
         expect(result.code).toContain("params.fields?.length ? params.fields : ['id', 'name']")
+    })
+
+    it('adds an `expand` param that restores the expandable fields the response omits by default', () => {
+        const config: ToolConfig = {
+            operation: 'things_retrieve',
+            enabled: true,
+            input_schema: 'ThingGetSchema',
+            response: { exclude: ['secret'], expandable: ['items.*.body'] },
+        }
+        const resolved = makeResolved({ method: 'GET' })
+
+        const result = generateToolCode(
+            'thing-get',
+            config,
+            resolved,
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        expect(result.code).toContain(".extend({ expand: z.array(z.enum(['items.*.body'])).min(1).optional()")
+        expect(result.code).toContain('const { expand: _expand, ...parsedParams } = ThingGetSchema().parse(params)')
+        expect(result.code).toContain(
+            "omitResponseFields(result, ['secret', ...(['items.*.body'] as const).filter((path) => !params.expand?.includes(path))])"
+        )
     })
 
     it('throws when selectable is set without an include allowlist', () => {
@@ -1589,12 +1626,18 @@ describe('ToolConfigSchema validation', () => {
         expect(result.success).toBe(true)
     })
 
-    it('rejects response.include with response.exclude', () => {
-        const result = ToolConfigSchema.safeParse({
-            operation: 'things_list',
-            enabled: true,
-            response: { include: ['id'], exclude: ['name'] },
-        })
+    it.each([
+        { name: 'rejects response.include with response.exclude', response: { include: ['id'], exclude: ['name'] } },
+        {
+            name: 'rejects response.expandable with response.include',
+            response: { include: ['id'], expandable: ['body'] },
+        },
+        {
+            name: 'rejects a response.expandable path that response.exclude also removes',
+            response: { exclude: ['body'], expandable: ['body'] },
+        },
+    ])('$name', ({ response }) => {
+        const result = ToolConfigSchema.safeParse({ operation: 'things_get', enabled: true, response })
         expect(result.success).toBe(false)
     })
 
@@ -1687,6 +1730,19 @@ describe('buildResponseFilter', () => {
         expect(result.code).toContain('(result.results ?? []).map')
         expect(result.code).toContain('omitResponseFields(item, ')
         expect(result.helperImports).toEqual(['omitResponseFields'])
+    })
+
+    it('maps over the rows of a list endpoint that returns a bare array', () => {
+        const config: ToolConfig = {
+            operation: 'things_list',
+            enabled: true,
+            list: true,
+            response: { include: ['id'] },
+        }
+        const result = buildResponseFilter(config, 'Schemas.Thing[]')
+        expect(result.code).toContain(
+            "Array.isArray(result) ? result.map((item: any) => pickResponseFields(item, ['id']))"
+        )
     })
 
     it('wraps the exclude expression in stripNullFields for response.strip_nulls', () => {

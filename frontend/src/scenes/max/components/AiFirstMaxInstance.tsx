@@ -10,6 +10,7 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
+import type { PhaiViewMode } from '~/layout/ai/aiPanelIds'
 import { SceneName } from '~/layout/scenes/components/SceneTitleSection'
 import { DROPDOWN_PARTS } from '~/layout/today/todayMenuParts'
 import { TodayPanelMoveMenuItems } from '~/layout/today/TodayPanelMoveMenuItems'
@@ -22,7 +23,7 @@ import { EmbeddedRunner } from 'products/posthog_ai/frontend/api/runner'
 
 import { aiSceneView } from '../aiSceneView'
 import { Intro } from '../Intro'
-import { PhaiViewMode, maxGlobalLogic } from '../maxGlobalLogic'
+import { maxGlobalLogic } from '../maxGlobalLogic'
 import { maxLogic } from '../maxLogic'
 import { MaxThreadLogicProps, maxThreadLogic } from '../maxThreadLogic'
 import { phaiAiComposerSeedLogic } from '../phaiAiComposerSeedLogic'
@@ -177,7 +178,7 @@ export function AiFirstMaxInstance({ tabId, taskId, chatId }: AiFirstMaxInstance
                     </div>
                 )}
                 <div className="flex flex-col flex-1 min-h-0">
-                    <BindLogic logic={phaiAiComposerSeedLogic} props={{}}>
+                    <BindLogic logic={phaiAiComposerSeedLogic} props={{ tabId }}>
                         {/* The quill task header carries the debug logs switch in its own overflow menu. */}
                         <EmbeddedRunner
                             taskId={taskId}

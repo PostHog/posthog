@@ -19,9 +19,10 @@ import { Sorting } from '@posthog/lemon-ui'
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { hogql } from 'lib/utils/hogql'
+import { getCurrentCloudRegion, isEuOrgMembersViewMissingError } from 'lib/utils/userAdmin'
 
 import { HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
-import { hogql } from '~/queries/utils'
 import { OrganizationMemberType, Region } from '~/types'
 
 import { CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from '../../constants'
@@ -35,22 +36,12 @@ import { AccountsEvents } from './constants'
 
 export type AccountOrganizationMember = Pick<OrganizationMemberType, 'id' | 'user' | 'level' | 'last_login'> & {
     region: Region.US | Region.EU
+    source: 'api' | 'warehouse'
 }
 
 export const PAGE_SIZE = 20
 
-// EU-region orgs have no rows in this region's posthog_user tables; eu_org_members is a
-// materialized DWH pre-join of the EU postgres sync (prod-only, refreshed daily).
-const EU_MEMBERS_VIEW = 'eu_org_members'
-const EU_MEMBERS_LIMIT = 3000
-
-const isExpectedMissingViewError = (error: unknown): boolean => {
-    const message = error instanceof Error ? error.message : String(error ?? '')
-    return (
-        message.includes(EU_MEMBERS_VIEW) &&
-        (message.includes("don't have access to table") || message.includes('Unknown table'))
-    )
-}
+export const EU_MEMBERS_LIMIT = 3000
 
 /** Column keys the table can sort by. They double as the backend's whitelisted `ordering` values. */
 export type RelatedUsersSortKey = 'level' | 'last_login'
@@ -106,7 +97,7 @@ const paginateMembers = (
     }
 }
 
-const fetchEuMembers = async (externalId: string): Promise<AccountOrganizationMember[] | null> => {
+export const fetchEuMembers = async (externalId: string): Promise<AccountOrganizationMember[] | null> => {
     try {
         const response = (await api.query({
             kind: NodeKind.HogQLQuery,
@@ -132,9 +123,10 @@ const fetchEuMembers = async (externalId: string): Promise<AccountOrganizationMe
             } as AccountOrganizationMember['user'],
             last_login: (row[7] as string | null) ?? null,
             region: Region.EU,
+            source: 'warehouse',
         }))
     } catch (error) {
-        if (!isExpectedMissingViewError(error)) {
+        if (!isEuOrgMembersViewMissingError(error)) {
             posthog.captureException(error as Error, {
                 scope: 'accountRelatedUsersLogic.fetchEuMembers',
             })
@@ -276,13 +268,17 @@ export const accountRelatedUsersLogic = kea<accountRelatedUsersLogicType>([
                         })
                         breakpoint()
                         if (response.count > 0) {
-                            cache.isUsOrg = true
+                            cache.hasLocalMembers = true
                             return {
                                 ...response,
-                                results: response.results.map((member) => ({ ...member, region: Region.US })),
+                                results: response.results.map((member) => ({
+                                    ...member,
+                                    region: getCurrentCloudRegion() ?? Region.US,
+                                    source: 'api' as const,
+                                })),
                             }
                         }
-                        if (!cache.isUsOrg) {
+                        if (!cache.hasLocalMembers) {
                             const euMembers = await fetchEuMembers(props.externalId)
                             breakpoint()
                             if (euMembers?.length) {

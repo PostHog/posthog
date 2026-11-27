@@ -36,7 +36,10 @@ from products.slack_app.backend.logic.feature_tips.features import SlackFeature
 from products.slack_app.backend.logic.feature_tips.state import record_feature_used
 from products.slack_app.backend.logic.interview_recruitment import MODAL_INVITE_MESSAGE, book_button, invite_section
 from products.slack_app.backend.services.slack_messages import SLACK_WEBHOOK_TIMEOUT_SECONDS, TURN_FEEDBACK_ACTION_ID
-from products.slack_app.backend.services.slack_user_info import get_cached_bot_user_id
+from products.slack_app.backend.services.slack_user_info import (
+    find_member_by_cached_slack_email,
+    get_cached_bot_user_id,
+)
 from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration, get_workspace_integration
 
 logger = structlog.get_logger(__name__)
@@ -229,17 +232,26 @@ def _distinct_id(target: _FeedbackTarget) -> str:
     """Who the feedback is attributed to.
 
     The PostHog user behind the Slack identity when there is one, so a rating joins that
-    person's feedback from the web and desktop clients. An unlinked reader is attributed to
-    the project instead of minting a person keyed on a Slack id; ``slack_user_id`` rides on
-    the event either way, so the click is still traceable to someone we can follow up with.
+    person's feedback from the web and desktop clients. The OAuth link wins, else the cached
+    Slack profile email is matched against the project's organization, the same cascade that
+    resolves who started the task. Most readers never link, so without the email match their
+    ratings carry no person. A reader neither way finds is attributed to the project instead
+    of minting a person keyed on a Slack id; ``slack_user_id`` rides on the event either way,
+    so the click is still traceable to someone we can follow up with.
     """
     from products.slack_app.backend.services.slack_user_oauth import find_linked_posthog_user  # noqa: PLC0415
 
+    slack_team_id = target.integration.integration_id or ""
+    candidate_org_ids = {target.integration.team.organization_id}
     try:
         user = find_linked_posthog_user(
             slack_user_id=target.slack_user_id,
-            slack_team_id=target.integration.integration_id or "",
-            candidate_org_ids={target.integration.team.organization_id},
+            slack_team_id=slack_team_id,
+            candidate_org_ids=candidate_org_ids,
+        ) or find_member_by_cached_slack_email(
+            slack_team_id=slack_team_id,
+            slack_user_id=target.slack_user_id,
+            candidate_org_ids=candidate_org_ids,
         )
         if user is not None and user.distinct_id:
             return user.distinct_id

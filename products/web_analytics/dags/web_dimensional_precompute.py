@@ -10,14 +10,13 @@ windows are skipped.
 
 Rollout is intentionally decoupled from the v2 pre-aggregation pipeline and its
 team selection. The audience defaults to a small per-region built-in rollout list
-(`DEFAULT_ROLLOUT_TEAM_IDS_BY_REGION`) on PostHog Cloud, and is fully overridable via the
+(`DEFAULT_ROLLOUT_TEAM_IDS_BY_REGION` in the backend module) on PostHog Cloud, and is fully overridable via the
 `WEB_DIMENSIONAL_PRECOMPUTE_TEAM_IDS` env var (comma-separated team IDs; set it
 to empty to disable the job). Self-hosted instances default to no teams so the
 job never precomputes for unrelated teams that happen to share those IDs. There
 is no dependency on the v2 team-selection dictionary or flag.
 
-The write path is not yet wired into any query runner — this job only populates
-the tables (so the new output can be compared with v2's side by side).
+The query runners read the same list, so a team this job fills reads the tables by default.
 
 After the writers, a coverage check reads the READY jobs back from Postgres and
 fails the run when a team has a day without a fresh job or a stale current day.
@@ -28,23 +27,26 @@ import os
 from collections.abc import Iterable
 from datetime import UTC, date, datetime, time, timedelta
 
-from django.conf import settings
-
 import dagster
 import structlog
 from prometheus_client import Counter, Gauge
 
-from posthog.cloud_utils import is_cloud
 from posthog.dags.common import JobOwners, chunk_ranges, skip_on_kill_switch
 from posthog.dataclasses import frozen
 from posthog.metrics import pushed_metrics_registry
 from posthog.models import Team
 
+from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import TtlSchedule
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
 from products.web_analytics.backend.hogql_queries.web_dimensional_precompute import (
     DIMENSIONAL_TTL_SECONDS,
+    SELECTED_TEAM_IDS_ENV_VAR,
+    dimensional_insert_modifiers,
+    dimensional_team_ids,
+    dimensional_ttl_schedule,
     ensure_web_bounces_dimensional_precomputed,
     ensure_web_stats_dimensional_precomputed,
+    sessions_coverage_floor,
 )
 from products.web_analytics.dags.web_preaggregated_utils import check_for_concurrent_runs
 
@@ -71,21 +73,6 @@ PRECOMPUTE_WINDOW_DAYS = int(os.getenv("WEB_DIMENSIONAL_PRECOMPUTE_WINDOW_DAYS",
 # trade more bytes/INSERT for fewer INSERTs on lower-volume teams.
 PRECOMPUTE_CHUNK_DAYS = int(os.getenv("WEB_DIMENSIONAL_PRECOMPUTE_CHUNK_DAYS", "1"))
 
-# Built-in rollout audience used when the env var is unset, keyed by Cloud region.
-# Region-keyed because team IDs are not unique across US and EU — a single flat list
-# would enroll an unrelated same-ID team in the other region. Applied on PostHog
-# Cloud only (see get_selected_team_ids). US holds the dogfood project (2), the
-# high-volume pilot (55348), and the teams currently reading the v2 tables, for the
-# v2 side-by-side.
-DEFAULT_ROLLOUT_TEAM_IDS_BY_REGION: dict[str, list[int]] = {
-    "US": [2, 39058, 47074, 55348],
-    "EU": [1, 1589, 126918],
-}
-
-# Comma-separated team IDs to precompute. Overrides the per-region default;
-# set to empty to disable the job entirely.
-SELECTED_TEAM_IDS_ENV_VAR = "WEB_DIMENSIONAL_PRECOMPUTE_TEAM_IDS"
-
 SCHEDULE_INTERVAL_MINUTES = 20
 
 # A day counts as covered while its newest READY job is at most two runs past its expiry. The check
@@ -104,23 +91,6 @@ BOUNCES_TABLE = "web_bounces_dimensional_preaggregated"
 COVERAGE_METRICS_JOB = "web_dimensional_precompute_coverage"
 COVERAGE_MISSING_DAYS_GAUGE = "web_dimensional_precompute_coverage_missing_days"
 COVERAGE_TODAY_LAG_GAUGE = "web_dimensional_precompute_today_lag_seconds"
-
-
-def get_selected_team_ids() -> list[int]:
-    """Resolve the team allowlist.
-
-    The env var wins if set (even to empty): a comma-separated list, blank/invalid
-    entries skipped. If unset, fall back to the current region's default — but only
-    on PostHog Cloud; self-hosted defaults to none so the job never runs for
-    unrelated teams that happen to share those IDs.
-    """
-    raw = os.getenv(SELECTED_TEAM_IDS_ENV_VAR)
-    if raw is not None:
-        return [int(part.strip()) for part in raw.split(",") if part.strip().isdigit()]
-    if not is_cloud():
-        return []
-    region = (settings.CLOUD_DEPLOYMENT or "").upper()
-    return list(DEFAULT_ROLLOUT_TEAM_IDS_BY_REGION.get(region, []))
 
 
 WEB_DIMENSIONAL_PRECOMPUTE_TEAM_DONE = Counter(
@@ -207,6 +177,16 @@ def _merge_spans(spans: Iterable[TimeSpan]) -> list[TimeSpan]:
     return merged
 
 
+def _effective_expires_at(job: PreaggregationJob, ttl_schedule: TtlSchedule) -> datetime | None:
+    # The reader judges freshness by the current schedule, not by the stored `expires_at`. A job
+    # written under a longer TTL keeps its old `expires_at`, so the check must apply the same
+    # schedule or it reports a day as covered that the reader rejects.
+    if job.expires_at is None:
+        return None
+    schedule_ttl = ttl_schedule.get_ttl(job.time_range_start, jittered=True)
+    return min(job.expires_at, job.created_at + timedelta(seconds=schedule_ttl))
+
+
 def summarize_coverage(
     *,
     team_id: int,
@@ -215,6 +195,7 @@ def summarize_coverage(
     window: TimeSpan,
     current_day: date,
     now: datetime,
+    ttl_schedule: TtlSchedule,
 ) -> TableCoverage:
     """Report which UTC days of the window have a fresh READY job, and how old the current day's job is.
 
@@ -227,7 +208,7 @@ def summarize_coverage(
     merged = _merge_spans(
         TimeSpan(start=job.time_range_start, end=job.time_range_end)
         for job in jobs
-        if job.expires_at is not None and job.expires_at >= fresh_cutoff
+        if (expires_at := _effective_expires_at(job, ttl_schedule)) is not None and expires_at >= fresh_cutoff
     )
 
     missing: list[date] = []
@@ -285,6 +266,7 @@ def find_table_coverage(
         window=window,
         current_day=current_day,
         now=now,
+        ttl_schedule=dimensional_ttl_schedule(),
     )
 
 
@@ -311,6 +293,13 @@ def _push_coverage_gauges(coverages: list[TableCoverage]) -> None:
             )
 
 
+def team_window(team: Team, window: TimeSpan) -> TimeSpan:
+    floor = sessions_coverage_floor(dimensional_insert_modifiers(team))
+    if floor is None or floor <= window.start:
+        return window
+    return TimeSpan(start=min(floor, window.end), end=window.end)
+
+
 def _ensure_for_team(
     context: dagster.OpExecutionContext,
     team: Team,
@@ -324,13 +313,17 @@ def _ensure_for_team(
     `chunk_days` of raw data), so no single query scans the whole window. Failures
     per (table, chunk) are caught so one bad chunk doesn't poison the rest;
     already-fresh chunks are cheap PG cache-checks with no INSERT.
+
+    Chunks run newest first, and each chunk builds both tables before the next one starts. A read
+    needs both tables for every day it covers, so after a full rebuild (a new job identity) the
+    recent ranges become servable after a few chunks instead of after a whole pass over one table.
     """
     failures = 0
-    for table_label, ensure_fn in (
-        (STATS_TABLE, ensure_web_stats_dimensional_precomputed),
-        (BOUNCES_TABLE, ensure_web_bounces_dimensional_precomputed),
-    ):
-        for chunk_start, chunk_end in chunk_ranges(window.start, window.end, chunk_days):
+    for chunk_start, chunk_end in chunk_ranges(window.start, window.end, chunk_days):
+        for table_label, ensure_fn in (
+            (STATS_TABLE, ensure_web_stats_dimensional_precomputed),
+            (BOUNCES_TABLE, ensure_web_bounces_dimensional_precomputed),
+        ):
             try:
                 result = ensure_fn(team, chunk_start, chunk_end)
             except Exception as exc:
@@ -365,7 +358,7 @@ def ensure_web_dimensional_precompute_op(context: dagster.OpExecutionContext) ->
     window = precompute_window(started_at)
     current_day = started_at.date()
 
-    team_ids = get_selected_team_ids()
+    team_ids = dimensional_team_ids()
     context.log.info(
         f"web_dimensional_precompute_start teams={len(team_ids)} window=[{window.start}, {window.end}) "
         f"chunk_days={PRECOMPUTE_CHUNK_DAYS}"
@@ -387,7 +380,7 @@ def ensure_web_dimensional_precompute_op(context: dagster.OpExecutionContext) ->
         if team is None:
             context.log.warning(f"web_dimensional_precompute_team_missing team_id={team_id}")
             continue
-        failures += _ensure_for_team(context, team, window, PRECOMPUTE_CHUNK_DAYS, sample_job_ids)
+        failures += _ensure_for_team(context, team, team_window(team, window), PRECOMPUTE_CHUNK_DAYS, sample_job_ids)
         processed.append(team_id)
 
     context.log.info(f"web_dimensional_precompute_complete teams={len(processed)} failures={failures}")
@@ -415,8 +408,16 @@ def check_web_dimensional_precompute_coverage_op(
         ).values_list("id", "query_hash")
     }
 
+    teams_by_id = {team.pk: team for team in Team.objects.filter(pk__in=run.team_ids)}
     coverages: list[TableCoverage] = []
     for team_id in run.team_ids:
+        team = teams_by_id.get(team_id)
+        if team is None:
+            continue
+        window = team_window(team, run.window)
+        # A team whose sessions history starts after the window has no days to build or check.
+        if window.start >= window.end:
+            continue
         for table in (STATS_TABLE, BOUNCES_TABLE):
             job_id = run.sample_job_ids.get((team_id, table))
             coverages.append(
@@ -424,7 +425,7 @@ def check_web_dimensional_precompute_coverage_op(
                     team_id=team_id,
                     table=table,
                     query_hash=query_hash_by_job_id.get(job_id) if job_id is not None else None,
-                    window=run.window,
+                    window=window,
                     current_day=run.current_day,
                     now=now,
                 )
@@ -459,7 +460,7 @@ def check_web_dimensional_precompute_coverage_op(
         f"{TODAY_MAX_LAG_SECONDS // 60} minutes."
     ),
     tags={
-        "owner": JobOwners.TEAM_WEB_ANALYTICS.value,
+        "owner": JobOwners.TEAM_ANALYTICS.value,
         "dagster/max_runtime": str(2 * 60 * 60),
     },
 )
@@ -476,7 +477,7 @@ def web_dimensional_precompute_job():
     cron_schedule="7,27,47 * * * *",
     job=web_dimensional_precompute_job,
     execution_timezone="UTC",
-    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+    tags={"owner": JobOwners.TEAM_ANALYTICS.value},
 )
 @skip_on_kill_switch
 def web_dimensional_precompute_schedule(

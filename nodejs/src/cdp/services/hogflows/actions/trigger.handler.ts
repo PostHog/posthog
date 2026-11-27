@@ -16,7 +16,7 @@ import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './acti
 
 // The slice of IntegrationManagerService the own-app check needs, so this handler and its tests
 // don't depend on the concrete Postgres-backed service. getMany has no team scoping of its own
-// (it's a raw lookup by id, see IntegrationManagerService.fetchIntegrations), so team_id travels
+// (it's a raw lookup by id, see IntegrationSource.load), so team_id travels
 // with the result and every caller must check it - the same contract hog-inputs.service.ts uses.
 export interface SlackAppLookup {
     getMany(

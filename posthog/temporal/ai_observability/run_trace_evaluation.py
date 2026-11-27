@@ -14,6 +14,8 @@ each execute activity fetches the trace itself and returns only the small verdic
 
 import json
 import asyncio
+from collections.abc import Callable, Sequence
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
@@ -36,13 +38,8 @@ from posthog.hogql_queries.ai.trace_query_runner import TraceQueryRunner
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai_observability.evaluation_errors import is_terminal_user_error_result
-from posthog.temporal.ai_observability.evaluation_event_io import as_utc_datetime, extract_event_io
-from posthog.temporal.ai_observability.evaluation_hog import (
-    build_hog_event_global,
-    execute_hog_eval_bytecode,
-    finalize_hog_eval_result,
-    hog_bytecode_references_global,
-)
+from posthog.temporal.ai_observability.evaluation_event_io import as_utc_datetime
+from posthog.temporal.ai_observability.evaluation_hog import finalize_hog_eval_result
 from posthog.temporal.ai_observability.evaluation_llm_judge import (
     LLM_JUDGE_RETRY_POLICY,
     call_llm_judge,
@@ -63,7 +60,7 @@ from posthog.temporal.ai_observability.evaluation_workflow_activities import (
     emit_internal_telemetry_activity,
     fetch_evaluation_activity,
 )
-from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
+from posthog.temporal.ai_observability.judge_attachments import build_attachment_prompt
 from posthog.temporal.ai_observability.metrics import increment_emit_event_outcome, increment_errors
 from posthog.temporal.ai_observability.run_evaluation import (
     WorkflowResult,
@@ -81,6 +78,14 @@ from posthog.temporal.ai_observability.team_capture import (
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.utils import close_db_connections
 
+from products.ai_observability.backend.facade.evaluation_runtime import (
+    JUDGE_TRACE_FALLBACK_MAX_CHARS,
+    JUDGE_TRACE_MAX_CHARS,
+    build_trace_hog_globals,
+    execute_hog_eval_bytecode,
+    extract_event_io,
+    extract_text_from_messages,
+)
 from products.ai_observability.backend.models.evaluation_configs import (
     EVALUATION_TEST_LOOKBACK_DAYS,
     TRACE_EVAL_DEFAULT_WINDOW_SECONDS,
@@ -92,7 +97,9 @@ from products.ai_observability.backend.text_repr.formatters import (
     format_trace_text_repr,
     llm_trace_to_formatter_format,
 )
+from products.ai_observability.backend.text_repr.formatters.media_blocks import MediaMarker
 from products.ai_observability.backend.text_repr.formatters.message_formatter import has_message_content
+from products.ai_observability.backend.text_repr.formatters.repeated_input import RepeatedInputHistory
 
 if TYPE_CHECKING:
     from posthog.models import User
@@ -107,11 +114,6 @@ TRACE_EVENTS_LOOKBACK = timedelta(hours=24)
 # Guard against degenerate traces (e.g. a bug attaching everything to trace id "0"): traces
 # above this event count are skipped without fetching their payload.
 MAX_TRACE_EVAL_EVENTS = 500
-
-# Char budget for the judge transcript. The shared formatter defaults to ~2M chars (sized to
-# fill an LLM context window for summarization); a per-trace judge verdict doesn't need that
-# much, so we cap lower to bound cost. Over budget, the formatter uniformly samples lines.
-JUDGE_TRACE_MAX_CHARS = 150_000
 
 _TRACE_EVENT_NAMES = ("$ai_span", "$ai_generation", "$ai_embedding", "$ai_metric", "$ai_feedback", "$ai_trace")
 
@@ -330,13 +332,18 @@ def _fetch_trace(
 
 
 def fetch_trace_for_evaluation(
-    team_id: int, trace_id: str, window_start: datetime, window_end: datetime | None = None
+    team_id: int,
+    trace_id: str,
+    window_start: datetime,
+    window_end: datetime | None = None,
+    *,
+    user: "User | None" = None,
 ) -> TraceFetchOutcome:
     """Fetch the full trace for an online evaluation run, looking back from the workflow start."""
     team = Team.objects.get(id=team_id)
     date_from = window_start - TRACE_EVENTS_LOOKBACK
     date_to = window_end or datetime.now(UTC)
-    return _fetch_trace(team, trace_id, date_from, date_to, bound_to_date_to=window_end is not None)
+    return _fetch_trace(team, trace_id, date_from, date_to, bound_to_date_to=window_end is not None, user=user)
 
 
 @frozen
@@ -436,6 +443,41 @@ def _sample_recent_traces(
     ]
 
 
+def sample_test_traces(
+    team: Team,
+    condition_filter: ast.Expr | None,
+    sample_count: int,
+    *,
+    window_seconds: int = TRACE_EVAL_DEFAULT_WINDOW_SECONDS,
+    lookback_days: int = EVALUATION_TEST_LOOKBACK_DAYS,
+    user: "User | None" = None,
+    sample_ids: Sequence[str] | None = None,
+) -> list[TraceHogTestSample]:
+    """Traces an editor preview runs on: settled matches from the lookback, or exactly `sample_ids`.
+
+    Pinned traces skip the conditions and the settle cutoff, so a trace the user picked is tested even
+    if its window is still open.
+    """
+    now = datetime.now(UTC)
+    if sample_ids:
+        condition_filter = ast.CompareOperation(
+            op=ast.CompareOperationOp.In, left=ast.Field(chain=["trace_id"]), right=ast.Constant(value=list(sample_ids))
+        )
+        sample_count = len(sample_ids)
+        date_to = now
+    else:
+        # Only triggers whose full aggregation window has elapsed.
+        date_to = now - timedelta(seconds=window_seconds)
+    return _sample_recent_traces(
+        team,
+        condition_filter,
+        sample_count,
+        date_to - timedelta(days=lookback_days),
+        date_to,
+        user=user,
+    )
+
+
 def _trace_io_preview(trace: LLMTrace) -> tuple[str, str]:
     """First non-empty input and last non-empty output across the trace's events, for a compact
     preview. The Hog body still sees the full trace globals; this is only for display."""
@@ -463,25 +505,23 @@ def run_hog_eval_over_recent_traces(
     output_type: str = "boolean",
     output_config: dict[str, Any] | None = None,
     user: "User | None" = None,
+    sample_ids: Sequence[str] | None = None,
 ) -> list[TraceHogTestResult]:
     """Sample recent traces matching the conditions and run trace-level Hog bytecode against each.
 
     Shared by the editor `test_hog` endpoint and Max's authoring tool so a trace-target eval is
     previewed the same way it runs online — whole trace, trace globals — instead of against a
-    single generation.
+    single generation. `sample_ids` tests exactly those traces instead of sampling.
     """
-    now = datetime.now(UTC)
     window = timedelta(seconds=window_seconds)
-    # Only sample triggers whose full aggregation window has elapsed.
-    sample_date_to = now - window
-    sample_date_from = sample_date_to - timedelta(days=lookback_days)
-    trace_samples = _sample_recent_traces(
+    trace_samples = sample_test_traces(
         team,
         condition_filter,
         sample_count,
-        sample_date_from,
-        sample_date_to,
+        window_seconds=window_seconds,
+        lookback_days=lookback_days,
         user=user,
+        sample_ids=sample_ids,
     )
 
     results: list[TraceHogTestResult] = []
@@ -549,7 +589,15 @@ def build_trace_system_prompt(
 {config.instructions}"""
 
 
-def format_trace_for_judge(trace: LLMTrace) -> str:
+@frozen
+class JudgeTranscript:
+    text: str
+    truncated: bool
+
+
+def format_trace_for_judge(
+    trace: LLMTrace, media_marker: MediaMarker | None = None, max_chars: int = JUDGE_TRACE_MAX_CHARS
+) -> JudgeTranscript:
     """Serialize a trace into the canonical text representation for the LLM judge.
 
     Preserve complete generation outputs before truncating them so the judge does not grade
@@ -563,21 +611,26 @@ def format_trace_for_judge(trace: LLMTrace) -> str:
         "preserve_generation_output": True,
         "include_line_numbers": True,
         "max_length": None,
-        "max_render_length": JUDGE_TRACE_MAX_CHARS,
+        "max_render_length": max_chars,
     }
+    if media_marker is not None:
+        options["media_marker"] = media_marker
     for truncated in (False, True):
         options["truncated"] = truncated
+        options["repeated_input_history"] = RepeatedInputHistory()
         try:
             text, _ = format_trace_text_repr(trace_dict, hierarchy, options)
-            return text
+            return JudgeTranscript(text=text, truncated=truncated)
         except RenderBudgetExceeded:
             pass
 
     del options["max_render_length"]
     options["preserve_generation_output"] = False
-    options["max_length"] = JUDGE_TRACE_MAX_CHARS
+    options["max_length"] = max_chars
+    # Sampling drops lines anywhere, so it could keep a reference and drop the message it points at.
+    del options["repeated_input_history"]
     text, _ = format_trace_text_repr(trace_dict, hierarchy, options)
-    return text
+    return JudgeTranscript(text=text, truncated=True)
 
 
 def _has_state_content(state: object, *, is_output: bool = False) -> bool:
@@ -603,56 +656,6 @@ def _has_judge_transcript(trace: LLMTrace) -> bool:
     )
 
 
-def build_trace_hog_globals(trace: LLMTrace, trace_id: str, *, bytecode: list[Any] | None = None) -> dict[str, Any]:
-    """Build Hog globals for a trace-level eval.
-
-    `events` and `trace` keep their original shapes for saved trace Hog source. New target-independent
-    source uses `evaluation_events`, which adds readable text projections, and `target`.
-
-    Existing bytecode receives the original globals. Bytecode that uses a new shared global only
-    builds the event collections it references, avoiding duplicate HogVM and worker memory cost.
-    """
-    trace_events = trace.events or []
-    references_target = bytecode is not None and hog_bytecode_references_global(bytecode, "target")
-    references_events = bytecode is not None and hog_bytecode_references_global(bytecode, "events")
-    references_evaluation_events = bytecode is not None and hog_bytecode_references_global(
-        bytecode, "evaluation_events"
-    )
-    can_skip_compatibility_events = (references_target or references_evaluation_events) and not references_events
-    globals_dict: dict[str, Any] = {
-        "trace": {"id": trace_id, "event_count": len(trace_events)},
-    }
-    if bytecode is None or references_target:
-        globals_dict["target"] = {
-            "type": "trace",
-            "id": trace_id,
-            "total_cost_usd": trace.totalCost,
-            "total_latency_seconds": trace.totalLatency,
-        }
-    if bytecode is None or not can_skip_compatibility_events:
-        globals_dict["events"] = [
-            build_hog_event_global(
-                event.event,
-                event.properties,
-                event_uuid=event.id,
-                timestamp=event.createdAt,
-                include_text=False,
-            )
-            for event in trace_events
-        ]
-    if bytecode is None or references_evaluation_events:
-        globals_dict["evaluation_events"] = [
-            build_hog_event_global(
-                event.event,
-                event.properties,
-                event_uuid=event.id,
-                timestamp=event.createdAt,
-            )
-            for event in trace_events
-        ]
-    return globals_dict
-
-
 @temporalio.activity.defn
 @close_db_connections
 # capture_exceptions=False: the worker interceptor reports judge failures, and its capture carries
@@ -664,6 +667,18 @@ def execute_trace_llm_judge_activity(inputs: ExecuteTraceEvaluationInputs) -> Ev
     Fetch and judge happen in one activity on purpose: returning the trace through the
     workflow would hit Temporal's ~2 MiB payload limit on large traces.
     """
+    return run_trace_llm_judge(inputs)
+
+
+def run_trace_llm_judge(
+    inputs: ExecuteTraceEvaluationInputs,
+    *,
+    user: "User | None" = None,
+    reading: Callable[[], AbstractContextManager[None]] = nullcontext,
+) -> EvaluationActivityResult:
+    """The trace judge outside any activity wrapper, so the editor's test endpoint grades a trace
+    exactly the way a live run does. A test passes the requesting user, so their property restrictions
+    apply to what the judge reads, and `reading`, which wraps the ClickHouse read and not the model call."""
     evaluation = inputs.evaluation
 
     if evaluation["evaluation_type"] != "llm_judge":
@@ -686,23 +701,60 @@ def execute_trace_llm_judge_activity(inputs: ExecuteTraceEvaluationInputs) -> Ev
     output_config = evaluation.get("output_config") or {}
     allows_na = output_config.get("allows_na", False)
 
-    outcome = fetch_trace_for_evaluation(
-        inputs.team_id, inputs.trace_id, datetime.fromisoformat(inputs.window_start), inputs.window_end_datetime
-    )
+    with reading():
+        outcome = fetch_trace_for_evaluation(
+            inputs.team_id,
+            inputs.trace_id,
+            datetime.fromisoformat(inputs.window_start),
+            inputs.window_end_datetime,
+            user=user,
+        )
     if outcome.skip_reason or outcome.trace is None:
         return _build_trace_skip_result(allows_na, outcome.skip_reason or "trace_not_found", output_type=output_type)
     if not _has_judge_transcript(outcome.trace):
         return _build_trace_skip_result(allows_na, "trace_not_found", output_type=output_type)
 
-    return call_llm_judge(
-        evaluation=evaluation,
-        system_prompt=build_trace_system_prompt(
-            prompt, allows_na, output_type=output_type, output_config=output_config
-        ),
-        user_prompt=format_trace_for_judge(outcome.trace),
-        allows_na=allows_na,
-        backfill=inputs.backfill_id is not None,
-    )
+    trace = outcome.trace
+    system_prompt = build_trace_system_prompt(prompt, allows_na, output_type=output_type, output_config=output_config)
+
+    def judge(max_chars: int) -> tuple[EvaluationActivityResult, JudgeTranscript]:
+        transcript = format_trace_for_judge(trace, max_chars=max_chars)
+        marked: list[JudgeTranscript] = []
+
+        def render_marked(media_marker: MediaMarker) -> str:
+            marked.append(format_trace_for_judge(trace, media_marker, max_chars))
+            return marked[-1].text
+
+        attachment_prompt = build_attachment_prompt(evaluation, transcript.text, render_marked)
+        # Every judge path sends the marked render when there is one: the chat call with its attachments, and
+        # decision models and the retry after a rejected attachment without them. The two renders can be cut
+        # differently, because inline base64 renders in full in the plain one and as a short marker in the other.
+        sent = marked[-1] if attachment_prompt is not None else transcript
+        result = call_llm_judge(
+            evaluation=evaluation,
+            system_prompt=system_prompt,
+            user_prompt=attachment_prompt.unnumbered_text() if attachment_prompt is not None else transcript.text,
+            allows_na=allows_na,
+            backfill=inputs.backfill_id is not None,
+            attachment_prompt=attachment_prompt,
+            # The 150k retry keeps the attachments, so a judge asked about a screenshot still sees it.
+            retry_without_attachments_on_overflow=len(sent.text) <= JUDGE_TRACE_FALLBACK_MAX_CHARS,
+        )
+        if sent.truncated:
+            result["input_truncated"] = True
+        return result, sent
+
+    result, sent = judge(JUDGE_TRACE_MAX_CHARS)
+    if result.get("skip_reason") == "context_window_exceeded" and len(sent.text) > JUDGE_TRACE_FALLBACK_MAX_CHARS:
+        result, _ = judge(JUDGE_TRACE_FALLBACK_MAX_CHARS)
+        logger.info(
+            "trace_judge_context_window_fallback",
+            evaluation_id=evaluation["id"],
+            team_id=inputs.team_id,
+            first_transcript_chars=len(sent.text),
+            recovered=not result.get("skipped", False),
+        )
+    return result
 
 
 @temporalio.activity.defn

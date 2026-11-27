@@ -1,10 +1,8 @@
 import json
 import socket
 import asyncio
-from collections.abc import Generator
 from dataclasses import dataclass
 from typing import Any
-from urllib.parse import urlparse
 
 import dagster
 import psycopg2
@@ -23,9 +21,6 @@ from posthog.clickhouse.client.connection import (
     is_file_backed_user,
 )
 from posthog.clickhouse.cluster import ClickhouseCluster, RetryPolicy, get_cluster
-from posthog.kafka_client.client import _KafkaProducer
-from posthog.kafka_client.profiles import KafkaClusterProfile
-from posthog.kafka_client.routing import get_producer
 from posthog.redis import get_client, redis
 from posthog.utils import initialize_self_capture_api_token
 
@@ -147,51 +142,6 @@ class OpsClickhouseClusterResource(SatelliteClickhouseClusterResource):
     satellite_cluster: str = settings.CLICKHOUSE_OPS_CLUSTER
 
 
-class BackupsClickhouseClusterResource(dagster.ConfigurableResource):
-    """
-    ClickHouse cluster resource that connects as the dedicated 'backups' user.
-
-    Requires CLICKHOUSE_BACKUPS_USER and either CLICKHOUSE_BACKUPS_PASSWORD or
-    CLICKHOUSE_BACKUPS_PASSWORD_FILE env vars.
-    The backups user must have a server-side settings profile with
-    use_concurrency_control=0 (configured in users.xml via Ansible) because
-    async BACKUP threads don't inherit session-level settings.
-    """
-
-    host: str = settings.CLICKHOUSE_HOST
-    cluster: str = settings.CLICKHOUSE_CLUSTER
-
-    client_settings: dict[str, str] = {
-        "max_execution_time": "0",
-        "max_memory_usage": "0",
-        "mutations_sync": "0",
-        "receive_timeout": f"{60 * 60}",  # backups can take a long time
-    }
-
-    def create_resource(self, context: dagster.InitResourceContext) -> ClickhouseCluster:
-        assert context.log is not None
-        creds = get_clickhouse_creds(ClickHouseUser.BACKUPS)
-        from django.conf import settings as django_settings
-
-        if creds.user == django_settings.CLICKHOUSE_USER:
-            context.log.warning(
-                "CLICKHOUSE_BACKUPS_USER not configured, falling back to default user. "
-                "Backups will not use the dedicated 'backups' profile with use_concurrency_control=0."
-            )
-        return get_cluster(
-            context.log,
-            host=self.host,
-            cluster=self.cluster,
-            client_settings=self.client_settings,
-            retry_policy=RetryPolicy(
-                max_attempts=8,
-                delay=ExponentialBackoff(delay=20, max_delay=60),
-                exceptions=_is_retryable_clickhouse_exception,
-            ),
-            connection_overrides=_dedicated_user_connection_overrides(creds),
-        )
-
-
 class PartBreakerClickhouseClusterResource(dagster.ConfigurableResource):
     """
     ClickHouse cluster resource that connects as the dedicated 'part_breaker' user.
@@ -284,27 +234,6 @@ class PostHogAnalyticsResource(dagster.ConfigurableResource):
         return None
 
 
-class PostgresURLResource(dagster.ConfigurableResource):
-    """
-    Postgres connection that parses a connection URL.
-    Delegates to PostgresResource for actual connection logic.
-    Expects format: postgres://user:pass@host:port/dbname
-    """
-
-    connection_url: str
-
-    def create_resource(self, context: dagster.InitResourceContext) -> psycopg2.extensions.connection:
-        parsed = urlparse(self.connection_url)
-        pg = PostgresResource(
-            host=parsed.hostname or "",
-            port=str(parsed.port or 5432),
-            database=parsed.path.lstrip("/"),
-            user=parsed.username or "",
-            password=parsed.password or "",
-        )
-        return pg.create_resource(context)
-
-
 class PostgresURL(dagster.ConfigurableResource):
     """A Postgres connection URL handed to the op unopened.
 
@@ -317,25 +246,6 @@ class PostgresURL(dagster.ConfigurableResource):
 
     def create_resource(self, context: dagster.InitResourceContext) -> str:
         return self.connection_url
-
-
-@dagster.resource
-def kafka_producer_resource(context: dagster.InitResourceContext) -> Generator[_KafkaProducer]:
-    """Yield a singleton Kafka producer bound to the INGESTION (WarpStream) profile; flush on teardown.
-
-    Consumers of this resource produce to `clickhouse_person` / `clickhouse_person_distinct_id`,
-    which the routing map sends to the INGESTION profile. Binding the resource here keeps
-    that explicit so a chart misconfiguration (missing `KAFKA_INGESTION_HOSTS`)
-    fails loud rather than silently dropping writes via the DEFAULT fallback.
-
-    Ops producing to topics on a different profile must call
-    `posthog.kafka_client.routing.get_producer(topic=...)` directly.
-    """
-    producer = get_producer(profile=KafkaClusterProfile.INGESTION)
-    try:
-        yield producer
-    finally:
-        producer.flush()
 
 
 def _is_retryable_http_error(exception: BaseException) -> bool:

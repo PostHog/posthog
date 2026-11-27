@@ -34,14 +34,19 @@ export interface SetupExpressAppOptions {
     internalApiSecretFallbacks?: string
     // JSON body size limit, e.g. '20mb'. Overridable in tests.
     jsonBodyLimit?: string
+    // Path prefixes that only serve reads. Other methods get a 405 before the body parser buffers anything, so an
+    // unauthenticated caller cannot make the server parse a large body for a route that never reads one.
+    readOnlyPathPrefixes?: string[]
 }
+
+const READ_METHODS = new Set(['GET', 'HEAD', 'OPTIONS'])
 
 export function setupCommonRoutes(
     app: express.Application,
-    services: Pick<PluginServerService, 'id' | 'healthcheck'>[]
+    services: Pick<PluginServerService, 'id' | 'healthcheck' | 'readinessCheck'>[]
 ): express.Application {
-    app.get('/_health', buildGetHealth(services))
-    app.get('/_ready', buildGetHealth(services))
+    app.get('/_health', buildGetHealth(services, false))
+    app.get('/_ready', buildGetHealth(services, true))
     app.get('/_metrics', getMetrics)
     app.get('/metrics', getMetrics)
 
@@ -70,6 +75,18 @@ export function setupExpressApp(options: SetupExpressAppOptions = {}): express.A
         })
     )
 
+    const readOnlyPathPrefixes = options.readOnlyPathPrefixes ?? []
+    if (readOnlyPathPrefixes.length > 0) {
+        app.use((req: Request, res: Response, next: NextFunction) => {
+            if (!READ_METHODS.has(req.method) && readOnlyPathPrefixes.some((prefix) => req.path.startsWith(prefix))) {
+                res.set('Allow', 'GET, HEAD, OPTIONS')
+                res.status(405).json({ error: 'Method not allowed' })
+                return
+            }
+            next()
+        })
+    }
+
     app.use(
         express.json({
             limit: options.jsonBodyLimit ?? '20mb',
@@ -90,6 +107,10 @@ export function setupExpressApp(options: SetupExpressAppOptions = {}): express.A
             res.status(413).json({ status: 'error', error: 'Request entity too large' })
             return
         }
+        if (err?.type === 'encoding.malformed') {
+            res.status(400).json({ status: 'error', error: 'Malformed compressed body' })
+            return
+        }
         next(err)
     })
 
@@ -99,7 +120,8 @@ export function setupExpressApp(options: SetupExpressAppOptions = {}): express.A
 export type ModifiedRequest = Request & { rawBody?: string }
 
 const buildGetHealth =
-    (services: Pick<PluginServerService, 'id' | 'healthcheck'>[]) => async (req: Request, res: Response) => {
+    (services: Pick<PluginServerService, 'id' | 'healthcheck' | 'readinessCheck'>[], readiness: boolean) =>
+    async (req: Request, res: Response) => {
         // Check that all health checks pass. Note that a failure of these
         // _may_ result in the process being terminated by e.g. Kubernetes
         // so the stakes are high.
@@ -127,6 +149,9 @@ const buildGetHealth =
         const healthCheckPromises = services.map(async (service) => {
             try {
                 const result = await service.healthcheck()
+                if (readiness && service.readinessCheck && !result.isError()) {
+                    return { service, result: await service.readinessCheck() }
+                }
                 return { service, result }
             } catch (error) {
                 // If healthcheck throws, create an error result

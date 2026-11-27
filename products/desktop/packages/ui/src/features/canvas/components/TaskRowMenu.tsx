@@ -3,6 +3,8 @@ import {
   ArrowSquareOutIcon,
   CaretRightIcon,
   DotsThreeIcon,
+  EnvelopeSimpleIcon,
+  EnvelopeSimpleOpenIcon,
   FolderSimpleIcon,
   LinkIcon,
   MagnifyingGlassIcon,
@@ -46,6 +48,7 @@ import { copyChannelLink } from "@posthog/ui/features/canvas/utils/copyChannelLi
 import { useSidebarPeekStore } from "@posthog/ui/features/sidebar/sidebarPeekStore";
 import { useHoldSidebarPeek } from "@posthog/ui/features/sidebar/useHoldSidebarPeek";
 import type { SidebarBulkActions } from "@posthog/ui/features/sidebar/useSidebarBulkActions";
+import { useTaskReadItem } from "@posthog/ui/features/sidebar/useToggleTaskRead";
 import { useTaskAnalysis } from "@posthog/ui/features/task-detail/components/TaskAnalysisButton";
 import {
   type MenuFlyoutItem,
@@ -134,6 +137,27 @@ function TaskAnalysisMenuItem({
   );
 }
 
+function TaskReadMenuItem({
+  Item,
+  task,
+}: {
+  Item: MenuParts["Item"];
+  task: Task;
+}): ReactElement {
+  const { isUnread, toggle } = useTaskReadItem(task);
+
+  return (
+    <Item onClick={toggle}>
+      {isUnread ? (
+        <EnvelopeSimpleOpenIcon size={14} />
+      ) : (
+        <EnvelopeSimpleIcon size={14} />
+      )}
+      {isUnread ? "Mark as read" : "Mark as unread"}
+    </Item>
+  );
+}
+
 /**
  * The row's actions, in the order the native menu used: the edits, then the
  * places a task can be sent, then the destructive one last.
@@ -194,6 +218,7 @@ function TaskRowMenuItems({
         <LinkIcon size={14} />
         Copy link
       </Item>
+      {isTask && menu.task && <TaskReadMenuItem Item={Item} task={menu.task} />}
       <Item onClick={menu.onTogglePin}>
         {menu.isPinned ? (
           <PushPinSlashIcon size={14} />

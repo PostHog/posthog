@@ -1,130 +1,89 @@
-import { useCallback, useMemo } from 'react'
+import { type ValueDomain } from '@posthog/quill-charts'
+import { ToggleGroup, ToggleGroupItem } from '@posthog/quill-primitives'
 
-import {
-    BarChart,
-    type BarChartConfig,
-    type ChartTheme,
-    type PointClickData,
-    type Series,
-    type TooltipContext,
-    ValueLabels,
-} from '@posthog/quill-charts'
-import { Skeleton } from '@posthog/quill-primitives'
-
-import { useChartConfig } from 'lib/charts/hooks'
 import { formatPercentage } from 'lib/utils/numbers'
 
 import { type ToolRow } from '../mcpDashboardOverviewLogic'
-import { Card, CardState } from './Card'
-import { ChartTooltip } from './ChartTooltip'
+import { formatNumber } from './formatters'
+import { RankedToolBarChart, type RankedToolBarChartProps, type RankedToolMetric } from './RankedToolBarChart'
 
-const MAX_TOOLS = 8
+export type ErrorRanking = 'rate' | 'count'
 
-// Upper bound for the error-rate track: a bit above the worst tool's rate, rounded up to a clean 10 —
+const formatErrorRate = (value: number): string => formatPercentage(value, { compact: true })
+
+// Upper bound for the error-rate track: a bit above the worst tool's rate, rounded up to a clean 10,
 // so the track ends just past the data (a 30% max gives a 50% track) rather than an empty-looking 100%.
-function niceErrorAxisMax(maxRate: number): number {
-    return Math.min(100, Math.max(10, Math.ceil((maxRate * 1.4) / 10) * 10))
+function errorRateDomain(maxRate: number): ValueDomain {
+    return { min: 0, max: Math.min(100, Math.max(10, Math.ceil((maxRate * 1.4) / 10) * 10)) }
+}
+
+// Headroom past the top tool, which the axis then rounds up, so its value label fits.
+const errorCountDomain = (maxErrors: number): ValueDomain => ({ min: 0, include: [maxErrors * 1.2] })
+
+const errorRate = (row: ToolRow): number => row.error_rate_pct
+const errorCount = (row: ToolRow): number => row.errors
+
+const errorRateTooltipRows = (row: ToolRow): [string, string][] => [
+    ['Error rate', formatErrorRate(row.error_rate_pct)],
+    ['Errors', String(row.errors)],
+    ['Calls', String(row.total_calls)],
+]
+
+const TITLES: Record<ErrorRanking, string> = {
+    rate: 'Tools with the highest error rate',
+    count: 'Tools with the most errors',
 }
 
 export function ToolErrorRateChart({
-    rows,
-    loading,
+    title,
     theme,
-    onToolClick,
-    title = 'Tools with the highest error rate',
-    emptyMessage = 'No tool calls yet.',
-}: {
-    rows: ToolRow[]
-    loading: boolean
-    theme: ChartTheme
-    onToolClick?: (tool: string) => void
+    by = 'rate',
+    onByChange,
+    dataAttr,
+    ...props
+}: Omit<RankedToolBarChartProps, 'title'> & {
     title?: string
-    emptyMessage?: string
+    by?: ErrorRanking
+    /** Adds a switch between ranking by error rate and by error count. */
+    onByChange?: (by: ErrorRanking) => void
+    dataAttr?: string
 }): JSX.Element {
-    const sorted = useMemo(
-        () => [...rows].sort((a, b) => b.error_rate_pct - a.error_rate_pct).slice(0, MAX_TOOLS),
-        [rows]
-    )
-    const labels = useMemo(() => sorted.map((r) => r.tool), [sorted])
-    const series = useMemo<Series[]>(
-        () => [
-            {
-                key: 'errorRate',
-                label: 'Error rate',
-                color: theme.colors[4],
-                data: sorted.map((r) => r.error_rate_pct),
-            },
-        ],
-        [sorted, theme]
-    )
-    const config = useChartConfig<BarChartConfig>(() => {
-        const axisMax = niceErrorAxisMax(sorted[0]?.error_rate_pct ?? 0)
-        return {
-            axisOrientation: 'horizontal',
-            barLayout: 'grouped',
-            showAxisLines: true,
-            showTickMarks: true,
-            showCrosshair: true,
-            showGrid: true,
-            yTickFormatter: (value: number) => formatPercentage(value, { compact: true }),
-            tooltip: { placement: 'cursor' },
-            margins: { top: 4, right: 20, bottom: 22 },
-            barCornerRadius: 4,
-            bars: { minBandSize: 30, valueDomain: { min: 0, max: axisMax } },
-        }
-    }, [sorted])
-    const byTool = useMemo(() => new Map(sorted.map((r) => [r.tool, r])), [sorted])
-    const renderTooltip = useCallback(
-        (ctx: TooltipContext): JSX.Element | null => {
-            const row = byTool.get(ctx.label)
-            if (!row) {
-                return null
-            }
-            return (
-                <ChartTooltip
-                    title={row.tool}
-                    rows={[
-                        ['Error rate', formatPercentage(row.error_rate_pct, { compact: true })],
-                        ['Errors', String(row.errors)],
-                        ['Calls', String(row.total_calls)],
-                    ]}
-                />
-            )
-        },
-        [byTool]
-    )
-    const handlePointClick = useCallback((data: PointClickData) => onToolClick?.(data.label), [onToolClick])
-
+    const metric: RankedToolMetric = {
+        label: by === 'rate' ? 'Error rate' : 'Errors',
+        color: theme.colors[4],
+        value: by === 'rate' ? errorRate : errorCount,
+        formatValue: by === 'rate' ? formatErrorRate : formatNumber,
+        valueDomain: by === 'rate' ? errorRateDomain : errorCountDomain,
+        tooltipRows: errorRateTooltipRows,
+    }
     return (
-        <Card title={title}>
-            <CardState
-                loading={loading}
-                isEmpty={rows.length === 0}
-                skeleton={
-                    <div className="space-y-2 py-3">
-                        {Array.from({ length: 5 }).map((_, i) => (
-                            <Skeleton key={i} className="h-7 w-full" />
-                        ))}
+        <RankedToolBarChart
+            {...props}
+            title={title ?? TITLES[by]}
+            theme={theme}
+            action={
+                onByChange ? (
+                    <div className="flex items-center gap-2">
+                        {props.action}
+                        <ToggleGroup
+                            className="-my-1"
+                            value={[by]}
+                            onValueChange={(next) => next[0] && onByChange(next[0] as ErrorRanking)}
+                            aria-label="Rank tools by"
+                        >
+                            <ToggleGroupItem value="rate" size="sm" data-attr={`${dataAttr}-by-rate`}>
+                                Error rate
+                            </ToggleGroupItem>
+                            <ToggleGroupItem value="count" size="sm" data-attr={`${dataAttr}-by-count`}>
+                                Total errors
+                            </ToggleGroupItem>
+                        </ToggleGroup>
                     </div>
-                }
-                empty={<div className="py-6 text-center text-[12px] text-secondary">{emptyMessage}</div>}
-            >
-                <div className="flex min-h-80 flex-1 flex-col">
-                    <BarChart
-                        series={series}
-                        labels={labels}
-                        config={config}
-                        theme={theme}
-                        tooltip={renderTooltip}
-                        onPointClick={onToolClick ? handlePointClick : undefined}
-                    >
-                        <ValueLabels
-                            valueFormatter={(value) => formatPercentage(value, { compact: true })}
-                            offset={6}
-                        />
-                    </BarChart>
-                </div>
-            </CardState>
-        </Card>
+                ) : (
+                    props.action
+                )
+            }
+            metric={metric}
+        />
     )
 }

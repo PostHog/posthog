@@ -42,6 +42,10 @@ const startupRetryability = {
   worktree_unverified: "transient",
   cli_version_too_old: "requires_action",
   bypass_root: "requires_action",
+  sandbox_required_unavailable: "requires_action",
+  provider_not_allowed: "requires_action",
+  org_config_required_unavailable: "unknown",
+  org_config_refused: "requires_action",
 } satisfies Record<SDKStartupFailureReason, StartupFailure["retryability"]>;
 
 const startupResultSchema = z.object({

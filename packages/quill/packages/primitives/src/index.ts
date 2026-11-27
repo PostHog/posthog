@@ -101,6 +101,17 @@ export {
     ThreadItemRepliesMeta,
 } from './chat/thread-item'
 export { ButtonGroup, ButtonGroupSeparator, ButtonGroupText, buttonGroupVariants } from './button-group'
+export {
+    Callout,
+    CalloutIcon,
+    CalloutContent,
+    CalloutTitle,
+    CalloutDescription,
+    CalloutActions,
+    CalloutClose,
+    type CalloutTone,
+    type CalloutProps,
+} from './callout'
 export { Card, CardHeader, CardFooter, CardTitle, CardAction, CardDescription, CardContent } from './card'
 export { CardGroup } from './card-group'
 export { Checkbox, CheckboxIndicator } from './checkbox'
@@ -167,16 +178,22 @@ export {
     DrawerContent,
     DrawerHandle,
     DrawerHeader,
+    DrawerBody,
     DrawerFooter,
     DrawerTitle,
     DrawerDescription,
+    createDrawerHandle,
 } from './drawer'
 export {
     DropdownMenu,
     DropdownMenuPortal,
     DropdownMenuTrigger,
     DropdownMenuContent,
+    DropdownMenuEmpty,
+    DropdownMenuFilterProvider,
     DropdownMenuGroup,
+    DropdownMenuInput,
+    DropdownMenuList,
     DropdownMenuLabel,
     DropdownMenuItem,
     DropdownMenuCheckboxItem,
@@ -346,6 +363,7 @@ export {
     TableEmpty,
     TableCaption,
 } from './table'
+export { MIN_TABLE_COLUMN_WIDTH, TableColumnResizer } from './table-column-resizer'
 export { Tabs, TabsContent, TabsList, TabsTrigger } from './tabs'
 export { Text, textVariants } from './text'
 export { Textarea } from './textarea'
@@ -354,3 +372,4 @@ export { ToggleGroup, ToggleGroupItem } from './toggle-group'
 export { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger, createTooltipHandle } from './tooltip'
 export { ThemeProvider, useTheme, type Theme } from './theme-provider'
 export { cn } from './lib/utils'
+export { useReducedMotion } from './lib/use-reduced-motion'

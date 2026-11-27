@@ -27,7 +27,13 @@ from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.direct_redshift_table import DirectRedshiftTable
 from posthog.hogql.database.direct_snowflake_table import DirectSnowflakeTable
 from posthog.hogql.database.direct_trino_table import DirectTrinoTable
-from posthog.hogql.database.models import DatabaseField, FieldOrTable, StructDatabaseField
+from posthog.hogql.database.models import (
+    DatabaseField,
+    DecimalDatabaseField,
+    FieldOrTable,
+    StructDatabaseField,
+    clickhouse_decimal_scale,
+)
 from posthog.hogql.database.s3_table import (
     DataWarehouseTable as HogQLDataWarehouseTable,
     build_function_call,
@@ -44,6 +50,9 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.errors import (
     CORRUPTED_PARQUET_METADATA_MESSAGE,
+    INTERNAL_CH_ERROR_USER_MESSAGES,
+    S3_ACCESS_DENIED_MESSAGE,
+    CHQueryErrorS3AccessDenied,
     QueryErrorCategory,
     classify_query_error,
     wrap_clickhouse_query_error,
@@ -95,9 +104,11 @@ SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING: dict[DatabaseSerializedFieldType, str] =
 
 ExtractErrors = {
     "The AWS Access Key Id you provided does not exist": "The Access Key you provided does not exist",
-    "Access Denied: while reading key:": "Access was denied when reading a file from the bucket. Check that the provided credentials can read objects in this bucket (s3:GetObject), then try again.",
+    "Access Denied: while reading key:": S3_ACCESS_DENIED_MESSAGE,
     # A HEAD request has no response body, so S3's denial reaches ClickHouse without "Access Denied".
-    "Failed to get object info: No response body.. HTTP response code: 403": "Access was denied when reading a file from the bucket. Check that the provided credentials can read objects in this bucket (s3:GetObject), then try again.",
+    "Failed to get object info: No response body.. HTTP response code: 403": S3_ACCESS_DENIED_MESSAGE,
+    # Same HEAD-request shape as the 403 above, but for a key that isn't there at all.
+    "Failed to get object info: No response body.. HTTP response code: 404": "The provided file doesn't exist in the bucket. Check the files URL pattern, then try again.",
     # DeltaLake-kernel object_store errors (Delta-format tables, e.g. all warehouse_sources synced
     # tables) use a different vocabulary than ClickHouse's native S3 errors above.
     "The operation lacked the necessary privileges to complete": "Access was denied when reading the provided file",
@@ -111,6 +122,7 @@ ExtractErrors = {
     "S3 exception: `NoSuchBucket`, message: 'The specified bucket does not exist.'": "The provided bucket doesn't exist",
     "Either the file is corrupted or this is not a parquet file": "The provided file is not in Parquet format",
     "deserialize thrift": CORRUPTED_PARQUET_METADATA_MESSAGE,
+    "Failed to parse Parquet Thrift metadata": CORRUPTED_PARQUET_METADATA_MESSAGE,
     "Rows have different amount of values": "The provided file has rows with different amount of values",
     "The operation is not valid for the object's storage class": "Some files in the bucket are archived (e.g. Glacier or S3 Intelligent-Tiering archive). Restore them to Standard storage or narrow the URL pattern to exclude archived files.",
     # TOO_MANY_REDIRECTS, raised when the URL pattern points at something that answers with a
@@ -129,6 +141,8 @@ def raw_error_message(err: Exception) -> str:
     the raw attribute is read before any wrapping. chdb runs out of process and `run_chdb_query`
     re-raises its stderr as a RuntimeError, so there the message is just `str(err)`.
     """
+    if isinstance(err, CHQueryErrorS3AccessDenied) and err.raw_message is not None:
+        return err.raw_message
     if isinstance(err, ClickHouseServerException) and err.message is not None:
         return err.message
     return str(err)
@@ -183,6 +197,13 @@ class DataWarehouseTableIntrospectedColumn(TypedDict):
 
 
 type DataWarehouseTableIntrospectedColumns = dict[str, DataWarehouseTableIntrospectedColumn]
+
+
+class _S3Credentials(TypedDict):
+    access_key: str | None
+    access_secret: str | None
+    credential_required: bool
+
 
 # Internal plumbing columns added during sync, hidden from the HogQL catalog (see hogql_definition)
 # and never user-facing.
@@ -385,12 +406,15 @@ def get_hogql_field_for_column(
     # Support for 'old' style columns
     if isinstance(column_definition, str):
         hogql_type_str = clickhouse_type.partition("(")[0]
-        return LEGACY_CLICKHOUSE_HOGQL_MAPPING[hogql_type_str](name=column_name, nullable=is_nullable)
-
-    return STR_TO_HOGQL_MAPPING.get(
-        str(column_definition.get("hogql", "UnknownDatabaseField")),
-        STR_TO_HOGQL_MAPPING["UnknownDatabaseField"],
-    )(name=column_name, nullable=is_nullable)
+        field = LEGACY_CLICKHOUSE_HOGQL_MAPPING[hogql_type_str](name=column_name, nullable=is_nullable)
+    else:
+        field = STR_TO_HOGQL_MAPPING.get(
+            str(column_definition.get("hogql", "UnknownDatabaseField")),
+            STR_TO_HOGQL_MAPPING["UnknownDatabaseField"],
+        )(name=column_name, nullable=is_nullable)
+    if isinstance(field, DecimalDatabaseField):
+        field.scale = clickhouse_decimal_scale(clickhouse_type)
+    return field
 
 
 def hogql_fields_and_structure_for_columns(
@@ -585,6 +609,24 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         if self.credential_id is not None:
             return None
         return parse_hosted_upload(self.team_id, self.url_pattern or "")
+
+    @property
+    def team_credential(self) -> DataWarehouseCredential | None:
+        """The table's credential, or None when the row points at a credential of another team.
+
+        The foreign key alone does not hold the two teams equal."""
+        credential = self.credential
+        if credential is None or credential.team_id != self.team_id:
+            return None
+        return credential
+
+    def _s3_credentials(self) -> _S3Credentials:
+        credential = self.team_credential
+        return _S3Credentials(
+            access_key=credential.access_key if credential else None,
+            access_secret=credential.access_secret if credential else None,
+            credential_required=self.credential_id is not None,
+        )
 
     def adopt_into_source(self, source: "ExternalDataSource") -> list[str]:
         """Make a self-managed table one that `source` syncs. Returns the fields this changed.
@@ -808,8 +850,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             url=self.url_pattern,
             queryable_folder=self.queryable_folder,
             format=read_format,
-            access_key=self.credential.access_key if self.credential else None,
-            access_secret=self.credential.access_secret if self.credential else None,
+            **self._s3_credentials(),
             context=placeholder_context,
             table_size_mib=0,
             compression=compression,
@@ -839,8 +880,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             url=self.url_pattern,
             queryable_folder=self.queryable_folder,
             format=describe_format,
-            access_key=self.credential.access_key if self.credential else None,
-            access_secret=self.credential.access_secret if self.credential else None,
+            **self._s3_credentials(),
             context=placeholder_context,
             table_size_mib=0,  # Use the non-cluster s3 table function for chdb
         )
@@ -871,7 +911,12 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                     )
                     break
                 except Exception as err:
-                    if i >= attempts - 1:
+                    # A query-performance-limit error (timeout, memory, size) is a property of this
+                    # query against this file, not a cluster blip - it fails the same way on every
+                    # retry, so retrying only ties the request up for `attempts` rounds of the same
+                    # multi-minute query instead of surfacing the failure.
+                    is_terminal = classify_query_error(err) == QueryErrorCategory.QUERY_PERFORMANCE_ERROR
+                    if is_terminal or i >= attempts - 1:
                         if not is_expected_warehouse_read_error(err):
                             capture_exception(err)
                         if safe_expose_ch_error:
@@ -909,8 +954,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 url=self.url_pattern,
                 queryable_folder=self.queryable_folder,
                 format=self.format,
-                access_key=self.credential.access_key if self.credential else None,
-                access_secret=self.credential.access_secret if self.credential else None,
+                **self._s3_credentials(),
                 context=placeholder_context,
                 table_size_mib=self.size_in_s3_mib,
             )
@@ -963,8 +1007,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             url=self.url_pattern,
             queryable_folder=self.queryable_folder,
             format=self.format,
-            access_key=self.credential.access_key if self.credential else None,
-            access_secret=self.credential.access_secret if self.credential else None,
+            **self._s3_credentials(),
             context=placeholder_context,
             table_size_mib=0,  # Use the non-cluster s3 table function for chdb
             compression=compression,
@@ -1003,35 +1046,52 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             url=self.url_pattern,
             queryable_folder=self.queryable_folder,
             format=self.format,
-            access_key=self.credential.access_key if self.credential else None,
-            access_secret=self.credential.access_secret if self.credential else None,
+            **self._s3_credentials(),
             context=placeholder_context,
             # The real size, so a table too large for one node is counted across the cluster
             # instead of on the node chdb already could not finish on.
             table_size_mib=self.size_in_s3_mib,
         )
-        try:
-            tag_queries(
-                team_id=self.team.pk,
-                table_id=self.id,
-                warehouse_query=True,
-                name="get_count",
-                product=Product.WAREHOUSE,
-                feature=Feature.QUERY,
-            )
+        tag_queries(
+            team_id=self.team.pk,
+            table_id=self.id,
+            warehouse_query=True,
+            name="get_count",
+            product=Product.WAREHOUSE,
+            feature=Feature.QUERY,
+        )
 
-            result = sync_execute(
-                f"SELECT count() FROM {s3_table_func}",
-                args=placeholder_context.values,
-                settings=DISABLE_HIVE_PARTITIONING_SETTINGS,
-            )
-        except Exception as err:
-            if not is_expected_warehouse_read_error(err):
-                capture_exception(err)
-            if safe_expose_ch_error:
-                self._safe_expose_ch_error(err)
-            else:
-                raise
+        # The cluster is a little broken right now, and so this can intermittently fail.
+        # See https://posthog.slack.com/archives/C076R4753Q8/p1756901693184169 for context
+        attempts = 5
+        result = None
+        for i in range(attempts):
+            try:
+                result = sync_execute(
+                    f"SELECT count() FROM {s3_table_func}",
+                    args=placeholder_context.values,
+                    settings=DISABLE_HIVE_PARTITIONING_SETTINGS,
+                )
+                break
+            except Exception as err:
+                # A query-performance-limit error (timeout, memory, size) is a property of this
+                # query against this file, not a cluster blip - it fails the same way on every
+                # retry, so retrying only ties the request up for `attempts` rounds of the same
+                # multi-minute query instead of surfacing the failure.
+                is_terminal = classify_query_error(err) == QueryErrorCategory.QUERY_PERFORMANCE_ERROR
+                if is_terminal or i >= attempts - 1:
+                    if not is_expected_warehouse_read_error(err):
+                        capture_exception(err)
+                    if safe_expose_ch_error:
+                        self._safe_expose_ch_error(err)
+                    else:
+                        raise
+
+                # Pause execution slightly to not overload clickhouse
+                time.sleep(2**i)
+
+        if result is None:
+            raise Exception("No count returned by clickhouse in get_count")
 
         return int(result[0][0])
 
@@ -1042,8 +1102,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 url=self.url_pattern,
                 queryable_folder=self.queryable_folder,
                 format=self.format,
-                access_key=self.credential.access_key if self.credential else None,
-                access_secret=self.credential.access_secret if self.credential else None,
+                **self._s3_credentials(),
                 context=placeholder_context,
                 table_size_mib=self.size_in_s3_mib,
             )
@@ -1065,6 +1124,15 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         if schema_rows is None:
             return False
         return len(schema_rows) > 0 and all(row.enabled_columns is None for row in schema_rows)
+
+    def _direct_columns_are_restricted(self) -> bool:
+        """Whether a column-picker restriction hides some of this direct table's columns. Reads the
+        same preloaded schema rows as `_direct_columns_are_complete`; if they aren't preloaded,
+        returns True (safe: the table prints as a projection of its own fields)."""
+        schema_rows = self.__dict__.get("_active_external_data_schemas")
+        if schema_rows is None:
+            return True
+        return any(row.enabled_columns is not None for row in schema_rows)
 
     def hogql_definition(
         self, modifiers: Optional["HogQLQueryModifiers"] = None
@@ -1143,6 +1211,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 postgres_schema=postgres_schema,
                 postgres_table_name=postgres_table_name,
                 external_data_source_id=str(self.external_data_source_id),
+                column_restricted=self._direct_columns_are_restricted(),
                 source_type=self.external_data_source.source_type,
                 connection_metadata=self.external_data_source.connection_metadata,
             )
@@ -1165,6 +1234,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 mysql_schema=mysql_schema,
                 mysql_table_name=mysql_table_name,
                 external_data_source_id=str(self.external_data_source_id),
+                column_restricted=self._direct_columns_are_restricted(),
                 connection_metadata=self.external_data_source.connection_metadata,
             )
 
@@ -1192,6 +1262,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 snowflake_schema=snowflake_schema,
                 snowflake_table_name=snowflake_table_name,
                 external_data_source_id=str(self.external_data_source_id),
+                column_restricted=self._direct_columns_are_restricted(),
                 connection_metadata=self.external_data_source.connection_metadata,
             )
 
@@ -1221,6 +1292,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 postgres_schema=redshift_schema,
                 postgres_table_name=redshift_table_name,
                 external_data_source_id=str(self.external_data_source_id),
+                column_restricted=self._direct_columns_are_restricted(),
                 connection_metadata=self.external_data_source.connection_metadata,
             )
 
@@ -1254,6 +1326,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 motherduck_schema=motherduck_schema,
                 motherduck_table_name=motherduck_table_name,
                 external_data_source_id=str(self.external_data_source_id),
+                column_restricted=self._direct_columns_are_restricted(),
                 connection_metadata=self.external_data_source.connection_metadata,
                 has_complete_columns=self._direct_columns_are_complete(),
             )
@@ -1286,6 +1359,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 trino_schema=trino_schema,
                 trino_table_name=trino_table_name,
                 external_data_source_id=str(self.external_data_source_id),
+                column_restricted=self._direct_columns_are_restricted(),
                 connection_metadata=self.external_data_source.connection_metadata,
                 has_complete_columns=self._direct_columns_are_complete(),
             )
@@ -1322,6 +1396,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 clickhouse_database=clickhouse_database,
                 clickhouse_table_name=clickhouse_table_name,
                 external_data_source_id=str(self.external_data_source_id),
+                column_restricted=self._direct_columns_are_restricted(),
                 connection_metadata=self.external_data_source.connection_metadata,
                 has_complete_columns=self._direct_columns_are_complete(),
             )
@@ -1354,8 +1429,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             url=self.url_pattern,
             queryable_folder=self.queryable_folder,
             format=self.format,
-            access_key=self.credential.access_key if self.credential else None,
-            access_secret=self.credential.access_secret if self.credential else None,
+            **self._s3_credentials(),
             fields=fields,
             structure=", ".join(structure),
             table_id=str(self.id),
@@ -1415,8 +1489,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             url=self.url_pattern,
             queryable_folder=self.queryable_folder,
             format=self.format,
-            access_key=self.credential.access_key if self.credential else None,
-            access_secret=self.credential.access_secret if self.credential else None,
+            **self._s3_credentials(),
             context=ctx,
             table_size_mib=0,
         )
@@ -1529,6 +1602,14 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         if user_facing_message is not None:
             raise Exception(user_facing_message)
 
+        # NETWORK_ERROR, SOCKET_TIMEOUT and the other codes in INTERNAL_CH_ERROR_USER_MESSAGES are
+        # ClickHouse-infrastructure conditions with nothing to do with the customer's bucket.
+        # wrap_clickhouse_query_error already gave them their own safe, generic message; the bucket
+        # fallback below would otherwise send the customer chasing credentials for a problem on our end.
+        code_name = getattr(err, "code_name", None)
+        if code_name and (infra_message := INTERNAL_CH_ERROR_USER_MESSAGES.get(code_name.upper())):
+            raise Exception(infra_message)
+
         raise Exception(
             "Could not read the files from your storage bucket. Check that the files URL pattern, file format, "
             "and credentials are correct, then try again."
@@ -1554,10 +1635,3 @@ def create_datawarehousetable(**kwargs: Any) -> DataWarehouseTable:
 @database_sync_to_async
 def acreate_datawarehousetable(**kwargs: Any) -> DataWarehouseTable:
     return create_datawarehousetable(**kwargs)
-
-
-@database_sync_to_async
-def asave_datawarehousetable(table: DataWarehouseTable) -> None:
-    # Saved-query materialization is the only caller: it computes url_pattern itself from the
-    # backing DataWarehouseSavedQuery rather than taking it from request input.
-    table.save(internally_computed_url_pattern=True)

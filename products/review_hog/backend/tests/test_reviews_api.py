@@ -6,7 +6,7 @@ import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-from django.db import connection
+from django.db import connection, models
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
@@ -15,8 +15,14 @@ from social_django.models import UserSocialAuth
 
 from posthog.models import Team, User
 
+from products.review_hog.backend.facade.contracts import FindingOutcome, FindingOutcomeMethod, FindingReactionSentiment
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
-from products.review_hog.backend.presentation.views.reviews import ReviewDropDisposition
+from products.review_hog.backend.presentation.views.reviews import (
+    ReviewDropDisposition,
+    ReviewFindingOutcomeKind,
+    ReviewFindingOutcomeMethod,
+    ReviewFindingReactionSentiment,
+)
 from products.review_hog.backend.reviewer.artefact_content import (
     DroppedFindingArtefact,
     FindingOutcomeArtefact,
@@ -58,8 +64,8 @@ from products.review_hog.backend.reviewer.progress import (
 )
 from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
 from products.review_hog.backend.temporal.heartbeat import ReviewActivityHeartbeater
-from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.artefact_schemas import NoteArtefact
+from products.signals.backend.facade.report_artefacts import NoteArtefact
+from products.signals.backend.facade.taxonomy import ArtefactAttribution
 
 
 def _pr_metadata(head_sha: str, title: str) -> PRMetadata:
@@ -98,15 +104,23 @@ def _issues_review(count: int) -> IssuesReview:
     )
 
 
-def test_drop_disposition_choices_cover_every_pipeline_disposition() -> None:
-    assert set(ReviewDropDisposition.values) == set(get_args(DropDisposition))
+@parameterized.expand(
+    [
+        (ReviewDropDisposition, DropDisposition),
+        (ReviewFindingOutcomeKind, FindingOutcome),
+        (ReviewFindingOutcomeMethod, FindingOutcomeMethod),
+        (ReviewFindingReactionSentiment, FindingReactionSentiment),
+    ]
+)
+def test_api_choices_cover_every_stored_value(choices: type[models.TextChoices], stored: Any) -> None:
+    assert set(choices.values) == set(get_args(stored))
 
 
 class TestRecentReviewsAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.enterContext(patch("posthoganalytics.feature_enabled", return_value=True))
-        self.url = f"/api/projects/{self.team.id}/review_hog/reviews/"
+        self.url = f"/api/projects/{self.team.id}/code_review/reviews/"
 
     def _report(
         self,
@@ -387,12 +401,12 @@ class TestRecentReviewsAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("review_hog_read_allowed", ["review_hog:read"], 200),
+            ("code_review_read_allowed", ["code_review:read"], 200),
             ("unrelated_scope_denied", ["insight:read"], 403),
         ]
     )
-    def test_list_api_key_scope_is_review_hog(self, _name: str, scopes: list[str], expected_status: int) -> None:
-        # The list/get/trigger endpoints carry the `review_hog` scope so the MCP tools reach them with a
+    def test_list_api_key_scope_is_code_review(self, _name: str, scopes: list[str], expected_status: int) -> None:
+        # The list/get/trigger endpoints carry the `code_review` scope so the MCP tools reach them with a
         # personal API key or OAuth token — a revert to INTERNAL would reject the read-scoped key here and
         # take the MCP review tools down with it.
         self._report(pr_number=1, acting_user=self.user)
@@ -577,6 +591,22 @@ class TestRecentReviewsAPI(APIBaseTest):
         self._finding(report, "1-high", priority=IssuePriority.MUST_FIX, adjusted=IssuePriority.SHOULD_FIX)
         self._finding(report, "1-noise", priority=IssuePriority.SHOULD_FIX, is_valid=False)
         self._finding(report, "1-unjudged", priority=IssuePriority.MUST_FIX, judged=False)
+        ReviewReportArtefact.add_finding_outcome(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=FindingOutcomeArtefact(
+                issue_key="1-high",
+                run_index=1,
+                outcome="addressed",
+                method="judge_confirmed",
+                reviewed_head="base_sha",
+                final_head="merge_sha",
+                reaction_sentiment="positive",
+                reply_excerpt="Fixed in abc123",
+                comment_outdated=True,
+            ),
+            attribution=ArtefactAttribution.system(),
+        )
 
         res = self.client.get(f"{self.url}{report.id}/")
 
@@ -589,6 +619,17 @@ class TestRecentReviewsAPI(APIBaseTest):
         assert (high["effective_priority"], high["reviewer_priority"]) == ("should_fix", "must_fix")
         assert high["lines"] == [{"start": 10, "end": 20}]
         assert high["validator_note"] == "a"
+        assert high["issue_key"] == "1-high"
+        assert high["outcome"] == {
+            "outcome": "addressed",
+            "method": "judge_confirmed",
+            "reviewed_head": "base_sha",
+            "final_head": "merge_sha",
+            "reaction_sentiment": "positive",
+            "reply_excerpt": "Fixed in abc123",
+            "comment_outdated": True,
+        }
+        assert detail["findings"][1]["outcome"] is None
         assert [f["title"] for f in detail["dismissed_findings"]] == ["title 1-noise"]
         assert detail["perspective_selection"] is None  # no selection artefact → the drawer tab shows its empty state
 
@@ -1367,12 +1408,22 @@ class TestRecentReviewsAPI(APIBaseTest):
 
             mine = self.client.get(f"{self.url}table/").json()
             second_page = self.client.get(f"{self.url}table/", {"limit": 2, "offset": 1}).json()
+            last_page = self.client.get(second_page["next"]).json()
+            first_page = self.client.get(second_page["previous"]).json()
+            past_end = self.client.get(f"{self.url}table/", {"limit": 2, "offset": 10}).json()
+            back_from_past_end = self.client.get(past_end["previous"]).json()
             everyone = self.client.get(f"{self.url}table/", {"scope": "everyone"}).json()
 
         assert [row["pr_number"] for row in mine["results"]] == [4, 2, 1, 3]
         assert (mine["count"], mine["running_count"]) == (4, 2)
         assert [row["pr_number"] for row in second_page["results"]] == [2, 1]
         assert second_page["count"] == 4
+        assert [row["pr_number"] for row in last_page["results"]] == [3]
+        assert last_page["next"] is None
+        assert [row["pr_number"] for row in first_page["results"]] == [4, 2]
+        assert first_page["previous"] is None
+        assert past_end["results"] == []
+        assert [row["pr_number"] for row in back_from_past_end["results"]] == [1, 3]
         assert [row["pr_number"] for row in everyone["results"]] == [4, 6, 2, 1, 3]
         assert self.client.get(f"{self.url}table/", {"limit": 101}).status_code == 400
 

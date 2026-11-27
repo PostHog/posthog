@@ -1,7 +1,7 @@
 import { MakeLogicType, afterMount, connect, kea, key, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { billingLogic } from 'scenes/billing/billingLogic'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
 
 import type { OrganizationType } from '~/types'
 

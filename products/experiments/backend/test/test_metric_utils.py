@@ -6,7 +6,7 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action, update_action
 from products.experiments.backend.metric_utils import (
     collect_metric_events_and_action_ids,
     collect_metric_warehouse_tables,
@@ -21,9 +21,9 @@ class TestRefreshActionNamesInMetric(BaseTest):
     def setUp(self):
         super().setUp()
         # Create test actions
-        self.action1 = Action.objects.create(team=self.team, name="Original Action 1")
-        self.action2 = Action.objects.create(team=self.team, name="Original Action 2")
-        self.action3 = Action.objects.create(team=self.team, name="Original Action 3")
+        self.action1 = create_action(team=self.team, name="Original Action 1")
+        self.action2 = create_action(team=self.team, name="Original Action 2")
+        self.action3 = create_action(team=self.team, name="Original Action 3")
 
     def test_refresh_action_names_in_mean_metric(self):
         """Test refreshing action names in a mean metric."""
@@ -38,8 +38,7 @@ class TestRefreshActionNamesInMetric(BaseTest):
         }
 
         # Rename the action
-        self.action1.name = "Renamed Action 1"
-        self.action1.save()
+        update_action(self.action1, name="Renamed Action 1")
 
         # Refresh action names
         updated_query = refresh_action_names_in_metric(query, self.team)
@@ -75,10 +74,8 @@ class TestRefreshActionNamesInMetric(BaseTest):
         }
 
         # Rename both actions
-        self.action1.name = "Renamed Action 1"
-        self.action1.save()
-        self.action2.name = "Renamed Action 2"
-        self.action2.save()
+        update_action(self.action1, name="Renamed Action 1")
+        update_action(self.action2, name="Renamed Action 2")
 
         # Refresh action names
         updated_query = refresh_action_names_in_metric(query, self.team)
@@ -113,10 +110,8 @@ class TestRefreshActionNamesInMetric(BaseTest):
         }
 
         # Rename the actions
-        self.action1.name = "Renamed Action 1"
-        self.action1.save()
-        self.action2.name = "Renamed Action 2"
-        self.action2.save()
+        update_action(self.action1, name="Renamed Action 1")
+        update_action(self.action2, name="Renamed Action 2")
 
         # Refresh action names
         updated_query = refresh_action_names_in_metric(query, self.team)
@@ -155,8 +150,7 @@ class TestRefreshActionNamesInMetric(BaseTest):
         """Test that missing or deleted actions don't cause errors."""
         if action_exists:
             action_id = self.action1.id
-            self.action1.deleted = True
-            self.action1.save()
+            update_action(self.action1, deleted=True)
         else:
             action_id = 99999
 
@@ -213,8 +207,7 @@ class TestRefreshActionNamesInMetric(BaseTest):
         }
 
         # Rename the action
-        self.action1.name = "Renamed Action 1"
-        self.action1.save()
+        update_action(self.action1, name="Renamed Action 1")
 
         # Store original name
         original_name = original_query["source"]["name"]
@@ -252,8 +245,7 @@ class TestRefreshActionNamesInMetric(BaseTest):
         }
 
         # Rename the action
-        self.action1.name = "Renamed Action 1"
-        self.action1.save()
+        update_action(self.action1, name="Renamed Action 1")
 
         # Refresh action names
         updated_query = refresh_action_names_in_metric(query, self.team)
@@ -279,12 +271,9 @@ class TestRefreshActionNamesInMetric(BaseTest):
         }
 
         # Rename all actions
-        self.action1.name = "Renamed Action 1"
-        self.action1.save()
-        self.action2.name = "Renamed Action 2"
-        self.action2.save()
-        self.action3.name = "Renamed Action 3"
-        self.action3.save()
+        update_action(self.action1, name="Renamed Action 1")
+        update_action(self.action2, name="Renamed Action 2")
+        update_action(self.action3, name="Renamed Action 3")
 
         # Count queries executed
         with self.assertNumQueries(1):  # Should be a single query to fetch all actions
@@ -477,7 +466,7 @@ class TestCollectMetricWarehouseTables(SimpleTestCase):
 
 class TestResolveActionEvents(BaseTest):
     def test_resolves_actions_to_their_step_events(self):
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="Signed up",
             steps_json=[{"event": "signup"}, {"event": "$autocapture"}],
@@ -485,12 +474,12 @@ class TestResolveActionEvents(BaseTest):
         assert resolve_action_events({action.id}, self.team) == {action.id: {"signup", "$autocapture"}}
 
     def test_ignores_deleted_actions(self):
-        action = Action.objects.create(team=self.team, name="Gone", steps_json=[{"event": "ghost"}], deleted=True)
+        action = create_action(team=self.team, name="Gone", steps_json=[{"event": "ghost"}], deleted=True)
         assert resolve_action_events({action.id}, self.team) == {}
 
     def test_batches_into_single_query(self):
-        action_a = Action.objects.create(team=self.team, name="A", steps_json=[{"event": "a1"}, {"event": "a2"}])
-        action_b = Action.objects.create(team=self.team, name="B", steps_json=[{"event": "b1"}])
+        action_a = create_action(team=self.team, name="A", steps_json=[{"event": "a1"}, {"event": "a2"}])
+        action_b = create_action(team=self.team, name="B", steps_json=[{"event": "b1"}])
 
         with self.assertNumQueries(1):
             resolved = resolve_action_events({action_a.id, action_b.id}, self.team)

@@ -12,7 +12,9 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.companion_jobs
     COMPANION_JOB_IDS_KEY,
     record_companion_job,
     retire_orphaned_companions,
+    run_completed_on_every_table,
 )
+from products.warehouse_sources.backend.temporal.data_imports.cdc.dispatch import BUFFER_GENERATION_SEEN_KEY
 from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (
     BUFFER_LISTED_AT_KEY,
     BUFFER_LISTED_TAIL_KEY,
@@ -20,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager
     buffer_may_have_expired_unread,
     clear_listing,
     read_completed_listing_proof,
+    stamp_listing_on_job,
 )
 
 
@@ -200,6 +203,37 @@ class TestBufferExpiredUnread(BaseTest):
         assert buffer_may_have_expired_unread(schema, dt.datetime.now(tz=dt.UTC)) is False
 
 
+class TestRunCompletedOnEveryTable(BaseTest):
+    @parameterized.expand(
+        [
+            ("no_companion", "Completed", None, True),
+            ("companion_still_loading", "Completed", "Running", False),
+            ("companion_failed", "Completed", "Failed", False),
+            ("parent_still_loading", "Running", "Completed", False),
+            ("both_completed", "Completed", "Completed", True),
+        ]
+    )
+    def test_both_jobs_of_a_run_agree_whether_every_table_completed(
+        self, _name: str, parent_status: str, companion_status: str | None, expected: bool
+    ) -> None:
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_id="s", connection_id="c", status="Running", source_type="Postgres"
+        )
+        schema = ExternalDataSchema.objects.create(team=self.team, source=source, name="users")
+
+        def _job(status: str, snapshot: dict) -> ExternalDataJob:
+            return ExternalDataJob.objects.create(
+                team=self.team, pipeline=source, schema=schema, status=status, rows_synced=0, schema_snapshot=snapshot
+            )
+
+        jobs = [_job(parent_status, {})]
+        if companion_status is not None:
+            jobs.append(_job(companion_status, {"companion_of": str(jobs[0].id)}))
+            record_companion_job(str(jobs[0].id), self.team.id, str(jobs[1].id), first_of_attempt=True)
+
+        assert [run_completed_on_every_table(str(job.id), self.team.id) for job in jobs] == [expected] * len(jobs)
+
+
 class TestRecordCompanionJob(BaseTest):
     def test_a_new_attempt_starts_the_list_over(self):
         # An earlier attempt's companion was retired or drained by the time this attempt reads;
@@ -239,10 +273,18 @@ class TestClearListing(BaseTest):
 
     def test_only_the_stamp_comes_off(self):
         schema = self._schema()
-        job = self._job(
-            schema,
-            {BUFFER_LISTED_AT_KEY: "2026-01-01T00:00:00+00:00", BUFFER_LISTED_TAIL_KEY: {"f": "e"}, "name": "users"},
-        )
+        job = self._job(schema, {"name": "users"})
+        listed_at = dt.datetime(2026, 1, 1, tzinfo=dt.UTC)
+
+        stamp_listing_on_job(str(job.id), self.team.id, listed_at, {"f": "e"}, generation_seen=3)
+
+        job.refresh_from_db()
+        assert job.schema_snapshot == {
+            "name": "users",
+            BUFFER_LISTED_AT_KEY: listed_at.isoformat(),
+            BUFFER_LISTED_TAIL_KEY: {"f": "e"},
+            BUFFER_GENERATION_SEEN_KEY: 3,
+        }
 
         clear_listing(str(job.id), self.team.id)
 

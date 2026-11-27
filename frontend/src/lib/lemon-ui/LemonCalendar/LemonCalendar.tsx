@@ -6,9 +6,9 @@ import { Ref, forwardRef, useEffect, useState } from 'react'
 
 import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
 
-import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
+import { ScrollableShadows } from 'lib/lemon-ui/ScrollableShadows/ScrollableShadows'
 import { range } from 'lib/utils/arrays'
 import { teamLogic } from 'scenes/teamLogic'
 

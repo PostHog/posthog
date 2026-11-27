@@ -3,33 +3,85 @@ import type { DataWarehousePopoverField } from 'lib/components/TaxonomicFilter/t
 import { UTM_CAMPAIGN_NAME_SCHEMA_FIELD, UTM_SOURCE_NAME_SCHEMA_FIELD } from '~/taxonomy/marketingAnalytics'
 import { CoreFilterDefinition } from '~/types'
 
-import coreFilterDefinitionsByGroup from './core-filter-definitions-by-group.json'
+import type coreFilterDefinitionsJson from './core-filter-definitions-by-group.json'
 import { transformFilterDefinitions } from './transformations'
 
-export type CoreFilterDefinitionsGroup = Exclude<keyof typeof coreFilterDefinitionsByGroup, '//'>
+type CoreFilterDefinitionsJson = typeof coreFilterDefinitionsJson
+export type CoreFilterDefinitionsGroup = Exclude<keyof CoreFilterDefinitionsJson, '//'>
 
-export const CORE_FILTER_DEFINITIONS_BY_GROUP = Object.entries(coreFilterDefinitionsByGroup).reduce(
-    (acc, [key, group]) => {
-        if (key === '//' || typeof group === 'string') {
-            // ignore the comment
-            return acc
-        }
-        return Object.assign(acc, { [key]: transformFilterDefinitions(group) })
-    },
-    {} as Record<CoreFilterDefinitionsGroup, Record<string, CoreFilterDefinition>>
-)
+// The Record type makes typecheck fail when the taxonomy gains or loses a group.
+const GROUPS: Record<CoreFilterDefinitionsGroup, true> = {
+    elements: true,
+    error_tracking_issues: true,
+    event_metadata: true,
+    event_properties: true,
+    events: true,
+    groups: true,
+    log_entries: true,
+    mcp_properties: true,
+    metadata: true,
+    numerical_event_properties: true,
+    person_metadata: true,
+    person_properties: true,
+    replay: true,
+    revenue_analytics_properties: true,
+    session_properties: true,
+}
 
-// We treat `$session_duration` as an event property in the context of series `math`, but it's fake in a sense
-CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties.$session_duration =
-    CORE_FILTER_DEFINITIONS_BY_GROUP.session_properties.$session_duration
-
+// Filled in place, so a module can keep a reference to it or to one of its groups.
+export const CORE_FILTER_DEFINITIONS_BY_GROUP = Object.fromEntries(
+    Object.keys(GROUPS).map((group) => [group, {}])
+) as Record<CoreFilterDefinitionsGroup, Record<string, CoreFilterDefinition>>
 CORE_FILTER_DEFINITIONS_BY_GROUP.numerical_event_properties = CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties
 
-// Change "All Events" to empty string
-CORE_FILTER_DEFINITIONS_BY_GROUP.events[''] = CORE_FILTER_DEFINITIONS_BY_GROUP.events['All Events']
-delete CORE_FILTER_DEFINITIONS_BY_GROUP.events['All Events']
+export const PROPERTY_KEYS: string[] = []
 
-export const PROPERTY_KEYS = Object.keys(CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties)
+let definitionsLoaded = false
+
+export function areCoreFilterDefinitionsLoaded(): boolean {
+    return definitionsLoaded
+}
+
+export function setCoreFilterDefinitions(definitionsByGroup: CoreFilterDefinitionsJson): void {
+    if (definitionsLoaded) {
+        return
+    }
+    for (const [key, group] of Object.entries(definitionsByGroup)) {
+        if (key === '//' || typeof group === 'string') {
+            // ignore the comment
+            continue
+        }
+        Object.assign(
+            CORE_FILTER_DEFINITIONS_BY_GROUP[key as CoreFilterDefinitionsGroup],
+            transformFilterDefinitions(group)
+        )
+    }
+    const { events, event_properties, session_properties } = CORE_FILTER_DEFINITIONS_BY_GROUP
+    // We treat `$session_duration` as an event property in the context of series `math`, but it's fake in a sense
+    event_properties.$session_duration = session_properties.$session_duration
+
+    // Change "All Events" to empty string
+    events[''] = events['All Events']
+    delete events['All Events']
+
+    PROPERTY_KEYS.push(...Object.keys(event_properties))
+    definitionsLoaded = true
+}
+
+/** Wraps a value computed from the taxonomy. It is cached once the taxonomy has loaded, and computed fresh until then. */
+export function deriveFromCoreFilterDefinitions<T>(derive: () => T): () => T {
+    let derived: { value: T } | null = null
+    return () => {
+        if (derived) {
+            return derived.value
+        }
+        const value = derive()
+        if (definitionsLoaded) {
+            derived = { value }
+        }
+        return value
+    }
+}
 
 /**
  * these are properties that PostHog add to events they track for their own purposes

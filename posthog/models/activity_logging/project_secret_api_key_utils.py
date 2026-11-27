@@ -12,6 +12,7 @@ from posthog.models.activity_logging.activity_log import (
 from posthog.models.activity_logging.personal_api_key_utils import get_organization_name, get_team_name
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team.team import Team
+from posthog.models.utils import ai_credential_value
 
 LogScope = namedtuple("LogScope", ["org_id", "team_id"])
 
@@ -23,6 +24,15 @@ class ProjectSecretAPIKeyContext(ActivityContextBase):
     scopes: Optional[list[str]] = None
     created_by_email: Optional[str] = None
     created_by_name: Optional[str] = None
+    # Matches $ai_credential on gateway generations, so spend stays attributable after a delete or roll.
+    ai_credential: Optional[str] = None
+    # Set only when a roll changed the hash.
+    previous_ai_credential: Optional[str] = None
+
+
+def _ai_credential(api_key: Optional[ProjectSecretAPIKey]) -> Optional[str]:
+    secure_value = getattr(api_key, "secure_value", None)
+    return ai_credential_value(secure_value) if secure_value else None
 
 
 def _get_team(api_key: ProjectSecretAPIKey) -> Optional[Team]:
@@ -53,7 +63,12 @@ def _get_access_location(api_key: ProjectSecretAPIKey) -> tuple[LogScope, Option
 
 
 def log_project_secret_api_key_activity(
-    api_key: ProjectSecretAPIKey, activity: str, user, was_impersonated: bool, changes=None
+    api_key: ProjectSecretAPIKey,
+    activity: str,
+    user,
+    was_impersonated: bool,
+    changes=None,
+    previous: Optional[ProjectSecretAPIKey] = None,
 ) -> None:
     """Create activity logs for ProjectSecretAPIKey operations scoped to the owning team."""
     location, team = _get_access_location(api_key)
@@ -66,8 +81,13 @@ def log_project_secret_api_key_activity(
 
     project_name = getattr(team, "name", None) or get_team_name(location.team_id)
 
+    ai_credential = _ai_credential(api_key)
+    previous_ai_credential = _ai_credential(previous)
+
     log_entries: list[LogActivityEntry] = []
     context = ProjectSecretAPIKeyContext(
+        ai_credential=ai_credential,
+        previous_ai_credential=previous_ai_credential if previous_ai_credential != ai_credential else None,
         organization_name=organization_name,
         project_name=project_name,
         scopes=list(api_key.scopes or []),

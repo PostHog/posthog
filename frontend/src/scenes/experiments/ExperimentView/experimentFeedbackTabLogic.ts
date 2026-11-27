@@ -1,7 +1,7 @@
 import { MakeLogicType, afterMount, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
+import { SURVEY_PAGE_SIZE } from 'lib/constants'
 import { surveysLogic } from 'scenes/surveys/surveysLogic'
 import { teamLogic } from 'scenes/teamLogic'
 

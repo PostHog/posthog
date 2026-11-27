@@ -1,11 +1,14 @@
 import json
+from contextlib import suppress
 
+import pytest
 from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
 from parameterized import parameterized
 
+from posthog.llm.gateway_client import GatewayNotConfiguredError
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
@@ -22,19 +25,11 @@ from products.slack_app.backend.temporal.activities.classifiers import (
 
 AI_GATEWAY_URL = "https://ai-gateway.example/v1"
 AI_GATEWAY_KEY = "phs_go"
-LLM_GATEWAY_URL = "http://llm-gateway:8080"
-LLM_GATEWAY_KEY = "phx_legacy"
 TRACE_ID = "1b9d6bcd-bbfd-5b1d-9c2f-9f0a4b4a1b2c"
 TEAM_ID = 41
 
-# Both modes set every setting the builders read, so the wrong route cannot pass by accident.
-GO_GATEWAY = {
-    "AI_GATEWAY_URL": AI_GATEWAY_URL,
-    "AI_GATEWAY_API_KEY": AI_GATEWAY_KEY,
-    "LLM_GATEWAY_URL": LLM_GATEWAY_URL,
-    "LLM_GATEWAY_API_KEY": LLM_GATEWAY_KEY,
-}
-PYTHON_GATEWAY = {**GO_GATEWAY, "AI_GATEWAY_URL": "", "AI_GATEWAY_API_KEY": ""}
+GO_GATEWAY = {"AI_GATEWAY_URL": AI_GATEWAY_URL, "AI_GATEWAY_API_KEY": AI_GATEWAY_KEY}
+NO_GATEWAY = {"AI_GATEWAY_URL": "", "AI_GATEWAY_API_KEY": ""}
 
 CHOICES = (ModelChoice("claude", "claude-fable-5", "Claude Fable 5", ("low", "medium", "high")),)
 NEEDS_REPO_TEXT = "ambiguous ask the heuristic does not catch"
@@ -118,14 +113,12 @@ class TestClassifierGatewayRouting:
 
     @patch("posthog.llm.gateway_client.httpx.Client")
     @patch("posthog.llm.gateway_client.Anthropic")
-    def test_needs_repo_falls_back_to_python_route_when_unset(self, mock_anthropic, _mock_httpx):
+    def test_needs_repo_makes_no_call_without_the_go_gateway(self, mock_anthropic, _mock_httpx):
         _messages_reply(mock_anthropic, '{"needs_repo": true}')
-        with override_settings(**PYTHON_GATEWAY):
-            assert _classify_needs_repo() is True
+        with override_settings(**NO_GATEWAY):
+            assert _classify_needs_repo() is False
 
-        kwargs = mock_anthropic.call_args.kwargs
-        assert kwargs["base_url"] == f"{LLM_GATEWAY_URL}/slack_app_routing"
-        assert kwargs["api_key"] == LLM_GATEWAY_KEY
+        mock_anthropic.assert_not_called()
 
     @parameterized.expand(OPENAI_CLASSIFIERS)
     @patch("posthog.llm.gateway_client.httpx.Client")
@@ -143,13 +136,19 @@ class TestClassifierGatewayRouting:
     @parameterized.expand(OPENAI_CLASSIFIERS)
     @patch("posthog.llm.gateway_client.httpx.Client")
     @patch("posthog.llm.gateway_client.OpenAI")
-    def test_openai_classifier_falls_back_to_python_route_when_unset(
+    def test_openai_classifier_makes_no_call_without_the_go_gateway(
         self, _name, classify, reply, mock_openai, _mock_httpx
     ):
         _chat_reply(mock_openai, reply)
-        with override_settings(**PYTHON_GATEWAY):
-            assert classify()
+        with override_settings(**NO_GATEWAY), suppress(GatewayNotConfiguredError):
+            classify()
 
-        kwargs = mock_openai.call_args.kwargs
-        assert kwargs["base_url"] == f"{LLM_GATEWAY_URL}/slack_app_routing/v1"
-        assert kwargs["api_key"] == LLM_GATEWAY_KEY
+        mock_openai.assert_not_called()
+
+    @patch("posthog.llm.gateway_client.httpx.Client")
+    @patch("posthog.llm.gateway_client.OpenAI")
+    def test_project_route_raises_without_the_go_gateway(self, mock_openai, _mock_httpx):
+        with override_settings(**NO_GATEWAY), pytest.raises(GatewayNotConfiguredError):
+            _classify_project_route()
+
+        mock_openai.assert_not_called()

@@ -14,8 +14,10 @@ from rest_framework import status
 
 from posthog.schema import EndpointLastExecutionTimesRequest
 
+from posthog.constants import AvailableFeature
 from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -54,8 +56,10 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             "explain": None,
             "filters": None,
             "kind": "HogQLQuery",
+            "limit": None,
             "modifiers": None,
             "name": None,
+            "offset": None,
             "query": "SELECT count(1) FROM query_log",
             "response": None,
             "sendRawQuery": None,
@@ -350,8 +354,10 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             "explain": None,
             "filters": None,
             "kind": "HogQLQuery",
+            "limit": None,
             "modifiers": None,
             "name": None,
+            "offset": None,
             "query": "SELECT 1",
             "response": None,
             "sendRawQuery": None,
@@ -742,27 +748,24 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
     def test_list_no_filters(self):
         """Test listing all endpoints without filters."""
         create_endpoint_with_version(
-            name="query1",
-            team=self.team,
-            query=self.sample_hogql_query,
-            created_by=self.user,
-            is_active=True,
-        )
-        create_endpoint_with_version(
             name="query2",
             team=self.team,
             query=self.sample_hogql_query,
             created_by=self.user,
             is_active=False,
         )
+        create_endpoint_with_version(
+            name="query1",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+            is_active=True,
+        )
 
-        # Test without any filters - should return all queries
         response = self.client.get(f"/api/environments/{self.team.id}/endpoints/")
+
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        response_data = response.json()
-        self.assertEqual(len(response_data["results"]), 2)
-        query_names = {q["name"] for q in response_data["results"]}
-        self.assertEqual(query_names, {"query1", "query2"})
+        self.assertEqual([q["name"] for q in response.json()["results"]], ["query1", "query2"])
 
     def test_create_endpoint_with_comprehensive_trends_query(self):
         """Test creating a endpoint with a comprehensive TrendsQuery containing many fields."""
@@ -993,6 +996,45 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
 
         endpoint = Endpoint.objects.get(name="slow_query", team=self.team)
+        version = EndpointVersion.objects.get(endpoint=endpoint, version=1)
+        self.assertIsNotNone(endpoint.last_executed_at)
+        self.assertIsNotNone(version.last_executed_at)
+
+    @time_machine.travel("2026-11-20T12:00:00Z", tick=False)
+    def test_oauth_run_stamps_last_executed_at(self):
+        create_endpoint_with_version(
+            name="agent_query",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": "SELECT 1"},
+            created_by=self.user,
+            is_active=True,
+        )
+        application = OAuthApplication.objects.create(
+            name="Agent",
+            client_id="agent-client",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            organization=self.organization,
+            user=self.user,
+        )
+        token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=application,
+            token="pha_agent_query",
+            scope="endpoint:read query:read",
+            expires=timezone.now() + timedelta(hours=1),
+            scoped_teams=[self.team.id],
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/endpoints/agent_query/run/",
+            headers={"authorization": f"Bearer {token.token}"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        endpoint = Endpoint.objects.get(name="agent_query", team=self.team)
         version = EndpointVersion.objects.get(endpoint=endpoint, version=1)
         self.assertIsNotNone(endpoint.last_executed_at)
         self.assertIsNotNone(version.last_executed_at)
@@ -1253,9 +1295,10 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
         # Update to different data freshness
         updated_data: dict[str, int | None] = {"data_freshness_seconds": 21600}
-        response = self.client.patch(
-            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/", updated_data, format="json"
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/", updated_data, format="json"
+            )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["data_freshness_seconds"], 21600)
         # The freshness target is part of the throttle's cached snapshot, so the edit drops it.
@@ -1266,6 +1309,24 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         version = endpoint.get_version()
         self.assertIsNotNone(version)
         self.assertEqual(version.data_freshness_seconds, 21600)
+
+    @parameterized.expand([("flag_on", True, 21600), ("flag_off", False, None)])
+    def test_response_reports_the_plan_refresh_floor(self, _name, flag_enabled, expected_floor_seconds):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.DATA_MODELING_REFRESH_INTERVAL, "name": "Refresh interval", "limit": 360}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        endpoint = create_endpoint_with_version(
+            name="plan_floor_test", team=self.team, query=self.sample_hogql_query, created_by=self.user
+        )
+
+        with mock.patch(
+            "products.data_modeling.backend.logic.refresh_floor.feature_enabled_or_false", return_value=flag_enabled
+        ):
+            response = self.client.get(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(response.json()["plan_refresh_floor_seconds"], expected_floor_seconds)
 
     def test_create_endpoint_with_insight_reference(self):
         """Test creating an endpoint with a reference to the insight it was created from."""
@@ -1689,11 +1750,13 @@ class TestMaterializationPreview(ClickhouseTestMixin, APIBaseTest):
 
         # Change bucket_overrides — should trigger an immediate refresh
         with mock.patch("products.endpoints.backend.logic.crud.materialize_saved_query") as mock_trigger:
-            response = self.client.patch(
-                f"/api/environments/{self.team.id}/endpoints/trigger-bucket/",
-                {"bucket_overrides": {"timestamp": "hour"}},
-                format="json",
-            )
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self.client.patch(
+                    f"/api/environments/{self.team.id}/endpoints/trigger-bucket/",
+                    {"bucket_overrides": {"timestamp": "hour"}},
+                    format="json",
+                )
+                mock_trigger.assert_not_called()
             assert response.status_code == status.HTTP_200_OK, response.json()
             version = EndpointVersion.objects.get(endpoint__name="trigger-bucket", endpoint__team=self.team, version=1)
             assert version.bucket_overrides == {"timestamp": "hour"}

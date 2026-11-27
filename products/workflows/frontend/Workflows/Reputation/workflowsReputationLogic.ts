@@ -4,9 +4,9 @@ import posthog from 'posthog-js'
 
 import { type SupportFormFields, supportLogic } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { type FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
-import { billingLogic } from 'scenes/billing/billingLogic'
 import { canCreateSupportTicket } from 'scenes/max/ticketUtils'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { projectLogic } from 'scenes/projectLogic'
@@ -16,6 +16,7 @@ import type { BillingType } from '~/types'
 import { hogFlowsReputationRetrieve } from 'products/workflows/frontend/generated/api'
 import type {
     AwsTenantReputationApi,
+    EmailInfrastructureHealthApi,
     EmailSendingAllowanceApi,
     EmailSendingRatesApi,
     IspSendingHealthApi,
@@ -45,7 +46,6 @@ function sendingTierIncreaseContext(
         `Project ID: ${projectId ?? 'unknown'}`,
         `Current tier: ${allowance.tier} of ${allowance.max_tier}`,
         `Emails today: ${humanFriendlyNumber(allowance.emails_sent_last_day)} of ${humanFriendlyNumber(allowance.emails_per_day)}`,
-        `Emails this hour: ${humanFriendlyNumber(allowance.emails_sent_last_hour)} of ${humanFriendlyNumber(allowance.emails_per_hour)}`,
         ...(rates
             ? [
                   `Bounce rate (last 30 days): ${percentage(rates.bounce_rate, 2, true)}`,
@@ -63,6 +63,7 @@ export interface workflowsReputationLogicValues {
     currentProjectId: number | null // projectLogic
     awsReputation: AwsTenantReputationApi | null
     canRequestSendingTierIncrease: boolean
+    infrastructureHealth: EmailInfrastructureHealthApi | null
     ispSendingHealth: readonly IspSendingHealthApi[]
     ispSharedDomains: readonly string[]
     ispWithheldDomains: readonly string[]
@@ -81,7 +82,7 @@ export interface workflowsReputationLogicActions {
             target?: 'modal' | 'sidePanel'
         }
     ) => Partial<SupportFormFields> & {
-        target?: 'modal' | 'sidePanel' | undefined
+        target?: 'modal' | 'sidePanel'
     } // supportLogic
     loadReputation: () => {
         value: true
@@ -124,6 +125,9 @@ export interface workflowsReputationLogicMeta {
         sendingAllowance: (reputationResponse: TeamEmailReputationResponseApi | null) => EmailSendingAllowanceApi | null
         teamReputation: (reputationResponse: TeamEmailReputationResponseApi | null) => EmailSendingRatesApi | null
         ispSendingHealth: (reputationResponse: TeamEmailReputationResponseApi | null) => readonly IspSendingHealthApi[]
+        infrastructureHealth: (
+            reputationResponse: TeamEmailReputationResponseApi | null
+        ) => EmailInfrastructureHealthApi | null
         ispSharedDomains: (reputationResponse: TeamEmailReputationResponseApi | null) => readonly string[]
         ispWithheldDomains: (reputationResponse: TeamEmailReputationResponseApi | null) => readonly string[]
         workflowSnapshots: (
@@ -236,6 +240,11 @@ export const workflowsReputationLogic = kea<workflowsReputationLogicType>([
         ispSendingHealth: [
             (s) => [s.reputationResponse],
             (response: TeamEmailReputationResponseApi | null): readonly IspSendingHealthApi[] => response?.isps ?? [],
+        ],
+        infrastructureHealth: [
+            (s) => [s.reputationResponse],
+            (response: TeamEmailReputationResponseApi | null): EmailInfrastructureHealthApi | null =>
+                response?.infrastructure ?? null,
         ],
         ispSharedDomains: [
             (s) => [s.reputationResponse],

@@ -17,7 +17,7 @@ concurrency:
 jobs:
     update-ai-costs:
         runs-on: ubuntu-24.04
-        timeout-minutes: 5
+        timeout-minutes: 10
 
         steps:
             - name: Get app token
@@ -37,7 +37,7 @@ jobs:
               with:
                   working-directory: nodejs
                   # --ignore-scripts already skips husky's prepare hook (no need for HUSKY=0)
-                  install-command: pnpm install --frozen-lockfile --ignore-scripts
+                  install-command: pnpm install --frozen-lockfile --ignore-scripts --filter @posthog/nodejs...
 
             # Single definition for the writer and the PR body; a job-level env
             # block cannot reference the `runner` context.
@@ -65,6 +65,15 @@ jobs:
                     echo "Changes detected in AI costs"
                     git diff --stat nodejs/src/ingestion/pipelines/ai/costs/providers/canonical-providers.ts nodejs/src/ingestion/pipelines/ai/costs/providers/llm-costs.json
                   fi
+
+            # Runs before the branch reset, the commit and the PR: a regeneration that
+            # drops a provider key the hand-written alias map still targets fails here
+            # instead of landing on master as a red Node.js Build.
+            - name: Check the regenerated costs compile and pass their tests
+              if: steps.check-changes.outputs.changes == 'true'
+              run: |
+                  cd nodejs
+                  pnpm check:ai-costs
 
             - name: Clean up stale branch
               if: steps.check-changes.outputs.changes == 'false'

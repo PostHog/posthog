@@ -3,7 +3,7 @@ import posthog from 'posthog-js'
 import type { LemonSelectOptionLeaf } from '@posthog/lemon-ui'
 
 import { getAppContext } from 'lib/utils/getAppContext'
-import { toSentenceCase } from 'lib/utils/strings'
+import { capitalizeFirstLetter, toSentenceCase } from 'lib/utils/strings'
 import { Scene, sceneToAccessControlResourceType } from 'scenes/sceneTypes'
 
 import { APIScopeObject, AccessControlLevel, AccessControlResourceType, AvailableFeature } from '~/types'
@@ -82,10 +82,41 @@ const RESOURCE_API_ROUTES: Partial<Record<APIScopeObject, string>> = {
     ticket: 'conversations/tickets',
     heatmap: 'saved',
     replay_scanner: 'vision/scanners',
+    canvas: 'canvases',
 }
 
 /** REST collection route for a resource, for building `.../{route}/{id}/access_controls` urls. */
 export const resourceToApiRoute = (resource: APIScopeObject): string => RESOURCE_API_ROUTES[resource] ?? `${resource}s`
+
+const RESOURCE_PLURALS: Partial<Record<APIScopeObject, string>> = {
+    [AccessControlResourceType.CustomerAnalytics]: 'customer analytics',
+    [AccessControlResourceType.LlmAnalytics]: 'AI observability',
+    [AccessControlResourceType.McpAnalytics]: 'MCP analytics',
+    [AccessControlResourceType.LlmSkill]: 'skills',
+    [AccessControlResourceType.AiObservabilityClusters]: 'AI trace clusters',
+    [AccessControlResourceType.RevenueAnalytics]: 'revenue analytics',
+    [AccessControlResourceType.WebAnalytics]: 'web analytics',
+    [AccessControlResourceType.MarketingAnalytics]: 'marketing analytics',
+    [AccessControlResourceType.ActivityLog]: 'activity logs',
+    [AccessControlResourceType.ExternalDataSource]: 'data warehouse sources',
+    [AccessControlResourceType.ErrorTracking]: 'error tracking',
+    // Umbrella label for warehouse tables + views (both inherit from this)
+    [AccessControlResourceType.WarehouseObjects]: 'data warehouse tables & views',
+    [AccessControlResourceType.Logs]: 'logs',
+    [AccessControlResourceType.Metrics]: 'metrics',
+    [AccessControlResourceType.Tracing]: 'tracing',
+    [AccessControlResourceType.SharingConfiguration]: 'sharing',
+    // A feature name, not a collection of objects, so it takes no plural
+    [AccessControlResourceType.CodeReviewApproval]: 'code review auto-approval',
+    [AccessControlResourceType.Toolbar]: 'toolbar',
+    [AccessControlResourceType.LlmPlayground]: 'LLM playground',
+    [AccessControlResourceType.Workflow]: 'workflows',
+    [AccessControlResourceType.Ticket]: 'support',
+    // Replay vision is the product name users know for scanners.
+    [AccessControlResourceType.ReplayScanner]: 'replay vision',
+    [AccessControlResourceType.BusinessKnowledge]: 'business knowledge',
+    [AccessControlResourceType.Canvas]: 'canvases',
+}
 
 /**
  * Converts a resource name to its plural form for display purposes.
@@ -94,58 +125,11 @@ export const resourceToApiRoute = (resource: APIScopeObject): string => RESOURCE
  * @param resource - The API scope object to pluralize
  * @returns The pluralized resource name for display
  */
-export const pluralizeResource = (resource: APIScopeObject): string => {
-    if (resource === AccessControlResourceType.CustomerAnalytics) {
-        return 'customer analytics'
-    } else if (resource === AccessControlResourceType.LlmAnalytics) {
-        return 'AI observability'
-    } else if (resource === AccessControlResourceType.McpAnalytics) {
-        return 'MCP analytics'
-    } else if (resource === AccessControlResourceType.LlmSkill) {
-        return 'skills'
-    } else if (resource === AccessControlResourceType.AiObservabilityClusters) {
-        return 'AI trace clusters'
-    } else if (resource === AccessControlResourceType.RevenueAnalytics) {
-        return 'revenue analytics'
-    } else if (resource === AccessControlResourceType.WebAnalytics) {
-        return 'web analytics'
-    } else if (resource === AccessControlResourceType.ActivityLog) {
-        return 'activity logs'
-    } else if (resource === AccessControlResourceType.ExternalDataSource) {
-        return 'data warehouse sources'
-    } else if (resource === AccessControlResourceType.ErrorTracking) {
-        return 'error tracking'
-    } else if (resource === AccessControlResourceType.WarehouseObjects) {
-        // Umbrella label for warehouse tables + views (both inherit from this)
-        return 'data warehouse tables & views'
-    } else if (resource === AccessControlResourceType.Logs) {
-        return 'logs'
-    } else if (resource === AccessControlResourceType.Metrics) {
-        return 'metrics'
-    } else if (resource === AccessControlResourceType.Tracing) {
-        return 'tracing'
-    } else if (resource === AccessControlResourceType.SharingConfiguration) {
-        return 'sharing'
-    } else if (resource === AccessControlResourceType.Stamphog) {
-        // Product name, so it does not take a plural
-        return 'stamphog'
-    } else if (resource === AccessControlResourceType.Toolbar) {
-        return 'toolbar'
-    } else if (resource === AccessControlResourceType.LlmPlayground) {
-        return 'LLM playground'
-    } else if (resource === AccessControlResourceType.Workflow) {
-        return 'workflows'
-    } else if (resource === AccessControlResourceType.Ticket) {
-        return 'support'
-    } else if (resource === AccessControlResourceType.ReplayScanner) {
-        // Replay vision is the product name users know for scanners.
-        return 'replay vision'
-    } else if (resource === AccessControlResourceType.BusinessKnowledge) {
-        return 'business knowledge'
-    }
+export const pluralizeResource = (resource: APIScopeObject): string =>
+    RESOURCE_PLURALS[resource] ?? resource.replace(/_/g, ' ') + 's'
 
-    return resource.replace(/_/g, ' ') + 's'
-}
+/** Label for a resource in access control lists, e.g. "Marketing analytics". */
+export const resourceLabel = (resource: APIScopeObject): string => capitalizeFirstLetter(pluralizeResource(resource))
 
 /**
  * Returns the ordered list of access levels available for a given resource type.
@@ -186,6 +170,8 @@ export const resourceTypeToString = (resourceType: AccessControlResourceType): s
         return 'revenue analytics resource'
     } else if (resourceType === AccessControlResourceType.WebAnalytics) {
         return 'web analytics resource'
+    } else if (resourceType === AccessControlResourceType.MarketingAnalytics) {
+        return 'marketing analytics resource'
     } else if (resourceType === AccessControlResourceType.ErrorTracking) {
         return 'error tracking resource'
     } else if (resourceType === AccessControlResourceType.ExternalDataSource) {
@@ -200,9 +186,8 @@ export const resourceTypeToString = (resourceType: AccessControlResourceType): s
         return 'MCP analytic'
     } else if (resourceType === AccessControlResourceType.ReplayScanner) {
         return 'replay vision resource'
-    } else if (resourceType === AccessControlResourceType.Stamphog) {
-        // Proper noun, so it stays capitalized inside "...permissions for this Stamphog resource."
-        return 'Stamphog resource'
+    } else if (resourceType === AccessControlResourceType.CodeReviewApproval) {
+        return 'code review auto-approval resource'
     }
 
     return resourceType.replace(/_/g, ' ')

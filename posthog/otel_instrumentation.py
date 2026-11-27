@@ -1,18 +1,23 @@
 import os
+import re
 import atexit
 import typing
 import logging
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from urllib.parse import urlsplit, urlunsplit
 
 from django.http import HttpRequest, HttpResponse
 
 import structlog
 from opentelemetry import trace
+from opentelemetry.context import Context
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.aiohttp_client import AioHttpClientInstrumentor
 from opentelemetry.instrumentation.aiokafka import AIOKafkaInstrumentor
+from opentelemetry.instrumentation.botocore import BotocoreInstrumentor
 from opentelemetry.instrumentation.celery import CeleryInstrumentor
 from opentelemetry.instrumentation.django import DjangoInstrumentor
+from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor, RequestInfo
 from opentelemetry.instrumentation.kafka import KafkaInstrumentor
 from opentelemetry.instrumentation.psycopg import PsycopgInstrumentor
 from opentelemetry.instrumentation.redis import RedisInstrumentor
@@ -20,11 +25,70 @@ from opentelemetry.instrumentation.requests import RequestsInstrumentor
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
-from opentelemetry.trace import Span
+from opentelemetry.sdk.trace.sampling import Decision, Sampler, SamplingResult, _get_from_env_or_default
+from opentelemetry.semconv.attributes.error_attributes import ERROR_TYPE
+from opentelemetry.trace import Link, Span, SpanKind, StatusCode, TraceState
+from opentelemetry.util._decorator import _agnosticcontextmanager
 from opentelemetry.util.http import sanitize_method
+from opentelemetry.util.types import Attributes
+from requests import PreparedRequest
 
 # Get a structlog logger for this module's own messages
 logger = structlog.get_logger(__name__)
+
+_OUTBOUND_URL_ATTRIBUTE_KEYS = ("http.url", "url.full")
+
+_ALWAYS_SAMPLED_ROOT_PATHS = re.compile(r"^/?api/(environments|projects)/\d+/dashboard_v2/query_batch/?$")
+
+
+def _request_path(attributes: Attributes) -> str | None:
+    # OTEL_SEMCONV_STABILITY_OPT_IN=http sends `url.path`. Old semconv sends `http.target` only when the WSGI
+    # server sets RAW_URI or REQUEST_URI. Granian sets neither, so its requests carry the full URL in `http.url`.
+    if not attributes:
+        return None
+    path = attributes.get("url.path") or attributes.get("http.target")
+    if isinstance(path, str):
+        return path.partition("?")[0]
+    url = attributes.get("http.url")
+    if isinstance(url, str):
+        try:
+            return urlsplit(url).path
+        except ValueError:
+            return None
+    return None
+
+
+class _AlwaysSampleRoutesSampler(Sampler):
+    """Samples every server span entering through a few low-volume routes and leaves all other decisions to `delegate`."""
+
+    def __init__(self, delegate: Sampler) -> None:
+        self._delegate = delegate
+
+    def should_sample(
+        self,
+        parent_context: Context | None,
+        trace_id: int,
+        name: str,
+        kind: SpanKind | None = None,
+        attributes: Attributes = None,
+        links: Sequence[Link] | None = None,
+        trace_state: TraceState | None = None,
+    ) -> SamplingResult:
+        # A remote parent comes from the caller's `traceparent`, so its sampled flag must not switch tracing off here.
+        parent = trace.get_current_span(parent_context).get_span_context()
+        if attributes and (not parent.is_valid or parent.is_remote):
+            path = _request_path(attributes)
+            if path is not None and _ALWAYS_SAMPLED_ROOT_PATHS.match(path):
+                return SamplingResult(Decision.RECORD_AND_SAMPLE, attributes)
+        return self._delegate.should_sample(parent_context, trace_id, name, kind, attributes, links, trace_state)
+
+    def get_description(self) -> str:
+        return f"AlwaysSampleRoutes{{{_ALWAYS_SAMPLED_ROOT_PATHS.pattern}}}+{self._delegate.get_description()}"
+
+
+def build_sampler() -> Sampler:
+    # Same factory TracerProvider uses when no sampler is passed, so the OTEL_TRACES_SAMPLER* env vars still rule other routes.
+    return _AlwaysSampleRoutesSampler(_get_from_env_or_default())
 
 
 def _otel_django_request_hook(span: Span, request: HttpRequest) -> None:
@@ -88,7 +152,110 @@ def _otel_redis_request_hook(span: Span, instance: object, args: Sequence[object
         logger.debug("otel_redis_request_hook_failed", exc_info=True)
 
 
-def initialize_otel():
+def _url_origin(url: str) -> str:
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return ""
+    return urlunsplit((parts.scheme, parts.netloc.rpartition("@")[2], "", "", ""))
+
+
+def _replace_span_url_with_origin(span: Span, url: str) -> None:
+    if not span.is_recording():
+        return
+    origin = _url_origin(url)
+    for key in _OUTBOUND_URL_ATTRIBUTE_KEYS:
+        span.set_attribute(key, origin)
+
+
+def _otel_requests_request_hook(span: Span, request: PreparedRequest) -> None:
+    _replace_span_url_with_origin(span, request.url or "")
+
+
+def _otel_httpx_request_hook(span: Span, request: RequestInfo) -> None:
+    _replace_span_url_with_origin(span, str(request.url))
+
+
+async def _otel_httpx_async_request_hook(span: Span, request: RequestInfo) -> None:
+    _otel_httpx_request_hook(span, request)
+
+
+class _ExceptionTypeOnlyTracer(trace.Tracer):
+    def __init__(self, tracer: trace.Tracer) -> None:
+        self._tracer = tracer
+
+    def start_span(
+        self,
+        name: str,
+        context: Context | None = None,
+        kind: SpanKind = SpanKind.INTERNAL,
+        attributes: Attributes = None,
+        links: Sequence[Link] | None = None,
+        start_time: int | None = None,
+        record_exception: bool = True,
+        set_status_on_exception: bool = True,
+    ) -> Span:
+        return self._tracer.start_span(
+            name,
+            context,
+            kind,
+            attributes,
+            links,
+            start_time,
+            record_exception=False,
+            set_status_on_exception=False,
+        )
+
+    @_agnosticcontextmanager
+    def start_as_current_span(
+        self,
+        name: str,
+        context: Context | None = None,
+        kind: SpanKind = SpanKind.INTERNAL,
+        attributes: Attributes = None,
+        links: Sequence[Link] | None = None,
+        start_time: int | None = None,
+        record_exception: bool = True,
+        set_status_on_exception: bool = True,
+        end_on_exit: bool = True,
+    ) -> Iterator[Span]:
+        with self._tracer.start_as_current_span(
+            name,
+            context,
+            kind,
+            attributes,
+            links,
+            start_time,
+            record_exception=False,
+            set_status_on_exception=False,
+            end_on_exit=end_on_exit,
+        ) as span:
+            try:
+                yield span
+            except Exception as error:
+                span.set_attribute(ERROR_TYPE, type(error).__name__)
+                span.set_status(StatusCode.ERROR)
+                raise
+
+
+class _ExceptionTypeOnlyTracerProvider(trace.TracerProvider):
+    def __init__(self, provider: trace.TracerProvider) -> None:
+        self._provider = provider
+
+    def get_tracer(
+        self,
+        instrumenting_module_name: str,
+        instrumenting_library_version: str | None = None,
+        schema_url: str | None = None,
+        attributes: Attributes = None,
+    ) -> trace.Tracer:
+        tracer = self._provider.get_tracer(
+            instrumenting_module_name, instrumenting_library_version, schema_url, attributes
+        )
+        return _ExceptionTypeOnlyTracer(tracer)
+
+
+def initialize_otel(*, instrument_outbound_calls: bool = False) -> None:
     # App tracing targets a real OTLP collector (dev/prod). In tests, booting the app
     # (e.g. posthog/test/test_asgi_lifespan.py imports posthog.asgi) would otherwise arm a
     # process-wide span exporter to the SDK default localhost:4317 with no collector there,
@@ -145,7 +312,7 @@ def initialize_otel():
         # The SDK's atexit shutdown joins the exporter thread without a timeout.
         # A bounded flush keeps an unreachable collector from delaying worker exit.
         # The exporter thread is a daemon, so it can exit with the process.
-        provider = TracerProvider(resource=resource, shutdown_on_exit=False)
+        provider = TracerProvider(resource=resource, sampler=build_sampler(), shutdown_on_exit=False)
         otlp_exporter = OTLPSpanExporter()  # Assumes OTLP endpoint is configured via env vars
         processor = BatchSpanProcessor(otlp_exporter)
         provider.add_span_processor(processor)
@@ -163,6 +330,10 @@ def initialize_otel():
         instrument_psycopg(provider)
         instrument_kafka(provider)
         instrument_aiokafka(provider)
+        if instrument_outbound_calls:
+            instrument_requests_client(provider)
+            instrument_httpx_client(provider)
+            instrument_botocore(provider)
 
         logger.info(
             "otel_manual_init_status_from_instrumentation_module",
@@ -246,13 +417,40 @@ def instrument_aiohttp_client(provider: trace.TracerProvider):
         )
 
 
-def instrument_requests_client(provider: trace.TracerProvider):
+def instrument_requests_client(provider: trace.TracerProvider) -> None:
     try:
-        RequestsInstrumentor().instrument(tracer_provider=provider)
+        RequestsInstrumentor().instrument(
+            tracer_provider=_ExceptionTypeOnlyTracerProvider(provider),
+            request_hook=_otel_requests_request_hook,
+        )
         logger.info("otel_instrumentation_attempt", instrumentor="RequestsInstrumentor", status="success")
     except Exception as e:
         logger.exception(
             "otel_instrumentation_attempt", instrumentor="RequestsInstrumentor", status="error", exc_info=e
+        )
+
+
+def instrument_httpx_client(provider: trace.TracerProvider) -> None:
+    try:
+        HTTPXClientInstrumentor().instrument(
+            tracer_provider=_ExceptionTypeOnlyTracerProvider(provider),
+            request_hook=_otel_httpx_request_hook,
+            async_request_hook=_otel_httpx_async_request_hook,
+        )
+        logger.info("otel_instrumentation_attempt", instrumentor="HTTPXClientInstrumentor", status="success")
+    except Exception as e:
+        logger.exception(
+            "otel_instrumentation_attempt", instrumentor="HTTPXClientInstrumentor", status="error", exc_info=e
+        )
+
+
+def instrument_botocore(provider: trace.TracerProvider) -> None:
+    try:
+        BotocoreInstrumentor().instrument(tracer_provider=_ExceptionTypeOnlyTracerProvider(provider))
+        logger.info("otel_instrumentation_attempt", instrumentor="BotocoreInstrumentor", status="success")
+    except Exception as e:
+        logger.exception(
+            "otel_instrumentation_attempt", instrumentor="BotocoreInstrumentor", status="error", exc_info=e
         )
 
 

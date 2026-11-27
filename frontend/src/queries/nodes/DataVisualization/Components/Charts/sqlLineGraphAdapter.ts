@@ -18,12 +18,14 @@ import {
     type YAxisConfig,
 } from '@posthog/quill-charts'
 
+import { chartStyleCurve } from 'lib/charts/chartStyleAdapter'
+import type { DataColorTheme } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
+import { getColorFromToken } from 'scenes/dataThemeLogic'
 
 import { ChartSettings, GoalLine, YAxisSettings } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
-import { chartStyleCurve } from 'products/product_analytics/frontend/insights/shared/chartStyleAdapter'
 import {
     goalLinesToReferenceLines,
     schemaGoalLinesToConfigs,
@@ -34,6 +36,7 @@ import { AxisBreakdownSeries, BreakdownSeriesData } from '../seriesBreakdownLogi
 import { type SqlChartProps } from './SqlChart'
 
 export const MAX_SERIES = 200
+export const DEFAULT_SQL_MOVING_AVERAGE_INTERVALS = 3
 
 /** Without a breakdown, rows that share an x value would draw on top of each other in one slot, so they
  *  are summed per x value like the breakdown path does. A bar value chart draws one bar per row, so it keeps them. */
@@ -244,11 +247,64 @@ export interface SqlLineSeriesMeta {
     settings?: AxisSeriesSettings
 }
 
-export function buildSeries(yData: SqlLineYSeries[], visualizationType: ChartDisplayType): Series<SqlLineSeriesMeta>[] {
+// A percent column doesn't sum meaningfully with the other columns.
+const isExcludedFromTotal = (settings: AxisSeriesSettings | undefined): boolean =>
+    settings?.formatting?.style === 'percent' || !!settings?.display?.excludeFromTotal
+
+const optsIntoValueLabels = (series: SqlLineYSeries): boolean => series.settings?.display?.valueLabels === 'show'
+
+export function hasValueLabels(
+    chartSettings: ChartSettings,
+    ySeriesData: SqlLineYSeries[] | null | undefined
+): boolean {
+    return !!chartSettings.showValuesOnSeries || !!ySeriesData?.some(optsIntoValueLabels)
+}
+
+export function withCategoryBarColors(
+    series: Series<SqlLineSeriesMeta>[],
+    labels: string[],
+    visualizationType: ChartDisplayType,
+    chartSettings: ChartSettings,
+    colors: string[],
+    dataTheme: DataColorTheme | null
+): Series<SqlLineSeriesMeta>[] {
+    if (
+        !chartSettings.colorBarsByCategory ||
+        chartSettings.seriesBreakdownColumn ||
+        series.length !== 1 ||
+        ![ChartDisplayType.ActionsBar, ChartDisplayType.ActionsBarValue].includes(visualizationType)
+    ) {
+        return series
+    }
+    const colorByCategory = new Map<string, string | undefined>()
+    const bars = labels.map((value) => {
+        const key = String(value)
+        if (!colorByCategory.has(key)) {
+            const customization = chartSettings.resultCustomizations?.[key]
+            const presetColor =
+                customization?.color && dataTheme ? getColorFromToken(dataTheme, customization.color) : undefined
+            colorByCategory.set(
+                key,
+                customization?.customColor ?? presetColor ?? colors[colorByCategory.size % colors.length]
+            )
+        }
+        return { color: colorByCategory.get(key) }
+    })
+    return [{ ...series[0], bars }]
+}
+
+export function buildSeries(
+    yData: SqlLineYSeries[],
+    visualizationType: ChartDisplayType,
+    showValuesOnSeries = false
+): Series<SqlLineSeriesMeta>[] {
+    const onlyOptedIn = !showValuesOnSeries && yData.some(optsIntoValueLabels)
     return yData.map((series, index) => {
         const settings = series.settings
         const color = settings?.display?.color
         const type = seriesDisplayType(visualizationType, settings)
+        const valueLabels = settings?.display?.valueLabels
+        const hideValueLabel = valueLabels === 'hide' || (onlyOptedIn && valueLabels !== 'show')
 
         return {
             key: getSeriesKey(series, index),
@@ -258,9 +314,10 @@ export function buildSeries(yData: SqlLineYSeries[], visualizationType: ChartDis
             meta: { settings },
             // Per-series type; ignored by the single-type line/bar charts, read by ComboChart.
             type,
-            // A percent-styled column doesn't sum meaningfully with the other columns, so keep it
-            // out of the tooltip's total row (matches the legacy renderer).
-            ...(settings?.formatting?.style === 'percent' ? { visibility: { total: false } } : {}),
+            visibility: {
+                total: isExcludedFromTotal(settings) ? false : undefined,
+                valueLabel: hideValueLabel ? false : undefined,
+            },
             // Only pin an explicit color; otherwise let quill assign palette colors by index.
             ...(color ? { color } : {}),
             ...(visualizationType !== ChartDisplayType.ActionsBarValue && settings?.display?.yAxisPosition === 'right'
@@ -319,11 +376,11 @@ export function buildSqlTooltipConfig(
     chartSettings: ChartSettings,
     ySeriesData?: SqlLineYSeries[] | null
 ): TooltipConfig {
-    // The total sums the non-percent columns (percent columns are excluded via
-    // `visibility.total` in buildSeries), so it must format with a column that's actually in the
-    // sum — a blind `[0]` borrows a percent column's style and renders a sum of counts as
-    // "15,061.4%". Matches the legacy renderer's first-summable-column choice.
-    const totalSettings = ySeriesData?.find((series) => series.settings?.formatting?.style !== 'percent')?.settings
+    // The total sums only the columns buildSeries keeps in it (via `visibility.total`), so it must
+    // format with a column that's actually in the sum — a blind `[0]` borrows a percent column's
+    // style and renders a sum of counts as "15,061.4%". Matches the legacy renderer's
+    // first-summable-column choice.
+    const totalSettings = ySeriesData?.find((series) => !isExcludedFromTotal(series.settings))?.settings
     return {
         enabled: true,
         pinnable: true,
@@ -465,12 +522,14 @@ function buildValueLabelsConfig(
     chartSettings: ChartSettings,
     ySeriesData: SqlLineYSeries[] | null | undefined
 ): ValueLabelsConfig | undefined {
-    if (!chartSettings.showValuesOnSeries) {
+    if (!hasValueLabels(chartSettings, ySeriesData)) {
         return undefined
     }
     return {
         position: chartSettings.valueLabelPosition,
         background: chartSettings.valueLabelBackground,
+        color: chartSettings.valueLabelColor,
+        backgroundColor: chartSettings.valueLabelBackgroundColor,
         fontSize: chartSettings.valueLabelFontSize,
         rotation: chartSettings.valueLabelRotation,
         formatter: (_value, seriesIndex, _dataIndex, context) =>
@@ -489,6 +548,7 @@ export function buildLineChartConfig({
     const leftSeries = seriesForAxis(ySeriesData, 'left')
     const rightSeries = seriesForAxis(ySeriesData, 'right')
     const labelFormatter = buildSqlDateLabelFormatter(xData, timezone)
+    const window = chartSettings.movingAverageIntervals ?? DEFAULT_SQL_MOVING_AVERAGE_INTERVALS
 
     return {
         xAxis: buildXAxisConfig(xData, chartSettings, timezone),
@@ -511,6 +571,14 @@ export function buildLineChartConfig({
         goalLines: schemaGoalLinesToConfigs(goalLines),
         showAxisLines: buildAxisLinesConfig(chartSettings),
         trendLines: buildTrendLineConfigs(ySeriesData),
+        movingAverage:
+            chartSettings.showMovingAverage && Number.isInteger(window) && window >= 2
+                ? ySeriesData?.map((series, index) => ({
+                      seriesKey: getSeriesKey(series, index),
+                      window,
+                      alignment: 'trailing',
+                  }))
+                : undefined,
         legend: buildLegendConfig(chartSettings, legendRenderItem),
         valueLabels: buildValueLabelsConfig(chartSettings, ySeriesData),
         curve: chartStyleCurve(chartSettings.chartStyle),

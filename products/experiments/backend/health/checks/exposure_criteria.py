@@ -14,6 +14,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingActionKind,
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
+    ExperimentHealthValueKey,
 )
 from products.experiments.backend.health.checks.events_received import joined, not_received_severity, quoted
 from products.experiments.backend.health.context import (
@@ -26,21 +27,35 @@ from products.experiments.backend.health.skips import (
     NO_FLAG,
     NOT_AFTER_END,
     NOT_ON_ARCHIVED,
+    NOT_ON_WAREHOUSE_NATIVE_EXPOSURES,
     CheckOutcome,
     CheckSkip,
+    CheckValues,
     not_applicable,
     not_checked,
 )
 
-# pinned: the subcodes are sent as `finding_variant` on the health finding events, so insights group on them.
+# pinned: the subcodes are sent as `finding_subcode` on the health finding events, so insights group on them.
 EXPOSURE_EVENT_NOT_INGESTED = "exposure_event_not_ingested"
 FILTER_ON_ANOTHER_FLAG = "filter_on_another_flag"
 FILTER_ON_PROPERTY_NOT_INGESTED = "filter_on_property_not_ingested"
 
 
+def exposure_criteria_values(ctx: HealthContext) -> CheckValues:
+    event = ctx.exposure_events.custom_event if ctx.exposure_events else None
+    if ctx.archived or event is None:
+        return {}
+    return {
+        ExperimentHealthValueKey.EVENT: event,
+        ExperimentHealthValueKey.EVENT_RECEIVED: ctx.events_received.get(event),
+    }
+
+
 def exposure_criteria_cannot_match(ctx: HealthContext) -> CheckOutcome:
     if ctx.archived:
         return not_applicable(NOT_ON_ARCHIVED)
+    if ctx.warehouse_native_exposures:
+        return not_applicable(NOT_ON_WAREHOUSE_NATIVE_EXPOSURES)
     events = ctx.exposure_events
     if events is None:
         return not_checked("Couldn't check because the exposure criteria can't be read")

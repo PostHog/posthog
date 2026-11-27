@@ -5,8 +5,6 @@ from random import randint
 
 import pytest
 
-from django.test import override_settings
-
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 
 from products.batch_exports.backend.service import BackfillDetails
@@ -14,10 +12,47 @@ from products.batch_exports.backend.temporal.batch_exports import (
     DataInterval,
     get_data_interval,
     iter_records,
-    reads_native_events_source,
+    reads_recent_events_table,
 )
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
+
+
+@pytest.mark.parametrize("use_new_events_schema", [False, True])
+@pytest.mark.parametrize(
+    "interval_minutes,start_days_ago,is_backfill,expected",
+    [
+        (5, 0, False, True),
+        (60, 0, False, True),
+        (60, 20, False, False),
+        (60, 3, True, True),
+        (60, 20, True, False),
+    ],
+    ids=["five-minute-run", "hourly-run", "late-run", "recent-backfill", "old-backfill"],
+)
+def test_reads_recent_events_table(
+    use_new_events_schema: bool,
+    interval_minutes: int,
+    start_days_ago: int,
+    is_backfill: bool,
+    expected: bool,
+):
+    start = dt.datetime.now(tz=dt.UTC).replace(minute=0, second=0, microsecond=0) - dt.timedelta(days=start_days_ago)
+    end = start + dt.timedelta(minutes=interval_minutes)
+    backfill_details = (
+        BackfillDetails(backfill_id=None, start_at=start.isoformat(), end_at=end.isoformat()) if is_backfill else None
+    )
+
+    assert (
+        reads_recent_events_table(
+            team_id=1,
+            interval_start=start.isoformat(),
+            interval_end=end.isoformat(),
+            use_new_events_schema=use_new_events_schema,
+            backfill_details=backfill_details,
+        )
+        == expected
+    )
 
 
 def assert_records_match_events(records, events):
@@ -25,7 +60,7 @@ def assert_records_match_events(records, events):
 
     Naturally, they should match, but with some transformations:
     * We set UTC as a timezone for dates.
-    * We dump dict fields
+    * We parse dict fields, as the tables differ in how they format the JSON text
     """
     all_expected = sorted(events, key=operator.itemgetter("event"))
     all_record = sorted(records, key=operator.itemgetter("event"))
@@ -46,15 +81,16 @@ def assert_records_match_events(records, events):
             ):
                 assert value == dt.datetime.fromisoformat(expected[key.removeprefix("_")]).replace(tzinfo=dt.UTC), msg
             elif isinstance(expected[key], dict):
-                assert value == json.dumps(expected[key]), msg
+                assert value is not None and json.loads(value) == expected[key], msg
             else:
                 assert value == expected[key]
 
 
 @pytest.mark.parametrize("use_native_schema", [False, True])
 @pytest.mark.parametrize("interval_minutes", [5, 60])
-async def test_iter_records(clickhouse_client, use_native_schema, interval_minutes):
+async def test_iter_records(clickhouse_client, use_native_schema, interval_minutes, settings):
     """Test the rows returned by iter_records."""
+    settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA = use_native_schema
     team_id = randint(1, 1000000)
     data_interval_end = dt.datetime.now(tz=dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0)
     data_interval_start = data_interval_end - dt.timedelta(minutes=interval_minutes)
@@ -83,6 +119,9 @@ async def test_iter_records(clickhouse_client, use_native_schema, interval_minut
         for record in record_batch.to_pylist()
     ]
 
+    if use_native_schema:
+        # The new tables store an event without properties as an empty document.
+        events = [{**event, "properties": event["properties"] or {}} for event in events]
     assert_records_match_events(records, events)
     assert {record["uuid"]: record["person_id"] for record in records} == {
         event["uuid"]: event["person_id"] for event in events
@@ -192,61 +231,6 @@ async def test_iter_records_can_include_events(clickhouse_client):
     ]
 
     assert_records_match_events(records, events[5000:])
-
-
-async def test_iter_records_ignores_timestamp_predicates(clickhouse_client):
-    """Test the rows returned by iter_records ignores timestamp predicates when configured."""
-    team_id = randint(1, 1000000)
-
-    inserted_at = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
-    data_interval_end = inserted_at + dt.timedelta(hours=1)
-
-    # Insert some data with timestamps a couple of years before inserted_at
-    timestamp_start = inserted_at - dt.timedelta(hours=24 * 365 * 2)
-    timestamp_end = inserted_at - dt.timedelta(hours=24 * 365)
-
-    (events, _, _) = await generate_test_events_in_clickhouse(
-        client=clickhouse_client,
-        team_id=team_id,
-        start_time=timestamp_start,
-        end_time=timestamp_end,
-        count=10,
-        count_outside_range=0,
-        count_other_team=0,
-        duplicate=True,
-        person_properties={"$browser": "Chrome", "$os": "Mac OS X"},
-        inserted_at=inserted_at,
-        table="sharded_events",
-    )
-
-    records = [
-        record
-        for record_batch in iter_records(
-            clickhouse_client,
-            team_id,
-            inserted_at.isoformat(),
-            data_interval_end.isoformat(),
-            use_new_events_schema=False,
-        )
-        for record in record_batch.to_pylist()
-    ]
-
-    assert len(records) == 0
-
-    with override_settings(UNCONSTRAINED_TIMESTAMP_TEAM_IDS=[str(team_id)]):
-        records = [
-            record
-            for record_batch in iter_records(
-                clickhouse_client,
-                team_id,
-                inserted_at.isoformat(),
-                data_interval_end.isoformat(),
-                use_new_events_schema=False,
-            )
-            for record in record_batch.to_pylist()
-        ]
-
-    assert_records_match_events(records, events)
 
 
 async def test_iter_records_can_flatten_properties(clickhouse_client):
@@ -409,33 +393,3 @@ def test_data_interval_rejects_reversed_bounds() -> None:
     end = dt.datetime(2023, 8, 1, tzinfo=dt.UTC)
     with pytest.raises(ValueError, match="start"):
         DataInterval(start=end + dt.timedelta(seconds=1), end=end)
-
-
-@pytest.mark.parametrize(
-    "start_ago,end_ago,is_backfill,backfill_ago,expected",
-    [
-        (dt.timedelta(hours=2), dt.timedelta(hours=1), False, None, False),
-        (dt.timedelta(days=61), dt.timedelta(days=60), False, None, False),
-        (dt.timedelta(days=61), dt.timedelta(days=60), True, dt.timedelta(days=61), True),
-        (dt.timedelta(hours=2), dt.timedelta(hours=1), True, dt.timedelta(hours=2), False),
-    ],
-    ids=["scheduled-recent", "scheduled-old", "backfill-old", "backfill-recent"],
-)
-def test_reads_native_events_source_tracks_query_routing(start_ago, end_ago, is_backfill, backfill_ago, expected):
-    now = dt.datetime.now(tz=dt.UTC)
-    start, end = now - start_ago, now - end_ago
-    backfill_details = (
-        BackfillDetails(backfill_id=None, start_at=(now - backfill_ago).isoformat(), end_at=end.isoformat())
-        if backfill_ago is not None
-        else None
-    )
-    arguments = {
-        "team_id": 1,
-        "interval_start": start.isoformat(),
-        "interval_end": end.isoformat(),
-        "is_backfill": is_backfill,
-        "backfill_details": backfill_details,
-    }
-
-    assert reads_native_events_source(use_new_events_schema=True, **arguments) is expected
-    assert reads_native_events_source(use_new_events_schema=False, **arguments) is False

@@ -1,12 +1,13 @@
 import { useValues } from 'kea'
 
-import { LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
+import { LemonSelect } from '@posthog/lemon-ui'
 
-import { SocialLoginIcon } from 'lib/components/SocialLoginButton/SocialLoginIcon'
-import { SSO_PROVIDER_NAMES } from 'lib/constants'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 
 import { SSOProvider } from '~/types'
+
+import { ssoSelectOptions } from './ssoSelectOptions'
 
 export interface SSOSelectInterface {
     value: SSOProvider | ''
@@ -26,40 +27,13 @@ export function SSOSelect({
     disabledReason,
 }: SSOSelectInterface): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     if (!preflight) {
         return null
     }
 
-    const authProviders = Object.keys(preflight.available_social_auth_providers) as SSOProvider[]
-    const options: LemonSelectOptions<SSOProvider | ''> = [{ value: '', label: "Don't enforce" }]
-
-    authProviders.forEach((key) => {
-        options.push({
-            value: key,
-            label: SSO_PROVIDER_NAMES[key],
-            disabledReason: preflight.available_social_auth_providers[key]
-                ? undefined
-                : 'This provider is not configured.',
-            icon: <SocialLoginIcon provider={key} className="w-4 h-4" />,
-        })
-    })
-
-    options.push({
-        value: 'saml',
-        label: SSO_PROVIDER_NAMES['saml'],
-        disabledReason: !samlAvailable ? 'This provider is not configured.' : undefined,
-        icon: <SocialLoginIcon provider="saml" className="w-4 h-4" />,
-    })
-
-    if (oidcAvailable !== undefined) {
-        options.push({
-            value: 'oidc',
-            label: SSO_PROVIDER_NAMES.oidc,
-            disabledReason: oidcAvailable ? undefined : 'This provider is not configured.',
-            icon: <SocialLoginIcon provider="oidc" className="w-4 h-4" />,
-        })
-    }
+    const options = ssoSelectOptions(preflight, samlAvailable, oidcAvailable, value, featureFlags)
 
     return (
         <LemonSelect

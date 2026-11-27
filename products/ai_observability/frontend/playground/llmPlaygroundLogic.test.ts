@@ -17,10 +17,11 @@ const MOCK_MODEL_OPTIONS: ModelOption[] = [
     { id: 'gpt-4.1-mini', name: 'GPT-4.1 Mini', provider: 'OpenAI', description: '', isRecommended: false },
     { id: 'gpt-5', name: 'GPT-5', provider: 'OpenAI', description: '', isRecommended: false },
     { id: 'gpt-5-mini', name: 'GPT-5 Mini', provider: 'OpenAI', description: '', isRecommended: false },
+    { id: 'gpt-6-luna', name: 'GPT-6 Luna', provider: 'OpenAI', description: '', isRecommended: false },
     { id: 'claude-3-opus', name: 'Claude 3 Opus', provider: 'Anthropic', description: '', isRecommended: false },
 ]
 
-const DEFAULT_MODEL = 'gpt-5-mini'
+const DEFAULT_MODEL = 'gpt-6-luna'
 
 describe('llmPlaygroundLogic', () => {
     let runLogic: ReturnType<typeof llmPlaygroundRunLogic.build>
@@ -241,6 +242,12 @@ describe('llmPlaygroundLogic', () => {
                         }
                         return [200, MOCK_MODEL_OPTIONS]
                     },
+                    '/api/projects/:team_id/llm_analytics/provider_keys/:key_id/models/': ({ params }) => {
+                        if (params.key_id === 'openrouter-key-1') {
+                            return [200, byokModels]
+                        }
+                        return [200, MOCK_MODEL_OPTIONS]
+                    },
                 },
             })
 
@@ -282,6 +289,12 @@ describe('llmPlaygroundLogic', () => {
                     },
                     '/api/llm_proxy/models/': ({ request }) => {
                         if (new URL(request.url).searchParams.get('provider_key_id') === 'openrouter-key-1') {
+                            return [200, byokModels]
+                        }
+                        return [200, MOCK_MODEL_OPTIONS]
+                    },
+                    '/api/projects/:team_id/llm_analytics/provider_keys/:key_id/models/': ({ params }) => {
+                        if (params.key_id === 'openrouter-key-1') {
                             return [200, byokModels]
                         }
                         return [200, MOCK_MODEL_OPTIONS]
@@ -328,6 +341,12 @@ describe('llmPlaygroundLogic', () => {
                     },
                     '/api/llm_proxy/models/': ({ request }) => {
                         if (new URL(request.url).searchParams.get('provider_key_id') === 'openrouter-key-1') {
+                            return [200, byokModels]
+                        }
+                        return [200, MOCK_MODEL_OPTIONS]
+                    },
+                    '/api/projects/:team_id/llm_analytics/provider_keys/:key_id/models/': ({ params }) => {
+                        if (params.key_id === 'openrouter-key-1') {
                             return [200, byokModels]
                         }
                         return [200, MOCK_MODEL_OPTIONS]
@@ -385,6 +404,23 @@ describe('llmPlaygroundLogic', () => {
                         }
                         return [200, MOCK_MODEL_OPTIONS]
                     },
+                    '/api/projects/:team_id/llm_analytics/provider_keys/:key_id/models/': ({ params }) => {
+                        const providerKeyId = params.key_id
+                        if (providerKeyId === 'openrouter-key-z' || providerKeyId === 'openrouter-key-a') {
+                            return [
+                                200,
+                                [
+                                    {
+                                        id: byokModelId,
+                                        name: 'Claude Sonnet 4',
+                                        provider: 'openrouter',
+                                        description: '',
+                                    },
+                                ],
+                            ]
+                        }
+                        return [200, MOCK_MODEL_OPTIONS]
+                    },
                 },
             })
 
@@ -426,6 +462,12 @@ describe('llmPlaygroundLogic', () => {
                     },
                     '/api/llm_proxy/models/': ({ request }) => {
                         if (new URL(request.url).searchParams.get('provider_key_id') === 'openrouter-key-1') {
+                            return [200, byokModels]
+                        }
+                        return [200, MOCK_MODEL_OPTIONS]
+                    },
+                    '/api/projects/:team_id/llm_analytics/provider_keys/:key_id/models/': ({ params }) => {
+                        if (params.key_id === 'openrouter-key-1') {
                             return [200, byokModels]
                         }
                         return [200, MOCK_MODEL_OPTIONS]
@@ -785,6 +827,12 @@ describe('llmPlaygroundLogic', () => {
                         }
                         return [200, MOCK_MODEL_OPTIONS]
                     },
+                    '/api/projects/:team_id/llm_analytics/provider_keys/:key_id/models/': ({ params }) => {
+                        if (params.key_id === 'key-1') {
+                            return [200, byokModels]
+                        }
+                        return [200, MOCK_MODEL_OPTIONS]
+                    },
                 },
             })
 
@@ -800,6 +848,7 @@ describe('llmPlaygroundLogic', () => {
                     providerKeyId: 'key-1',
                     supportsDecisions: false,
                     supportsChat: true,
+                    supportsReasoning: false,
                 }))
             )
         })

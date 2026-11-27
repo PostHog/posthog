@@ -31,7 +31,10 @@ class TestFacadeTesting(BaseTest):
             updated_at=start_date,
         )
         saved_metric_id = testing.create_saved_metric(
-            team_id=self.team.id, name="Shared metric", query={"kind": "ExperimentMetric", "metric_type": "funnel"}
+            team_id=self.team.id,
+            name="Shared metric",
+            description="Counts checkouts.",
+            query={"kind": "ExperimentMetric", "metric_type": "funnel"},
         )
         testing.link_saved_metric(
             experiment_id=experiment_id, saved_metric_id=saved_metric_id, metadata={"type": "secondary"}
@@ -50,7 +53,7 @@ class TestFacadeTesting(BaseTest):
         assert experiment.updated_at == start_date
         link = ExperimentToSavedMetric.objects.get(experiment_id=experiment_id)
         assert (link.saved_metric_id, link.metadata) == (saved_metric_id, {"type": "secondary"})
-        assert link.saved_metric.team_id == self.team.id
+        assert (link.saved_metric.team_id, link.saved_metric.description) == (self.team.id, "Counts checkouts.")
         config = TeamExperimentsConfig.objects.get(team_id=self.team.id)
         assert (config.default_cuped_enabled, config.experiment_precomputation_enabled) == (True, True)
 

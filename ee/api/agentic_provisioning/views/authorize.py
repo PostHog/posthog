@@ -25,8 +25,10 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from posthog.ip_restrictions import enforce_ip_restrictions
 from posthog.middleware import organization_block_page
 from posthog.models.oauth import OAuthApplication
+from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
@@ -40,6 +42,7 @@ from ee.api.agentic_provisioning.accounts import (
 )
 from ee.api.agentic_provisioning.analytics import capture_provisioning_event
 from ee.api.agentic_provisioning.constants import PENDING_AUTH_CACHE_PREFIX, SAFE_STATE_RE
+from ee.api.agentic_provisioning.teams import ProjectCreationRefusedError, assert_user_can_create_project
 from ee.api.agentic_provisioning.tokens import user_can_access_team
 
 
@@ -53,12 +56,20 @@ def _partner_deactivated_redirect(pending_key: str) -> HttpResponseRedirect:
     return HttpResponseRedirect(f"{settings.SITE_URL}?error=partner_deactivated")
 
 
+def _consent_page_url(params: dict[str, str]) -> str:
+    return f"{settings.SITE_URL.rstrip('/')}/agentic/authorize?{urlencode(params)}"
+
+
 def _consent_page_redirect(state: str) -> HttpResponseRedirect:
     capture_provisioning_event("authorize", "selection_required")
 
-    base = settings.SITE_URL.rstrip("/")
-    params = urlencode({"state": _sanitize_state(state)})
-    return HttpResponseRedirect(f"{base}/agentic/authorize?{params}")
+    return HttpResponseRedirect(_consent_page_url({"state": _sanitize_state(state)}))
+
+
+def _project_creation_refused_redirect(state: str, refused: ProjectCreationRefusedError) -> HttpResponseRedirect:
+    capture_provisioning_event("authorize", "project_creation_refused", error_code=refused.code)
+
+    return HttpResponseRedirect(_consent_page_url({"state": _sanitize_state(state), "error": refused.code}))
 
 
 def _paying_partner(partner: OAuthApplication | None) -> OAuthApplication | None:
@@ -68,6 +79,41 @@ def _paying_partner(partner: OAuthApplication | None) -> OAuthApplication | None
 def _consent_changed_response(partner: OAuthApplication | None) -> Response:
     capture_provisioning_event("authorize_confirm", "consent_changed", partner=partner)
     return Response({"error": "consent_changed"}, status=409)
+
+
+def _reachable_teams_or_new_project(user: User, memberships: list[OrganizationMembership]) -> list[Team]:
+    """The non-demo teams the user can reach, or a new project in their first organization when there are none.
+
+    Raises ProjectCreationRefusedError when a new project is needed and the user may not create it.
+    """
+    # Only teams the user can actually reach are eligible: the auto-approve path
+    # mints a code for the first one without further checks.
+    org_ids = [m.organization_id for m in memberships]
+    non_demo_teams = [
+        team
+        for team in Team.objects.filter(organization_id__in=org_ids, is_demo=False)
+        if user_can_access_team(user, team)
+    ]
+    if non_demo_teams:
+        return non_demo_teams
+
+    organization = memberships[0].organization
+    assert_user_can_create_project(user, organization)
+    team = Team.objects.create_with_data(initiating_user=user, organization=organization)
+    capture_provisioning_event("authorize", "auto_created_project", team_id=team.id)
+    return [team]
+
+
+def _partner_team_refused_response(
+    partner: OAuthApplication | None, refused: PartnerOrganizationChanged | ProjectCreationRefusedError
+) -> Response:
+    if isinstance(refused, PartnerOrganizationChanged):
+        return _consent_changed_response(partner)
+
+    capture_provisioning_event(
+        "authorize_confirm", "project_creation_refused", partner=partner, error_code=refused.code
+    )
+    return Response({"error": refused.code}, status=403)
 
 
 @login_required
@@ -102,7 +148,7 @@ def agentic_authorize(request: Any) -> HttpResponseBase:
         # The confirm step puts this partner's project in an organization the partner pays
         # for, so no project of the user's is created, picked, or auto-approved here, and a
         # user without an organization can still connect.
-        if not paying_partner.provisioning.active:
+        if not paying_partner.provisioning_allowed:
             return _partner_deactivated_redirect(pending_key)
         return _consent_page_redirect(state)
 
@@ -111,25 +157,15 @@ def agentic_authorize(request: Any) -> HttpResponseBase:
         capture_provisioning_event("authorize", "no_organization")
         return HttpResponseRedirect(f"{settings.SITE_URL}?error=no_organization")
 
-    # Only teams the user can actually reach are eligible: the auto-approve path
-    # below mints a code for non_demo_teams[0] without further checks.
-    org_ids = [m.organization_id for m in memberships]
-    non_demo_teams = [
-        team
-        for team in Team.objects.filter(organization_id__in=org_ids, is_demo=False)
-        if user_can_access_team(user, team)
-    ]
-
-    if not non_demo_teams:
-        organization = memberships[0].organization
-        team = Team.objects.create_with_data(initiating_user=user, organization=organization)
-        non_demo_teams = [team]
-        capture_provisioning_event("authorize", "auto_created_project", team_id=team.id)
+    try:
+        non_demo_teams = _reachable_teams_or_new_project(user, memberships)
+    except ProjectCreationRefusedError as refused:
+        return _project_creation_refused_redirect(state, refused)
 
     # Re-check partner is still active (could have been deactivated since account_requests)
     is_trusted_partner = False
     if partner_app is not None:
-        if not partner_app.provisioning.active:
+        if not partner_app.provisioning_allowed:
             return _partner_deactivated_redirect(pending_key)
         # Fail closed: a partner-identified pending state missing the flag (e.g. created by an
         # older pod mid-deploy) must still require consent, never silently auto-approve.
@@ -194,6 +230,7 @@ class AuthorizePendingView(APIView):
 
 
 class AuthorizeConfirmView(APIView):
+    _ip_restrictions_use_view_scope = True
     permission_classes = [IsAuthenticated]
 
     def post(self, request: Request) -> Response:
@@ -246,7 +283,11 @@ class AuthorizeConfirmView(APIView):
                 capture_provisioning_event("authorize_confirm", "team_not_accessible", team_id=team_id)
                 return Response({"error": "team_not_accessible"}, status=403)
 
-        if confirm_partner is not None and not confirm_partner.provisioning.active:
+            enforce_ip_restrictions(
+                request, user, request.successful_authenticator, organization_id=str(team.organization_id)
+            )
+
+        if confirm_partner is not None and not confirm_partner.provisioning_allowed:
             cache.delete(pending_key)
             capture_provisioning_event("authorize_confirm", "partner_deactivated", partner=confirm_partner)
             return Response({"error": "partner_deactivated"}, status=403)
@@ -262,10 +303,15 @@ class AuthorizeConfirmView(APIView):
             # organization behind.
             try:
                 team, created = get_or_create_partner_organization_team(
-                    user, paying_partner, approved_organization_id=request.data.get("partner_organization_id")
+                    user,
+                    paying_partner,
+                    approved_organization_id=request.data.get("partner_organization_id"),
+                    authorize_organization=lambda organization: enforce_ip_restrictions(
+                        request, user, request.successful_authenticator, organization_id=str(organization.id)
+                    ),
                 )
-            except PartnerOrganizationChanged:
-                return _consent_changed_response(confirm_partner)
+            except (PartnerOrganizationChanged, ProjectCreationRefusedError) as refused:
+                return _partner_team_refused_response(confirm_partner, refused)
             success_properties["partner_organization"] = "created" if created else "reused"
 
         # Mint the auth code BEFORE deleting pending state so a cache hiccup

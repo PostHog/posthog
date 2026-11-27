@@ -1,6 +1,6 @@
 """Scorer scanner: produces a numeric score on a configured scale."""
 
-from typing import Any, ClassVar, Literal
+from typing import Any, ClassVar, Literal, cast
 
 from pydantic import BaseModel, Field, create_model, model_validator
 
@@ -66,8 +66,8 @@ class ScorerScanner(BaseScanner, frozen=True):
             ),
             score=(float, Field(ge=self.scale.min, le=self.scale.max, description=score_description)),
             confidence=(float, confidence_field()),
-            key_moment_t=(int | None, key_moment_field()),
-            thumbnail_t=(int | None, thumbnail_field()),
+            key_moment_t=(cast(Any, int | None), key_moment_field()),
+            thumbnail_t=(cast(Any, int | None), thumbnail_field()),
         )
 
     def prompt_context(self) -> dict[str, Any]:

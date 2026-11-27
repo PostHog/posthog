@@ -5,9 +5,9 @@ import { router, urlToAction } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { billingLogic } from 'scenes/billing/billingLogic'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -64,10 +64,10 @@ export interface sharedMetricLogicValues {
     newSharedMetric: {
         created_at?: string | null | undefined
         created_by?: UserBasicType | null | undefined
-        description?: string | undefined
+        description?: string
         id?: number | undefined
-        linked_experiments?: readonly ExperimentSavedMetricLinkedExperimentApi[] | undefined
-        metadata?: Record<string, any> | undefined
+        linked_experiments?: readonly ExperimentSavedMetricLinkedExperimentApi[]
+        metadata?: Record<string, any>
         name?: string | undefined
         query: ExperimentMetricUnion
         tags?: string[] | undefined
@@ -106,10 +106,10 @@ export interface sharedMetricLogicActions {
             | {
                   created_at?: string | null | undefined
                   created_by?: UserBasicType | null | undefined
-                  description?: string | undefined
+                  description?: string
                   id?: number | undefined
-                  linked_experiments?: readonly ExperimentSavedMetricLinkedExperimentApi[] | undefined
-                  metadata?: Record<string, any> | undefined
+                  linked_experiments?: readonly ExperimentSavedMetricLinkedExperimentApi[]
+                  metadata?: Record<string, any>
                   name?: string | undefined
                   query: ExperimentMetricUnion
                   tags?: string[] | undefined
@@ -123,10 +123,10 @@ export interface sharedMetricLogicActions {
             | {
                   created_at?: string | null | undefined
                   created_by?: UserBasicType | null | undefined
-                  description?: string | undefined
+                  description?: string
                   id?: number | undefined
-                  linked_experiments?: readonly ExperimentSavedMetricLinkedExperimentApi[] | undefined
-                  metadata?: Record<string, any> | undefined
+                  linked_experiments?: readonly ExperimentSavedMetricLinkedExperimentApi[]
+                  metadata?: Record<string, any>
                   name?: string | undefined
                   query: ExperimentMetricUnion
                   tags?: string[] | undefined

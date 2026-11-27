@@ -1,3 +1,4 @@
+import { strToU8, zipSync } from 'fflate'
 import { createHash } from 'node:crypto'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -12,13 +13,16 @@ vi.mock('@/hono/metrics', () => ({
 }))
 
 import { ContextMillResourceCache, type ContextMillResourceCacheOptions } from '@/hono/cache/ContextMillResourceCache'
+import { OmnibusSkillsCache } from '@/hono/cache/OmnibusSkillsCache'
 import type { RedisLike } from '@/hono/cache/RedisCache'
+import type { ContextMillArchiveContents } from '@/resources/internals'
 import type { ContextMillResource } from '@/resources/manifest-types'
+import { SkillCatalog } from '@/skills/skill-catalog'
 
 import { makeRedisRateLimitStubs } from './helpers/redis-rate-limit-stubs'
 import { makeSharedBlobRedisStubs } from './helpers/shared-blob-redis-stubs'
 
-type EntryLoader = () => Promise<ContextMillResource[]>
+type EntryLoader = () => Promise<ContextMillResource[] | ContextMillArchiveContents>
 
 class TestContextMillResourceCache extends ContextMillResourceCache {
     constructor(
@@ -33,8 +37,9 @@ class TestContextMillResourceCache extends ContextMillResourceCache {
         this.loader = loader
     }
 
-    protected override loadEntries(): Promise<ContextMillResource[]> {
-        return this.loader()
+    protected override async loadArchiveContents(): Promise<ContextMillArchiveContents> {
+        const loaded = await this.loader()
+        return Array.isArray(loaded) ? { entries: loaded, omnibusSkillsArchive: null } : loaded
     }
 }
 
@@ -128,6 +133,40 @@ describe('ContextMillResourceCache', () => {
         }
         expect(mockCacheEventsInc).toHaveBeenCalledWith({ event: 'cold_miss' })
         expect(mockCacheEventsInc).toHaveBeenCalledWith({ event: 'lock_acquired' })
+    })
+
+    it('publishes the omnibus skills with the manifest and keeps the last copy when a release does not parse', async () => {
+        const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+        try {
+            const omnibus = new OmnibusSkillsCache(redis)
+            const skillArchive = (name: string): Uint8Array =>
+                zipSync({
+                    [`${name}/SKILL.md`]: strToU8(`---\nname: ${name}\ndescription: Add ${name}.\n---\n\n# ${name}`),
+                })
+            const cache = new TestContextMillResourceCache(
+                redis,
+                async () => ({ entries: [makeEntry('a')], omnibusSkillsArchive: skillArchive('instrument-logs') }),
+                { omnibusSkills: omnibus }
+            )
+
+            await cache.loadOrRefresh()
+            const published = await omnibus.readIfChanged(undefined)
+            expect(SkillCatalog.fromZip(published!.bytes).listNames()).toEqual(['instrument-logs'])
+            expect(mockCacheEventsInc).toHaveBeenCalledWith({ event: 'omnibus_published' })
+
+            await cache.invalidate()
+            cache.setLoader(async () => ({
+                entries: [makeEntry('b')],
+                omnibusSkillsArchive: zipSync({ 'broken/notes.md': strToU8('no entry point') }),
+            }))
+            const { manifest } = await cache.loadOrRefresh()
+
+            expect(manifest.entries.map((entry) => entry.uri)).toEqual(['posthog://skill/b'])
+            expect(await omnibus.readIfChanged(published!.sha)).toBeNull()
+            expect(mockCacheEventsInc).toHaveBeenCalledWith({ event: 'omnibus_error' })
+        } finally {
+            consoleError.mockRestore()
+        }
     })
 
     it('serves manifest from cache on warm hit without calling upstream', async () => {

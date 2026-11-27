@@ -7,7 +7,9 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { billingLogic } from 'scenes/billing/billingLogic'
+import { cheatCodeCampaignSlug } from 'lib/components/CheatCodes/cheatCodeCampaignSlug'
+import { cheatCodeTypedRecently } from 'lib/components/CheatCodes/claimCheatCode'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -195,6 +197,10 @@ export const couponLogic = kea<couponLogicType>([
                 organization_name: values.currentOrganization?.name || '',
             } as CouponFormValues,
             errors: ({ code }) => {
+                // Cheat codes have no paid plan requirement, so the billing service decides eligibility.
+                if (cheatCodeCampaignSlug(code)) {
+                    return {}
+                }
                 if (!values.billingLoading && !values.billing?.has_active_subscription) {
                     return {
                         _form: 'You need to be on a paid plan before claiming this coupon',
@@ -205,6 +211,24 @@ export const couponLogic = kea<couponLogicType>([
                 }
             },
             submit: async (formValues: CouponFormValues) => {
+                const cheatCodeSlug = cheatCodeCampaignSlug(formValues.code)
+                if (cheatCodeSlug) {
+                    // Typing the code claims it through the global shortcut, as in GTA: San Andreas, so the
+                    // form never sends it. A paste skips the shortcut, so that case gets a nudge to type it.
+                    const typed = cheatCodeTypedRecently()
+                    if (!typed) {
+                        lemonToast.info(
+                            `Type ${cheatCodeSlug.toUpperCase()} out letter by letter. Pasting it doesn't count.`
+                        )
+                    }
+                    posthog.capture('billing cheat code submitted as coupon', {
+                        campaign: props.campaign,
+                        campaign_slug: cheatCodeSlug,
+                        typed,
+                    })
+                    actions.setCouponValue('code', '')
+                    return
+                }
                 try {
                     // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. billingCouponsClaimCreate() from 'products/billing/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                     const res = await api.create('api/billing/coupons/claim', {

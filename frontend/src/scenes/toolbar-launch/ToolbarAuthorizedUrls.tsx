@@ -40,9 +40,12 @@ import {
 
 import { AuthorizedUrlListType, authorizedUrlListLogic } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
+import { inStorybook } from 'lib/utils/dom'
 import { teamLogic } from 'scenes/teamLogic'
 
-export function ToolbarAuthorizedUrls({ canEdit }: { canEdit: boolean }): JSX.Element {
+import { toolbarExtensionLogic } from './toolbarExtensionLogic'
+
+export function ToolbarAuthorizedUrls(): JSX.Element {
     const logic = authorizedUrlListLogic({
         actionId: null,
         experimentId: null,
@@ -59,8 +62,11 @@ export function ToolbarAuthorizedUrls({ canEdit }: { canEdit: boolean }): JSX.El
         showProposedUrlErrors,
         suggestionsLoading,
         urlsKeyed,
+        writeDisabledReason,
     } = useValues(logic)
     const { currentTeamLoading } = useValues(teamLogic)
+    const { extensionInstalled } = useValues(toolbarExtensionLogic)
+    const { openInExtension } = useActions(toolbarExtensionLogic)
     const {
         addUrl,
         cancelProposingUrl,
@@ -73,7 +79,12 @@ export function ToolbarAuthorizedUrls({ canEdit }: { canEdit: boolean }): JSX.El
         submitProposedUrl,
     } = useActions(logic)
 
+    // Storybook has no app context to read access from, so allow editing there.
+    const canEdit = inStorybook() || !writeDisabledReason
     const visibleUrls = urlsKeyed.filter((url) => canEdit || url.type === 'authorized')
+    const openLabel = extensionInstalled ? 'Open in extension' : 'Launch'
+    // pinned: data-attr values, autocapture insights and tests select these buttons
+    const openDataAttr = extensionInstalled ? 'toolbar-open-in-extension' : 'toolbar-open'
     const urlForm = (
         <form
             className="flex w-full flex-col gap-4"
@@ -156,6 +167,22 @@ export function ToolbarAuthorizedUrls({ canEdit }: { canEdit: boolean }): JSX.El
 
                         const target = launchUrl(keyedURL.url)
                         const isWildcard = keyedURL.url.includes('*')
+                        const openButton = (
+                            <Button
+                                variant="primary"
+                                size="sm"
+                                disabled={isWildcard}
+                                {...(isWildcard
+                                    ? {}
+                                    : extensionInstalled
+                                      ? { onClick: () => openInExtension(keyedURL.url, target) }
+                                      : { render: <LinkPrimitive to={target} target="_blank" /> })}
+                                data-attr={openDataAttr}
+                            >
+                                <IconExternal />
+                                {openLabel}
+                            </Button>
+                        )
 
                         return (
                             <Item key={`${keyedURL.type}-${keyedURL.url}`} size="sm" variant="outline">
@@ -188,26 +215,11 @@ export function ToolbarAuthorizedUrls({ canEdit }: { canEdit: boolean }): JSX.El
                                         <>
                                             {isWildcard ? (
                                                 <Tooltip>
-                                                    <TooltipTrigger
-                                                        render={
-                                                            <Button variant="primary" size="sm" disabled>
-                                                                <IconExternal />
-                                                                Launch
-                                                            </Button>
-                                                        }
-                                                    />
-                                                    <TooltipContent>Wildcard URLs cannot be launched</TooltipContent>
+                                                    <TooltipTrigger render={openButton} />
+                                                    <TooltipContent>Wildcard URLs can't be opened</TooltipContent>
                                                 </Tooltip>
                                             ) : (
-                                                <Button
-                                                    variant="primary"
-                                                    size="sm"
-                                                    render={<LinkPrimitive to={target} target="_blank" />}
-                                                    data-attr="toolbar-open"
-                                                >
-                                                    <IconExternal />
-                                                    Launch
-                                                </Button>
+                                                openButton
                                             )}
                                             <DropdownMenu>
                                                 <DropdownMenuTrigger
@@ -322,7 +334,7 @@ export function ToolbarAuthorizedUrls({ canEdit }: { canEdit: boolean }): JSX.El
             )}
             {!canEdit && (
                 <Text size="xs" variant="muted">
-                    You can launch the toolbar, but only project editors can change authorized URLs.
+                    You can launch the toolbar, but you don't have permission to change authorized URLs.
                 </Text>
             )}
         </div>

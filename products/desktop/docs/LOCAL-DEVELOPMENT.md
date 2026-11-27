@@ -70,8 +70,8 @@ openssl genrsa 2048 | openssl pkcs8 -topk8 -nocrypt -outform PEM | \
 
 ## Bundled agent versions
 
-The desktop app bundles Codex 0.164.0 and Claude Code 2.1.280 from Claude Agent SDK 0.3.280.
-Codex 0.164.0 supports GPT-6.1-Sol with ChatGPT subscription billing.
+The desktop app bundles Codex 0.165.0 and Claude Code 2.1.314 from Claude Agent SDK 0.3.314.
+Codex 0.165.0 supports GPT-6.1-Sol with ChatGPT subscription billing.
 Updating a separately installed CLI does not update the app's bundled agents.
 
 When changing Codex versions, update both `packages/agent/packages/agent/package.json` (agent workspace, from the repo root) and `apps/code/scripts/download-binaries.mjs` so Codex and its code-mode host stay on the same release.
@@ -84,7 +84,7 @@ Adding it to production dependencies makes Electron packaging expand the harness
 
 ## Run the app
 
-Already working in the posthog/posthog monorepo? Skip the clone: the app lives at `products/desktop`. Note it needs Node 22 (see `.node-version`), not the Node version the monorepo's flox environment provides, so switch with your version manager first.
+Already working in the posthog/posthog monorepo? Skip the clone: the app lives at `products/desktop`. Note it needs Node 24 (see `.node-version`), not the Node version the monorepo's flox environment provides, so switch with your version manager first.
 
 ```bash
 cd products/desktop
@@ -135,7 +135,7 @@ The development build has two separate region values:
 - `dev` remains Local development at `http://localhost:8010` and uses its existing OAuth client ID.
 - `dev-cloud` connects to `https://app.dev.posthog.dev` and uses its dedicated OAuth client ID.
 
-Keeping both values preserves stored Local development sessions. Dev Cloud agent requests use `https://gateway.dev.posthog.dev`.
+Keeping both values preserves stored Local development sessions. Dev Cloud agent requests use `https://ai-gateway.dev.posthog.dev`.
 
 ## Custom cloud
 
@@ -161,9 +161,9 @@ A packaged test build keeps its own user data, under `posthog-code-test`, so its
 4. Enter the URL of the instance and the client ID of the OAuth application. The URL must be an `https` origin, for example `https://posthog.example.com`, with no path, query, or fragment. Plain `http` is only accepted for a loopback host, because OAuth tokens cross this origin.
 5. Sign in. The app keeps the values, and applies them to sign-in, API requests, and agent runs.
 
-Agent runs need an LLM gateway that accepts a token from your instance, so give the **LLM gateway URL** field the address of a gateway that reads your instance's database (see `services/llm-gateway`).
-A PostHog Cloud gateway cannot serve a custom instance: it resolves a token against the Cloud database, and its `posthog_code` product refuses a personal API key.
-With the field empty, the app derives a gateway from the host, and for an unknown host that is the US gateway, which returns 403.
+Agent runs need an AI gateway that accepts a token from your instance, so give the **LLM gateway URL** field the origin of a Go AI gateway ([PostHog/ai-gateway](https://github.com/PostHog/ai-gateway)) that reads your instance's credentials.
+A PostHog Cloud gateway cannot serve a custom instance, because it resolves a token against the Cloud database.
+With the field empty, the app uses the US Cloud gateway, which refuses the token.
 
 The PostHog MCP server is absent for a custom instance, because `mcp.posthog.com` cannot read a token from your instance either. `POSTHOG_MCP_URL` names one that can.
 

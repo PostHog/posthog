@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 import { IconCode2, IconCopy, IconEndpoints, IconGraph, IconPencil, IconPeople } from '@posthog/icons'
 
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
+import { openSaveAsCohortDialog } from 'lib/components/openSaveAsCohortDialog'
 import { captureImageLogic } from 'lib/components/Scenes/InsightOrDashboard/captureImageLogic'
 import { SceneAddToDashboardButton } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToDashboardButton'
 import { SceneAddToNotebookDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToNotebookDropdownMenu'
@@ -24,24 +25,15 @@ import { urls } from 'scenes/urls'
 
 import { ScenePanelActionsSection } from '~/layout/scenes/SceneLayout'
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
-import {
-    isDataTableNode,
-    isDataVisualizationNode,
-    isEventsQuery,
-    isHogQLQuery,
-    isInsightVizNode,
-} from '~/queries/utils'
+import { INSIGHT_GRAPH_SELECTOR, INSIGHT_SCREENSHOT_KEY } from '~/queries/nodes/InsightViz/insightImageCapture'
+import { isDataTableNode, isDataVisualizationNode, isHogQLQuery, isInsightVizNode } from '~/queries/schema/node-guards'
+import { isEventsQuery } from '~/queries/utils'
 import { AccessControlLevel, AccessControlResourceType, ExporterFormat, InsightLogicProps, InsightModel } from '~/types'
 
 import { metricsLogic } from 'products/data_catalog/frontend/metricsLogic'
 import { endpointLogic } from 'products/endpoints/frontend/endpointLogic'
-import {
-    INSIGHT_GRAPH_SELECTOR,
-    INSIGHT_SCREENSHOT_KEY,
-} from 'products/product_analytics/frontend/insights/shared/insightImageCapture'
 
 import { insightModalsLogic } from '../insightModalsLogic'
-import { openSaveAsCohortDialog } from './insightSidePanelDialogs'
 
 const RESOURCE_TYPE = 'insight'
 
@@ -226,7 +218,9 @@ export function InsightPanelActions({ insightLogicProps }: { insightLogicProps: 
             {showCohort && (
                 <ButtonPrimitive
                     data-attr={`${RESOURCE_TYPE}-save-as-cohort`}
-                    onClick={() => openSaveAsCohortDialog(createStaticCohort, hogQL!, hogQLVariables)}
+                    onClick={() =>
+                        openSaveAsCohortDialog(createStaticCohort, { query: hogQL!, variables: hogQLVariables })
+                    }
                     menuItem
                 >
                     <IconPeople />

@@ -36,6 +36,7 @@ The pointless-run rate in `exploring-scouts` (`has_not_in_use_closeout`) tells y
 - `{since}`: the start of the last run that ran, or the time the scout was created. A skipped tick writes no run row, so `{since}` does not move. The next run that starts still sees everything since the last run that ran.
 - `{now}`: the current time.
 - `{interval_minutes}`: the gap between two scheduled runs. For a cron schedule, it is the gap between the fire time before now and the one after it, in the project's timezone.
+- `{managed_by}`: who manages the scout's config, `team` (a person enabled it) or `background` (a background lane runs it). Use it to keep a backstop for a scout a person enabled and give a background config no run.
 
 Add a backstop so a quiet scout still runs from time to time.
 This condition runs at least once a day, and never more often than every two intervals:
@@ -79,7 +80,7 @@ A scheduled run uses the first source that applies:
 3. The default that a canonical scout's skill ships (see below), for a project inside that skill's rollout.
    A project outside the rollout runs with no pre-check.
 
-`posthog:scout-config-list` shows the result:
+`posthog:scout-config-retrieve {"id": "<config id>"}` shows the result:
 
 - `effective_precheck_query`: the query the next scheduled run uses, or null when no pre-check runs.
 - `precheck_query_source`: `config`, `skill_default`, or `off`.
@@ -112,7 +113,7 @@ scout-precheck-query: |
 - The harness reads the default from the canonical skill file that PostHog ships, not from a project's copy of the skill.
   Adding `scout-precheck-query` to a custom scout or to a team's edited copy changes nothing. For those scouts, save `precheck_query` on the config.
 - A merged default does not apply to every project at once. A rollout setting decides which projects get it.
-- The project profile's `surfaces` section runs every canonical default too, and reads its rows as "this surface is in use". Keep a default a test of activity on the surface. A backstop row or a "new since the last run" filter changes that answer for every project. `surfaces` binds `{since}` and `{interval_minutes}` to a 30-day span.
+- The project profile's `surfaces` section runs every canonical default too, and reads its rows as "this surface is in use". Keep a default a test of activity on the surface. A backstop row or a "new since the last run" filter changes that answer for every project. `surfaces` binds `{since}` and `{interval_minutes}` to a 30-day span. It binds `{managed_by}` to an empty string, because no config runs the query there.
 - When you write a canonical default, use the canonical scouts that already ship one (for example `signals-scout-mcp-tool-calls` above, or `signals-scout-surveys`) as models.
 
 ## Tell the body about the rows
@@ -128,7 +129,7 @@ A manual run has no block, so the body must still work without one.
 A skipped tick creates no run row, sandbox, or model call, but stores its pre-check outcome on the config.
 Before you treat missing runs as a failure:
 
-1. Read the config in `scout-config-list`:
+1. Read the config with `scout-config-retrieve`:
    - `last_precheck_at`: the time of the latest scheduled pre-check.
    - `last_precheck_outcome`: `skip` (the query found nothing new), `run` (the query returned rows that allow a run), or `error` (the query failed, so the gate allows a run).
    - `last_precheck_row_count`: how many rows it returned. Zero rows or one false value can both skip, so use the outcome to tell them from a run.

@@ -12,8 +12,8 @@ import {
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 
 import { Query } from '~/queries/Query/Query'
+import { isDataVisualizationNode, isHogQLQuery } from '~/queries/schema/node-guards'
 import { DataVisualizationNode, InsightVizNode } from '~/queries/schema/schema-general'
-import { isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
 
 import type { MultiVisualizationInsight } from './multiVisualizationInsights'
 

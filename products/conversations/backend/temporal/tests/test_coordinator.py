@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -18,6 +18,7 @@ from products.conversations.backend.temporal.coordinator import (
     _child_workflow_id,
     _collect_eligible,
     _is_master_flag_enabled,
+    customer_reply_rerun_key,
     support_collect_eligible_tickets_activity,
 )
 
@@ -73,24 +74,16 @@ def _make_ticket(
 
 class TestMasterFlagEnabled:
     @patch(f"{COORD_MODULE}.posthoganalytics.feature_enabled", return_value=True)
-    def test_evaluates_flag_with_team_uuid_and_groups(self, mock_feature_enabled):
+    def test_evaluates_flag_keyed_on_organization(self, mock_feature_enabled):
         team = MagicMock()
-        team.id = 2
-        team.uuid = TEST_TEAM_UUID
         team.organization_id = TEST_ORG_UUID
 
         assert _is_master_flag_enabled(team) is True
         mock_feature_enabled.assert_called_once_with(
-            "product-support-ai-suggestion",
-            str(TEST_TEAM_UUID),
-            groups={
-                "organization": str(TEST_ORG_UUID),
-                "project": "2",
-            },
-            group_properties={
-                "organization": {"id": str(TEST_ORG_UUID)},
-                "project": {"id": "2", "uuid": str(TEST_TEAM_UUID)},
-            },
+            "product-support-ai-suggestion-orgs",
+            str(TEST_ORG_UUID),
+            groups={"organization": str(TEST_ORG_UUID)},
+            group_properties={"organization": {"id": str(TEST_ORG_UUID)}},
             only_evaluate_locally=False,
             send_feature_flag_events=False,
         )
@@ -143,13 +136,13 @@ class TestCollectEligible:
         mock_ticket_model.objects.filter.return_value.select_related.return_value = [ticket]
         mock_has_ready.return_value = has_ready
 
-        # One query per team: .filter().values_list("item_id", author_type, created_at) rows.
+        # One query per team: .filter().values_list("item_id", author_type, is_private, created_at) rows.
         now = timezone.now()
-        rows: list[tuple[str, str, object]] = [(ticket_id, "customer", now - timedelta(minutes=10))]
+        rows: list[tuple[str, str, bool, object]] = [(ticket_id, "customer", False, now - timedelta(minutes=10))]
         if has_ai:
-            rows.append((ticket_id, "AI", now))
+            rows.append((ticket_id, "AI", True, now))
         if has_team_reply:
-            rows.append((ticket_id, "support", now))
+            rows.append((ticket_id, "support", False, now))
         mock_comment_model.objects.filter.return_value.values_list.return_value = rows
 
         result = _collect_eligible()
@@ -176,6 +169,25 @@ class TestCollectEligible:
         assert len(result) == 1
         assert result[0].team_id == team.id
         assert result[0].ticket_id == ticket_id
+
+    @patch(f"{COORD_MODULE}.has_ready_sources", return_value=True)
+    @patch(f"{COORD_MODULE}.Comment")
+    @patch(f"{COORD_MODULE}.Ticket")
+    @patch(f"{COORD_MODULE}._is_master_flag_enabled", return_value=True)
+    def test_master_flag_evaluated_once_per_org(
+        self,
+        mock_master_flag,
+        mock_ticket_model,
+        mock_comment_model,
+        mock_has_ready,
+    ):
+        tickets = [_make_ticket(team_id=team_id)[0] for team_id in (1, 1, 2)]
+        mock_ticket_model.objects.filter.return_value.select_related.return_value = tickets
+        mock_comment_model.objects.filter.return_value.values_list.return_value = []
+
+        result = _collect_eligible()
+        assert len(result) == 3
+        mock_master_flag.assert_called_once()
 
     @parameterized.expand(
         [
@@ -224,8 +236,8 @@ class TestCollectEligible:
         # AI note exists → engaged → skipped.
         now = timezone.now()
         mock_comment_model.objects.filter.return_value.values_list.return_value = [
-            (ticket_id, "customer", now - timedelta(minutes=10)),
-            (ticket_id, "AI", now),
+            (ticket_id, "customer", False, now - timedelta(minutes=10)),
+            (ticket_id, "AI", True, now),
         ]
 
         result = _collect_eligible()
@@ -233,11 +245,13 @@ class TestCollectEligible:
 
     @parameterized.expand(
         [
-            # (name, ticket_created_min_ago, latest_customer_msg_min_ago | None, expected_eligible)
-            ("fresh_ticket_no_comments_still_settling", 0, None, False),
-            ("old_ticket_no_comments_settled", 30, None, True),
-            ("recent_customer_followup_still_settling", 30, 0, False),
-            ("old_customer_followup_settled", 30, 30, True),
+            # (name, channel_source, ticket_created_min_ago, latest_customer_msg_min_ago | None, expected_eligible)
+            ("fresh_ticket_no_comments_still_settling", "widget", 0, None, False),
+            ("old_ticket_no_comments_settled", "widget", 30, None, True),
+            ("recent_customer_followup_still_settling", "widget", 30, 0, False),
+            ("old_customer_followup_settled", "widget", 30, 30, True),
+            ("fresh_email_ticket_skips_settle", "email", 0, None, True),
+            ("recent_email_followup_skips_settle", "email", 30, 0, True),
         ]
     )
     @patch(f"{COORD_MODULE}.has_ready_sources", return_value=True)
@@ -247,6 +261,7 @@ class TestCollectEligible:
     def test_settle_window_gates_until_customer_goes_quiet(
         self,
         _name,
+        channel_source,
         created_min_ago,
         last_msg_min_ago,
         expected_eligible,
@@ -258,13 +273,14 @@ class TestCollectEligible:
         # Guards the debounce: a ticket whose customer just sent a message (or was just created)
         # must not be drafted until they've gone quiet for TICKET_SETTLE_MINUTES, so follow-up
         # messages get folded into the same draft. Drop the settle gate and the two "still_settling"
-        # cases start returning the ticket immediately.
-        ticket, ticket_id, team = _make_ticket(created_minutes_ago=created_min_ago)
+        # cases start returning the ticket immediately. Channels in SETTLE_EXEMPT_CHANNELS skip the
+        # wait, so the email cases are eligible at once.
+        ticket, ticket_id, team = _make_ticket(channel_source=channel_source, created_minutes_ago=created_min_ago)
         mock_ticket_model.objects.filter.return_value.select_related.return_value = [ticket]
 
-        rows: list[tuple[str, str, object]] = []
+        rows: list[tuple[str, str, bool, object]] = []
         if last_msg_min_ago is not None:
-            rows.append((ticket_id, "customer", timezone.now() - timedelta(minutes=last_msg_min_ago)))
+            rows.append((ticket_id, "customer", False, timezone.now() - timedelta(minutes=last_msg_min_ago)))
         mock_comment_model.objects.filter.return_value.values_list.return_value = rows
 
         result = _collect_eligible()
@@ -381,6 +397,64 @@ class TestChildWorkflowId:
     def test_later_rounds_are_suffixed(self):
         assert _child_workflow_id("abc", 1) == "support-reply-abc-r1"
 
+    def test_customer_reply_run_has_its_own_id(self):
+        assert _child_workflow_id("abc", rerun_key="1700000000") == "support-reply-abc-c1700000000"
+
+    def test_follow_up_to_a_customer_reply_run_does_not_reuse_the_plain_round_id(self):
+        assert _child_workflow_id("abc", 1, "1700000000") == "support-reply-abc-c1700000000-r1"
+
+
+def _at(hour: int, minute: int = 0, second: int = 0) -> datetime:
+    return datetime(2026, 11, 26, hour, minute, second, tzinfo=UTC)
+
+
+_RUN_AT_TEN = {"status": "done", "started_at": _at(10).isoformat()}
+_ELEVEN_KEY = str(int(_at(11).timestamp()))
+
+
+class TestCustomerReplyRerunKey:
+    @parameterized.expand(
+        [
+            ("message_after_the_run", _RUN_AT_TEN, _at(11), None, False, _ELEVEN_KEY),
+            ("message_before_the_run", _RUN_AT_TEN, _at(9, 30), None, False, None),
+            ("no_customer_message", _RUN_AT_TEN, None, None, False, None),
+            ("run_still_in_progress", {**_RUN_AT_TEN, "status": "in_progress"}, _at(11), None, False, None),
+            ("no_previous_run", {"status": "done"}, _at(11), None, False, None),
+            ("teammate_replied", _RUN_AT_TEN, _at(11), _at(10, 30), False, None),
+            ("teammate_opened_the_ticket", _RUN_AT_TEN, _at(11), _at(8), False, _ELEVEN_KEY),
+            ("message_still_settling", _RUN_AT_TEN, _at(11, 59, 30), None, False, None),
+            (
+                "settle_exempt_channel",
+                _RUN_AT_TEN,
+                _at(11, 59, 30),
+                None,
+                True,
+                str(int(_at(11, 59, 30).timestamp())),
+            ),
+            ("run_limit_reached", {**_RUN_AT_TEN, "rerun_keys": ["1", "2", "3"]}, _at(11), None, False, None),
+            ("input_was_blocked", {**_RUN_AT_TEN, "result": "blocked_unsafe"}, _at(11), None, False, None),
+            ("reply_was_blocked", {**_RUN_AT_TEN, "result": "blocked_unsafe_reply"}, _at(11), None, False, None),
+            (
+                "retry_of_a_counted_message",
+                {**_RUN_AT_TEN, "rerun_keys": ["1", "2", _ELEVEN_KEY]},
+                _at(11),
+                None,
+                False,
+                _ELEVEN_KEY,
+            ),
+        ]
+    )
+    def test_decides_when_a_run_is_due(self, _name, triage, last_customer, last_human, settle_exempt, expected):
+        key = customer_reply_rerun_key(
+            triage=triage,
+            last_customer=last_customer,
+            first_customer=_at(9),
+            last_human=last_human,
+            settle_cutoff=_at(11, 59),
+            settle_exempt=settle_exempt,
+        )
+        assert key == expected
+
 
 class TestCollectEligibleAwaitingClarification:
     def _team_and_ticket(self, *, status: str = "pending", awaiting: bool = True):
@@ -410,7 +484,16 @@ class TestCollectEligibleAwaitingClarification:
         ticket.refresh_from_db()
         return team, ticket
 
-    def _comment(self, team, ticket, *, author_type: str, minutes_ago: int, automated_update_key: str | None = None):
+    def _comment(
+        self,
+        team,
+        ticket,
+        *,
+        author_type: str,
+        minutes_ago: int,
+        automated_update_key: str | None = None,
+        is_private: bool = False,
+    ):
         from posthog.models.comment import Comment
 
         created = timezone.now() - timedelta(minutes=minutes_ago)
@@ -421,7 +504,7 @@ class TestCollectEligibleAwaitingClarification:
             content=author_type,
             item_context={
                 "author_type": author_type,
-                "is_private": False,
+                "is_private": is_private,
                 "persist_as": "clarification",
                 **({"automated_update_key": automated_update_key} if automated_update_key else {}),
             },
@@ -432,6 +515,10 @@ class TestCollectEligibleAwaitingClarification:
         TicketModel.objects.filter(id=ticket.id).update(last_message_at=max(ticket.last_message_at or created, created))
         ticket.refresh_from_db()
         return comment
+
+    def _comments(self, team, ticket, comments: list[tuple[str, int] | tuple[str, int, bool]]) -> None:
+        for author_type, minutes_ago, *private in comments:
+            self._comment(team, ticket, author_type=author_type, minutes_ago=minutes_ago, is_private=private == [True])
 
     @pytest.mark.django_db
     @patch(f"{COORD_MODULE}._is_master_flag_enabled", return_value=True)
@@ -475,6 +562,13 @@ class TestCollectEligibleAwaitingClarification:
                 False,
                 None,
             ),
+            (
+                "private_workflow_note_after_question",
+                True,
+                [("customer", 10), ("AI", 5), ("workflow", 4, True), ("customer", 3)],
+                True,
+                1,
+            ),
         ]
     )
     @pytest.mark.django_db
@@ -489,8 +583,7 @@ class TestCollectEligibleAwaitingClarification:
         mock_master_flag,
     ):
         team, ticket = self._team_and_ticket(awaiting=awaiting)
-        for author_type, minutes_ago in comments:
-            self._comment(team, ticket, author_type=author_type, minutes_ago=minutes_ago)
+        self._comments(team, ticket, comments)
 
         result = _collect_eligible()
         if expected_eligible:
@@ -512,6 +605,9 @@ class TestCollectEligibleAwaitingClarification:
             ),
             ("ai_note_after_customer", [("human", 4), ("customer", 3), ("AI", 2)], False, None),
             ("inbound_team_reply", [("customer", 4), ("human", 3)], False, "skipped_team_replied"),
+            ("private_workflow_note", [("customer", 4), ("workflow", 3, True)], True, None),
+            ("private_support_note", [("customer", 4), ("support", 3, True)], True, None),
+            ("private_ai_note", [("customer", 4), ("AI", 3, True)], False, None),
         ]
     )
     @pytest.mark.django_db
@@ -525,13 +621,118 @@ class TestCollectEligibleAwaitingClarification:
         mock_master_flag,
     ):
         team, ticket = self._team_and_ticket(status="open", awaiting=False)
-        for author_type, minutes_ago in comments:
-            self._comment(team, ticket, author_type=author_type, minutes_ago=minutes_ago)
+        self._comments(team, ticket, comments)
 
         result = _collect_eligible()
         assert [t.ticket_id for t in result] == ([str(ticket.id)] if expected_eligible else [])
         ticket.refresh_from_db()
         assert ticket.ai_triage.get("result") == expected_result
+
+    @parameterized.expand(
+        [
+            ("until_team_reply", "until_team_reply", True),
+            ("first_message", "first_message", False),
+            ("setting_absent", None, False),
+        ]
+    )
+    @pytest.mark.django_db
+    @patch(f"{COORD_MODULE}._is_master_flag_enabled", return_value=True)
+    def test_later_customer_message_starts_a_run_only_in_until_team_reply_mode(
+        self, _name, rerun_mode, expected_eligible, mock_master_flag
+    ):
+        from products.conversations.backend.models.ticket import Ticket as TicketModel
+
+        team, ticket = self._team_and_ticket(status="open", awaiting=False)
+        team.conversations_settings = {
+            "ai_suggestions_enabled": True,
+            **({"ai_rerun_mode": rerun_mode} if rerun_mode else {}),
+        }
+        team.save()
+        run_started = timezone.now() - timedelta(minutes=6)
+        TicketModel.objects.filter(id=ticket.id).update(
+            ai_triage={"status": "done", "result": "suggested", "started_at": run_started.isoformat()}
+        )
+        ticket.refresh_from_db()
+        self._comments(team, ticket, [("customer", 8), ("AI", 5, True), ("customer", 3)])
+
+        result = _collect_eligible()
+
+        assert [t.ticket_id for t in result] == ([str(ticket.id)] if expected_eligible else [])
+        ticket.refresh_from_db()
+        if expected_eligible:
+            assert result[0].rerun_key
+            assert ticket.ai_triage["rerun_keys"] == [result[0].rerun_key]
+        else:
+            assert "rerun_keys" not in ticket.ai_triage
+
+    @pytest.mark.django_db
+    @patch(f"{COORD_MODULE}._is_master_flag_enabled", return_value=True)
+    def test_failed_first_run_stays_on_the_first_draft_path_in_until_team_reply_mode(self, mock_master_flag):
+        from products.conversations.backend.models.ticket import Ticket as TicketModel
+
+        team, ticket = self._team_and_ticket(status="open", awaiting=False)
+        team.conversations_settings = {"ai_suggestions_enabled": True, "ai_rerun_mode": "until_team_reply"}
+        team.save()
+        TicketModel.objects.filter(id=ticket.id).update(
+            ai_triage={"status": "in_progress", "started_at": (timezone.now() - timedelta(minutes=6)).isoformat()}
+        )
+        ticket.refresh_from_db()
+        self._comments(team, ticket, [("customer", 4)])
+
+        result = _collect_eligible()
+
+        assert [(t.ticket_id, t.rerun_key) for t in result] == [(str(ticket.id), "")]
+
+    @pytest.mark.django_db
+    @patch(f"{COORD_MODULE}._is_master_flag_enabled", return_value=True)
+    def test_follow_up_to_a_question_from_a_customer_reply_run_carries_its_key(self, mock_master_flag):
+        from products.conversations.backend.models.ticket import Ticket as TicketModel
+
+        team, ticket = self._team_and_ticket()
+        TicketModel.objects.filter(id=ticket.id).update(
+            ai_triage={
+                "status": "awaiting_clarification",
+                "clarification_rounds": 1,
+                "trigger": "customer_reply",
+                "rerun_keys": ["1700000000"],
+            }
+        )
+        ticket.refresh_from_db()
+        self._comments(team, ticket, [("customer", 8), ("AI", 5), ("customer", 3)])
+
+        result = _collect_eligible()
+
+        assert [(t.ticket_id, t.clarification_round, t.rerun_key) for t in result] == [
+            (str(ticket.id), 1, "1700000000")
+        ]
+
+    @parameterized.expand(
+        [
+            ("forward_note_only", [("support", 4, True)], False),
+            ("internal_mail_after_forward", [("support", 4, True), ("customer", 3, True)], False),
+            ("customer_reply_after_forward", [("support", 4, True), ("customer", 3)], True),
+        ]
+    )
+    @pytest.mark.django_db
+    @patch(f"{COORD_MODULE}._is_master_flag_enabled", return_value=True)
+    def test_forwarded_ticket_waits_for_the_customer(self, _name, comments, expected_eligible, mock_master_flag):
+        team, ticket = self._team_and_ticket(status="new", awaiting=False)
+        ticket.anonymous_traits = {"email_relayed": True, "email_forwarded": True}
+        ticket.save(update_fields=["anonymous_traits"])
+        self._comments(team, ticket, comments)
+
+        result = _collect_eligible()
+        assert [t.ticket_id for t in result] == ([str(ticket.id)] if expected_eligible else [])
+
+    @pytest.mark.django_db
+    @patch(f"{COORD_MODULE}._is_master_flag_enabled", return_value=True)
+    def test_malformed_traits_do_not_stop_the_scan(self, mock_master_flag):
+        team, ticket = self._team_and_ticket(status="new", awaiting=False)
+        ticket.anonymous_traits = ["x"]
+        ticket.save(update_fields=["anonymous_traits"])
+        self._comments(team, ticket, [("customer", 3)])
+
+        assert [t.ticket_id for t in _collect_eligible()] == [str(ticket.id)]
 
     @pytest.mark.django_db
     @patch(f"{COORD_MODULE}._is_master_flag_enabled", return_value=True)
@@ -707,3 +908,29 @@ class TestCoordinatorWorkflow:
 
         assert result.started_count == 1
         assert result.skipped_count == 0
+
+    @pytest.mark.asyncio
+    @patch(f"{COORD_MODULE}._collect_eligible")
+    async def test_customer_reply_run_uses_its_own_child_id(self, mock_collect):
+        from temporalio.testing import WorkflowEnvironment
+        from temporalio.worker import Worker
+
+        mock_collect.return_value = [EligibleTicket(team_id=1, ticket_id="t1", rerun_key="1700000000")]
+
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with Worker(
+                env.client,
+                task_queue="test-queue",
+                workflows=[SupportReplyCoordinatorWorkflow, _StubChildWorkflow],
+                activities=[support_collect_eligible_tickets_activity],
+            ):
+                result = await env.client.execute_workflow(
+                    SupportReplyCoordinatorWorkflow.run,
+                    CoordinatorInput(),
+                    id="test-coordinator-customer-reply-id",
+                    task_queue="test-queue",
+                )
+                desc = await env.client.get_workflow_handle("support-reply-t1-c1700000000").describe()
+                assert desc.id == "support-reply-t1-c1700000000"
+
+        assert result.started_count == 1

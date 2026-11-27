@@ -399,7 +399,9 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
         silent_last_seen = self._last_seen_in_rollup(silent_names) if silent_names and self._use_rollup() else {}
 
         enabled_rules = list(
-            LogsExclusionRule.objects.filter(team_id=self.team.pk, enabled=True).order_by("priority", "created_at")
+            LogsExclusionRule.objects.filter(
+                team_id=self.team.pk, enabled=True, source=LogsExclusionRule.RecordSource.LOGS
+            ).order_by("priority", "created_at")
         )
 
         services = []

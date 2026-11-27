@@ -1,6 +1,7 @@
 import { AuthRequest, type AuthSessionResult, makeRedirectUri } from 'expo-auth-session'
 import { Platform } from 'react-native'
 
+import { requestWithDeadline, TransportError, transport } from '@/api/transport'
 import { appScheme } from '@/lib/environment'
 
 import type { SessionTokens } from './tokens'
@@ -18,6 +19,8 @@ export const OAUTH_SCOPES = [
     'project:read',
     'task:read',
     'task:write',
+    'inbox:read',
+    'inbox:write',
     'conversation:write',
     'today:read',
     'query:read',
@@ -29,6 +32,7 @@ export const OAUTH_SCOPES = [
     'session_recording:read',
     'replay_scanner:read',
     'replay_scanner:write',
+    'export:write',
 ] as const
 
 const REQUEST_TIMEOUT_MS = 20_000
@@ -128,6 +132,15 @@ async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: numbe
     }
 }
 
+async function readTokenBody(response: Response): Promise<unknown> {
+    try {
+        return await transport(() => response.json())
+    } catch (error) {
+        if (error instanceof TransportError) throw new OAuthError('network')
+        throw error
+    }
+}
+
 async function readOAuthError(response: Response): Promise<{ error?: string; description?: string }> {
     try {
         const body = (await response.json()) as Record<string, unknown>
@@ -140,16 +153,31 @@ async function readOAuthError(response: Response): Promise<{ error?: string; des
     }
 }
 
-async function postToken(host: string, body: Record<string, string>): Promise<Response> {
-    return fetchWithTimeout(
-        `${host}/oauth/token`,
-        {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-            body: JSON.stringify(body),
-        },
-        REQUEST_TIMEOUT_MS
-    )
+async function postToken<T>(
+    host: string,
+    body: Record<string, string>,
+    readResponse: (response: Response) => Promise<T>
+): Promise<T> {
+    try {
+        return await requestWithDeadline(
+            async (signal) => {
+                const response = await transport(() =>
+                    fetch(`${host}/oauth/token`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+                        body: JSON.stringify(body),
+                        signal,
+                    })
+                )
+                return readResponse(response)
+            },
+            undefined,
+            REQUEST_TIMEOUT_MS
+        )
+    } catch (error) {
+        if (error instanceof TransportError) throw new OAuthError('network')
+        throw error
+    }
 }
 
 function authResultError(result: AuthSessionResult): OAuthError {
@@ -200,25 +228,34 @@ export async function authorize({ host, clientId }: { host: string; clientId: st
     if (!request.codeVerifier) {
         throw new OAuthError('rejected', 'The sign-in request lost its PKCE verifier.')
     }
-    const response = await postToken(host, {
-        grant_type: 'authorization_code',
-        code,
-        redirect_uri: request.redirectUri,
-        client_id: clientId,
-        code_verifier: request.codeVerifier,
-    })
-    if (!response.ok) {
-        const { error, description } = await readOAuthError(response)
-        if (error === 'invalid_scope') {
-            throw new OAuthError('missing_scope', description)
+    return postToken(
+        host,
+        {
+            grant_type: 'authorization_code',
+            code,
+            redirect_uri: request.redirectUri,
+            client_id: clientId,
+            code_verifier: request.codeVerifier,
+        },
+        async (response) => {
+            if (!response.ok) {
+                const { error, description } = await readOAuthError(response)
+                if (error === 'invalid_scope') {
+                    throw new OAuthError('missing_scope', description)
+                }
+                throw new OAuthError(response.status >= 500 ? 'server' : 'rejected', description ?? error)
+            }
+            const body = await readTokenBody(response)
+            if (!isTokenResponse(body)) {
+                throw new OAuthError('rejected', 'The token response had no access token.')
+            }
+            return toSessionTokens(body, {
+                refreshToken: null,
+                grantedScopes: null,
+                requestedScopes: [...OAUTH_SCOPES],
+            })
         }
-        throw new OAuthError(response.status >= 500 ? 'server' : 'rejected', description ?? error)
-    }
-    const body: unknown = await response.json()
-    if (!isTokenResponse(body)) {
-        throw new OAuthError('rejected', 'The token response had no access token.')
-    }
-    return toSessionTokens(body, { refreshToken: null, grantedScopes: null, requestedScopes: [...OAUTH_SCOPES] })
+    )
 }
 
 // The server rotates the refresh token on every call and revokes the whole family when an old one is reused after a
@@ -236,26 +273,31 @@ export async function refreshTokens({
     grantedScopes?: string[] | null
     requestedScopes?: string[] | null
 }): Promise<SessionTokens> {
-    const response = await postToken(host, {
-        grant_type: 'refresh_token',
-        refresh_token: refreshToken,
-        client_id: clientId,
-    })
-    if (response.status === 400 || response.status === 401 || response.status === 403) {
-        const { error, description } = await readOAuthError(response)
-        throw new OAuthError('session_expired', description ?? error)
-    }
-    if (!response.ok) {
-        throw new OAuthError(
-            response.status >= 500 ? 'server' : 'rejected',
-            `Token refresh failed with ${response.status}`
-        )
-    }
-    const body: unknown = await response.json()
-    if (!isTokenResponse(body)) {
-        throw new OAuthError('rejected', 'The token response had no access token.')
-    }
-    return toSessionTokens(body, { refreshToken, grantedScopes, requestedScopes })
+    return postToken(
+        host,
+        {
+            grant_type: 'refresh_token',
+            refresh_token: refreshToken,
+            client_id: clientId,
+        },
+        async (response) => {
+            if (response.status === 400 || response.status === 401 || response.status === 403) {
+                const { error, description } = await readOAuthError(response)
+                throw new OAuthError('session_expired', description ?? error)
+            }
+            if (!response.ok) {
+                throw new OAuthError(
+                    response.status >= 500 ? 'server' : 'rejected',
+                    `Token refresh failed with ${response.status}`
+                )
+            }
+            const body = await readTokenBody(response)
+            if (!isTokenResponse(body)) {
+                throw new OAuthError('rejected', 'The token response had no access token.')
+            }
+            return toSessionTokens(body, { refreshToken, grantedScopes, requestedScopes })
+        }
+    )
 }
 
 // Revocation follows RFC 7009, which takes a form body. Failures are ignored because sign out must work offline.

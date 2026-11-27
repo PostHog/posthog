@@ -9,6 +9,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
+from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
@@ -21,7 +22,6 @@ from products.customer_analytics.backend.facade.contracts import (
     AnnouncementValidationError,
     AnnouncementView,
 )
-from products.customer_analytics.backend.presentation.views.views import _FacadePaginationMixin
 
 # Duplicated from the model TextChoices so this module imports no product models;
 # ENUM_NAME_OVERRIDES matches the generated enums against these by value.
@@ -163,7 +163,6 @@ class AnnouncementSerializer(DataclassSerializer):
 
 class AnnouncementViewSet(
     TeamAndOrgViewSetMixin,
-    _FacadePaginationMixin,
     mixins.CreateModelMixin,
     viewsets.ReadOnlyModelViewSet,
 ):
@@ -171,12 +170,13 @@ class AnnouncementViewSet(
     serializer_class = AnnouncementSerializer
     queryset = None  # data is reached through the facade; declared for router/schema only
     lookup_field = "short_id"
+    pagination_class = FacadeLimitOffsetPagination
 
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        return self._paginate_via_facade(
-            request,
-            lambda offset, limit: api.list_announcements(self.team_id, offset=offset, limit=limit),
-            AnnouncementSerializer,
+        return facade_page_response(
+            self,
+            lambda page: api.list_announcements(self.team_id, page=page),
+            serializer_class=AnnouncementSerializer,
         )
 
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:

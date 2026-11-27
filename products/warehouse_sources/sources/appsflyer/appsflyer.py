@@ -1,0 +1,572 @@
+import io
+import re
+import csv
+import json
+from collections.abc import Buffer, Iterable, Iterator
+from datetime import UTC, date, datetime, timedelta
+from typing import Any
+from urllib.parse import quote, urlencode, urlparse
+
+import requests
+from structlog.types import FilteringBoundLogger
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+
+from products.warehouse_sources.sources.appsflyer.settings import (
+    APPSFLYER_ENDPOINTS,
+    AppsFlyerEndpointConfig,
+    AppsFlyerReportKind,
+)
+from products.warehouse_sources.sources.sdk import (
+    ResumableSourceManager,
+    SourceResponse,
+    frozen,
+    make_tracked_session,
+    retry_with_deadline,
+)
+
+APPSFLYER_BASE_URL = "https://hq1.appsflyer.com"
+QUOTA_EXHAUSTED_MARKER = "limit reached"
+# Leads the retryable error a used-up quota raises, so the source can name that case once retries run out.
+QUOTA_EXHAUSTED_ERROR = "AppsFlyer daily report API quota is used up"
+MASTER_API_PATH = "/api/master-agg-data/"
+# AppsFlyer answers a Master API call with an empty 404 when the account's plan has no Master API,
+# so the app id can be valid while this report never syncs.
+MASTER_API_NOT_IN_PLAN_ERROR = "AppsFlyer subscription does not include the Master API"
+RAW_DATA_PATH = "/api/raw-data/"
+# AppsFlyer answers a raw-data pull with 400 and "Your current subscription package doesn't include
+# raw data reports" when the account's plan has no raw data.
+RAW_DATA_NOT_IN_PLAN_MARKER = "include raw data reports"
+RAW_DATA_NOT_IN_PLAN_ERROR = "AppsFlyer subscription does not include raw data reports"
+# The v3 path serves SKAN 4 postbacks; SKAN 3 postbacks come back on it with the SKAN 4 fields empty.
+SKAN_PATH = "/api/skadnetworks/v3/data/app/"
+# The SKAN API answers its 10-calls-a-minute limit with 400 "Too many requests", not 429.
+SKAN_RATE_LIMIT_MARKER = "too many requests"
+# Aggregate pull requests cap the date range at ~1000 days.
+MAX_WINDOW_DAYS = 999
+# AppsFlyer doesn't finalize data until ~48h after the UTC day; re-fetch the
+# trailing days each incremental run (merge dedupes on the dimension key).
+LOOKBACK_DAYS = 2
+# Raw-data pulls are refused beyond a 90-day historical lookback ("Raw reports historical
+# lookback is limited to 90 days"), so never ask for a window that starts earlier.
+RAW_MAX_LOOKBACK_DAYS = 89
+# Raw reports are truncated server-side at this many rows; ask for the larger of the two
+# allowed caps and warn when a window fills it, because the rest is dropped silently.
+RAW_MAX_ROWS = 1_000_000
+# Raw reports are pulled in chronological windows rather than one long range, so the stream is
+# ascending across windows even though AppsFlyer documents no order within one. Keep the window
+# wide enough that a 90-day backfill stays inside the account's daily report quota.
+RAW_MAX_REQUEST_DAYS = 7
+# An incremental run must be able to re-cover a whole window, because a worker shutdown can
+# interrupt one mid-way and rows within it are not ordered. So never look back less than a window.
+RAW_LOOKBACK_DAYS = RAW_MAX_REQUEST_DAYS
+# The Master API serves at most 31 days per call, so a backfill walks it in windows.
+MASTER_MAX_REQUEST_DAYS = 31
+# Each window is one call against the account's daily report quota, so bound the backfill.
+MASTER_MAX_LOOKBACK_DAYS = 365
+# Master API KPIs are LTV measures that keep accruing after install day, so an incremental run
+# re-pulls the trailing month. That also covers a whole request window, as above.
+MASTER_LOOKBACK_DAYS = MASTER_MAX_REQUEST_DAYS
+# The SKAN API serves at most 90 days and 250K rows per call. Narrower windows keep a busy app
+# under the row cap.
+SKAN_MAX_REQUEST_DAYS = 30
+SKAN_MAX_ROWS = 250_000
+SKAN_MAX_LOOKBACK_DAYS = 365
+# Install-date rows keep changing while later SKAN postbacks arrive, up to 45 days after install for
+# Google Ads, so an incremental run re-pulls that much.
+SKAN_LOOKBACK_DAYS = 45
+# AppsFlyer finalizes SKAN data 3 days after the UTC day and asks callers not to request later dates.
+SKAN_DATA_DELAY_DAYS = 3
+_SKAN_US_DATE = re.compile(r"(\d{1,2})/(\d{1,2})/(\d{4})")
+REQUEST_TIMEOUT_SECONDS = 300
+MAX_RETRY_ATTEMPTS = 5
+# Yield rows in chunks so huge reports don't build one giant list.
+CHUNK_SIZE = 5000
+# Pull the report CSV off the wire in 64 KiB reads.
+REPORT_CHUNK_BYTES = 1 << 16
+# Keep AppsFlyer's rejection reason short enough to read in a setup error.
+MAX_REJECTION_REASON_CHARS = 300
+_HTML_MARKUP = re.compile(r"<\s*(!doctype|html|head|body)\b", re.IGNORECASE)
+_JSON_ERROR_KEYS = ("error", "message", "detail")
+
+
+@frozen
+class AppsFlyerResumeConfig:
+    # The first day of the next request window, as an ISO date.
+    next_window_start: str
+
+
+@frozen
+class _ReportWindow:
+    start: date
+    end: date
+
+
+class _ResponseByteStream(io.RawIOBase):
+    """Read a streaming response body through ``iter_content`` as a binary file.
+
+    Wrapping ``response.raw`` directly crashes once the body is read: urllib3 closes
+    the raw stream as it reads the last byte, and a ``TextIOWrapper`` over the
+    now-closed stream raises ``ValueError: I/O operation on closed file`` instead of
+    reporting EOF. ``iter_content`` also turns a dropped connection into a retryable
+    ``requests`` error mid-stream.
+    """
+
+    def __init__(self, response: requests.Response, chunk_size: int) -> None:
+        self._chunks = response.iter_content(chunk_size=chunk_size)
+        self._buffer = b""
+
+    def readable(self) -> bool:
+        return True
+
+    def readinto(self, target: Buffer) -> int:
+        while not self._buffer:
+            try:
+                self._buffer = next(self._chunks)
+            except StopIteration:
+                return 0
+        view = memoryview(target).cast("B")
+        take = min(len(view), len(self._buffer))
+        view[:take] = self._buffer[:take]
+        self._buffer = self._buffer[take:]
+        return take
+
+
+class AppsFlyerRetryableError(Exception):
+    pass
+
+
+class AppsFlyerRawDataNotInPlanError(Exception):
+    pass
+
+
+class AppsFlyerMasterApiNotInPlanError(Exception):
+    pass
+
+
+class AppsFlyerCredentialsError(Exception):
+    """A credential check failed for a reason we can explain to the user (bad token, bad app id)."""
+
+    pass
+
+
+def _normalize_token(api_token: str) -> str:
+    # A token copied out of a curl command or an Authorization header often keeps its "Bearer " prefix.
+    return re.sub(r"^bearer\s+", "", api_token.strip(), flags=re.IGNORECASE)
+
+
+def _get_session(api_token: str) -> requests.Session:
+    api_token = _normalize_token(api_token)
+    # the v5 docs are a bit ambiguous about whether the return format defaults to CSV
+    # or JSON, so we explicitly request CSV for safety.
+    return make_tracked_session(
+        headers={"Authorization": f"Bearer {api_token}", "Accept": "text/csv"},
+        redact_values=(api_token,),
+    )
+
+
+def _validate_app_id(app_id: str) -> str:
+    app_id = app_id.strip()
+    if not re.fullmatch(r"[a-zA-Z0-9._-]+", app_id):
+        raise ValueError(f"Invalid AppsFlyer app id: {app_id}")
+    # AppsFlyer names iOS apps "id<App Store number>", but users often paste the bare number.
+    # An Android package name always contains a letter, so a digits-only id is always iOS.
+    if app_id.isdecimal():
+        return f"id{app_id}"
+    return app_id
+
+
+def _json_error_text(body: str) -> str:
+    """AppsFlyer sometimes rejects with a JSON body like {"error": "..."}; show its text, never the raw JSON."""
+    try:
+        payload = json.loads(body)
+    except ValueError:
+        return ""
+    if not isinstance(payload, dict):
+        return ""
+    for key in _JSON_ERROR_KEYS:
+        value = payload.get(key)
+        if isinstance(value, str):
+            return " ".join(value.split())
+    return ""
+
+
+def _rejection_reason(response: requests.Response, api_token: str) -> str | None:
+    """Return AppsFlyer's own reason for a rejected request, or None when the body has no plain text."""
+    reason = " ".join(response.text.split())
+    if reason.startswith(("{", "[")):
+        reason = _json_error_text(reason)
+    if not reason or reason.startswith("<") or _HTML_MARKUP.search(reason):
+        return None
+    return reason.replace(_normalize_token(api_token), "[redacted]")[:MAX_REJECTION_REASON_CHARS]
+
+
+def _credentials_error(message: str, response: requests.Response, api_token: str) -> AppsFlyerCredentialsError:
+    reason = _rejection_reason(response, api_token)
+    return AppsFlyerCredentialsError(f"{message} AppsFlyer said: {reason}" if reason else message)
+
+
+def _is_quota_exhausted(response: requests.Response) -> bool:
+    """AppsFlyer answers 403 (sometimes 429) with a "limit reached" body once the daily report quota is spent."""
+    return response.status_code in (403, 429) and QUOTA_EXHAUSTED_MARKER in response.text.lower()
+
+
+def _normalize_header(header: str) -> str:
+    """CSV headers like 'Media Source (pid)' become stable snake_case columns."""
+    return re.sub(r"[^0-9a-zA-Z]+", "_", header).strip("_").lower()
+
+
+def _to_date(value: Any) -> date:
+    if isinstance(value, datetime):
+        return (value if value.tzinfo else value.replace(tzinfo=UTC)).astimezone(UTC).date()
+    if isinstance(value, date):
+        return value
+    return date.fromisoformat(str(value)[:10])
+
+
+def _parse_csv_rows(
+    source: str | Iterable[str], logger: FilteringBoundLogger | None = None
+) -> Iterator[dict[str, Any]]:
+    reader = csv.reader(io.StringIO(source) if isinstance(source, str) else source)
+    headers: list[str] | None = None
+    for row in reader:
+        if headers is None:
+            headers = [_normalize_header(header) for header in row]
+            continue
+        if not any(cell.strip() for cell in row):
+            continue
+        # zip would silently truncate a short row, leaving primary-key columns absent and
+        # corrupting dedupe — drop the malformed row instead so the failure is explicit.
+        if len(row) != len(headers):
+            if logger is not None:
+                logger.warning(
+                    "AppsFlyer CSV row length mismatch; skipping row",
+                    expected=len(headers),
+                    got=len(row),
+                )
+            continue
+        yield dict(zip(headers, row))
+
+
+def _report_url(config: AppsFlyerEndpointConfig, app_id: str, params: dict[str, str]) -> str:
+    if config.kind == AppsFlyerReportKind.MASTER:
+        path = f"{MASTER_API_PATH}v4/app/{quote(app_id)}"
+    elif config.kind == AppsFlyerReportKind.SKAN:
+        path = f"{SKAN_PATH}{quote(app_id)}"
+    elif config.kind == AppsFlyerReportKind.RAW:
+        path = f"{RAW_DATA_PATH}export/app/{quote(app_id)}/{config.report}/v5"
+    else:
+        path = f"/api/agg-data/export/app/{quote(app_id)}/{config.report}/v5"
+    return f"{APPSFLYER_BASE_URL}{path}?{urlencode(params)}"
+
+
+def _request_params(config: AppsFlyerEndpointConfig, window: _ReportWindow) -> dict[str, str]:
+    if config.kind == AppsFlyerReportKind.SKAN:
+        return {"start_date": window.start.isoformat(), "end_date": window.end.isoformat()}
+    params = {"from": window.start.strftime("%Y-%m-%d"), "to": window.end.strftime("%Y-%m-%d")}
+    if config.kind == AppsFlyerReportKind.RAW:
+        params["maximum_rows"] = str(RAW_MAX_ROWS)
+    params.update(config.extra_params)
+    return params
+
+
+def _max_lookback_days(kind: AppsFlyerReportKind) -> int:
+    if kind == AppsFlyerReportKind.RAW:
+        return RAW_MAX_LOOKBACK_DAYS
+    if kind == AppsFlyerReportKind.MASTER:
+        return MASTER_MAX_LOOKBACK_DAYS
+    if kind == AppsFlyerReportKind.SKAN:
+        return SKAN_MAX_LOOKBACK_DAYS
+    return MAX_WINDOW_DAYS
+
+
+def _incremental_lookback_days(kind: AppsFlyerReportKind) -> int:
+    if kind == AppsFlyerReportKind.RAW:
+        return RAW_LOOKBACK_DAYS
+    if kind == AppsFlyerReportKind.MASTER:
+        return MASTER_LOOKBACK_DAYS
+    if kind == AppsFlyerReportKind.SKAN:
+        return SKAN_LOOKBACK_DAYS
+    return LOOKBACK_DAYS
+
+
+def _max_request_days(kind: AppsFlyerReportKind) -> int | None:
+    """Days one request may span, or ``None`` when the whole range goes in a single request."""
+    if kind == AppsFlyerReportKind.RAW:
+        return RAW_MAX_REQUEST_DAYS
+    if kind == AppsFlyerReportKind.MASTER:
+        return MASTER_MAX_REQUEST_DAYS
+    if kind == AppsFlyerReportKind.SKAN:
+        return SKAN_MAX_REQUEST_DAYS
+    return None
+
+
+def _max_rows(kind: AppsFlyerReportKind) -> int | None:
+    """Rows AppsFlyer returns per request before it drops the rest, or ``None`` when it has no cap."""
+    if kind == AppsFlyerReportKind.RAW:
+        return RAW_MAX_ROWS
+    if kind == AppsFlyerReportKind.SKAN:
+        return SKAN_MAX_ROWS
+    return None
+
+
+def _window_end(kind: AppsFlyerReportKind, today: date) -> date:
+    if kind == AppsFlyerReportKind.SKAN:
+        return today - timedelta(days=SKAN_DATA_DELAY_DAYS)
+    return today
+
+
+def _window_start(
+    config: AppsFlyerEndpointConfig,
+    today: date,
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+) -> date:
+    earliest = today - timedelta(days=_max_lookback_days(config.kind))
+    if should_use_incremental_field and db_incremental_field_last_value is not None:
+        start = _to_date(db_incremental_field_last_value) - timedelta(days=_incremental_lookback_days(config.kind))
+    else:
+        start = earliest
+    return min(max(start, earliest), _window_end(config.kind, today))
+
+
+def _request_windows(kind: AppsFlyerReportKind, start: date, end: date) -> Iterator[_ReportWindow]:
+    span = _max_request_days(kind)
+    if span is None:
+        yield _ReportWindow(start=start, end=end)
+        return
+    window_start = start
+    while window_start <= end:
+        window_end = min(window_start + timedelta(days=span - 1), end)
+        yield _ReportWindow(start=window_start, end=window_end)
+        window_start = window_end + timedelta(days=1)
+
+
+@retry_with_deadline(
+    retry=retry_if_exception_type((AppsFlyerRetryableError, requests.ReadTimeout, requests.ConnectionError)),
+    stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
+    wait=wait_exponential_jitter(initial=5, max=120),
+    reraise=True,
+)
+def _open_report(session: requests.Session, url: str, logger: FilteringBoundLogger) -> requests.Response:
+    path = urlparse(url).path
+    # The SKAN API documents its CSV as text/plain, so accept that as well as text/csv.
+    headers = {"Accept": "text/csv, text/plain"} if path.startswith(SKAN_PATH) else None
+    response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS, stream=True, headers=headers)
+
+    if _is_quota_exhausted(response):
+        response.close()
+        raise AppsFlyerRetryableError(f"{QUOTA_EXHAUSTED_ERROR} (retryable): status={response.status_code}, url={url}")
+
+    if response.status_code == 429 or response.status_code >= 500:
+        response.close()
+        raise AppsFlyerRetryableError(f"AppsFlyer API error (retryable): status={response.status_code}, url={url}")
+
+    if not response.ok:
+        body = response.text
+        logger.error(f"AppsFlyer API error: status={response.status_code}, body={body[:500]}, url={url}")
+        response.close()
+        if response.status_code == 400 and path.startswith(SKAN_PATH) and SKAN_RATE_LIMIT_MARKER in body.lower():
+            raise AppsFlyerRetryableError(f"AppsFlyer API error (retryable): status=400, url={url}")
+        if (
+            response.status_code == 400
+            and path.startswith(RAW_DATA_PATH)
+            and RAW_DATA_NOT_IN_PLAN_MARKER in body.lower()
+        ):
+            raise AppsFlyerRawDataNotInPlanError(f"{RAW_DATA_NOT_IN_PLAN_ERROR}: status=400")
+        if response.status_code == 404 and path.startswith(MASTER_API_PATH):
+            raise AppsFlyerMasterApiNotInPlanError(f"{MASTER_API_NOT_IN_PLAN_ERROR}: status=404")
+        response.raise_for_status()
+
+    return response
+
+
+def _iter_report_rows(session: requests.Session, url: str, logger: FilteringBoundLogger) -> Iterator[dict[str, Any]]:
+    response = _open_report(session, url, logger)
+    try:
+        # Read physical lines off the socket rather than buffering the whole body: a raw-data
+        # window can hold a million event rows. Wrapping the byte stream (instead of `iter_lines`)
+        # keeps the line terminators csv needs for quoted multi-line values.
+        stream = io.TextIOWrapper(
+            io.BufferedReader(_ResponseByteStream(response, REPORT_CHUNK_BYTES)), encoding="utf-8", newline=""
+        )
+        yield from _parse_csv_rows(stream, logger)
+    finally:
+        response.close()
+
+
+def _shape_skan_row(row: dict[str, Any], primary_keys: list[str]) -> dict[str, Any]:
+    # AppsFlyer's sample SKAN report writes dates as M/D/YYYY, which would break the date partition
+    # and watermark. The SKAN 4 dimensions are missing from a report AppsFlyer serves without them,
+    # and a merge needs every key column.
+    match = _SKAN_US_DATE.fullmatch(str(row.get("date", "")).strip())
+    if match:
+        month, day, year = (int(part) for part in match.groups())
+        row["date"] = date(year, month, day).isoformat()
+    for key in primary_keys:
+        row.setdefault(key, "")
+    return row
+
+
+def validate_credentials(api_token: str, app_id: str) -> bool:
+    """Confirm the token and app id are valid with a one-day report probe.
+
+    Returns ``True`` when the probe succeeds, or when AppsFlyer refuses it only because the daily
+    report quota is used up. Raises ``AppsFlyerCredentialsError`` with a
+    user-facing message when AppsFlyer rejects the token or app id (the status code tells the
+    two apart) or returns any other unexpected status, ``AppsFlyerRetryableError`` on
+    rate-limit / 5xx responses, and lets transport errors propagate so the caller can tell a
+    transient failure apart from a bad credential. Never returns ``False`` — a non-200 always
+    raises so the failure is never silently conflated with a bad credential.
+    """
+    try:
+        app = _validate_app_id(app_id)
+    except ValueError:
+        raise AppsFlyerCredentialsError(
+            "That AppsFlyer app ID isn't valid. In AppsFlyer, open My apps and copy the ID under your app name, "
+            "such as 'id123456789' or 'com.example.app'."
+        ) from None
+    # http.client encodes headers as latin-1, so a smart quote pasted with the token would crash the request.
+    if not _normalize_token(api_token).isascii():
+        raise AppsFlyerCredentialsError(
+            "The AppsFlyer API token contains an unsupported character, such as a smart quote pasted along with it. "
+            "Paste only the API token (V2) and try again."
+        )
+    today = datetime.now(UTC).strftime("%Y-%m-%d")
+    response = _get_session(api_token).get(
+        f"{APPSFLYER_BASE_URL}/api/agg-data/export/app/{quote(app)}/daily_report/v5"
+        f"?{urlencode({'from': today, 'to': today})}",
+        timeout=30,
+    )
+    if _is_quota_exhausted(response):
+        # A used-up quota says nothing against the token or app id (those answer 401, 403 or 404).
+        # The wizard probes again when the source is created, often after the credentials step spent
+        # the last call, so refusing here threw away a finished setup until the next day. The sync
+        # retries the quota error and runs once the quota resets, like Microsoft Clarity's.
+        return True
+    if response.status_code == 429 or response.status_code >= 500:
+        raise AppsFlyerRetryableError(f"AppsFlyer API error (retryable): status={response.status_code}")
+    if response.status_code == 200:
+        return True
+    # 401 is an auth failure (bad token); 403 means the token can't reach this app; 404 means
+    # the app id is wrong. Surface which one so the user isn't left guessing.
+    if response.status_code == 401:
+        raise _credentials_error(
+            "AppsFlyer rejected the API token. Check that you pasted a valid API token (V2) from "
+            "your account's Security center → AppsFlyer API tokens.",
+            response,
+            api_token,
+        )
+    if response.status_code == 403:
+        raise _credentials_error(
+            "AppsFlyer denied access to this app. Check that the API token (V2) belongs to an admin or to "
+            "a user with access to this app, that the app id matches the dashboard (e.g. 'id123456789' for "
+            "iOS), and that your AppsFlyer plan includes the aggregate Pull API.",
+            response,
+            api_token,
+        )
+    if response.status_code == 404:
+        raise _credentials_error(
+            "AppsFlyer couldn't find an app with that app ID. In AppsFlyer, open My apps and copy the ID under your app name.",
+            response,
+            api_token,
+        )
+    # Any other status is unexpected (e.g. a 400 from a malformed request) — surface the real
+    # code rather than blaming the token or app id, which sends users debugging the wrong thing.
+    raise _credentials_error(
+        f"AppsFlyer returned an unexpected response (HTTP {response.status_code}) while validating credentials. "
+        "If your app id and API token (V2) look correct, please try again shortly or contact support.",
+        response,
+        api_token,
+    )
+
+
+def get_rows(
+    api_token: str,
+    app_id: str,
+    endpoint: str,
+    logger: FilteringBoundLogger,
+    manager: ResumableSourceManager[AppsFlyerResumeConfig],
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Any = None,
+) -> Iterator[list[dict[str, Any]]]:
+    config = APPSFLYER_ENDPOINTS[endpoint]
+    session = _get_session(api_token)
+    app = _validate_app_id(app_id)
+
+    today = datetime.now(UTC).date()
+    end = _window_end(config.kind, today)
+    start = _window_start(config, today, should_use_incremental_field, db_incremental_field_last_value)
+    # A full refresh appends, so the part of a window read before a hand-off would load twice.
+    resume = manager.load_state() if should_use_incremental_field and manager.can_resume() else None
+    if resume is not None:
+        # Never earlier than the computed start, which keeps a raw pull inside its lookback limit.
+        start = max(start, date.fromisoformat(resume.next_window_start))
+        if start > end:
+            return
+
+    chunk: list[dict[str, Any]] = []
+    row_cap = _max_rows(config.kind)
+    for window in _request_windows(config.kind, start, end):
+        url = _report_url(config, app, _request_params(config, window))
+        rows_in_window = 0
+        for row in _iter_report_rows(session, url, logger):
+            rows_in_window += 1
+            if config.kind == AppsFlyerReportKind.SKAN:
+                row = _shape_skan_row(row, config.primary_keys)
+            chunk.append(row)
+            if len(chunk) >= CHUNK_SIZE:
+                yield chunk
+                chunk = []
+        if row_cap is not None and rows_in_window >= row_cap:
+            logger.warning(
+                "AppsFlyer truncated the report at its row cap; some rows in this window were not returned",
+                report=endpoint,
+                window_start=window.start.isoformat(),
+                window_end=window.end.isoformat(),
+                row_cap=row_cap,
+            )
+        # A window is the resume unit: rows have no documented order inside one, so a resume reads
+        # a part-way window again. The rest of the window goes out with the cursor past it.
+        manager.save_state(AppsFlyerResumeConfig(next_window_start=(window.end + timedelta(days=1)).isoformat()))
+        if chunk:
+            yield chunk
+            chunk = []
+        else:
+            manager.safe_point()
+
+
+def appsflyer_source(
+    api_token: str,
+    app_id: str,
+    endpoint: str,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[AppsFlyerResumeConfig],
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Any = None,
+) -> SourceResponse:
+    config = APPSFLYER_ENDPOINTS[endpoint]
+
+    return SourceResponse(
+        name=endpoint,
+        on_complete=resumable_source_manager.clear_state,
+        items=lambda: get_rows(
+            api_token=api_token,
+            app_id=app_id,
+            endpoint=endpoint,
+            logger=logger,
+            manager=resumable_source_manager,
+            should_use_incremental_field=should_use_incremental_field,
+            db_incremental_field_last_value=db_incremental_field_last_value,
+        ),
+        primary_keys=config.primary_keys,
+        partition_count=1,
+        partition_size=1,
+        partition_mode="datetime",
+        partition_format=config.partition_format,
+        partition_keys=[config.partition_key],
+        supports_resume=should_use_incremental_field,
+        # Dimension keys can collide (e.g. blank campaign values) — an expected trait of report
+        # data, not something the user can fix. Don't set has_duplicate_primary_keys: that flag
+        # tells validate_incremental_sync to block incremental syncing altogether. The merge's own
+        # per-batch dedup (keep-last-per-key) already resolves the collision safely.
+    )

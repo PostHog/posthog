@@ -16,6 +16,8 @@ from posthog.api.comments import _slack_thread_url
 from posthog.helpers.slack_thread_mirror import _discussion_card_blocks
 from posthog.models.comment import Comment, CommentSlackThread
 from posthog.models.integration import Integration
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.utils import generate_random_token_personal
 from posthog.tasks.comment_slack_sync import (
     BACKFILL_BATCH_SIZE,
     BACKFILL_RESCHEDULE_COUNTDOWN_SECONDS,
@@ -25,6 +27,8 @@ from posthog.tasks.comment_slack_sync import (
 )
 
 from products.canvas.backend.facade import testing as canvas_testing
+from products.conversations.backend.models import Ticket
+from products.conversations.backend.models.constants import Channel, Status
 
 
 class TestDiscussionCardBlocks(SimpleTestCase):
@@ -65,6 +69,15 @@ class TestSendCommentToSlack(APIBaseTest):
             "content": "hello",
             "created_by": self.user,
         }
+        if kwargs.get("scope") == "Ticket":
+            ticket = Ticket.objects.create_with_number(
+                team=self.team,
+                channel_source=Channel.WIDGET,
+                widget_session_id="slack-send-session",
+                distinct_id="slack-send-user",
+                status=Status.OPEN,
+            )
+            defaults["item_id"] = str(ticket.id)
         defaults.update(kwargs)
         return Comment.objects.create(**defaults)
 
@@ -95,30 +108,45 @@ class TestSendCommentToSlack(APIBaseTest):
             "channel": {"id": "C1", "name": name, "is_private": is_private, **flags}
         }
 
-    @parameterized.expand([("dm", {"is_im": True}), ("group_dm", {"is_mpim": True, "is_private": True})])
+    @parameterized.expand(
+        [
+            # is_im conversations don't report is_private, so without an explicit guard a member
+            # could mirror a discussion into someone's DMs with the bot.
+            ("dm", "Insight", {"is_im": True}, "direct message"),
+            ("group_dm", "Insight", {"is_mpim": True, "is_private": True}, "direct message"),
+            ("ticket_to_shared_channel", "Ticket", {"is_ext_shared": True}, "shared with another workspace"),
+        ]
+    )
     @patch("posthog.api.comments.backfill_comment_slack_thread.delay")
     @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.api.comments.SlackIntegration")
-    def test_cannot_send_to_a_direct_message(self, _name, flags, mock_slack, _flag, _backfill):
-        # is_im conversations don't report is_private, so without an explicit guard a member
-        # could mirror a discussion into someone's DMs with the bot.
+    def test_rejects_disallowed_channel_kinds(self, _name, scope, flags, expected_detail, mock_slack, _flag, _backfill):
         self._mock_channel_info(mock_slack, **flags)
-        comment = self._comment()
+        comment = self._comment(scope=scope)
 
-        res = self._send(comment.id, channel_id="D1")
+        res = self._send(comment.id)
 
         assert res.status_code == status.HTTP_400_BAD_REQUEST
-        assert "direct message" in str(res.json())
+        assert expected_detail in str(res.json())
         assert not CommentSlackThread.objects.for_team(self.team.id).exists()
         mock_slack.return_value.client.chat_postMessage.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("insight", "Insight", {}),
+            ("insight_to_shared_channel", "Insight", {"is_ext_shared": True}),
+            ("ticket", "Ticket", {}),
+        ]
+    )
     @patch("posthog.api.comments.backfill_comment_slack_thread.delay")
     @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.api.comments.SlackIntegration")
-    def test_creates_mirror_posts_root_and_enqueues_backfill(self, mock_slack, _flag, mock_backfill):
+    def test_creates_mirror_posts_root_and_enqueues_backfill(
+        self, _name, scope, flags, mock_slack, _flag, mock_backfill
+    ):
         mock_slack.return_value.client.chat_postMessage.return_value = {"ts": "1700.1"}
-        self._mock_channel_info(mock_slack)
-        comment = self._comment()
+        self._mock_channel_info(mock_slack, **flags)
+        comment = self._comment(scope=scope)
 
         # A client-supplied channel_name must have no effect — the name is resolved from Slack.
         res = self._send(comment.id, extra={"channel_name": "#spoofed"})
@@ -134,6 +162,25 @@ class TestSendCommentToSlack(APIBaseTest):
         assert mock_slack.return_value.client.chat_postMessage.call_count == 1
         mock_backfill.assert_called_once_with(comment_slack_thread_id=str(mirror.id))
 
+    @patch("posthog.api.comments.backfill_comment_slack_thread.delay")
+    @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.comments.SlackIntegration")
+    def test_a_token_with_comment_write_can_send_a_discussion(self, mock_slack, _flag, _backfill):
+        mock_slack.return_value.client.chat_postMessage.return_value = {"ts": "1700.1"}
+        self._mock_channel_info(mock_slack)
+        comment = self._comment()
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="agent", user=self.user, secure_value=hash_key_value(value), scopes=["comment:write"]
+        )
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {value}")
+
+        res = self._send(comment.id)
+
+        assert res.status_code == status.HTTP_200_OK, res.json()
+
+    @patch("posthog.api.integration.SLACK_CHANNELS_INFO_LOOKUPS_PER_MINUTE", 1)
     @patch("posthog.api.comments.backfill_comment_slack_thread.delay")
     @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.api.comments.SlackIntegration")
@@ -171,8 +218,10 @@ class TestSendCommentToSlack(APIBaseTest):
         res = self._send(comment.id)
 
         assert res.status_code == status.HTTP_404_NOT_FOUND
+        assert "Sending discussions to Slack" in res.json()["detail"]
         assert not CommentSlackThread.objects.for_team(self.team.id).exists()
 
+    @patch("posthog.api.integration.SLACK_CHANNELS_INFO_LOOKUPS_PER_MINUTE", 1)
     @patch("posthog.api.comments.backfill_comment_slack_thread.delay")
     @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.api.comments.SlackIntegration")
@@ -190,6 +239,7 @@ class TestSendCommentToSlack(APIBaseTest):
         assert mock_slack.return_value.client.chat_postMessage.call_count == 1
         assert CommentSlackThread.objects.for_team(self.team.id).get().slack_channel_id == "C1"
 
+    @patch("posthog.api.integration.SLACK_CHANNELS_INFO_LOOKUPS_PER_MINUTE", 0)
     @patch("posthog.api.comments.backfill_comment_slack_thread.delay")
     @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.api.comments.SlackIntegration")
@@ -267,19 +317,23 @@ class TestSendCommentToSlack(APIBaseTest):
             assert not CommentSlackThread.objects.for_team(self.team.id).exists()
             mock_slack.return_value.client.chat_postMessage.assert_not_called()
 
+    @patch("posthog.api.integration.SLACK_CHANNELS_INFO_LOOKUPS_PER_MINUTE", 1)
     @patch("posthog.api.comments.backfill_comment_slack_thread.delay")
     @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.api.comments.SlackIntegration")
-    def test_channel_lookup_failure_is_a_400(self, mock_slack, _flag, _backfill):
+    def test_channel_lookup_failure_is_a_400_and_spends_the_lookup_budget(self, mock_slack, _flag, _backfill):
         mock_slack.return_value.client.conversations_info.side_effect = SlackApiError(
             "boom", {"error": "channel_not_found"}
         )
         comment = self._comment()
 
         res = self._send(comment.id)
+        retry = self._send(comment.id, channel_id="C2")
 
         assert res.status_code == status.HTTP_400_BAD_REQUEST
         assert "channel_not_found" in str(res.json())
+        assert retry.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert mock_slack.return_value.client.conversations_info.call_count == 1
         assert not CommentSlackThread.objects.for_team(self.team.id).exists()
         mock_slack.return_value.client.chat_postMessage.assert_not_called()
 
@@ -294,6 +348,27 @@ class TestSendCommentToSlack(APIBaseTest):
 
         assert res.status_code == status.HTTP_400_BAD_REQUEST
         assert not CommentSlackThread.objects.for_team(self.team.id).exists()
+
+    @parameterized.expand(
+        [
+            ("ticket", "Ticket", status.HTTP_403_FORBIDDEN),
+            ("insight", "Insight", status.HTTP_200_OK),
+        ]
+    )
+    @patch("posthog.api.comments.backfill_comment_slack_thread.delay")
+    @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.comments.SlackIntegration")
+    def test_only_the_author_can_send_a_ticket_discussion(
+        self, _name, scope, expected_status, mock_slack, _flag, _backfill
+    ):
+        mock_slack.return_value.client.chat_postMessage.return_value = {"ts": "1700.1"}
+        self._mock_channel_info(mock_slack)
+        teammate = self._create_user("teammate@posthog.com")
+
+        res = self._send(self._comment(scope=scope, created_by=teammate).id)
+
+        assert res.status_code == expected_status, res.json()
+        assert CommentSlackThread.objects.for_team(self.team.id).exists() is (expected_status == status.HTTP_200_OK)
 
 
 class TestCommentReplySlackSignal(APIBaseTest):

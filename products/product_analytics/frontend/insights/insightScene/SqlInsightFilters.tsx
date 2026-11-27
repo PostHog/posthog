@@ -8,8 +8,8 @@ import { dateMapping } from 'lib/utils/dateFilters'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 
 import { EventPropertyFilters } from '~/queries/nodes/EventsNode/EventPropertyFilters'
+import { isDataTableNode, isDataVisualizationNode, isHogQLQuery } from '~/queries/schema/node-guards'
 import { HogQLQuery, Node } from '~/queries/schema/schema-general'
-import { isDataTableNode, isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
 import { ItemMode } from '~/types'
 
 const FILTERS_PLACEHOLDER = /\{\s*filters\b/

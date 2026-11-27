@@ -794,7 +794,7 @@ export interface ErrorTrackingExternalReferenceCreateApi {
 }
 
 /**
- * Identifier and optional title of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}.
+ * Identifier and optional title of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}. For GitHub, add resource_type 'pull_request' to link a pull request instead of an issue.
  */
 export type ErrorTrackingExternalReferenceLinkApiExternalContext = { [key: string]: unknown }
 
@@ -803,7 +803,7 @@ export interface ErrorTrackingExternalReferenceLinkApi {
     integration_id: number
     /** ID of the error tracking issue to link the reference to. */
     issue: string
-    /** Identifier and optional title of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}. */
+    /** Identifier and optional title of the existing external issue to link, as returned by the search-issues endpoint. Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; linear -> {id}; jira -> {key}. For GitHub, add resource_type 'pull_request' to link a pull request instead of an issue. */
     external_context: ErrorTrackingExternalReferenceLinkApiExternalContext
 }
 
@@ -956,6 +956,51 @@ export interface ErrorTrackingIssueCohortReadApi {
 }
 
 /**
+ * * `blue` - Blue
+ * * `teal` - Teal
+ * * `green` - Green
+ * * `yellow` - Yellow
+ * * `orange` - Orange
+ * * `red` - Red
+ * * `pink` - Pink
+ * * `purple` - Purple
+ */
+export type IssueTagColorEnumApi = (typeof IssueTagColorEnumApi)[keyof typeof IssueTagColorEnumApi]
+
+export const IssueTagColorEnumApi = {
+    Blue: 'blue',
+    Teal: 'teal',
+    Green: 'green',
+    Yellow: 'yellow',
+    Orange: 'orange',
+    Red: 'red',
+    Pink: 'pink',
+    Purple: 'purple',
+} as const
+
+export interface ErrorTrackingIssueTagReadApi {
+    /** Key of the tag. To filter the issue list, put it in `issueTags.has` to keep the issues that have the tag, or in `issueTags.hasNot` to keep the issues that do not. */
+    key: string
+    /** Short name of the tag. */
+    label: string
+    /** What the tag means, for a tooltip. */
+    description: string
+    /** Color of the tag, from a fixed set of named colors. Null shows the tag in a color picked from its label.
+     *
+     * * `blue` - Blue
+     * * `teal` - Teal
+     * * `green` - Green
+     * * `yellow` - Yellow
+     * * `orange` - Orange
+     * * `red` - Red
+     * * `pink` - Pink
+     * * `purple` - Purple */
+    color: IssueTagColorEnumApi | null
+    /** The tagger that applied the tag: `jev` for AI, `manual` for a person. */
+    source: string
+}
+
+/**
  * Read-only serializer for issue contract types returned by the facade.
  */
 export interface ErrorTrackingIssueReadApi {
@@ -972,6 +1017,8 @@ export interface ErrorTrackingIssueReadApi {
     assignee: ErrorTrackingIssueAssigneeReadApi | null
     external_issues: ErrorTrackingExternalReferenceResultApi[]
     cohort: ErrorTrackingIssueCohortReadApi | null
+    /** The enabled tags that are applied to the issue. Only issue detail returns it, and only while the project has an enabled tag. */
+    tags?: ErrorTrackingIssueTagReadApi[]
 }
 
 export interface PaginatedErrorTrackingIssueReadListApi {
@@ -1109,34 +1156,15 @@ export interface ErrorTrackingIssueSplitResponseApi {
 
 /**
  * * `ready` - Ready
- * * `generating` - Generating
+ * * `not_generated` - Not Generated
  * * `unavailable` - Unavailable
  */
 export type IssueSummaryStatusEnumApi = (typeof IssueSummaryStatusEnumApi)[keyof typeof IssueSummaryStatusEnumApi]
 
 export const IssueSummaryStatusEnumApi = {
     Ready: 'ready',
-    Generating: 'generating',
+    NotGenerated: 'not_generated',
     Unavailable: 'unavailable',
-} as const
-
-/**
- * * `own_code` - Own Code
- * * `third_party` - Third Party
- * * `network` - Network
- * * `bots` - Bots
- * * `expected` - Expected
- * * `unclear` - Unclear
- */
-export type IssueSummaryCategoryEnumApi = (typeof IssueSummaryCategoryEnumApi)[keyof typeof IssueSummaryCategoryEnumApi]
-
-export const IssueSummaryCategoryEnumApi = {
-    OwnCode: 'own_code',
-    ThirdParty: 'third_party',
-    Network: 'network',
-    Bots: 'bots',
-    Expected: 'expected',
-    Unclear: 'unclear',
 } as const
 
 export interface ErrorTrackingStoredIssueSummaryApi {
@@ -1148,32 +1176,136 @@ export interface ErrorTrackingStoredIssueSummaryApi {
     who_is_affected: string
     /** One concrete step to investigate or fix the issue. */
     suggested_next_step: string
-    /** Broad source of the issue, or null when the category model did not answer.
-     *
-     * * `own_code` - Own Code
-     * * `third_party` - Third Party
-     * * `network` - Network
-     * * `bots` - Bots
-     * * `expected` - Expected
-     * * `unclear` - Unclear */
-    category: IssueSummaryCategoryEnumApi | null
     /** Model that wrote the summary. */
     model: string
     /** When the summary was written. */
     generated_at: string
-    /** When generation last wrote the summary or confirmed it unchanged. The regenerate interval runs from it. */
+    /** When generation last wrote the summary. */
     checked_at: string
 }
 
+/**
+ * * `restricted` - Restricted
+ * * `disabled` - Disabled
+ * * `ai_not_approved` - Ai Not Approved
+ * * `setting_off` - Setting Off
+ */
+export type IssueSummaryUnavailableReasonEnumApi =
+    (typeof IssueSummaryUnavailableReasonEnumApi)[keyof typeof IssueSummaryUnavailableReasonEnumApi]
+
+export const IssueSummaryUnavailableReasonEnumApi = {
+    Restricted: 'restricted',
+    Disabled: 'disabled',
+    AiNotApproved: 'ai_not_approved',
+    SettingOff: 'setting_off',
+} as const
+
 export interface ErrorTrackingIssueSummaryResponseApi {
-    /** ready: `summary` holds the stored summary. generating: a summary is being written in the background, so poll again. `summary` holds the previous one, if any. unavailable: no summary exists and none will be written, for example because the feature is off.
+    /** ready: `summary` holds the stored summary. not_generated: no summary is stored for this issue. A summary is written when an issue is created, and when a person asks for one with the summarize action. unavailable: no summary can be shown. `reason` says why.
      *
      * * `ready` - Ready
-     * * `generating` - Generating
+     * * `not_generated` - Not Generated
      * * `unavailable` - Unavailable */
     status: IssueSummaryStatusEnumApi
-    /** The stored summary, or null when none exists yet. */
+    /** The stored summary, or null when the status is not ready. */
     summary: ErrorTrackingStoredIssueSummaryApi | null
+    /** Why the status is unavailable, else null. restricted: the user may not read a property that the summary is written from. disabled: summaries are off for the project. ai_not_approved: the organization has not approved AI data processing. setting_off: the project has not turned summaries on, and no summary is stored.
+     *
+     * * `restricted` - Restricted
+     * * `disabled` - Disabled
+     * * `ai_not_approved` - Ai Not Approved
+     * * `setting_off` - Setting Off */
+    reason: IssueSummaryUnavailableReasonEnumApi | null
+}
+
+/**
+ * * `ready` - Ready
+ * * `disabled` - Disabled
+ * * `restricted` - Restricted
+ * * `setting_off` - Setting Off
+ * * `ai_not_approved` - Ai Not Approved
+ * * `out_of_credits` - Out Of Credits
+ * * `rate_limited` - Rate Limited
+ * * `in_progress` - In Progress
+ * * `issue_missing` - Issue Missing
+ * * `no_exception` - No Exception
+ * * `failed` - Failed
+ */
+export type IssueSummarizeOutcomeEnumApi =
+    (typeof IssueSummarizeOutcomeEnumApi)[keyof typeof IssueSummarizeOutcomeEnumApi]
+
+export const IssueSummarizeOutcomeEnumApi = {
+    Ready: 'ready',
+    Disabled: 'disabled',
+    Restricted: 'restricted',
+    SettingOff: 'setting_off',
+    AiNotApproved: 'ai_not_approved',
+    OutOfCredits: 'out_of_credits',
+    RateLimited: 'rate_limited',
+    InProgress: 'in_progress',
+    IssueMissing: 'issue_missing',
+    NoException: 'no_exception',
+    Failed: 'failed',
+} as const
+
+export interface ErrorTrackingIssueSummarizeErrorApi {
+    /** The error category, such as invalid_request or throttled_error. */
+    type: string
+    /** Why no summary was written. restricted, setting_off and ai_not_approved answer 403. out_of_credits answers 402. rate_limited answers 429. in_progress answers 409. no_exception answers 422. failed answers 503.
+     *
+     * * `ready` - Ready
+     * * `disabled` - Disabled
+     * * `restricted` - Restricted
+     * * `setting_off` - Setting Off
+     * * `ai_not_approved` - Ai Not Approved
+     * * `out_of_credits` - Out Of Credits
+     * * `rate_limited` - Rate Limited
+     * * `in_progress` - In Progress
+     * * `issue_missing` - Issue Missing
+     * * `no_exception` - No Exception
+     * * `failed` - Failed */
+    code: IssueSummarizeOutcomeEnumApi
+    /** What happened and what to do next. */
+    detail: string
+    /**
+     * Always null for this endpoint.
+     * @nullable
+     */
+    attr: string | null
+}
+
+export interface PatchedErrorTrackingIssueTagWriteApi {
+    /**
+     * Key of the tag to apply or remove. The tag definitions endpoint lists the tags enabled for the project.
+     * @maxLength 64
+     */
+    key?: string
+    /** True applies the tag. False removes it and stops automatic taggers from applying it again. */
+    applied?: boolean
+}
+
+export interface ErrorTrackingIssueTagCorrectionApi {
+    /** Key of the tag. To filter the issue list, put it in `issueTags.has` to keep the issues that have the tag, or in `issueTags.hasNot` to keep the issues that do not. */
+    key: string
+    /** Short name of the tag. */
+    label: string
+    /** What the tag means, for a tooltip. */
+    description: string
+    /** Color of the tag, from a fixed set of named colors. Null shows the tag in a color picked from its label.
+     *
+     * * `blue` - Blue
+     * * `teal` - Teal
+     * * `green` - Green
+     * * `yellow` - Yellow
+     * * `orange` - Orange
+     * * `red` - Red
+     * * `pink` - Pink
+     * * `purple` - Purple */
+    color: IssueTagColorEnumApi | null
+    /** The tagger that applied the tag: `jev` for AI, `manual` for a person. */
+    source: string
+    /** Whether the tag is applied to the issue after the change. */
+    applied: boolean
 }
 
 /**
@@ -1209,6 +1341,31 @@ export interface ErrorTrackingIssueBulkRequestApi {
 export interface ErrorTrackingIssueExistsResponseApi {
     /** Whether the project has recorded any issue at all. */
     exists: boolean
+}
+
+export interface ErrorTrackingIssueTagDefinitionApi {
+    /** Key of the tag. To filter the issue list, put it in `issueTags.has` to keep the issues that have the tag, or in `issueTags.hasNot` to keep the issues that do not. */
+    key: string
+    /** Short name of the tag. */
+    label: string
+    /** What the tag means, for a tooltip. */
+    description: string
+    /** Color of the tag, from a fixed set of named colors. Null shows the tag in a color picked from its label.
+     *
+     * * `blue` - Blue
+     * * `teal` - Teal
+     * * `green` - Green
+     * * `yellow` - Yellow
+     * * `orange` - Orange
+     * * `red` - Red
+     * * `pink` - Pink
+     * * `purple` - Purple */
+    color: IssueTagColorEnumApi | null
+}
+
+export interface ErrorTrackingIssueTagDefinitionsResponseApi {
+    /** The tags enabled for the project. Empty while issue tags are off for the project. */
+    results: ErrorTrackingIssueTagDefinitionApi[]
 }
 
 export interface ErrorTrackingIssueValueApi {
@@ -1409,15 +1566,6 @@ export interface ErrorTrackingIssueSummaryApi {
     who_is_affected: string
     /** One concrete step to investigate or fix the error. */
     suggested_next_step: string
-    /** Where the error most likely comes from. 'own_code' is a bug in the application's code, 'third_party' a third-party script, browser extension or dependency, 'network' a network or connectivity failure, 'bots' automated traffic, 'expected' handled behavior that needs no fix, and 'unclear' means the stack trace does not tell. Absent when no category was inferred.
-     *
-     * * `own_code` - Own Code
-     * * `third_party` - Third Party
-     * * `network` - Network
-     * * `bots` - Bots
-     * * `expected` - Expected
-     * * `unclear` - Unclear */
-    category?: IssueSummaryCategoryEnumApi
     /** When the summary was written. */
     generated_at: string
 }
@@ -1482,14 +1630,23 @@ export interface ErrorTrackingIssueDetailApi {
     sparkline?: number[]
     /** Aggregate over matching events. Returned only when includeBreakdown is true. */
     breakdown?: ErrorTrackingIssueBreakdownApi
-    /** A model-written summary of the issue. Present only when summary_status is 'ready'. Treat likely_cause as a hypothesis, not a fact. */
+    /** Work linked to this issue in GitHub, GitLab, Linear, or Jira, such as provider issues and GitHub pull requests, oldest first. An empty list means nothing is linked. Absent when the lookup failed. */
+    external_issues?: ErrorTrackingExternalReferenceResultApi[]
+    /** An AI-written summary of the issue. Present only when summary_status is 'ready'. Treat likely_cause as a hypothesis, not a fact. */
     summary?: ErrorTrackingIssueSummaryApi
-    /** 'ready' means summary is present. 'generating' means a summary may still be written: call once more after a few seconds, and continue without it if the status does not change. 'unavailable' means no summary exists for this issue and none is being written.
+    /** 'ready' means summary is present. 'not_generated' means no summary exists for this issue. A summary is written when an issue is created, and when a person asks for one in PostHog. 'unavailable' means no summary can be shown, and summary_reason says why.
      *
      * * `ready` - Ready
-     * * `generating` - Generating
+     * * `not_generated` - Not Generated
      * * `unavailable` - Unavailable */
     summary_status: IssueSummaryStatusEnumApi
+    /** Present only when summary_status is 'unavailable'. 'restricted': the user may not read a property that the summary is written from. 'disabled': summaries are off for the project. 'ai_not_approved': the organization has not approved AI data processing. 'setting_off': the project has not turned summaries on, and no summary is stored.
+     *
+     * * `restricted` - Restricted
+     * * `disabled` - Disabled
+     * * `ai_not_approved` - Ai Not Approved
+     * * `setting_off` - Setting Off */
+    summary_reason?: IssueSummaryUnavailableReasonEnumApi
 }
 
 /**
@@ -1645,9 +1802,10 @@ export const OrderDirectionEnumApi = {
  * * `correlation` - correlation
  * * `diagnostics` - diagnostics
  */
-export type IncludeEnumApi = (typeof IncludeEnumApi)[keyof typeof IncludeEnumApi]
+export type ErrorTrackingIssueEventsQueryRequestIncludeEnumApi =
+    (typeof ErrorTrackingIssueEventsQueryRequestIncludeEnumApi)[keyof typeof ErrorTrackingIssueEventsQueryRequestIncludeEnumApi]
 
-export const IncludeEnumApi = {
+export const ErrorTrackingIssueEventsQueryRequestIncludeEnumApi = {
     Exception: 'exception',
     Stacktrace: 'stacktrace',
     CodeVariables: 'code_variables',
@@ -1689,7 +1847,7 @@ export interface ErrorTrackingIssueEventsQueryRequestApi {
      */
     offset?: number
     /** Context groups to return. Defaults to exception, environment, navigation, and correlation. Request stacktrace for frames, code_variables for captured and SDK-masked frame variables, release for release metadata, or diagnostics for ingestion errors. code_variables implies stacktrace. */
-    include?: IncludeEnumApi[]
+    include?: ErrorTrackingIssueEventsQueryRequestIncludeEnumApi[]
     /** When true, include only stack frames marked in_app. Defaults to true. */
     onlyAppFrames?: boolean
 }
@@ -2219,7 +2377,210 @@ export interface PatchedErrorTrackingReleaseUpdateRequestApi {
     metadata?: PatchedErrorTrackingReleaseUpdateRequestApiMetadata
 }
 
+export interface SentryMigrationApplyRequestApi {
+    /**
+     * Sentry auth token with the `org:read` and `project:read` scopes. PostHog uses it for this request only and doesn't store it.
+     * @maxLength 1024
+     */
+    auth_token: string
+    /**
+     * Base URL of the Sentry instance. It must use `https://`. Defaults to `https://sentry.io`. Use your own URL for self-hosted Sentry.
+     * @maxLength 2048
+     */
+    base_url?: string
+    /**
+     * Slug of the Sentry organization.
+     * @maxLength 255
+     */
+    organization_slug: string
+    /**
+     * Slug of the Sentry project to import from.
+     * @maxLength 255
+     */
+    project_slug: string
+    /**
+     * Region URL Sentry reports for the organization, as returned by the projects action. PostHog uses it only when it is on the same host as `base_url`.
+     * @maxLength 2048
+     * @nullable
+     */
+    region_url?: string | null
+    /**
+     * IDs of the preview items to import.
+     * @maxItems 1000
+     * @items.maxLength 255
+     */
+    item_ids: string[]
+}
+
+export interface SentryMigrationApplyResponseApi {
+    /** Number of suppression rules the import created. */
+    suppression_rules_created: number
+    /** Number of automatic suppression rules the import turned on. */
+    built_in_filters_enabled: number
+    /** True when the import set the project rate limit. */
+    rate_limit_updated: boolean
+}
+
+export interface SentryProjectRequestApi {
+    /**
+     * Sentry auth token with the `org:read` and `project:read` scopes. PostHog uses it for this request only and doesn't store it.
+     * @maxLength 1024
+     */
+    auth_token: string
+    /**
+     * Base URL of the Sentry instance. It must use `https://`. Defaults to `https://sentry.io`. Use your own URL for self-hosted Sentry.
+     * @maxLength 2048
+     */
+    base_url?: string
+    /**
+     * Slug of the Sentry organization.
+     * @maxLength 255
+     */
+    organization_slug: string
+    /**
+     * Slug of the Sentry project to import from.
+     * @maxLength 255
+     */
+    project_slug: string
+    /**
+     * Region URL Sentry reports for the organization, as returned by the projects action. PostHog uses it only when it is on the same host as `base_url`.
+     * @maxLength 2048
+     * @nullable
+     */
+    region_url?: string | null
+}
+
+/**
+ * * `rate_limit` - Rate limit
+ * * `error_message` - Error message filter
+ * * `release` - Release filter
+ * * `inbound_filter` - Inbound filter
+ */
+export type SentryMigrationCategoryEnumApi =
+    (typeof SentryMigrationCategoryEnumApi)[keyof typeof SentryMigrationCategoryEnumApi]
+
+export const SentryMigrationCategoryEnumApi = {
+    RateLimit: 'rate_limit',
+    ErrorMessage: 'error_message',
+    Release: 'release',
+    InboundFilter: 'inbound_filter',
+} as const
+
+/**
+ * * `good` - Good
+ * * `partial` - Partial
+ * * `unsupported` - Unsupported
+ */
+export type SentryMigrationFitEnumApi = (typeof SentryMigrationFitEnumApi)[keyof typeof SentryMigrationFitEnumApi]
+
+export const SentryMigrationFitEnumApi = {
+    Good: 'good',
+    Partial: 'partial',
+    Unsupported: 'unsupported',
+} as const
+
+export interface SentryMigrationRateLimitApi {
+    /** Maximum number of exception events per bucket for the project. */
+    value: number
+    /** Bucket window of the rate limit, in minutes. */
+    bucket_size_minutes: number
+}
+
+export interface SentryMigrationBuiltInFilterApi {
+    /** Key of the automatic suppression rule, as the built-in filters endpoint lists it. */
+    key: string
+    /** Name of the automatic suppression rule in PostHog settings. */
+    name: string
+    /** What the automatic suppression rule drops. */
+    description: string
+    /** Short points on what the PostHog rule adds to the Sentry filter, or does differently. */
+    compared_with_sentry: string[]
+}
+
+export interface SentryMigrationItemApi {
+    /** Stable ID of the item. Send it in `item_ids` to import the item. */
+    id: string
+    /** Kind of Sentry setting the item comes from.
+     *
+     * * `rate_limit` - Rate limit
+     * * `error_message` - Error message filter
+     * * `release` - Release filter
+     * * `inbound_filter` - Inbound filter */
+    category: SentryMigrationCategoryEnumApi
+    /** Name of the setting in Sentry. */
+    sentry_setting: string
+    /** Value of the setting in Sentry, such as the filter pattern. */
+    sentry_value: string
+    /** How closely PostHog reproduces the setting. `good` matches the same events, `partial` is an approximation explained in `note`, and `unsupported` can't be imported.
+     *
+     * * `good` - Good
+     * * `partial` - Partial
+     * * `unsupported` - Unsupported */
+    fit: SentryMigrationFitEnumApi
+    /**
+     * Explains how the PostHog version differs from Sentry.
+     * @nullable
+     */
+    note: string | null
+    /** Filters of the suppression rule that the import creates. Null when the item isn't a suppression rule. */
+    suppression_rule_filters: PropertyGroupFilterValueApi | null
+    /** Project rate limit that the import sets. Null when the item isn't a rate limit. */
+    rate_limit: SentryMigrationRateLimitApi | null
+    /** Automatic suppression rule that the import turns on. Null when the item isn't covered by an automatic rule. */
+    built_in_filter: SentryMigrationBuiltInFilterApi | null
+    /** True when the project already has a suppression rule with the same filters, the same automatic rule turned on, or the same rate limit. */
+    already_in_posthog: boolean
+    /** True for a rate limit when the Sentry project has other client keys. Sentry applied the limit to one key, and the PostHog project rate limit also covers exceptions sent with the others. */
+    limits_other_client_keys: boolean
+}
+
+export interface SentryMigrationPreviewResponseApi {
+    /** Sentry settings and the PostHog settings they become. */
+    items: SentryMigrationItemApi[]
+}
+
+export interface SentryConnectionRequestApi {
+    /**
+     * Sentry auth token with the `org:read` and `project:read` scopes. PostHog uses it for this request only and doesn't store it.
+     * @maxLength 1024
+     */
+    auth_token: string
+    /**
+     * Base URL of the Sentry instance. It must use `https://`. Defaults to `https://sentry.io`. Use your own URL for self-hosted Sentry.
+     * @maxLength 2048
+     */
+    base_url?: string
+}
+
+export interface SentryProjectApi {
+    /** Slug of the Sentry organization. */
+    organization_slug: string
+    /** Display name of the Sentry organization. */
+    organization_name: string
+    /** Slug of the Sentry project. */
+    project_slug: string
+    /** Display name of the Sentry project. */
+    project_name: string
+    /**
+     * Sentry platform of the project, such as `javascript`.
+     * @nullable
+     */
+    platform: string | null
+    /**
+     * Region URL of the organization. Send it back with the preview and apply actions.
+     * @nullable
+     */
+    region_url: string | null
+}
+
+export interface SentryProjectListResponseApi {
+    /** Sentry projects the token can read. */
+    projects: SentryProjectApi[]
+}
+
 export interface ErrorTrackingSettingsApi {
+    /** Project preference for adaptive ingestion. Turning this on does not currently change ingestion. */
+    adaptive_ingestion_enabled?: boolean
     /**
      * Maximum number of exception events ingested per bucket for the entire project. Null removes the limit.
      * @minimum 1
@@ -2246,9 +2607,13 @@ export interface ErrorTrackingSettingsApi {
     per_issue_rate_limit_bucket_size_minutes?: number | null
     /** Whether the project ingests exception events. When false, ingestion drops every $exception event for this project before it is stored or billed, and the events cannot be recovered. */
     ingestion_enabled?: boolean
+    /** Whether PostHog writes an AI summary of each new issue in this project. Each summary uses the organization's AI credits. Setting it to true fails until the organization approves AI data processing. Setting it to false always succeeds. */
+    ai_issue_summaries_enabled?: boolean
 }
 
 export interface PatchedErrorTrackingSettingsApi {
+    /** Project preference for adaptive ingestion. Turning this on does not currently change ingestion. */
+    adaptive_ingestion_enabled?: boolean
     /**
      * Maximum number of exception events ingested per bucket for the entire project. Null removes the limit.
      * @minimum 1
@@ -2275,6 +2640,8 @@ export interface PatchedErrorTrackingSettingsApi {
     per_issue_rate_limit_bucket_size_minutes?: number | null
     /** Whether the project ingests exception events. When false, ingestion drops every $exception event for this project before it is stored or billed, and the events cannot be recovered. */
     ingestion_enabled?: boolean
+    /** Whether PostHog writes an AI summary of each new issue in this project. Each summary uses the organization's AI credits. Setting it to true fails until the organization approves AI data processing. Setting it to false always succeeds. */
+    ai_issue_summaries_enabled?: boolean
 }
 
 /**
@@ -2691,6 +3058,165 @@ export interface ErrorTrackingSymbolSetBulkStartUploadResponseApi {
     id_map: ErrorTrackingSymbolSetBulkStartUploadResponseApiIdMap
 }
 
+export interface ErrorTrackingIssueTagRuleFilterGroupApi {
+    type: FilterLogicalOperatorApi
+    values: EventPropertyFilterApi[]
+}
+
+export interface ErrorTrackingIssueTagRuleFiltersApi {
+    type: FilterLogicalOperatorApi
+    values: (ErrorTrackingIssueTagRuleFilterGroupApi | EventPropertyFilterApi)[]
+}
+
+/**
+ * Why the rule was turned off after it failed on an event, or null when the rule is active. A turned-off rule tags no issues until its filters are saved again.
+ * @nullable
+ */
+export type ErrorTrackingIssueTagRuleApiDisabledData = {
+    readonly message?: string
+    readonly issue?: { [key: string]: unknown }
+    readonly properties?: { [key: string]: unknown }
+} | null
+
+export interface ErrorTrackingIssueTagRuleApi {
+    /** Unique identifier of the tag rule. */
+    readonly id: string
+    /** Tag key that issues store for this rule's tag. Use it to filter issues by the tag, or to apply or remove the tag on one issue. It changes when an edit changes which properties the filters read. */
+    readonly key: string
+    /**
+     * Display name of the tag the rule applies to matching issues.
+     * @maxLength 128
+     */
+    label: string
+    /** What the tag means. Shown with the tag. */
+    description: string
+    /** Color of the tag, from a fixed set of named colors. Null shows the tag in a color picked from its label.
+     *
+     * * `blue` - Blue
+     * * `teal` - Teal
+     * * `green` - Green
+     * * `yellow` - Yellow
+     * * `orange` - Orange
+     * * `red` - Red
+     * * `pink` - Pink
+     * * `purple` - Purple */
+    color: IssueTagColorEnumApi | null
+    /** Property-group filters on event properties. They are checked against the first event of each new issue, and once a day against the events of the past day. A rule that filters on `$exception_list` is checked against the first event only. At least one filter is required. Person, cohort, HogQL and other filter types are rejected. */
+    filters: ErrorTrackingIssueTagRuleFiltersApi
+    /** Starts at 1, and goes up by one each time the filters change. */
+    readonly version: number
+    /** Position in the list of tag rules. Lower values come first. Every matching rule applies its tag, whatever its position. */
+    order_key: number
+    /**
+     * Why the rule was turned off after it failed on an event, or null when the rule is active. A turned-off rule tags no issues until its filters are saved again.
+     * @nullable
+     */
+    readonly disabled_data: ErrorTrackingIssueTagRuleApiDisabledData
+    /** When the rule was created. */
+    readonly created_at: string
+    /** When the rule was last updated. */
+    readonly updated_at: string
+}
+
+export interface ErrorTrackingIssueTagRuleListResponseApi {
+    /** Tag rules in ascending order key. */
+    results: ErrorTrackingIssueTagRuleApi[]
+}
+
+export interface ErrorTrackingIssueTagRuleCreateRequestApi {
+    /**
+     * Display name of the tag the rule applies to matching issues.
+     * @maxLength 128
+     */
+    label: string
+    /**
+     * What the tag means. Shown with the tag. Defaults to empty.
+     * @maxLength 1000
+     */
+    description?: string
+    /** Color of the tag, from a fixed set of named colors. Null shows the tag in a color picked from its label. Defaults to null.
+     *
+     * * `blue` - Blue
+     * * `teal` - Teal
+     * * `green` - Green
+     * * `yellow` - Yellow
+     * * `orange` - Orange
+     * * `red` - Red
+     * * `pink` - Pink
+     * * `purple` - Purple */
+    color?: IssueTagColorEnumApi | null
+    /** Property-group filters on event properties. They are checked against the first event of each new issue, and once a day against the events of the past day. A rule that filters on `$exception_list` is checked against the first event only. At least one filter is required. Person, cohort, HogQL and other filter types are rejected. */
+    filters: ErrorTrackingIssueTagRuleFiltersApi
+    /**
+     * Position in the list of tag rules. Lower values come first. Defaults to 0.
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    order_key?: number
+}
+
+export interface ErrorTrackingIssueTagRuleUpdateRequestApi {
+    /**
+     * Replacement display name for the tag. Omit to keep the existing label.
+     * @maxLength 128
+     */
+    label?: string
+    /**
+     * Replacement description. Omit to keep the existing description.
+     * @maxLength 1000
+     */
+    description?: string
+    /** Replacement color. Null switches to a color picked from the label. Omit to keep the existing color.
+     *
+     * * `blue` - Blue
+     * * `teal` - Teal
+     * * `green` - Green
+     * * `yellow` - Yellow
+     * * `orange` - Orange
+     * * `red` - Red
+     * * `pink` - Pink
+     * * `purple` - Purple */
+    color?: IssueTagColorEnumApi | null
+    /** Replacement event property filters, with at least one filter. Omit to keep the existing filters. New filters apply to new issues, and once a day to other issues that had a matching event in the past day. Existing tags stay when the new filters read the same properties. When they read different properties, the rule gets a new key and loses its tags. */
+    filters?: ErrorTrackingIssueTagRuleFiltersApi
+}
+
+export interface PatchedErrorTrackingIssueTagRuleUpdateRequestApi {
+    /**
+     * Replacement display name for the tag. Omit to keep the existing label.
+     * @maxLength 128
+     */
+    label?: string
+    /**
+     * Replacement description. Omit to keep the existing description.
+     * @maxLength 1000
+     */
+    description?: string
+    /** Replacement color. Null switches to a color picked from the label. Omit to keep the existing color.
+     *
+     * * `blue` - Blue
+     * * `teal` - Teal
+     * * `green` - Green
+     * * `yellow` - Yellow
+     * * `orange` - Orange
+     * * `red` - Red
+     * * `pink` - Pink
+     * * `purple` - Purple */
+    color?: IssueTagColorEnumApi | null
+    /** Replacement event property filters, with at least one filter. Omit to keep the existing filters. New filters apply to new issues, and once a day to other issues that had a matching event in the past day. Existing tags stay when the new filters read the same properties. When they read different properties, the rule gets a new key and loses its tags. */
+    filters?: ErrorTrackingIssueTagRuleFiltersApi
+}
+
+/**
+ * Mapping from tag rule UUID to its new order key.
+ */
+export type PatchedErrorTrackingIssueTagRuleReorderRequestApiOrders = { [key: string]: number }
+
+export interface PatchedErrorTrackingIssueTagRuleReorderRequestApi {
+    /** Mapping from tag rule UUID to its new order key. */
+    orders?: PatchedErrorTrackingIssueTagRuleReorderRequestApiOrders
+}
+
 export type ErrorTrackingAlertsListParams = {
     /**
      * Number of results to return per page.
@@ -2745,7 +3271,7 @@ export type ErrorTrackingExternalReferencesSearchIssuesRetrieveParams = {
      */
     repository?: string
     /**
-     * Text to match against existing issue titles or identifiers in the provider. GitHub matches titles as an exact phrase. Leave blank for recent issues.
+     * Text to match against existing issue titles or identifiers in the provider. GitHub matches titles as an exact phrase and returns issues only, not pull requests. Leave blank for recent issues.
      */
     search?: string
 }
@@ -2757,6 +3283,7 @@ export type ErrorTrackingFingerprintsListParams = {
     issue_id?: string
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -2821,6 +3348,7 @@ export type ErrorTrackingGitProviderFileLinksResolveGitlabRetrieveParams = {
 export type ErrorTrackingIssuesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -2893,6 +3421,7 @@ export const ErrorTrackingRecommendationsSourceMapsExamplesRetrievePlatform = {
 export type ErrorTrackingReleasesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -2916,6 +3445,7 @@ export type ErrorTrackingSpikeEventsListParams = {
     issue_ids?: string
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -2931,6 +3461,7 @@ export type ErrorTrackingSpikeEventsListParams = {
 export type ErrorTrackingStackFramesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -2953,6 +3484,7 @@ export type ErrorTrackingSuppressionRulesListParams = {
 export type ErrorTrackingSymbolSetsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number
     /**

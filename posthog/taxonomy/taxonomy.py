@@ -388,6 +388,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "MCP missing capability",
             "description": "Fires when an agent reports functionality it couldn't find via the `get_more_tools` virtual tool (when `reportMissing` is enabled). Carries the agent's reasoning in `$mcp_intent` — a capability gap, not a tool invocation.",
         },
+        "$mcp_feedback": {
+            "label": "MCP feedback",
+            "description": "Fires when an agent sends feedback through the `send_feedback` virtual tool (when `collectFeedback` is enabled): a capability it needed that no tool provides, a tool that failed or misled it, or praise. Carries `$mcp_feedback_type`, `$mcp_feedback_summary`, and the other `$mcp_feedback_*` properties; the summary and details double as `$mcp_intent`. Never also counted as a `$mcp_tool_call`. Supersedes `$mcp_missing_capability` for new integrations.",
+            "primary_property": "$mcp_feedback_type",
+        },
         # LEGACY MCP event names (non-`$`) — DO NOT USE. Dual-emitted through the cutover, now
         # stopped; query only for pre-2026-06-16 history. `ignored_in_assistant` hides them from
         # the AI assistant so it doesn't steer people onto them.
@@ -522,6 +527,10 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Error tracking issue split",
             "description": "Fires when fingerprints are split out of an error tracking issue into new issues.",
         },
+        "$signals_report_ready": {
+            "label": "Inbox report ready",
+            "description": "Fires when a self-driving Inbox report becomes ready. Destinations use it to act on a new report.",
+        },
         "$conversation_message_sent": {
             "label": "Conversation message sent",
             "description": "Fires when a message is sent in a support conversation.",
@@ -549,6 +558,10 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$conversation_ticket_priority_changed": {
             "label": "Conversation ticket priority changed",
             "description": "Fires when the priority of a support conversation ticket changes.",
+        },
+        "$conversation_ticket_tag_added": {
+            "label": "Conversation ticket tag added",
+            "description": "Fires when a tag is added to a support conversation ticket.",
         },
         "$slack_message_received": {
             "label": "Slack message received",
@@ -1464,6 +1477,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "App build",
             "description": "The build number for the app.",
         },
+        "$app_language": {
+            "label": "App language",
+            "description": "The language the app displays, which can differ from the device's locale.",
+            "examples": ["en", "pt-BR"],
+        },
         "$app_name": {
             "label": "App name",
             "description": "The name of the app.",
@@ -1887,6 +1905,36 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Feature flag ID",
             "description": "The numeric identifier of the feature flag that was called.",
             "examples": ["1234"],
+        },
+        "$feature_flag_config_version": {
+            "label": "Feature flag config version",
+            "description": "The config format version of the feature flag that was called. Only sent for flags that use config version 2.",
+            "examples": ["2"],
+        },
+        "$feature_flag_reason_code": {
+            "label": "Feature flag reason code",
+            "description": "The machine-readable reason for the feature flag result. Sent in place of the feature flag evaluation reason for flags that use config version 2.",
+            "examples": ["experiment_split", "targeting_match", "rollout_miss", "holdout"],
+        },
+        "$feature_flag_rule_id": {
+            "label": "Feature flag rule ID",
+            "description": "The unique identifier of the feature flag rule that produced the result. Only sent for flags that use config version 2.",
+            "examples": ["01234567-89ab-cdef-0123-456789abcdef"],
+        },
+        "$feature_flag_rule_type": {
+            "label": "Feature flag rule type",
+            "description": "The type of the feature flag rule that produced the result. Only sent for flags that use config version 2.",
+            "examples": ["experiment", "percentage_rollout", "targeted_release"],
+        },
+        "$feature_flag_variant_key": {
+            "label": "Feature flag variant key",
+            "description": "The key of the experiment variant that the user was assigned to. Only sent for flags that use config version 2, when an experiment rule assigned a variant.",
+            "examples": ["control", "test"],
+        },
+        "locally_evaluated": {
+            "label": "Locally evaluated",
+            "description": "Whether the server SDK evaluated the feature flag locally, without a request to PostHog.",
+            "examples": ["true", "false"],
         },
         "$feature_flag_has_experiment": {
             "label": "Feature flag has experiment",
@@ -2929,18 +2977,18 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$mcp_error_status": {
             "label": "MCP error status",
-            "description": "Upstream HTTP status code when an MCP tool call failed against a PostHog API (e.g. 429, 500). Only set for API-originated failures.",
+            "description": "HTTP status code behind a failed MCP tool call (e.g. 429, 503). PostHog's own MCP server sets the status of the PostHog API request that failed. Servers using the MCP Analytics SDKs get the first status found on the thrown error or its cause chain. Only set when a status was found.",
             "type": "Numeric",
             "examples": [429, 500, 403],
         },
         "$mcp_error_code": {
             "label": "MCP error code",
-            "description": "Machine-readable code for the leaf failure mode of an errored MCP tool call: the API's validation error code, or the exec dispatcher's rejection reason. Carries error codes only, never caller-supplied values. Only set when $mcp_is_error is true.",
+            "description": "Machine-readable code for the leaf failure mode of an errored MCP tool call: the API's error code (validation errors and other 4xx responses), or the exec dispatcher's rejection reason. Carries error codes only, never caller-supplied values. Only set when $mcp_is_error is true.",
             "examples": ["invalid", "required", "unknown_tool", "invalid_json"],
         },
         "$mcp_error_field": {
             "label": "MCP error field",
-            "description": "Field path the PostHog API's validation error pointed at, with array indexes normalized to N so one failure mode groups to one value. Only set for validation failures.",
+            "description": "Field path the PostHog API's error pointed at, with array indexes normalized to N so one failure mode groups to one value. Only set when the API error body names a field, such as validation failures.",
             "examples": ["actions__N__inputs__email", "query"],
         },
         "$mcp_validation_fields": {
@@ -3053,6 +3101,43 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "MCP intent source",
             "description": "Where $mcp_intent came from. 'context_parameter' means the client supplied it directly on the call; 'inferred' means the MCP server derived it via its intentFallback.",
             "examples": ["context_parameter", "inferred"],
+        },
+        "$mcp_feedback_type": {
+            "label": "MCP feedback type",
+            "description": "What kind of feedback the agent sent through `send_feedback`, on $mcp_feedback. 'missing_capability' means no tool provides what it needed; 'issue' means an existing tool failed or misled it; 'praise' and 'other' cover the rest. An unrecognized value falls back to 'other'.",
+            "examples": ["missing_capability", "issue", "praise", "other"],
+        },
+        "$mcp_feedback_summary": {
+            "label": "MCP feedback summary",
+            "description": "The agent's one-sentence summary of its feedback, on $mcp_feedback. PII-redacted like $mcp_intent.",
+            "examples": ["No tool to delete multiple cohorts in one call."],
+        },
+        "$mcp_feedback_details": {
+            "label": "MCP feedback details",
+            "description": "Optional longer context for the feedback, on $mcp_feedback: what the agent tried, the parameters and error text it saw, and any workaround. PII-redacted like $mcp_intent.",
+        },
+        "$mcp_feedback_friction_points": {
+            "label": "MCP feedback friction points",
+            "description": "Optional: the specific moments that slowed the agent down, on $mcp_feedback. PII-redacted like $mcp_intent.",
+        },
+        "$mcp_feedback_suggested_improvement": {
+            "label": "MCP feedback suggested improvement",
+            "description": "Optional: the concrete change the agent says would have helped, such as a tool to add or an error message to improve, on $mcp_feedback. PII-redacted like $mcp_intent.",
+        },
+        "$mcp_feedback_tool": {
+            "label": "MCP feedback tool",
+            "description": "Optional: the existing tool the feedback is about, on $mcp_feedback. Usually set for 'issue' and 'praise' and empty for 'missing_capability'. Agent-written, so it may hold prose rather than an exact tool name.",
+            "examples": ["query-trends"],
+        },
+        "$mcp_feedback_sentiment": {
+            "label": "MCP feedback sentiment",
+            "description": "Optional: how the agent says the experience felt overall, on $mcp_feedback.",
+            "examples": ["positive", "neutral", "negative", "mixed"],
+        },
+        "$mcp_feedback_task_completed": {
+            "label": "MCP feedback task completed",
+            "description": "Optional: whether the agent says it still completed the user's task despite the problem it reported, on $mcp_feedback.",
+            "type": "Boolean",
         },
         "$mcp_parameters": {
             "label": "MCP parameters",

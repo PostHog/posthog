@@ -32,6 +32,21 @@ describe('tool-search', () => {
         it('returns nothing when no token matches any field', () => {
             expect(searchToolsRanked(TOOLS, 'nonexistent-token')).toEqual([])
         })
+
+        it('matches search keywords above a tool that only mentions the word in its description', () => {
+            const tools: SearchableTool[] = [
+                { name: 'logs-query', title: 'Query logs', description: 'Query logs, also from a Prometheus exporter' },
+                {
+                    name: 'query-metrics',
+                    title: 'Query metrics',
+                    description: 'Query time series',
+                    searchKeywords: ['prometheus', 'promql', 'grafana'],
+                },
+            ]
+            expect(searchToolsRanked(tools, 'prometheus').map((r) => r.name)).toEqual(['query-metrics', 'logs-query'])
+            expect(searchToolsRanked(tools, 'grafana promql').map((r) => r.name)).toEqual(['query-metrics'])
+            expect(searchToolsRegex(tools, 'prom.?ql').map((t) => t.name)).toEqual(['query-metrics'])
+        })
     })
 
     describe('searchToolsRegex', () => {
@@ -61,8 +76,20 @@ describe('tool-search', () => {
             ])
         })
 
+        it('matches a nested-quantifier pattern without backtracking', () => {
+            const tools = [{ name: 'a', title: 'a', description: 'x'.repeat(32) }]
+            expect(searchToolsRegex(tools, '^(x+)+Z')).toEqual([])
+        })
+
+        it.each([
+            ['nested repeats that expand past the cap', '((?:' + 'ab'.repeat(30) + '){10}){100}', /repeats too much/],
+            ['a program above the cap', '(?s)(?:..){600}', /too complex/],
+        ])('refuses %s before it runs over the catalog', (_case, pattern, message) => {
+            expect(() => searchToolsRegex(TOOLS, pattern)).toThrow(message)
+        })
+
         it('throws on an invalid regex so callers can surface their own message', () => {
-            expect(() => searchToolsRegex(TOOLS, '[invalid')).toThrow(/regular expression/i)
+            expect(() => searchToolsRegex(TOOLS, '[invalid')).toThrow(/parsing regexp/)
         })
     })
 

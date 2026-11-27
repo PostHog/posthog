@@ -6,8 +6,9 @@ import { IconChevronDown, IconLogomark, IconNotebook } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { LemonMenuItem, LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
-import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
+
+import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 
 import type { ReplayScannerApi } from '../generated/api.schemas'
 import { observationsDockLogic } from '../logics/observationsDockLogic'
@@ -15,6 +16,7 @@ import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { BUILT_IN_SUMMARY_LABEL, isSummaryObservation } from '../utils/observation'
 import { quotaUx } from '../utils/quotaProjection'
 import { ScanBlock } from '../utils/scanEligibility'
+import { visionDocsUrl } from './DocsLink'
 import { useSummarizeBlockedReason } from './useSummarizeBlockedReason'
 
 /** Runs whichever summarizer `resolveSummarizer` settles on, and lets the user pick another. */
@@ -22,19 +24,21 @@ export function SummarizeButton({
     sessionId,
     scanBlock,
     inWatchLayout = false,
+    fullWidth = false,
 }: {
     sessionId: string
     scanBlock: ScanBlock | null
     inWatchLayout?: boolean
+    fullWidth?: boolean
 }): JSX.Element {
     const logic = observationsDockLogic({ sessionId })
     const { summarizePending, defaultSummarizer, summarizerScanners, observations } = useValues(logic)
     const { summarize, summarizeWith } = useActions(logic)
     const hasSummary = observations.some((o) => isSummaryObservation(o) && o.status === 'succeeded')
-    const { quota } = useValues(visionQuotaLogic)
+    const { quota, onFreePlan } = useValues(visionQuotaLogic)
     const { dataProcessingAccepted } = useValues(aiConsentLogic)
     const [consentRequested, setConsentRequested] = useState(false)
-    const { tooltip: quotaTooltip } = quotaUx(quota)
+    const { tooltip: quotaTooltip } = quotaUx(quota, onFreePlan)
     const blockedReason = useSummarizeBlockedReason(scanBlock)
     // `loading` only disables this button. The caret and the menu rows are their own buttons, so without this a
     // second summarizer can start mid-run and spend the quota again.
@@ -50,7 +54,7 @@ export function SummarizeButton({
           : 'Summarize this recording'
     const label = summarizePending ? 'Summarizing…' : idleLabel
     const summarizerTooltip = summarizePending
-        ? `Watching this recording. The summary appears in the ${inWatchLayout ? 'Scans segment' : 'Observations tab'} when it is ready.`
+        ? `Watching this recording. The summary appears in the ${inWatchLayout ? 'Observations section' : 'Observations tab'} when it is ready.`
         : defaultSummarizer
           ? `Runs your "${defaultSummarizer.name}" scanner on this recording.`
           : 'Writes a summary using a built-in prompt.'
@@ -87,7 +91,11 @@ export function SummarizeButton({
     const button = (
         <LemonButton
             size="small"
-            type={hasSummary ? 'tertiary' : 'secondary'}
+            type={inWatchLayout ? (hasSummary ? 'secondary' : 'primary') : hasSummary ? 'tertiary' : 'secondary'}
+            fullWidth={fullWidth}
+            center={fullWidth}
+            truncate
+            className="max-w-full"
             icon={<IconNotebook />}
             loading={summarizePending}
             // The endpoint refuses without org AI approval, so ask for it here rather than toasting a 400.
@@ -105,7 +113,15 @@ export function SummarizeButton({
                 }
             }}
             disabledReason={defaultSummarizer ? scannerDisabledReason(defaultSummarizer) : builtInDisabledReason}
-            tooltip={quotaTooltip ?? summarizerTooltip}
+            tooltip={
+                quotaTooltip ?? (
+                    <>
+                        <p className="mb-1">Replay vision uses AI to watch recordings for you.</p>
+                        <p className="mb-0">{summarizerTooltip}</p>
+                    </>
+                )
+            }
+            tooltipDocLink={`${visionDocsUrl()}?utm_medium=in-product&utm_campaign=summarize-explainer`}
             data-attr="vision-summarize-recording"
             data-ph-capture-attribute-summarizer={defaultSummarizer ? 'configured' : 'built-in'}
             // The dropdown is the only way to reach a second summarizer, so it appears once one exists.
@@ -122,7 +138,7 @@ export function SummarizeButton({
                     : null
             }
         >
-            <span className="truncate">{dataProcessingAccepted ? label : 'Allow AI analysis and summarize'}</span>
+            {dataProcessingAccepted ? label : 'Allow AI analysis and summarize'}
         </LemonButton>
     )
 

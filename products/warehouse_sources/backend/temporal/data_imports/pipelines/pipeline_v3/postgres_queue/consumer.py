@@ -23,12 +23,14 @@ from asgiref.sync import sync_to_async
 
 from posthog.exceptions_capture import capture_exception
 
+from products.batch_exports.backend.facade.destinations.postgres import PostgreSQLConnectionError
 from products.warehouse_sources.backend.models.external_data_schema import (
     SCHEMA_DELETED_JOB_ERROR,
     SYNC_DISABLED_JOB_ERROR,
     ExternalDataSchema,
     update_should_sync,
 )
+from products.warehouse_sources.backend.self_managed_access import ADOPTION_ACCESS_ERROR
 from products.warehouse_sources.backend.temporal.data_imports.metrics import (
     LOCK_TAKEOVER_LATEST_ERROR,
     TERMINAL_JOB_STATUSES,
@@ -44,6 +46,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.errors import (
     DESTINATION_CONFIGURATION_ERROR_MARKER,
+    DestinationDeliveryError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor import (
     INCOMPLETE_RUN_ERROR,
@@ -173,6 +176,9 @@ DISABLE_SCHEMA_ERROR_PATTERNS: tuple[str, ...] = (
     # incoming values no longer fit the stored Delta column type
     # (SchemaColumnTypeChangedException) — only a reset and full re-sync can fix it
     "Source column type changed",
+    # the access rules changed after the migration linked a self-managed table, so the first sync
+    # must not replace it — only an admin can fix the rules
+    ADOPTION_ACCESS_ERROR,
 )
 
 # The schema or job row was deleted mid-sync — no retry can bring it back, and no more of that
@@ -202,9 +208,35 @@ NON_RETRYABLE_ERROR_PATTERNS: tuple[str, ...] = (
     INCOMPLETE_RUN_ERROR,
 )
 
-# Subset of the non-retryable errors that are expected upstream/customer conditions rather than
-# pipeline bugs. The run still fails with an actionable message, but the engine skips
-# error-tracking capture for these so they don't drown real bugs. Kept deliberately narrow.
+# The specific upstream shapes of a destination connect exhausting its own internal retries
+# (PostgreSQLClient.connect, shared by the Postgres and Redshift writers) that are the
+# destination's own network or server being briefly unreachable — the same shapes
+# sources/postgres/postgres.py already treats as transient on the source side. Kept out of
+# NON_RETRYABLE_ERROR_PATTERNS so the next scheduled run still retries them.
+#
+# Deliberately not the client's generic "Failed to connect after {attempts} attempts..."
+# wrapper: that text also covers an OperationalError our own connect setup could raise (an
+# SSL root-cert file problem, a host-resolution failure), and matching it would hide a
+# regression in our code, not just the destination's own infra.
+#
+# This generic libpq/psycopg wording can also come from PostHog's own app DB or PgBouncer
+# (a Django ORM OperationalError, or another step in delivery.py that reads/writes it), so
+# is_expected_user_error only matches these against a DestinationDeliveryError, never any
+# exception — unlike the other EXPECTED_USER_ERROR_PATTERNS entries below, which are each
+# markers or messages only a destination-delivery or schema/job-deletion failure can carry.
+DESTINATION_CONNECT_EXHAUSTED_PATTERNS: tuple[str, ...] = (
+    # libpq's wording for the destination dropping the connection mid-handshake or mid-query.
+    "server closed the connection unexpectedly",
+    # writers/postgres.py's _client() rewrites a ConnectionTimeout into this detail (see
+    # CONNECT_TIMEOUT_DETAIL) before it reaches DestinationDeliveryError, so the client's own
+    # "Timed-out while trying to connect for..." text never survives to this point.
+    "The database did not answer on the host and port given",
+)
+
+# Errors that are expected upstream/customer conditions rather than pipeline bugs. The run still
+# fails with an actionable message, but the engine skips error-tracking capture for these so they
+# don't drown real bugs. Kept deliberately narrow. Most entries double as NON_RETRYABLE_ERROR_PATTERNS,
+# but an entry here need not be: is_retryable_error and is_expected_user_error are orthogonal.
 EXPECTED_USER_ERROR_PATTERNS: tuple[str, ...] = (
     # a source column's type changed upstream and no longer fits the stored Delta column
     # (SchemaColumnTypeChangedException) — delta-rs can't widen in place, so the fix is a
@@ -215,6 +247,10 @@ EXPECTED_USER_ERROR_PATTERNS: tuple[str, ...] = (
     *DELETION_ERROR_PATTERNS,
     # a destination the customer configured refuses the connection, which only they can fix
     DESTINATION_CONFIGURATION_ERROR_MARKER,
+    # a batch aged out of its claim window and loaded out of order (see _refuse_incomplete_run) —
+    # self-healing by design, the next scheduled sync retries automatically, and
+    # INCOMPLETE_RUN_COMPLETIONS_REFUSED_TOTAL already tracks how often it fires
+    INCOMPLETE_RUN_ERROR,
 )
 
 # How long an "alive" job-status lookup stays cached before re-checking the app DB.
@@ -1175,7 +1211,19 @@ class DeltaBatchConsumerAdapter:
 
     def is_expected_user_error(self, err: Exception) -> bool:
         message = str(err)
-        return any(pattern in message for pattern in EXPECTED_USER_ERROR_PATTERNS)
+        if any(pattern in message for pattern in EXPECTED_USER_ERROR_PATTERNS):
+            return True
+        # DestinationDeliveryError wraps every exception deliver_batch_to_destinations sees,
+        # including a Django ORM read against PostHog's own app DB (loading the destination's
+        # integration, the S3 writer's Team lookup, ...), not only a failed destination connect.
+        # Those reads raise a plain django.db OperationalError, which can carry this same libpq
+        # wording and must still reach error tracking, so the cause must be the destination
+        # connect's own PostgreSQLConnectionError, not merely the wrapper type.
+        return (
+            isinstance(err, DestinationDeliveryError)
+            and isinstance(err.cause, PostgreSQLConnectionError)
+            and any(pattern in message for pattern in DESTINATION_CONNECT_EXHAUSTED_PATTERNS)
+        )
 
     async def after_batch_processed(
         self,

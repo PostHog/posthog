@@ -1,7 +1,7 @@
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props, selectors } from 'kea'
 
+import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { funnelTitle } from 'scenes/trends/persons-modal/persons-modal-utils'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 

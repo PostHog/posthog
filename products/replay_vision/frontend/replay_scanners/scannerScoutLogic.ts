@@ -16,6 +16,8 @@ import type {
     SignalScoutConfigApi,
     SignalScoutOutputDestinationsApi,
 } from 'products/signals/frontend/generated/api.schemas'
+import type { PatchedSignalScoutConfigUpdateApi } from 'products/signals/frontend/generated/api.schemas'
+import type { ScoutDeleteEntryPoint, ScoutSurface } from 'products/signals/frontend/inbox/inboxAnalytics'
 import type { ScoutReportAction } from 'products/signals/frontend/inbox/logics/scoutDetailLogic'
 import { scoutFleetLogic } from 'products/signals/frontend/inbox/logics/scoutFleetLogic'
 import type { SignalScoutConfig } from 'products/signals/frontend/inbox/logics/scoutFleetLogic'
@@ -32,8 +34,10 @@ import {
     visionScannersScoutReportsList,
     visionScannersScoutReportsRetrieve,
     visionScannersScoutsCreate,
+    visionScannersScoutsTemplatesList,
 } from '../generated/api'
-import type { ScoutReportApi } from '../generated/api.schemas'
+import type { ScannerScoutTemplateApi, ScoutReportApi } from '../generated/api.schemas'
+import type { ScoutTemplateKeyEnumApi } from '../generated/api.schemas'
 import type { ScannerScoutTemplateKey } from './scannerScout'
 import { isScannerScoutConfig, isTemplateScout, scannerScoutCreatePayload, scoutSkillName } from './scannerScout'
 import { isScoutDestination, scoutWebhookDestinationPayload } from './scannerScoutDelivery'
@@ -134,6 +138,9 @@ export interface scannerScoutLogicValues {
     scoutReports: ScoutReportApi[]
     scoutReportsFailed: boolean
     scoutReportsLoading: boolean
+    scoutTemplates: ScannerScoutTemplateApi[]
+    scoutTemplatesFailed: boolean
+    scoutTemplatesLoading: boolean
     settingsFormId: number
     settingsSaving: boolean
     settingsSkillName: string | null
@@ -151,24 +158,22 @@ export interface scannerScoutLogicValues {
 export interface scannerScoutLogicActions {
     deleteScout: (
         configId: string,
-        surface?: import('products/signals/frontend/inbox/inboxAnalytics').ScoutSurface | undefined
+        surface?: ScoutSurface | undefined,
+        entryPoint?: ScoutDeleteEntryPoint | null | undefined
     ) => {
         configId: string
-        surface: import('products/signals/frontend/inbox/inboxAnalytics').ScoutSurface
+        entryPoint: ScoutDeleteEntryPoint | null
+        surface: ScoutSurface
     } // scoutFleetLogic
     loadScoutConfigs: (_?: void | undefined) => void // scoutFleetLogic
     loadScoutMetadata: () => any // scoutFleetLogic
     loadScoutRuns: (_?: void | undefined) => void // scoutFleetLogic
     patchScoutConfigLocally: (
         configId: string,
-        updates:
-            | Partial<SignalScoutConfigApi>
-            | import('products/signals/frontend/generated/api.schemas').PatchedSignalScoutConfigUpdateApi
+        updates: Partial<SignalScoutConfigApi> | PatchedSignalScoutConfigUpdateApi
     ) => {
         configId: string
-        updates:
-            | Partial<SignalScoutConfigApi>
-            | import('products/signals/frontend/generated/api.schemas').PatchedSignalScoutConfigUpdateApi
+        updates: Partial<SignalScoutConfigApi> | PatchedSignalScoutConfigUpdateApi
     } // scoutFleetLogic
     runScoutNow: (
         configId: string,
@@ -179,10 +184,10 @@ export interface scannerScoutLogicActions {
     } // scoutFleetLogic
     updateScoutConfig: (
         configId: string,
-        updates: import('products/signals/frontend/generated/api.schemas').PatchedSignalScoutConfigUpdateApi
+        updates: PatchedSignalScoutConfigUpdateApi
     ) => {
         configId: string
-        updates: import('products/signals/frontend/generated/api.schemas').PatchedSignalScoutConfigUpdateApi
+        updates: PatchedSignalScoutConfigUpdateApi
     } // scoutFleetLogic
     closeCreateModal: () => {
         value: true
@@ -274,6 +279,21 @@ export interface scannerScoutLogicActions {
         scoutReports: ScoutReportApi[]
         payload?: any
     }
+    loadScoutTemplates: () => any
+    loadScoutTemplatesFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadScoutTemplatesSuccess: (
+        scoutTemplates: ScannerScoutTemplateApi[],
+        payload?: any
+    ) => {
+        scoutTemplates: ScannerScoutTemplateApi[]
+        payload?: any
+    }
     loadSkillPrompt: (_: void) => void
     loadSkillPromptFailure: (
         error: string,
@@ -298,7 +318,7 @@ export interface scannerScoutLogicActions {
         payload?: void
     }
     openCreateModal: (templateKey: ScannerScoutTemplateKey) => {
-        templateKey: ScannerScoutTemplateKey
+        templateKey: ScoutTemplateKeyEnumApi
     }
     openReport: (reportId: string) => {
         reportId: string
@@ -418,6 +438,16 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
     }),
 
     loaders(({ props, values }) => ({
+        // Rendered by the backend, which also keeps scouts made from them on the latest template text.
+        scoutTemplates: [
+            [] as ScannerScoutTemplateApi[],
+            {
+                loadScoutTemplates: async () => {
+                    const projectId = teamLogic.values.currentProjectId
+                    return projectId ? await visionScannersScoutsTemplatesList(String(projectId), props.scannerId) : []
+                },
+            },
+        ],
         skillPrompt: [
             null as ScoutPrompt | null,
             {
@@ -521,6 +551,13 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
     })),
 
     reducers({
+        scoutTemplatesFailed: [
+            false,
+            {
+                loadScoutTemplates: () => false,
+                loadScoutTemplatesFailure: () => true,
+            },
+        ],
         // The roster must not read a failed load as "no scouts yet", which is the same empty list.
         scoutConfigsFailed: [
             false,
@@ -709,7 +746,7 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
          * not read as the whole save failing. */
         const reconcileDelivery = async (
             config: Pick<SignalScoutConfigApi, 'id' | 'skill_name' | 'output_destinations'>,
-            form: Pick<ScannerScoutForm, 'webhookUrl' | 'outputDestinations'>
+            form: Pick<ScannerScoutForm, 'name' | 'webhookUrl' | 'outputDestinations'>
         ): Promise<boolean> => {
             const projectId = teamLogic.values.currentProjectId
             const teamId = teamLogic.values.currentTeamId
@@ -717,7 +754,7 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
                 return false
             }
             const skillName = config.skill_name
-            const label = prettifyScoutSkillName(skillName)
+            const label = form.name.trim() || prettifyScoutSkillName(skillName)
             const url = form.webhookUrl.trim()
             try {
                 const existing = await findScoutDelivery(
@@ -824,6 +861,19 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
             },
             [scoutFleetLogic.actionTypes.loadScoutConfigsFailure]: () => actions.setScoutConfigsFailed(true),
             [scoutFleetLogic.actionTypes.loadScoutRunsSuccess]: refetchReportsIfChanged,
+            // The overview's root cause prompt opens a create form without the scouts tab having loaded them.
+            openCreateModal: () => {
+                if (values.scoutTemplates.length === 0 && !values.scoutTemplatesLoading) {
+                    actions.loadScoutTemplates()
+                }
+            },
+            loadScoutTemplatesFailure: () => {
+                // The form renders nothing without its template, so close it rather than leave the button dead.
+                if (values.createTemplateKey) {
+                    lemonToast.error("Couldn't load the scout templates. Try again.")
+                    actions.closeCreateModal()
+                }
+            },
             createScout: async ({ form }) => {
                 const teamId = teamLogic.values.currentTeamId
                 // The template the form was opened from, which the skill name is derived from

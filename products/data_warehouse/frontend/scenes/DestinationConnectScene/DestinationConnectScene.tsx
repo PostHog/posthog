@@ -1,9 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
-import 'lib/components/CyclotronJob/integrations/integrationSetups'
-import { getIntegrationSetup } from 'lib/components/CyclotronJob/integrations/integrationSetupRegistry'
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -16,6 +14,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { destinationTypeLabel } from '../../shared/components/DestinationIcon'
 import { destinationConnectSceneLogic } from './destinationConnectSceneLogic'
+import { DestinationMigrationPrefillConfirm } from './DestinationMigrationPrefillConfirm'
 
 export const scene: SceneExport = {
     component: DestinationConnectScene,
@@ -24,14 +23,26 @@ export const scene: SceneExport = {
 
 export function DestinationConnectScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { kind, destinationDefinition, isModalOpen, integrationId } = useValues(destinationConnectSceneLogic)
-    const { setModalOpen, setIntegrationId } = useActions(destinationConnectSceneLogic)
+    const {
+        kind,
+        destinationDefinition,
+        integrationSetup,
+        setupModalOpen,
+        openSetupDisabledReason,
+        integrationId,
+        handBackStatus,
+        migrationItemId,
+        migrationPrefillLoading,
+        setupLock,
+        showPrefillConfirm,
+    } = useValues(destinationConnectSceneLogic)
+    const { setModalOpen, completeSetup } = useActions(destinationConnectSceneLogic)
 
     if (!featureFlags[FEATURE_FLAGS.WAREHOUSE_MULTI_DESTINATION]) {
         return <NotFound object="page" caption="Warehouse destinations isn't available for this project yet." />
     }
 
-    const SetupModal = kind ? getIntegrationSetup(kind)?.SetupModal : undefined
+    const SetupModal = integrationSetup?.SetupModal
     if (!kind || !destinationDefinition || !SetupModal) {
         return (
             <SceneContent>
@@ -44,6 +55,14 @@ export function DestinationConnectScene(): JSX.Element {
                         : "This link doesn't say which connection to set up."}{' '}
                     Add the destination from warehouse destinations instead.
                 </LemonBanner>
+            </SceneContent>
+        )
+    }
+
+    if (migrationPrefillLoading) {
+        return (
+            <SceneContent>
+                <Spinner />
             </SceneContent>
         )
     }
@@ -62,19 +81,33 @@ export function DestinationConnectScene(): JSX.Element {
                 }
             />
             <div className="max-w-200">
+                {showPrefillConfirm && <DestinationMigrationPrefillConfirm />}
                 {integrationId !== null ? (
-                    <LemonBanner type="success">
+                    <LemonBanner type={handBackStatus === 'sending' ? 'info' : 'success'}>
                         <p className="font-semibold mb-1">{typeLabel} connection saved</p>
-                        <p className="m-0 text-sm">
-                            Copy this connection id into your chat: <code>{integrationId}</code>. The assistant uses it
-                            to create the destination, which doesn't exist yet. Then you can close this tab.
-                        </p>
+                        {handBackStatus === 'sending' ? (
+                            <p className="m-0 text-sm">Sending the connection to the assistant…</p>
+                        ) : handBackStatus === 'sent' ? (
+                            <p className="m-0 text-sm">
+                                The assistant can see this connection now. Go back to your terminal or chat to finish
+                                creating the destination. You can close this tab.
+                            </p>
+                        ) : (
+                            <p className="m-0 text-sm">
+                                {handBackStatus === 'failed'
+                                    ? "We couldn't send the connection to the assistant. "
+                                    : ''}
+                                Copy this connection id into your chat: <code>{integrationId}</code>. The assistant uses
+                                it to create the destination, which doesn't exist yet. Then you can close this tab.
+                            </p>
+                        )}
                     </LemonBanner>
                 ) : (
-                    !isModalOpen && (
+                    !setupModalOpen && (
                         <LemonButton
                             type="primary"
                             onClick={() => setModalOpen(true)}
+                            disabledReason={openSetupDisabledReason}
                             data-attr="warehouse-destination-connect-open"
                         >
                             Enter credentials
@@ -83,10 +116,13 @@ export function DestinationConnectScene(): JSX.Element {
                 )}
             </div>
             <SetupModal
-                isOpen={isModalOpen && integrationId === null}
+                // The form reads its locked values once, so another migration item gets a fresh form.
+                key={String(migrationItemId)}
+                isOpen={setupModalOpen}
                 kind={kind}
+                locked={setupLock}
                 // The modals' close button calls onComplete with the click event, so only a number is a saved id.
-                onComplete={(id) => (typeof id === 'number' ? setIntegrationId(id) : setModalOpen(false))}
+                onComplete={(id) => (typeof id === 'number' ? completeSetup(id, migrationItemId) : setModalOpen(false))}
                 onClose={() => setModalOpen(false)}
             />
         </SceneContent>

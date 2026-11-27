@@ -153,11 +153,25 @@ function blockedFor(options: ViewRefreshOptions, now: number = serverNow()): Blo
     })
 }
 
-/**
- * Runs the refresh rules of one Views screen. It reads on first paint and when items scroll into view, on screen focus
- * and on app foreground (never forcing), and on pull to refresh (forcing only what the server allows). Every
- * request goes through the app-wide queue. No timer sends requests while the app is open.
- */
+function canRefreshDashboard(options: ViewRefreshOptions, read: JobResult | null, now: number): boolean {
+    const { container } = options
+    if (!container) {
+        return false
+    }
+    // A pinned preview can already have read this dashboard within the automatic minute floor.
+    const hasRecentRead = read
+        ? read.status === 'ok'
+        : !readFloorPassed(container.readAt()) && !useItemErrors.getState().errors[container.key]
+    return hasRecentRead && !blockedFor(options, now).blocked
+}
+
+function dashboardReadMode(snapshot: Freshness | undefined, canRefresh: boolean, now: number): RefreshMode | null {
+    if (!hasGoodValue(snapshot) || cacheTargetPassed(snapshot, now)) {
+        return 'blocking'
+    }
+    return canRefresh && isEligible(snapshot, now) ? 'force_blocking' : null
+}
+
 export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
     const optionsRef = useRef(options)
     optionsRef.current = options
@@ -197,6 +211,9 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
     useNow(30_000)
 
     const containerReading = useRef<Promise<JobResult> | null>(null)
+    const dashboardOpenGroup = useRef<string | null>(group)
+    const itemReads = useRef(new Map<string, Promise<JobResult>>())
+    const recoverOnEnable = useRef(false)
 
     const recordEmptyFailure = useCallback((key: string, result: JobResult, hasValue: () => boolean): void => {
         if ((result.status === 'failed' || result.status === 'capped') && !hasValue()) {
@@ -224,6 +241,7 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
                 run: read,
                 userRetry,
             })
+            itemReads.current.set(key, job)
             counters.jobs.push(job)
             void job.then((result) =>
                 recordEmptyFailure(key, result, () => {
@@ -307,7 +325,8 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
             trigger: PassTrigger,
             counters: PassCounters,
             generation: number,
-            passGroup: string
+            passGroup: string,
+            recovering: boolean
         ) => {
             const current = optionsRef.current
             const startedAt = Date.now()
@@ -315,20 +334,38 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
                 fresh.map((item) => item.snapshot()),
                 serverNow()
             )
-            if (current.container && containerReading.current) {
-                await containerReading.current
-            }
+            const pendingContainer = current.container && containerReading.current
+            const containerRead = pendingContainer ? await pendingContainer : null
             if (!stillActive(generation, passGroup)) {
                 return
             }
+            let canRefresh = false
+            const now = serverNow()
+            if (current.container && dashboardOpenGroup.current === passGroup && fresh.length > 0) {
+                dashboardOpenGroup.current = null
+                canRefresh = canRefreshDashboard(optionsRef.current, containerRead, now)
+            }
             for (const item of fresh) {
+                const previous = recovering ? await itemReads.current.get(item.key) : undefined
+                if (!stillActive(generation, passGroup)) {
+                    return
+                }
+                if (!optionsRef.current.items.some((candidate) => candidate.key === item.key)) {
+                    continue
+                }
+                const failed = previous?.status === 'failed'
                 const snapshot = item.snapshot()
-                // Dashboard tiles follow the web's open path: after the cache-only dashboard read, a tile computes
-                // only when it has no result or its `cache_target_age` has passed.
-                const wanted = current.container
-                    ? drawable(item) && (!hasGoodValue(snapshot) || cacheTargetPassed(snapshot))
-                    : drawable(item) && (item.openDue?.() ?? isDue(snapshot))
-                if (wanted) {
+                if (!drawable(item)) {
+                    continue
+                }
+                if (failed) {
+                    send(counters, item.key, item.family, 'blocking', item.read, true)
+                } else if (current.container) {
+                    const mode = dashboardReadMode(snapshot, canRefresh, now)
+                    if (mode) {
+                        send(counters, item.key, item.family, mode, item.read)
+                    }
+                } else if (item.openDue?.() ?? isDue(snapshot)) {
                     send(counters, item.key, item.family, 'blocking', item.read)
                 }
             }
@@ -355,16 +392,22 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
             void refetchLists(RECHECK_MS)
             if (current.container) {
                 const readAt = current.container.readAt()
-                if (!readAt || Date.now() - readAt >= RECHECK_MS) {
-                    await readContainer(counters, current.container)
-                }
+                const shouldRead =
+                    trigger === 'foreground' ? readFloorPassed(readAt) : !readAt || Date.now() - readAt >= RECHECK_MS
+                const containerRead = shouldRead ? await readContainer(counters, current.container) : null
                 if (!stillActive(generation, passGroup)) {
                     return
                 }
-                for (const item of visibleOf(optionsRef.current)) {
-                    const snapshot = item.snapshot()
-                    if (drawable(item) && (!hasGoodValue(snapshot) || cacheTargetPassed(snapshot))) {
-                        send(counters, item.key, item.family, 'blocking', item.read)
+                const latest = optionsRef.current
+                const now = serverNow()
+                const canRefresh = trigger === 'foreground' && canRefreshDashboard(latest, containerRead, now)
+                for (const item of visibleOf(latest)) {
+                    if (!drawable(item)) {
+                        continue
+                    }
+                    const mode = dashboardReadMode(item.snapshot(), canRefresh, now)
+                    if (mode) {
+                        send(counters, item.key, item.family, mode, item.read)
                     }
                 }
             } else {
@@ -421,18 +464,41 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
     const seenGroup = useRef(group)
     const containerKey = useRef<string | null>(null)
     const itemKeys = options.items.map((item) => item.key).join('|')
+    const lastItemKeys = useRef(itemKeys)
     const visibleKeyList = options.visibleKeys ? [...options.visibleKeys].sort().join('|') : '*'
     // biome-ignore lint/correctness/useExhaustiveDependencies: the key strings stand for the items, read through the ref.
     useEffect(() => {
+        const current = optionsRef.current
+        if (lastItemKeys.current !== itemKeys) {
+            lastItemKeys.current = itemKeys
+            const keys = new Set(current.items.map((item) => item.key))
+            for (const key of seen.current) {
+                if (!keys.has(key)) {
+                    seen.current.delete(key)
+                }
+            }
+            for (const key of itemReads.current.keys()) {
+                if (!keys.has(key)) {
+                    itemReads.current.delete(key)
+                }
+            }
+            if (current.container) {
+                keys.add(current.container.key)
+            }
+            viewsQueue.leave(group, keys)
+        }
         if (!enabled || !isFocused) {
+            if (!enabled) recoverOnEnable.current = true
+            seen.current.clear()
+            containerKey.current = null
             return
         }
-        const current = optionsRef.current
         const counters: PassCounters = { jobs: [] }
         if (seenGroup.current !== groupOf(current)) {
             // Leaving a range dropped its queued reads, so coming back to it checks its items again.
             seenGroup.current = groupOf(current)
             seen.current.clear()
+            itemReads.current.clear()
         }
         let containerOpened = false
         if (current.container && containerKey.current !== current.container.key) {
@@ -453,7 +519,9 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
         }
         const trigger: PassTrigger = pendingRangeTrigger.current ? 'range' : 'open'
         pendingRangeTrigger.current = false
-        void openItems(fresh, trigger, counters, passGeneration.current, group)
+        const recovering = recoverOnEnable.current
+        recoverOnEnable.current = false
+        void openItems(fresh, trigger, counters, passGeneration.current, group, recovering)
     }, [enabled, isFocused, group, itemKeys, visibleKeyList, options.container?.key, openItems, readContainer])
 
     // Screen focus after the first one, which is the mount. Leaving drops what only this screen queued.
@@ -466,7 +534,9 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
             focusedBefore.current = true
             return () => {
                 passGeneration.current += 1
-                viewsQueue.leave(groupOf(optionsRef.current))
+                const leavingGroup = groupOf(optionsRef.current)
+                dashboardOpenGroup.current = leavingGroup
+                viewsQueue.leave(leavingGroup)
             }
         }, [focusPass])
     )
@@ -525,6 +595,7 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
                 run: item.read,
                 userRetry: true,
             })
+            itemReads.current.set(item.key, job)
             void job.then((result) => recordEmptyFailure(item.key, result, () => hasGoodValue(item.snapshot())))
             return true
         },

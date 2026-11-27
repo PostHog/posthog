@@ -8,7 +8,6 @@ points for producing are in `posthog.kafka_client.routing`:
 * `new_async_producer(topic=...)` for long-lived async producers
 """
 
-import os
 import json
 import time
 import asyncio
@@ -224,12 +223,6 @@ class _KafkaProducer:
         enable_idempotence=False,
         producer_settings: Optional[dict[str, Any]] = None,
     ):
-        hostname = os.environ.get("HOSTNAME", "")
-        if "temporal-worker-data-warehouse" in hostname:
-            import traceback
-
-            logger.info(f"KafkaProducer stack: {traceback.format_stack()}")
-
         if settings.TEST:
             test = True  # Set at runtime so that overriden settings.TEST is supported
         default_profile = settings.KAFKA_PROFILES["default"]
@@ -365,6 +358,10 @@ class _KafkaProducer:
 
         return result
 
+    def poll(self, timeout: float) -> int:
+        """Run the delivery callbacks that are ready, waiting up to `timeout` seconds for one."""
+        return self.producer.poll(timeout)
+
     def flush(self, timeout: Optional[float] = None) -> int:
         # confluent's flush() returns the count still undelivered (0 once acked);
         # surface it so callers can detect a partial flush. It rejects a None
@@ -488,3 +485,18 @@ class ClickhouseProducer:
         from posthog.kafka_client.routing import get_producer
 
         return get_producer(topic=topic).produce(topic=topic, data=data)
+
+    def wait_for_delivery(self, results: list[ProduceResult], timeout: float) -> None:
+        """Raise `TimeoutError` or `KafkaException` unless Kafka acknowledges every result within `timeout` seconds."""
+        if not settings.TEST:
+            from posthog.kafka_client.routing import get_producer
+
+            # The producer runs delivery callbacks only while something polls it. Poll instead of flush,
+            # because a flush also waits for every other message on the shared producer.
+            producers = {result.topic: get_producer(topic=result.topic) for result in results}.values()
+            deadline = time.monotonic() + timeout
+            while not all(result.done() for result in results) and (remaining := deadline - time.monotonic()) > 0:
+                for producer in producers:
+                    producer.poll(min(remaining, 0.1))
+        for result in results:
+            result.get(timeout=0)

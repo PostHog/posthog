@@ -33,6 +33,8 @@ HOGQL_COMPARISON_MAPPING: dict[str, ast.CompareOperationOp] = {
     "notILike": ast.CompareOperationOp.NotILike,
     "in": ast.CompareOperationOp.In,
     "notIn": ast.CompareOperationOp.NotIn,
+    "globalIn": ast.CompareOperationOp.GlobalIn,
+    "globalNotIn": ast.CompareOperationOp.GlobalNotIn,
 }
 
 HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
@@ -54,6 +56,8 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     # in
     "in": HogQLFunctionMeta("in", 2, 2),
     "notIn": HogQLFunctionMeta("notIn", 2, 2),
+    "globalIn": HogQLFunctionMeta("globalIn", 2, 2),
+    "globalNotIn": HogQLFunctionMeta("globalNotIn", 2, 2),
     # logical
     "and": HogQLFunctionMeta("and", 2, None),
     "or": HogQLFunctionMeta("or", 2, None),
@@ -193,8 +197,8 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "formatReadableSize": HogQLFunctionMeta("formatReadableSize", 1, 1),
     "formatReadableQuantity": HogQLFunctionMeta("formatReadableQuantity", 1, 1),
     "formatReadableTimeDelta": HogQLFunctionMeta("formatReadableTimeDelta", 1, 2),
-    "least": HogQLFunctionMeta("least", 2, 2, case_sensitive=False),
-    "greatest": HogQLFunctionMeta("greatest", 2, 2, case_sensitive=False),
+    "least": HogQLFunctionMeta("least", 2, None, case_sensitive=False),
+    "greatest": HogQLFunctionMeta("greatest", 2, None, case_sensitive=False),
     "indexHint": HogQLFunctionMeta("indexHint", 1, 1),
     "extractIPv4Substrings": HogQLFunctionMeta("extractIPv4Substrings", 1, 1),
     # time window

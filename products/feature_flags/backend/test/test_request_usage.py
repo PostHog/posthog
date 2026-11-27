@@ -24,6 +24,7 @@ class TestFeatureFlagRequestUsageQuery(ClickhouseTestMixin, TestCase):
         [
             ("missing breakdown", "", [("other", 10)]),
             ("partial breakdown", '{"posthog-node": 4}', [("other", 6), ("posthog-node", 4)]),
+            ("breakdown with other", '{"other": 4, "posthog-node": 6}', [("other", 4), ("posthog-node", 6)]),
         ]
     )
     def test_attributes_unclassified_billed_requests_to_other(
@@ -93,6 +94,17 @@ class TestFeatureFlagRequestUsageQuery(ClickhouseTestMixin, TestCase):
         _create_event(
             team=analytics_team,
             distinct_id="123",
+            event="local evaluation not modified usage",
+            timestamp=datetime(2026, 8, 20, 12, 40, tzinfo=UTC),
+            properties={
+                "count": 2,
+                "sdk_breakdown": {"posthog-python": 2},
+                "token": "request-usage-test-token",
+            },
+        )
+        _create_event(
+            team=analytics_team,
+            distinct_id="123",
             event="decide usage",
             timestamp=datetime(2026, 8, 20, 12, 50, tzinfo=UTC),
             properties={"count": 5, "token": "request-usage-test-token"},
@@ -123,10 +135,12 @@ class TestFeatureFlagRequestUsageQuery(ClickhouseTestMixin, TestCase):
                 time_interval="day",
             )
 
-        assert [(item.request_type.value, item.sdk, item.request_count) for item in hourly_results] == [
-            ("local_evaluation", "posthog-python", 3),
-            ("remote_evaluation", "other", 5),
-            ("remote_evaluation", "posthog-node", 7),
+        assert [
+            (item.request_type.value, item.sdk, item.request_count, item.billing_units) for item in hourly_results
+        ] == [
+            ("local_evaluation", "posthog-python", 5, 32),
+            ("remote_evaluation", "other", 5, 5),
+            ("remote_evaluation", "posthog-node", 7, 7),
         ]
         assert {item.bucket for item in hourly_results} == {datetime(2026, 8, 20, 12, tzinfo=UTC)}
         assert {item.bucket for item in daily_results} == {datetime(2026, 8, 20, tzinfo=UTC)}

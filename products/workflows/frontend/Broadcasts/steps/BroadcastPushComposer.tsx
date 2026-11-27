@@ -18,11 +18,13 @@ const CHANNELS_SCHEMA: CyclotronJobInputSchemaType = {
 }
 
 export function BroadcastPushComposer(): JSX.Element {
-    const { push, stepValidationErrors } = useValues(broadcastWizardLogic)
+    const { push, stepValidationErrors, templatingErrors } = useValues(broadcastWizardLogic)
     const { setPush } = useActions(broadcastWizardLogic)
-    const errors = stepValidationErrors.content
+    const templatingMessages: (string | undefined)[] = Object.values(templatingErrors)
+    const errors = stepValidationErrors.content.filter((error) => !templatingMessages.includes(error))
     const channelsError = errors.find((error) => error.includes('channel'))
-    const titleError = errors.find((error) => error.includes('title'))
+    const titleError = errors.find((error) => error.includes('title')) ?? templatingErrors.title
+    const messageError = templatingErrors.message
 
     return (
         <div className="grid grid-cols-1 gap-4 @3xl:grid-cols-2">
@@ -65,6 +67,7 @@ export function BroadcastPushComposer(): JSX.Element {
                         minRows={3}
                         data-attr="broadcast-push-body"
                     />
+                    {messageError ? <span className="text-xs text-danger">{messageError}</span> : null}
                 </div>
             </div>
             <BroadcastPushPreview />

@@ -14,8 +14,10 @@ from products.engineering_analytics.backend.presentation.views._base import (
 from products.engineering_analytics.backend.presentation.views.ci_signals import CISignalsConfigMixin
 from products.engineering_analytics.backend.presentation.views.delivery import DeliveryActionsMixin
 from products.engineering_analytics.backend.presentation.views.dora import DoraActionsMixin
+from products.engineering_analytics.backend.presentation.views.enrollment import EnrollmentMixin
 from products.engineering_analytics.backend.presentation.views.friction import FrictionActionsMixin
 from products.engineering_analytics.backend.presentation.views.pull_requests import PullRequestActionsMixin
+from products.engineering_analytics.backend.presentation.views.revert_outcomes import RevertOutcomeActionsMixin
 from products.engineering_analytics.backend.presentation.views.sources import SourcesMixin
 from products.engineering_analytics.backend.presentation.views.suite_health import SuiteHealthActionsMixin
 from products.engineering_analytics.backend.presentation.views.teams import TeamActionsMixin
@@ -25,6 +27,7 @@ from products.engineering_analytics.backend.presentation.views.workflows import 
 @extend_schema(tags=[ENGINEERING_ANALYTICS_TAG])
 class EngineeringAnalyticsViewSet(
     SourcesMixin,
+    EnrollmentMixin,
     CISignalsConfigMixin,
     PullRequestActionsMixin,
     DeliveryActionsMixin,
@@ -33,6 +36,7 @@ class EngineeringAnalyticsViewSet(
     TeamActionsMixin,
     DoraActionsMixin,
     FrictionActionsMixin,
+    RevertOutcomeActionsMixin,
     EngineeringAnalyticsViewSetBase,
 ):
     """PR and CI lifecycle analytics over the GitHub warehouse data."""
@@ -49,8 +53,10 @@ class EngineeringAnalyticsViewSet(
         *TeamActionsMixin.READ_ACTIONS,
         *DoraActionsMixin.READ_ACTIONS,
         *FrictionActionsMixin.READ_ACTIONS,
+        *RevertOutcomeActionsMixin.READ_ACTIONS,
     ]
     scope_object_write_actions: list[str] = [
+        *EnrollmentMixin.WRITE_ACTIONS,
         *CISignalsConfigMixin.WRITE_ACTIONS,
         *SuiteHealthActionsMixin.WRITE_ACTIONS,
     ]

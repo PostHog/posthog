@@ -1,10 +1,12 @@
-import { BuiltLogic, LogicWrapper, useValues } from 'kea'
+import { BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
 import { LemonSkeleton } from '@posthog/lemon-ui'
 import { TimeSeriesLineChart, type TimeSeriesLineChartConfig } from '@posthog/quill-charts'
 
+import { makeChartErrorHandler } from 'lib/charts/chartErrorHandler'
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -17,13 +19,12 @@ import {
 import { QueryContext } from '~/queries/types'
 import { IntervalType } from '~/types'
 
-import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
-
 import {
     type EndpointsUsageMetric,
     type TrendsDataPoint,
     transformDataForChart,
 } from './endpointsUsageTrendsTransforms'
+import { QuillEndpointsUsageTrends } from './QuillEndpointsUsageTrends'
 
 const handleChartError = makeChartErrorHandler('endpoints-usage-trends-chart')
 
@@ -47,9 +48,24 @@ export function EndpointsUsageTrendsNode(props: {
 
     useAttachedLogic(logic, props.attachTo)
 
-    const { response, responseLoading } = useValues(logic)
+    const { response, responseLoading, responseError } = useValues(logic)
+    const { loadData } = useActions(logic)
     const queryResponse = response as EndpointsUsageTrendsQueryResponse | undefined
     const results = queryResponse?.results as TrendsDataPoint[] | undefined
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav) {
+        return (
+            <QuillEndpointsUsageTrends
+                results={results}
+                loading={responseLoading}
+                error={responseError}
+                onRetry={() => loadData()}
+                metric={props.query.metric}
+                interval={props.query.interval}
+            />
+        )
+    }
 
     if (responseLoading) {
         return (
@@ -67,7 +83,11 @@ export function EndpointsUsageTrendsNode(props: {
         )
     }
 
-    return <EndpointsUsageTrendsChart results={results} metric={props.query.metric} interval={props.query.interval} />
+    return (
+        <div className="border rounded bg-bg-light p-2">
+            <EndpointsUsageTrendsChart results={results} metric={props.query.metric} interval={props.query.interval} />
+        </div>
+    )
 }
 
 export function EndpointsUsageTrendsChart({
@@ -107,7 +127,7 @@ export function EndpointsUsageTrendsChart({
     }, [labels, series.length, scale, timezone, interval])
 
     return (
-        <div className="border rounded bg-bg-light p-2 h-60 flex flex-col">
+        <div className="h-60 flex flex-col">
             <TimeSeriesLineChart
                 series={series}
                 labels={labels}

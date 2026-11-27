@@ -1,12 +1,13 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { AnyPropertyFilter } from '~/types'
+import type { HogQLFilters } from '~/queries/schema/schema-general'
 
 import {
     mcpAnalyticsSessionsGenerateIntent,
@@ -14,20 +15,32 @@ import {
     mcpAnalyticsSessionsToolCalls,
 } from '../generated/api'
 import type { MCPSessionApi, MCPSessionIntentApi, MCPToolCallApi } from '../generated/api.schemas'
+import { MOSTLY_MISSING_SHARE } from '../leaderboardHome/leaderboardShares'
 import {
     type MCPSharedQueryFilters,
+    hasFeedbackSessionsFilter,
     mcpAnalyticsFiltersLogic,
-    parseUrlBoolean,
     sharedFilterParams,
 } from '../mcpAnalyticsFiltersLogic'
 
 export interface MCPSessionsFilters {
-    // true: sessions with at least one errored call; false: sessions with none; null: both.
-    hasErrors: boolean | null
+    /** Matched against session ID, distinct ID, client and tools by the sessions endpoint. */
+    search: string
 }
 
-const DEFAULT_FILTERS: MCPSessionsFilters = {
-    hasErrors: null,
+export const DEFAULT_SESSIONS_FILTERS: MCPSessionsFilters = { search: '' }
+
+const SEARCH_DEBOUNCE_MS = 300
+
+function sessionListParams(
+    shared: MCPSharedQueryFilters,
+    filters: MCPSessionsFilters
+): ReturnType<typeof sharedFilterParams> & { search?: string; feedback_only?: boolean } {
+    return {
+        ...sharedFilterParams(shared),
+        search: filters.search.trim() || undefined,
+        feedback_only: hasFeedbackSessionsFilter(shared) || undefined,
+    }
 }
 
 export interface MCPSessionsDateFilter {
@@ -39,12 +52,16 @@ export interface MCPSessionsDateFilter {
 // same window out of the box and the shared date_from/date_to URL params line up.
 const DEFAULT_DATE_FILTER: MCPSessionsDateFilter = { dateFrom: '-7d', dateTo: null }
 
+// Below this, a list of single-call sessions is too short to say calls are not being grouped.
+const MIN_SESSIONS_FOR_GROUPING_CHECK = 10
+
 // How many sessions to fetch per request. Each "Load more" appends the next page
 export const SESSIONS_PAGE_SIZE = 50
 
 // How many of a session's tool calls to fetch per request. Each "Load more" appends the
 // next page; the button appears whenever a session has more calls than one page.
 export const TOOL_CALLS_PAGE_SIZE = 100
+export const MAX_CACHED_SESSIONS = 20
 
 // Must stay aligned with SESSION_SORT_FIELDS on the backend (logic.py).
 export type MCPSessionSortColumn =
@@ -70,27 +87,52 @@ export function orderByParam(sorting: MCPSessionSorting | null): MCPSessionOrder
 }
 
 export interface SessionToolCalls {
-    sessionId: string | null
-    filters: MCPSharedQueryFilters | null
+    filters: MCPSharedQueryFilters
+    refreshCount: number
+    scanBounds: ScanBounds
     calls: MCPToolCallApi[]
     hasNext: boolean
 }
 
-const EMPTY_TOOL_CALLS: SessionToolCalls = { sessionId: null, filters: null, calls: [], hasNext: false }
+export interface ToolCallsRequest {
+    sessionId: string | null
+    failed: boolean
+}
+
+export interface ScanBounds {
+    date_from: string | undefined
+    date_to: string | undefined
+}
+
+// The list's session_end can stop short of the session's real end: the list is cached briefly, so a
+// session that ended recently may still be gaining calls, and a fixed range end clips the list's scan.
+// Bound by the end only when neither applies; those old sessions are where the bound saves the most.
+const SETTLED_SESSION_AGE_MS = 60 * 60 * 1000
+
+export function scanBoundsOf(session: MCPSessionApi | null, dateFilter: MCPSessionsDateFilter): ScanBounds {
+    const end = session?.session_end
+    const settled = !!end && !dateFilter.dateTo && Date.now() - Date.parse(end) > SETTLED_SESSION_AGE_MS
+    return { date_from: session?.session_start || undefined, date_to: settled ? end : undefined }
+}
+
+function sameScanBounds(a: ScanBounds | undefined, b: ScanBounds): boolean {
+    return a !== undefined && a.date_from === b.date_from && a.date_to === b.date_to
+}
 
 // Fetch one page of a session's tool calls, unwrapped into { calls, hasNext }. session_id comes from
 // untrusted event properties, so encode it — path/query delimiters must not redirect the request to
 // another same-origin endpoint. date_from bounds the scan by the session's start so sessions older
-// than the backend's default lookback still return their calls.
-async function fetchToolCallsPage(
+// than the backend's default lookback still return their calls, and date_to by its end so the scan
+// stops there instead of reading up to now.
+export async function fetchToolCallsPage(
     projectId: string | number,
     sessionId: string,
-    sessionStart: string | null | undefined,
+    scanBounds: ScanBounds,
     offset: number,
     sharedFilters: MCPSharedQueryFilters
 ): Promise<{ calls: MCPToolCallApi[]; hasNext: boolean }> {
     const response = await mcpAnalyticsSessionsToolCalls(String(projectId), encodeURIComponent(sessionId), {
-        date_from: sessionStart || undefined,
+        ...scanBounds,
         limit: TOOL_CALLS_PAGE_SIZE,
         offset,
         ...sharedFilterParams(sharedFilters),
@@ -102,6 +144,7 @@ async function fetchToolCallsPage(
 export interface mcpSessionsLogicValues {
     sharedQueryFilters: MCPSharedQueryFilters // mcpAnalyticsFiltersLogic
     currentProjectId: number | string // teamLogic
+    conversationIdBannerDismissed: boolean
     dateFilter: MCPSessionsDateFilter
     filters: MCPSessionsFilters
     generatedIntent: MCPSessionIntentApi | null
@@ -111,6 +154,8 @@ export interface mcpSessionsLogicValues {
     hasNext: boolean
     intentOverrides: Record<string, string>
     isSelectedSessionGenerating: boolean
+    loadingMoreEntries: SessionToolCalls[]
+    refreshCount: number
     selectedSession: MCPSessionApi | null
     selectedSessionId: string | null
     selectedSessionIntent: string
@@ -123,27 +168,21 @@ export interface mcpSessionsLogicValues {
     }
     sessions: MCPSessionApi[]
     sessionsLoading: boolean
+    showConversationIdBanner: boolean
     sorting: MCPSessionSorting | null
-    toolCalls: SessionToolCalls
-    toolCallsLoadFailed: boolean
-    toolCallsLoading: boolean
+    toolCallsBySession: Record<string, SessionToolCalls>
+    toolCallsBySessionLoading: boolean
+    toolCallsRequest: ToolCallsRequest
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface mcpSessionsLogicActions {
-    hydrateFilters: (
-        filterTestAccountsOverride: boolean | null,
-        propertyFilters: AnyPropertyFilter[]
-    ) => {
-        filterTestAccountsOverride: boolean | null
-        propertyFilters: AnyPropertyFilter[]
-    } // mcpAnalyticsFiltersLogic
-    setFilterTestAccounts: (filterTestAccounts: boolean | null) => {
-        filterTestAccounts: boolean | null
-    } // mcpAnalyticsFiltersLogic
-    setPropertyFilters: (properties: AnyPropertyFilter[]) => {
-        properties: AnyPropertyFilter[]
-    } // mcpAnalyticsFiltersLogic
+    dismissConversationIdBanner: () => {
+        value: true
+    }
+    finishLoadingMore: (entry: SessionToolCalls) => {
+        entry: SessionToolCalls
+    }
     generateIntent: (sessionId: string) => string
     generateIntentFailure: (
         error: string,
@@ -180,8 +219,8 @@ export interface mcpSessionsLogicActions {
             value: true
         }
     }
-    loadMoreToolCalls: () => {
-        value: true
+    loadMoreToolCalls: (sessionId: string) => {
+        sessionId: string
     }
     loadMoreToolCallsFailure: (
         error: string,
@@ -191,14 +230,14 @@ export interface mcpSessionsLogicActions {
         errorObject?: any
     }
     loadMoreToolCallsSuccess: (
-        toolCalls: SessionToolCalls,
+        toolCallsBySession: Record<string, SessionToolCalls>,
         payload?: {
-            value: true
+            sessionId: string
         }
     ) => {
-        toolCalls: SessionToolCalls
+        toolCallsBySession: Record<string, SessionToolCalls>
         payload?: {
-            value: true
+            sessionId: string
         }
     }
     loadSessions: () => {
@@ -231,10 +270,10 @@ export interface mcpSessionsLogicActions {
         errorObject?: any
     }
     loadToolCallsSuccess: (
-        toolCalls: SessionToolCalls,
+        toolCallsBySession: Record<string, SessionToolCalls>,
         payload?: string
     ) => {
-        toolCalls: SessionToolCalls
+        toolCallsBySession: Record<string, SessionToolCalls>
         payload?: string
     }
     refreshSessions: () => {
@@ -259,17 +298,24 @@ export interface mcpSessionsLogicActions {
     setSorting: (sorting: MCPSessionSorting | null) => {
         sorting: MCPSessionSorting | null
     }
+    startLoadingMore: (entry: SessionToolCalls) => {
+        entry: SessionToolCalls
+    }
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface mcpSessionsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
+        showConversationIdBanner: (
+            sessions: MCPSessionApi[],
+            sessionsLoading: boolean,
+            sharedQueryFilters: Required<Pick<HogQLFilters, 'filterTestAccounts' | 'properties'>>,
+            conversationIdBannerDismissed: boolean
+        ) => boolean
         hasActiveFilters: (
             filters: MCPSessionsFilters,
             dateFilter: MCPSessionsDateFilter,
-            sharedQueryFilters: Required<
-                Pick<import('~/queries/schema').HogQLFilters, 'filterTestAccounts' | 'properties'>
-            >
+            sharedQueryFilters: Required<Pick<HogQLFilters, 'filterTestAccounts' | 'properties'>>
         ) => boolean
         selectedSession: (sessions: MCPSessionApi[], selectedSessionId: string | null) => MCPSessionApi | null
         selectedSessionIntent: (
@@ -283,13 +329,11 @@ export interface mcpSessionsLogicMeta {
             selectedSessionId: string | null
         ) => boolean
         selectedSessionToolCalls: (
-            toolCalls: SessionToolCalls,
+            toolCallsBySession: Record<string, SessionToolCalls>,
             selectedSessionId: string | null,
-            toolCallsLoading: boolean,
-            sharedQueryFilters: Required<
-                Pick<import('~/queries/schema').HogQLFilters, 'filterTestAccounts' | 'properties'>
-            >,
-            toolCallsLoadFailed: boolean
+            loadingMoreEntries: SessionToolCalls[],
+            sharedQueryFilters: Required<Pick<HogQLFilters, 'filterTestAccounts' | 'properties'>>,
+            toolCallsRequest: ToolCallsRequest
         ) => {
             calls: MCPToolCallApi[]
             error: boolean
@@ -311,7 +355,6 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
     path(['products', 'mcp_analytics', 'frontend', 'sessions', 'mcpSessionsLogic']),
     connect(() => ({
         values: [teamLogic, ['currentProjectId'], mcpAnalyticsFiltersLogic, ['queryFilters as sharedQueryFilters']],
-        actions: [mcpAnalyticsFiltersLogic, ['hydrateFilters', 'setFilterTestAccounts', 'setPropertyFilters']],
     })),
     actions({
         // Declared explicitly so kea-typegen emits a no-arg signature for the loader
@@ -319,13 +362,16 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
         // every call site to pass a placeholder argument.
         loadSessions: true,
         loadMoreSessions: true,
-        loadMoreToolCalls: true,
+        loadMoreToolCalls: (sessionId: string) => ({ sessionId }),
+        startLoadingMore: (entry: SessionToolCalls) => ({ entry }),
+        finishLoadingMore: (entry: SessionToolCalls) => ({ entry }),
         refreshSessions: true,
         setFilters: (filters: Partial<MCPSessionsFilters>) => ({ filters }),
         setDateFilter: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         setSorting: (sorting: MCPSessionSorting | null) => ({ sorting }),
         setHasNext: (hasNext: boolean) => ({ hasNext }),
         selectSession: (sessionId: string | null) => ({ sessionId }),
+        dismissConversationIdBanner: true,
     }),
     loaders(({ values, actions, cache }) => ({
         sessions: [
@@ -337,13 +383,12 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                         return []
                     }
                     const response = await mcpAnalyticsSessionsList(String(values.currentProjectId), {
-                        has_errors: values.filters.hasErrors ?? undefined,
                         order_by: orderByParam(values.sorting),
                         date_from: values.dateFilter.dateFrom || undefined,
                         date_to: values.dateFilter.dateTo || undefined,
                         limit: SESSIONS_PAGE_SIZE,
                         offset: 0,
-                        ...sharedFilterParams(values.sharedQueryFilters),
+                        ...sessionListParams(values.sharedQueryFilters, values.filters),
                     })
                     // A newer reset load supersedes this one. Publishing a superseded page would
                     // put stale session rows on screen, and loadSessionsSuccess reads session_start
@@ -367,13 +412,12 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                     const dateTo = values.dateFilter.dateTo
                     const sharedFilters = values.sharedQueryFilters
                     const response = await mcpAnalyticsSessionsList(String(values.currentProjectId), {
-                        has_errors: filters.hasErrors ?? undefined,
                         order_by: orderBy,
                         date_from: dateFrom || undefined,
                         date_to: dateTo || undefined,
                         limit: SESSIONS_PAGE_SIZE,
                         offset: baseSessions.length,
-                        ...sharedFilterParams(sharedFilters),
+                        ...sessionListParams(sharedFilters, filters),
                     })
                     if (
                         generation !== cache.sessionsGeneration ||
@@ -390,20 +434,20 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                 },
             },
         ],
-        toolCalls: [
-            EMPTY_TOOL_CALLS,
+        toolCallsBySession: [
+            {} as Record<string, SessionToolCalls>,
             {
-                // First page for a session. Replaces the value, tagged with the session it's for.
                 loadToolCalls: async (sessionId: string, breakpoint) => {
-                    cache.toolCallsGeneration = (cache.toolCallsGeneration ?? 0) + 1
                     if (!values.currentProjectId || !sessionId) {
-                        return EMPTY_TOOL_CALLS
+                        return values.toolCallsBySession
                     }
                     const filters = values.sharedQueryFilters
+                    const refreshCount = values.refreshCount
+                    const scanBounds = scanBoundsOf(values.selectedSession, values.dateFilter)
                     const page = await fetchToolCallsPage(
                         values.currentProjectId,
                         sessionId,
-                        values.selectedSession?.session_start,
+                        scanBounds,
                         0,
                         filters
                     ).catch((error) => {
@@ -411,34 +455,50 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                         throw error
                     })
                     breakpoint()
-                    return { sessionId, filters, ...page }
+                    const sessionRow = values.sessions.find((session) => session.session_id === sessionId) ?? null
+                    if (!sameScanBounds(scanBounds, scanBoundsOf(sessionRow, values.dateFilter))) {
+                        if (sessionId === values.selectedSessionId) {
+                            actions.loadToolCalls(sessionId)
+                        }
+                        return values.toolCallsBySession
+                    }
+                    const others = Object.entries(values.toolCallsBySession).filter(
+                        ([id, entry]) => id !== sessionId && entry.filters === filters
+                    )
+                    const isSelected = ([id]: [string, SessionToolCalls]): boolean => id === values.selectedSessionId
+                    const kept = [...others.filter((other) => !isSelected(other)), ...others.filter(isSelected)].slice(
+                        1 - MAX_CACHED_SESSIONS
+                    )
+                    return {
+                        ...Object.fromEntries(kept),
+                        [sessionId]: { filters, refreshCount, scanBounds, ...page },
+                    }
                 },
                 // Load more: append the next page at offset = current length.
-                loadMoreToolCalls: async () => {
-                    const { sessionId, filters, calls } = values.toolCalls
-                    const generation = cache.toolCallsGeneration ?? 0
-                    if (!values.currentProjectId || !sessionId) {
-                        return values.toolCalls
+                loadMoreToolCalls: async ({ sessionId }) => {
+                    const entry = values.toolCallsBySession[sessionId]
+                    if (!values.currentProjectId || !entry) {
+                        return values.toolCallsBySession
                     }
+                    actions.startLoadingMore(entry)
                     const page = await fetchToolCallsPage(
                         values.currentProjectId,
                         sessionId,
-                        values.selectedSession?.session_start,
-                        calls.length,
-                        filters ?? values.sharedQueryFilters
-                    )
+                        entry.scanBounds,
+                        entry.calls.length,
+                        entry.filters
+                    ).finally(() => actions.finishLoadingMore(entry))
                     // If the user switched sessions or changed the shared filters while this page
                     // was loading, drop it: appending one set's calls onto another's would show the
                     // wrong data. The backend orders by (timestamp, event_id), so pages that do
                     // belong together don't overlap and need no dedupe.
-                    if (
-                        generation !== cache.toolCallsGeneration ||
-                        sessionId !== values.selectedSessionId ||
-                        filters !== values.sharedQueryFilters
-                    ) {
-                        return values.toolCalls
+                    if (sessionId !== values.selectedSessionId || values.toolCallsBySession[sessionId] !== entry) {
+                        return values.toolCallsBySession
                     }
-                    return { sessionId, filters, calls: [...calls, ...page.calls], hasNext: page.hasNext }
+                    return {
+                        ...values.toolCallsBySession,
+                        [sessionId]: { ...entry, calls: [...entry.calls, ...page.calls], hasNext: page.hasNext },
+                    }
                 },
             },
         ],
@@ -464,15 +524,28 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
         ],
     })),
     reducers({
-        toolCallsLoadFailed: [
-            false,
+        toolCallsRequest: [
+            { sessionId: null, failed: false } as ToolCallsRequest,
             {
-                loadToolCalls: () => false,
-                loadToolCallsFailure: () => true,
+                loadToolCalls: (_, sessionId) => ({ sessionId, failed: false }),
+                loadToolCallsFailure: (state) => ({ ...state, failed: true }),
+            },
+        ],
+        loadingMoreEntries: [
+            [] as SessionToolCalls[],
+            {
+                startLoadingMore: (state, { entry }) => [...state, entry],
+                finishLoadingMore: (state, { entry }) => state.filter((loading) => loading !== entry),
+            },
+        ],
+        refreshCount: [
+            0,
+            {
+                refreshSessions: (count) => count + 1,
             },
         ],
         filters: [
-            DEFAULT_FILTERS,
+            DEFAULT_SESSIONS_FILTERS,
             {
                 setFilters: (state, { filters }) => ({ ...state, ...filters }),
             },
@@ -487,6 +560,14 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
             null as string | null,
             {
                 selectSession: (_, { sessionId }) => sessionId,
+            },
+        ],
+        conversationIdBannerDismissed: [
+            false,
+            // Per project, since each one has its own server setup.
+            { persist: true, prefix: `${window.POSTHOG_APP_CONTEXT?.current_team?.id}__` },
+            {
+                dismissConversationIdBanner: () => true,
             },
         ],
         sorting: [
@@ -523,6 +604,21 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
         ],
     }),
     selectors({
+        // Mostly single-call sessions mean no grouping; judged unfiltered only.
+        showConversationIdBanner: [
+            (s) => [s.sessions, s.sessionsLoading, s.sharedQueryFilters, s.conversationIdBannerDismissed],
+            (
+                sessions: MCPSessionApi[],
+                sessionsLoading: boolean,
+                sharedQueryFilters: MCPSharedQueryFilters,
+                dismissed: boolean
+            ): boolean =>
+                !dismissed &&
+                !sessionsLoading &&
+                sharedQueryFilters.properties.length === 0 &&
+                sessions.length >= MIN_SESSIONS_FOR_GROUPING_CHECK &&
+                sessions.filter((session) => session.tool_calls <= 1).length / sessions.length >= MOSTLY_MISSING_SHARE,
+        ],
         hasActiveFilters: [
             (s) => [s.filters, s.dateFilter, s.sharedQueryFilters],
             (
@@ -530,7 +626,7 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                 dateFilter: MCPSessionsDateFilter,
                 sharedQueryFilters: MCPSharedQueryFilters
             ): boolean =>
-                filters.hasErrors !== null ||
+                !!filters.search.trim() ||
                 dateFilter.dateFrom !== DEFAULT_DATE_FILTER.dateFrom ||
                 dateFilter.dateTo !== DEFAULT_DATE_FILTER.dateTo ||
                 sharedQueryFilters.properties.length > 0 ||
@@ -573,13 +669,19 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
         // the new session's header. A plain comparison — no shared loader flag a concurrent load
         // more could flip.
         selectedSessionToolCalls: [
-            (s) => [s.toolCalls, s.selectedSessionId, s.toolCallsLoading, s.sharedQueryFilters, s.toolCallsLoadFailed],
+            (s) => [
+                s.toolCallsBySession,
+                s.selectedSessionId,
+                s.loadingMoreEntries,
+                s.sharedQueryFilters,
+                s.toolCallsRequest,
+            ],
             (
-                toolCalls: SessionToolCalls,
+                toolCallsBySession: Record<string, SessionToolCalls>,
                 selectedSessionId: string | null,
-                toolCallsLoading: boolean,
+                loadingMoreEntries: SessionToolCalls[],
                 sharedQueryFilters: MCPSharedQueryFilters,
-                toolCallsLoadFailed: boolean
+                toolCallsRequest: ToolCallsRequest
             ): {
                 calls: MCPToolCallApi[]
                 hasNext: boolean
@@ -587,28 +689,41 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                 loadingMore: boolean
                 error: boolean
             } => {
-                const isCurrent = toolCalls.sessionId === selectedSessionId && toolCalls.filters === sharedQueryFilters
+                const entry = selectedSessionId ? toolCallsBySession[selectedSessionId] : undefined
+                const matchesFilters = entry?.filters === sharedQueryFilters
+                const failed = toolCallsRequest.failed && toolCallsRequest.sessionId === selectedSessionId
                 return {
-                    calls: isCurrent ? toolCalls.calls : [],
-                    hasNext: isCurrent && toolCalls.hasNext,
+                    calls: matchesFilters ? entry.calls : [],
+                    hasNext: matchesFilters && entry.hasNext,
                     // First page still loading: the loaded value isn't for the selected session yet.
-                    loading: selectedSessionId !== null && !isCurrent && !toolCallsLoadFailed,
-                    error: selectedSessionId !== null && toolCallsLoadFailed,
+                    loading: selectedSessionId !== null && !matchesFilters && !failed,
+                    error: selectedSessionId !== null && failed && !matchesFilters,
                     // A "Load more" append is in flight for the session already on screen.
-                    loadingMore: isCurrent && toolCallsLoading,
+                    loadingMore: matchesFilters && loadingMoreEntries.includes(entry),
                 }
             },
         ],
     }),
     listeners(({ actions, values }) => {
-        const reloadForSharedFilters = (): void => {
-            actions.loadSessions()
-            if (values.selectedSessionId) {
-                actions.loadToolCalls(values.selectedSessionId)
-            }
+        const isToolCallsCacheFresh = (sessionId: string): boolean => {
+            const entry = values.toolCallsBySession[sessionId]
+            return (
+                entry?.filters === values.sharedQueryFilters &&
+                entry.refreshCount === values.refreshCount &&
+                sameScanBounds(entry.scanBounds, scanBoundsOf(values.selectedSession, values.dateFilter))
+            )
         }
         return {
-            setFilters: () => {
+            refreshSessions: () => {
+                actions.loadSessions()
+                if (values.selectedSessionId) {
+                    actions.loadToolCalls(values.selectedSessionId)
+                }
+            },
+            setFilters: async ({ filters }, breakpoint) => {
+                if ('search' in filters) {
+                    await breakpoint(SEARCH_DEBOUNCE_MS)
+                }
                 actions.loadSessions()
             },
             setDateFilter: () => {
@@ -617,12 +732,8 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
             setSorting: () => {
                 actions.loadSessions()
             },
-            hydrateFilters: reloadForSharedFilters,
-            setFilterTestAccounts: reloadForSharedFilters,
-            setPropertyFilters: reloadForSharedFilters,
-            refreshSessions: reloadForSharedFilters,
             selectSession: ({ sessionId }) => {
-                if (sessionId) {
+                if (sessionId && !isToolCallsCacheFresh(sessionId)) {
                     actions.loadToolCalls(sessionId)
                 }
             },
@@ -641,10 +752,27 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                     : false
                 if (!stillVisible) {
                     actions.selectSession(sessions[0].session_id)
+                } else if (
+                    values.selectedSessionId &&
+                    !sameScanBounds(
+                        values.toolCallsBySession[values.selectedSessionId]?.scanBounds,
+                        scanBoundsOf(values.selectedSession, values.dateFilter)
+                    )
+                ) {
+                    actions.loadToolCalls(values.selectedSessionId)
                 }
             },
         }
     }),
+    // The shared filters change from the filter bar, URL hydration, or the team's test-account default,
+    // so react to the value rather than to any one action.
+    subscriptions(({ actions }) => ({
+        sharedQueryFilters: (_: MCPSharedQueryFilters, previous: MCPSharedQueryFilters | undefined) => {
+            if (previous) {
+                actions.refreshSessions()
+            }
+        },
+    })),
     // The date range follows users across MCP analytics tabs. The error filter applies only to Sessions.
     actionToUrl(({ values }) => {
         const syncUrl = (): [string, Record<string, any>, Record<string, any>, { replace: boolean }] => {
@@ -654,7 +782,8 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                 date_from: values.dateFilter.dateFrom,
                 date_to: values.dateFilter.dateTo,
                 search: null,
-                has_errors: values.filters.hasErrors === null ? null : String(values.filters.hasErrors),
+                // Clear the retired has_errors param.
+                has_errors: null,
             }
             for (const [key, value] of Object.entries(params)) {
                 if (value) {
@@ -677,17 +806,10 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
             const dateTo = typeof searchParams.date_to === 'string' ? searchParams.date_to : null
             const dateChanged = dateFrom !== values.dateFilter.dateFrom || dateTo !== values.dateFilter.dateTo
 
-            const hasErrors = parseUrlBoolean(searchParams.has_errors)
-            const filtersChanged = hasErrors !== values.filters.hasErrors
-
-            // setFilters / setDateFilter each reload via their listener; only load directly when
-            // neither changed and we haven't loaded yet.
-            if (filtersChanged) {
-                actions.setFilters({ hasErrors })
-            }
+            // setDateFilter reloads via its listener; load directly only on first visit.
             if (dateChanged) {
                 actions.setDateFilter(dateFrom, dateTo)
-            } else if (!filtersChanged && !cache.hasLoaded) {
+            } else if (!cache.hasLoaded) {
                 actions.loadSessions()
             }
             cache.hasLoaded = true
@@ -698,10 +820,7 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
         // is the fallback for a param-less mount (and off-route mounts in tests, where urlToAction
         // never fires). The cache.hasLoaded guard keeps a deep-linked load from firing twice.
         const { searchParams } = router.values
-        const hasUrlParams =
-            typeof searchParams.date_from === 'string' ||
-            typeof searchParams.date_to === 'string' ||
-            searchParams.has_errors !== undefined
+        const hasUrlParams = typeof searchParams.date_from === 'string' || typeof searchParams.date_to === 'string'
         if (!hasUrlParams && !cache.hasLoaded) {
             cache.hasLoaded = true
             actions.loadSessions()

@@ -94,8 +94,48 @@ ORDER BY cost_usd DESC
 LIMIT 25
 ```
 
-Then drill into the top traces with `posthog:query-llm-trace` to see which spans
-and generations are driving cost.
+To see which spans and generations drive a trace's cost, break that one trace down in SQL.
+`posthog:query-llm-trace` caps its response by size, so it returns only the earliest events of a trace with more than a few dozen, and it can time out on a very large trace.
+Open a trace with it to read specific calls, not to add up cost.
+Both queries below must use the same time filter as the query that found the trace, or they miss its older events:
+
+```sql
+posthog:execute-sql
+SELECT
+    properties.$ai_model AS model,
+    properties.$ai_span_name AS span_name,
+    count() AS llm_calls,
+    round(sum(toFloat(properties.$ai_total_cost_usd)), 4) AS cost_usd
+FROM events
+WHERE event IN ('$ai_generation', '$ai_embedding')
+    AND timestamp >= now() - INTERVAL 7 DAY
+    AND properties.$ai_trace_id = '<trace_id>'
+GROUP BY model, span_name
+ORDER BY cost_usd DESC
+LIMIT 25
+```
+
+The summary keeps the 25 most expensive groups, so its rows can add up to less than the trace's total.
+
+Then sample the most expensive calls in the same trace:
+
+```sql
+posthog:execute-sql
+SELECT
+    uuid,
+    timestamp,
+    properties.$ai_model AS model,
+    properties.$ai_span_name AS span_name,
+    round(toFloat(properties.$ai_total_cost_usd), 6) AS cost_usd,
+    toInt(properties.$ai_input_tokens) AS input_tokens,
+    toInt(properties.$ai_output_tokens) AS output_tokens
+FROM events
+WHERE event IN ('$ai_generation', '$ai_embedding')
+    AND timestamp >= now() - INTERVAL 7 DAY
+    AND properties.$ai_trace_id = '<trace_id>'
+ORDER BY cost_usd DESC
+LIMIT 10
+```
 
 ## Cost by custom dimension
 
@@ -151,41 +191,49 @@ Split the spend to find optimization targets:
 ```sql
 posthog:execute-sql
 SELECT
-    properties.$ai_model AS model,
-    round(sum(toFloat(properties.$ai_input_cost_usd)), 4) AS input_cost,
-    round(sum(toFloat(properties.$ai_output_cost_usd)), 4) AS output_cost,
-    round(sum(toFloat(properties.$ai_request_cost_usd)), 4) AS request_cost,
-    round(sum(toFloat(properties.$ai_web_search_cost_usd)), 4) AS web_search_cost,
-    round(sum(toFloat(properties.$ai_total_cost_usd)), 4) AS total_cost,
-    sum(toInt(properties.$ai_input_tokens)) AS input_tokens,
-    sum(toInt(properties.$ai_output_tokens)) AS output_tokens,
-    sum(toInt(properties.$ai_cache_read_input_tokens)) AS cache_read_tokens,
-    sum(toInt(properties.$ai_cache_creation_input_tokens)) AS cache_write_tokens,
-    round(
-        if(
-            any(properties.$ai_cache_reporting_exclusive) = 'true',
-            sum(toInt(properties.$ai_cache_read_input_tokens))
-                / nullIf(sum(toInt(properties.$ai_input_tokens))
-                       + sum(toInt(properties.$ai_cache_read_input_tokens))
-                       + sum(toInt(properties.$ai_cache_creation_input_tokens)), 0),
-            sum(toInt(properties.$ai_cache_read_input_tokens))
-                / nullIf(sum(toInt(properties.$ai_input_tokens)), 0)
-        ), 3
-    ) AS cache_hit_rate
-FROM events
-WHERE event = '$ai_generation'
-    AND timestamp >= now() - INTERVAL 30 DAY
+    model,
+    round(sum(input_cost), 4) AS input_cost,
+    round(sum(output_cost), 4) AS output_cost,
+    round(sum(request_cost), 4) AS request_cost,
+    round(sum(web_search_cost), 4) AS web_search_cost,
+    round(sum(total_cost), 4) AS total_cost,
+    sum(input) AS input_tokens,
+    sum(output) AS output_tokens,
+    sum(cache_read) AS cache_read_tokens,
+    sum(cache_write) AS cache_write_tokens,
+    round(sum(cache_read) / nullIf(sum(if(exclusive, input + cache_read + cache_write, input)), 0), 3) AS cache_hit_rate
+FROM (
+    SELECT
+        properties.$ai_model AS model,
+        toFloat(properties.$ai_input_cost_usd) AS input_cost,
+        toFloat(properties.$ai_output_cost_usd) AS output_cost,
+        toFloat(properties.$ai_request_cost_usd) AS request_cost,
+        toFloat(properties.$ai_web_search_cost_usd) AS web_search_cost,
+        toFloat(properties.$ai_total_cost_usd) AS total_cost,
+        ifNull(toInt(properties.$ai_input_tokens), 0) AS input,
+        ifNull(toInt(properties.$ai_output_tokens), 0) AS output,
+        ifNull(toInt(properties.$ai_cache_read_input_tokens), 0) AS cache_read,
+        ifNull(toInt(properties.$ai_cache_creation_input_tokens), 0) AS cache_write,
+        lower(ifNull(properties.$ai_provider, '')) AS provider,
+        properties.$ai_cache_reporting_exclusive IS NULL AS flag_missing,
+        (provider = 'anthropic'
+            OR positionCaseInsensitive(ifNull(properties.$ai_model, ''), 'anthropic') > 0
+            OR startsWith(lower(ifNull(properties.$ai_model, '')), 'claude'))
+            AND NOT (provider = 'gateway' AND lower(ifNull(properties.$ai_framework, '')) = 'vercel') AS anthropic_style,
+        if(flag_missing, anthropic_style, toString(properties.$ai_cache_reporting_exclusive) = 'true')
+            OR input < cache_read + cache_write AS exclusive
+    FROM events
+    WHERE event = '$ai_generation'
+        AND timestamp >= now() - INTERVAL 30 DAY
+)
 GROUP BY model
 ORDER BY total_cost DESC
 ```
 
-The `cache_hit_rate` uses the provider-aware formula from
-[cache accounting](./cache-accounting.md) — it branches on
-`$ai_cache_reporting_exclusive` so the denominator is correct for both
-exclusive and inclusive providers without hardcoding any provider or model
-names. If a single model mixes both reporting styles across events
-(unusual), split by `$ai_cache_reporting_exclusive` in the GROUP BY
-instead of `any()`.
+The `cache_hit_rate` resolves the reporting style per event, as described
+in [cache accounting](./cache-accounting.md), so the denominator is correct
+for both exclusive and inclusive providers, including events that carry no
+`$ai_cache_reporting_exclusive` flag.
 
 Rank and roll up on `total_cost` — summing only the input/output components
 drops request and web-search fees and can diverge from the `/ai-observability`

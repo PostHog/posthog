@@ -1,7 +1,7 @@
 """Sends a command's result to where the command came from, once the work it started ends.
 
 The products report the end through their own hook registries, because they cannot import this
-product: Stamphog and PostHog Review call a registered callback, and a QA run's save fires the task
+product: Stamphog, PostHog Review and the knowledge writer's docs check call a registered callback, and a QA run's save fires the task
 run signal. Each callback finds the follow-up the handler saved and queues the message, so the
 product's worker never waits on Slack.
 
@@ -12,9 +12,15 @@ from typing import Any
 
 from django.db import transaction
 
+import structlog
+
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.utils import absolute_uri
 
+from products.knowledge_writer.backend.facade.finished_check_hooks import (
+    FinishedDocsCheck,
+    register_finished_docs_check_hook,
+)
 from products.review_hog.backend.facade.finished_review_hooks import (
     FinishedReview,
     register_finished_review_hook as register_review_hook,
@@ -27,10 +33,13 @@ from products.tasks.backend.facade.task_run_signals import connect_task_run_post
 
 from .logic import follow_ups, results
 
+logger = structlog.get_logger(__name__)
+
 
 def connect() -> None:
     register_review_hook(on_review_finished)
     register_stamphog_hook(on_stamphog_review_finished)
+    register_finished_docs_check_hook(on_docs_check_finished)
     connect_task_run_post_save(on_task_run_saved, dispatch_uid="commands_qa_result")
 
 
@@ -50,6 +59,16 @@ def on_review_finished(finished: FinishedReview) -> None:
 def on_stamphog_review_finished(finished: FinishedReviewRun) -> None:
     for follow_up in follow_ups.take(follow_ups.stamphog_run_key(str(finished.run_id))):
         _deliver(follow_up, results.stamphog_result(finished, follow_up))
+
+
+def on_docs_check_finished(finished: FinishedDocsCheck) -> None:
+    for waiter_id in finished.waiter_ids:
+        for follow_up in follow_ups.take(follow_ups.docs_check_key(waiter_id)):
+            # One failed queue write must not strand the waiters after it, whose follow-ups are still unread.
+            try:
+                _deliver(follow_up, results.docs_result(finished, follow_up))
+            except Exception:
+                logger.exception("command_docs_follow_up_not_sent", waiter_id=waiter_id)
 
 
 def on_task_run_saved(sender: type, instance: Any, created: bool, **kwargs: Any) -> None:

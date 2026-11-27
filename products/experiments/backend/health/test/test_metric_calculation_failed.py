@@ -7,8 +7,10 @@ from unittest import TestCase
 
 from django.utils import timezone
 
+from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 
+from posthog.errors import wrap_clickhouse_query_error
 from posthog.exceptions import ClickHouseClusterMemoryLimitExceeded
 from posthog.models.scoping import team_scope
 
@@ -23,18 +25,22 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthMetricCompileErrorKind,
     ExperimentHealthReaderAccess,
 )
+from products.experiments.backend.facade.enums import ExposuresPath
 from products.experiments.backend.health.checks.metric_calculation_failed import metric_calculation_failed
 from products.experiments.backend.health.context import (
+    ExposureFilterSource,
+    ExposureFilterWithoutColumn,
     LatestCalculation,
     MetricCalculationFailure,
     MetricCompileFailure,
     MetricCompiles,
 )
-from products.experiments.backend.health.skips import CheckSkip
+from products.experiments.backend.health.skips import CheckOutcome, CheckSkip
 from products.experiments.backend.health.test.factories import ENDED, RUNNING_CONTEXT
 from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
 from products.experiments.backend.metric_calculation.results import MetricResultStore
 from products.experiments.backend.models.experiment import Experiment, ExperimentMetricsRecalculation
+from products.experiments.backend.recalculation.payloads import RUN_ENTRY_CALCULATION_KEY
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 CODE = ExperimentHealthFindingCode.METRIC_CALCULATION_FAILED
@@ -42,9 +48,17 @@ KEY = ExperimentHealthCheckKey.METRIC_CALCULATION_FAILED
 WARNING = ExperimentHealthFindingSeverity.WARNING
 INFO = ExperimentHealthFindingSeverity.INFO
 NO_QUERIES = ExperimentHealthReaderAccess(
-    can_read_flag_history=False, can_query_events=False, denied_event_properties=frozenset()
+    can_read_flag_history=False,
+    can_query_events=False,
+    denied_event_properties=frozenset(),
+    restricted_properties=frozenset(),
 )
 FINISHED_AT = datetime(2026, 10, 26, 9, 30, tzinfo=UTC)
+OUT_OF_MEMORY = "This query ran out of memory before it could finish."
+PLAN_FILTER = ExposureFilterWithoutColumn(type="group", key="plan", source=ExposureFilterSource.EXPOSURE_CRITERIA)
+DIRECT = ExposuresPath.DIRECT_SCAN
+PRECOMPUTED = ExposuresPath.PRECOMPUTED
+NO_CAUSE = (None, 'primary metric "Revenue" failed. Its query needed more memory than PostHog allows for one')
 CLICKHOUSE_MESSAGE = (
     "Code: 215. DB::Exception: Column `properties` is not under aggregate function and not in GROUP BY keys. "
     "In query SELECT properties FROM events"
@@ -59,6 +73,7 @@ def _failure(
     role: str = "primary",
     retriable: bool = True,
     can_quote_evaluation_rules: bool = False,
+    exposures_path: ExposuresPath | None = None,
 ) -> MetricCalculationFailure:
     return MetricCalculationFailure(
         metric_id=f"{role}-metric",
@@ -70,11 +85,24 @@ def _failure(
         can_quote_evaluation_rules=can_quote_evaluation_rules,
         retriable=retriable,
         definition={"kind": "ExperimentMetric", "metric_type": "mean"},
+        exposures_path=exposures_path,
     )
 
 
-def _outcome(*failures: MetricCalculationFailure, **changes: Any) -> ExperimentHealthFinding | CheckSkip | None:
-    calculation = LatestCalculation(metric_count=len(failures), finished_at=FINISHED_AT, failures=failures)
+def _limited(exposures_path: ExposuresPath | None, role: str = "primary") -> MetricCalculationFailure:
+    return _failure(OUT_OF_MEMORY, error_type="out_of_memory", role=role, exposures_path=exposures_path)
+
+
+def _outcome(
+    *failures: MetricCalculationFailure, completed: tuple[ExposuresPath | None, ...] = (), **changes: Any
+) -> CheckOutcome:
+    calculation = LatestCalculation(
+        metric_count=len(failures) + len(completed),
+        finished_at=FINISHED_AT,
+        failures=failures,
+        completed_count=len(completed),
+        completed_exposures_paths=frozenset(path for path in completed if path is not None),
+    )
     return metric_calculation_failed(replace(RUNNING_CONTEXT, latest_calculation=calculation, **changes))
 
 
@@ -191,6 +219,15 @@ class TestMetricCalculationFailed(TestCase):
             (
                 "type_mismatch",
                 _failure("DB::Exception: There is no supertype for types String, Float64", error_type="server_error"),
+                {},
+                ("settings", WARNING, "type_mismatch", "compares values of different types"),
+            ),
+            (
+                "formatted_no_common_type",
+                _failure(
+                    str(wrap_clickhouse_query_error(ServerException("database detail", code=386))),
+                    error_type="server_error",
+                ),
                 {},
                 ("settings", WARNING, "type_mismatch", "compares values of different types"),
             ),
@@ -319,8 +356,174 @@ class TestMetricCalculationFailed(TestCase):
         self.assertEqual(finding.detail.count(words), 1)
         self.assertNotIn("Revenue", finding.detail)
 
+    @parameterized.expand(
+        [
+            (
+                "every_metric_read_the_events_and_reached_a_limit",
+                (_limited(DIRECT), _limited(DIRECT, "secondary")),
+                (),
+                (PLAN_FILTER,),
+                ("exposure_criteria", 'filter on the group property "plan", which makes each query read all group'),
+            ),
+            (
+                "the_only_metric_read_the_events_and_reached_a_limit",
+                (_limited(DIRECT),),
+                (),
+                (PLAN_FILTER,),
+                (
+                    "exposure_criteria",
+                    'primary metric "Revenue" failed. Its query needed more memory than PostHog allows for one '
+                    'calculation. The likely cause is the exposure criteria\'s filter on the group property "plan"',
+                ),
+            ),
+            (
+                "two_limits_and_two_filters_of_different_kinds",
+                (
+                    _limited(DIRECT),
+                    _failure(
+                        "Limit for rows or bytes to read exceeded",
+                        error_type="byte_limit",
+                        role="secondary",
+                        exposures_path=DIRECT,
+                    ),
+                ),
+                (),
+                (
+                    PLAN_FILTER,
+                    ExposureFilterWithoutColumn(type="event", key="$device", source=ExposureFilterSource.TEST_ACCOUNTS),
+                ),
+                (
+                    "exposure_criteria",
+                    "Every metric's query needed more resources than PostHog allows for one calculation. The likely "
+                    'cause is the exposure criteria\'s filter on the group property "plan" and the test account filter '
+                    'on the event property "$device", which make each query read all group and event properties. '
+                    "Change these filters, or turn off the test account filter in the exposure criteria, or contact",
+                ),
+            ),
+            (
+                "the_filter_is_in_the_exposure_action",
+                (_limited(DIRECT),),
+                (),
+                (
+                    ExposureFilterWithoutColumn(
+                        type="event", key="campaign", source=ExposureFilterSource.EXPOSURE_ACTION
+                    ),
+                ),
+                (
+                    "exposure_criteria",
+                    'The likely cause is the exposure action\'s filter on the event property "campaign", which makes '
+                    "the query read all event properties. Remove or change the filter, or contact support for help.",
+                ),
+            ),
+            (
+                "one_property_in_the_exposure_criteria_and_the_test_account_filters",
+                (_limited(DIRECT),),
+                (),
+                (
+                    ExposureFilterWithoutColumn(
+                        type="event", key="plan", source=ExposureFilterSource.EXPOSURE_CRITERIA
+                    ),
+                    ExposureFilterWithoutColumn(type="event", key="plan", source=ExposureFilterSource.TEST_ACCOUNTS),
+                ),
+                (
+                    "exposure_criteria",
+                    'the exposure criteria\'s filter on the event property "plan" and the test account filter on the '
+                    'event property "plan", which make the query read all event properties. Change these filters, or '
+                    "turn off the test account filter in the exposure criteria",
+                ),
+            ),
+            (
+                "one_query_read_precomputed_exposures",
+                (_limited(DIRECT), _limited(PRECOMPUTED, "secondary")),
+                (),
+                (PLAN_FILTER,),
+                NO_CAUSE,
+            ),
+            (
+                "every_query_read_precomputed_exposures",
+                (_limited(PRECOMPUTED), _limited(PRECOMPUTED, "secondary")),
+                (),
+                (PLAN_FILTER,),
+                NO_CAUSE,
+            ),
+            (
+                "failures_do_not_say_where_they_read",
+                (_limited(None), _limited(None, "secondary")),
+                (),
+                (PLAN_FILTER,),
+                NO_CAUSE,
+            ),
+            ("no_filter_reads_all_the_properties", (_limited(DIRECT), _limited(DIRECT, "secondary")), (), (), NO_CAUSE),
+            ("filters_could_not_be_read", (_limited(DIRECT), _limited(DIRECT, "secondary")), (), None, NO_CAUSE),
+            (
+                "a_metric_ran_out_of_the_workflow_time_without_a_stored_read",
+                (_limited(DIRECT), _limited(None, "secondary")),
+                (),
+                (PLAN_FILTER,),
+                ("exposure_criteria", 'filter on the group property "plan", which makes each query read all group'),
+            ),
+            (
+                "another_metric_failed_for_another_reason",
+                (
+                    _limited(DIRECT),
+                    _failure(
+                        "Queries are a little too busy right now.",
+                        error_type="rate_limited",
+                        role="secondary",
+                        exposures_path=DIRECT,
+                    ),
+                ),
+                (),
+                (PLAN_FILTER,),
+                NO_CAUSE,
+            ),
+            (
+                "another_metric_completed_the_same_read_of_the_events",
+                (_limited(DIRECT),),
+                (DIRECT,),
+                (PLAN_FILTER,),
+                ("metric", "while another metric of the experiment returned results. Simplify this metric"),
+            ),
+            (
+                "another_metric_completed_the_same_read_of_precomputed_exposures",
+                (_limited(PRECOMPUTED),),
+                (PRECOMPUTED,),
+                None,
+                ("metric", "while another metric of the experiment returned results. Simplify this metric"),
+            ),
+            (
+                "completed_metric_read_the_exposures_another_way",
+                (_limited(DIRECT),),
+                (PRECOMPUTED,),
+                (PLAN_FILTER,),
+                NO_CAUSE,
+            ),
+            ("completed_result_does_not_say_where_it_read", (_limited(DIRECT),), (None,), (PLAN_FILTER,), NO_CAUSE),
+            ("failure_does_not_say_where_it_read", (_limited(None),), (DIRECT,), (PLAN_FILTER,), NO_CAUSE),
+        ]
+    )
+    def test_names_the_cause_of_a_query_limit(
+        self,
+        _name: str,
+        failures: tuple[MetricCalculationFailure, ...],
+        completed: tuple[ExposuresPath | None, ...],
+        filters: tuple[ExposureFilterWithoutColumn, ...] | None,
+        expected: tuple[str | None, str],
+    ) -> None:
+        finding = _outcome(*failures, completed=completed, exposure_filters_without_column=filters)
+
+        assert isinstance(finding, ExperimentHealthFinding)
+        reason, words = expected
+        self.assertEqual((finding.subcode, finding.severity, finding.reason), ("query_limit", WARNING, reason))
+        self.assertEqual(finding.detail.count(words), 1)
+        names_the_filters = reason == "exposure_criteria"
+        self.assertEqual("properties" in finding.evidence, names_the_filters)
+        self.assertEqual(bool(finding.actions), names_the_filters)
+
     def test_waits_for_a_metric_that_the_experiment_calculates(self) -> None:
-        calculation = LatestCalculation(metric_count=0, finished_at=None, failures=())
+        calculation = LatestCalculation(
+            metric_count=0, finished_at=None, failures=(), completed_count=0, completed_exposures_paths=frozenset()
+        )
 
         outcome = metric_calculation_failed(
             replace(RUNNING_CONTEXT, latest_calculation=calculation, primary_metric_count=0, secondary_metric_count=0)
@@ -397,7 +600,9 @@ class TestMetricCalculationFailedFromStoredRuns(BaseTest):
         created_at: datetime,
         metric_errors: dict[str, dict[str, Any]] | None = None,
         failed_rows: tuple[str, ...] = (),
+        failed_row_message: str = "Unable to resolve field: purchase. Did you mean: purchase_total?",
         completed_rows: tuple[str, ...] = (),
+        completed_read_precomputed: bool = False,
     ) -> None:
         with team_scope(self.team.id):
             query_to = created_at + timedelta(minutes=1)
@@ -420,7 +625,7 @@ class TestMetricCalculationFailedFromStoredRuns(BaseTest):
                         calculation_config,
                         window=query_to,
                         query_from=query_from,
-                        error_message="Unable to resolve field: purchase. Did you mean: purchase_total?",
+                        error_message=failed_row_message,
                         query_id=None,
                     )
                 else:
@@ -429,7 +634,7 @@ class TestMetricCalculationFailedFromStoredRuns(BaseTest):
                         calculation_config,
                         window=query_to,
                         query_from=query_from,
-                        result={"variant_results": []},
+                        result={"variant_results": [], "is_precomputed": completed_read_precomputed},
                         query_id=None,
                     )
             terminal = status in (
@@ -471,6 +676,117 @@ class TestMetricCalculationFailedFromStoredRuns(BaseTest):
         self.assertNotIn("metric_3", finding.evidence)
         self.assertNotIn("purchase_total", finding.detail + str(finding.evidence))
         self.assertIsNone(finding.evidence["metric_2_message"])
+
+    @parameterized.expand(
+        [
+            ("hidden_entry_with_a_failed_row_of_the_current_config", False, False, ("query_limit", "memory_limit")),
+            ("hidden_entry_after_the_metric_changed", False, True, ("unexpected_error", None)),
+            ("entry_of_the_current_config", True, False, ("busy", None)),
+        ]
+    )
+    def test_words_the_failure_from_the_failed_row_only_for_a_hidden_entry(
+        self, _name: str, with_calculation_key: bool, metric_changed: bool, expected: tuple[str, str | None]
+    ) -> None:
+        entry: dict[str, Any] = {
+            "step": "calculation",
+            "message": "Too many queries for this team",
+            "error_type": "server_error",
+            "retriable": False,
+        }
+        if with_calculation_key:
+            with team_scope(self.team.id):
+                calculation_config = get_metric_calculation_config(self.experiment, "primary")
+            assert calculation_config is not None
+            entry[RUN_ENTRY_CALCULATION_KEY] = calculation_config.calculation_key()
+        self._run(
+            status=ExperimentMetricsRecalculation.Status.FAILED,
+            created_at=timezone.now() - timedelta(hours=2),
+            metric_errors={"primary": entry},
+            failed_rows=("primary",),
+            failed_row_message="Code: 241. DB::Exception: Memory limit (for query) exceeded",
+        )
+        if metric_changed:
+            self.experiment.metrics = [
+                {**_mean("primary"), "source": {"kind": "EventsNode", "event": "checkout"}},
+                _mean("rejected"),
+            ]
+            self.experiment.save()
+
+        [finding] = [finding for finding in self._health().findings if finding.code == CODE]
+
+        self.assertEqual((finding.evidence["metric_1_failure"], finding.evidence["metric_1_error"]), expected)
+
+    @parameterized.expand(
+        [
+            (
+                "every_metric_read_the_events",
+                (),
+                "direct_scan",
+                False,
+                ("exposure_criteria", 'filter on the group property "plan"'),
+            ),
+            (
+                "other_metrics_completed_the_same_read",
+                ("rejected", "secondary"),
+                "direct_scan",
+                False,
+                ("metric", "while other metrics of the experiment returned results"),
+            ),
+            (
+                "other_metrics_read_precomputed_exposures",
+                ("rejected", "secondary"),
+                "direct_scan",
+                True,
+                (None, "read more data than PostHog allows for one calculation"),
+            ),
+            (
+                "failures_stored_without_their_read",
+                (),
+                None,
+                False,
+                (None, "read more data than PostHog allows for one calculation"),
+            ),
+        ]
+    )
+    def test_names_the_cause_of_a_query_limit_from_the_stored_run(
+        self,
+        _name: str,
+        completed_rows: tuple[str, ...],
+        exposures_path: str | None,
+        completed_read_precomputed: bool,
+        expected: tuple[str | None, str],
+    ) -> None:
+        self.experiment.exposure_criteria = {
+            "exposure_config": {
+                "kind": "ExperimentEventExposureConfig",
+                "event": "$feature_flag_called",
+                "properties": [
+                    {"key": "plan", "type": "group", "group_type_index": 0, "operator": "exact", "value": ["pro"]}
+                ],
+            }
+        }
+        self.experiment.save()
+        read_limit = {
+            "step": "calculation",
+            "message": "Query read too much data",
+            "error_type": "byte_limit",
+            "exposures_path": exposures_path,
+        }
+        self._run(
+            status=ExperimentMetricsRecalculation.Status.FAILED,
+            created_at=timezone.now() - timedelta(hours=2),
+            metric_errors={
+                uuid: read_limit for uuid in ("primary", "rejected", "secondary") if uuid not in completed_rows
+            },
+            completed_rows=completed_rows,
+            completed_read_precomputed=completed_read_precomputed,
+        )
+
+        [finding] = [finding for finding in self._health().findings if finding.code == CODE]
+
+        reason, words = expected
+        self.assertEqual(finding.reason, reason)
+        self.assertIn(words, finding.detail)
 
     @parameterized.expand(
         [

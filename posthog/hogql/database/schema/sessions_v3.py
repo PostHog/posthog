@@ -1,4 +1,5 @@
 import re
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Optional, cast
 
 from posthog.hogql import ast
@@ -24,7 +25,10 @@ from posthog.hogql.database.schema.sessions_v1 import (
     finalize_aggregation,
     select_session_property_values,
 )
-from posthog.hogql.database.schema.util.where_clause_extractor import SessionMinTimestampWhereClauseExtractorV3
+from posthog.hogql.database.schema.util.where_clause_extractor import (
+    SessionMinTimestampWhereClauseExtractorV3,
+    build_global_sessions_join_filter,
+)
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr
@@ -37,6 +41,12 @@ if TYPE_CHECKING:
 
     from posthog.models.team import Team
 
+
+# The day each Cloud region's raw_sessions_v3 holds every session from, once its backfill reached it. A region
+# missing here has no complete v3 history yet, so a query over it must read the v2 table.
+SESSIONS_V3_COVERAGE_START_BY_REGION: dict[str, datetime] = {
+    "US": datetime(2026, 10, 1, tzinfo=UTC),
+}
 
 RAW_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "team_id": IntegerDatabaseField(name="team_id", nullable=False),
@@ -75,7 +85,6 @@ RAW_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "entry_fbclid": DatabaseField(name="entry_fbclid", nullable=False),
     "entry_has_gclid": DatabaseField(name="entry_has_gclid", nullable=False),
     "entry_has_fbclid": DatabaseField(name="entry_has_fbclid", nullable=False),
-    "entry_ad_ids_map": DatabaseField(name="entry_ad_ids_map", nullable=False),
     "entry_ad_ids_set": DatabaseField(name="entry_ad_ids_set", nullable=False),
     "entry_channel_type_properties": DatabaseField(name="entry_channel_type_properties", nullable=False),
     "pageview_uniq": DatabaseField(name="pageview_uniq", nullable=False),
@@ -156,7 +165,7 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "$entry_gad_source": DatabaseField(name="$entry_gad_source"),
     "$entry_has_fbclid": BooleanDatabaseField(name="$entry_has_fbclid"),
     "$entry_has_gclid": BooleanDatabaseField(name="$entry_has_gclid"),
-    # "counts" - actually uses uniqExact behind the scenes
+    # "counts" - actually uses uniq behind the scenes
     "$pageview_count": IntegerDatabaseField(name="$pageview_count"),
     "$autocapture_count": IntegerDatabaseField(name="$autocapture_count"),
     "$screen_count": IntegerDatabaseField(name="$screen_count"),
@@ -193,6 +202,46 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
 for session_ad_id in SESSION_V3_LOWER_TIER_AD_IDS:
     LAZY_SESSIONS_FIELDS["$entry_" + session_ad_id] = StringDatabaseField(name="$entry_" + session_ad_id)
     LAZY_SESSIONS_FIELDS["$entry_has_" + session_ad_id] = BooleanDatabaseField(name="$entry_has_" + session_ad_id)
+
+
+# entry_ad_ids_set stores flat "key=value" strings; these helpers pull one key's value or presence out of it
+def ad_id_value_from_set_expr(set_expr: ast.Expr, session_ad_id: str) -> ast.Call:
+    prefix = session_ad_id + "="
+    # arrayFirst guarantees the prefix sits at position 0, so replaceOne strips exactly the prefix
+    value = ast.Call(
+        name="replaceOne",
+        args=[
+            ast.Call(
+                name="arrayFirst",
+                args=[
+                    ast.Lambda(
+                        args=["x"],
+                        expr=ast.Call(name="startsWith", args=[ast.Field(chain=["x"]), ast.Constant(value=prefix)]),
+                    ),
+                    set_expr,
+                ],
+            ),
+            ast.Constant(value=prefix),
+            ast.Constant(value=""),
+        ],
+    )
+    # arrayFirst returns '' when no element matches. nullIf turns a missing ad id into NULL, as v2 does,
+    # so an "is set" filter does not match every session.
+    return ast.Call(name="nullIf", args=[value, ast.Constant(value="")])
+
+
+def ad_id_present_in_set_expr(set_expr: ast.Expr, session_ad_id: str) -> ast.Call:
+    prefix = session_ad_id + "="
+    return ast.Call(
+        name="arrayExists",
+        args=[
+            ast.Lambda(
+                args=["x"],
+                expr=ast.Call(name="startsWith", args=[ast.Field(chain=["x"]), ast.Constant(value=prefix)]),
+            ),
+            set_expr,
+        ],
+    )
 
 
 def get_binary_fields(table: Table) -> set[str]:
@@ -295,9 +344,9 @@ def select_from_sessions_table_v3(
         "$entry_has_gclid": arg_min_merge_field("entry_has_gclid"),
         "$entry_has_fbclid": arg_min_merge_field("entry_has_fbclid"),
         # the count columns here do not come from the "count" columns in the raw table, instead aggregate the uniq columns
-        "$pageview_count": ast.Call(name="uniqExactMerge", args=[ast.Field(chain=[table_name, "pageview_uniq"])]),
-        "$screen_count": ast.Call(name="uniqExactMerge", args=[ast.Field(chain=[table_name, "screen_uniq"])]),
-        "$autocapture_count": ast.Call(name="uniqExactMerge", args=[ast.Field(chain=[table_name, "autocapture_uniq"])]),
+        "$pageview_count": ast.Call(name="uniqMerge", args=[ast.Field(chain=[table_name, "pageview_uniq"])]),
+        "$screen_count": ast.Call(name="uniqMerge", args=[ast.Field(chain=[table_name, "screen_uniq"])]),
+        "$autocapture_count": ast.Call(name="uniqMerge", args=[ast.Field(chain=[table_name, "autocapture_uniq"])]),
         "$page_screen_count_up_to": ast.Call(
             name="uniqUpToMerge",
             params=[ast.Constant(value=1)],
@@ -307,7 +356,6 @@ def select_from_sessions_table_v3(
             name="max",
             args=[ast.Field(chain=[table_name, "has_autocapture"])],
         ),
-        "$entry_ad_ids_map": arg_min_merge_field("entry_ad_ids_map"),
         "$entry_ad_ids_set": arg_min_merge_field("entry_ad_ids_set"),
         "$entry_channel_type_properties": arg_min_merge_field("entry_channel_type_properties"),
         "$has_replay_events": ast.Call(name="max", args=[ast.Field(chain=[table_name, "has_replay_events"])]),
@@ -318,16 +366,11 @@ def select_from_sessions_table_v3(
 
     # Add ad ids fields
     for session_ad_id in SESSION_V3_LOWER_TIER_AD_IDS:
-        aggregate_fields["$entry_" + session_ad_id] = ast.Call(
-            name="arrayElement",
-            args=[
-                aggregate_fields["$entry_ad_ids_map"],
-                ast.Constant(value=session_ad_id),
-            ],
+        aggregate_fields["$entry_" + session_ad_id] = ad_id_value_from_set_expr(
+            aggregate_fields["$entry_ad_ids_set"], session_ad_id
         )
-        aggregate_fields["$entry_has_" + session_ad_id] = ast.Call(
-            name="has",
-            args=[aggregate_fields["$entry_ad_ids_set"], ast.Constant(value=session_ad_id)],
+        aggregate_fields["$entry_has_" + session_ad_id] = ad_id_present_in_set_expr(
+            aggregate_fields["$entry_ad_ids_set"], session_ad_id
         )
 
     # Some fields are calculated from others. It'd be good to actually deduplicate common sub expressions in SQL, but
@@ -446,6 +489,15 @@ def select_from_sessions_table_v3(
     )
 
 
+# session_id_v7 is declared a string here but is a UInt128 in the sessions subquery, so a string constant is
+# coerced to a number and its LEFT JOIN default 0 can match.
+LAZY_SESSIONS_STRING_FIELDS = frozenset(
+    name
+    for name, field in LAZY_SESSIONS_FIELDS.items()
+    if isinstance(field, StringDatabaseField) and name != "session_id_v7"
+)
+
+
 class SessionsTableV3(LazyTable):
     description: str = (
         "Aggregated user sessions (one row per session), with entry/exit URLs, attribution, device/geo info, "
@@ -499,8 +551,17 @@ def join_events_table_to_sessions_table_v3(
     if not join_to_add.fields_accessed:
         raise ResolutionError("No fields requested from events")
 
-    join_expr = ast.JoinExpr(table=select_from_sessions_table_v3(join_to_add.fields_accessed, node, context))
+    sessions_query = select_from_sessions_table_v3(join_to_add.fields_accessed, node, context)
+    join_expr = ast.JoinExpr(table=sessions_query)
     join_expr.join_type = "LEFT JOIN"
+    # A plain join from a distributed events table runs the sessions subquery on every events shard, and each
+    # shard reads all the sessions in the date range. GLOBAL runs it once and sends the result to the shards,
+    # which is only cheap when a session filter keeps that result small.
+    if context.modifiers.sessionFilterGlobalJoin:
+        session_filter = build_global_sessions_join_filter(node, join_to_add, context, LAZY_SESSIONS_STRING_FIELDS)
+        if session_filter is not None:
+            sessions_query.having = session_filter
+            join_expr.join_type = "GLOBAL LEFT JOIN"
     join_expr.alias = join_to_add.to_table
     join_expr.constraint = ast.JoinConstraint(
         expr=ast.CompareOperation(
@@ -601,9 +662,8 @@ SESSION_PROPERTY_TO_RAW_SESSIONS_EXPR: dict[str, ast.Expr] = {
 }
 
 for session_ad_id in SESSION_V3_LOWER_TIER_AD_IDS:
-    SESSION_PROPERTY_TO_RAW_SESSIONS_EXPR["$entry_" + session_ad_id] = ast.Call(
-        name="arrayElement",
-        args=[finalize_aggregation("entry_ad_ids_map"), ast.Constant(value=session_ad_id)],
+    SESSION_PROPERTY_TO_RAW_SESSIONS_EXPR["$entry_" + session_ad_id] = ad_id_value_from_set_expr(
+        finalize_aggregation("entry_ad_ids_set"), session_ad_id
     )
 
 

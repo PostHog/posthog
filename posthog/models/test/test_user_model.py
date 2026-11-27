@@ -8,6 +8,7 @@ from django.core.management.base import CommandError
 from posthog.constants import AvailableFeature
 from posthog.models import Team, User
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.user import UserType
 
 from products.access_control.backend.models.access_control import AccessControl
 
@@ -145,6 +146,13 @@ class TestUser(BaseTest):
         user.refresh_from_db()
         self.assertEqual(user.current_team, t1)
 
+    def test_humans_excludes_service_accounts_and_the_default_manager_does_not(self):
+        service_account = User.objects.create(email="automation@example.com", type=UserType.SERVICE_ACCOUNT)
+
+        self.assertNotIn(service_account, User.objects.humans())
+        self.assertIn(self.user, User.objects.humans())
+        self.assertIn(service_account, User.objects.all())
+
     def test_from_db_sets_original_is_active(self):
         user = User.objects.create(email="from_db@example.com", is_active=True)
 
@@ -160,6 +168,19 @@ class TestUser(BaseTest):
 
         self.assertFalse(loaded._original_is_active)
         self.assertEqual(loaded._original_is_active, loaded.is_active)
+
+    def test_saving_a_user_with_withheld_staff_rights_keeps_the_stored_value(self):
+        user = User.objects.create(email="withheld@example.com", is_staff=True)
+        loaded = User.objects.get(pk=user.pk)
+        loaded.withhold_staff_rights()
+
+        loaded.first_name = "Changed"
+        loaded.save()
+
+        assert loaded.is_staff is False
+        stored = User.objects.get(pk=user.pk)
+        assert stored.is_staff is True
+        assert stored.first_name == "Changed"
 
     def test_get_by_natural_key_exact_match(self):
         user = User.objects.create(email="alice@example.com")

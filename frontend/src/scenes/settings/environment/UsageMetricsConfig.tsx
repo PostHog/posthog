@@ -1,44 +1,45 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { IconEllipsis, IconPlusSmall } from '@posthog/icons'
+import { IconEllipsis, IconPlus, IconPlusSmall } from '@posthog/icons'
 import {
     LemonButton,
     LemonDialog,
     LemonInput,
-    LemonLabel,
     LemonMenu,
     LemonModal,
     LemonSelect,
     LemonTable,
     LemonTableColumns,
 } from '@posthog/lemon-ui'
+import {
+    Button,
+    Dialog,
+    DialogBody,
+    DialogContent,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+    Text,
+} from '@posthog/quill'
 
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicStringPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
-import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { TeamMembershipLevel } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
-import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
-
-import { AnyPropertyFilter, EntityTypes, FilterType } from '~/types'
 
 import type { GroupUsageMetricApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
-import {
-    UsageMetricFiltersDataWarehouse,
-    UsageMetricFormData,
-    actionFilterValueToSavedFilters,
-    getMetricSource,
-    savedFiltersToActionFilterValue,
-    usageMetricsConfigLogic,
-} from './usageMetricsConfigLogic'
+import { QuillUsageMetricsForm } from './QuillUsageMetricsForm'
+import { QuillUsageMetricsTable } from './QuillUsageMetricsTable'
+import { UsageMetricFiltersEditor } from './UsageMetricFiltersEditor'
+import { usageMetricCalculationLabel, usageMetricDisplayLabel, usageMetricSourceLabel } from './usageMetricLabels'
+import { UsageMetricEventFilters, getMetricSource, usageMetricsConfigLogic } from './usageMetricsConfigLogic'
 
 function UsageMetricsTable(): JSX.Element {
     const { usageMetrics, usageMetricsLoading } = useValues(usageMetricsConfigLogic)
@@ -48,6 +49,46 @@ function UsageMetricsTable(): JSX.Element {
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
+    const todayRailNav = useQuillSurface()
+
+    const handleEdit = (metric: GroupUsageMetricApi): void => {
+        openModal()
+        setUsageMetricValues({
+            ...metric,
+            filters: (metric.filters ?? {}) as UsageMetricEventFilters,
+        })
+        reportUsageMetricsUpdateButtonClicked()
+    }
+
+    const handleDelete = (metric: GroupUsageMetricApi): void => {
+        LemonDialog.open({
+            title: 'Delete usage metric',
+            description: `Are you sure you want to delete "${metric.name}"? This action cannot be undone.`,
+            primaryButton: {
+                children: 'Delete',
+                status: 'danger',
+                onClick: () => {
+                    removeUsageMetric(metric.id)
+                },
+                disabledReason: restrictedReason,
+            },
+            secondaryButton: {
+                children: 'Cancel',
+            },
+        })
+    }
+
+    if (todayRailNav) {
+        return (
+            <QuillUsageMetricsTable
+                metrics={usageMetrics}
+                loading={usageMetricsLoading}
+                restrictedReason={restrictedReason}
+                onEdit={handleEdit}
+                onDelete={handleDelete}
+            />
+        )
+    }
 
     const columns: LemonTableColumns<GroupUsageMetricApi> = [
         {
@@ -69,29 +110,21 @@ function UsageMetricsTable(): JSX.Element {
             title: 'Display',
             key: 'display',
             render: function Render(_, metric) {
-                return metric.display === 'sparkline' ? 'Sparkline' : 'Number'
+                return usageMetricDisplayLabel(metric)
             },
         },
         {
             title: 'Source',
             key: 'source',
             render: function Render(_, metric) {
-                const source = getMetricSource(metric.filters as UsageMetricFormData['filters'])
-                if (source === 'data_warehouse') {
-                    const dwFilters = metric.filters as UsageMetricFiltersDataWarehouse
-                    return `Warehouse · ${dwFilters?.table_name ?? '(unknown table)'}`
-                }
-                return 'Events'
+                return usageMetricSourceLabel(metric)
             },
         },
         {
             title: 'Calculation',
             key: 'math',
             render: function Render(_, metric) {
-                if (metric.math === 'sum') {
-                    return `Sum of ${metric.math_property ?? '(unknown)'}`
-                }
-                return 'Count'
+                return usageMetricCalculationLabel(metric)
             },
         },
         {
@@ -104,33 +137,13 @@ function UsageMetricsTable(): JSX.Element {
                         items={[
                             {
                                 label: 'Edit',
-                                onClick: () => {
-                                    openModal()
-                                    setUsageMetricValues({ ...metric, filters: (metric.filters ?? {}) as FilterType })
-                                    reportUsageMetricsUpdateButtonClicked()
-                                },
+                                onClick: () => handleEdit(metric),
                                 disabledReason: restrictedReason,
                             },
                             {
                                 label: 'Delete',
                                 status: 'danger',
-                                onClick: () => {
-                                    LemonDialog.open({
-                                        title: 'Delete usage metric',
-                                        description: `Are you sure you want to delete "${metric.name}"? This action cannot be undone.`,
-                                        primaryButton: {
-                                            children: 'Delete',
-                                            status: 'danger',
-                                            onClick: () => {
-                                                removeUsageMetric(metric.id)
-                                            },
-                                            disabledReason: restrictedReason,
-                                        },
-                                        secondaryButton: {
-                                            children: 'Cancel',
-                                        },
-                                    })
-                                },
+                                onClick: () => handleDelete(metric),
                                 disabledReason: restrictedReason,
                             },
                         ]}
@@ -155,6 +168,24 @@ function UsageMetricsForm(): JSX.Element {
         TaxonomicFilterGroupType.HogQLExpression,
     ]
     const source = getMetricSource(usageMetric.filters)
+    const todayRailNav = useQuillSurface()
+
+    const handleMathChange = (newValue: string, onChange: (value: string) => void): void => {
+        onChange(newValue)
+        if (newValue === 'count') {
+            setUsageMetricValue('math_property', null)
+        }
+    }
+
+    if (todayRailNav) {
+        return (
+            <QuillUsageMetricsForm
+                source={source}
+                taxonomicGroupTypes={taxonomicGroupTypes}
+                onMathChange={handleMathChange}
+            />
+        )
+    }
 
     return (
         <Form id="usageMetric" logic={usageMetricsConfigLogic} formKey="usageMetric" enableFormOnSubmit>
@@ -206,12 +237,7 @@ function UsageMetricsForm(): JSX.Element {
                                         label: source === 'data_warehouse' ? 'Sum of column' : 'Sum of property',
                                     },
                                 ]}
-                                onChange={(newValue) => {
-                                    onChange(newValue)
-                                    if (newValue === 'count') {
-                                        setUsageMetricValue('math_property', null)
-                                    }
-                                }}
+                                onChange={(newValue) => handleMathChange(newValue, onChange)}
                             />
                         )}
                     </LemonField>
@@ -254,80 +280,14 @@ function UsageMetricsForm(): JSX.Element {
                                 : 'Pick events to match, or switch to a data warehouse table. Only one source can be active per metric.'
                         }
                     >
-                        {({ value, onChange }) => {
-                            const actionFilterValue = savedFiltersToActionFilterValue(value)
-                            return (
-                                <>
-                                    <ActionFilter
-                                        bordered
-                                        filters={actionFilterValue}
-                                        setFilters={(payload) => {
-                                            onChange(actionFilterValueToSavedFilters(payload, source))
-                                        }}
-                                        typeKey="usage-metric-filters"
-                                        mathAvailability={MathAvailability.None}
-                                        hideRename
-                                        hideDuplicate
-                                        showNestedArrow={false}
-                                        entitiesLimit={source === 'data_warehouse' ? 1 : undefined}
-                                        actionsTaxonomicGroupTypes={[
-                                            TaxonomicFilterGroupType.Events,
-                                            TaxonomicFilterGroupType.DataWarehouse,
-                                        ]}
-                                        propertiesTaxonomicGroupTypes={taxonomicGroupTypes}
-                                        propertyFiltersPopover
-                                        dataWarehousePopoverFields={[
-                                            { key: 'timestamp_field', label: 'Timestamp column', allowHogQL: true },
-                                            { key: 'key_field', label: 'Group key column' },
-                                        ]}
-                                        addFilterDefaultOptions={{
-                                            id: '$pageview',
-                                            name: '$pageview',
-                                            type: EntityTypes.EVENTS,
-                                        }}
-                                        buttonCopy={
-                                            (actionFilterValue?.events ?? []).length > 0
-                                                ? 'Add event'
-                                                : 'Match event or data warehouse table'
-                                        }
-                                    />
-                                    {source === 'events' && (
-                                        <>
-                                            <div className="flex gap-2 justify-between w-full">
-                                                <LemonLabel>Filters</LemonLabel>
-                                            </div>
-                                            <PropertyFilters
-                                                propertyFilters={
-                                                    (actionFilterValue?.properties ?? []) as AnyPropertyFilter[]
-                                                }
-                                                taxonomicGroupTypes={taxonomicGroupTypes}
-                                                onChange={(properties: AnyPropertyFilter[]) => {
-                                                    onChange(
-                                                        actionFilterValueToSavedFilters(
-                                                            { ...actionFilterValue, properties },
-                                                            source
-                                                        )
-                                                    )
-                                                }}
-                                                pageKey="UsageMetricsConfig"
-                                            />
-                                            <TestAccountFilterSwitch
-                                                checked={actionFilterValue?.filter_test_accounts ?? false}
-                                                onChange={(filter_test_accounts) => {
-                                                    onChange(
-                                                        actionFilterValueToSavedFilters(
-                                                            { ...actionFilterValue, filter_test_accounts },
-                                                            source
-                                                        )
-                                                    )
-                                                }}
-                                                fullWidth
-                                            />
-                                        </>
-                                    )}
-                                </>
-                            )
-                        }}
+                        {({ value, onChange }) => (
+                            <UsageMetricFiltersEditor
+                                value={value}
+                                onChange={onChange}
+                                source={source}
+                                taxonomicGroupTypes={taxonomicGroupTypes}
+                            />
+                        )}
                     </LemonField>
                 </div>
             </div>
@@ -344,9 +304,29 @@ export function UsageMetricsConfig(): JSX.Element {
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
 
+    const todayRailNav = useQuillSurface()
+
     useOnMountEffect(() => {
         reportUsageMetricsSettingsViewed()
     })
+
+    if (todayRailNav) {
+        return (
+            <div className="flex flex-col items-start gap-2">
+                <Text size="xs" render={<p className="m-0" />}>
+                    Define what usage means for your product based on one or more events.
+                    <br />
+                    Usage metrics are displayed in the person {groupsEnabled ? 'and group profiles' : 'profile'}.
+                </Text>
+                <Button variant="primary" onClick={openModal} disabledReason={restrictedReason}>
+                    <IconPlus />
+                    Add metric
+                </Button>
+                <UsageMetricsTable />
+                <UsageMetricsModal />
+            </div>
+        )
+    }
 
     return (
         <>
@@ -375,6 +355,37 @@ export function UsageMetricsConfig(): JSX.Element {
 export function UsageMetricsModal(): JSX.Element {
     const { isModalOpen } = useValues(usageMetricsConfigLogic)
     const { closeModal } = useActions(usageMetricsConfigLogic)
+    const todayRailNav = useQuillSurface()
+
+    if (todayRailNav) {
+        return (
+            <Dialog
+                open={isModalOpen}
+                onOpenChange={(open: boolean) => {
+                    if (!open) {
+                        closeModal()
+                    }
+                }}
+            >
+                <DialogContent className="sm:max-w-160">
+                    <DialogHeader>
+                        <DialogTitle>Add usage metric</DialogTitle>
+                    </DialogHeader>
+                    <DialogBody>
+                        <UsageMetricsForm />
+                    </DialogBody>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={closeModal} data-attr="cancel-create-usage-metric">
+                            Cancel
+                        </Button>
+                        <Button type="submit" form="usageMetric" variant="primary" data-attr="create-usage-metric">
+                            Save
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+        )
+    }
 
     return (
         <LemonModal

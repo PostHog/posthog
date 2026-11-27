@@ -27,6 +27,7 @@ from products.signals.backend.models import (
     SignalReportPullRequest,
     SignalReportTask,
 )
+from products.signals.backend.pull_request_merger import PullRequestMerger
 from products.signals.backend.report_lifecycle import report_status_filter
 from products.signals.backend.report_urls import ReportLinkSource, build_report_url
 from products.signals.backend.task_run_artefacts import (
@@ -186,6 +187,7 @@ class ImplementationPr:
     attached_at: datetime | None = None
     attached_by_user: "User | None" = None
     agent_name: str | None = None
+    merged_by: PullRequestMerger | None = None
 
 
 def fetch_implementation_prs_for_reports(
@@ -234,6 +236,11 @@ def fetch_implementation_prs_for_reports(
                 attached_at=link.created_at,
                 attached_by_user=link.created_by,
                 agent_name=link.actor_agent,
+                merged_by=(
+                    PullRequestMerger(login=linked_pr.merged_by_login, github_id=linked_pr.merged_by_github_id)
+                    if linked_pr.merged_by_login
+                    else None
+                ),
             )
         )
     assignments = list(
@@ -334,28 +341,43 @@ def fetch_implementation_pr_urls_for_reports(report_ids: list[str], *, team_id: 
 
 
 def report_ids_for_implementation_pr(*, team_id: int, repository: str, pr_number: int) -> list[str]:
+    # The webhook reaches every team on the installation. A team without reports must not pay for
+    # the regex scan over its task runs below.
+    if not SignalReport.objects.filter(team_id=team_id).exists():
+        return []
     # Narrow by task output before resolving reports so webhooks do not scan the whole inbox.
     owner, repo = repository.split("/", 1)
     url_body = rf'[^:"]+://(www\.)?github\.com/+{re.escape(owner)}/+{re.escape(repo)}/+pull/+0*{pr_number}'
     url_pattern = rf"^{url_body}([/?#]|$)"
     array_url_pattern = rf'"{url_body}([/?#"]|$)'
-    task_ids = tasks_facade.task_ids_with_pr_url_subquery(
-        team_id,
-        pr_bearing_task_run_filter(),
-        Q(output__pr_url__iregex=url_pattern) | Q(output__pr_urls__iregex=array_url_pattern),
+    task_ids = list(
+        tasks_facade.task_ids_with_pr_url_subquery(
+            team_id,
+            pr_bearing_task_run_filter(),
+            Q(output__pr_url__iregex=url_pattern) | Q(output__pr_urls__iregex=array_url_pattern),
+        ).values_list("task_id", flat=True)
     )
-    candidates = SignalReport.objects.filter(team_id=team_id).filter(
-        Q(
-            artefacts__pull_request__repository__iexact=repository,
-            artefacts__pull_request__number=pr_number,
-            artefacts__pull_request__team_id=team_id,
-        )
-        | Q(assignment__repository__iexact=repository, assignment__pr_number=pr_number)
-        | SignalReport.reports_for_task_ids_filter(task_ids, team_id=team_id)
-    )
-    prs = fetch_implementation_prs_for_reports(
-        [str(report_id) for report_id in candidates.values_list("id", flat=True).distinct()], team_id=team_id
-    )
+    # One `OR` over joins to every link table defeats the indexes, so each path is its own lookup.
+    candidate_querysets = [
+        # The array form, as in `implementation_pr_report_filter`, so Postgres probes the artefact index.
+        SignalReportArtefact.objects.filter(
+            _EqualsAny(
+                F("pull_request_id"),
+                ArraySubquery(
+                    SignalReportPullRequest.objects.for_team(team_id)
+                    .filter(repository__iexact=repository, number=pr_number)
+                    .values("id")
+                ),
+            ),
+            team_id=team_id,
+        ).values("report_id"),
+        SignalReportAssignment.all_teams.filter(
+            team_id=team_id, repository__iexact=repository, pr_number=pr_number
+        ).values("report_id"),
+    ]
+    candidate_ids = {str(row["report_id"]) for queryset in candidate_querysets for row in queryset}
+    candidate_ids.update(SignalReport.pr_target_report_ids_for_tasks(team_id, task_ids))
+    prs = fetch_implementation_prs_for_reports(sorted(candidate_ids), team_id=team_id)
     return [
         report_id
         for report_id, report_prs in prs.items()

@@ -10,10 +10,10 @@ import { IconChevronDown, IconRewindPlay, IconSparkles, IconX } from '@posthog/i
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
-import { Resizer } from 'lib/components/Resizer/Resizer'
-import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
+import { Resizer } from 'lib/lemon-ui/Resizer/Resizer'
+import { ResizerLogicProps, resizerLogic } from 'lib/lemon-ui/Resizer/resizerLogic'
 import {
     Button,
     ButtonGroup,
@@ -29,6 +29,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { TodayScenePinButton } from '~/layout/today/TodayScenePinButton'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { ReplayTabs } from '~/types'
 
@@ -47,15 +48,18 @@ import {
     ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY,
     issueFiltersLogic,
 } from '../../components/IssueFilters/issueFiltersLogic'
+import { issueListUrlWithTag } from '../../components/IssueQueryOptions/issueQueryOptionsLogic'
 import { IssueSeveritySelect } from '../../components/IssueSeveritySelect'
 import { IssueStatusButton } from '../../components/IssueStatusButton'
 import { IssueStatusSelect } from '../../components/IssueStatusSelect'
+import { IssueTagsButton } from '../../components/IssueTagsButton/IssueTagsButton'
 import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
 import { StyleVariables } from '../../components/StyleVariables'
 import { SuppressSimilarIssuesDialog } from '../../components/SuppressSimilarIssues/SuppressSimilarIssuesDialog'
 import { useErrorTagRenderer } from '../../hooks/use-error-tag-renderer'
 import { getIssueReplayDateRange, getIssueReplayFilterGroup, issueVisionScannerHandoff } from '../../utils'
 import { ErrorTrackingIssueSceneLogicProps, errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
+import { ErrorTrackingIssueSceneMenuBar } from './ErrorTrackingIssueSceneMenuBar'
 import { IssueEmailMenu } from './IssueEmailMenu'
 import { IssueEmailMenuItems } from './IssueEmailMenuItems'
 import { IssueEventsPanel } from './IssueEventsPanel'
@@ -84,6 +88,8 @@ export function ErrorTrackingIssueScene(): JSX.Element {
     const { isWindowLessThan } = useWindowSize()
     const isMobile = isWindowLessThan('md')
     const hasIssueSplitting = useFeatureFlag('ERROR_TRACKING_ISSUE_SPLITTING')
+    const hasSceneMenuBar = useFeatureFlag('SCENE_MENU_BAR')
+    const hasIssueTags = useFeatureFlag('ERROR_TRACKING_ISSUE_TAGS')
     const inlineEmailMenuRef = useRef<HTMLDivElement>(null)
     // The overflow menu portals out of the scene container, so a container query cannot hide its email items.
     const [emailInOverflow, setEmailInOverflow] = useState(true)
@@ -128,6 +134,10 @@ export function ErrorTrackingIssueScene(): JSX.Element {
         router.actions.push(urls.replayVisionScannerOverview('new'))
     }, [issueId, issue?.name, issue?.first_seen, lastSeen, selectedEvent?.timestamp, initialEventTimestamp])
 
+    const openIssueListWithTag = useCallback((key: string): void => {
+        router.actions.push(issueListUrlWithTag(key))
+    }, [])
+
     useAttachedContext(
         issueIdValid ? [{ type: 'error_tracking_issue', key: issueId, label: issue?.name ?? undefined }] : null
     )
@@ -154,22 +164,28 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                     <BindLogic logic={miniBreakdownsLogic} props={{ issueId }}>
                         {issue && (
                             <div className="flex flex-col h-[calc(var(--scene-layout-rect-height))]">
+                                <ErrorTrackingIssueSceneMenuBar issue={issue} />
                                 <SceneTitleSection
                                     noPadding
                                     canEdit
                                     name={issue.name ?? undefined}
                                     onNameChange={updateName}
+                                    nameAction={<TodayScenePinButton />}
                                     description={null}
                                     resourceType={{ type: 'error_tracking' }}
                                     className={clsx(
                                         'pl-4 pr-2 h-[50px] @2xl/main-content:relative top-[0px] [&>.scene-title-section]:py-2',
+                                        {
+                                            '@max-5xl/main-content:h-auto @max-5xl/main-content:flex-wrap @max-5xl/main-content:gap-y-2 @max-5xl/main-content:py-2 @max-5xl/main-content:[&>div]:basis-full':
+                                                hasSceneMenuBar,
+                                        },
                                         isMobile
                                             ? '[&>.scene-title-section]:flex-row [&>.scene-title-section]:items-center [&>.scene-title-section>*:last-child]:order-last'
                                             : undefined
                                     )}
                                     actions={
                                         isMobile ? undefined : (
-                                            <div className="flex items-center gap-1">
+                                            <div className="flex flex-wrap items-center justify-end gap-1">
                                                 <ButtonGroup>
                                                     <IssueStatusSelect
                                                         status={issue.status}
@@ -187,6 +203,13 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                                         onChange={updateAssignee}
                                                         disabled={issue.status != 'active'}
                                                     />
+                                                    {hasIssueTags && (
+                                                        <IssueTagsButton
+                                                            tags={issue.tags}
+                                                            onTagClick={openIssueListWithTag}
+                                                            size="default"
+                                                        />
+                                                    )}
                                                 </ButtonGroup>
                                                 {issue.name ? (
                                                     <ButtonGroup>
@@ -283,6 +306,13 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                                 onChange={updateAssignee}
                                                 disabled={issue.status != 'active'}
                                             />
+                                            {hasIssueTags && (
+                                                <IssueTagsButton
+                                                    tags={issue.tags}
+                                                    onTagClick={openIssueListWithTag}
+                                                    size="default"
+                                                />
+                                            )}
                                         </ButtonGroup>
                                         <IssueEmailMenu issueId={issue.id} issueName={issue.name} />
                                         <IssueStatusButton status={issue.status} onChange={updateStatus} />

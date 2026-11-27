@@ -18,14 +18,16 @@ from pydantic import BaseModel
 
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
+    ContextWindowExceededError,
     LLMError,
     ModelNotFoundError,
     ModelPermissionError,
     ProviderConnectionError,
     ProviderRequestRejectedError,
     QuotaExceededError,
-    RateLimitError,
+    RetryableRateLimitError,
     StructuredOutputParseError,
+    is_context_window_error_message,
     stream_error_chunk,
 )
 from products.ai_observability.backend.llm.types import (
@@ -42,6 +44,16 @@ from products.ai_observability.backend.providers.formatters.gemini_formatter imp
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _retry_delay(error: APIError) -> str | None:
+    """The seconds in the error's google.rpc.RetryInfo detail, such as "27" from "27s"."""
+    body = error.details.get("error", {}) if isinstance(error.details, dict) else {}
+    for detail in body.get("details") or []:
+        if isinstance(detail, dict) and str(detail.get("@type", "")).endswith("google.rpc.RetryInfo"):
+            delay = str(detail.get("retryDelay", ""))
+            return delay.removesuffix("s") or None
+    return None
 
 
 class GeminiConfig:
@@ -167,9 +179,12 @@ class GeminiAdapter:
             if status_code == 403 or "permission denied" in error_message:
                 return ModelPermissionError(model)
             if status_code == 429 or "rate limit" in error_message or "resource exhausted" in error_message:
-                if "quota" in error_message or "billing" in error_message:
+                # Per-minute limits also say "quota". Google adds a retry delay when waiting
+                # helps, so its presence separates a rate limit from exhausted billing.
+                retry_delay = _retry_delay(error)
+                if retry_delay is None and ("quota" in error_message or "billing" in error_message):
                     return QuotaExceededError(str(error))
-                return RateLimitError(str(error))
+                return RetryableRateLimitError(str(error), retry_delay)
             # Google returns a 404-class error (often with "no longer available") when a
             # model is retired/deprecated. Map it so call_llm_judge disables the eval
             # gracefully instead of burning Temporal retries on an unhandled exception.
@@ -180,6 +195,8 @@ class GeminiAdapter:
             # issue every time. Share the transport lane, which the caller retries quietly.
             if status_code == 499 or "cancelled" in error_message or "canceled" in error_message:
                 return ProviderConnectionError(str(error))
+            if status_code == 400 and is_context_window_error_message(error_message):
+                return ContextWindowExceededError(str(error))
             return None
         if isinstance(error, httpx.TransportError):
             # google-genai doesn't wrap httpx transport failures (connection reset, read timeout)

@@ -1,13 +1,13 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import type { DataColorTheme } from 'lib/colors'
+import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
+import { isRetentionQuery } from '~/queries/schema/node-guards'
 import { InsightQueryNode } from '~/queries/schema/schema-general'
 import type { DataNode, DateRange, RetentionFilter, VizSpecificOptions } from '~/queries/schema/schema-general'
-import { isRetentionQuery } from '~/queries/utils'
 import { InsightLogicProps, InsightType } from '~/types'
 
 import { dateOptionPlurals } from '../constants'
@@ -36,9 +36,9 @@ export interface retentionHeatmapLogicValues {
     hoveredColumn: number | null
     retentionVizOptions:
         | {
-              hideLineGraph?: boolean | undefined
-              hideSizeColumn?: boolean | undefined
-              useSmallLayout?: boolean | undefined
+              hideLineGraph?: boolean
+              hideSizeColumn?: boolean
+              useSmallLayout?: boolean
           }
         | undefined
     tableHeaders: string[]
@@ -68,17 +68,17 @@ export interface retentionHeatmapLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         retentionVizOptions: (vizSpecificOptions: VizSpecificOptions | null | undefined) =>
             | {
-                  hideLineGraph?: boolean | undefined
-                  hideSizeColumn?: boolean | undefined
-                  useSmallLayout?: boolean | undefined
+                  hideLineGraph?: boolean
+                  hideSizeColumn?: boolean
+                  useSmallLayout?: boolean
               }
             | undefined
         hideSizeColumn: (
             retentionVizOptions:
                 | {
-                      hideLineGraph?: boolean | undefined
-                      hideSizeColumn?: boolean | undefined
-                      useSmallLayout?: boolean | undefined
+                      hideLineGraph?: boolean
+                      hideSizeColumn?: boolean
+                      useSmallLayout?: boolean
                   }
                 | undefined
         ) => boolean | undefined

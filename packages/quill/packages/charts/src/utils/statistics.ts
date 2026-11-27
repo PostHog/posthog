@@ -25,22 +25,45 @@ export function ciRanges(values: number[], ci: number = 0.95): [number[], number
     return [lower, upper]
 }
 
-export function trendLine(values: number[], fitUpTo?: number): number[] {
+/** `xs` gives each value's x position, such as its time. Defaults to the index. */
+export function trendLine(values: number[], fitUpTo?: number, xs?: number[]): number[] {
     const n = values.length
     const fitEnd = fitUpTo != null ? Math.max(2, Math.min(fitUpTo, n)) : n
+    const xAt = (i: number): number => xs?.[i] ?? i
     // Fit only over finite points so a single gap doesn't poison the regression.
     const coordinates: [number, number][] = values
         .slice(0, fitEnd)
-        .map((y, x): [number, number] => [x, y])
-        .filter(([, y]) => isFinite(y))
+        .map((y, i): [number, number] => [xAt(i), y])
+        .filter(([x, y]) => isFinite(x) && isFinite(y))
     if (coordinates.length < 2) {
         return values.slice()
     }
     const { m, b } = linearRegression(coordinates)
-    return values.map((_, x) => m * x + b)
+    return values.map((_, i) => m * xAt(i) + b)
 }
 
-export function movingAverage(values: number[], intervals: number = 7): number[] {
+export function movingAverage(
+    values: number[],
+    intervals: number = 7,
+    alignment: 'centered' | 'trailing' = 'centered'
+): number[] {
+    if (alignment === 'trailing') {
+        let sum = 0
+        let count = 0
+        return values.map((value, index) => {
+            const expired = values[index - intervals]
+            if (Number.isFinite(expired)) {
+                sum -= expired
+                count--
+            }
+            if (Number.isFinite(value)) {
+                sum += value
+                count++
+            }
+            return count ? sum / count : NaN
+        })
+    }
+
     const n = values.length
     if (n < intervals) {
         return values.slice()

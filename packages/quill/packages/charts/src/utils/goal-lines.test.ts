@@ -65,6 +65,7 @@ describe('goal-lines', () => {
             ['omits label when displayLabel is false', { displayLabel: false }, { label: undefined }],
             ['respects explicit labelPosition', { labelPosition: 'start' as const }, { labelPosition: 'start' }],
             ['forwards showValueOnHover', { showValueOnHover: false }, { showValueOnHover: false }],
+            ['forwards stroke via style.stroke', { stroke: 'solid' as const }, { style: { stroke: 'solid' } }],
         ] as const)('%s', (_, lineOverrides, expectedProps) => {
             const lines: GoalLineConfig[] = [{ label: 'X', value: 50, ...lineOverrides }]
             expect(buildGoalLineReferenceLines(lines, series)[0]).toMatchObject(expectedProps)

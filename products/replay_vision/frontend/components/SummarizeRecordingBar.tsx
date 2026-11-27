@@ -10,7 +10,6 @@ import { playerUsesWatchLayout } from 'scenes/session-recordings/playlist/replay
 import { observationsDockLogic } from '../logics/observationsDockLogic'
 import { recordingScanBlock } from '../utils/scanEligibility'
 import { SummarizeButton } from './SummarizeButton'
-import { SummarizeExplainer } from './SummarizeExplainer'
 import { useSummarizeBlockedReason } from './useSummarizeBlockedReason'
 
 export function SummarizeRecordingBar({
@@ -51,7 +50,7 @@ function SummarizeRecordingBarContent({
             className={
                 inline
                     ? 'flex items-center gap-2 min-w-0'
-                    : 'flex items-center gap-2 lg:gap-3 h-11 px-3 shrink-0 border-t bg-surface-primary'
+                    : 'flex items-center gap-2 lg:gap-3 h-11 px-3 shrink-0 border-t bg-surface-primary [&>:first-child]:min-w-0'
             }
             // Frozen: dashboards and selectors still find the bar under its old name.
             data-attr="vision-observations-dock"
@@ -61,7 +60,6 @@ function SummarizeRecordingBarContent({
                 scanBlock={scanBlock}
                 inWatchLayout={playerUsesWatchLayout(replayLayout, logicProps)}
             />
-            <SummarizeExplainer />
             {extraActions}
             {/* The inline row has no room for it, and the disabled button already says why on hover. */}
             {!inline && summarizeBlockedReason && (

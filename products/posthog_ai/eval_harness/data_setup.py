@@ -5,22 +5,28 @@ from __future__ import annotations
 import uuid
 import logging
 import datetime
+from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 from typing import TYPE_CHECKING
 
 from django.conf import settings
-from django.db import transaction
+from django.db import connection, connections, transaction
 from django.test import override_settings
+from django.utils import timezone
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Organization, OrganizationMembership, Team, User
-from posthog.models.event.sql import COPY_EVENTS_BETWEEN_TEAMS
+from posthog.models.event.sql import COPY_EVENTS_JSON_BETWEEN_TEAMS
 from posthog.models.group.sql import COPY_GROUPS_BETWEEN_TEAMS
 from posthog.models.person.sql import COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS, COPY_PERSONS_BETWEEN_TEAMS
 from posthog.persons_db import persons_db_connection
 
-from products.dashboards.backend.models import Dashboard, DashboardTile
+from products.dashboards.backend.facade.contracts import DashboardRef
+from products.dashboards.backend.facade.testing import create_dashboard, create_insight_tile
 from products.demo.backend.facade.api import HedgeboxMatrix, MatrixManager, infer_taxonomy_for_team
+from products.experiments.backend.facade.timeseries import seed_cloned_demo_timeseries, seed_master_demo_timeseries
 from products.posthog_ai.backend.models.assistant import CoreMemory
+from products.posthog_ai.eval_harness.event_copy import copy_eval_events
 from products.product_analytics.backend.facade.models import Insight
 
 if TYPE_CHECKING:
@@ -32,11 +38,18 @@ EVAL_USER_FULL_NAME = "Karen Smith"
 
 MASTER_ORG_NAME = "Hedgebox Master Seed"
 MASTER_USER_EMAIL = "eval-master-seed@posthog.test"
+# The simulation ends its event history at generation time, so an older master leaves cases about
+# "yesterday" or "the last 7 days" with no events.
+MASTER_DEMO_MAX_AGE = datetime.timedelta(days=1)
 
 
-def _build_hedgebox_matrix() -> HedgeboxMatrix:
+def _build_hedgebox_matrix(
+    *, now: datetime.datetime | None = None, require_external_fixtures: bool = True
+) -> HedgeboxMatrix:
     return HedgeboxMatrix(
+        require_external_fixtures=require_external_fixtures,
         seed=EVAL_SEED,
+        now=now,
         days_past=120,
         days_future=30,
         n_clusters=500,
@@ -63,11 +76,9 @@ def _master_warehouse_ready(team: Team) -> bool:
     """True when the master team's demo warehouse CSVs are already in object storage.
 
     Per-case teams register their own warehouse tables against the master team's stored
-    CSVs, so the presence of those files is what makes the master team reusable. Checked
-    under ``TEST=False`` because warehouse storage is intentionally disabled in test mode.
+    CSVs, so the presence of those files is what makes the master team reusable.
     """
-    with override_settings(TEST=False):
-        return not _build_hedgebox_matrix().demo_data_warehouse_tables_need_saving(team.id)
+    return not _build_hedgebox_matrix().demo_data_warehouse_tables_need_saving(team.id)
 
 
 def create_isolated_demo_data(
@@ -105,7 +116,9 @@ def create_isolated_demo_data(
             return existing_org, team, user
 
         logger.info("Generating demo data for %r", label)
-        matrix_manager = MatrixManager(_build_hedgebox_matrix(), use_pre_save=True, print_steps=True)
+        matrix_manager = MatrixManager(
+            _build_hedgebox_matrix(require_external_fixtures=False), use_pre_save=True, print_steps=True
+        )
         with override_settings(TEST=False):
             # Simulation saving should occur in non-test mode, so that Kafka isn't mocked.
             # Normally in tests we don't want to ingest via Kafka, but simulation saving is
@@ -113,6 +126,13 @@ def create_isolated_demo_data(
             org, team, user = matrix_manager.ensure_account_and_save(email, EVAL_USER_FULL_NAME, org_name)
 
     return org, team, user
+
+
+def _case_org_name(label: str, suffix: str) -> str:
+    max_length = Organization._meta.get_field("name").max_length
+    assert max_length is not None
+    max_label = max_length - len(f"Hedgebox (-{suffix})")
+    return f"Hedgebox ({label[:max_label]}-{suffix})"
 
 
 def create_demo_org_team_user(django_db_blocker) -> tuple[Organization, Team, User]:
@@ -123,8 +143,8 @@ def create_demo_org_team_user(django_db_blocker) -> tuple[Organization, Team, Us
 def ensure_master_demo_team(django_db_blocker) -> int:
     """Ensure a master Hedgebox demo team exists with events in both PSQL and CH.
 
-    Reuses the master team across sessions when it has CH events. Rebuilds from
-    scratch when either side is empty. Returns the master team id (autoincrement,
+    Reuses the master team across sessions when it has CH events and is less than
+    ``MASTER_DEMO_MAX_AGE`` old. Rebuilds from scratch when it is older or either side is empty. Returns the master team id (autoincrement,
     not ``MatrixManager.MASTER_TEAM_ID`` — we own this team's lifecycle).
     """
 
@@ -138,7 +158,14 @@ def ensure_master_demo_team(django_db_blocker) -> int:
                     "SELECT count() FROM events WHERE team_id = %(team_id)s",
                     {"team_id": team.id},
                 )[0][0]
-                if ch_event_count > 0:
+                if team.created_at < timezone.now() - MASTER_DEMO_MAX_AGE:
+                    logger.warning(
+                        "Master demo team id=%d was generated at %s, more than %s ago; regenerating",
+                        team.id,
+                        team.created_at.isoformat(),
+                        MASTER_DEMO_MAX_AGE,
+                    )
+                elif ch_event_count > 0:
                     if not settings.OBJECT_STORAGE_ENABLED or _master_warehouse_ready(team):
                         logger.info("Reusing master demo team id=%d (events=%d)", team.id, ch_event_count)
                         return team.id
@@ -155,11 +182,15 @@ def ensure_master_demo_team(django_db_blocker) -> int:
         # use_pre_save=False: we are the master — save simulation directly to this team
         # without going through MatrixManager._is_demo_data_pre_saved (which only checks PSQL
         # and lies when CH has been wiped independently).
-        matrix_manager = MatrixManager(_build_hedgebox_matrix(), use_pre_save=False, print_steps=True)
+        matrix = _build_hedgebox_matrix()
+        matrix.seed_timeseries = seed_master_demo_timeseries
+        matrix_manager = MatrixManager(matrix, use_pre_save=False, print_steps=True)
         with override_settings(TEST=False):
             _org, team, _user = matrix_manager.ensure_account_and_save(
                 MASTER_USER_EMAIL, EVAL_USER_FULL_NAME, MASTER_ORG_NAME
             )
+            team.extra_settings = {**(team.extra_settings or {}), "eval_fixture_clock": matrix.now.isoformat()}
+            team.save(update_fields=["extra_settings"])
 
         if settings.OBJECT_STORAGE_ENABLED and not _master_warehouse_ready(team):
             raise RuntimeError(
@@ -172,7 +203,7 @@ def ensure_master_demo_team(django_db_blocker) -> int:
 def create_empty_eval_project(django_db_blocker: NullDbBlocker, *, label: str) -> tuple[Team, User]:
     suffix = uuid.uuid4().hex[:8]
     with django_db_blocker.unblock(), transaction.atomic():
-        org = Organization.objects.create(name=f"Hedgebox ({label}-{suffix})")
+        org = Organization.objects.create(name=_case_org_name(label, suffix))
         user = User.objects.create_and_join(
             org,
             f"eval-{label}-{suffix}@posthog.test",
@@ -202,7 +233,7 @@ def copy_demo_data_to_new_team(
     """
 
     suffix = uuid.uuid4().hex[:8]
-    org_name = f"Hedgebox ({label}-{suffix})"
+    org_name = _case_org_name(label, suffix)
     email = f"eval-{label}-{suffix}@posthog.test"
 
     with django_db_blocker.unblock():
@@ -229,7 +260,8 @@ def copy_demo_data_to_new_team(
         copy_params = {"source_team_id": master_team_id, "target_team_id": team.id}
         sync_execute(COPY_PERSONS_BETWEEN_TEAMS, copy_params)
         sync_execute(COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS, copy_params)
-        sync_execute(COPY_EVENTS_BETWEEN_TEAMS, copy_params)
+        copy_eval_events(master_team_id, team.id)
+        sync_execute(COPY_EVENTS_JSON_BETWEEN_TEAMS, copy_params)
         sync_execute(COPY_GROUPS_BETWEEN_TEAMS, copy_params)
 
         # Copy the master team's group type mappings onto the isolated eval team, writing through the
@@ -252,17 +284,61 @@ def copy_demo_data_to_new_team(
         # per-case teams instead of returning "does not exist in the taxonomy".
         infer_taxonomy_for_team(team.id)
 
-        matrix = _build_hedgebox_matrix()
-        with override_settings(TEST=False):
-            matrix.set_project_up(team, user)
-            # Point this team's warehouse tables at the master team's already-saved CSVs
-            # (keyed by the master team id) — the same pre-save path the demo signup uses.
-            matrix.register_demo_data_warehouse_tables(team, user, master_team_id)
+        fixture_clock = (master_team.extra_settings or {}).get("eval_fixture_clock")
+        matrix = _build_hedgebox_matrix(now=datetime.datetime.fromisoformat(fixture_clock) if fixture_clock else None)
+        if fixture_clock:
+            matrix.seed_timeseries = partial(seed_cloned_demo_timeseries, master_team_id)
+        matrix.set_project_up(team, user)
+        # Point this team's warehouse tables at the master team's already-saved CSVs
+        # (keyed by the master team id) — the same pre-save path the demo signup uses.
+        matrix.register_demo_data_warehouse_tables(team, user, master_team_id)
 
         team.save()
         team.project.save()
 
     return org, team, user
+
+
+def prewarm_demo_teams(master_team_id: int, blocker: NullDbBlocker, count: int, concurrency: int) -> None:
+    def prepare(_index: int) -> None:
+        try:
+            _, team, _ = copy_demo_data_to_new_team(master_team_id, blocker, label="prewarm")
+            with transaction.atomic():
+                master = Team.objects.select_for_update(no_key=True).get(pk=master_team_id)
+                metadata = master.extra_settings or {}
+                ready_ids = [*metadata.get("eval_ready_team_ids", []), team.id]
+                Team.objects.filter(pk=master.pk).update(extra_settings={**metadata, "eval_ready_team_ids": ready_ids})
+        finally:
+            connections.close_all()
+
+    with blocker.unblock(), transaction.atomic():
+        # Only top-ups take this lock. Workers publish finished clones and runs claim them independently.
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [f"eval-prewarm:{master_team_id}"])
+        master = Team.objects.get(pk=master_team_id)
+        ready = (master.extra_settings or {}).get("eval_ready_team_ids", [])
+        with ThreadPoolExecutor(max_workers=concurrency) as workers:
+            list(workers.map(prepare, range(count - len(ready))))
+
+
+def claim_demo_team(master_team_id: int, blocker: NullDbBlocker, label: str) -> tuple[Team, User] | None:
+    with blocker.unblock(), transaction.atomic():
+        # Keep the single-use inventory on the master, outside every agent's writable project.
+        master = Team.objects.select_for_update(no_key=True).get(pk=master_team_id)
+        metadata = master.extra_settings or {}
+        ready_ids = metadata.get("eval_ready_team_ids", [])
+        if not ready_ids:
+            return None
+        team = Team.objects.select_related("organization").get(pk=ready_ids[0])
+        Team.objects.filter(pk=master.pk).update(extra_settings={**metadata, "eval_ready_team_ids": ready_ids[1:]})
+        membership = team.organization.memberships.select_related("user").get()
+        user = membership.user
+        suffix = uuid.uuid4().hex[:8]
+        team.organization.name = _case_org_name(label, suffix)
+        team.organization.save(update_fields=["name"])
+        user.email = f"eval-{label}-{suffix}@posthog.test"
+        user.save(update_fields=["email"])
+        return team, user
 
 
 def create_core_memory(team: Team, django_db_blocker) -> CoreMemory:
@@ -298,7 +374,7 @@ class DashboardWithInsightsFixture:
 
     def __init__(
         self,
-        dashboard: Dashboard,
+        dashboard: DashboardRef,
         insight_dau: Insight,
         insight_funnel: Insight,
         insight_retention: Insight,
@@ -411,27 +487,30 @@ def create_dashboard_with_insights(
     )
 
     # Create the dashboard
-    dashboard = Dashboard.objects.create(
-        team=team,
+    dashboard = DashboardRef(
+        id=create_dashboard(
+            team_id=team.id,
+            name="Growth Dashboard",
+            description="Dashboard for tracking growth metrics",
+            created_by_id=user.id,
+        ),
         name="Growth Dashboard",
-        description="Dashboard for tracking growth metrics",
-        created_by=user,
     )
 
     # Add tiles to dashboard
-    DashboardTile.objects.create(
-        dashboard=dashboard,
-        insight=insight_dau,
+    create_insight_tile(
+        dashboard_id=dashboard.id,
+        insight_id=insight_dau.id,
         layouts={"lg": {"x": 0, "y": 0, "w": 6, "h": 4}},
     )
-    DashboardTile.objects.create(
-        dashboard=dashboard,
-        insight=insight_funnel,
+    create_insight_tile(
+        dashboard_id=dashboard.id,
+        insight_id=insight_funnel.id,
         layouts={"lg": {"x": 6, "y": 0, "w": 6, "h": 4}},
     )
-    DashboardTile.objects.create(
-        dashboard=dashboard,
-        insight=insight_retention,
+    create_insight_tile(
+        dashboard_id=dashboard.id,
+        insight_id=insight_retention.id,
         layouts={"lg": {"x": 0, "y": 4, "w": 6, "h": 4}},
     )
 

@@ -31,6 +31,8 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
+
 from products.business_knowledge.backend import crawl, discover, logic, url_fetch
 from products.business_knowledge.backend.logic import create_crawl_source, ingest_source, refresh_source
 from products.business_knowledge.backend.models import (
@@ -395,6 +397,10 @@ class TestIterFetch(SimpleTestCase):
 
 
 class TestCreateCrawlSource(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.enterContext(mock_anti_ssrf_dns_lookup())
+
     def test_happy_path_indexes_all_discovered_pages(self) -> None:
         sitemap = _sitemap_xml(["https://example.com/a", "https://example.com/b", "https://example.com/c"])
         behaviours: dict[str, url_fetch.FetchResult | Exception] = {
@@ -592,6 +598,10 @@ class TestCreateCrawlSource(APIBaseTest):
 
 
 class TestRefreshCrawlSource(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.enterContext(mock_anti_ssrf_dns_lookup())
+
     def _seed(self, sitemap_urls: list[str]) -> KnowledgeSource:
         sitemap = _sitemap_xml(sitemap_urls)
         behaviours: dict[str, url_fetch.FetchResult | Exception] = {
@@ -1051,6 +1061,10 @@ class TestChunkIdIsolation(APIBaseTest):
     on chunk UUIDs (uuid5 of stable_id only, where stable_id == url for URL
     sources). `_chunk_id` now includes `source_id` to isolate namespaces.
     """
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.enterContext(mock_anti_ssrf_dns_lookup())
 
     def test_two_sources_same_url_do_not_collide(self) -> None:
         sitemap_a = _sitemap_xml(["https://example.com/shared"])

@@ -2,7 +2,7 @@ from datetime import timedelta
 from typing import ClassVar
 
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.db import DatabaseError
 from django.test import SimpleTestCase, TestCase, override_settings
@@ -10,6 +10,7 @@ from django.test import SimpleTestCase, TestCase, override_settings
 from parameterized import parameterized
 from slack_sdk.errors import SlackApiError
 
+from posthog.llm.system_one import ChoiceAnswer, SystemOneResult
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
@@ -23,7 +24,11 @@ from products.tasks.backend.logic.services.living_artifacts import (
     stream_pending_slack_attachments,
 )
 from products.tasks.backend.models import Task, TaskArtifact, TaskRun
-from products.tasks.backend.temporal.process_task.utils import record_delivered_message
+from products.tasks.backend.temporal.process_task.utils import (
+    record_delivered_message,
+    record_opening_slack_message,
+    take_opening_slack_message,
+)
 from products.tasks.backend.temporal.slack_relay.activities import (
     RelaySlackMessageInput,
     _append_unconfirmed_attachment_notice,
@@ -128,10 +133,12 @@ class TestRelaySlackMessage(TestCase):
 
     @parameterized.expand(
         [
-            ("no_reaction_emoji", "relay-1", "Which license should I use?", None, "Which license should I use?"),
-            ("explicit_reaction_emoji", "relay-2", "Could not deliver follow-up", "x", "Could not deliver follow-up"),
+            ("no_reaction_emoji", "relay-1", "Which license should I use?", None, True, True),
+            ("explicit_reaction_emoji", "relay-2", "Could not deliver follow-up", "x", True, False),
+            ("answer_not_delivered", "relay-3", "Which license should I use?", None, False, False),
         ]
     )
+    @patch("products.slack_app.backend.slack_thread.SlackIntegration")
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.update_reaction")
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message")
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.delete_progress")
@@ -141,11 +148,14 @@ class TestRelaySlackMessage(TestCase):
         relay_id,
         text,
         reaction_emoji,
-        expected_text,
+        delivered,
+        eyes_removed,
         mock_delete_progress,
         mock_post,
         mock_update,
+        mock_slack,
     ):
+        mock_post.return_value = delivered
         relay_slack_message(
             RelaySlackMessageInput(
                 run_id=str(self.task_run.id),
@@ -158,11 +168,16 @@ class TestRelaySlackMessage(TestCase):
 
         mock_delete_progress.assert_called_once()
         mock_post.assert_called_once()
-        assert expected_text in mock_post.call_args.args[0]
+        assert text in mock_post.call_args.args[0]
         if reaction_emoji is None:
             mock_update.assert_not_called()
         else:
             mock_update.assert_called_once_with(reaction_emoji)
+        reactions_remove = mock_slack.return_value.client.reactions_remove
+        if eyes_removed:
+            reactions_remove.assert_called_once_with(channel="C123", timestamp="1234.5", name="eyes")
+        else:
+            reactions_remove.assert_not_called()
         self.task_run.refresh_from_db()
         assert relay_id in self.task_run.state.get("slack_sent_relay_ids", [])
 
@@ -204,6 +219,54 @@ class TestRelaySlackMessage(TestCase):
         )
 
         assert mock_tip.called is tip_expected
+
+    @parameterized.expand([("follow_up", "followup-1"), ("opening_mention", None)])
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.offer_reply_suggestions")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message", return_value=True)
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.delete_progress")
+    def test_a_frustrated_turn_gets_the_reaction_on_its_own_message(
+        self, _name, message_id, _delete, _post, _suggestions
+    ):
+        # A relay carries no user_message_ts, so the reaction target comes from what dispatch or delivery recorded.
+        if message_id:
+            record_delivered_message(
+                str(self.task_run.id),
+                message_id,
+                actor_slack_user_id="U123",
+                person_message="are you even reading what I write?",
+                person_message_ts="3333.3",
+            )
+        else:
+            record_opening_slack_message(
+                str(self.task_run.id),
+                {"person_message": "are you even reading what I write?", "user_message_ts": "3333.3"},
+            )
+        decision = MagicMock()
+        decision.decide.return_value = SystemOneResult(
+            model="m",
+            answers={"sentiment": ChoiceAnswer(choice="frustrated", confidence=0.93, probabilities={})},
+            input_tokens=None,
+        )
+
+        with (
+            patch("products.slack_app.backend.feature_flags.posthoganalytics") as flags,
+            patch("products.slack_app.backend.logic.message_sentiment.build_system_one_client", return_value=decision),
+            patch("products.slack_app.backend.logic.message_sentiment.SlackIntegration") as slack,
+        ):
+            flags.feature_enabled.return_value = True
+            flags.get_feature_flag_result.return_value = None
+            relay_slack_message(
+                RelaySlackMessageInput(
+                    run_id=str(self.task_run.id),
+                    relay_id=f"relay-frustrated-{_name}",
+                    message_id=message_id,
+                    text="Here is the weekly count.",
+                    offer_feature_tip=True,
+                )
+            )
+
+        slack.return_value.client.reactions_add.assert_called_once_with(channel="C123", timestamp="3333.3", name="bow")
+        assert take_opening_slack_message(str(self.task_run.id)) is None
 
     _RICH_ANSWER = "## Heading\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n- [ ] todo"
 
@@ -905,6 +968,16 @@ class TestSplitTextForSlack(SimpleTestCase):
             assert chunk.startswith("```python\n")
             assert chunk.endswith("\n```")
             assert chunk.count("```") == 2
+            assert len(chunk) <= self._LIMIT
+
+    def test_oversized_code_block_with_label_near_limit_does_not_flood_chunks(self):
+        body = "\n".join(f"line {i:04d}" for i in range(800))
+        label = "x" * (self._LIMIT - 10)
+        chunks = _split_markdown_for_slack(f"```{label}\n{body}\n```", self._LIMIT)
+        assert len(chunks) < 10
+        for chunk in chunks:
+            assert chunk.startswith("```\n")
+            assert chunk.endswith("\n```")
             assert len(chunk) <= self._LIMIT
 
     def test_mixed_text_and_code_block_preserves_block(self):

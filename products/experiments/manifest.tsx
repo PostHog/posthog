@@ -6,6 +6,12 @@ import { ActivityScope, ExperimentsTabs, FileSystemIconColor, ProductManifest } 
 
 export const manifest: ProductManifest = {
     name: 'Experiments',
+    activityDescribers: {
+        [ActivityScope.EXPERIMENT]: () =>
+            import('scenes/experiments/experimentActivityDescriber').then(
+                (module) => module.experimentActivityDescriber
+            ),
+    },
     scenes: {
         Experiments: {
             import: () => import('./frontend/scenes/ExperimentsScene'),
@@ -53,7 +59,8 @@ export const manifest: ProductManifest = {
             iconType: 'experiment',
             href: (ref: string) => urls.experiment(ref),
             listHref: () => urls.experiments(),
-            iconColor: ['var(--color-product-experiments-light)'],
+            listSearchParam: 'search',
+            iconColor: ['var(--color-product-experiments-light)', 'var(--color-product-experiments-dark)'],
             filterKey: 'experiment',
         },
     },
@@ -63,7 +70,10 @@ export const manifest: ProductManifest = {
             type: 'experiment',
             href: urls.experiment('new'),
             iconType: 'experiment',
-            iconColor: ['var(--color-product-experiments-light)'] as FileSystemIconColor,
+            iconColor: [
+                'var(--color-product-experiments-light)',
+                'var(--color-product-experiments-dark)',
+            ] as FileSystemIconColor,
             sceneKeys: ['Experiments', 'Experiment'],
         },
     ],
@@ -80,7 +90,10 @@ export const manifest: ProductManifest = {
                 { name: 'Holdout groups', href: urls.experiments(ExperimentsTabs.Holdouts) },
             ],
             iconType: 'experiment',
-            iconColor: ['var(--color-product-experiments-light)'] as FileSystemIconColor,
+            iconColor: [
+                'var(--color-product-experiments-light)',
+                'var(--color-product-experiments-dark)',
+            ] as FileSystemIconColor,
             sceneKey: 'Experiments',
             sceneKeys: ['Experiments', 'Experiment'],
         },

@@ -1,3 +1,5 @@
+import { humanFriendlyNumber } from 'lib/utils/numbers'
+
 import { LATEST_BATCH_LOOKBACK_DAYS } from './autoresearchPipelineLogic'
 
 export type PredictionsPeopleView = 'most_likely' | 'biggest_movers' | 'least_likely'
@@ -9,6 +11,24 @@ export const PREDICTIONS_PEOPLE_VIEWS: { value: PredictionsPeopleView; label: st
 ]
 
 export const PREDICTIONS_PEOPLE_LIMIT = 50
+
+const FOOTER: Record<PredictionsPeopleView, { top: string; order: string }> = {
+    most_likely: { top: 'Top', order: 'by score' },
+    biggest_movers: { top: 'Top', order: 'by change in score' },
+    least_likely: { top: 'Bottom', order: 'by score' },
+}
+
+/** States which slice of the latest batch the table shows, because the query returns only the first rows. */
+export function predictionsPeopleFooter(view: PredictionsPeopleView, scoredPeople: number): string {
+    const { top, order } = FOOTER[view]
+    if (scoredPeople === 1) {
+        return `1 person ${order}`
+    }
+    if (scoredPeople <= PREDICTIONS_PEOPLE_LIMIT) {
+        return `All ${humanFriendlyNumber(scoredPeople)} people ${order}`
+    }
+    return `${top} ${PREDICTIONS_PEOPLE_LIMIT} of ${humanFriendlyNumber(scoredPeople)} people ${order}`
+}
 
 const ORDER_BY: Record<PredictionsPeopleView, string> = {
     most_likely: 'p_latest DESC',

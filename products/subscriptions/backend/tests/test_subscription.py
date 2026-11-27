@@ -1,5 +1,6 @@
 import json
 from collections.abc import Callable
+from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
 from typing import Optional
 from uuid import uuid4
@@ -18,7 +19,10 @@ from rest_framework import status
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.constants import SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY, AvailableFeature
-from posthog.models import Team
+from posthog.event_usage import EventSource
+from posthog.integrations import SOURCE_MARKER_CONFIG_KEY
+from posthog.models import Team, User
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -26,6 +30,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.slo.context import slo_operation
 from posthog.test.insight_queries import browser_filtered_pageview_query, default_pageview_query
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -41,9 +46,15 @@ from products.subscriptions.backend.facade.api import (
     MAX_INSIGHTS,
     TEAMS_WEBHOOK_URL_ERROR,
     TEAMS_WEBHOOK_URL_MASKED_ERROR,
+    take_subscription_ownership,
 )
-from products.subscriptions.backend.facade.contracts import ProcessSubscriptionWorkflowInputs, SubscriptionTriggerType
+from products.subscriptions.backend.facade.contracts import (
+    ProcessSubscriptionWorkflowInputs,
+    SubscriptionRequestInvalidError,
+    SubscriptionTriggerType,
+)
 from products.subscriptions.backend.facade.testing import AI_QUERY_PLAN_VERSION
+from products.subscriptions.backend.logic.visibility import viewable_deliveries, viewable_subscriptions
 from products.subscriptions.backend.models.subscription import (
     SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER,
     AIQueryPlanStatus,
@@ -57,11 +68,6 @@ from ee.api.test.base import APILicensedTest
 
 WAREHOUSE_ACCESS_CONTROL_FLAG = "posthog.hogql.database.database._evaluate_warehouse_access_control_flag"
 VALID_TEAMS_WEBHOOK_URL = "https://prod-25.westeurope.logic.azure.com:443/workflows/abc/triggers/manual/paths/invoke"
-GALLERY_ON_PROMPT_ERROR = (
-    "post_all_insights_in_main_message only applies to insight and dashboard subscriptions. This "
-    "subscription has resource_type 'ai_prompt', so remove it from delivery_config. A prompt report "
-    "already posts all its chart images in the main message."
-)
 GALLERY_FILES_WRITE_ERROR = (
     "post_all_insights_in_main_message requires the Slack files:write permission. Reconnect Slack to "
     "grant it, or remove the option from delivery_config to save the subscription now. Each delivery "
@@ -137,6 +143,19 @@ class TestSubscriptionTemporal(APILicensedTest):
 
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json()["byweekday"] == byweekday
+
+    @parameterized.expand(
+        [
+            ("custom", {"width": 1200, "height": 630}, 201),
+            ("automatic_height", {"width": 1200, "height": None}, 201),
+            ("too_large", {"width": 4001}, 400),
+        ]
+    )
+    def test_subscription_image_size(self, _name, size, expected_status):
+        response = self._create_subscription(delivery_config={"image_size": size})
+        assert response.status_code == expected_status
+        if expected_status == 201:
+            assert response.json()["delivery_config"]["image_size"] == size
 
     def test_can_create_new_subscription(self):
         response = self._create_subscription()
@@ -401,6 +420,7 @@ class TestSubscriptionTemporal(APILicensedTest):
     def _disabled_email_sub(self) -> int:
         return Subscription.objects.create(
             team=self.team,
+            created_by=self.user,
             target_type="email",
             target_value="vasco@posthog.com",
             frequency="daily",
@@ -957,8 +977,14 @@ class TestSubscriptionTemporal(APILicensedTest):
         )
         assert res.status_code == status.HTTP_201_CREATED
 
-    def test_cannot_create_slack_subscription_with_non_slack_integration(self):
-        integration = Integration.objects.create(team=self.team, kind="hubspot", config={})
+    @parameterized.expand(
+        [
+            ("non_slack_kind", "hubspot", {}),
+            ("warehouse_source_row", "slack", {SOURCE_MARKER_CONFIG_KEY: "Slack"}),
+        ]
+    )
+    def test_cannot_create_slack_subscription_with_unusable_integration(self, _name, kind, config):
+        integration = Integration.objects.create(team=self.team, kind=kind, config=config)
 
         response = self._create_subscription(
             target_type="slack",
@@ -966,7 +992,7 @@ class TestSubscriptionTemporal(APILicensedTest):
             integration_id=integration.id,
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "require a Slack integration" in response.json()["detail"]
+        assert "does not exist or does not belong to your team" in response.json()["detail"]
 
     def test_can_create_teams_subscription_with_a_webhook_url(self):
         response = self._create_subscription(target_type="teams", target_value=VALID_TEAMS_WEBHOOK_URL)
@@ -1039,6 +1065,49 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert response.json()["attr"] == "target_value"
         assert response.json()["detail"] == TEAMS_WEBHOOK_URL_ERROR
 
+    @parameterized.expand(
+        [
+            ("slack_disable", "slack", "C123|#reports", {"enabled": False}, 200),
+            ("slack_delete", "slack", "C123|#reports", {"deleted": True}, 200),
+            ("teams_disable", "teams", "https://example.com/expired-webhook", {"enabled": False}, 200),
+            ("teams_delete", "teams", "https://example.com/expired-webhook", {"deleted": True}, 200),
+            (
+                "slack_destination_edit",
+                "slack",
+                "C123|#reports",
+                {"enabled": False, "target_value": "C456|#other"},
+                400,
+            ),
+            (
+                "teams_destination_edit",
+                "teams",
+                "https://example.com/expired-webhook",
+                {"enabled": False, "target_value": "https://example.com/another-webhook"},
+                400,
+            ),
+        ]
+    )
+    def test_turning_off_invalid_destination_only_skips_validation_for_unchanged_destination(
+        self, _name: str, target_type: str, target_value: str, payload: dict[str, bool | str], expected_status: int
+    ) -> None:
+        subscription = Subscription.objects.create(
+            team=self.team,
+            created_by=self.user,
+            insight=self.insight,
+            target_type=target_type,
+            target_value=target_value,
+            frequency="daily",
+            start_date=timezone.now(),
+        )
+        response = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}", payload)
+        assert response.status_code == expected_status, response.json()
+        subscription.refresh_from_db()
+        if expected_status == status.HTTP_200_OK:
+            assert not subscription.enabled or subscription.deleted
+        else:
+            assert subscription.enabled and not subscription.deleted
+        self.mock_temporal_client.start_workflow.assert_not_called()
+
     def test_patch_enabled_true_rejected_when_slack_integration_missing(self):
         """Re-enabling a disabled Slack subscription whose integration is gone must be
         rejected up front — otherwise the next delivery would auto-disable it again
@@ -1089,6 +1158,215 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "enabled"
         assert "this delivery channel is not currently supported" in response.json()["detail"]
+
+    def _disabled_subscription_of_a_former_member(self) -> Subscription:
+        former_member = User.objects.create_user(email="former-member@example.com", first_name="", password=None)
+        return Subscription.objects.create(
+            team=self.team,
+            target_type="email",
+            target_value="reader@example.com",
+            frequency="daily",
+            start_date=timezone.now(),
+            insight=self.insight,
+            title="left behind",
+            created_by=former_member,
+            enabled=False,
+        )
+
+    def test_patch_enabled_true_rejected_when_the_owner_left(self):
+        subscription = self._disabled_subscription_of_a_former_member()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/",
+            {"enabled": True},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "enabled"
+        # The frontend keys its "take ownership" offer, and the cause it shows, on this code.
+        assert response.json()["code"] == "owner_left_organization"
+        assert (
+            "its creator, former-member@example.com, who is no longer in the organization" in response.json()["detail"]
+        )
+
+    def test_take_ownership_rejects_subscription_without_content(self) -> None:
+        subscription = self._disabled_subscription_of_a_former_member()
+        Subscription.objects.filter(pk=subscription.pk).update(insight=None)
+
+        response = self.client.post(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/take_ownership/", {})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        subscription.refresh_from_db()
+        assert subscription.created_by != self.user
+        assert subscription.enabled is False
+
+    @parameterized.expand(["recipients", "contexts", "scheduler", "content"])
+    def test_take_ownership_preserves_concurrent_changes(self, change: str) -> None:
+        subscription = self._disabled_subscription_of_a_former_member()
+        previous_owner = subscription.created_by
+        changed = False
+        next_delivery = timezone.now() + timedelta(days=7)
+
+        def edit_before_lock(execute, sql, params, many, context):
+            nonlocal changed
+            if not changed and 'FROM "posthog_subscription"' in sql and "FOR UPDATE" in sql:
+                changed = True
+                if change == "recipients":
+                    Subscription.objects.filter(pk=subscription.pk).update(target_value="changed@example.com")
+                elif change == "contexts":
+                    SubscriptionContext.objects.for_team(self.team.id).create(
+                        team=self.team, subscription=subscription, insight=self.insight
+                    )
+                elif change == "scheduler":
+                    Subscription.objects.filter(pk=subscription.pk).update(next_delivery_date=next_delivery)
+                else:
+                    Subscription.objects.filter(pk=subscription.pk).update(insight=None)
+            return execute(sql, params, many, context)
+
+        if change == "scheduler":
+            subscription.enabled = True
+            subscription.save()
+        with (
+            self.captureOnCommitCallbacks(execute=True),
+            connection.execute_wrapper(edit_before_lock),
+            pytest.raises(SubscriptionRequestInvalidError) if change == "content" else nullcontext(),
+        ):
+            take_subscription_ownership(
+                team=self.team,
+                organization=self.organization,
+                actor=self.user,
+                owner=self.user,
+                viewer=UserAccessControl(user=self.user, team=self.team),
+                subscription_id=subscription.id,
+                analytics_props={"source": EventSource.WEB},
+            )
+
+            self.mock_temporal_client.start_workflow.assert_not_called()
+
+        assert changed
+        subscription.refresh_from_db()
+        if change == "content":
+            assert subscription.created_by == previous_owner
+            assert subscription.enabled is False
+            assert not ActivityLog.objects.filter(
+                scope="Subscription",
+                item_id=str(subscription.id),
+                activity__in=["took_ownership", "transferred_ownership"],
+            ).exists()
+        else:
+            assert subscription.created_by == self.user
+            assert subscription.enabled is True
+            if change == "scheduler":
+                assert subscription.next_delivery_date == next_delivery
+            elif change == "recipients":
+                assert subscription.target_value == "changed@example.com"
+            else:
+                assert (
+                    SubscriptionContext.objects.for_team(self.team.id)
+                    .filter(subscription=subscription, insight=self.insight)
+                    .exists()
+                )
+        if change in ("recipients", "contexts"):
+            delivery = self.mock_temporal_client.start_workflow.call_args.args[1]
+            assert delivery.subscription_id == subscription.id
+            assert delivery.previous_target_value == subscription.target_value
+
+    @parameterized.expand(
+        [
+            (True, OrganizationMembership.Level.MEMBER, False, False),
+            (False, OrganizationMembership.Level.MEMBER, False),
+            (False, OrganizationMembership.Level.MEMBER, True),
+            (True, OrganizationMembership.Level.MEMBER, False),
+            (True, OrganizationMembership.Level.MEMBER, True),
+            (True, OrganizationMembership.Level.ADMIN, False),
+            (True, OrganizationMembership.Level.ADMIN, True),
+        ]
+    )
+    def test_take_ownership_permissions(
+        self, another_member: bool, requester_level: int, ai_prompt: bool, member_exists: bool = True
+    ) -> None:
+        subscription = self._disabled_subscription_of_a_former_member()
+        if ai_prompt:
+            subscription.insight = None
+            subscription.prompt = "Summarize weekly signups"
+            subscription.save()
+        previous_owner = subscription.created_by
+        owner = self.user
+        if another_member:
+            owner = User.objects.create_user(email="new-owner@example.com", first_name="New owner", password=None)
+            if member_exists:
+                OrganizationMembership.objects.create(organization=self.organization, user=owner)
+        self.organization_membership.level = requester_level
+        self.organization_membership.save()
+
+        with patch("products.subscriptions.backend.logic.subscription_writes.posthoganalytics.capture") as capture:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/take_ownership/",
+                {"user_uuid": str(owner.uuid)} if another_member else {},
+            )
+
+        subscription.refresh_from_db()
+        if another_member and requester_level == OrganizationMembership.Level.MEMBER:
+            assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+            assert "organization admin" in response.json()["detail"]
+            assert subscription.created_by == previous_owner
+            assert subscription.enabled is False
+            assert not ActivityLog.objects.filter(
+                scope="Subscription",
+                item_id=str(subscription.id),
+                activity__in=["took_ownership", "transferred_ownership"],
+            ).exists()
+            return
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert subscription.created_by == owner
+        assert subscription.enabled is True
+        assert response.json()["created_by"]["id"] == owner.id
+        delivery_events = [
+            call.kwargs
+            for call in capture.call_args_list
+            if call.kwargs.get("event") == "subscription_update_delivery_intent"
+        ]
+        assert len(delivery_events) == 1
+        assert delivery_events[0]["distinct_id"] == str(self.user.distinct_id)
+        # created_by is excluded from the save diff, so the takeover logs its own activity.
+        takeover = ActivityLog.objects.get(
+            scope="Subscription",
+            item_id=str(subscription.id),
+            activity="transferred_ownership" if another_member else "took_ownership",
+        )
+        assert takeover.detail is not None
+        assert [change["field"] for change in takeover.detail["changes"]] == ["created_by"]
+        assert takeover.user == self.user
+
+    @parameterized.expand(["non_member", "inactive", "no_project_access"])
+    def test_transfer_ownership_rejects_ineligible_owner(self, reason: str) -> None:
+        subscription = self._disabled_subscription_of_a_former_member()
+        previous_owner = subscription.created_by
+        owner = User.objects.create_user(
+            email="new-owner@example.com", first_name="New owner", password=None, is_active=reason != "inactive"
+        )
+        if reason != "non_member":
+            OrganizationMembership.objects.create(organization=self.organization, user=owner)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        if reason == "no_project_access":
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+            ]
+            self.organization.save()
+            AccessControl.objects.create(
+                team=self.team, resource="project", resource_id=str(self.team.id), access_level="none"
+            )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/take_ownership/",
+            {"user_uuid": str(owner.uuid)},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        subscription.refresh_from_db()
+        assert subscription.created_by == previous_owner
+        assert subscription.enabled is False
 
     def test_cannot_create_subscription_with_summary_enabled_without_ai_consent(self):
         self.organization.is_ai_data_processing_approved = False
@@ -1883,14 +2161,27 @@ class TestSubscriptionTemporal(APILicensedTest):
     def test_dashboard_tiles_filter_requires_dashboard_view_access(self):
         # Without a view-access check a member could pass any dashboard ID and enumerate its tiles'
         # subscriptions. Denying object access must 403, not leak the tile set.
-        self._create_subscription(title="On tile", insight=self._insight().id)
-        with patch(
-            "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_object",
-            return_value=False,
-        ):
-            res = self.client.get(
-                f"/api/projects/{self.team.id}/subscriptions/", {"dashboard_tiles": self.dashboard.id}
-            )
+        restricted = Dashboard.objects.create(team=self.team, name="Restricted dashboard")
+        tiled_insight = self._insight()
+        restricted.tiles.create(insight=tiled_insight)
+        self._create_subscription(title="On tile", insight=tiled_insight.id)
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save(update_fields=["level"])
+        AccessControl.objects.create(
+            team=self.team,
+            resource="dashboard",
+            resource_id=str(restricted.id),
+            organization_member=self.organization_membership,
+            access_level="none",
+        )
+        cache.clear()
+
+        res = self.client.get(f"/api/projects/{self.team.id}/subscriptions/", {"dashboard_tiles": restricted.id})
+
         assert res.status_code == status.HTTP_403_FORBIDDEN, res.content
 
     def test_dashboard_tiles_filter_rejects_other_teams_dashboard(self):
@@ -1985,6 +2276,7 @@ class TestSubscriptionTemporal(APILicensedTest):
         # after the immediate SUBSCRIPTION_CHANGE confirmation.
         subscription = Subscription.objects.create(
             team=self.team,
+            created_by=self.user,
             target_type="email",
             target_value="vasco@posthog.com",
             frequency="daily",
@@ -2030,6 +2322,7 @@ class TestSubscriptionTemporal(APILicensedTest):
             kwargs["until_date"] = timezone.now() + timedelta(days=kwargs["until_date"])
         subscription = Subscription.objects.create(
             team=self.team,
+            created_by=self.user,
             target_type="email",
             target_value="vasco@posthog.com",
             frequency="daily",
@@ -2092,6 +2385,7 @@ class TestSubscriptionTemporal(APILicensedTest):
         # candidate-rrule check honors the new `until_date` and lets it through.
         subscription = Subscription.objects.create(
             team=self.team,
+            created_by=self.user,
             target_type="email",
             target_value="vasco@posthog.com",
             frequency="daily",
@@ -2147,6 +2441,7 @@ class TestSubscriptionTemporal(APILicensedTest):
     ):
         subscription = Subscription.objects.create(
             team=self.team,
+            created_by=self.user,
             target_type="email",
             target_value="vasco@posthog.com",
             frequency="daily",
@@ -2813,6 +3108,22 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
         back = self.client.get(body2["previous"])
         assert back.status_code == status.HTTP_200_OK
         assert [row["id"] for row in back.json()["results"]] == [row["id"] for row in body["results"]]
+
+        # Rows that share the cursor value need a stable order, or a page boundary skips or repeats them.
+        self._create_delivery(idempotency_key="page-d")
+        self._create_delivery(idempotency_key="page-e")
+        SubscriptionDelivery.objects.filter(subscription=self.subscription).update(
+            created_at=datetime(2024, 1, 1, tzinfo=UTC)
+        )
+        pages = [self.client.get(base).json()]
+        # Bounded, so a cursor that never advances fails instead of hanging.
+        while pages[-1]["next"] and len(pages) <= 5:
+            pages.append(self.client.get(pages[-1]["next"]).json())
+        assert [page["count"] for page in pages] == [5, 5, 5]
+        listed = [row["id"] for page in pages for row in page["results"]]
+        assert sorted(listed) == sorted(
+            str(d.id) for d in SubscriptionDelivery.objects.filter(subscription=self.subscription)
+        )
 
     def test_summaries_list_completed_summaries_across_subscriptions_on_the_source(self):
         second_subscription = Subscription.objects.create(
@@ -4138,19 +4449,44 @@ class TestAISubscriptionAPI(APILicensedTest):
 
     @parameterized.expand(
         [
-            ("unrelated_field", "files:write", {"enabled": False}),
-            ("delivery_config_without_the_option", "files:write", {"delivery_config": {"include_images": False}}),
-            ("slack_without_files_write", "channels:read", {"enabled": False}),
+            ("slack_without_files_write", "slack", "C1234|#general", status.HTTP_201_CREATED, None),
+            (
+                "email",
+                "email",
+                "ai@posthog.com",
+                status.HTTP_400_BAD_REQUEST,
+                "post_all_insights_in_main_message only applies to Slack subscriptions. "
+                "This subscription delivers to email, so remove it from delivery_config.",
+            ),
         ]
     )
-    def test_stored_gallery_option_does_not_block_other_prompt_edits(
-        self, mock_is_cloud, mock_flag, mock_sync, _name, extra_scope, patch_body
+    def test_gallery_option_on_prompt_create(
+        self, mock_is_cloud, mock_flag, mock_sync, _name, target_type, target_value, expected_status, expected_detail
     ):
         self._enable_ai()
         self._mock_temporal(mock_sync)
-        integration = Integration.objects.create(
-            team=self.team, kind="slack", config={"scope": f"chat:write,{extra_scope}"}
+        overrides: dict = {"target_type": target_type, "target_value": target_value}
+        if target_type == "slack":
+            overrides["integration_id"] = Integration.objects.create(
+                team=self.team, kind="slack", config={"scope": "chat:write"}
+            ).id
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(delivery_config={"post_all_insights_in_main_message": True}, **overrides),
         )
+
+        assert response.status_code == expected_status, response.json()
+        if expected_detail:
+            assert response.json()["detail"] == expected_detail
+        else:
+            subscription = Subscription.objects.get(id=response.json()["id"])
+            assert subscription.delivery_config["post_all_insights_in_main_message"] is True
+
+    def test_gallery_option_is_accepted_on_prompt_patch_without_files_write(self, mock_is_cloud, mock_flag, mock_sync):
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        integration = Integration.objects.create(team=self.team, kind="slack", config={"scope": "chat:write"})
         create_response = self.client.post(
             f"/api/projects/{self.team.id}/subscriptions",
             self._make_ai_payload(
@@ -4161,65 +4497,15 @@ class TestAISubscriptionAPI(APILicensedTest):
         )
         assert create_response.status_code == status.HTTP_201_CREATED, create_response.json()
         subscription_id = create_response.json()["id"]
-        # Seeded directly because create rejects the option. Rows like this predate the rule, and
-        # validating the stored value would leave them impossible to edit or even to disable.
-        Subscription.objects.filter(id=subscription_id).update(
-            delivery_config={"post_all_insights_in_main_message": True}
-        )
-
-        patch_response = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{subscription_id}", patch_body)
-
-        assert patch_response.status_code == status.HTTP_200_OK, patch_response.json()
-
-    @parameterized.expand(
-        [
-            ("email", "email", "ai@posthog.com"),
-            ("slack", "slack", "C1234|#general"),
-        ]
-    )
-    def test_gallery_option_is_rejected_on_prompt_create(
-        self, mock_is_cloud, mock_flag, mock_sync, _name, target_type, target_value
-    ):
-        self._enable_ai()
-        self._mock_temporal(mock_sync)
-        overrides: dict = {"target_type": target_type, "target_value": target_value}
-        if target_type == "slack":
-            # files:write present, so the permission rule cannot be what rejects the request.
-            overrides["integration_id"] = Integration.objects.create(
-                team=self.team, kind="slack", config={"scope": "chat:write,files:write"}
-            ).id
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/subscriptions",
-            self._make_ai_payload(delivery_config={"post_all_insights_in_main_message": True}, **overrides),
-        )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert response.json()["detail"] == GALLERY_ON_PROMPT_ERROR
-
-    def test_gallery_option_is_rejected_on_prompt_patch(self, mock_is_cloud, mock_flag, mock_sync):
-        self._enable_ai()
-        self._mock_temporal(mock_sync)
-        integration = Integration.objects.create(
-            team=self.team, kind="slack", config={"scope": "chat:write,files:write"}
-        )
-        create_response = self.client.post(
-            f"/api/projects/{self.team.id}/subscriptions",
-            self._make_ai_payload(
-                target_type="slack",
-                target_value="C1234|#general",
-                integration_id=integration.id,
-            ),
-        )
-        assert create_response.status_code == status.HTTP_201_CREATED, create_response.json()
 
         patch_response = self.client.patch(
-            f"/api/projects/{self.team.id}/subscriptions/{create_response.json()['id']}",
+            f"/api/projects/{self.team.id}/subscriptions/{subscription_id}",
             {"delivery_config": {"post_all_insights_in_main_message": True}},
         )
 
-        assert patch_response.status_code == status.HTTP_400_BAD_REQUEST, patch_response.json()
-        assert patch_response.json()["detail"] == GALLERY_ON_PROMPT_ERROR
+        assert patch_response.status_code == status.HTTP_200_OK, patch_response.json()
+        subscription = Subscription.objects.get(id=subscription_id)
+        assert subscription.delivery_config["post_all_insights_in_main_message"] is True
 
     def test_gallery_option_is_accepted_as_false_on_a_prompt_subscription(self, mock_is_cloud, mock_flag, mock_sync):
         self._enable_ai()
@@ -4423,6 +4709,10 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         self._rule("insight")
         return self._subscription_for(insight=self.open_insight)
 
+    def _sub_under_a_dashboard_resource_wide_deny(self) -> Subscription:
+        self._rule("dashboard")
+        return self._subscription_for(dashboard=self._dashboard_with_tiles(self.open_insight))
+
     def _sub_under_a_lone_resource_wide_deny(self) -> Subscription:
         AccessControl.objects.filter(team=self.team).delete()
         return self._sub_under_a_resource_wide_deny()
@@ -4449,6 +4739,54 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         self.restricted_insight.deleted = True
         self.restricted_insight.save(update_fields=["deleted"])
         return subscription
+
+    def _sub_on_a_soft_deleted_restricted_dashboard(self) -> Subscription:
+        subscription = self._subscription_for(dashboard=self.restricted_dashboard)
+        self.restricted_dashboard.deleted = True
+        self.restricted_dashboard.save(update_fields=["deleted"])
+        return subscription
+
+    def _delivery_rendering_a_restricted_dashboard_after_the_read(self, viewer: UserAccessControl) -> bool:
+        subscription = self._sub_on_an_open_insight()
+        visible = viewable_deliveries(
+            SubscriptionDelivery.objects.filter(subscription=subscription), viewer, self.team.id
+        )
+        late = self._delivery_for(
+            subscription, content_snapshot={"dashboard": {"id": self.restricted_dashboard.id}, "insights": []}
+        )
+        return visible.filter(pk=late.pk).exists()
+
+    def _subscription_repointed_at_a_restricted_dashboard_after_the_read(self, viewer: UserAccessControl) -> bool:
+        subscription = self._sub_on_an_open_insight()
+        visible = viewable_subscriptions(Subscription.objects.filter(pk=subscription.pk), viewer, self.team.id)
+        Subscription.objects.filter(pk=subscription.pk).update(insight=None, dashboard=self.restricted_dashboard)
+        return visible.exists()
+
+    def _context_on_a_restricted_dashboard_added_after_the_read(self, viewer: UserAccessControl) -> bool:
+        subscription = self._sub_on_an_ai_prompt()
+        visible = viewable_subscriptions(Subscription.objects.filter(pk=subscription.pk), viewer, self.team.id)
+        SubscriptionContext.objects.for_team(self.team.id).create(
+            team_id=self.team.id, subscription=subscription, dashboard=self.restricted_dashboard
+        )
+        return visible.exists()
+
+    @parameterized.expand(
+        [
+            (
+                "a delivery that renders a restricted dashboard",
+                "_delivery_rendering_a_restricted_dashboard_after_the_read",
+            ),
+            (
+                "a subscription repointed at a restricted dashboard",
+                "_subscription_repointed_at_a_restricted_dashboard_after_the_read",
+            ),
+            ("a context on a restricted dashboard", "_context_on_a_restricted_dashboard_added_after_the_read"),
+        ]
+    )
+    def test_a_row_written_between_the_dashboard_read_and_the_filter_stays_hidden(self, _name, write_after_the_read):
+        viewer = UserAccessControl(user=self.user, team=self.team)
+
+        assert getattr(self, write_after_the_read)(viewer) is False
 
     def _assert_visibility(self, subscription: Subscription, *, sees_subscription: bool, sees_deliveries: bool) -> None:
         listed = self.client.get(f"/api/projects/{self.team.id}/subscriptions")
@@ -4479,11 +4817,18 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
             ("a selection that leaves the restricted tile out", "_sub_selecting_only_the_open_tile", True, True),
             ("a restricted tile that was removed", "_sub_whose_restricted_tile_was_removed", True, False),
             ("a deny on the whole insight resource", "_sub_under_a_resource_wide_deny", False, False),
+            ("a deny on the whole dashboard resource", "_sub_under_a_dashboard_resource_wide_deny", False, False),
             ("that deny as the only rule in the team", "_sub_under_a_lone_resource_wide_deny", False, False),
             ("that deny with the insight granted back", "_sub_under_a_resource_wide_deny_with_a_grant", True, True),
             ("an org admin reading a private insight", "_sub_read_by_an_org_admin", True, True),
             ("a team with no access rules", "_sub_in_a_team_without_rules", True, True),
             ("a restricted insight that was soft-deleted", "_sub_on_a_soft_deleted_restricted_insight", True, False),
+            (
+                "a restricted dashboard that was soft-deleted",
+                "_sub_on_a_soft_deleted_restricted_dashboard",
+                True,
+                False,
+            ),
         ]
     )
     def test_target_access_decides_what_the_caller_sees(self, _name, builder, sees_subscription, sees_deliveries):
@@ -4657,6 +5002,82 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         return self.client.post(
             f"/api/projects/{self.team.id}/subscriptions", self._payload(insight=self.restricted_insight.id)
         )
+
+    @parameterized.expand(
+        [
+            (restricted, kind)
+            for restricted in (False, True)
+            for kind in ("selection", "insight_context", "dashboard_context")
+        ]
+    )
+    def test_transfer_checks_the_new_owners_content(self, restricted_content: bool, kind: str) -> None:
+        admin = User.objects.create_user(email="admin@example.com", first_name="Admin", password=None)
+        OrganizationMembership.objects.create(
+            organization=self.organization, user=admin, level=OrganizationMembership.Level.ADMIN
+        )
+        selected_insight = self.restricted_insight if restricted_content else self.open_insight
+        if kind == "selection":
+            dashboard = self._dashboard_with_tiles(self.open_insight, self.restricted_insight)
+            subscription = create_subscription(team=self.team, created_by=admin, dashboard=dashboard, enabled=False)
+            subscription.dashboard_export_insights.set([selected_insight])
+        else:
+            context = selected_insight if kind == "insight_context" else self._dashboard_with_tiles(selected_insight)
+            subscription = self._ai_sub_with_contexts(context)
+            subscription.created_by = admin
+            subscription.enabled = False
+            subscription.save()
+        self.client.force_login(admin)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/take_ownership/",
+            {"user_uuid": str(self.user.uuid)},
+        )
+
+        subscription.refresh_from_db()
+        if kind == "selection":
+            assert list(subscription.dashboard_export_insights.values_list("id", flat=True)) == [selected_insight.id]
+        if restricted_content:
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+            assert "access" in response.json()["detail"]
+            assert subscription.created_by == admin
+            assert subscription.enabled is False
+            assert not ActivityLog.objects.filter(
+                scope="Subscription",
+                item_id=str(subscription.id),
+                activity__in=["took_ownership", "transferred_ownership"],
+            ).exists()
+        else:
+            assert response.status_code == status.HTTP_200_OK, response.content
+            assert subscription.created_by == self.user
+            assert subscription.enabled is True
+            self.client.force_login(self.user)
+            assert self.client.get(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/").status_code == 200
+
+    def test_transfer_rejects_an_ai_owner_without_query_access(self) -> None:
+        admin = User.objects.create_user(email="admin@example.com", first_name="Admin", password=None)
+        OrganizationMembership.objects.create(
+            organization=self.organization, user=admin, level=OrganizationMembership.Level.ADMIN
+        )
+        subscription = self._sub_on_an_ai_prompt()
+        subscription.created_by = admin
+        subscription.enabled = False
+        subscription.save()
+        self._rule("query")
+        self.client.force_login(admin)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/take_ownership/",
+            {"user_uuid": str(self.user.uuid)},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert response.json()["detail"] == "The new owner needs query access for AI prompt subscriptions."
+        subscription.refresh_from_db()
+        assert subscription.created_by == admin
+        assert subscription.enabled is False
+        assert not ActivityLog.objects.filter(
+            scope="Subscription", item_id=str(subscription.id), activity__in=["took_ownership", "transferred_ownership"]
+        ).exists()
 
     def _create_on_a_restricted_dashboard(self):
         return self.client.post(
@@ -4844,6 +5265,43 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
 
     def _deny_warehouse_tables(self) -> None:
         self._rule("warehouse_objects", for_member=False)
+
+    @parameterized.expand([(False, "owner"), (True, "owner"), (False, None), (True, None)])
+    def test_transfer_checks_the_owners_table_access(self, enabled: bool, denied_user: str | None) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        owner = User.objects.create_user(email="new-owner@example.com", first_name="New owner", password=None)
+        owner_membership = OrganizationMembership.objects.create(organization=self.organization, user=owner)
+        subscription = self._subscription_for(insight=self._insight_over_a_governed_view(), enabled=enabled)
+        if denied_user:
+            AccessControl.objects.create(
+                team=self.team,
+                resource="warehouse_objects",
+                organization_member=owner_membership,
+                access_level="none",
+            )
+
+        with patch(WAREHOUSE_ACCESS_CONTROL_FLAG, return_value=True):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/take_ownership/",
+                {"user_uuid": str(owner.uuid)},
+            )
+
+        subscription.refresh_from_db()
+        if denied_user:
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+            assert "the new owner doesn't have access to `governed_view`" in response.json()["detail"]
+            assert subscription.created_by == self.user
+            assert subscription.enabled is enabled
+            assert not ActivityLog.objects.filter(
+                scope="Subscription",
+                item_id=str(subscription.id),
+                activity__in=["took_ownership", "transferred_ownership"],
+            ).exists()
+        else:
+            assert response.status_code == status.HTTP_200_OK, response.content
+            assert subscription.created_by == owner
+            assert subscription.enabled is True
 
     def _insight_target(self, insight: Insight) -> dict:
         return {"insight": insight.id}

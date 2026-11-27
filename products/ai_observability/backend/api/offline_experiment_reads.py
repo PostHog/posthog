@@ -8,25 +8,22 @@ from drf_spectacular.utils import OpenApiParameter
 from prometheus_client import Counter
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import APIException, PermissionDenied
+from rest_framework.exceptions import APIException
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.monitoring import monitor
+from posthog.api.pagination import page_link
 from posthog.api.statement_timeout import statement_timeout
+from posthog.exceptions import InsufficientScope
 from posthog.permissions import get_authenticator_scopes
 
 from products.ai_observability.backend.api.metrics import llma_track_latency
 from products.ai_observability.backend.api.offline_evaluation_base import OfflineEvaluationViewSet
-from products.ai_observability.backend.api.offline_experiment_access import (
-    OfflineEvaluationReadBurstThrottle,
-    OfflineEvaluationReadSustainedThrottle,
-    OfflineEvaluationReadTeamBurstThrottle,
-    OfflineEvaluationReadTeamSustainedThrottle,
-)
 from products.ai_observability.backend.api.offline_experiment_errors import OfflineEvaluationErrorSerializer
 from products.ai_observability.backend.api.offline_experiment_read_serializers import (
+    ExperimentScorePreviewSerializer,
     OfflineExperimentPageSerializer,
     OfflineExperimentQuerySerializer,
     OfflineExperimentReadSerializer,
@@ -44,9 +41,16 @@ from products.ai_observability.backend.api.offline_experiment_read_serializers i
     OfflineSummaryQuerySerializer,
 )
 from products.ai_observability.backend.api.query import EmptyQuerySerializer
+from products.ai_observability.backend.api.score_definitions import CompositeValidationSerializer
 from products.ai_observability.backend.models.offline_evaluations import OfflineExperiment
 from products.ai_observability.backend.offline_evaluation_read_service import OfflineEvaluationReadService
 from products.ai_observability.backend.offline_evaluation_read_types import OfflineReadQuery, OfflineResultCellQuery
+from products.ai_observability.backend.presentation.throttles import (
+    OfflineEvaluationReadBurstThrottle,
+    OfflineEvaluationReadSustainedThrottle,
+    OfflineEvaluationReadTeamBurstThrottle,
+    OfflineEvaluationReadTeamSustainedThrottle,
+)
 
 OFFLINE_READ_ERRORS = Counter(
     "aio_offline_read_errors_total", "Rejected offline evaluation reads", labelnames=["outcome"]
@@ -81,6 +85,7 @@ class OfflineEvaluationReadViewSet(OfflineEvaluationViewSet):
         "item_payload",
         "result_payload",
         "scorer_summaries",
+        "score_previews",
         "history",
     ]
     throttle_classes = [
@@ -94,7 +99,14 @@ class OfflineEvaluationReadViewSet(OfflineEvaluationViewSet):
     pagination_class = None
 
     def dangerously_get_required_scopes(self, request: Request, view: viewsets.ViewSetMixin) -> list[str] | None:
-        if self.action in ["item_results", "result_cells", "result_payload", "scorer_summaries", "history"]:
+        if self.action in [
+            "item_results",
+            "result_cells",
+            "result_payload",
+            "scorer_summaries",
+            "history",
+            "score_previews",
+        ]:
             return ["evaluation:read", "llm_analytics:read"]
         if self.action in self.scope_object_read_actions or self.action == "metadata":
             return ["evaluation:read"]
@@ -111,9 +123,9 @@ class OfflineEvaluationReadViewSet(OfflineEvaluationViewSet):
             {"*", "llm_analytics:read", "llm_analytics:write"}.intersection(scopes)
         )
         if query is not None and (query.scorer_definition_id or query.scorer_version_ids) and not can_read_scores:
-            raise PermissionDenied("Scorer filters require llm_analytics:read.")
+            raise InsufficientScope(["llm_analytics:read"], detail="Scorer filters require llm_analytics:read.")
         return OfflineEvaluationReadService(
-            team_id=self.team_id, user_access_control=self.user_access_control, can_read_scores=can_read_scores
+            team_id=self.team_id, user_access_control=self.reference_access_control, can_read_scores=can_read_scores
         )
 
     def _path_id(self, name: str = "pk") -> UUID:
@@ -125,8 +137,27 @@ class OfflineEvaluationReadViewSet(OfflineEvaluationViewSet):
         ):
             return Response(serializer(read()).data)
 
+    def _page_response(self, read: Callable[[], object], serializer: type[serializers.Serializer]) -> Response:
+        response = self._read_response(read, serializer)
+        response.data["next"] = page_link(self.request, "cursor", response.data["next_cursor"])
+        return response
+
 
 class OfflineExperimentReadViewSet(OfflineEvaluationReadViewSet):
+    @validated_request(
+        request_serializer=CompositeValidationSerializer,
+        responses={200: ExperimentScorePreviewSerializer, **READ_ERROR_RESPONSES},
+    )
+    @action(detail=True, methods=["post"], url_path="score_previews")
+    def score_previews(self, request: ValidatedRequest, **kwargs: object) -> Response:
+        data = request.validated_data
+        return self._read_response(
+            lambda: self._read_service().preview_experiment_score(
+                self._path_id(), composition=data["composition"], kind=data["kind"], config=data.get("config", {})
+            ),
+            ExperimentScorePreviewSerializer,
+        )
+
     @validated_request(
         query_serializer=OfflineResultCellQuerySerializer,
         parameters=[EXPERIMENT_ID_PARAMETER],
@@ -150,7 +181,7 @@ class OfflineExperimentReadViewSet(OfflineEvaluationReadViewSet):
     def list(self, request: ValidatedRequest, **kwargs: object) -> Response:
         query = cast(OfflineReadQuery, request.validated_query_data)
         service = self._read_service(query)
-        return self._read_response(lambda: service.list_experiments(query), OfflineExperimentPageSerializer)
+        return self._page_response(lambda: service.list_experiments(query), OfflineExperimentPageSerializer)
 
     @validated_request(
         query_serializer=EmptyQuerySerializer,
@@ -176,7 +207,7 @@ class OfflineExperimentReadViewSet(OfflineEvaluationReadViewSet):
     def items(self, request: ValidatedRequest, **kwargs: object) -> Response:
         query = cast(OfflineReadQuery, request.validated_query_data)
         service = self._read_service(query)
-        return self._read_response(lambda: service.list_items(self._path_id(), query), OfflineItemPageSerializer)
+        return self._page_response(lambda: service.list_items(self._path_id(), query), OfflineItemPageSerializer)
 
     @validated_request(
         query_serializer=EmptyQuerySerializer,
@@ -203,7 +234,7 @@ class OfflineExperimentReadViewSet(OfflineEvaluationReadViewSet):
     def item_results(self, request: ValidatedRequest, **kwargs: object) -> Response:
         query = cast(OfflineReadQuery, request.validated_query_data)
         service = self._read_service(query)
-        return self._read_response(
+        return self._page_response(
             lambda: service.list_item_results(self._path_id(), self._path_id("item_id"), query),
             OfflineResultPageSerializer,
         )
@@ -248,10 +279,12 @@ class OfflineExperimentReadViewSet(OfflineEvaluationReadViewSet):
     def scorer_summaries(self, request: ValidatedRequest, **kwargs: object) -> Response:
         query = cast(OfflineReadQuery, request.validated_query_data)
         service = self._read_service(query)
-        return self._read_response(lambda: service.list_summaries(self._path_id(), query), OfflineSummaryPageSerializer)
+        return self._page_response(lambda: service.list_summaries(self._path_id(), query), OfflineSummaryPageSerializer)
 
 
 class OfflineScorerViewSet(OfflineEvaluationReadViewSet):
+    psak_allowed_actions = ["history"]
+
     @validated_request(
         query_serializer=OfflineScorerHistoryQuerySerializer,
         operation_id="ai_observability_offline_scorers_history_list",
@@ -264,4 +297,4 @@ class OfflineScorerViewSet(OfflineEvaluationReadViewSet):
     def history(self, request: ValidatedRequest, **kwargs: object) -> Response:
         query = cast(OfflineReadQuery, request.validated_query_data)
         service = self._read_service(query)
-        return self._read_response(lambda: service.scorer_history(self._path_id(), query), OfflineHistoryPageSerializer)
+        return self._page_response(lambda: service.scorer_history(self._path_id(), query), OfflineHistoryPageSerializer)

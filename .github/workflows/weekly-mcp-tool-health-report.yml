@@ -4,13 +4,22 @@ name: Weekly MCP tool health report
 # weekly-flaky-report.yml: the script reads the `$mcp_tool_call` events the MCP server captures
 # and maps each tool to the team that owns its definition through the packages/owners-yaml
 # resolver, which is why the sparse checkout includes the ownership and tool definition files.
-# Each owning team's rows go to that team's channel when vars.MCP_TOOL_HEALTH_TEAM_CHANNELS is
-# 'true', and stay in the digest thread otherwise.
+# Each owning team's new and worsening findings go to that team's channel when
+# vars.MCP_TOOL_HEALTH_TEAM_CHANNELS is 'true'. Otherwise, they stay in the digest thread.
+# Each owning team gets Signals inbox reports for all its qualifying tools, suggested to
+# members of the PostHog role named after its GitHub team. Unowned tools stay in the digest.
+# The report covers the completed UTC week so reruns keep the same reporting dates.
 #
 # Requires (no-ops with a warning until set, so it never spams failures):
 #   - vars.ENG_ANALYTICS_PROJECT_ID: the PostHog project that records MCP tool calls.
 #   - secrets.ENG_ANALYTICS_POSTHOG_API_KEY: a personal API key with query:read for that project.
 #   - secrets.SLACK_DEVEX_BOT_TOKEN: the existing DevEx Slack bot.
+# Team inbox reports additionally need:
+#   - vars.MCP_TOOL_HEALTH_SIGNALS_PROJECT_ID: the PostHog project whose inbox receives them.
+#   - secrets.MCP_TOOL_HEALTH_SIGNALS_API_KEY: a personal API key with inbox:write, project:read,
+#     organization:read and organization_member:read, owned by a person the inbox-reports-create-mcp
+#     flag is on for. The read scopes find each team's active role members to suggest as reviewers,
+#     and roles and members are organization endpoints, so the key is limited to the organization.
 
 on:
     schedule:
@@ -18,7 +27,7 @@ on:
     workflow_dispatch:
         inputs:
             dry_run:
-                description: 'Print each failing tool with its owner and channel instead of posting to Slack'
+                description: 'Print each failing tool with its owner and channel instead of posting to Slack or filing inbox reports'
                 type: boolean
                 default: true
 
@@ -28,16 +37,18 @@ permissions:
 jobs:
     report:
         runs-on: ubuntu-24.04
-        # Worst case is 3 query attempts x 150s abort plus 2 x 30s backoffs (~8.5min), plus checkout
-        # and owner resolution.
-        timeout-minutes: 12
+        # Each PostHog request's worst case is 3 attempts x 150s abort plus 2 x 30s backoffs (~8.5min).
+        # After the query, inbox work starts within a 10-minute budget, and the reviewer lookup it can
+        # start last makes three such requests (~25.5min) before the budget stops filing.
+        timeout-minutes: 50
         # Never run from forks (no secret access anyway), only the canonical repo.
         # Manual dispatch is master-only so branch-controlled code can't run with the secrets.
         if: >-
             github.repository == 'PostHog/posthog' &&
             (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/master')
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+            - uses: actions/checkout@v6.0.2
               with:
                   sparse-checkout: |
                       .github/scripts/weekly-mcp-tool-health-report.mjs
@@ -49,10 +60,13 @@ jobs:
                       **/product.yaml
                       products/*/mcp/*.yaml
                       services/mcp/definitions/*.yaml
+                      services/mcp/schema/tool-definitions.json
+                      services/mcp/schema/generated-tool-definitions.json
                       services/mcp/src/tools/index.ts
                   sparse-checkout-cone-mode: false
 
-            - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+            # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+            - uses: actions/setup-node@v6.2.0
               with:
                   node-version-file: .nvmrc
 
@@ -65,9 +79,11 @@ jobs:
                   POSTHOG_PROJECT_ID: ${{ vars.ENG_ANALYTICS_PROJECT_ID }}
                   POSTHOG_API_KEY: ${{ secrets.ENG_ANALYTICS_POSTHOG_API_KEY }}
                   SLACK_CHANNEL: '#team-context-and-mcp'
-                  # 'true' posts each team's rows to that team's channel. Any other value keeps the
-                  # rows in the digest thread, labeled with the channel they would reach.
+                  # 'true' posts new and worsening findings to team channels. Otherwise the
+                  # findings stay in the digest thread, labeled with the channel they would reach.
                   MCP_TOOL_HEALTH_TEAM_CHANNELS: ${{ vars.MCP_TOOL_HEALTH_TEAM_CHANNELS }}
                   SLACK_BOT_TOKEN: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
+                  SIGNALS_PROJECT_ID: ${{ vars.MCP_TOOL_HEALTH_SIGNALS_PROJECT_ID }}
+                  SIGNALS_API_KEY: ${{ secrets.MCP_TOOL_HEALTH_SIGNALS_API_KEY }}
                   DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
               run: node .github/scripts/weekly-mcp-tool-health-report.mjs

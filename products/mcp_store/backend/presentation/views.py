@@ -34,9 +34,10 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import SessionAuthentication
 from posthog.cloud_utils import is_dev_mode
 from posthog.event_usage import report_user_action
+from posthog.ip_restrictions import enforce_ip_restrictions
 from posthog.models import User
 from posthog.models.scoping.manager import resolve_effective_team_id
-from posthog.permissions import DenyMCPBuiltInAgentOAuth
+from posthog.permissions import DenyMCPBuiltInAgentOAuth, DenyWorkloadAccessToken
 from posthog.rate_limit import (
     MCPOAuthBurstThrottle,
     MCPOAuthRedirectBurstThrottle,
@@ -55,6 +56,7 @@ from ..models import (
     AGENT_GRANT_SCOPE_CHOICES,
     APPROVAL_STATES,
     MCPGatewayServer,
+    MCPMemberAutoConnectOptOut,
     MCPMemberServerRevocation,
     MCPOAuthState,
     MCPServerInstallation,
@@ -82,10 +84,17 @@ from ..oauth import (
     select_token_endpoint_auth_method,
 )
 from ..policy import GatewayCaller, PolicyContext, ResolvedPolicy, is_policy_state_allowed
-from ..proxy import proxy_mcp_request, record_tool_call_audit, resolve_call_decision, validate_installation_auth
+from ..proxy import (
+    borrowed_refusal_detail,
+    is_posthog_installation,
+    proxy_mcp_request,
+    record_tool_call_audit,
+    resolve_call_decision,
+    validate_installation_auth,
+)
 from ..tasks import sync_installation_tools_task
 from ..tools import ToolCallError, ToolsFetchError, call_upstream_tool, sync_installation_tools
-from .visibility import slack_dev_mcp_ui_enabled
+from .run_scope import request_run_installation_allowlist
 
 
 class MCPProxyRenderer(renderers.BaseRenderer):
@@ -268,10 +277,6 @@ class MCPServerViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.G
     )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         queryset = MCPServerTemplate.available_for_team(self.team_id).order_by("name")
-        if queryset.filter(oauth_credentials_source="slack_dev_app").exists() and not slack_dev_mcp_ui_enabled(
-            user=cast(User, request.user), team=self.team
-        ):
-            queryset = queryset.exclude(oauth_credentials_source="slack_dev_app")
         serializer = MCPServerTemplateSerializer(queryset, many=True)
         return Response({"results": serializer.data})
 
@@ -300,6 +305,12 @@ class MCPServerViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.G
 
 class MCPServerInstallationSerializer(serializers.ModelSerializer):
     template_id = serializers.UUIDField(source="template.id", read_only=True, allow_null=True, default=None)
+    gateway_server_id = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text="ID of the MCP server this connection belongs to. The MCP server page takes this ID, "
+        "not the connection id. Null for older connections that are not linked to a server yet.",
+    )
     needs_reauth = serializers.SerializerMethodField()
     pending_oauth = serializers.SerializerMethodField()
     name = serializers.SerializerMethodField()
@@ -334,6 +345,7 @@ class MCPServerInstallationSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "template_id",
+            "gateway_server_id",
             "name",
             "icon_key",
             "icon_domain",
@@ -351,7 +363,16 @@ class MCPServerInstallationSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "template_id", "created_at", "updated_at", "tool_count", "scope", "is_owner"]
+        read_only_fields = [
+            "id",
+            "template_id",
+            "gateway_server_id",
+            "created_at",
+            "updated_at",
+            "tool_count",
+            "scope",
+            "is_owner",
+        ]
 
     def get_tool_count(self, obj: MCPServerInstallation) -> int:
         # Prefer the annotation to avoid N+1 on list; fall back to a direct
@@ -384,8 +405,7 @@ class MCPServerInstallationSerializer(serializers.ModelSerializer):
     def get_pending_oauth(self, obj: MCPServerInstallation) -> bool:
         if obj.auth_type != "oauth":
             return False
-        sensitive = obj.sensitive_configuration or {}
-        return not sensitive.get("access_token")
+        return not obj.upstream_access_token()
 
     def get_proxy_url(self, obj: MCPServerInstallation) -> str:
         request = self.context.get("request")
@@ -726,6 +746,9 @@ class AvailableToolsResponseSerializer(serializers.Serializer):
     servers = AvailableServerSerializer(many=True, help_text="Connected servers the caller can reach.")
 
 
+RUN_INSTALL_DENIED = "This run can only use the connections it selected, so it cannot install or reconnect one."
+
+
 class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "project"
     # An action in neither list derives no scope, and APIScopePermission rejects
@@ -748,40 +771,33 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
     queryset = MCPServerInstallation.objects.all()
     serializer_class = MCPServerInstallationSerializer
     lookup_field = "id"
-    permission_classes = [IsAuthenticated, DenyMCPBuiltInAgentOAuth]
-
-    # Installations are user-scoped or shared (safely_get_queryset returns both),
-    # so write actions don't need project admin access.
-    # Return project:read so AccessControlPermission requires "member" not "admin".
-    _USER_SCOPED_ACTIONS = {
-        "destroy",
-        "partial_update",
-        "install_custom",
-        "install_template",
-        "update_tool_approval",
-        "refresh_tools",
-        # share/unshare enforce their own owner/admin checks in the action bodies.
-        "share",
-        "unshare",
-    }
+    permission_classes = [IsAuthenticated, DenyMCPBuiltInAgentOAuth, DenyWorkloadAccessToken]
 
     # Mutations restricted to the credential owner (installer) on shared rows.
     # Tool approval is included: it gates which tools autonomous runs may execute
     # under the owner's credential, so a non-owner must not be able to flip it.
     _OWNER_ONLY_ACTIONS = {"destroy", "partial_update", "refresh_tools", "update_tool_approval"}
+    # These look installations up directly rather than through the queryset, so the run allowlist cannot filter them.
+    # A run that selected its connections has nothing to install or reconnect, so it may not call them at all.
+    _INSTALL_ACTIONS = {"authorize", "install_template", "install_custom"}
 
-    def dangerously_get_required_scopes(self, request: Any, view: Any) -> list[str] | None:
-        if self.action in self._USER_SCOPED_ACTIONS:
-            return ["project:read"]
-        return None
+    def _run_installation_allowlist(self) -> list[str] | None:
+        """The installations a sandbox run's token may reach: the ones its run selected at dispatch. None for every other
+        caller, and for a run that selected none, which keeps the person's own connections.
+
+        Mounting decides which servers the sandbox is told about. This applies the same selection to the API the token
+        calls, so the two agree."""
+        return request_run_installation_allowlist(self.request)
+
+    def _within_run_allowlist(self, queryset: QuerySet) -> QuerySet:
+        allowlist = self._run_installation_allowlist()
+        return queryset if allowlist is None else queryset.filter(id__in=allowlist)
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         return (
-            queryset.filter(
-                team_id=self.team_id,
-            )
+            self._within_run_allowlist(queryset.filter(team_id=self.team_id))
             .filter(Q(scope="shared") | Q(user=self.request.user))
-            .select_related("template", "gateway_server")
+            .select_related("template", "gateway_server", "linked_user_integration")
             .annotate(tool_count_annotated=Count("tools", filter=Q(tools__removed_at__isnull=True)))
             .order_by("-created_at")
         )
@@ -799,6 +815,11 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             installation=installation,
         )
         return {"policy_context": policy_context}
+
+    def check_permissions(self, request: Request) -> None:
+        super().check_permissions(request)
+        if self.action in self._INSTALL_ACTIONS and self._run_installation_allowlist() is not None:
+            raise PermissionDenied(RUN_INSTALL_DENIED)
 
     def check_object_permissions(self, request: Request, obj: Any) -> None:
         # Enforce owner-only mutation of shared rows centrally so every action in
@@ -1007,6 +1028,12 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             team=self.team,
             request=request,
         )
+        # A member who removes a server that came with their account link opts out of it, so a relink does not
+        # connect it again. The row outlives the link, which an unlink deletes.
+        if installation.connected_from_link_at is not None:
+            MCPMemberAutoConnectOptOut.objects.for_team(installation.team_id).get_or_create(
+                team_id=installation.team_id, user_id=installation.user_id, url=installation.url
+            )
         installation.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -1128,6 +1155,14 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 {"detail": "Only personal installations can be shared."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        if installation.connected_from_link_at is not None:
+            return Response(
+                {
+                    "detail": "A connection made from your Slack account link can't be shared. "
+                    "Connect Slack from the MCP store to share it with the project."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         if installation.user_id != request.user.id:
             raise PermissionDenied("Only the installation owner can share it with the project.")
         if not self._is_project_admin():
@@ -1235,6 +1270,9 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                     status=403,
                 )
 
+        if borrowed_refusal_detail(installation, borrowed=installation.user_id != request.user.id) is not None:
+            # The call is refused further on, so the owner's token is not refreshed on this caller's behalf.
+            return None
         ok, error_response = validate_installation_auth(installation)
         if not ok and error_response is not None:
             return error_response
@@ -1323,6 +1361,9 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 status=status.HTTP_404_NOT_FOUND,
             )
 
+        borrowed = installation.user_id != request.user.id
+        refusal_detail = borrowed_refusal_detail(installation, borrowed=borrowed)
+
         gateway_server = installation.gateway_server
         policy_context = (
             PolicyContext(
@@ -1345,9 +1386,11 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 GatewayCaller(kind="member", user_id=request.user.id),
                 cast(User, request.user).email or "",
                 tool_name,
-                decision,
+                "blocked" if refusal_detail is not None else decision,
             )
 
+        if refusal_detail is not None:
+            return Response({"detail": refusal_detail, "reason": "disabled"}, status=status.HTTP_403_FORBIDDEN)
         if block_reason is not None:
             return Response(
                 {"detail": _BLOCKED_CALL_DETAIL[block_reason].format(tool_name=tool_name), "reason": block_reason},
@@ -1355,7 +1398,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             )
 
         try:
-            result = call_upstream_tool(installation, tool_name, arguments)
+            result = call_upstream_tool(installation, tool_name, arguments, borrowed=borrowed)
         except (ToolCallError, ToolsFetchError) as exc:
             logger.warning(
                 "mcp_store call_tool failed",
@@ -2105,11 +2148,11 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         """
         user = cast(User, request.user)
         installations = (
-            MCPServerInstallation.objects.filter(team_id=self.team_id, is_enabled=True)
+            self._within_run_allowlist(MCPServerInstallation.objects.filter(team_id=self.team_id, is_enabled=True))
             .filter(Q(user=user) | Q(scope="shared"))
             .filter(Q(gateway_server__isnull=True) | Q(gateway_server__is_team_enabled=True))
             .exclude(gateway_server__member_revocations__user=user)
-            .select_related("template", "gateway_server")
+            .select_related("template", "gateway_server", "linked_user_integration")
             .prefetch_related("tools")
             .order_by("id")
         )
@@ -2134,6 +2177,8 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             # advertise a connection the call path would immediately reject.
             ok, _error = validate_installation_auth(installation)
             if not ok:
+                continue
+            if installation.user_id != user.id and is_posthog_installation(installation):
                 continue
 
             states = resolve_member_tool_states(
@@ -2313,6 +2358,7 @@ class MCPOAuthRedirectViewSet(viewsets.ViewSet):
     permission_classes: list = []
     authentication_classes = [SessionAuthentication]
     throttle_classes = [MCPOAuthRedirectBurstThrottle, MCPOAuthRedirectSustainedThrottle]
+    _ip_restrictions_use_view_scope = True
 
     def list(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         state_token = request.query_params.get("state")
@@ -2460,7 +2506,7 @@ class MCPOAuthRedirectViewSet(viewsets.ViewSet):
             # FOR UPDATE on the nullable side of an outer join, so scope the lock with `of=`.
             oauth_state = (
                 MCPOAuthState.objects.select_for_update(of=("self",))
-                .select_related("installation", "template")
+                .select_related("installation__team", "installation__user", "template")
                 .filter(ownership_filter, **state_filters)
                 .first()
             )
@@ -2478,6 +2524,11 @@ class MCPOAuthRedirectViewSet(viewsets.ViewSet):
                 # does not share the API client's local PostHog session.
                 logger.info("OAuth redirect: allowing PostHog Code callback without user binding in dev mode")
 
+            enforce_ip_restrictions(
+                request,
+                request.user if is_authenticated else oauth_state.installation.user,
+                organization_id=str(oauth_state.installation.team.organization_id),
+            )
             oauth_state.consumed_at = now
             oauth_state.save(update_fields=["consumed_at", "updated_at"])
             return oauth_state
@@ -2513,7 +2564,12 @@ class MCPOAuthRedirectViewSet(viewsets.ViewSet):
             sensitive["expires_in"] = expires_in
 
         installation.sensitive_configuration = sensitive
-        installation.save(update_fields=["sensitive_configuration", "updated_at"])
+        # The member's own token replaces the account link, so the installation is theirs to share.
+        installation.linked_user_integration = None
+        installation.connected_from_link_at = None
+        installation.save(
+            update_fields=["sensitive_configuration", "linked_user_integration", "connected_from_link_at", "updated_at"]
+        )
 
     @staticmethod
     def _build_oauth_redirect(

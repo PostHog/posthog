@@ -14,18 +14,20 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
-import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
+import { SeriesActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
 import MaxTool from 'scenes/max/MaxTool'
 import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
-import { AnyPropertyFilter, CyclotronJobFiltersType, EntityTypes, FilterType } from '~/types'
+import { NodeKind } from '~/queries/schema/schema-general'
+import { AnyPropertyFilter, ChartDisplayCategory, CyclotronJobFiltersType } from '~/types'
 
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
 import { hogFunctionConfigurationLogic } from '../configuration/hogFunctionConfigurationLogic'
 import { truncateHogFunctionContext } from '../hog-function-utils'
+import { CdpFilterEntities, cdpFiltersToSeries, seriesToCdpFilters } from './cdpFilterSeries'
 import { HogFunctionFiltersInternal } from './HogFunctionFiltersInternal'
 
 const MASKING_HASH_ALL = 'all'
@@ -40,7 +42,7 @@ const CALENDAR_DAY_HASHES = [MASKING_HASH_PER_PERSON_PER_DAY, MASKING_HASH_PER_P
 const CALENDAR_DAY_TTL = 24 * 60 * 60
 const DEFAULT_INTERVAL_TTL = 60 * 30
 
-function sanitizeActionFilters(filters?: FilterType): Partial<CyclotronJobFiltersType> {
+function sanitizeActionFilters(filters?: CdpFilterEntities): Partial<CyclotronJobFiltersType> {
     if (!filters) {
         return {}
     }
@@ -250,8 +252,8 @@ export function HogFunctionFilters({
                 label={isDataWarehouse ? null : useMapping ? 'Global filters' : 'Filters'}
                 info={
                     useMapping
-                        ? 'Filters applied to all events before they reach a mapping'
-                        : 'Filters applied to all events'
+                        ? 'Filters applied to all events before they reach a mapping. An event must match all of them.'
+                        : 'Filters applied to all events. An event must match all of them.'
                 }
             >
                 {({ value, onChange: _onChange }) => {
@@ -300,6 +302,9 @@ export function HogFunctionFilters({
                                             fullWidth
                                         />
                                     )}
+                                    <p className="mb-0 text-xs text-secondary">
+                                        If set, this function will only run when <b>all</b> of these filters match.
+                                    </p>
                                     <PropertyFilters
                                         propertyFilters={(currentFilters?.properties ?? []) as AnyPropertyFilter[]}
                                         taxonomicGroupTypes={taxonomicGroupTypes}
@@ -332,15 +337,16 @@ export function HogFunctionFilters({
                                     <p className="mb-0 text-xs text-secondary">
                                         If set, the {type} will only run if the <b>event matches any</b> of the below.
                                     </p>
-                                    <ActionFilter
+                                    <SeriesActionFilter
                                         bordered
-                                        filters={currentFilters ?? {} /* TODO: this is any */}
-                                        setFilters={(payload) => {
+                                        series={cdpFiltersToSeries(currentFilters)}
+                                        onChange={(series) => {
                                             onChange({
                                                 ...currentFilters,
-                                                ...sanitizeActionFilters(payload),
+                                                ...sanitizeActionFilters(seriesToCdpFilters(series)),
                                             })
                                         }}
+                                        trendsDisplayCategory={ChartDisplayCategory.TimeSeries}
                                         typeKey={isDataWarehouseView ? 'plugin-filters-view' : 'plugin-filters'}
                                         mathAvailability={MathAvailability.None}
                                         hideRename
@@ -360,19 +366,15 @@ export function HogFunctionFilters({
                                         }
                                         propertiesTaxonomicGroupTypes={taxonomicGroupTypes}
                                         propertyFiltersPopover
-                                        addFilterDefaultOptions={
+                                        newSeriesDefaults={
                                             isDataWarehouse
                                                 ? {
                                                       name: isDataWarehouseView
                                                           ? 'Select a materialized view'
                                                           : 'Select a table',
-                                                      type: EntityTypes.DATA_WAREHOUSE,
+                                                      kind: NodeKind.DataWarehouseNode,
                                                   }
-                                                : {
-                                                      id: '$pageview',
-                                                      name: '$pageview',
-                                                      type: EntityTypes.EVENTS,
-                                                  }
+                                                : { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' }
                                         }
                                         buttonCopy={
                                             isDataWarehouseView

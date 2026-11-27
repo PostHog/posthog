@@ -98,7 +98,7 @@ describe('emit-event-step', () => {
                 expect(mockOutputs.produce).toHaveBeenCalledWith(EVENTS_OUTPUT, {
                     key: 'test-uuid',
                     value: Buffer.from(JSON.stringify(serializeEvent(mockProcessedEvent))),
-                    headers: { productTrack: 'general' },
+                    headers: { productTrack: 'general', team_id: '1', event: 'test-event' },
                     teamId: mockProcessedEvent.team_id,
                 })
 
@@ -172,7 +172,7 @@ describe('emit-event-step', () => {
                 expect(mockOutputs.produce).toHaveBeenCalledWith(EVENTS_OUTPUT, {
                     key: 'test-uuid',
                     value: Buffer.from(JSON.stringify(serializeEvent(mockProcessedEvent))),
-                    headers: { productTrack: 'general' },
+                    headers: { productTrack: 'general', team_id: '1', event: 'test-event' },
                     teamId: mockProcessedEvent.team_id,
                 })
             } finally {
@@ -278,7 +278,42 @@ describe('emit-event-step', () => {
             expect(mockOutputs.produce).toHaveBeenCalledWith(
                 EVENTS_OUTPUT,
                 expect.objectContaining({
-                    headers: { productTrack: 'llma' },
+                    headers: { productTrack: 'llma', team_id: '1', event: '$ai_generation' },
+                })
+            )
+        })
+
+        it('carries the team and name of the emitted event in headers', async () => {
+            const step = createEmitEventStep(config)
+
+            await step(createInput({ ...mockProcessedEvent, team_id: 42, event: 'order placed' }))
+
+            expect(mockOutputs.produce).toHaveBeenCalledWith(
+                EVENTS_OUTPUT,
+                expect.objectContaining({
+                    headers: { productTrack: 'general', team_id: '42', event: 'order placed' },
+                })
+            )
+        })
+
+        it('adds the headers an entry carries without letting them replace its own', async () => {
+            const step = createEmitEventStep(config)
+
+            await step({
+                ...createInput(),
+                eventsToEmit: [
+                    {
+                        event: { ...mockProcessedEvent, team_id: 42 },
+                        output: EVENTS_OUTPUT,
+                        headers: { 'retention-days': '90', team_id: '999' },
+                    },
+                ],
+            })
+
+            expect(mockOutputs.produce).toHaveBeenCalledWith(
+                EVENTS_OUTPUT,
+                expect.objectContaining({
+                    headers: { productTrack: 'general', team_id: '42', event: 'test-event', 'retention-days': '90' },
                 })
             )
         })

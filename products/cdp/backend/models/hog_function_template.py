@@ -1,5 +1,6 @@
 import json
 import hashlib
+from collections.abc import Iterable
 from typing import Optional
 
 from django.db import models
@@ -126,6 +127,16 @@ class HogFunctionTemplate(UUIDTModel):
                 exc_info=True,
             )
             return None
+
+    @classmethod
+    def get_latest_templates(cls, template_ids: Iterable[str]) -> dict[str, "HogFunctionTemplate"]:
+        """Resolves the latest version of each template id, as get_template does, in one query."""
+        latest = (
+            cls.objects.filter(template_id__in=set(template_ids))
+            .order_by("template_id", "-created_at")
+            .distinct("template_id")
+        )
+        return {template.template_id: template for template in latest}
 
     def compile_bytecode(self):
         """

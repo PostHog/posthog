@@ -4,7 +4,7 @@ import type { WorkflowTypeFilter } from './workflowsLogic'
 // Keep in sync with MESSAGING_ACTION_TYPES in products/workflows/backend/models/hog_flow/hog_flow.py,
 // which the list API's `type` filter uses - the tag, the template filter, and the list filter must
 // agree on what "Messaging" is.
-const MESSAGING_ACTION_TYPES: string[] = ['function_email', 'function_sms', 'function_push']
+const MESSAGING_ACTION_TYPES: string[] = ['function_email', 'function_sms', 'function_push', 'email_sandbox']
 
 export type WorkflowTemplateTypeFilter = 'all' | 'messaging' | 'automation'
 

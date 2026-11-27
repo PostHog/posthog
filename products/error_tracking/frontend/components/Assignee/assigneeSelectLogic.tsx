@@ -1,9 +1,9 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 
 import { createFuse, Fuse } from 'lib/utils/fuseSearch'
-import { membersLogic } from 'scenes/organization/membersLogic'
 import { rolesLogic } from 'scenes/settings/organization/Permissions/Roles/rolesLogic'
 
+import { membersLogic } from '~/models/membersLogic'
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 import type { OrganizationMemberType, RoleType } from '~/types'
 

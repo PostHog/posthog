@@ -1,0 +1,180 @@
+from typing import Optional, cast
+
+from products.warehouse_sources.sources.razorpay._config import RazorpaySourceConfig
+from products.warehouse_sources.sources.razorpay.razorpay import (
+    MISSING_ACCOUNT_NUMBER_ERROR,
+    RazorpayResumeConfig,
+    razorpay_source,
+    validate_credentials as validate_razorpay_credentials,
+)
+from products.warehouse_sources.sources.razorpay.settings import ENDPOINT_CONFIGS, ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    build_endpoint_schemas,
+    detect,
+)
+
+
+@SourceRegistry.register
+class RazorpaySource(ResumableSource[RazorpaySourceConfig, RazorpayResumeConfig]):
+    codebase_detection = detect(
+        env=("^RAZORPAY_",),
+        script_hosts=("checkout.razorpay.com",),
+        npm=("razorpay", "react-native-razorpay"),
+        pypi=("razorpay",),
+        cocoapods=("razorpay-pod",),
+        composer=("razorpay/razorpay",),
+        go=(
+            "github.com/razorpay/razorpay-go",
+            "github.com/razorpay/razorpay-cli",
+            "github.com/razorpay/razorpay-mcp-server",
+        ),
+        maven=(
+            "com.razorpay:razorpay-java",
+            "com.razorpay:checkout",
+            "com.razorpay:razorpay-android",
+            "com.razorpay:razorpay-googlepay",
+            "com.razorpay:razorpay-turbo",
+        ),
+        pub=("razorpay_flutter", "razorpay_flutter_banking_wrapper_sdk", "razorpay_flutter_customui", "razorpay_turbo"),
+        rubygems=("razorpay",),
+        swiftpm=(
+            "github.com/razorpay/razorpay-banking-wrapper-sdk",
+            "github.com/razorpay/razorpay-customui-pod",
+            "github.com/razorpay/razorpay-pod",
+        ),
+    )
+
+    lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://razorpay.com/docs/api/"
+
+    @property
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.RAZORPAY
+
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            "401 Client Error: Unauthorized for url: https://api.razorpay.com": "Razorpay authentication failed. Please check your key ID and key secret.",
+            "400 Client Error: Bad Request for url: https://api.razorpay.com": None,
+            MISSING_ACCOUNT_NUMBER_ERROR: MISSING_ACCOUNT_NUMBER_ERROR,
+        }
+
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        from products.warehouse_sources.sources.razorpay.canonical_descriptions import CANONICAL_DESCRIPTIONS
+
+        return CANONICAL_DESCRIPTIONS
+
+    def get_schemas(
+        self,
+        config: RazorpaySourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
+        api_version: str | None = None,
+    ) -> list[SourceSchema]:
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+
+    def get_endpoint_permissions(
+        self, config: RazorpaySourceConfig, team_id: int, endpoints: list[str], api_version: str | None = None
+    ) -> dict[str, str | None]:
+        return {
+            endpoint: MISSING_ACCOUNT_NUMBER_ERROR
+            if ENDPOINT_CONFIGS[endpoint].requires_account_number and not config.razorpayx_account_number
+            else None
+            for endpoint in endpoints
+            if endpoint in ENDPOINT_CONFIGS
+        }
+
+    def validate_credentials(
+        self,
+        config: RazorpaySourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
+    ) -> tuple[bool, str | None]:
+        if validate_razorpay_credentials(config.key_id, config.key_secret):
+            return True, None
+
+        return (
+            False,
+            "Razorpay rejected the credentials. Check that the key ID and key secret are correct and the key is active.",
+        )
+
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[RazorpayResumeConfig]:
+        return ResumableSourceManager[RazorpayResumeConfig](inputs, RazorpayResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: RazorpaySourceConfig,
+        resumable_source_manager: ResumableSourceManager[RazorpayResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
+        return razorpay_source(
+            key_id=config.key_id,
+            key_secret=config.key_secret,
+            endpoint=inputs.schema_name,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
+            resumable_source_manager=resumable_source_manager,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value
+            if inputs.should_use_incremental_field
+            else None,
+            account_number=config.razorpayx_account_number,
+        )
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        return SourceConfig(
+            name=ExternalDataSourceType.RAZORPAY,
+            category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
+            label="Razorpay",
+            caption="Enter your Razorpay API key pair to pull payments, orders, refunds, settlements, and subscription data into the PostHog Data warehouse. Generate a key ID and key secret in the Razorpay Dashboard under Account & Settings → API keys. Use a `rzp_live_` key for live-mode data or a `rzp_test_` key for test-mode data.",
+            docsUrl="https://posthog.com/docs/cdp/sources/razorpay",
+            iconPath="/static/services/razorpay.png",
+            releaseStatus=ReleaseStatus.GA,
+            fields=cast(
+                list[FieldType],
+                [
+                    SourceFieldInputConfig(
+                        name="key_id",
+                        label="Key ID",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=True,
+                        placeholder="rzp_live_...",
+                        secret=False,
+                    ),
+                    SourceFieldInputConfig(
+                        name="key_secret",
+                        label="Key secret",
+                        type=SourceFieldInputConfigType.PASSWORD,
+                        required=True,
+                        placeholder="",
+                        secret=True,
+                    ),
+                    SourceFieldInputConfig(
+                        name="razorpayx_account_number",
+                        label="RazorpayX account number",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=False,
+                        placeholder="7878780080316316",
+                        caption="Only needed to sync RazorpayX transactions. Find it in the RazorpayX Dashboard under My Account & Settings → Banking. Live mode and test mode use different numbers.",
+                        secret=False,
+                    ),
+                ],
+            ),
+        )

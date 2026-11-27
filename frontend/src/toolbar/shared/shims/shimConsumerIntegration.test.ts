@@ -1,5 +1,5 @@
 jest.mock('scenes/userLogic', () => require('~/toolbar/shared/shims/userLogic'))
-jest.mock('scenes/organization/membersLogic', () => require('~/toolbar/shared/shims/membersLogic'))
+jest.mock('~/models/membersLogic', () => require('~/toolbar/shared/shims/membersLogic'))
 jest.mock('scenes/sceneLogic', () => require('~/toolbar/shared/shims/sceneLogic'))
 jest.mock('scenes/teamLogic', () => require('~/toolbar/shared/shims/teamLogic'))
 jest.mock('lib/logic/featureFlagLogic', () => require('~/toolbar/shared/shims/featureFlagLogic'))
@@ -81,7 +81,10 @@ describe('shim consumer integration', () => {
             global.fetch = fetchMock as unknown as typeof fetch
 
             // Authenticate the Toolbar session — this is the path that used to break.
-            toolbarConfigLogic.actions.setOAuthTokens('access-token', 'refresh-token', 'client-id')
+            toolbarConfigLogic.actions.setOAuthTokens('access-token', 'refresh-token', 'client-id', {
+                teamId: 2,
+                projectId: 1,
+            })
             expect(toolbarConfigLogic.values.isAuthenticated).toBe(true)
 
             const { hedgehogModeLogic } = await import('~/lib/components/HedgehogMode/hedgehogModeLogic')

@@ -4,7 +4,11 @@ from unittest.mock import MagicMock
 from slack_sdk.errors import SlackApiError
 
 from products.slack_app.backend.models import SlackThreadTaskMapping
-from products.slack_app.backend.services.slack_conversations import resolve_conversation_type
+from products.slack_app.backend.services.slack_conversations import (
+    channel_is_ext_shared,
+    resolve_channel_name,
+    resolve_conversation_type,
+)
 
 ConversationType = SlackThreadTaskMapping.ConversationType
 
@@ -78,3 +82,43 @@ class TestResolveConversationType:
         result = resolve_conversation_type(_slack(error=error), {"type": "app_mention"}, "C123")
 
         assert result == ConversationType.UNKNOWN
+
+
+class TestResolveChannelName:
+    @pytest.mark.parametrize(
+        "channel_id,slack,expected",
+        [
+            ("C123", _slack({"name": "inc-example"}), "inc-example"),
+            ("C123", _slack({"is_mpim": True, "name": "mpdm-a--b-1"}), None),
+            ("C123", _slack(error=SlackApiError("missing_scope", {"error": "missing_scope"})), None),
+            ("D123", _slack({"name": "should-not-be-read"}), None),
+        ],
+    )
+    def test_names_channels_only(self, channel_id: str, slack: MagicMock, expected: str | None) -> None:
+        assert resolve_channel_name(slack, channel_id) == expected
+
+    def test_reuses_the_privacy_lookup_instead_of_asking_slack_again(self) -> None:
+        slack = _slack({"is_private": False, "name": "inc-example"})
+
+        resolve_conversation_type(slack, {"type": "app_mention"}, "C123")
+        name = resolve_channel_name(slack, "C123")
+
+        assert name == "inc-example"
+        assert slack.client.conversations_info.call_count == 1
+
+
+class TestChannelIsExtShared:
+    @pytest.mark.parametrize(
+        "channel_id,expected",
+        [
+            ("D123", False),
+            ("C123", True),
+        ],
+    )
+    def test_failed_lookup_fails_closed_except_for_a_dm(self, channel_id: str, expected: bool) -> None:
+        # `conversations.info` fails on every `D…` id in production because the app lacks
+        # `im:read`. A DM must not fall into the fail-closed path, or every DM click is sent to
+        # a channel approval it can never get. A channel still fails closed.
+        slack = _slack(error=SlackApiError("missing_scope", {"error": "missing_scope"}))
+
+        assert channel_is_ext_shared(slack, channel_id) is expected

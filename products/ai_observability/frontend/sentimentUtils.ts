@@ -46,7 +46,7 @@ export function computeExtremes(messages?: Record<string | number, MessageScore>
 }
 
 /**
- * Extract plain text from message content, mirroring the backend's _extract_content_text.
+ * Extract plain text from message content, mirroring the backend's extract_content_text.
  * Handles string content, Anthropic-style content block arrays, and nested structures.
  */
 export function extractContentText(content: unknown): string {

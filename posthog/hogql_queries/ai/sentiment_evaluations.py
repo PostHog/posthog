@@ -172,7 +172,7 @@ def load_generation_sentiment_evaluations_for_traces(
 
     return SentimentEvaluationLookup(
         by_trace_id={
-            trace_id: _aggregate_trace_sentiment(generation_results)
+            trace_id: aggregate_trace_sentiment(generation_results)
             for trace_id, generation_results in by_trace_generation.items()
         },
         by_generation_id=by_generation_id,
@@ -226,7 +226,7 @@ def load_trace_sentiment_evaluations(
             )
 
         if normalized_generation_results:
-            by_trace_id[str(trace_id)] = _aggregate_trace_sentiment(normalized_generation_results)
+            by_trace_id[str(trace_id)] = aggregate_trace_sentiment(normalized_generation_results)
 
     return by_trace_id
 
@@ -276,7 +276,7 @@ def normalize_sentiment_result(
     }
 
 
-def _aggregate_trace_sentiment(generation_results: list[tuple[str, SentimentResult]]) -> SentimentResult:
+def aggregate_trace_sentiment(generation_results: list[tuple[str, SentimentResult]]) -> SentimentResult:
     flat_messages: dict[str, SentimentMessage] = {}
     score_dicts: list[dict[str, float]] = []
 

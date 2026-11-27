@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 23 enabled ops
+ * PostHog API - MCP 25 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -11,6 +11,103 @@ import * as zod from 'zod'
 export const ListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+})
+
+export const createBodyNameMax = 64
+
+export const createBodyMemberNoticeOneMessageMax = 1000
+
+export const createBodyMemberNoticeOneActionOneLabelMax = 40
+
+export const createBodyMemberNoticeOneActionOneUrlMax = 2000
+
+export const createBodyIpRestrictionsItemMax = 64
+
+export const createBodyIpRestrictionsMax = 100
+
+export const CreateBody = () => zod.object({
+    name: zod.string().max(createBodyNameMax).describe('Name of the organization.'),
+    logo_media_id: zod.string().nullish(),
+    enforce_2fa: zod.boolean().nullish(),
+    enforce_verified_domains: zod
+        .boolean()
+        .nullish()
+        .describe(
+            'When True, logins, signups, and invites for this organization are restricted to email addresses on its verified domains.'
+        ),
+    members_can_invite: zod.boolean().nullish(),
+    members_can_create_projects: zod
+        .boolean()
+        .nullish()
+        .describe(
+            'When True, organization members (below admin) are allowed to create new projects. Admins and owners can always create projects.'
+        ),
+    members_can_use_personal_api_keys: zod.boolean().optional(),
+    members_can_see_org_members: zod
+        .boolean()
+        .optional()
+        .describe(
+            'When False, members (below admin) only see themselves in the members list and only project members in access control.'
+        ),
+    allow_publicly_shared_resources: zod.boolean().optional(),
+    read_only_mcp_access: zod
+        .boolean()
+        .nullish()
+        .describe(
+            "When True, requests through the PostHog MCP server can read but not change this organization's data."
+        ),
+    member_notice: zod
+        .union([
+            zod.object({
+                message: zod
+                    .string()
+                    .max(createBodyMemberNoticeOneMessageMax)
+                    .describe(
+                        'HTML shown in the banner. Supports formatting tags and links (<b>, <strong>, <i>, <em>, <u>, <s>, <code>, <br>, <p>, <span>, <ul>, <ol>, <li>, <a href>). Other tags, styles and scripts are removed.'
+                    ),
+                action: zod
+                    .union([
+                        zod.object({
+                            label: zod
+                                .string()
+                                .max(createBodyMemberNoticeOneActionOneLabelMax)
+                                .describe('Text on the button shown next to the notice.'),
+                            url: zod
+                                .url()
+                                .max(createBodyMemberNoticeOneActionOneUrlMax)
+                                .describe('Link the button opens in a new tab. Must use http or https.'),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe('Optional link button shown on the right of the banner.'),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe('Notice shown in a banner to every member of the organization. Set to null to remove it.'),
+    is_ai_data_processing_approved: zod.boolean().nullish(),
+    is_ai_training_opted_in: zod
+        .boolean()
+        .nullish()
+        .describe('When True, this organization allows its data to be used to train PostHog AI models.'),
+    default_anonymize_ips: zod
+        .boolean()
+        .optional()
+        .describe("Default setting for 'Discard client IP data' for new projects in this organization."),
+    default_role_id: zod
+        .string()
+        .nullish()
+        .describe('ID of the role to automatically assign to new members joining the organization'),
+    ip_restrictions: zod
+        .array(zod.string().max(createBodyIpRestrictionsItemMax))
+        .max(createBodyIpRestrictionsMax)
+        .optional()
+        .describe('IP addresses and CIDR blocks allowed to access this organization. Empty means every IP is allowed.'),
+    ip_restrictions_enabled: zod
+        .boolean()
+        .optional()
+        .describe('When False, the IP allowlist is kept but not enforced.'),
 })
 
 export const RetrieveParams = () => zod.object({
@@ -29,8 +126,12 @@ export const partialUpdateBodyMemberNoticeOneActionOneLabelMax = 40
 
 export const partialUpdateBodyMemberNoticeOneActionOneUrlMax = 2000
 
+export const partialUpdateBodyIpRestrictionsItemMax = 64
+
+export const partialUpdateBodyIpRestrictionsMax = 100
+
 export const PartialUpdateBody = () => zod.object({
-    name: zod.string().max(partialUpdateBodyNameMax).optional(),
+    name: zod.string().max(partialUpdateBodyNameMax).optional().describe('Name of the organization.'),
     logo_media_id: zod.string().nullish(),
     enforce_2fa: zod.boolean().nullish(),
     enforce_verified_domains: zod
@@ -103,6 +204,15 @@ export const PartialUpdateBody = () => zod.object({
         .string()
         .nullish()
         .describe('ID of the role to automatically assign to new members joining the organization'),
+    ip_restrictions: zod
+        .array(zod.string().max(partialUpdateBodyIpRestrictionsItemMax))
+        .max(partialUpdateBodyIpRestrictionsMax)
+        .optional()
+        .describe('IP addresses and CIDR blocks allowed to access this organization. Empty means every IP is allowed.'),
+    ip_restrictions_enabled: zod
+        .boolean()
+        .optional()
+        .describe('When False, the IP allowlist is kept but not enforced.'),
 })
 
 export const MembersListParams = () => zod.object({
@@ -230,6 +340,7 @@ export const AdvancedActivityLogsListQueryParams = () => zod.object({
         .describe(
             "Filter by API clients that generated the activity (the x-posthog-client header, or 'scout:<skill_name>' for a scout run)."
         ),
+    cursor: zod.string().optional().describe('The pagination cursor value.'),
     detail_filters: zod
         .string()
         .optional()
@@ -239,7 +350,9 @@ export const AdvancedActivityLogsListQueryParams = () => zod.object({
     end_date: zod.iso
         .datetime({ offset: true })
         .optional()
-        .describe('Upper bound on `created_at` (inclusive), ISO-8601.'),
+        .describe(
+            'Upper bound on `created_at` (inclusive), as an ISO 8601 timestamp with a UTC offset, such as `2026-01-15T11:30:00Z`.'
+        ),
     follow: zod
         .boolean()
         .default(advancedActivityLogsListQueryFollowDefault)
@@ -298,7 +411,9 @@ export const AdvancedActivityLogsListQueryParams = () => zod.object({
     start_date: zod.iso
         .datetime({ offset: true })
         .optional()
-        .describe('Lower bound on `created_at` (inclusive), ISO-8601.'),
+        .describe(
+            'Lower bound on `created_at` (inclusive), as an ISO 8601 timestamp with a UTC offset, such as `2026-01-15T10:30:00Z`.'
+        ),
     team_ids: zod
         .array(zod.number())
         .default(advancedActivityLogsListQueryTeamIdsDefault)
@@ -495,6 +610,30 @@ export const CommentsRetrieveParams = () => zod.object({
         .string()
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Mirror this discussion thread to a Slack channel. Posts the comment (and its existing replies) as a new Slack thread; later replies on either side sync across. A discussion mirrors to exactly one Slack thread: re-calling with the same channel returns the existing mirror; a different channel is a 400 naming the existing one. 409 while a concurrent send is in flight. 404 when the feature is not enabled for the team. Only the person who started a ticket discussion can send it (403), and it cannot go to a channel shared with another Slack workspace (400). 429 when the Slack integration has made too many channel lookups in the last minute.
+ */
+export const CommentsSendToSlackCreateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this comment.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const commentsSendToSlackCreateBodyChannelIdMax = 255
+
+export const CommentsSendToSlackCreateBody = () => zod.object({
+    integration_id: zod.number().describe("ID of the Slack integration (kind='slack') whose bot posts the thread."),
+    channel_id: zod
+        .string()
+        .max(commentsSendToSlackCreateBodyChannelIdMax)
+        .describe(
+            "Slack channel ID to create the mirrored thread in. The bot must be a member of the channel. The channel's display name is resolved server-side."
         ),
 })
 

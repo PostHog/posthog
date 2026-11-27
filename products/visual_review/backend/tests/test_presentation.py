@@ -23,14 +23,15 @@ from products.visual_review.backend.facade.contracts import (
 )
 from products.visual_review.backend.facade.enums import (
     ActorType,
+    BaselineMode,
     ReviewState,
     RunPurpose,
     RunStatus,
     RunType,
     SnapshotResult,
 )
-from products.visual_review.backend.logic import artifact_store, errors, github_api, quarantine, runs
-from products.visual_review.backend.models import Run, RunSnapshot
+from products.visual_review.backend.logic import artifact_store, ci_status, errors, github_api, quarantine, runs
+from products.visual_review.backend.models import Repo, Run, RunSnapshot
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES, VisualReviewTeamScopedTestMixin
 
 
@@ -74,7 +75,7 @@ class TestRepoViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/visual_review/repos/{repo.id}/",
-            {"enable_pr_comments": True, "debt_digest_enabled": True},
+            {"enable_pr_comments": True, "debt_digest_enabled": True, "auto_quarantine_mode": "preview"},
             format="json",
         )
 
@@ -82,6 +83,7 @@ class TestRepoViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
         data = response.json()
         self.assertTrue(data["enable_pr_comments"])
         self.assertTrue(data["debt_digest_enabled"])
+        self.assertEqual(data["auto_quarantine_mode"], "preview")
 
     def test_retrieve_project_not_found(self):
         import uuid
@@ -602,6 +604,71 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
         self.assertTrue(delay.called)
         self.assertEqual(delay.call_args.args[2], expect_add_images)
 
+    @parameterized.expand(
+        [
+            ("posted", "visual_review:write", "a" * 40, ci_status.StatusPost.POSTED, status.HTTP_200_OK),
+            (
+                "refused_by_github",
+                "visual_review:write",
+                "a" * 40,
+                ci_status.StatusPost.REFUSED,
+                status.HTTP_502_BAD_GATEWAY,
+            ),
+            ("read_scope", "visual_review:read", "a" * 40, ci_status.StatusPost.POSTED, status.HTTP_403_FORBIDDEN),
+            (
+                "path_segments",
+                "visual_review:write",
+                "../../pulls/1",
+                ci_status.StatusPost.POSTED,
+                status.HTTP_400_BAD_REQUEST,
+            ),
+            (
+                "fragment_suffix",
+                "visual_review:write",
+                "a" * 40 + "#x",
+                ci_status.StatusPost.POSTED,
+                status.HTTP_400_BAD_REQUEST,
+            ),
+            ("short_sha", "visual_review:write", "abc123", ci_status.StatusPost.POSTED, status.HTTP_400_BAD_REQUEST),
+            (
+                "uppercase_sha",
+                "visual_review:write",
+                "A" * 40,
+                ci_status.StatusPost.POSTED,
+                status.HTTP_400_BAD_REQUEST,
+            ),
+        ]
+    )
+    def test_skip_reports_a_commit_that_needs_no_run(
+        self, _name: str, scope: str, commit_sha: str, post, expected_status: int
+    ):
+        Repo.objects.filter(id=self.vr_project.id).update(
+            baseline_mode=BaselineMode.LEDGER, commit_status_gate_enabled=True
+        )
+        key = self.create_personal_api_key_with_scopes([scope])
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {key}")
+
+        with patch.object(ci_status, "_send_commit_status", return_value=post):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/visual_review/runs/skip/",
+                {
+                    "repo_id": str(self.vr_project.id),
+                    "run_type": "storybook",
+                    "commit_sha": commit_sha,
+                    "branch": "feat",
+                },
+                format="json",
+            )
+
+        assert response.status_code == expected_status, response.json()
+        if expected_status == status.HTTP_200_OK:
+            assert response.json()["outcome"] == "posted"
+        if expected_status == status.HTTP_502_BAD_GATEWAY:
+            assert "Re-run this job" in response.json()["detail"]
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            assert response.json()["attr"] == "commit_sha"
+
     def _changed_snapshot_for_tolerate(self) -> tuple[str, str]:
         artifact_store.get_or_create_artifact(
             repo_id=self.vr_project.id,
@@ -1049,26 +1116,29 @@ class TestRepoRunsSearch(VisualReviewTeamScopedTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
 
-class TestMalformedUuidReturns400(VisualReviewTeamScopedTestMixin, APIBaseTest):
+class TestMalformedUuid(VisualReviewTeamScopedTestMixin, APIBaseTest):
     databases = PRODUCT_DATABASES
 
     # 13 hex chars in the final group — the shape that reached us from an MCP client.
     BAD_UUID = "4c4e61e7-192b-44cd-a0bf-c9ee996998625"
+    RUN_ID = "3f1c9f0e-2b7a-4a5f-9c1d-8e6b2a4f7d31"
 
     @parameterized.expand(
         [
-            ("run_retrieve", "runs/{bad}/"),
-            ("run_snapshots", "runs/{bad}/snapshots/"),
-            ("repo_retrieve", "repos/{bad}/"),
-            # Parent path segment (parents_query_dict) rather than pk.
-            ("repo_nested_runs", "repos/{bad}/runs/"),
+            ("run_retrieve", "get", "runs/{bad}/", status.HTTP_404_NOT_FOUND),
+            ("run_snapshots", "get", "runs/{bad}/snapshots/", status.HTTP_404_NOT_FOUND),
+            ("repo_retrieve", "get", "repos/{bad}/", status.HTTP_404_NOT_FOUND),
+            # A second path capture, declared in path_parameters next to pk.
+            ("cancel_lift", "post", "runs/{run}/quarantine_lifts/{bad}/cancel/", status.HTTP_404_NOT_FOUND),
+            # A parent path segment, declared in path_parameters by its bare name.
+            ("repo_nested_runs", "get", "repos/{bad}/runs/", status.HTTP_404_NOT_FOUND),
         ]
     )
-    def test_malformed_uuid_returns_400_not_500(self, _name: str, path: str) -> None:
-        suffix = path.format(bad=self.BAD_UUID)
-        response = self.client.get(f"/api/projects/{self.team.id}/visual_review/{suffix}")
+    def test_malformed_uuid_is_a_404(self, _name: str, method: str, path: str, expected_status: int) -> None:
+        suffix = path.format(bad=self.BAD_UUID, run=self.RUN_ID)
+        response = getattr(self.client, method)(f"/api/projects/{self.team.id}/visual_review/{suffix}")
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.status_code == expected_status, response.json()
 
 
 class TestSnapshotLookupRequiresIdentifier(VisualReviewTeamScopedTestMixin, APIBaseTest):

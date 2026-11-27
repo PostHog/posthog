@@ -17,10 +17,13 @@ def start_scanners_waiting_for_launch(
     Runs as the launch signal's receiver, and again from the reconciler for a launch whose receiver
     failed, so it is safe to run more than once.
     """
+    # Deferred: pulls in access control, and this module loads in every process at startup.
+    from products.replay_vision.backend.scanner_access import creator_can_scan  # noqa: PLC0415
+
     started: list[ReplayScanner] = []
     with transaction.atomic():
         waiting = (
-            ReplayScanner.objects.select_related("created_by", "team")
+            ReplayScanner.objects.select_related("created_by", "team__organization")
             .select_for_update(of=("self",))
             .filter(
                 team_id=team_id,
@@ -31,6 +34,10 @@ def start_scanners_waiting_for_launch(
             )
         )
         for scanner in waiting:
+            if not scanner.team.organization.is_ai_data_processing_approved or not creator_can_scan(scanner):
+                # The sweep would turn it straight back off. It keeps waiting, so the reconciler's launch
+                # catch-up starts it once consent returns, and turning it on by hand clears the marker.
+                continue
             # Cleared with the enable, so a reset and relaunch never turns on a scanner its owner
             # turned off after the first launch.
             scanner.scanner_config = {k: v for k, v in scanner.scanner_config.items() if k != START_ON_LAUNCH_KEY}

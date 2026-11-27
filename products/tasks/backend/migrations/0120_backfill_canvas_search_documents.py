@@ -66,7 +66,6 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ("tasks", "0119_alter_tasksearchdocument_kind"),
-        ("canvas", "0016_canvas_source_policy"),
     ]
 
     operations = [migrations.RunPython(backfill_canvas_search_documents, migrations.RunPython.noop, elidable=True)]

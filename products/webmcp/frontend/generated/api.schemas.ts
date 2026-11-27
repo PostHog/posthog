@@ -26,17 +26,3 @@ export interface WebMCPExecResultApi {
     /** True when the tool ran and reported a failure. */
     is_error: boolean
 }
-
-/**
- * JSON Schema of the tool input, as the MCP server advertises it.
- */
-export type WebMCPExecToolApiInputSchema = { [key: string]: unknown }
-
-export interface WebMCPExecToolApi {
-    /** Tool name to register with WebMCP. */
-    name: string
-    /** Tool description from the PostHog MCP server, which tells the agent how to write commands. */
-    description: string
-    /** JSON Schema of the tool input, as the MCP server advertises it. */
-    input_schema: WebMCPExecToolApiInputSchema
-}

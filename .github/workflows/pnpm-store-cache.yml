@@ -8,6 +8,9 @@ name: pnpm store cache
 #
 # GitHub-hosted and Depot runners use separate cache stores, so the job runs on both.
 #
+# The root-only `pnpm-root-<os>-<lockhash>` entry that Frontend formatting restores has its own
+# job below, so it also comes from an empty store and does not inherit an older entry.
+#
 # The ci-storybook visual-regression shards save under the same key from inside the
 # playwright container, where the store sits at another path. actions/cache keys an
 # entry on key plus path, so that is a separate entry this job never touches.
@@ -47,16 +50,19 @@ jobs:
             matrix:
                 runner: [ubuntu-24.04, depot-ubuntu-24.04]
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+            - uses: actions/checkout@v6.0.2
 
             - name: Install pnpm
-              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: pnpm/action-setup@v6.0.8
 
             - name: Fix node-gyp permissions
               run: find ~/setup-pnpm -name gyp_main.py -exec chmod +x {} +
 
             - name: Set up Node.js
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: actions/setup-node@v6.2.0
               with:
                   node-version-file: .nvmrc
                   token: ${{ github.token }}
@@ -67,7 +73,8 @@ jobs:
 
             - name: Check for an existing entry
               id: lookup
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: actions/cache/restore@v5.0.3
               with:
                   path: ${{ steps.pnpm-store.outputs.path }}
                   key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
@@ -81,7 +88,8 @@ jobs:
             # and pnpm-install restores it so consumers skip the check's registry requests.
             - name: Check for an existing lockfile verdict
               id: verdict-lookup
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: actions/cache/restore@v5.0.3
               with:
                   path: ${{ steps.pnpm-cache.outputs.path }}/lockfile-verified.jsonl
                   key: pnpm-verdict-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'pnpm-workspace.yaml', 'package.json') }}
@@ -99,7 +107,8 @@ jobs:
             # branch would write the key every PR restores.
             - name: Save pnpm store
               if: github.ref == 'refs/heads/master' && steps.lookup.outputs.cache-hit != 'true'
-              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: actions/cache/save@v5.0.3
               with:
                   path: ${{ steps.pnpm-store.outputs.path }}
                   key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
@@ -108,7 +117,59 @@ jobs:
             # pnpm cache, so the record comes from the check the install above just ran.
             - name: Save lockfile verdict
               if: github.ref == 'refs/heads/master' && steps.verdict-lookup.outputs.cache-hit != 'true'
-              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: actions/cache/save@v5.0.3
               with:
                   path: ${{ steps.pnpm-cache.outputs.path }}/lockfile-verified.jsonl
                   key: pnpm-verdict-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'pnpm-workspace.yaml', 'package.json') }}
+
+    write-root:
+        name: Write pnpm root store
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        runs-on: ubuntu-24.04
+        timeout-minutes: 15
+        steps:
+            # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+            - uses: actions/checkout@v6.0.2
+
+            - name: Install pnpm
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: pnpm/action-setup@v6.0.8
+
+            - name: Fix node-gyp permissions
+              run: find ~/setup-pnpm -name gyp_main.py -exec chmod +x {} +
+
+            - name: Set up Node.js
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: actions/setup-node@v6.2.0
+              with:
+                  node-version-file: .nvmrc
+                  token: ${{ github.token }}
+
+            - name: Get pnpm store path
+              id: pnpm-store
+              run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+            - name: Check for an existing entry
+              id: lookup
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: actions/cache/restore@v5.0.3
+              with:
+                  path: ${{ steps.pnpm-store.outputs.path }}
+                  key: pnpm-root-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+                  lookup-only: true
+
+            # Cold on purpose, with no restore-keys: the entry holds exactly what the root
+            # package links, and a lockfile change resets it.
+            - name: Install the root package into an empty store
+              if: steps.lookup.outputs.cache-hit != 'true' || github.event_name == 'pull_request'
+              run: pnpm --filter=@posthog/root install --frozen-lockfile
+
+            # Master only, for the same reason as the full store above.
+            - name: Save pnpm root store
+              if: github.ref == 'refs/heads/master' && steps.lookup.outputs.cache-hit != 'true'
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: actions/cache/save@v5.0.3
+              with:
+                  path: ${{ steps.pnpm-store.outputs.path }}
+                  key: pnpm-root-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}

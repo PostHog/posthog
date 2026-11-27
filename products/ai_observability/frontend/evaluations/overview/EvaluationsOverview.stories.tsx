@@ -2,7 +2,6 @@ import { Meta, StoryObj } from '@storybook/react'
 import { within } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -251,11 +250,6 @@ function overview(evaluations: EvaluationResultApi[]): EvaluationsOverviewApi {
                 currentMedian !== null && previousMedian !== null
                     ? { current: currentMedian, previous: previousMedian }
                     : null,
-            medianTrend: measured.length
-                ? DAYS.map((_, index) =>
-                      median(measured.map((row) => row.trend.values[index]).filter((value) => value !== null))
-                  )
-                : [],
         },
     }
 }
@@ -283,7 +277,10 @@ function listEntry(row: EvaluationResultApi): EvaluationApi {
     return {
         id: row.id,
         name: row.name,
-        description: '',
+        description:
+            row.id === GROUNDEDNESS.id
+                ? 'Fails when the answer states something the retrieved docs do not support. Passes when every claim traces back to a doc in the context.'
+                : '',
         directory_id: DIRECTORIES.find((directory) => directory.name === row.directoryName)?.id ?? null,
         enabled: row.enabled,
         status: row.statusReason ? 'error' : row.enabled ? 'active' : 'paused',
@@ -355,6 +352,8 @@ function scene(rows: EvaluationResultApi[], { rateLimited = false } = {}): Retur
             },
             '/api/projects/:team_id/evaluations/:id/runs/': ({ params }) => [200, failingRuns(String(params.id))],
             '/api/projects/:team_id/evaluations/:id/score_distribution/': SCORE_HISTOGRAM,
+            // No evaluation here has a report, so the drawer shows no latest-report card.
+            '/api/projects/:team_id/llm_analytics/evaluation_reports/': toPaginatedResponse([]),
             '/api/projects/:team_id/evaluation_directories/': DIRECTORIES.filter((directory) =>
                 rows.some((row) => row.directoryName === directory.name)
             ),
@@ -377,7 +376,6 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2026-10-20',
         pageUrl: urls.aiObservabilityEvaluations(),
-        featureFlags: [FEATURE_FLAGS.AI_OBSERVABILITY_EVALUATIONS_OVERVIEW],
         testOptions: { waitForLoadersToDisappear: true },
     },
 }

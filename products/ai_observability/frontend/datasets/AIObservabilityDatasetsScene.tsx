@@ -18,11 +18,13 @@ import { toAccessControlLevel } from '~/lib/utils/accessControlUtils'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, type UserBasicType } from '~/types'
 
+import { ProjectKeyLabel } from '../components/ProjectKeyLabel'
 import { ResourceTagFilter } from '../components/ResourceTagFilter'
 import { ResourceTags } from '../components/ResourceTags'
 import { datasetsEmptyState } from '../emptyState/datasetsEmptyState'
 import type { DatasetReadApi as Dataset } from '../generated/api.schemas'
 import { DATASETS_PER_PAGE, aiObservabilityDatasetsLogic, getDatasetDetailUrl } from './aiObservabilityDatasetsLogic'
+import { DatasetRetentionNotice } from './DatasetRetentionNotice'
 
 export const scene: SceneExport = {
     component: AIObservabilityDatasetsScene,
@@ -77,10 +79,14 @@ export function AIObservabilityDatasetsScene({ navigation }: { navigation?: Reac
             className: '@max-[50rem]/datasets:hidden [&_.profile-package]:max-w-full [&_.profile-name]:truncate',
             dataIndex: 'created_by',
             render: function renderCreatedBy(_, item) {
-                const { created_by } = item
+                const { created_by, created_by_project_key_id } = item
                 return (
                     <div className="flex flex-row items-center flex-nowrap">
-                        {created_by && <ProfilePicture user={created_by as UserBasicType} size="md" showName />}
+                        {created_by ? (
+                            <ProfilePicture user={created_by as UserBasicType} size="md" showName />
+                        ) : (
+                            created_by_project_key_id && <ProjectKeyLabel id={created_by_project_key_id} />
+                        )}
                     </div>
                 )
             },
@@ -88,10 +94,11 @@ export function AIObservabilityDatasetsScene({ navigation }: { navigation?: Reac
         {
             title: 'Status',
             key: 'status',
+            width: 112,
             render: function renderStatus(_, dataset) {
                 return (
-                    <LemonTag type={dataset.archived ? 'muted' : 'success'}>
-                        {dataset.archived ? 'Archived' : 'Active'}
+                    <LemonTag type={dataset.expiring_soon ? 'warning' : dataset.archived ? 'muted' : 'success'}>
+                        {dataset.expiring_soon ? 'Expiring soon' : dataset.archived ? 'Archived' : 'Active'}
                     </LemonTag>
                 )
             },
@@ -178,6 +185,7 @@ export function AIObservabilityDatasetsScene({ navigation }: { navigation?: Reac
 
     return (
         <div className="@container/datasets space-y-4">
+            <DatasetRetentionNotice />
             <div className="flex gap-2 items-center flex-wrap" aria-label="Dataset filters">
                 {navigation}
                 <LemonSegmentedButton

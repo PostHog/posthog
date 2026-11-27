@@ -9,14 +9,32 @@ vi.mock("../signed-commit-artefacts", async (importOriginal) => ({
 
 import { enabledLocalTools } from "../index";
 import type { LocalToolCtx, LocalToolGateMeta } from "../registry";
-import { FINISH_TOOL_NAME, finishSchema, finishTool } from "./finish";
+import {
+  buildFinishRunUpdate,
+  FINISH_REPORT_MAX_CHARS,
+  FINISH_TOOL_NAME,
+  finishSchema,
+  finishTool,
+} from "./finish";
 
 describe("finish tool", () => {
   const requestFinish = async (): Promise<void> => {};
 
   it.each([
     {
-      name: "background cloud run with an unknown origin (fetch failed)",
+      name: "background cloud run that may end itself",
+      ctx: { cwd: "/repo", requestFinish },
+      meta: { environment: "cloud", background: true, finishTool: true },
+      expected: true,
+    },
+    {
+      name: "background cloud run whose launch withholds the tool",
+      ctx: { cwd: "/repo", requestFinish },
+      meta: { environment: "cloud", background: true, finishTool: false },
+      expected: false,
+    },
+    {
+      name: "background cloud run with no launch decision",
       ctx: { cwd: "/repo", requestFinish },
       meta: { environment: "cloud", background: true },
       expected: false,
@@ -24,122 +42,37 @@ describe("finish tool", () => {
     {
       name: "background cloud run without requestFinish or run ids",
       ctx: { cwd: "/repo" },
-      meta: {
-        environment: "cloud",
-        background: true,
-        taskOriginProduct: "user_created",
-      },
+      meta: { environment: "cloud", background: true, finishTool: true },
       expected: false,
     },
     {
       name: "background cloud run with run ids only (out-of-process adapter)",
       ctx: { cwd: "/repo", taskId: "task-1", taskRunId: "run-1" },
-      meta: {
-        environment: "cloud",
-        background: true,
-        taskOriginProduct: "user_created",
-      },
+      meta: { environment: "cloud", background: true, finishTool: true },
       expected: true,
+    },
+    {
+      name: "withheld run with run ids only (out-of-process adapter)",
+      ctx: { cwd: "/repo", taskId: "task-1", taskRunId: "run-1" },
+      meta: { environment: "cloud", background: true, finishTool: false },
+      expected: false,
     },
     {
       name: "interactive cloud run (background unset)",
       ctx: { cwd: "/repo", requestFinish },
-      meta: { environment: "cloud" },
+      meta: { environment: "cloud", finishTool: true },
       expected: false,
     },
     {
       name: "interactive cloud run (background false)",
       ctx: { cwd: "/repo", requestFinish },
-      meta: { environment: "cloud", background: false },
+      meta: { environment: "cloud", background: false, finishTool: true },
       expected: false,
     },
     {
       name: "background local run",
       ctx: { cwd: "/repo", requestFinish },
-      meta: { environment: "local", background: true },
-      expected: false,
-    },
-    {
-      name: "workflow-origin background cloud run",
-      ctx: { cwd: "/repo", requestFinish },
-      meta: {
-        environment: "cloud",
-        background: true,
-        taskOriginProduct: "workflow",
-      },
-      expected: false,
-    },
-    {
-      name: "workflow-origin run with the end-run opt-in",
-      ctx: { cwd: "/repo", requestFinish },
-      meta: {
-        environment: "cloud",
-        background: true,
-        taskOriginProduct: "workflow",
-        endRunWhenDone: true,
-      },
-      expected: true,
-    },
-    {
-      name: "non-workflow-origin background cloud run",
-      ctx: { cwd: "/repo", requestFinish },
-      meta: {
-        environment: "cloud",
-        background: true,
-        taskOriginProduct: "user_created",
-      },
-      expected: true,
-    },
-    {
-      name: "caller-managed ReviewHog run",
-      ctx: { cwd: "/repo", requestFinish },
-      meta: {
-        environment: "cloud",
-        background: true,
-        taskOriginProduct: "review_hog",
-      },
-      expected: false,
-    },
-    {
-      name: "ReviewHog run with run ids only (out-of-process adapter)",
-      ctx: { cwd: "/repo", taskId: "task-1", taskRunId: "run-1" },
-      meta: {
-        environment: "cloud",
-        background: true,
-        taskOriginProduct: "review_hog",
-      },
-      expected: false,
-    },
-    {
-      name: "ReviewHog run with an end-run opt-in and run ids",
-      ctx: { cwd: "/repo", taskId: "task-1", taskRunId: "run-1" },
-      meta: {
-        environment: "cloud",
-        background: true,
-        taskOriginProduct: "review_hog",
-        endRunWhenDone: true,
-      },
-      expected: false,
-    },
-    {
-      name: "caller-managed scout suggestions run",
-      ctx: { cwd: "/repo", requestFinish },
-      meta: {
-        environment: "cloud",
-        background: true,
-        taskOriginProduct: "scout_suggestions",
-      },
-      expected: false,
-    },
-    {
-      name: "scout suggestions run with an end-run opt-in and run ids",
-      ctx: { cwd: "/repo", taskId: "task-1", taskRunId: "run-1" },
-      meta: {
-        environment: "cloud",
-        background: true,
-        taskOriginProduct: "scout_suggestions",
-        endRunWhenDone: true,
-      },
+      meta: { environment: "local", background: true, finishTool: true },
       expected: false,
     },
     {
@@ -174,9 +107,17 @@ describe("finish tool", () => {
     const spy = vi.fn(async () => {});
     const result = await finishTool.handler(
       { cwd: "/repo", requestFinish: spy },
-      { status: "failed", reason: "ran out of quota" },
+      {
+        status: "failed",
+        reason: "ran out of quota",
+        report: "Partial report",
+      },
     );
-    expect(spy).toHaveBeenCalledWith("failed", "ran out of quota");
+    expect(spy).toHaveBeenCalledWith(
+      "failed",
+      "ran out of quota",
+      "Partial report",
+    );
     expect(result.isError).toBeUndefined();
   });
 
@@ -197,6 +138,57 @@ describe("finish tool", () => {
       expect.any(AbortSignal),
     );
     expect(result.isError).toBeUndefined();
+  });
+
+  it.each(["", "   "])(
+    "keeps a report-required run open when the report is %j",
+    async (report) => {
+      const spy = vi.fn(async () => {});
+      const result = await finishTool.handler(
+        { cwd: "/repo", requestFinish: spy, finishReportRequired: true },
+        { status: "completed", report },
+      );
+      expect(spy).not.toHaveBeenCalled();
+      expect(result.isError).toBe(true);
+    },
+  );
+
+  const rejectOnce = (status: number) =>
+    vi
+      .fn<NonNullable<LocalToolCtx["requestFinish"]>>()
+      .mockRejectedValueOnce(Object.assign(new Error("rejected"), { status }))
+      .mockResolvedValue(undefined);
+
+  it.each([400, 403])(
+    "ends the run without the report when the backend rejects it (%i)",
+    async (status) => {
+      const spy = rejectOnce(status);
+      const result = await finishTool.handler(
+        { cwd: "/repo", requestFinish: spy },
+        { status: "completed", report: "Full report" },
+      );
+      expect(result.isError).toBeUndefined();
+      expect(spy).toHaveBeenLastCalledWith("completed", undefined);
+    },
+  );
+
+  it("keeps the report when the finish fails for another reason", async () => {
+    const spy = rejectOnce(500);
+    await expect(
+      finishTool.handler(
+        { cwd: "/repo", requestFinish: spy },
+        { status: "completed", report: "Full report" },
+      ),
+    ).rejects.toThrow("rejected");
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it("cuts a long report without splitting a surrogate pair", () => {
+    const report = `${"a".repeat(FINISH_REPORT_MAX_CHARS - 1)}😀😀`;
+    const finalMessage = buildFinishRunUpdate("completed", undefined, report)
+      .output?.final_message as string;
+    expect(finalMessage).toBe(`${"a".repeat(FINISH_REPORT_MAX_CHARS - 1)}😀`);
+    expect(finalMessage.isWellFormed()).toBe(true);
   });
 
   it("errors when requestFinish is unavailable", async () => {

@@ -2,7 +2,7 @@ from unittest import TestCase
 
 from parameterized import parameterized
 
-from products.experiments.backend.logic.result_stats import MetricTimeseries
+from products.experiments.backend.logic.result_stats import MetricResultStats, MetricTimeseries
 from products.experiments.backend.logic.timeseries_text import ExperimentTimeseriesFormatter
 
 
@@ -41,7 +41,9 @@ def _bayesian_day(
 
 
 def _format(response: dict) -> str:
-    timeseries = MetricTimeseries.from_stored(status=response["status"], timeseries=response["timeseries"])
+    timeseries = MetricTimeseries.from_stored(
+        status=response["status"], timeseries=response["timeseries"], is_quantile=False
+    )
     return ExperimentTimeseriesFormatter(timeseries).format()
 
 
@@ -228,3 +230,25 @@ class TestExperimentTimeseriesFormatter(TestCase):
         self.assertEqual(lines[1], "Variants: control (baseline), blue, green")
         self.assertIn("blue chance_to_win", lines[3])
         self.assertIn("green chance_to_win", lines[3])
+
+
+class TestMetricResultStatsMean(TestCase):
+    @parameterized.expand(
+        [
+            ("mean_metric", False, None, 0.05),
+            ("quantile_metric", True, [42.0, 40.0, 44.0], 42.0),
+            # A quantile variant without qualifying events has sum 0, and its value is undefined, not 0.
+            ("quantile_without_events", True, [], None),
+            ("quantile_without_grid", True, None, None),
+        ]
+    )
+    def test_baseline_mean(
+        self, _: str, is_quantile: bool, quantile_grid: list[float] | None, expected: float | None
+    ) -> None:
+        day = _bayesian_day(control_n=1000, control_sum=0 if is_quantile else 50)
+        day["baseline"]["quantile_grid"] = quantile_grid
+
+        stats = MetricResultStats.from_stored(day, is_quantile=is_quantile)
+
+        assert stats is not None
+        self.assertEqual(stats.baseline.mean, expected)

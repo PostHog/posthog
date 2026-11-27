@@ -49,6 +49,24 @@ export const Default: Story = {
     ),
 } satisfies Story
 
+export const RichPlaceholder: Story = {
+    render: () => (
+        <InputGroup className="max-w-sm">
+            <InputGroupAddon>
+                <SearchIcon />
+            </InputGroupAddon>
+            <InputGroupInput
+                aria-label="Search"
+                placeholder={
+                    <>
+                        Search… try&nbsp;<span className="font-medium text-foreground">is:dashboard</span>
+                    </>
+                }
+            />
+        </InputGroup>
+    ),
+} satisfies Story
+
 export const InlineStart: Story = {
     render: () => (
         <Field className="max-w-sm">
@@ -82,74 +100,61 @@ export const InlineEnd: Story = {
 export const BlockStart: Story = {
     render: () => (
         <FieldGroup className="max-w-sm">
-      <Field>
-        <FieldLabel htmlFor="block-start-input">Input</FieldLabel>
-        <InputGroup className="h-auto">
-          <InputGroupInput
-            id="block-start-input"
-            placeholder="Enter your name"
-          />
-          <InputGroupAddon align="block-start">
-            <InputGroupText>Full Name</InputGroupText>
-          </InputGroupAddon>
-        </InputGroup>
-        <FieldDescription>Header positioned above the input.</FieldDescription>
-      </Field>
-      <Field>
-        <FieldLabel htmlFor="block-start-textarea">Textarea</FieldLabel>
-        <InputGroup>
-          <InputGroupTextarea
-            id="block-start-textarea"
-            placeholder="console.log('Hello, world!');"
-          />
-          <InputGroupAddon align="block-start">
-            <FileCodeIcon className="text-muted-foreground" />
-            <InputGroupText>script.js</InputGroupText>
-            <InputGroupButton size="icon-xs" className="ml-auto">
-              <CopyIcon />
-              <span className="sr-only">Copy</span>
-            </InputGroupButton>
-          </InputGroupAddon>
-        </InputGroup>
-        <FieldDescription>
-          Header positioned above the textarea.
-        </FieldDescription>
-      </Field>
-    </FieldGroup>
+            <Field>
+                <FieldLabel htmlFor="block-start-input">Input</FieldLabel>
+                <InputGroup className="h-auto">
+                    <InputGroupInput id="block-start-input" placeholder="Enter your name" />
+                    <InputGroupAddon align="block-start">
+                        <InputGroupText>Full Name</InputGroupText>
+                    </InputGroupAddon>
+                </InputGroup>
+                <FieldDescription>Header positioned above the input.</FieldDescription>
+            </Field>
+            <Field>
+                <FieldLabel htmlFor="block-start-textarea">Textarea</FieldLabel>
+                <InputGroup>
+                    <InputGroupTextarea id="block-start-textarea" placeholder="console.log('Hello, world!');" />
+                    <InputGroupAddon align="block-start">
+                        <FileCodeIcon className="text-muted-foreground" />
+                        <InputGroupText>script.js</InputGroupText>
+                        <InputGroupButton size="icon-xs" className="ml-auto">
+                            <CopyIcon />
+                            <span className="sr-only">Copy</span>
+                        </InputGroupButton>
+                    </InputGroupAddon>
+                </InputGroup>
+                <FieldDescription>Header positioned above the textarea.</FieldDescription>
+            </Field>
+        </FieldGroup>
     ),
 } satisfies Story
 export const BlockEnd: Story = {
     render: () => (
         <FieldGroup className="max-w-sm">
-      <Field>
-        <FieldLabel htmlFor="block-end-input">Input</FieldLabel>
-        <InputGroup className="h-auto">
-          <InputGroupInput id="block-end-input" placeholder="Enter amount" />
-          <InputGroupAddon align="block-end">
-            <InputGroupText>USD</InputGroupText>
-          </InputGroupAddon>
-        </InputGroup>
-        <FieldDescription>Footer positioned below the input.</FieldDescription>
-      </Field>
-      <Field>
-        <FieldLabel htmlFor="block-end-textarea">Textarea</FieldLabel>
-        <InputGroup>
-          <InputGroupTextarea
-            id="block-end-textarea"
-            placeholder="Write a comment..."
-          />
-          <InputGroupAddon align="block-end">
-            <InputGroupText>0/280</InputGroupText>
-            <InputGroupButton variant="primary" size="sm" className="ml-auto">
-              Post
-            </InputGroupButton>
-          </InputGroupAddon>
-        </InputGroup>
-        <FieldDescription>
-          Footer positioned below the textarea.
-        </FieldDescription>
-      </Field>
-    </FieldGroup>
+            <Field>
+                <FieldLabel htmlFor="block-end-input">Input</FieldLabel>
+                <InputGroup className="h-auto">
+                    <InputGroupInput id="block-end-input" placeholder="Enter amount" />
+                    <InputGroupAddon align="block-end">
+                        <InputGroupText>USD</InputGroupText>
+                    </InputGroupAddon>
+                </InputGroup>
+                <FieldDescription>Footer positioned below the input.</FieldDescription>
+            </Field>
+            <Field>
+                <FieldLabel htmlFor="block-end-textarea">Textarea</FieldLabel>
+                <InputGroup>
+                    <InputGroupTextarea id="block-end-textarea" placeholder="Write a comment..." />
+                    <InputGroupAddon align="block-end">
+                        <InputGroupText>0/280</InputGroupText>
+                        <InputGroupButton variant="primary" size="sm" className="ml-auto">
+                            Post
+                        </InputGroupButton>
+                    </InputGroupAddon>
+                </InputGroup>
+                <FieldDescription>Footer positioned below the textarea.</FieldDescription>
+            </Field>
+        </FieldGroup>
     ),
 } satisfies Story
 
@@ -191,39 +196,37 @@ export const Icons: Story = {
 export const Text: Story = {
     render: () => (
         <div className="grid w-full max-w-sm gap-6">
-      <InputGroup>
-        <InputGroupAddon>
-          <InputGroupText>$</InputGroupText>
-        </InputGroupAddon>
-        <InputGroupInput placeholder="0.00" />
-        <InputGroupAddon align="inline-end">
-          <InputGroupText>USD</InputGroupText>
-        </InputGroupAddon>
-      </InputGroup>
-      <InputGroup>
-        <InputGroupAddon>
-          <InputGroupText>https://</InputGroupText>
-        </InputGroupAddon>
-        <InputGroupInput placeholder="example.com" className="pl-0.5!" />
-        <InputGroupAddon align="inline-end">
-          <InputGroupText>.com</InputGroupText>
-        </InputGroupAddon>
-      </InputGroup>
-      <InputGroup>
-        <InputGroupInput placeholder="Enter your username" />
-        <InputGroupAddon align="inline-end">
-          <InputGroupText>@company.com</InputGroupText>
-        </InputGroupAddon>
-      </InputGroup>
-      <InputGroup>
-        <InputGroupTextarea placeholder="Enter your message" />
-        <InputGroupAddon align="block-end">
-          <InputGroupText className="text-xs text-muted-foreground">
-            120 characters left
-          </InputGroupText>
-        </InputGroupAddon>
-      </InputGroup>
-    </div>
+            <InputGroup>
+                <InputGroupAddon>
+                    <InputGroupText>$</InputGroupText>
+                </InputGroupAddon>
+                <InputGroupInput placeholder="0.00" />
+                <InputGroupAddon align="inline-end">
+                    <InputGroupText>USD</InputGroupText>
+                </InputGroupAddon>
+            </InputGroup>
+            <InputGroup>
+                <InputGroupAddon>
+                    <InputGroupText>https://</InputGroupText>
+                </InputGroupAddon>
+                <InputGroupInput placeholder="example.com" className="pl-0.5!" />
+                <InputGroupAddon align="inline-end">
+                    <InputGroupText>.com</InputGroupText>
+                </InputGroupAddon>
+            </InputGroup>
+            <InputGroup>
+                <InputGroupInput placeholder="Enter your username" />
+                <InputGroupAddon align="inline-end">
+                    <InputGroupText>@company.com</InputGroupText>
+                </InputGroupAddon>
+            </InputGroup>
+            <InputGroup>
+                <InputGroupTextarea placeholder="Enter your message" />
+                <InputGroupAddon align="block-end">
+                    <InputGroupText className="text-xs text-muted-foreground">120 characters left</InputGroupText>
+                </InputGroupAddon>
+            </InputGroup>
+        </div>
     ),
 } satisfies Story
 
@@ -304,6 +307,21 @@ export const Loading: Story = {
             </div>
         )
     },
+} satisfies Story
+
+export const DisabledReason: Story = {
+    render: () => (
+        <InputGroup className="max-w-xs">
+            <InputGroupAddon>
+                <MailIcon />
+            </InputGroupAddon>
+            <InputGroupInput
+                aria-label="Email"
+                defaultValue="hedgehog@example.com"
+                disabledReason="Your identity provider manages this email"
+            />
+        </InputGroup>
+    ),
 } satisfies Story
 
 export const Invalid: Story = {
@@ -403,3 +421,31 @@ export const Textarea: Story = {
         )
     },
 } satisfies Story
+
+/** A rich text editor as the control: a contenteditable stands in for the textarea, and an addon click focuses it. */
+export const RichTextEditor: Story = {
+    render: () => (
+        <div className="w-full max-w-md">
+            <InputGroup>
+                <div
+                    contentEditable
+                    suppressContentEditableWarning
+                    role="textbox"
+                    aria-multiline="true"
+                    aria-label="Comment"
+                    className="min-h-16 w-full px-2.5 pt-2 text-sm outline-none"
+                >
+                    Write here, or click the empty space beside the buttons.
+                </div>
+                <InputGroupAddon align="block-end">
+                    <InputGroupButton size="icon-xs" aria-label="Copy">
+                        <CopyIcon />
+                    </InputGroupButton>
+                    <InputGroupButton size="sm" className="ml-auto" variant="primary">
+                        Send
+                    </InputGroupButton>
+                </InputGroupAddon>
+            </InputGroup>
+        </div>
+    ),
+}

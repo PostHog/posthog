@@ -1,6 +1,8 @@
 import '~/styles'
 import './RenderQuery.scss'
 
+import '~/taxonomy/registerCoreFilterDefinitions'
+
 import { createRoot } from 'react-dom/client'
 
 import { initKea } from '~/initKea'

@@ -1,9 +1,9 @@
 import { useActions, useValues } from 'kea'
 
-import { IconArrowRight, IconCheck } from '@posthog/icons'
+import { IconArrowRight, IconCheck, IconLock } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { aiConsentLogic } from './aiConsentLogic'
+import { AI_DATA_PROCESSING_LOCKED_REASON, aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 
 /**
  * The path forward for a member who cannot approve AI data processing themselves: ask an
@@ -11,8 +11,17 @@ import { aiConsentLogic } from './aiConsentLogic'
  * the same working affordance wherever the gate appears.
  */
 export function AIAccessRequest({ size = 'xsmall' }: { size?: 'xsmall' | 'small' }): JSX.Element {
-    const { requestingAiAccess, aiAccessRequested } = useValues(aiConsentLogic)
+    const { requestingAiAccess, aiAccessRequested, dataProcessingLocked } = useValues(aiConsentLogic)
     const { requestAiAccess } = useActions(aiConsentLogic)
+
+    if (dataProcessingLocked) {
+        return (
+            <p className="flex items-start gap-1.5 m-0 text-xs text-muted">
+                <IconLock className="shrink-0 mt-0.5" />
+                <span>{AI_DATA_PROCESSING_LOCKED_REASON}</span>
+            </p>
+        )
+    }
 
     // An inline confirmation rather than a spent button, so a repeat visit reads as "already asked".
     if (aiAccessRequested) {

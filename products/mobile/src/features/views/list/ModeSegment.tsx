@@ -14,8 +14,6 @@ const LABEL: Record<PinDisplayMode, string> = { row: 'Row', number: 'Number', ch
 
 interface ModeSegmentProps {
     value: PinDisplayMode
-    /** The modes this pin offers. The others show disabled. */
-    available: readonly PinDisplayMode[]
     onChange: (mode: PinDisplayMode) => void
     /** `labels` for the long-press menu, `icons` for the compact toggle in Edit pins. */
     variant: 'labels' | 'icons'
@@ -25,7 +23,7 @@ interface ModeSegmentProps {
 }
 
 /** Row, Number or Chart for one pin. */
-export function ModeSegment({ value, available, onChange, variant, name, testIDFor }: ModeSegmentProps): ReactElement {
+export function ModeSegment({ value, onChange, variant, name, testIDFor }: ModeSegmentProps): ReactElement {
     const { colors, shadows } = useTheme()
     const styles = useStyles()
     const icons = variant === 'icons'
@@ -37,22 +35,14 @@ export function ModeSegment({ value, available, onChange, variant, name, testIDF
         >
             {MODES.map((mode) => {
                 const selected = mode === value
-                const disabled = !available.includes(mode)
-                const color = selected
-                    ? colors.ink
-                    : disabled
-                      ? colors.disabled
-                      : icons
-                        ? colors.tertiary
-                        : colors.secondary
+                const color = selected ? colors.ink : icons ? colors.tertiary : colors.secondary
                 return (
                     <Pressable44
                         key={mode}
                         onPress={() => onChange(mode)}
-                        disabled={disabled}
                         accessibilityRole="radio"
                         accessibilityLabel={LABEL[mode]}
-                        accessibilityState={{ checked: selected, disabled }}
+                        accessibilityState={{ checked: selected }}
                         hitSlop={icons ? { top: 7, bottom: 7 } : 6}
                         haptic="selection"
                         style={[

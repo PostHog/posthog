@@ -23,7 +23,7 @@ import re
 import json
 from dataclasses import asdict, dataclass
 from decimal import Decimal, InvalidOperation
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from django.conf import settings
@@ -44,6 +44,9 @@ from posthog.utils import absolute_uri
 from products.slack_app.backend.services.model_catalogue import describe_run_model
 from products.slack_app.backend.services.slack_user_info import get_cached_bot_user_id, get_slack_user_info
 from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration
+
+if TYPE_CHECKING:
+    from products.tasks.backend.facade.contracts import TaskRunDTO
 
 logger = structlog.get_logger(__name__)
 
@@ -551,14 +554,8 @@ def collect_thread_messages(
     channel: str,
     thread_ts: str,
     our_bot_id: str | None,
-    until_ts: str | None = None,
 ) -> list[SlackThreadMessage]:
     """Fetch thread messages, strip bot mentions, and resolve user display names.
-
-    ``until_ts`` clips the thread at a message, for a reader who forked the discussion
-    at a point in time: what was said afterwards was not what they were looking at.
-    Unbounded by default, which is what the mention path wants — it is answering the
-    thread as it stands.
 
     A thread whose root no longer exists — the user deleted the message that triggered
     us — comes back empty rather than raising. Callers read an empty thread as "nothing
@@ -576,8 +573,6 @@ def collect_thread_messages(
         logger.warning("slack_app_thread_message_deleted", channel=channel, thread_ts=thread_ts)
         return []
     raw_messages: list[dict] = thread_response.get("messages", [])
-    if until_ts:
-        raw_messages = [msg for msg in raw_messages if _ts_at_or_before(str(msg.get("ts") or ""), until_ts)]
 
     user_cache: dict[str, str] = {}
 
@@ -687,6 +682,8 @@ def invalidate_thread_messages_cache(integration_id: int, channel: str, thread_t
 # Query param a link we compose can carry to tell our own unfurler to leave it alone
 # (honoured by `parse_posthog_resource_link`).
 UNFURL_OPT_OUT_PARAM = "unfurl"
+# Run state key holding the `ts` of the run's progress card.
+SLACK_PROGRESS_MESSAGE_TS_KEY = "slack_progress_message_ts"
 
 
 @dataclass(frozen=True)
@@ -715,6 +712,11 @@ class RunFooter:
     # Whether the run shares charts as insight links instead of images, so reply analytics can
     # compare the two delivery modes. Not rendered.
     chart_links: bool = False
+    # Model spend of the thread's task so far. Sandbox compute is not billed, so it is not included.
+    thread_cost_usd: Decimal | None = None
+    # Where the run's progress card lives, so the handler edits or deletes it without searching
+    # the thread. Read once to seed the handler, which owns it from then on. Not rendered.
+    progress_message_ts: str | None = None
 
     def has_content(self) -> bool:
         """Whether this would render as anything.
@@ -724,7 +726,7 @@ class RunFooter:
         keeps meaning "None-coalesce" and cannot silently discard a partial instance.
         The ids are not part of the answer — they say nothing on their own.
         """
-        return any((self.task_url, self.model, self.project, self.plan))
+        return any((self.task_url, self.model, self.project, self.plan, self.thread_cost_usd is not None))
 
 
 def _project_name(team_id: int, *, integration_id: int | None, created_by_id: int | None) -> str | None:
@@ -800,7 +802,9 @@ def _plan_label(state: dict[str, Any] | None, *, task_id: Any, integration_id: i
     return f"<@{owner_slack_user_id}>'s {plan.plan_name}"
 
 
-def load_run_footer(run_id: str | UUID | None, *, integration_id: int | None) -> RunFooter:
+def load_run_footer(
+    run_id: str | UUID | None, *, integration_id: int | None, include_thread_cost: bool = False
+) -> RunFooter:
     """Describe a run for the footer.
 
     Never raises: the footer is the last thing added to an answer that is already
@@ -812,6 +816,8 @@ def load_run_footer(run_id: str | UUID | None, *, integration_id: int | None) ->
     ``integration_id`` is the install the reply is posted through, and the workspace
     behind it is what the project segment is judged against. Required rather than
     defaulted, so a new caller cannot drop the segment without saying so.
+
+    ``include_thread_cost`` is for the reply that closes a turn.
     """
     # Deferred so the tasks product stays off this module's import path, matching
     # `model_catalogue`.
@@ -825,6 +831,7 @@ def load_run_footer(run_id: str | UUID | None, *, integration_id: int | None) ->
         if run is None:
             return RunFooter()
         state = parse_run_state(run.state)
+        plan = _plan_label(run.state, task_id=run.task_id, integration_id=integration_id)
         return RunFooter(
             run_id=str(run.id),
             task_id=str(run.task_id),
@@ -836,24 +843,56 @@ def load_run_footer(run_id: str | UUID | None, *, integration_id: int | None) ->
                 integration_id=integration_id,
                 created_by_id=run.created_by_id,
             ),
-            plan=_plan_label(run.state, task_id=run.task_id, integration_id=integration_id),
+            plan=plan,
             chart_links=bool((run.state or {}).get("slack_chart_links")),
+            progress_message_ts=(run.state or {}).get(SLACK_PROGRESS_MESSAGE_TS_KEY),
+            # A run on someone's own plan is not paid with PostHog credits, so its cost says nothing.
+            thread_cost_usd=_thread_cost(run) if include_thread_cost and plan is None else None,
         )
     except Exception:
         logger.exception("slack_app_run_footer_load_failed", run_id=str(run_id))
         return RunFooter()
 
 
-def _run_context_segments(footer: RunFooter) -> list[str]:
-    """What the run is, as footer segments: the model, the plan that pays for it, then the
-    project it answered from.
+def _thread_cost(run: "TaskRunDTO") -> Decimal | None:
+    """What the thread's task spent on models so far, or `None` when unknown.
 
-    Shared by the reply footer and the progress message so the two cannot describe one
-    run differently, and so the escaping below has a single home.
+    Reads the same task usage that PostHog Desktop shows, which sums the task's `$ai_generation`
+    events. Those events arrive with a short delay and the usage is cached for a minute, so the
+    newest requests can be missing here. A later reply's total then includes them.
+    """
+    from products.tasks.backend.facade.billing import get_task_usage  # noqa: PLC0415
+
+    if run.task_created_at is None:
+        return None
+    try:
+        return get_task_usage(
+            team_id=run.team_id, task_id=run.task_id, task_created_at=run.task_created_at
+        ).token_cost_usd
+    except Exception:
+        # Its own guard, like `_project_name`: a failed lookup costs the reader one segment.
+        logger.warning("slack_app_thread_cost_load_failed", task_id=str(run.task_id), exc_info=True)
+        return None
+
+
+def describe_thread_cost(cost_usd: Decimal) -> str:
+    """A cost under one cent shows as `<$0.01`, so that it does not read as free."""
+    if cost_usd < Decimal("0.01"):
+        return "Thread cost: <$0.01"
+    return f"Thread cost: ${cost_usd:.2f}"
+
+
+def _run_context_segments(footer: RunFooter) -> list[str]:
+    """What the run is, as footer segments: the model, the thread cost, the plan that pays for
+    it, then the project it answered from.
+
+    Kept apart from the links so the escaping below has a single home.
     """
     segments: list[str] = []
     if footer.model:
         segments.append(describe_run_model(footer.model, footer.reasoning_effort))
+    if footer.thread_cost_usd is not None:
+        segments.append(describe_thread_cost(footer.thread_cost_usd))
     if footer.plan:
         segments.append(footer.plan)
     if footer.project:
@@ -862,17 +901,6 @@ def _run_context_segments(footer: RunFooter) -> list[str]:
         # rather than on the way in, so `RunFooter.project` stays the plain name.
         segments.append(f"Project: *{escape_slack_mrkdwn(footer.project)}*")
     return segments
-
-
-def run_context_block(footer: RunFooter) -> dict[str, Any] | None:
-    """The run's project and model as a standalone `context` block, or `None` when
-    neither is known.
-
-    What a message that is still working can say about its run: the links the reply
-    footer carries lead to an answer that does not exist yet.
-    """
-    segments = _run_context_segments(footer)
-    return context_block(" · ".join(segments)) if segments else None
 
 
 def reply_footer_block(footer: RunFooter, configure_url: str | None = None) -> dict[str, Any] | None:
@@ -891,48 +919,6 @@ def reply_footer_block(footer: RunFooter, configure_url: str | None = None) -> d
     if not segments:
         return None
     return context_block(" · ".join(segments))
-
-
-def fork_menu_actions_block(element: dict[str, Any]) -> dict[str, Any]:
-    """The fork menu as a standalone block, for replies with no section to hang it on.
-
-    A streamed answer arrives as markdown chunks and the chart delivery puts the answer
-    in the card message, so neither has a `section` whose accessory the menu could be.
-    Costs a line, which is why the plain-post path prefers the accessory.
-    """
-    return {"type": "actions", "elements": [element]}
-
-
-FORK_THREAD_ACTION_ID = "slack_app_fork_thread"
-
-
-def fork_menu_element(integration_id: int) -> dict[str, Any]:
-    """The overflow menu the footer carries as its accessory.
-
-    An overflow renders as a bare "…" with no label, which is as close to invisible as
-    an interactive element gets — the answer above it is what the reader came for. It
-    also has somewhere to put the next destination ("fork to a channel") without
-    growing a second control.
-
-    Returned as a bare element rather than wrapped in an `actions` block so it can be a
-    `section` accessory, which is what puts it on the footer's own line. Slack offers no
-    inline interactive element, so an accessory — right-aligned beside the text — is as
-    close to trailing the footer as Block Kit gets.
-
-    The option value carries the integration so the cross-region interactivity router
-    can tell whose click this is. Everything else the fork needs — the channel, and the
-    thread the reply is sitting in — rides on the `block_actions` payload.
-    """
-    return {
-        "type": "overflow",
-        "action_id": FORK_THREAD_ACTION_ID,
-        "options": [
-            {
-                "text": {"type": "plain_text", "text": "Fork to DM", "emoji": True},
-                "value": json.dumps({"integration_id": integration_id}),
-            }
-        ],
-    }
 
 
 TURN_FEEDBACK_ACTION_ID = "slack_app_turn_feedback"

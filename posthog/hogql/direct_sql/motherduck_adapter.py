@@ -4,7 +4,6 @@ import re
 import threading
 from typing import TYPE_CHECKING, cast
 
-import sqlparse
 from opentelemetry import trace
 from sqlparse import tokens as sqlparse_tokens
 from sqlparse.sql import Token
@@ -13,7 +12,7 @@ from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.direct_query_metrics import DIRECT_QUERY_ROW_CAP_EXCEEDED_TOTAL, observe_direct_query
 from posthog.hogql.direct_sql.adapter import DirectQueryRequest, DirectQueryResult, parse_direct_source_config
 from posthog.hogql.direct_sql.capability import is_direct_capable
-from posthog.hogql.direct_sql.raw_sql import ensure_single_direct_statement
+from posthog.hogql.direct_sql.raw_sql import parse_direct_statements
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.motherduck_connection_cache import cached_motherduck_connection
 
@@ -134,8 +133,7 @@ def _opens_call(tokens: list[Token], index: int) -> bool:
 
 
 def ensure_read_only_raw_motherduck_statement(sql: str) -> str:
-    sql = ensure_single_direct_statement(sql)
-    statements = [statement for statement in sqlparse.parse(sql) if str(statement).strip(" \t\r\n;")]
+    statements = parse_direct_statements(sql, dialect="duckdb")
     if len(statements) != 1 or statements[0].get_type() != "SELECT":
         raise ExposedHogQLError(RAW_MOTHERDUCK_READ_ONLY_ERROR)
     # The connection itself is read-only (DuckDB rejects writes engine-side) and runs in

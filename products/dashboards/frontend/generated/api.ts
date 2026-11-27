@@ -11,20 +11,32 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     AddDashboardWidgetsBatchRequestOpenApiApi,
     AddDashboardWidgetsBatchResponseApi,
+    AddInsightToDashboardRequestApi,
+    BoardCreateApi,
+    BoardDetailApi,
+    BoardUpdateApi,
     BulkUpdateTagsRequestApi,
     BulkUpdateTagsResponseApi,
+    CachedTilesResponseApi,
     CopyDashboardGroupRequestApi,
     CopyDashboardTemplateApi,
     CopyDashboardTileRequestApi,
     CreateTextTileRequestApi,
+    DashboardActivitySummaryApi,
     DashboardApi,
     DashboardBulkDeleteRequestApi,
     DashboardBulkDeleteResponseApi,
+    DashboardQuerySharingEventApi,
     DashboardSubscribeNudgeResponseApi,
     DashboardTemplateApi,
     DashboardTemplatesListParams,
     DashboardTileApi,
+    DashboardTileBasicApi,
+    DashboardV2BoardsListParams,
+    DashboardsActivitySummaryRetrieveParams,
+    DashboardsAddInsightCreateParams,
     DashboardsBulkUpdateTagsCreateParams,
+    DashboardsCachedTilesRetrieveParams,
     DashboardsCopyGroupCreateParams,
     DashboardsCopyTileCreateParams,
     DashboardsCreateFromTemplateJsonCreateParams,
@@ -41,6 +53,7 @@ import type {
     DashboardsRetrieveParams,
     DashboardsRunInsightsRetrieveParams,
     DashboardsRunWidgetsRetrieveParams,
+    DashboardsStreamQueryResultsRetrieveParams,
     DashboardsStreamTilesRetrieveParams,
     DashboardsSubscribeNudgeCreateParams,
     DashboardsUpdateParams,
@@ -49,17 +62,17 @@ import type {
     DashboardsWidgetCatalogRetrieveParams,
     DashboardsWidgetsBatchCreateParams,
     DataColorThemeApi,
-    DataColorThemesListParams,
     DeleteTileRequestApi,
     MoveTileRequestApi,
+    PaginatedBoardSummaryListApi,
     PaginatedDashboardBasicListApi,
     PaginatedDashboardTemplateListApi,
-    PaginatedDataColorThemeListApi,
     PatchedDashboardTemplateApi,
     PatchedDataColorThemeApi,
     PatchedMoveTileRequestApi,
     PatchedPatchedDashboardOpenApiApi,
     PatchedUpdateDashboardWidgetsBatchRequestOpenApiApi,
+    QueryBatchRequestApi,
     ReorderTilesRequestApi,
     RunInsightsResponseApi,
     RunWidgetsResponseApi,
@@ -227,6 +240,133 @@ export const dashboardTemplatesJsonSchemaRetrieve = async (projectId: string, op
     return apiMutator<void>(getDashboardTemplatesJsonSchemaRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getDashboardV2BoardsListUrl = (projectId: string, params?: DashboardV2BoardsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/dashboard_v2/boards/?${stringifiedParams}`
+        : `/api/projects/${projectId}/dashboard_v2/boards/`
+}
+
+/**
+ * List the project's boards, the most recently saved first. Rows leave out the document.
+ */
+export const dashboardV2BoardsList = async (
+    projectId: string,
+    params?: DashboardV2BoardsListParams,
+    options?: RequestInit
+): Promise<PaginatedBoardSummaryListApi> => {
+    return apiMutator<PaginatedBoardSummaryListApi>(getDashboardV2BoardsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getDashboardV2BoardsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/dashboard_v2/boards/`
+}
+
+/**
+ * Save a document as a new board at version 1.
+ */
+export const dashboardV2BoardsCreate = async (
+    projectId: string,
+    boardCreateApi: BoardCreateApi,
+    options?: RequestInit
+): Promise<BoardDetailApi> => {
+    return apiMutator<BoardDetailApi>(getDashboardV2BoardsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(boardCreateApi),
+    })
+}
+
+export const getDashboardV2BoardsRetrieveUrl = (projectId: string, uid: string) => {
+    return `/api/projects/${projectId}/dashboard_v2/boards/${uid}/`
+}
+
+/**
+ * Get a board with its document.
+ */
+export const dashboardV2BoardsRetrieve = async (
+    projectId: string,
+    uid: string,
+    options?: RequestInit
+): Promise<BoardDetailApi> => {
+    return apiMutator<BoardDetailApi>(getDashboardV2BoardsRetrieveUrl(projectId, uid), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getDashboardV2BoardsUpdateUrl = (projectId: string, uid: string) => {
+    return `/api/projects/${projectId}/dashboard_v2/boards/${uid}/`
+}
+
+/**
+ * Replace a board's document and add 1 to its version.
+ */
+export const dashboardV2BoardsUpdate = async (
+    projectId: string,
+    uid: string,
+    boardUpdateApi: BoardUpdateApi,
+    options?: RequestInit
+): Promise<BoardDetailApi> => {
+    return apiMutator<BoardDetailApi>(getDashboardV2BoardsUpdateUrl(projectId, uid), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(boardUpdateApi),
+    })
+}
+
+export const getDashboardV2BoardsDestroyUrl = (projectId: string, uid: string) => {
+    return `/api/projects/${projectId}/dashboard_v2/boards/${uid}/`
+}
+
+/**
+ * Delete a board. Its uid can then be reused.
+ */
+export const dashboardV2BoardsDestroy = async (
+    projectId: string,
+    uid: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getDashboardV2BoardsDestroyUrl(projectId, uid), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getDashboardV2QueryBatchCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/dashboard_v2/query_batch/`
+}
+
+/**
+ * Run many panels' queries in one request and stream each result back as it is ready. Every query is read as the requesting user, keyed by its content, and cached hits come first.
+ */
+export const dashboardV2QueryBatchCreate = async (
+    projectId: string,
+    queryBatchRequestApi: QueryBatchRequestApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getDashboardV2QueryBatchCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(queryBatchRequestApi),
     })
 }
 
@@ -409,6 +549,115 @@ export const dashboardsDestroy = async (
     return apiMutator<unknown>(getDashboardsDestroyUrl(projectId, id, params), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getDashboardsActivitySummaryRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params?: DashboardsActivitySummaryRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/dashboards/${id}/activity_summary/?${stringifiedParams}`
+        : `/api/projects/${projectId}/dashboards/${id}/activity_summary/`
+}
+
+/**
+ * Signals for judging whether a dashboard is still in use: its last logged change and recent human views in the app. Auto refreshes, API reads and subscriptions are not views.
+ */
+export const dashboardsActivitySummaryRetrieve = async (
+    projectId: string,
+    id: number,
+    params?: DashboardsActivitySummaryRetrieveParams,
+    options?: RequestInit
+): Promise<DashboardActivitySummaryApi> => {
+    return apiMutator<DashboardActivitySummaryApi>(getDashboardsActivitySummaryRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getDashboardsAddInsightCreateUrl = (
+    projectId: string,
+    id: number,
+    params?: DashboardsAddInsightCreateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/dashboards/${id}/add_insight/?${stringifiedParams}`
+        : `/api/projects/${projectId}/dashboards/${id}/add_insight/`
+}
+
+/**
+ * Place an existing insight on this dashboard as a new tile. Requires edit access to the dashboard and view access to the insight. Returns the tile. Adding an insight the dashboard already shows returns its tile unchanged, and adding one that was removed from the dashboard restores its tile with its old layout. To take an insight off a dashboard, use delete_tile.
+ */
+export const dashboardsAddInsightCreate = async (
+    projectId: string,
+    id: number,
+    addInsightToDashboardRequestApi: AddInsightToDashboardRequestApi,
+    params?: DashboardsAddInsightCreateParams,
+    options?: RequestInit
+): Promise<DashboardTileBasicApi> => {
+    return apiMutator<DashboardTileBasicApi>(getDashboardsAddInsightCreateUrl(projectId, id, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(addInsightToDashboardRequestApi),
+    })
+}
+
+export const getDashboardsCachedTilesRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params: DashboardsCachedTilesRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/dashboards/${id}/cached_tiles/?${stringifiedParams}`
+        : `/api/projects/${projectId}/dashboards/${id}/cached_tiles/`
+}
+
+/**
+ * Read the cached results of several insight tiles in one request. Never runs a query: a tile with
+ * nothing cached comes back as a miss, to be loaded through the insight endpoint.
+ */
+export const dashboardsCachedTilesRetrieve = async (
+    projectId: string,
+    id: number,
+    params: DashboardsCachedTilesRetrieveParams,
+    options?: RequestInit
+): Promise<CachedTilesResponseApi> => {
+    return apiMutator<CachedTilesResponseApi>(getDashboardsCachedTilesRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -737,6 +986,44 @@ export const dashboardsRunWidgetsRetrieve = async (
         ...options,
         method: 'GET',
     })
+}
+
+export const getDashboardsStreamQueryResultsRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params: DashboardsStreamQueryResultsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/dashboards/${id}/stream_query_results/?${stringifiedParams}`
+        : `/api/projects/${projectId}/dashboards/${id}/stream_query_results/`
+}
+
+/**
+ * Experimentally refresh insight tiles. Each SSE data frame contains one event of the response schema.
+ */
+export const dashboardsStreamQueryResultsRetrieve = async (
+    projectId: string,
+    id: number,
+    params: DashboardsStreamQueryResultsRetrieveParams,
+    options?: RequestInit
+): Promise<DashboardQuerySharingEventApi> => {
+    return apiMutator<DashboardQuerySharingEventApi>(
+        getDashboardsStreamQueryResultsRetrieveUrl(projectId, id, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getDashboardsStreamTilesRetrieveUrl = (
@@ -1108,28 +1395,12 @@ export const dashboardsWidgetCatalogRetrieve = async (
     })
 }
 
-export const getDataColorThemesListUrl = (projectId: string, params?: DataColorThemesListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/data_color_themes/?${stringifiedParams}`
-        : `/api/projects/${projectId}/data_color_themes/`
+export const getDataColorThemesListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_color_themes/`
 }
 
-export const dataColorThemesList = async (
-    projectId: string,
-    params?: DataColorThemesListParams,
-    options?: RequestInit
-): Promise<PaginatedDataColorThemeListApi> => {
-    return apiMutator<PaginatedDataColorThemeListApi>(getDataColorThemesListUrl(projectId, params), {
+export const dataColorThemesList = async (projectId: string, options?: RequestInit): Promise<DataColorThemeApi[]> => {
+    return apiMutator<DataColorThemeApi[]>(getDataColorThemesListUrl(projectId), {
         ...options,
         method: 'GET',
     })

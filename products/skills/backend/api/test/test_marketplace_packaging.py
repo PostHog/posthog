@@ -6,6 +6,7 @@ import pytest
 
 import yaml
 
+from products.skills.backend.api.skill_services import MAX_SKILL_FILE_COUNT
 from products.skills.backend.marketplace import packaging as pkg
 from products.skills.backend.marketplace.git_smart_http import GitSynthesisError, synthesize_repo
 from products.skills.backend.marketplace.packaging import (
@@ -39,6 +40,14 @@ def _skill(**overrides) -> SkillExport:
     }
     base.update(overrides)
     return SkillExport(**base)
+
+
+def _zip_with(files: dict[str, str]) -> bytes:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        for path, content in files.items():
+            archive.writestr(path, content)
+    return buffer.getvalue()
 
 
 class TestFrontmatter:
@@ -170,16 +179,22 @@ class TestZipImport:
         assert "version" not in parsed.metadata
         assert parsed.metadata.get("author") == "posthog"
 
-    def test_zip_without_skill_md_raises(self):
-        buffer = io.BytesIO()
-        with zipfile.ZipFile(buffer, "w") as archive:
-            archive.writestr("nope/readme.txt", "x")
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            pytest.param(b"not a zip", id="non_zip"),
+            pytest.param(_zip_with({"nope/readme.txt": "x"}), id="no_skill_md"),
+            pytest.param(
+                _zip_with(
+                    {"deep/SKILL.md": f"---\nname: deep\ndescription: d\nx: {'[' * 5000}{']' * 5000}\n---\nbody\n"}
+                ),
+                id="deeply_nested_frontmatter",
+            ),
+        ],
+    )
+    def test_invalid_archive_raises_import_error(self, payload):
         with pytest.raises(SkillImportError):
-            parse_skill_zip(buffer.getvalue())
-
-    def test_non_zip_raises(self):
-        with pytest.raises(SkillImportError):
-            parse_skill_zip(b"not a zip")
+            parse_skill_zip(payload)
 
 
 class TestGitTreeSafety:
@@ -217,6 +232,11 @@ class TestZipBombDefense:
         members.update({f"s/scripts/f{i}.txt": "x" for i in range(pkg._MAX_ZIP_MEMBERS + 1)})
         with pytest.raises(SkillImportError):
             parse_skill_zip(self._zip(members))
+
+    def test_skill_at_the_file_limit_imports(self):
+        members = {"s/": "", "s/references/": "", "s/SKILL.md": "---\nname: s\ndescription: d\n---\nb"}
+        members.update({f"s/references/f{i}.md": "x" for i in range(MAX_SKILL_FILE_COUNT)})
+        assert len(parse_skill_zip(self._zip(members)).files) == MAX_SKILL_FILE_COUNT
 
     def test_oversize_member_rejected_without_full_inflation(self):
         data = self._zip(

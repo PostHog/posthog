@@ -1,0 +1,106 @@
+.TodayPane {
+    // The pane sits on the shell's chrome, not the app background.
+    --quill-icon-stack-ring: var(--chrome);
+
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-height: 0;
+    padding: 0 8px;
+}
+
+.TodayIconBadge .LemonBadge:not(.LemonBadge--hidden) {
+    width: var(--lemon-badge-size);
+    padding: 0;
+    font-size: 0.5625rem;
+    letter-spacing: -0.03em;
+}
+
+.SidebarSearchList:has([data-highlighted]) [role='option']:not([data-highlighted]):hover {
+    background: transparent;
+}
+
+// A row that was just added grows from no height, so the rows below slide down, while it fades in from just above.
+.SidebarRowEnter {
+    display: grid;
+    animation: SidebarRowEnter__grow 240ms var(--today-ease, cubic-bezier(0.23, 1, 0.32, 1)) both;
+
+    @media (prefers-reduced-motion: reduce) {
+        animation-duration: 1ms;
+    }
+}
+
+.SidebarRowEnter__row {
+    min-height: 0;
+    overflow: hidden;
+    animation: SidebarRowEnter__slide 240ms var(--today-ease, cubic-bezier(0.23, 1, 0.32, 1)) both;
+
+    @media (prefers-reduced-motion: reduce) {
+        animation: none;
+    }
+}
+
+@keyframes SidebarRowEnter__grow {
+    from {
+        grid-template-rows: 0fr;
+    }
+
+    to {
+        grid-template-rows: 1fr;
+    }
+}
+
+@keyframes SidebarRowEnter__slide {
+    from {
+        opacity: 0;
+        transform: translateY(-0.375rem);
+    }
+}
+
+// A row with a hover action makes room for it only while the row is hovered or focused, so the name keeps the
+// full width until then. The room opens with a padding transition: the name's truncation and the meta glide over
+// together, while the action fades in. Animating padding lays out this one row per frame, which is cheap, and
+// it is the only way to move the truncation point smoothly.
+.SidebarRow {
+    --sidebar-row-reveal: 160ms cubic-bezier(0.645, 0.045, 0.355, 1);
+}
+
+.SidebarRow--hasAction {
+    .SidebarRow__option {
+        transition: padding-inline-end var(--sidebar-row-reveal);
+    }
+
+    // The action is 1.25rem wide at 0.25rem from the edge, so 2rem leaves it a 0.5rem gap from the name or meta.
+    &:hover,
+    &:focus-within,
+    &.SidebarRow--actionVisible {
+        .SidebarRow__option {
+            padding-inline-end: 2rem;
+        }
+    }
+
+    &:not(.SidebarRow--actionVisible) {
+        .SidebarRow__action {
+            opacity: 0;
+            transition:
+                opacity var(--sidebar-row-reveal),
+                transform var(--sidebar-row-reveal);
+            transform: translateX(0.25rem);
+        }
+
+        &:hover,
+        &:focus-within {
+            .SidebarRow__action {
+                opacity: 1;
+                transform: none;
+            }
+        }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .SidebarRow__option,
+        .SidebarRow__action {
+            transition: none;
+        }
+    }
+}

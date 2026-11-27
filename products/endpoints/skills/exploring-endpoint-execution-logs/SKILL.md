@@ -33,20 +33,26 @@ Each run produces exactly one entry. The level is `INFO` on success and `ERROR` 
 message carries the extra data as searchable `key=value` tokens:
 
 ```text
-Endpoint executed · path=materialized cache=hit duration_ms=142 rows=1024 version=3
-Endpoint execution failed · path=inline error=ResolutionError version=3
+Endpoint executed · path=materialized cache=hit duration_ms=142 rows=1024 version=3 refresh=cache access=personal_api_key variables=2 limit=100
+Endpoint execution failed · path=inline duration_ms=38 version=3 error=ResolutionError refresh=cache access=session
 ```
 
 Token meanings:
 
-| Token         | Values                                                       | Meaning                                                        |
-| ------------- | ------------------------------------------------------------ | -------------------------------------------------------------- |
-| `path`        | `materialized` / `inline` / `ducklake` / `ducklake_fallback` | Which execution path ran                                       |
-| `cache`       | `hit` / `miss`                                               | Whether the query result cache was used (omitted for ducklake) |
-| `duration_ms` | integer                                                      | Wall-clock execution time                                      |
-| `rows`        | integer                                                      | Number of result rows returned                                 |
-| `version`     | integer                                                      | Which endpoint version ran                                     |
-| `error`       | e.g. `ResolutionError`, `HogVMException`                     | Error class / HogQL code name (failures only)                  |
+| Token              | Values                                                       | Meaning                                                        |
+| ------------------ | ------------------------------------------------------------ | -------------------------------------------------------------- |
+| `path`             | `materialized` / `inline` / `ducklake` / `ducklake_fallback` | Which execution path ran                                       |
+| `cache`            | `hit` / `miss`                                               | Whether the query result cache was used (omitted for ducklake) |
+| `duration_ms`      | integer                                                      | Wall-clock execution time                                      |
+| `rows`             | integer                                                      | Number of result rows returned                                 |
+| `version`          | integer                                                      | Which endpoint version ran                                     |
+| `error`            | e.g. `ResolutionError`, `HogVMException`                     | Error class / HogQL code name (failures only)                  |
+| `refresh`          | `cache` / `force` / `direct`                                 | The refresh mode the caller asked for                          |
+| `access`           | e.g. `personal_api_key`, `project_secret_api_key`, `session` | How the caller authenticated (`session` is the app)            |
+| `variables`        | integer                                                      | Number of variables the caller passed (omitted when none)      |
+| `filters_override` | `true`                                                       | The caller passed a filters override (omitted otherwise)       |
+| `limit`            | integer                                                      | Page size the caller asked for (omitted when none)             |
+| `offset`           | integer                                                      | Rows the caller skipped (omitted when none)                    |
 
 Each run gets a distinct `instance_id`, so logs group one-per-execution in the viewer.
 

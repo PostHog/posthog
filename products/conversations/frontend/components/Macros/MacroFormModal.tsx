@@ -1,0 +1,203 @@
+import { useActions, useValues } from 'kea'
+import { useRef, useState } from 'react'
+
+import { LemonButton, LemonInput, LemonModal, LemonSegmentedButton } from '@posthog/lemon-ui'
+
+import { RichContentEditorType } from 'lib/components/RichContentEditor/types'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { markdownToHtml } from 'lib/utils/markdown'
+import { userLogic } from 'scenes/userLogic'
+
+import { serializeToMarkdown, SupportEditor } from '../Editor'
+import { QuillMacroFormDialog } from './QuillMacroFormDialog'
+import { unescapeMacroTokens } from './renderMacro'
+import { shortcutError, supportMacrosLogic } from './supportMacrosLogic'
+
+const VARIABLES: { label: string; token: string }[] = [
+    { label: 'Customer first name', token: '{{customer.first_name}}' },
+    { label: 'Customer name', token: '{{customer.name}}' },
+    { label: 'Customer email', token: '{{customer.email}}' },
+    { label: 'Your first name', token: '{{agent.first_name}}' },
+    { label: 'Your name', token: '{{agent.name}}' },
+    { label: 'Ticket number', token: '{{ticket.number}}' },
+]
+
+export function MacroFormModal(): JSX.Element | null {
+    const { macroDraft, macroSaving } = useValues(supportMacrosLogic)
+    const {
+        closeMacroDraft,
+        setMacroDraftName,
+        setMacroDraftShortcut,
+        setMacroDraftVisibility,
+        createMacro,
+        updateMacro,
+    } = useActions(supportMacrosLogic)
+    const { user } = useValues(userLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const editorRef = useRef<RichContentEditorType | null>(null)
+    const draftKey = macroDraft ? (macroDraft.id ?? 'new') : ''
+    const bodyEmptyDefault = !(macroDraft?.body ?? '').trim()
+    const [bodyEmpty, setBodyEmpty] = useState(bodyEmptyDefault)
+    const [isUploading, setIsUploading] = useState(false)
+    const lastDraftKey = useRef(draftKey)
+    if (lastDraftKey.current !== draftKey) {
+        lastDraftKey.current = draftKey
+        setBodyEmpty(bodyEmptyDefault)
+        setIsUploading(false)
+    }
+
+    if (!macroDraft) {
+        return null
+    }
+    // An existing macro whose creator is deleted has no owner, so nobody can make it personal.
+    const isSomeoneElses = macroDraft.id !== null && macroDraft.createdById !== user?.id
+
+    const save = (): void => {
+        const editor = editorRef.current
+        if (isUploading) {
+            return
+        }
+        const serialized = editor ? serializeToMarkdown(editor.getJSON()) : macroDraft.body
+        const body = unescapeMacroTokens(serialized).trim()
+        if (!macroDraft.name.trim() || !body) {
+            return
+        }
+        if (shortcutError(macroDraft.shortcut)) {
+            return
+        }
+        const payload = {
+            name: macroDraft.name,
+            shortcut: macroDraft.shortcut,
+            body,
+            visibility: macroDraft.visibility,
+        }
+        if (macroDraft.id) {
+            updateMacro({ ...payload, id: macroDraft.id })
+        } else {
+            createMacro(payload)
+        }
+    }
+
+    const handleEditorCreate = (editor: RichContentEditorType): void => {
+        editorRef.current = editor
+        if (macroDraft.body) {
+            editor.setContent(markdownToHtml(macroDraft.body))
+        }
+    }
+
+    const insertVariable = (token: string): void => {
+        editorRef.current?.insertContent(token)
+    }
+
+    const saveDisabledReason = !macroDraft.name.trim()
+        ? 'Add a name'
+        : shortcutError(macroDraft.shortcut) ||
+          (bodyEmpty ? 'Write the reply' : undefined) ||
+          (isUploading ? 'Wait for the image to finish uploading' : undefined)
+
+    if (todayRailNav) {
+        return (
+            <QuillMacroFormDialog
+                macroDraft={macroDraft}
+                variables={VARIABLES}
+                macroSaving={macroSaving}
+                isSomeoneElses={isSomeoneElses}
+                saveDisabledReason={saveDisabledReason}
+                onEditorCreate={handleEditorCreate}
+                onInsertVariable={insertVariable}
+                onSave={save}
+                onClose={closeMacroDraft}
+                onNameChange={setMacroDraftName}
+                onShortcutChange={setMacroDraftShortcut}
+                onVisibilityChange={setMacroDraftVisibility}
+                onBodyEmptyChange={setBodyEmpty}
+                onUploadingChange={setIsUploading}
+            />
+        )
+    }
+
+    return (
+        <LemonModal
+            title={macroDraft.id ? 'Edit macro' : 'New macro'}
+            isOpen
+            onClose={closeMacroDraft}
+            footer={
+                <div className="flex justify-end gap-2">
+                    <LemonButton type="secondary" onClick={closeMacroDraft} disabled={macroSaving}>
+                        Cancel
+                    </LemonButton>
+                    <LemonButton
+                        type="primary"
+                        onClick={save}
+                        loading={macroSaving}
+                        disabledReason={saveDisabledReason}
+                        data-attr="support-macro-save"
+                    >
+                        Save
+                    </LemonButton>
+                </div>
+            }
+        >
+            <div className="flex flex-col gap-3">
+                <LemonInput
+                    fullWidth
+                    value={macroDraft.name}
+                    onChange={setMacroDraftName}
+                    placeholder="Cancellation"
+                    autoFocus
+                />
+                <LemonInput
+                    fullWidth
+                    value={macroDraft.shortcut}
+                    onChange={setMacroDraftShortcut}
+                    placeholder="cancel"
+                    prefix={<span>/</span>}
+                />
+                <p className="mb-0 text-xs text-muted">
+                    Letters, numbers, and hyphens. Leave this blank to keep the macro in the menu only. Agents insert it
+                    by typing / followed by the shortcut.
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm">Visible to</span>
+                    <LemonSegmentedButton
+                        size="small"
+                        value={macroDraft.visibility}
+                        onChange={setMacroDraftVisibility}
+                        options={[
+                            { value: 'shared', label: 'Everyone' },
+                            {
+                                value: 'personal',
+                                label: 'Only me',
+                                disabledReason: isSomeoneElses
+                                    ? 'Only the person who created this macro can make it personal'
+                                    : undefined,
+                            },
+                        ]}
+                        data-attr="support-macro-visibility"
+                    />
+                </div>
+                <SupportEditor
+                    key={macroDraft.id ?? 'new'}
+                    initialContent={null}
+                    minRows={6}
+                    placeholder="Hi {{customer.first_name}}"
+                    onUpdate={setBodyEmpty}
+                    onUploadingChange={setIsUploading}
+                    onCreate={handleEditorCreate}
+                />
+                <div className="flex flex-wrap gap-1">
+                    {VARIABLES.map((variable) => (
+                        <LemonButton
+                            key={variable.token}
+                            size="xsmall"
+                            type="secondary"
+                            onClick={() => insertVariable(variable.token)}
+                        >
+                            {variable.label}
+                        </LemonButton>
+                    ))}
+                </div>
+            </div>
+        </LemonModal>
+    )
+}

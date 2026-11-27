@@ -41,6 +41,7 @@ import {
 } from '../lib/liftOnMerge'
 import { type RecentTolerations, countRecentTolerations } from '../lib/quarantineNudge'
 import { repoBreadcrumbs } from '../lib/repoBreadcrumbs'
+import { isNotFoundError } from '../lib/repoIds'
 import { runPath } from '../lib/repoPaths'
 import { isReportingOnlyRun } from '../lib/runPredicates'
 import { visualReviewPreferencesLogic } from './visualReviewPreferencesLogic'
@@ -88,6 +89,7 @@ export interface visualReviewRunSceneLogicValues {
     repoLoading: boolean
     run: RunApi | null
     runLoading: boolean
+    runNotFound: boolean
     selectedLiftOnMergeDisabledReason: string | null
     selectedLiftRequest: QuarantineLiftEntryApi | null
     selectedSnapshot: SnapshotApi | null
@@ -227,10 +229,10 @@ export interface visualReviewRunSceneLogicActions {
         errorObject?: any
     }
     loadRunSuccess: (
-        run: RunApi,
+        run: RunApi | null,
         payload?: any
     ) => {
-        run: RunApi
+        run: RunApi | null
         payload?: any
     }
     loadSnapshots: () => any
@@ -298,6 +300,9 @@ export interface visualReviewRunSceneLogicActions {
         value: true
     }
     requestLiftOnMergeSuccess: () => {
+        value: true
+    }
+    setRunNotFound: () => {
         value: true
     }
     setSelectedSnapshotId: (snapshotId: string | null) => {
@@ -392,6 +397,7 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
         actions: [visualReviewPreferencesLogic, ['setAddImagesToComment', 'rememberRepo']],
     })),
     actions({
+        setRunNotFound: true,
         setSelectedSnapshotId: (snapshotId: string | null) => ({ snapshotId }),
         finalizeRun: true,
         finalizeRunSuccess: true,
@@ -441,6 +447,13 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
             null as string | null,
             {
                 setSelectedSnapshotId: (_, { snapshotId }) => snapshotId,
+            },
+        ],
+        runNotFound: [
+            false,
+            {
+                setRunNotFound: () => true,
+                loadRunSuccess: (state, { run }) => (run ? false : state),
             },
         ],
         snapshotsLoaded: [
@@ -540,12 +553,20 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
             },
         ],
     }),
-    loaders(({ props, values }) => ({
+    loaders(({ actions, props, values }) => ({
         run: [
             null as RunApi | null,
             {
                 loadRun: async () => {
-                    return visualReviewRunsRetrieve(String(values.currentProjectId), props.runId)
+                    try {
+                        return await visualReviewRunsRetrieve(String(values.currentProjectId), props.runId)
+                    } catch (error) {
+                        if (isNotFoundError(error)) {
+                            actions.setRunNotFound()
+                            return null
+                        }
+                        throw error
+                    }
                 },
             },
         ],
@@ -553,12 +574,24 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
             [] as SnapshotApi[],
             {
                 loadSnapshots: async () => {
-                    const response = await visualReviewRunsSnapshotsList(String(values.currentProjectId), props.runId, {
-                        limit: 10000,
-                        include_quarantined: true,
-                        exclude_unchanged: true,
-                    })
-                    return response.results
+                    try {
+                        const response = await visualReviewRunsSnapshotsList(
+                            String(values.currentProjectId),
+                            props.runId,
+                            {
+                                limit: 10000,
+                                include_quarantined: true,
+                                exclude_unchanged: true,
+                            }
+                        )
+                        return response.results
+                    } catch (error) {
+                        // The run itself is missing, and loadRun renders NotFound for it.
+                        if (isNotFoundError(error)) {
+                            return []
+                        }
+                        throw error
+                    }
                 },
             },
         ],
@@ -568,10 +601,18 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
             null as SnapshotApi | null,
             {
                 loadDeepLinkedSnapshot: async (snapshotId: string, breakpoint) => {
-                    const response = await visualReviewRunsSnapshotsList(String(values.currentProjectId), props.runId, {
-                        include_quarantined: true,
-                        snapshot_id: snapshotId,
-                    })
+                    let response
+                    try {
+                        response = await visualReviewRunsSnapshotsList(String(values.currentProjectId), props.runId, {
+                            include_quarantined: true,
+                            snapshot_id: snapshotId,
+                        })
+                    } catch (error) {
+                        if (isNotFoundError(error)) {
+                            return null
+                        }
+                        throw error
+                    }
                     breakpoint()
                     // The user may have gone back to a snapshot cached here, which starts no request.
                     if (values.selectedSnapshotId !== snapshotId) {
@@ -867,7 +908,10 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 actions.loadToleratedHashes(snapshot.identifier)
             }
         },
-        loadRunSuccess: () => {
+        loadRunSuccess: ({ run }) => {
+            if (!run) {
+                return
+            }
             actions.loadRepo()
             actions.loadQuarantinedIdentifiers()
             actions.loadQuarantineLifts()
@@ -908,18 +952,27 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
             try {
                 const addImages = values.addImagesToComment
                 // approve_all approves any still-pending changes (tolerated ones are left alone),
-                // commits the approved baseline, and greens the gate.
+                // commits the approved baseline, and greens the gate. A `commit_status` run records
+                // the approval instead of committing, and its status is the gate.
                 await visualReviewRunsFinalizeCreate(String(values.currentProjectId), props.runId, {
                     approve_all: true,
                     add_images_to_comment_on_pr: addImages,
                 })
                 actions.finalizeRunSuccess()
                 posthog.capture('visual_review_run_finalized', { added_images_to_comment: addImages })
-                lemonToast.success(
-                    addImages
-                        ? 'Run finalized — baseline committed, PR commented with snapshots'
-                        : 'Run finalized — baseline committed, PR commented'
-                )
+                if (run.gate === 'commit_status') {
+                    lemonToast.success(
+                        addImages
+                            ? 'Run finalized. Approval recorded, status check is green, PR commented with snapshots'
+                            : 'Run finalized. Approval recorded, status check is green, PR commented'
+                    )
+                } else {
+                    lemonToast.success(
+                        addImages
+                            ? 'Run finalized — baseline committed, PR commented with snapshots'
+                            : 'Run finalized — baseline committed, PR commented'
+                    )
+                }
                 actions.loadRun()
                 // Patch in place — refetching all snapshots after finalize made the whole grid
                 // flash and lost the user's selection. Server is the source of truth on next mount;
@@ -1034,7 +1087,12 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 const result = await visualReviewRunsRecomputeCreate(String(values.currentProjectId), props.runId)
                 actions.recomputeRunSuccess()
 
-                if (result.ci_rerun_triggered) {
+                if (values.run?.gate === 'commit_status') {
+                    // The status gates this run, so recompute re-runs nothing in CI by design.
+                    lemonToast.success(
+                        result.counts_changed ? 'Counts and status check updated' : 'Status check updated'
+                    )
+                } else if (result.ci_rerun_triggered) {
                     lemonToast.success(
                         result.counts_changed ? 'Counts updated, CI job re-triggered' : 'CI job re-triggered'
                     )

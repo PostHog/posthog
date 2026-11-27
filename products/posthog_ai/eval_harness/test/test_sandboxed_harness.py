@@ -16,11 +16,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import requests
 from parameterized import parameterized
 
+from products.posthog_ai.backend.task_profiles import POSTHOG_AI
 from products.posthog_ai.eval_harness import runner
 from products.posthog_ai.eval_harness.config import AgentArtifacts, SandboxedEvalCase
 from products.posthog_ai.eval_harness.engines.types import AggregateScore, EvalSummary
 from products.posthog_ai.eval_harness.harness import lifecycle
-from products.posthog_ai.eval_harness.harness.cli import SkillDelivery, parse_args
+from products.posthog_ai.eval_harness.harness.cli import UNBOUNDED_SANDBOXES, SkillDelivery, parse_args
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.harness.discovery import EvalSuite
 from products.posthog_ai.eval_harness.harness.lifecycle import SandboxedEvalHarness
@@ -103,7 +104,7 @@ async def test_surface_prompt_reaches_task_run_state(
     monkeypatch.setattr(custom_prompt_internals.Task, "create_and_run", create)
 
     await runner.create_task_and_trigger(
-        "prompt", CustomPromptSandboxContext(team_id=25, user_id=26, system_prompt=system_prompt)
+        "prompt", CustomPromptSandboxContext(team_id=25, user_id=26, system_prompt=system_prompt), profile=POSTHOG_AI
     )
 
     assert create.call_args.kwargs["extra_run_state"] == (
@@ -172,20 +173,32 @@ def test_parse_args_rejects_non_positive_case_timeout(case_timeout: int) -> None
     assert error.value.code == 2
 
 
-@parameterized.expand(
+@pytest.mark.parametrize(
+    ("environment", "argv", "setup", "sandboxes"),
     [
-        ("local", {}, 1),
-        ("coder", {"CODER": "true"}, 4),
-        ("ci", {"CI": ""}, 4),
-    ]
+        ({}, [], 1, 4),
+        ({}, ["--provider", "modal"], 1, UNBOUNDED_SANDBOXES),
+        ({"CI": ""}, ["--provider", "modal"], 4, UNBOUNDED_SANDBOXES),
+        ({"CODER": "true"}, [], 2, 4),
+        ({"CODER_WORKSPACE_ID": "workspace", "CI": "true"}, ["--provider", "modal"], 2, 12),
+        ({"CODER": "true"}, ["--provider", "modal", "--team-setup-concurrency", "3", "--max-sandboxes", "6"], 3, 6),
+    ],
 )
-def test_parse_args_resolves_team_setup_concurrency(
-    _environment_name: str, environment: dict[str, str], expected_concurrency: int
+def test_parse_args_resolves_concurrency(
+    environment: dict[str, str], argv: list[str], setup: int, sandboxes: int
 ) -> None:
     with patch.dict(os.environ, environment, clear=True):
-        options = parse_args([])
+        options = parse_args(argv)
 
-    assert options.team_setup_concurrency == expected_concurrency
+    assert options.team_setup_concurrency == setup
+    assert options.max_sandboxes == sandboxes
+    assert ("--team-setup-concurrency" in options.sandbox_flags_set) == ("--team-setup-concurrency" in argv)
+
+
+@pytest.mark.parametrize("value", ["0", "-1"])
+def test_parse_args_rejects_non_positive_team_setup_concurrency(value: str) -> None:
+    with pytest.raises(SystemExit):
+        parse_args(["--team-setup-concurrency", value])
 
 
 @pytest.mark.parametrize(
@@ -508,17 +521,17 @@ def _modal_provider() -> SandboxProviderStrategy:
 
 @parameterized.expand(
     [
-        ("docker", _docker_provider, "http://localhost:18080", "http://host.docker.internal:18080"),
-        ("modal", _modal_provider, "https://gateway.funnel.example.com", "https://gateway.funnel.example.com"),
+        ("docker", _docker_provider, "http://localhost:18080"),
+        ("modal", _modal_provider, "https://gateway.funnel.example.com"),
     ]
 )
-def test_provider_routes_model_calls_to_a_gateway_the_host_worker_can_mint_through(
-    _name: str, build: Callable[[], SandboxProviderStrategy], gateway_url: str, fallback_url: str
+def test_provider_routes_worker_and_sandbox_to_the_eval_gateway(
+    _name: str, build: Callable[[], SandboxProviderStrategy], sandbox_gateway_url: str
 ) -> None:
     overrides = build().settings_overrides()
 
-    assert overrides["SANDBOX_AI_GATEWAY_URL"] == gateway_url
-    assert overrides["SANDBOX_LLM_GATEWAY_URL"] == fallback_url
+    assert overrides["SANDBOX_AI_GATEWAY_WORKER_URL"] == "http://localhost:18080"
+    assert overrides["SANDBOX_AI_GATEWAY_URL"] == sandbox_gateway_url
 
 
 class TestAgentRunFailureDetection:

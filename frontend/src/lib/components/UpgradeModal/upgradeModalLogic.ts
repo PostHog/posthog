@@ -1,8 +1,8 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 
+import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
-import { billingLogic } from 'scenes/billing/billingLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature } from '~/types'
@@ -25,7 +25,7 @@ export interface upgradeModalLogicValues {
     billing: BillingType | null // billingLogic
     preflight: PreflightStatus | null // preflightLogic
     availableFeature: (feature: AvailableFeature) => BillingFeatureType | null | undefined // userLogic
-    hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
+    hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean // userLogic
     guardAvailableFeature: GuardAvailableFeatureFn
     projectLimit: number
     shouldShowPlatformAddonMessage: boolean
@@ -60,7 +60,7 @@ export interface upgradeModalLogicMeta {
         ) => boolean
         guardAvailableFeature: (
             preflight: PreflightStatus | null,
-            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean
+            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean
         ) => GuardAvailableFeatureFn
     }
 }

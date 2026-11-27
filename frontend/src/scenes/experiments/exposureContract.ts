@@ -1,10 +1,13 @@
+import { Dayjs, dayjs } from 'lib/dayjs'
+
 import {
     ExperimentEventExposureConfig,
     ExperimentExposureConfig,
     ExperimentExposureCriteria,
+    HogQLQueryModifiers,
     NodeKind,
 } from '~/queries/schema/schema-general'
-import { Experiment } from '~/types'
+import { Experiment, PropertyFilterType, PropertyOperator } from '~/types'
 
 /**
  * The flag exposure event contract for experiments. Mirrors the backend chokepoint
@@ -19,8 +22,8 @@ import { Experiment } from '~/types'
  * resolves it the same way as an absent config (`get_exposure_config_params_for_builder`).
  *
  * Use this only to recognize the default; for the event actually counted, use the experiment's
- * server-resolved event (`experimentLogic`'s `resolvedExposureEvent`), which accounts for the
- * `$experiment_exposure` rollout.
+ * server-resolved event (`experimentLogic`'s `resolvedExposureEvent`), which is `$experiment_exposure`
+ * for an experiment that started at or after the exposure event cutoff.
  */
 export const EXPOSURE_DEFAULT_EVENT = '$feature_flag_called'
 export const EXPERIMENT_EXPOSURE_EVENT = '$experiment_exposure'
@@ -28,14 +31,20 @@ export const EXPOSURE_FEATURE_FLAG_RESPONSE_PROPERTY = '$feature_flag_response'
 
 /**
  * The event an experiment's default exposure is actually counted on, as resolved by the backend
- * (`resolve_default_exposure_event`). Falls back to the pre-rollout default for an experiment that
- * hasn't come from the API yet — a locally-constructed draft, or an older cached payload.
+ * (`resolve_default_exposure_event`). Falls back to `fallbackEvent` for an experiment that hasn't
+ * come from the API yet: a locally-constructed draft, or an older cached payload. A draft passes
+ * `draftDefaultExposureEvent` so it names the event it gets once saved.
  */
 export function resolvedExposureEvent(
     experiment: Pick<Experiment, 'resolved_exposure_event'>,
     fallbackEvent: string = EXPOSURE_DEFAULT_EVENT
 ): string {
     return experiment.resolved_exposure_event || fallbackEvent
+}
+
+/** Mirrors `resolve_default_exposure_event` for a start date of now, so a draft names the event it gets once saved. */
+export function draftDefaultExposureEvent(cutoff: string | null | undefined, now: Dayjs = dayjs()): string {
+    return cutoff && !now.isBefore(dayjs(cutoff)) ? EXPERIMENT_EXPOSURE_EVENT : EXPOSURE_DEFAULT_EVENT
 }
 
 /**
@@ -66,6 +75,69 @@ export function isDefaultExposureConfig(config: ExperimentExposureConfig): boole
     return isEventConfig(config) && config.event === EXPOSURE_DEFAULT_EVENT
 }
 
+/** Whether the operator matches the values its positive form does not. Keep in sync with
+ * `_NEGATIVE_OPERATOR_COMPLEMENTS` in `posthog/hogql/property.py`. */
+function isOperatorNegated(operator: PropertyOperator): boolean {
+    return [
+        PropertyOperator.IsNot,
+        PropertyOperator.NotIn,
+        PropertyOperator.IsNotSet,
+        PropertyOperator.NotIContains,
+        PropertyOperator.NotIContainsMulti,
+        PropertyOperator.NotRegex,
+        PropertyOperator.NotStartsWith,
+        PropertyOperator.NotEndsWith,
+        PropertyOperator.NotBetween,
+        PropertyOperator.IsCleanedPathNotExact,
+        PropertyOperator.SemverNeq,
+    ].includes(operator)
+}
+
+/**
+ * Whether a negated filter in the config leaves out single events while the experiment still counts
+ * the person or group that sent them. Event, session and element properties can change from one event
+ * to the next. Person properties can too when the team reads them from the events: an event sent before
+ * the person identified has no `email`, and a negated filter keeps an event without a value. A cohort
+ * filter, and a person filter read from the persons table, leave out the whole person. When the flag
+ * counts groups, the group still counts through its other persons. `$feature_flag` names the flag of a
+ * flag call event, not a trait of the user. A group-aggregated experiment counts each group by
+ * `$group_<index>`, so a filter on that key leaves out the whole group.
+ */
+export function hasNegatedEventFilter(
+    config: ExperimentExposureConfig | undefined,
+    groupTypeIndex: number | null | undefined,
+    personsOnEventsMode: HogQLQueryModifiers['personsOnEventsMode']
+): boolean {
+    if (!config || config.kind === NodeKind.ExperimentWarehouseNativeExposureConfig) {
+        return false
+    }
+    const groupKey = groupTypeIndex != null ? `$group_${groupTypeIndex}` : null
+    const aggregatesByGroup = groupKey !== null
+    const personFilterVaries =
+        aggregatesByGroup ||
+        personsOnEventsMode === 'person_id_override_properties_on_events' ||
+        personsOnEventsMode === 'person_id_no_override_properties_on_events'
+    return (config.properties ?? []).some((property) => {
+        switch (property.type) {
+            case PropertyFilterType.Event:
+                return (
+                    property.key !== '$feature_flag' &&
+                    property.key !== groupKey &&
+                    isOperatorNegated(property.operator)
+                )
+            case PropertyFilterType.Session:
+            case PropertyFilterType.Element:
+                return isOperatorNegated(property.operator)
+            case PropertyFilterType.Person:
+                return personFilterVaries && isOperatorNegated(property.operator)
+            case PropertyFilterType.Cohort:
+                return aggregatesByGroup && isOperatorNegated(property.operator)
+            default:
+                return false
+        }
+    })
+}
+
 /**
  * The activation event config in effect for the criteria, or undefined when there is none.
  * Activation only composes with the default exposure, so a custom `exposure_config` disables it
@@ -92,6 +164,19 @@ export function getActivationConfig(
     return activationConfig
 }
 
+export type ExposureSource = 'warehouse_native' | 'activation' | 'custom' | 'default'
+
+/** What decides who enters the analysis: a warehouse-native query, an activation event, a custom event, or the default event. */
+export function getExposureSource(exposureCriteria: ExperimentExposureCriteria | null | undefined): ExposureSource {
+    if (exposureCriteria?.exposure_config?.kind === NodeKind.ExperimentWarehouseNativeExposureConfig) {
+        return 'warehouse_native'
+    }
+    if (getActivationConfig(exposureCriteria ?? undefined)) {
+        return 'activation'
+    }
+    return exposureCriteria?.exposure_config ? 'custom' : 'default'
+}
+
 /**
  * Determines which event and variant property carry the exposure for an experiment.
  *
@@ -102,8 +187,8 @@ export function getActivationConfig(
  *   single event name applies (mirrors the backend returning `None`). Variant is on `$feature/<flag_key>`.
  *
  * `resolvedExposureEvent` is the experiment's server-resolved default (`experimentLogic`'s
- * `resolvedExposureEvent`). Pass it whenever an experiment is in hand — omitting it assumes the
- * pre-rollout default and will name the wrong event for experiments on `$experiment_exposure`.
+ * `resolvedExposureEvent`). Pass it whenever an experiment is in hand. Omitting it assumes
+ * `$feature_flag_called` and names the wrong event for an experiment on `$experiment_exposure`.
  */
 export function getExposureEventAndProperty({
     featureFlagKey,

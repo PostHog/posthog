@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership
+from posthog.paging import PageRequest
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
@@ -95,15 +96,14 @@ class TestNotifySourceAutoDisabled(BaseTest):
         assert local_due_at.time() == time(23, 59, 59)
 
         access = UserAccessControl(user=self.user, team=self.team)
-        tasks, count = list_customer_tasks(
+        tasks = list_customer_tasks(
             team_id=self.team.id,
             user_access_control=access,
             filters=contracts.CustomerTaskListFilters(assigned_to="me"),
-            offset=0,
-            limit=10,
+            page=PageRequest(limit=10),
         )
-        assert count == 1
-        assert [item.id for item in tasks] == [task.id]
+        assert tasks.count == 1
+        assert [item.id for item in tasks.results] == [task.id]
         with patch(
             "products.customer_analytics.backend.logic.task_digest_delivery.posthoganalytics.feature_enabled",
             return_value=True,

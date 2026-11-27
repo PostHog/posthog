@@ -30,6 +30,7 @@ const fetchStreamedMock = fetchStreamed as jest.MockedFunction<typeof fetchStrea
 
 const NOW_MS = Date.parse('2026-10-15T12:00:00Z')
 const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.from('png body')])
+const WOFF2 = Buffer.from('wOF2 body')
 const TEAM_KEYS: Record<string, Buffer> = {
     'team:7': Buffer.from(vector.teamMonthKey, 'base64'),
     'team:8': Buffer.alloc(32, 8),
@@ -49,7 +50,7 @@ function respond(status: number, headers: Record<string, string> = {}, bytes = B
 }
 
 /** A record in the shape `replay-recorder-v4/src/urls.rs` produces: keyed by registrable domain, with no headers. */
-function recorderRecord(jobs: { ref: string; url: string }[]): Message {
+function recorderRecord(jobs: { ref: string; url: string }[], registrableDomain = 'example.com'): Message {
     const value = Buffer.from(
         JSON.stringify({
             v: 2,
@@ -66,7 +67,7 @@ function recorderRecord(jobs: { ref: string; url: string }[]): Message {
             })),
         })
     )
-    return { value, key: Buffer.from('example.com'), size: value.length, topic: 'v4', partition: 0, offset: 0 }
+    return { value, key: Buffer.from(registrableDomain), size: value.length, topic: 'v4', partition: 0, offset: 0 }
 }
 
 function openFrame(key: Buffer, frame: Buffer): { context: Record<string, unknown>; body: Buffer } {
@@ -81,25 +82,27 @@ function openFrame(key: Buffer, frame: Buffer): { context: Record<string, unknow
     return { context: parseJSON(aad.toString()).context, body }
 }
 
-/** The origin's robots.txt and tdmrep.json are known for a year, so the jobs do not wait on one configuration fetch. */
+/** The origins' robots.txt and tdmrep.json are known for a year, so the jobs do not wait on one configuration fetch. */
 class MemoryCrawlHistory implements CrawlHistoryStore {
     public readonly items = new Map<string, CrawlHistoryItem>(
-        (['robots', 'tdmrep'] as const).map((kind) => {
-            const origin = new URL(vector.url.url).origin
-            const nowMs = Date.now()
-            const item: CrawlHistoryItem = {
-                kind,
-                key: configurationCacheKey(origin, kind),
-                origin,
-                status: 'absent',
-                fetchedAtMs: nowMs,
-                refreshAtMs: nowMs + 365 * DAY_MS,
-                freshUntilMs: nowMs + 365 * DAY_MS,
-                retryAtMs: nowMs,
-                storageExpiresAtMs: nowMs + 365 * DAY_MS,
-            }
-            return [item.key, item]
-        })
+        [vector.url.url, vector.publicFontUrl.url].flatMap((url) =>
+            (['robots', 'tdmrep'] as const).map((kind) => {
+                const origin = new URL(url).origin
+                const nowMs = Date.now()
+                const item: CrawlHistoryItem = {
+                    kind,
+                    key: configurationCacheKey(origin, kind),
+                    origin,
+                    status: 'absent',
+                    fetchedAtMs: nowMs,
+                    refreshAtMs: nowMs + 365 * DAY_MS,
+                    freshUntilMs: nowMs + 365 * DAY_MS,
+                    retryAtMs: nowMs,
+                    storageExpiresAtMs: nowMs + 365 * DAY_MS,
+                }
+                return [item.key, item] as const
+            })
+        )
     )
     read(keys: string[]): Promise<Map<string, CrawlHistoryItem>> {
         return Promise.resolve(
@@ -257,6 +260,25 @@ describe('v4 image fetch lane', () => {
             expect.not.stringMatching(vector.url.ref.split(':').pop()!),
         ])
         expect(JSON.stringify(urlHistory)).not.toContain(new URL(vector.url.url).host)
+    })
+
+    it('stores a public font once and unsealed with no team key, so a later job sends no request', async () => {
+        const harness = lane({})
+        runners.push(harness.runner)
+        fetchStreamedMock.mockImplementation(() =>
+            Promise.resolve(respond(200, { 'content-type': 'font/woff2' }, WOFF2))
+        )
+        const font = { ref: vector.publicFontUrl.ref, url: vector.publicFontUrl.url }
+
+        await harness.consumer.handleBatch([recorderRecord([font], 'gstatic.com')], NOW_MS)
+        await harness.consumer.handleBatch([recorderRecord([font], 'gstatic.com')], NOW_MS + DAY_MS)
+
+        expect(harness.deadLetters.park).not.toHaveBeenCalled()
+        expect(harness.dynamo.send).not.toHaveBeenCalled()
+        expect(fetchStreamedMock.mock.calls.map(([url]) => url)).toEqual([font.url])
+        expect(harness.puts.map((put) => [put.input.Key, put.input.Body])).toEqual([
+            [`fonts/url/public/${font.ref.split(':').pop()}`, WOFF2],
+        ])
     })
 
     it.each([

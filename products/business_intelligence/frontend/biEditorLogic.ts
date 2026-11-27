@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
 import { uuid } from 'lib/utils/dom'
+import { escapeDottedHogQLIdentifier } from 'lib/utils/hogql'
 import { TableFieldsStatus, databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
 import { performQuery } from '~/queries/query'
@@ -24,6 +25,7 @@ import {
     BIResultFilter,
     BIHierarchy,
 } from '~/queries/schema/schema-business-intelligence'
+import type { DatabaseSchemaQueryResponse } from '~/queries/schema/schema-general'
 import {
     CompareFilter,
     DatabaseSchemaTable,
@@ -34,7 +36,6 @@ import {
     HogLanguage,
     NodeKind,
 } from '~/queries/schema/schema-general'
-import { escapeDottedHogQLIdentifier } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
 import {
@@ -424,7 +425,7 @@ export interface biEditorLogicActions {
         tableNames: string[]
     } // databaseTableListLogic
     loadDatabaseSuccess: (
-        database: Required<import('~/queries/schema').DatabaseSchemaQueryResponse> | null,
+        database: Required<DatabaseSchemaQueryResponse> | null,
         payload?:
             | {
                   force?: boolean
@@ -432,7 +433,7 @@ export interface biEditorLogicActions {
               }
             | undefined
     ) => {
-        database: Required<import('~/queries/schema').DatabaseSchemaQueryResponse> | null
+        database: Required<DatabaseSchemaQueryResponse> | null
         payload?: {
             force?: boolean
             shallow?: boolean

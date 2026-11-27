@@ -2,7 +2,6 @@ from collections.abc import Iterator
 from time import perf_counter
 from typing import TYPE_CHECKING, Any, cast
 
-import sqlparse
 from opentelemetry import trace
 from sqlparse import tokens as sqlparse_tokens
 from sqlparse.sql import TokenList
@@ -12,7 +11,7 @@ from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.direct_query_metrics import DIRECT_QUERY_ROW_CAP_EXCEEDED_TOTAL, observe_direct_query
 from posthog.hogql.direct_sql.adapter import DirectQueryRequest, DirectQueryResult, parse_direct_source_config
 from posthog.hogql.direct_sql.capability import is_direct_capable
-from posthog.hogql.direct_sql.raw_sql import ensure_single_direct_statement
+from posthog.hogql.direct_sql.raw_sql import parse_direct_statements
 from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.dataclasses import frozen
@@ -182,8 +181,7 @@ def ensure_read_only_raw_clickhouse_statement(sql: str) -> str:
     ``max_block_size`` to defeat the timeout and per-block memory bounds. HogQL-authored queries
     don't take this raw path, so they can still set whatever settings the printer emits.
     """
-    sql = ensure_single_direct_statement(sql)
-    statements = [statement for statement in sqlparse.parse(sql) if str(statement).strip(" \t\r\n;")]
+    statements = parse_direct_statements(sql, dialect="clickhouse")
     if len(statements) != 1 or statements[0].get_type() != "SELECT":
         raise ExposedHogQLError(RAW_CLICKHOUSE_READ_ONLY_ERROR)
     statement = statements[0]

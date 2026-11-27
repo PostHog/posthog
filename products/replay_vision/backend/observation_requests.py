@@ -21,7 +21,6 @@ import structlog
 from posthog.api.statement_timeout import is_query_canceled
 from posthog.dataclasses import frozen
 from posthog.kafka_client.client import ProduceResult
-from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.slack.formatting import escape_slack_mrkdwn
@@ -42,7 +41,11 @@ from products.replay_vision.backend.models.replay_observation_request import (
 )
 from products.replay_vision.backend.models.replay_scanner import SETTLE_INTERVAL, ReplayScanner, ScannerType
 from products.replay_vision.backend.queries.session_last_activity import fetch_session_last_activity
-from products.replay_vision.backend.scanner_access import can_read_observation, can_read_targeted_experiment
+from products.replay_vision.backend.scanner_access import (
+    can_read_observation,
+    can_read_targeted_experiment,
+    recording_viewer_access,
+)
 from products.replay_vision.backend.scanning import run_inline_scan, scan_existing_scanner
 from products.replay_vision.backend.temporal.constants import APPLY_SCANNER_EXECUTION_TIMEOUT
 
@@ -323,20 +326,6 @@ def start_waiting_requests(*, now: datetime | None = None, budget_seconds: float
     if (overrun := time.monotonic() - deadline) > 0:
         logger.warning("replay_vision.observation_request.start_sweep_overran", overrun_seconds=round(overrun, 1))
     return started
-
-
-def recording_viewer_access(user: User | None, team: Team) -> UserAccessControl | None:
-    """The user's access in the project, when they are active, a member and can view its recordings."""
-    if user is None or not user.is_active:
-        return None
-    if not OrganizationMembership.objects.filter(user=user, organization_id=team.organization_id).exists():
-        return None
-    access = UserAccessControl(user=user, team=team, organization_id=str(team.organization_id))
-    if not access.has_project_access:
-        return None
-    if not access.check_access_level_for_resource("session_recording", required_level="viewer"):
-        return None
-    return access
 
 
 def _creator_still_allowed(request: ReplayObservationRequest) -> bool:

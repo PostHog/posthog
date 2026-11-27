@@ -1,0 +1,338 @@
+from typing import cast
+
+from posthog.test.base import BaseTest, materialized
+from unittest.mock import patch
+
+from django.test import override_settings
+
+from parameterized import parameterized
+
+from posthog.hogql import ast
+from posthog.hogql.property_access_types import RestrictedProperty
+
+from products.batch_exports.backend.custom_events_schema import (
+    build_events_query_schema,
+    parse_events_hogql_query,
+    recompile_stored_schema,
+    serialize_events_query_schema,
+)
+from products.batch_exports.backend.facade.contracts import UnsupportedHogQLQueryError
+from products.event_definitions.backend.models import PropertyDefinition
+
+
+def prepare_query(query: str, team_id: int) -> ast.SelectQuery:
+    """Parse and resolve a HogQL query string into a prepared AST."""
+    return cast(ast.SelectQuery, parse_events_hogql_query(query, team_id=team_id, user=None))
+
+
+class TestSerializeEventsQuerySchema(BaseTest):
+    @override_settings(BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=0)
+    def test_resaving_legacy_query_preserves_types_and_column_names(self):
+        PropertyDefinition.objects.create(
+            team=self.team, name="amount", type=PropertyDefinition.Type.EVENT, property_type="Numeric"
+        )
+        query = "SELECT round(e.properties.amount) AS rounded, lower(e.event) FROM events AS e"
+
+        schema = serialize_events_query_schema(self.team.pk, None, prepare_query(query, self.team.pk))
+        resaved = serialize_events_query_schema(self.team.pk, None, prepare_query(query, self.team.pk))
+
+        assert schema == resaved
+        assert [field["alias"] for field in schema["fields"]] == ["rounded", "`lower(e.event)`"]
+        assert schema["fields"][0]["expression"].startswith("round(accurateCastOrNull(")
+        assert schema["values"] == {"hogql_val_0": "amount", "hogql_val_1": "Float64"}
+        assert "toFloat(" in schema["hogql_query"]
+
+    @parameterized.expand(
+        [
+            (
+                "simple_fields_use_original_name_as_alias",
+                "SELECT event, person_id FROM events",
+                [
+                    {"expression": "events.event", "alias": "event"},
+                    {"expression": "events.person_id", "alias": "person_id"},
+                ],
+                {},
+            ),
+            (
+                "aliased_fields",
+                "SELECT event AS my_event, team_id AS my_team FROM events",
+                [
+                    {"expression": "events.event", "alias": "my_event"},
+                    {"expression": "events.team_id", "alias": "my_team"},
+                ],
+                {},
+            ),
+            (
+                "property_access_populates_values",
+                "SELECT properties.$browser AS browser FROM events",
+                [
+                    {
+                        "expression": "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '')",
+                        "alias": "browser",
+                    },
+                ],
+                {"hogql_val_0": "$browser"},
+            ),
+            (
+                "mixed_simple_and_property_fields",
+                "SELECT event, properties.$browser AS browser, properties.custom AS custom, person_id FROM events",
+                [
+                    {"expression": "events.event", "alias": "event"},
+                    {
+                        "expression": "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^\"|\"$', '')",
+                        "alias": "browser",
+                    },
+                    {
+                        "expression": "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^\"|\"$', '')",
+                        "alias": "custom",
+                    },
+                    {"expression": "events.person_id", "alias": "person_id"},
+                ],
+                {"hogql_val_0": "$browser", "hogql_val_1": "custom"},
+            ),
+        ],
+    )
+    def test_serialize_hogql_query(self, _name, query, expected_fields, expected_values):
+        prepared = prepare_query(query, self.team.pk)
+
+        result = serialize_events_query_schema(self.team.pk, None, prepared)
+
+        assert result["fields"] == expected_fields
+        assert result["values"] == expected_values
+        assert "hogql_query" in result
+
+    @parameterized.expand(
+        [
+            ("integer", "SELECT 1 FROM events", "1", "`1`"),
+            ("string", "SELECT 'hello' FROM events", "%(hogql_val_0)s", "hello"),
+            ("float", "SELECT 3.14 FROM events", "3.14", "`3.14`"),
+            ("null", "SELECT null FROM events", "NULL", "NULL"),
+            ("boolean", "SELECT true FROM events", "1", "`1`"),
+        ],
+    )
+    def test_serialize_hogql_query_with_bare_constant(self, _name, query, expected_expression, expected_alias):
+        prepared = prepare_query(query, self.team.pk)
+
+        result = serialize_events_query_schema(self.team.pk, None, prepared)
+
+        assert len(result["fields"]) == 1
+        field = result["fields"][0]
+        assert field["expression"] == expected_expression
+        assert field["alias"] == expected_alias
+
+    def test_serialize_hogql_query_escapes_injected_alias(self):
+        """An alias containing SQL injection attempts is escaped with backticks."""
+        query = "SELECT uuid AS `x, (SELECT query FROM another_table LIMIT 100) AS leaked` FROM events"
+        prepared = prepare_query(query, self.team.pk)
+
+        result = serialize_events_query_schema(self.team.pk, None, prepared)
+
+        assert len(result["fields"]) == 1
+        field = result["fields"][0]
+        # The alias must be wrapped in backticks, keeping the malicious string as a single identifier
+        assert field["alias"] == "`x, (SELECT query FROM another_table LIMIT 100) AS leaked`"
+        assert field["expression"] == "events.uuid"
+
+    @parameterized.expand(
+        [
+            (
+                "stored_fields",
+                False,
+                """accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), %(hogql_val_1)s)""",
+                {"hogql_val_0": "amount", "hogql_val_1": "Float64"},
+            ),
+            (
+                "native_recompile",
+                True,
+                "accurateCastOrNull(events.properties.amount, 'Float64')",
+                {},
+            ),
+        ]
+    )
+    @override_settings(BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=100)
+    def test_native_query_keeps_property_type_casts(
+        self, _name: str, recompile: bool, expected_expression: str, expected_values: dict[str, str]
+    ):
+        """Custom fields keep the cast a numeric property needs, in the stored fields and after a native recompile."""
+        PropertyDefinition.objects.create(
+            team=self.team, name="amount", type=PropertyDefinition.Type.EVENT, property_type="Numeric"
+        )
+        query = "SELECT e.properties.amount AS amount FROM events AS e"
+
+        schema = serialize_events_query_schema(self.team.pk, None, prepare_query(query, self.team.pk))
+        if recompile:
+            fields, values = recompile_stored_schema(self.team.pk, schema, schema["hogql_query"])
+        else:
+            fields, values = schema["fields"], schema["values"]
+
+        assert fields[0]["expression"] == expected_expression
+        assert values == expected_values
+
+    @parameterized.expand([("unrestricted", False), ("restricted", True)])
+    @override_settings(BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=0)
+    def test_saving_a_materialized_property_reads_it_from_properties(self, _name: str, restricted: bool):
+        restrictions = (
+            {RestrictedProperty(name="secret", property_type=PropertyDefinition.Type.EVENT)} if restricted else set()
+        )
+        with (
+            patch(
+                "products.access_control.backend.facade.api.get_restricted_properties_with_group_type_index_for_team",
+                return_value=restrictions,
+            ),
+            materialized("events", "$browser"),
+        ):
+            schema = build_events_query_schema(
+                self.team.pk, self.user, "SELECT properties.$browser AS browser FROM events"
+            )
+
+        assert "mat_" not in schema["fields"][0]["expression"]
+        assert schema["values"] == {"hogql_val_0": "$browser"}
+
+    @parameterized.expand(
+        [
+            (
+                "event_properties",
+                "SELECT properties AS props FROM events",
+                PropertyDefinition.Type.EVENT,
+                "secret",
+                ["secret"],
+            ),
+            (
+                "person_properties",
+                "SELECT person.properties AS props FROM events",
+                PropertyDefinition.Type.PERSON,
+                "email",
+                ["email"],
+            ),
+            (
+                "set_container",
+                "SELECT properties.$set AS props FROM events",
+                PropertyDefinition.Type.PERSON,
+                "email",
+                ["$set.email", "$set_once.email"],
+            ),
+        ]
+    )
+    @override_settings(BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=0)
+    def test_legacy_fields_drop_restricted_keys_from_a_selected_properties_object(
+        self, _name: str, query: str, property_type: int, restricted: str, expected_dropped_keys: list[str]
+    ):
+        with patch(
+            "products.access_control.backend.facade.api.get_restricted_properties_with_group_type_index_for_team",
+            return_value={RestrictedProperty(name=restricted, property_type=property_type)},
+        ):
+            schema = serialize_events_query_schema(self.team.pk, self.user, prepare_query(query, self.team.pk))
+
+        expression = schema["fields"][0]["expression"]
+        assert "JSONDropKeysPool(" in expression, expression
+        assert [value for key, value in schema["values"].items() if key.endswith("_sensitive")] == [
+            expected_dropped_keys
+        ]
+
+    @parameterized.expand([("legacy_schema", False), ("new_schema", True)])
+    def test_native_recompile_hides_the_properties_the_saving_user_could_not_read(self, _name: str, new_schema: bool):
+        PropertyDefinition.objects.create(
+            team=self.team, name="amount", type=PropertyDefinition.Type.EVENT, property_type="Numeric"
+        )
+        query = "SELECT properties.secret AS secret, properties.amount AS amount FROM events"
+        with (
+            override_settings(BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=100 if new_schema else 0),
+            patch(
+                "products.access_control.backend.facade.api.get_restricted_properties_with_group_type_index_for_team",
+                return_value={RestrictedProperty(name="secret", property_type=PropertyDefinition.Type.EVENT)},
+            ),
+        ):
+            schema = serialize_events_query_schema(self.team.pk, self.user, prepare_query(query, self.team.pk))
+
+        fields, _values = recompile_stored_schema(self.team.pk, schema, schema["hogql_query"])
+
+        assert schema["fields"][0] == {"expression": "NULL", "alias": "secret"}
+        assert fields[0] == {"expression": "NULL", "alias": "secret"}
+        assert "accurateCastOrNull(events.properties.amount, 'Float64')" in fields[1]["expression"], fields
+
+    @override_settings(BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=0)
+    def test_native_recompile_masks_default_rules_for_a_schema_saved_without_restrictions(self):
+        schema = serialize_events_query_schema(
+            self.team.pk, self.user, prepare_query("SELECT properties AS props FROM events", self.team.pk)
+        )
+        default_rules = {RestrictedProperty(name="secret", property_type=PropertyDefinition.Type.EVENT)}
+        with (
+            patch(
+                "products.access_control.backend.facade.api.get_restricted_properties_with_group_type_index_for_team",
+                return_value=default_rules,
+            ),
+            patch(
+                "products.access_control.backend.property_access_control.get_restricted_properties_with_group_type_index_for_team",
+                return_value=default_rules,
+            ),
+        ):
+            fields, values = recompile_stored_schema(self.team.pk, schema, schema["hogql_query"])
+
+        assert schema["restricted_properties"] == []
+        assert "JSONDropKeysPool(" in fields[0]["expression"], fields
+        assert any("secret" in value for key, value in values.items() if key.endswith("_sensitive")), values
+
+    @override_settings(BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=100)
+    @patch("products.access_control.backend.facade.api.get_restricted_properties_with_group_type_index_for_team")
+    def test_new_schema_rejects_a_restricted_properties_object(self, get_restricted_properties):
+        """When saving for the native table, a restricted user cannot save `SELECT properties`, because the native
+        table cannot select a restricted properties object. The save fails, so no export stores a query that cannot run.
+        """
+        get_restricted_properties.return_value = {
+            RestrictedProperty(name="secret", property_type=PropertyDefinition.Type.EVENT)
+        }
+
+        with self.assertRaises(UnsupportedHogQLQueryError):
+            serialize_events_query_schema(
+                self.team.pk, self.user, prepare_query("SELECT properties FROM events", self.team.pk)
+            )
+
+    @override_settings(BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=0)
+    def test_native_recompile_rejects_a_restricted_properties_object_saved_for_the_legacy_tables(self):
+        """A restricted user can save `SELECT properties` for the legacy tables, which mask the restricted keys, but
+        the native table cannot select a restricted properties object. The run must then fail with a non-retryable
+        error instead of retrying the recompile.
+        """
+        with patch(
+            "products.access_control.backend.facade.api.get_restricted_properties_with_group_type_index_for_team",
+            return_value={RestrictedProperty(name="secret", property_type=PropertyDefinition.Type.EVENT)},
+        ):
+            schema = serialize_events_query_schema(
+                self.team.pk, self.user, prepare_query("SELECT properties AS props FROM events", self.team.pk)
+            )
+
+        with self.assertRaises(UnsupportedHogQLQueryError):
+            recompile_stored_schema(self.team.pk, schema, schema["hogql_query"])
+
+    @parameterized.expand(
+        [
+            ("restricted", "SELECT properties.`$feature/secret` AS flag FROM events", "NULL"),
+            ("visible", "SELECT properties.`$feature/checkout` AS flag FROM events", "JSONExtractRaw("),
+        ]
+    )
+    @override_settings(BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=100)
+    @patch("products.access_control.backend.facade.api.get_restricted_properties_with_group_type_index_for_team")
+    @patch("posthog.models.event.new_events_schema.use_new_events_schema", return_value=True)
+    def test_native_export_hides_a_restricted_flag(
+        self, _name: str, query: str, expected: str, _use_new_events_schema, get_restricted_properties
+    ):
+        get_restricted_properties.return_value = {
+            RestrictedProperty(name="$feature/secret", property_type=PropertyDefinition.Type.EVENT)
+        }
+
+        schema = serialize_events_query_schema(self.team.pk, self.user, prepare_query(query, self.team.pk))
+
+        expression = schema["fields"][0]["expression"]
+        assert expression == expected if expected == "NULL" else expected in expression, expression
+
+    @override_settings(BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=100)
+    @patch("posthog.models.event.new_events_schema.use_new_events_schema", return_value=True)
+    def test_native_export_names_a_bare_flag_column(self, _use_new_events_schema):
+
+        schema = serialize_events_query_schema(
+            self.team.pk, self.user, prepare_query("SELECT properties.`$feature/checkout` FROM events", self.team.pk)
+        )
+
+        field = schema["fields"][0]
+        assert field["alias"] == "`$feature/checkout`", field
+        assert "JSONExtractRaw(" in field["expression"], field

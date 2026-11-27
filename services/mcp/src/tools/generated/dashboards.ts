@@ -11,6 +11,7 @@ import {
     omitResponseFields,
     stripNullFields,
     withInformationalResponse,
+    pickResponseFields,
     type WithPostHogUrl,
     type WithAgentNote,
     type WithInformationalResponse,
@@ -229,7 +230,7 @@ const DashboardGetSchema = () => {
     const DashboardsRetrieveParams = orvalSchemas.DashboardsRetrieveParams()
     const DashboardsRetrieveQueryParams = orvalSchemas.DashboardsRetrieveQueryParams()
     return DashboardsRetrieveParams.omit({ project_id: true })
-        .extend(DashboardsRetrieveQueryParams.omit({ format: true }).shape)
+        .extend(DashboardsRetrieveQueryParams.omit({ format: true, omit_tile_results: true }).shape)
         .extend({ id: z.preprocess(castStringToInt, DashboardsRetrieveParams.shape['id']) })
         .extend({
             filters_override: z
@@ -243,6 +244,15 @@ const DashboardGetSchema = () => {
                 .optional()
                 .describe(
                     'Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.'
+                ),
+        })
+        .extend({
+            expand: z
+                .array(z.enum(['tiles.*.insight.query']))
+                .min(1)
+                .optional()
+                .describe(
+                    'Optional list of response fields to include that the response omits by default, each a dot-path. Omit to keep the response small.'
                 ),
         })
 }
@@ -327,6 +337,7 @@ const dashboardGet = (): ToolBase<
                 'tiles.*.widget.last_modified_by.distinct_id',
                 'tiles.*.widget.last_modified_by.is_email_verified',
                 'tiles.*.widget.last_modified_by.hedgehog_config',
+                ...(['tiles.*.insight.query'] as const).filter((path) => !params.expand?.includes(path)),
             ])
         ) as typeof result
         return withInformationalResponse(
@@ -647,68 +658,31 @@ const dashboardUpdate = (): ToolBase<
             },
         })
         const filtered = stripNullFields(
-            omitResponseFields(result, [
-                'user_access_level',
-                'creation_mode',
-                'deleted',
-                'breakdown_colors',
-                'data_color_theme_id',
-                'quick_filter_ids',
-                'tiles.*.color',
-                'tiles.*.transparent_background',
-                'tiles.*.show_description',
-                'tiles.*.button_tile',
-                'tiles.*.insight.result',
-                'tiles.*.insight.hasMore',
-                'tiles.*.insight.columns',
-                'tiles.*.insight.hogql',
-                'tiles.*.insight.types',
-                'tiles.*.insight.query_status',
-                'tiles.*.insight.cache_target_age',
-                'tiles.*.insight.next_allowed_client_refresh',
-                'tiles.*.insight.filters_hash',
-                'tiles.*.insight.dashboards',
-                'tiles.*.insight.dashboard_tiles',
-                'tiles.*.insight.user_access_level',
-                'tiles.*.insight.filters',
-                'tiles.*.insight.is_sample',
-                'tiles.*.insight.order',
-                'tiles.*.insight.deleted',
-                'tiles.*.insight.alerts',
-                'tiles.*.insight.timezone',
-                'tiles.*.insight.resolved_date_range',
-                'tiles.*.insight.resolved_compare_date_range',
-                'tiles.*.insight.filter_override_context',
-                'created_by.uuid',
-                'created_by.distinct_id',
-                'created_by.is_email_verified',
-                'created_by.hedgehog_config',
-                'tiles.*.insight.created_by.uuid',
-                'tiles.*.insight.created_by.distinct_id',
-                'tiles.*.insight.created_by.is_email_verified',
-                'tiles.*.insight.created_by.hedgehog_config',
-                'tiles.*.insight.last_modified_by.uuid',
-                'tiles.*.insight.last_modified_by.distinct_id',
-                'tiles.*.insight.last_modified_by.is_email_verified',
-                'tiles.*.insight.last_modified_by.hedgehog_config',
-                'tiles.*.text.dashboard_tiles',
-                'tiles.*.text.created_by.uuid',
-                'tiles.*.text.created_by.distinct_id',
-                'tiles.*.text.created_by.is_email_verified',
-                'tiles.*.text.created_by.hedgehog_config',
-                'tiles.*.text.last_modified_by.uuid',
-                'tiles.*.text.last_modified_by.distinct_id',
-                'tiles.*.text.last_modified_by.is_email_verified',
-                'tiles.*.text.last_modified_by.hedgehog_config',
-                'tiles.*.widget.dashboard_tiles',
-                'tiles.*.widget.created_by.uuid',
-                'tiles.*.widget.created_by.distinct_id',
-                'tiles.*.widget.created_by.is_email_verified',
-                'tiles.*.widget.created_by.hedgehog_config',
-                'tiles.*.widget.last_modified_by.uuid',
-                'tiles.*.widget.last_modified_by.distinct_id',
-                'tiles.*.widget.last_modified_by.is_email_verified',
-                'tiles.*.widget.last_modified_by.hedgehog_config',
+            pickResponseFields(result, [
+                'id',
+                'name',
+                'description',
+                'pinned',
+                'tags',
+                'filters',
+                'variables',
+                'grid_spacing',
+                'layout_compaction',
+                'group_display',
+                'groups',
+                'tiles.*.id',
+                'tiles.*.layouts',
+                'tiles.*.group_key',
+                'tiles.*.badge',
+                'tiles.*.filters_overrides',
+                'tiles.*.insight.id',
+                'tiles.*.insight.short_id',
+                'tiles.*.insight.name',
+                'tiles.*.insight.derived_name',
+                'tiles.*.text.id',
+                'tiles.*.widget.id',
+                'tiles.*.widget.widget_type',
+                'tiles.*.widget.name',
             ])
         ) as typeof result
         return withInformationalResponse(

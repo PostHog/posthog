@@ -1,5 +1,4 @@
 import type {
-    ScoutCostsApi,
     ScoutSuggestionItemApi,
     ScoutSuggestionSetApi,
     SignalScoutConfigApi,
@@ -47,6 +46,7 @@ function makeMockScout(overrides: MockScoutOverrides): SignalScoutConfigApi {
         structured_output_schema: null,
         network_access: 'trusted',
         model: null,
+        custom_image_id: null,
         precheck_query: null,
         precheck_disabled: false,
         effective_precheck_query: null,
@@ -63,6 +63,8 @@ function makeMockScout(overrides: MockScoutOverrides): SignalScoutConfigApi {
         tags: [],
         mcp_gateway_server_ids: [],
         write_scopes: [],
+        report_actions: [],
+        max_report_actions_per_day: 3,
         allowed_mcp_tools: null,
         tool_preset: null,
         source_product: null,
@@ -115,6 +117,7 @@ export function mockScoutRuns(configs: SignalScoutConfigApi[]): SignalScoutRunSu
                 completed_at: new Date(startedAt + 12 * 60000).toISOString(),
                 task_url: null,
                 summary: failed ? '' : 'Swept the window and found nothing worth filing.',
+                summary_lead: failed ? '' : 'Swept the window and found nothing worth filing.',
                 emitted_count: !failed && (runIndex + configIndex) % 4 === 0 ? 1 : 0,
                 emitted_finding_ids: [],
                 emitted_report_ids: [],
@@ -145,6 +148,7 @@ export function mockDailyQuietRuns(config: SignalScoutConfigApi): SignalScoutRun
             completed_at: new Date(startedAt + 12 * 60000).toISOString(),
             task_url: null,
             summary: 'Swept the window and found nothing worth filing.',
+            summary_lead: 'Swept the window and found nothing worth filing.',
             emitted_count: 0,
             emitted_finding_ids: [],
             emitted_report_ids: [],
@@ -297,26 +301,5 @@ export function mockScoutSuggestionSet(overrides: Partial<ScoutSuggestionSetApi>
         fleet_snapshot: mockScoutConfigs.map((config) => config.skill_name),
         items: mockScoutSuggestions,
         ...overrides,
-    }
-}
-
-/**
- * A cost row per scout, cycling the three cases the surfaces have to tell apart: a scout that spent
- * and filed reports, one that spent and filed nothing, and one whose runs had no spend attributed.
- */
-export function mockScoutCosts(configs: SignalScoutConfigApi[]): ScoutCostsApi {
-    return {
-        window_days: 7,
-        available: true,
-        scouts: configs.map((config, index) => {
-            const unpriced = index % 3 === 2
-            return {
-                skill_name: config.skill_name,
-                spend_usd: unpriced ? 0 : 1.68 + index * 4.2,
-                run_count: 14 + index,
-                priced_run_count: unpriced ? 0 : 14,
-                reports_touched: index % 3 === 1 ? 0 : 11,
-            }
-        }),
     }
 }

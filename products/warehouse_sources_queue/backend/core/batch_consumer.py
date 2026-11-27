@@ -247,6 +247,23 @@ def _is_executor_shutdown_error(error: BaseException) -> bool:
     return isinstance(error, RuntimeError) and _EXECUTOR_SHUTDOWN_ERROR_MARKER in str(error).lower()
 
 
+# libpq's bare English "Connection refused": the TCP connect to the queue DB was refused outright
+# because nothing is listening yet — a pod restarting during a deploy or failover, or a managed
+# Postgres instance mid-failover before the new primary's listener comes up. The connect fails
+# before any protocol handshake, so nothing was sent and nothing to roll back. Self-healing, like
+# the other startup/failover shapes above: the listener comes back within seconds, so this
+# shouldn't crash the consumer or page anyone. Distinct from the source-side postgres connector's
+# treatment of the same bare wording (sources/postgres/postgres.py): that host/port is customer
+# supplied, so a refusal there is a permanent misconfiguration rather than our own infra blipping.
+_CONNECTION_REFUSED_ERROR_MARKER = "connection refused"
+
+
+def _is_connection_refused_error(error: BaseException) -> bool:
+    if not isinstance(error, psycopg.OperationalError):
+        return False
+    return _CONNECTION_REFUSED_ERROR_MARKER in str(error).lower()
+
+
 def _is_transient_queue_db_error(error: BaseException) -> bool:
     """Whether `error` is the queue DB being briefly unavailable rather than a bug.
 
@@ -261,6 +278,7 @@ def _is_transient_queue_db_error(error: BaseException) -> bool:
         or _is_connection_dropped_error(error)
         or _is_pooler_query_wait_timeout_error(error)
         or _is_pooler_login_retry_cached_error(error)
+        or _is_connection_refused_error(error)
     )
 
 
@@ -1805,10 +1823,11 @@ class BatchConsumer:
             and (await self._retry_budget_spent(status_conn, batch, attempt, limit=self._config.max_attempts))[0]
         ):
             reason = f"max retries exceeded: {err}"
-            if isinstance(err, NonReportableError):
-                # A sustained blip (e.g. TransientObjectStoreError) stays out of error tracking
-                # even once this batch's own retry budget runs out — it's still an infra
-                # condition, not a pipeline defect, no matter how many attempts it survived.
+            if self._adapter.is_expected_user_error(err) or isinstance(err, NonReportableError):
+                # Expected upstream/customer condition, or a sustained blip (e.g.
+                # TransientObjectStoreError) — stays out of error tracking even once this
+                # batch's own retry budget runs out — it's still not a pipeline defect, no
+                # matter how many attempts it survived.
                 logger.warning(
                     self._event("batch_failed_no_retries_left"),
                     batch_id=batch.id,

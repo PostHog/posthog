@@ -1,0 +1,168 @@
+"""Validation and normalization for the per-team request lists on TeamFeatureFlagPolicyConfig.
+
+The blocked and allowed lists share these rules, so a domain or IP range means the same in both.
+
+The flags service trims hosts, strips a trailing dot, lowercases them, and skips invalid IP
+entries. It applies no other rule, so every writer goes through these functions. Deliberately free of Django/DRF imports: the model module imports
+the length limits at module level, and the serializer translates RequestListEntryError.
+"""
+
+import ipaddress
+from collections.abc import Iterable
+from functools import lru_cache
+from typing import TYPE_CHECKING
+from urllib.parse import urlsplit
+
+import idna
+
+if TYPE_CHECKING:
+    from tldextract import TLDExtract
+
+# Caps each list so the flags service scans a short list on every /flags request.
+MAX_LISTED_HOSTS = 100
+MAX_LISTED_IPS = 100
+
+# The broadest ranges an IP entry may cover. A wider range blocks or allows a large share of the
+# internet, which is almost always a typo for a narrower one.
+MIN_LISTED_IPV4_PREFIX = 8
+MIN_LISTED_IPV6_PREFIX = 16
+
+# Bounds the raw list a client sends, before the normalizers drop blanks and duplicates. It only
+# guards against abuse, so that MAX_LISTED_HOSTS and MAX_LISTED_IPS apply to the unique entries.
+MAX_REQUEST_LIST_INPUT_ENTRIES = 1000
+
+# Column widths. 253 is the DNS limit for a full domain name, which idna.encode enforces. 43 fits
+# the longest canonical entry, an IPv6 address with no zero group to compress plus a two-digit
+# prefix, such as "ffff:ffff:ffff:ffff:ffff:ffff:ffff:fffe/127".
+MAX_LISTED_HOST_LENGTH = 253
+MAX_LISTED_IP_LENGTH = 43
+
+_VALID_SINGLE_LABEL_HOSTS = frozenset({"localhost"})
+
+
+class RequestListEntryError(ValueError):
+    """A host or IP entry that cannot be stored. The message is user-facing."""
+
+
+def normalize_listed_hosts(entries: Iterable[str]) -> list[str]:
+    """Lowercase, deduplicate, and validate hostnames, keeping the order they were given in.
+
+    A full URL is reduced to its hostname, because people often paste one from the browser.
+    """
+    hosts: dict[str, None] = {}
+    for raw_entry in entries:
+        entry = raw_entry.strip().lower()
+        if not entry:
+            continue
+        invalid_error = RequestListEntryError(
+            f"'{raw_entry.strip()}' is not a valid domain. Enter a domain like example.com."
+        )
+        if "://" in entry:
+            # Browsers read a backslash in a URL as a slash, so "https://example.com\@evil.com"
+            # opens example.com. urlsplit reads it as part of the userinfo and returns evil.com.
+            try:
+                entry = urlsplit(entry.replace("\\", "/")).hostname or ""
+            except ValueError:
+                raise invalid_error
+        entry = entry.rstrip(".")
+        if entry.startswith("*."):
+            raise RequestListEntryError(
+                f"Enter '{entry[2:]}' instead of '{entry}'. A domain already covers all of its subdomains."
+            )
+        # Browsers send an internationalized domain in the Origin header as punycode. UTS 46 maps
+        # ideographic full stops to ".", so strip the trailing dots again after the encoding.
+        try:
+            entry = idna.encode(entry, uts46=True, std3_rules=True).decode("ascii").rstrip(".")
+        except idna.IDNAError:
+            raise invalid_error
+        if "." not in entry and entry not in _VALID_SINGLE_LABEL_HOSTS:
+            raise RequestListEntryError(
+                f"'{entry}' would match every domain that ends in .{entry}. Enter a full domain like example.com."
+            )
+        hosts[entry] = None
+        if len(hosts) > MAX_LISTED_HOSTS:
+            raise RequestListEntryError(f"You can add up to {MAX_LISTED_HOSTS} domains.")
+    return list(hosts)
+
+
+@lru_cache(maxsize=1)
+def _public_suffixes() -> "TLDExtract":
+    import tldextract  # noqa: PLC0415 — the model module imports this one, so a top-level import loads it in every process
+
+    # No URLs, so it reads the list bundled with the package instead of fetching one.
+    return tldextract.TLDExtract(suffix_list_urls=(), include_psl_private_domains=True)
+
+
+def _is_public_suffix(host: str) -> bool:
+    return _public_suffixes()(host).suffix == host
+
+
+@lru_cache(maxsize=1)
+def _public_suffix_ancestors() -> frozenset[str]:
+    ancestors: set[str] = set()
+    for suffix in _public_suffixes().tlds:
+        labels = suffix.split(".")
+        ancestors.update(".".join(labels[i:]) for i in range(1, len(labels)))
+    # The suffix list holds Unicode names, and normalized hosts are punycode.
+    return frozenset(idna.encode(ancestor, uts46=True).decode("ascii") for ancestor in ancestors)
+
+
+def normalize_allowed_hosts(entries: Iterable[str]) -> list[str]:
+    """`normalize_listed_hosts` without domains that host other people's sites, such as vercel.app.
+
+    Blocking every site under such a domain is a valid choice. Allowing them all lets anyone in.
+    """
+    hosts = normalize_listed_hosts(entries)
+    for host in hosts:
+        is_public_suffix = _is_public_suffix(host)
+        # A domain above a suffix, such as amazonaws.com above s3.amazonaws.com, also covers other people's sites.
+        if is_public_suffix or host in _public_suffix_ancestors():
+            own_domain = f"example.{host}" if is_public_suffix else f"my-site.example.{host}"
+            raise RequestListEntryError(
+                f"'{host}' would allow every site on {host}, including other people's. "
+                f"Enter your own domain, like {own_domain}."
+            )
+    return hosts
+
+
+def normalize_listed_ips(entries: Iterable[str]) -> list[str]:
+    """Validate IP addresses and CIDR ranges and store them in canonical form, deduplicated.
+
+    Host bits are dropped (`203.0.113.7/24` becomes `203.0.113.0/24`), and a single address is
+    stored without its `/32` or `/128` suffix.
+    """
+    ips: dict[str, None] = {}
+    for raw_entry in entries:
+        entry = raw_entry.strip()
+        if not entry:
+            continue
+        network: ipaddress.IPv4Network | ipaddress.IPv6Network | None
+        try:
+            network = ipaddress.ip_network(entry, strict=False)
+        except ValueError:
+            network = None
+        # A client IP never carries an IPv6 zone ID (fe80::1%eth0), so a scoped entry can never match.
+        if network is None or "%" in entry:
+            raise RequestListEntryError(
+                f"'{entry}' is not a valid IP address or range. Enter an address like 203.0.113.7 or a range like 203.0.113.0/24."
+            )
+        # The flags service matches IPv4 clients against IPv4 entries only, so store a mapped
+        # address (::ffff:203.0.113.7) as the IPv4 address it stands for.
+        if (
+            isinstance(network, ipaddress.IPv6Network)
+            and network.prefixlen >= 96
+            and network.network_address.ipv4_mapped is not None
+        ):
+            network = ipaddress.ip_network(f"{network.network_address.ipv4_mapped}/{network.prefixlen - 96}")
+        min_prefix = MIN_LISTED_IPV4_PREFIX if network.version == 4 else MIN_LISTED_IPV6_PREFIX
+        if network.prefixlen < min_prefix:
+            raise RequestListEntryError(
+                f"'{entry}' covers too many addresses. IPv{network.version} ranges can be /{min_prefix} or narrower."
+            )
+        normalized = (
+            str(network.network_address) if network.prefixlen == network.max_prefixlen else network.with_prefixlen
+        )
+        ips[normalized] = None
+        if len(ips) > MAX_LISTED_IPS:
+            raise RequestListEntryError(f"You can add up to {MAX_LISTED_IPS} IP addresses or ranges.")
+    return list(ips)

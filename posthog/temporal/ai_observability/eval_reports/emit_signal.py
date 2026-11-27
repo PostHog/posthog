@@ -30,7 +30,8 @@ import temporalio.workflow
 from pydantic import BaseModel, Field
 from temporalio.common import RetryPolicy
 
-from posthog.models import PropertyDefinition
+from posthog.exceptions import QuotaLimitExceeded
+from posthog.llm.gateway_client import GatewayNotConfiguredError, resolve_ai_gateway_config
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
@@ -38,8 +39,9 @@ from posthog.temporal.common.base import PostHogWorkflow
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.ai_observability.backend.models.evaluation_reports import EvaluationReportRun
-from products.signals.backend.models import SignalSourceConfig
-from products.signals.backend.temporal.llm import call_llm
+from products.event_definitions.backend.models import PropertyDefinition
+from products.signals.backend.facade.llm import call_llm
+from products.signals.backend.facade.taxonomy import SignalSourceProduct, SignalSourceType
 
 logger = structlog.get_logger(__name__)
 
@@ -137,10 +139,13 @@ async def summarize_report_for_signal(
 ) -> EvalReportSignalSummary:
     """Use the signals LLM to produce a signal-sized summary of a report run.
 
-    `ai_product` is the Go-gateway opt-in. A call without it routes to the legacy Python
-    gateway under the bare `signals` slug. This tag stays separate from the report agent's
-    `aio_eval_reports`: a budget denial on one must not stop the other.
+    The call runs only on the Go gateway, so it raises when the gateway is not configured rather
+    than reaching the legacy Python gateway under the bare `signals` slug. The `ai_product` tag
+    stays separate from the report agent's `aio_eval_reports`: a budget denial on one must not
+    stop the other.
     """
+    if resolve_ai_gateway_config() is None:
+        raise GatewayNotConfiguredError("AI_GATEWAY_URL and AI_GATEWAY_API_KEY must be configured")
     user_prompt = _build_eval_report_signal_prompt(inputs, content)
 
     def validate(text: str) -> EvalReportSignalSummary:
@@ -175,10 +180,12 @@ async def emit_eval_report_signal_activity(inputs: EmitEvalReportSignalInputs) -
     """
 
     def _is_eval_report_source_enabled() -> Team | None:
-        if not SignalSourceConfig.is_source_enabled(
+        from products.signals.backend.facade.api import is_signal_source_enabled
+
+        if not is_signal_source_enabled(
             inputs.team_id,
-            SignalSourceConfig.SourceProduct.LLM_ANALYTICS,
-            SignalSourceConfig.SourceType.EVALUATION_REPORT,
+            SignalSourceProduct.LLM_ANALYTICS,
+            SignalSourceType.EVALUATION_REPORT,
         ):
             return None
         # Inbox copies cannot enforce the source's property or evaluation permissions.
@@ -212,9 +219,20 @@ async def emit_eval_report_signal_activity(inputs: EmitEvalReportSignalInputs) -
 
     content = await database_sync_to_async(_fetch_report_content, thread_sensitive=False)()
 
-    summary = await summarize_report_for_signal(inputs, content)
+    from products.signals.backend.facade.api import TrialRefused, emit_signal
 
-    from products.signals.backend.facade.api import emit_signal
+    try:
+        summary = await summarize_report_for_signal(inputs, content)
+    except (QuotaLimitExceeded, TrialRefused) as error:
+        # The trial or billing limit refused the summary call. A retry gets the same refusal, so drop the signal.
+        logger.info(
+            "Skipped eval report signal: self-driving admission refused",
+            evaluation_id=inputs.evaluation_id,
+            report_run_id=inputs.report_run_id,
+            team_id=inputs.team_id,
+            reason=error.reason if isinstance(error, TrialRefused) else "quota_limited",
+        )
+        return
 
     await emit_signal(
         team=team,
@@ -264,5 +282,7 @@ class EmitEvalReportSignalWorkflow(PostHogWorkflow):
             emit_eval_report_signal_activity,
             inputs,
             schedule_to_close_timeout=timedelta(seconds=180),
-            retry_policy=RetryPolicy(maximum_attempts=2),
+            retry_policy=RetryPolicy(
+                maximum_attempts=2, non_retryable_error_types=[GatewayNotConfiguredError.__name__]
+            ),
         )

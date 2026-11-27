@@ -1,0 +1,18 @@
+version: 1
+owners: []
+rules:
+    - match:
+          - '/TaskPullRequestChip.tsx'
+          - '/TaskUserAvatar.tsx'
+          - '/spacePresence.ts'
+          - '/spacePresence.test.ts'
+          - '/taskPullRequests.ts'
+          - '/taskPullRequests.test.ts'
+      owners: team-surfaces
+    - match:
+          - '/todayPhoneTabsLogic.test.ts'
+          - '/todayHelpMenuRedirectLogic.test.ts'
+          - '/todayHome.ts'
+          - '/todayRailLayout.test.ts'
+          - '/todaySeenLogic.test.ts'
+      owners: platform-ux

@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect, useMemo } from 'react'
 
-import { IconBottomPanel, IconRabbit, IconSearch, IconTortoise } from '@posthog/icons'
+import { IconBottomPanel, IconPalette, IconRabbit, IconSearch, IconTortoise } from '@posthog/icons'
 import { LemonMenuItems, Link } from '@posthog/lemon-ui'
 
 import { SettingsButton, SettingsMenu } from 'lib/components/PanelSettings/PanelSettings'
@@ -19,7 +19,7 @@ import { urls } from 'scenes/urls'
 
 import { SessionRecordingType } from '~/types'
 
-export function SetPlaybackSpeed(): JSX.Element {
+export function SetPlaybackSpeed({ short = false }: { short?: boolean }): JSX.Element {
     const { speed, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
     const { setSpeed } = useActions(sessionRecordingPlayerLogic)
     return (
@@ -44,19 +44,21 @@ export function SetPlaybackSpeed(): JSX.Element {
                 active: speed === speedToggle && speedToggle !== 1,
                 status: speed === speedToggle ? 'danger' : 'default',
             }))}
-            label={`Speed ${speed}x`}
+            label={short ? `${speed}x` : `Speed ${speed}x`}
+            tooltip={short ? 'Playback speed' : undefined}
         />
     )
 }
 
-export function InspectDOM(): JSX.Element {
+export function InspectDOM({ iconOnly = false }: { iconOnly?: boolean }): JSX.Element {
     const { sessionPlayerMetaData } = useValues(sessionRecordingPlayerLogic)
     const { openExplorer } = useActions(sessionRecordingPlayerLogic)
 
     return (
         <SettingsButton
             title="Inspect the DOM as it was at this moment in the session. Analyze the structure and elements captured during the recording."
-            label="Inspect DOM"
+            label={iconOnly ? undefined : 'Inspect DOM'}
+            aria-label={iconOnly ? 'Inspect DOM' : undefined}
             data-attr="explore-dom"
             onClick={openExplorer}
             disabledReason={
@@ -105,8 +107,10 @@ export function usePlayerChromeMenuItems(): LemonMenuItems {
     const {
         logicProps: { mode },
         playerControlsOverlay,
+        ambientBackground,
     } = useValues(sessionRecordingPlayerLogic)
-    const { setPlayerControlsOverlay, setPause, openHeatmap } = useActions(sessionRecordingPlayerLogic)
+    const { setPlayerControlsOverlay, setAmbientBackground, setPause, openHeatmap } =
+        useActions(sessionRecordingPlayerLogic)
     const { modalContext } = useValues(sessionPlayerModalLogic)
 
     const showControlsLayoutToggle = !!mode && ModesWithInteractions.includes(mode)
@@ -120,6 +124,12 @@ export function usePlayerChromeMenuItems(): LemonMenuItems {
                 onClick: () => setPlayerControlsOverlay(!playerControlsOverlay),
                 'data-attr': 'toggle-player-controls-overlay',
             },
+            {
+                label: ambientBackground ? 'Use plain bars around recording' : 'Fill bars with recording colors',
+                icon: <IconPalette />,
+                onClick: () => setAmbientBackground(!ambientBackground),
+                'data-attr': 'toggle-player-ambient-background',
+            },
             showHeatmap && {
                 label: 'Use as heatmap background',
                 icon: <IconHeatmap />,
@@ -130,6 +140,15 @@ export function usePlayerChromeMenuItems(): LemonMenuItems {
                 'data-attr': 'player-view-heatmap',
             },
         ],
-        [showControlsLayoutToggle, playerControlsOverlay, showHeatmap, setPlayerControlsOverlay, setPause, openHeatmap]
+        [
+            showControlsLayoutToggle,
+            playerControlsOverlay,
+            ambientBackground,
+            showHeatmap,
+            setPlayerControlsOverlay,
+            setAmbientBackground,
+            setPause,
+            openHeatmap,
+        ]
     )
 }

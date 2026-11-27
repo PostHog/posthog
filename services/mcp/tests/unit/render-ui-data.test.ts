@@ -1,10 +1,36 @@
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import { describe, expect, it, vi } from 'vitest'
 
-import { loadRenderUiData } from '@/ui-apps/apps/render-ui-data'
+import { loadRenderUiData, readRenderUiEnvelope } from '@/ui-apps/apps/render-ui-data'
 import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
 describe('render-ui data loading', () => {
+    it('reads the envelope, not the preloaded chart data, when the result carries both', () => {
+        const envelope = { tool_name: 'survey-get', tool_input: {}, app_key: 'survey' }
+        const meta = { [APP_DATA_META_KEY]: { id: 'example' } }
+
+        expect(readRenderUiEnvelope(envelope, meta)).toBe(envelope)
+    })
+
+    it.each([
+        { appKey: 'survey' as const, toolName: 'survey-get' },
+        { appKey: 'query-results' as const, toolName: 'query-trends' },
+    ])('draws $appKey from preloaded data without calling the server', async ({ appKey, toolName }) => {
+        const callServerTool = vi.fn().mockRejectedValue(new Error('MCP error -32603'))
+        const meta = { [APP_DATA_META_KEY]: { results: [] } }
+
+        expect(await loadRenderUiData({ callServerTool }, toolName, {}, appKey, meta)).toEqual({
+            structuredContent: { results: [] },
+        })
+        expect(callServerTool).not.toHaveBeenCalled()
+    })
+
+    it('fetches from the server when the result carried no preloaded data', async () => {
+        const result = { structuredContent: { id: 'example' }, content: [] }
+        const callServerTool = vi.fn().mockResolvedValue(result)
+        expect(await loadRenderUiData({ callServerTool }, 'survey-get', {}, 'survey', {})).toBe(result)
+    })
+
     it.each(['query-trends', 'insight-query'])(
         'loads %s through the advertised exec tool as JSON',
         async (toolName) => {
@@ -18,11 +44,25 @@ describe('render-ui data loading', () => {
                 structuredContent: data,
             })
             expect(callServerTool).toHaveBeenCalledExactlyOnceWith({
-                name: 'exec',
+                name: 'exec-read',
                 arguments: { command: `call --json ${toolName} ${JSON.stringify(input)}` },
             })
         }
     )
+
+    it('falls back to exec when the host refuses the unlisted exec-read', async () => {
+        const data = { results: [] }
+        const callServerTool = vi.fn(async ({ name }: { name: string }) => {
+            if (name === 'exec-read') {
+                throw new Error('Tool exec-read not found')
+            }
+            return { content: [{ type: 'text', text: JSON.stringify(data) }] }
+        })
+
+        expect(await loadRenderUiData({ callServerTool } as any, 'query-trends', {}, 'query-results')).toEqual({
+            structuredContent: data,
+        })
+    })
 
     it.each<CallToolResult>([
         { content: [{ type: 'text', text: 'See structured content' }], structuredContent: { results: [] } },

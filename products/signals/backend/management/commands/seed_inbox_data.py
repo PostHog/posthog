@@ -42,9 +42,11 @@ from products.signals.backend.artefact_schemas import (
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalReportRefund
 from products.signals.backend.report_generation.research import ReportResearchOutput
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
+from products.signals.backend.task_profiles import INBOX
 from products.signals.backend.task_run_artefacts import record_implementation_task
 from products.signals.backend.temporal.agentic.report import _persist_agentic_report_artefacts
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.profiles import SourceKind, TaskSource
 from products.tasks.backend.facade.repo_selection_types import ReportResearchContext
 
 _FIXTURES_DIR = Path(__file__).resolve().parents[2] / "report_generation" / "fixtures"
@@ -54,9 +56,9 @@ _DEFAULT_REPOSITORY = "posthog/posthog"
 # states reachable from in_progress without extra side effects; READY dominates since it's the
 # actionable inbox state users actually triage.
 _FINAL_STATES = [
-    SignalReport.Status.READY,
-    SignalReport.Status.READY,
     SignalReport.Status.PENDING_INPUT,
+    SignalReport.Status.READY,
+    SignalReport.Status.READY,
     SignalReport.Status.READY,
     SignalReport.Status.RESOLVED,
 ]
@@ -131,7 +133,7 @@ class Command(BaseCommand):
 
             self._add_extra_log_artefacts(team.id, str(report.id), repository, index)
             self._add_suggested_reviewers(team.id, str(report.id), repository, index, user_uuid)
-            if options["with_runs"] and repository is not None:
+            if options["with_runs"] and repository is not None and report.status != SignalReport.Status.PENDING_INPUT:
                 self._seed_task_run(team, user_id, report, repository, index)
             created += 1
 
@@ -231,6 +233,17 @@ class Command(BaseCommand):
     ) -> None:
         with transaction.atomic():
             report.refresh_from_db()
+            if final_status == SignalReport.Status.PENDING_INPUT:
+                # Only in_progress leads to pending_input, and that step carries the question the user must answer.
+                report.save(
+                    update_fields=report.transition_to(
+                        final_status,
+                        title=result.title,
+                        summary=result.summary,
+                        error="Choose the success metric for this change before an agent implements it.",
+                    )
+                )
+                return
             report.save(
                 update_fields=report.transition_to(
                     SignalReport.Status.READY, title=result.title, summary=result.summary
@@ -310,13 +323,12 @@ class Command(BaseCommand):
                 team=team,
                 title=report.title or "Investigate inbox report",
                 description=report.summary or "Synthetic implementation task seeded for the inbox.",
-                origin_product=tasks_facade.TaskOriginProduct.SIGNAL_REPORT,
+                profile=INBOX,
+                source=TaskSource(kind=SourceKind.SIGNAL_REPORT, id=str(report.id)),
                 user_id=user_id,
                 repository=repository,
                 create_pr=False,
                 start_workflow=False,
-                signal_report_id=str(report.id),
-                internal=False,
             )
         except Exception as e:
             self.stdout.write(self.style.WARNING(f"    skipped task run (task creation failed: {e})"))

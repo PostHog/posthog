@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { memo, useRef } from 'react'
+import { memo, useCallback, useRef, useState } from 'react'
 
 import { IconBolt, IconClock, IconSparkles, IconWarning } from '@posthog/icons'
 import {
@@ -13,20 +13,20 @@ import {
     Spinner,
 } from '@posthog/quill-primitives'
 
-import { Resizer } from 'lib/components/Resizer/Resizer'
-import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { TZLabel } from 'lib/components/TZLabel'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
+import { Resizer } from 'lib/lemon-ui/Resizer/Resizer'
+import { ResizerLogicProps, resizerLogic } from 'lib/lemon-ui/Resizer/resizerLogic'
 import { cn } from 'lib/utils/css-classes'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
-import { McpDateFilter } from '../components/McpDateFilter'
-import { McpSharedFilters } from '../components/McpSharedFilters'
+import { MCPDetailDrawer } from '../components/MCPDetailDrawer'
 import type { MCPSessionApi } from '../generated/api.schemas'
-import { parseUrlBoolean } from '../mcpAnalyticsFiltersLogic'
+import { ConversationIdBanner } from './ConversationIdBanner'
 import { MCPSessionDetail } from './MCPSessionDetail'
 import { type MCPSessionOrderBy, type MCPSessionSorting, mcpSessionsLogic, orderByParam } from './mcpSessionsLogic'
+import { SessionsFilters } from './SessionsFilters'
 import { formatDuration, sessionDurationMs } from './utils'
 
 const SORT_OPTIONS: { value: MCPSessionOrderBy; label: string }[] = [
@@ -34,12 +34,6 @@ const SORT_OPTIONS: { value: MCPSessionOrderBy; label: string }[] = [
     { value: 'session_start', label: 'Oldest' },
     { value: '-duration_seconds', label: 'Longest' },
     { value: '-tool_call_count', label: 'Most tool calls' },
-]
-
-const OUTCOME_OPTIONS: { value: 'all' | 'true' | 'false'; label: string }[] = [
-    { value: 'all', label: 'All sessions' },
-    { value: 'true', label: 'With errors' },
-    { value: 'false', label: 'Without errors' },
 ]
 
 function sortingToValue(sorting: MCPSessionSorting | null): MCPSessionOrderBy {
@@ -56,26 +50,13 @@ function valueToSorting(value: MCPSessionOrderBy): MCPSessionSorting {
 
 export function MCPSessionsPlaylist(): JSX.Element {
     const { sidePanelWidth } = useValues(panelLayoutLogic)
-    const { dateFilter, sessionsLoading, toolCallsLoading } = useValues(mcpSessionsLogic)
-    const { setDateFilter, refreshSessions } = useActions(mcpSessionsLogic)
     const { isWindowLessThan } = useWindowSize({ widthOffset: sidePanelWidth })
     const isVerticalLayout = isWindowLessThan('xl')
 
     return (
         <div className="flex w-full h-[calc(100vh-13rem)] min-h-[25rem] flex-col gap-2">
-            <McpSharedFilters
-                pageKey="mcp-sessions"
-                dataAttrPrefix="mcp-sessions"
-                onRefresh={refreshSessions}
-                refreshing={sessionsLoading || toolCallsLoading}
-            >
-                <McpDateFilter
-                    dateFrom={dateFilter.dateFrom}
-                    dateTo={dateFilter.dateTo}
-                    onChange={(dateFrom, dateTo) => setDateFilter(dateFrom, dateTo)}
-                    dataAttr="mcp-sessions-date-filter"
-                />
-            </McpSharedFilters>
+            <ConversationIdBanner />
+            <SessionsFilters />
             <div className={cn('flex min-h-0 flex-1', isVerticalLayout ? 'flex-col' : 'flex-row gap-2')}>
                 {isVerticalLayout ? <VerticalLayout /> : <HorizontalLayout />}
             </div>
@@ -110,31 +91,40 @@ function HorizontalLayout(): JSX.Element {
     )
 }
 
+// Too narrow for the list and a session side by side, so a session opens in a drawer over the list.
 function VerticalLayout(): JSX.Element {
-    const detailRef = useRef<HTMLDivElement>(null)
-
-    const resizerLogicProps: ResizerLogicProps = {
-        logicKey: 'mcp-sessions-detail-vertical',
-        containerRef: detailRef,
-        persistent: true,
-        placement: 'bottom',
-    }
-    const { desiredSize } = useValues(resizerLogic(resizerLogicProps))
+    const { sessions, selectedSessionId } = useValues(mcpSessionsLogic)
+    const { selectSession } = useActions(mcpSessionsLogic)
+    const [drawerOpen, setDrawerOpen] = useState(false)
+    const index = sessions.findIndex((session) => session.session_id === selectedSessionId)
+    const openSession = useCallback(
+        (sessionId: string) => {
+            selectSession(sessionId)
+            setDrawerOpen(true)
+        },
+        [selectSession]
+    )
 
     return (
         <>
-            <div
-                ref={detailRef}
-                className="relative shrink-0 pb-2"
-                // eslint-disable-next-line react/forbid-dom-props
-                style={{ height: desiredSize ?? 320, minHeight: 240 }}
-            >
-                <SessionDetailPanel className="h-full" />
-                <Resizer {...resizerLogicProps} visible={false} offset="0.25rem" handleClassName="rounded mx-1" />
-            </div>
             <div className="relative flex flex-col min-h-0 flex-1">
-                <SessionsListPanel />
+                <SessionsListPanel onSelect={openSession} />
             </div>
+            {drawerOpen && index >= 0 ? (
+                <MCPDetailDrawer
+                    noun="session"
+                    title="Session"
+                    position={{ index, total: sessions.length }}
+                    onPrevious={index > 0 ? () => selectSession(sessions[index - 1].session_id) : null}
+                    onNext={index < sessions.length - 1 ? () => selectSession(sessions[index + 1].session_id) : null}
+                    onClose={() => setDrawerOpen(false)}
+                    data-attr="mcp-sessions-drawer"
+                >
+                    <div className="flex h-[calc(100dvh-8rem)] min-h-0 flex-col">
+                        <MCPSessionDetail stacked />
+                    </div>
+                </MCPDetailDrawer>
+            ) : null}
         </>
     )
 }
@@ -149,33 +139,16 @@ function SessionDetailPanel({ className }: { className?: string }): JSX.Element 
     )
 }
 
-function SessionsListPanel(): JSX.Element {
-    const { setFilters, loadMoreSessions, setSorting, selectSession } = useActions(mcpSessionsLogic)
-    const { sessions, sessionsLoading, filters, sorting, hasNext, selectedSessionId, hasActiveFilters } =
+function SessionsListPanel({ onSelect }: { onSelect?: (sessionId: string) => void }): JSX.Element {
+    const { loadMoreSessions, setSorting, selectSession } = useActions(mcpSessionsLogic)
+    const { sessions, sessionsLoading, sorting, hasNext, selectedSessionId, hasActiveFilters } =
         useValues(mcpSessionsLogic)
 
     return (
         <div className="flex flex-col h-full min-h-0 overflow-hidden rounded border border-primary bg-surface-primary">
             <div className="shrink-0 flex flex-col gap-2 border-b border-primary p-2">
                 <div className="flex flex-col gap-2" data-quill>
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                        <Select
-                            value={String(filters.hasErrors ?? 'all')}
-                            onValueChange={(value) => setFilters({ hasErrors: parseUrlBoolean(value) })}
-                        >
-                            <SelectTrigger data-attr="mcp-sessions-outcome">
-                                <SelectValue>
-                                    {(value: string) => OUTCOME_OPTIONS.find((o) => o.value === value)?.label ?? value}
-                                </SelectValue>
-                            </SelectTrigger>
-                            <SelectContent>
-                                {OUTCOME_OPTIONS.map((option) => (
-                                    <SelectItem key={option.value} value={option.value}>
-                                        {option.label}
-                                    </SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
+                    <div className="flex flex-wrap items-center gap-2">
                         <Select
                             value={sortingToValue(sorting)}
                             onValueChange={(value) => setSorting(valueToSorting(value as MCPSessionOrderBy))}
@@ -200,11 +173,7 @@ function SessionsListPanel(): JSX.Element {
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto" data-attr="mcp-sessions-list">
                 {sessionsLoading && sessions.length === 0 ? (
-                    <div className="flex flex-col gap-2 p-2" data-quill>
-                        {Array.from({ length: 6 }).map((_, i) => (
-                            <Skeleton key={i} className="h-12 w-full" />
-                        ))}
-                    </div>
+                    <MCPSessionPreviewSkeletons />
                 ) : sessions.length === 0 ? (
                     <div className="p-4 text-center text-sm text-secondary">
                         {hasActiveFilters ? 'No sessions match these filters' : 'No MCP sessions yet'}
@@ -217,7 +186,7 @@ function SessionsListPanel(): JSX.Element {
                                     <MCPSessionPreview
                                         session={session}
                                         isActive={session.session_id === selectedSessionId}
-                                        onSelect={selectSession}
+                                        onSelect={onSelect ?? selectSession}
                                     />
                                 </li>
                             ))}
@@ -239,6 +208,33 @@ function SessionsListPanel(): JSX.Element {
                 )}
             </div>
         </div>
+    )
+}
+
+const SESSION_PREVIEW_ROW = 'border-l-2 px-2 py-1.5 flex flex-col gap-1'
+
+const SESSION_PREVIEW_SKELETONS = 20
+
+function MCPSessionPreviewSkeletons(): JSX.Element {
+    return (
+        <ul
+            className="flex flex-col list-none pl-0 m-0 h-full overflow-hidden divide-y divide-primary"
+            data-quill
+            aria-hidden
+        >
+            {Array.from({ length: SESSION_PREVIEW_SKELETONS }, (_, i) => (
+                <li key={i} className={cn(SESSION_PREVIEW_ROW, 'border-l-transparent')}>
+                    <div className="flex h-4 items-center justify-between gap-2">
+                        <Skeleton className="h-3 w-32" />
+                        <Skeleton className="h-3 w-16" />
+                    </div>
+                    <div className="flex h-4 items-center justify-between gap-2">
+                        <Skeleton className="h-3 w-24" />
+                        <Skeleton className="h-3 w-10" />
+                    </div>
+                </li>
+            ))}
+        </ul>
     )
 }
 
@@ -264,7 +260,8 @@ const MCPSessionPreview = memo(function MCPSessionPreview({
             aria-pressed={isActive}
             onClick={() => onSelect(session.session_id)}
             className={cn(
-                'w-full text-left cursor-pointer border-l-2 px-2 py-1.5 text-xs flex flex-col gap-1',
+                'w-full text-left cursor-pointer text-xs',
+                SESSION_PREVIEW_ROW,
                 isActive
                     ? 'border-l-accent bg-accent-highlight-secondary'
                     : 'border-l-transparent hover:bg-accent-highlight-secondary'
@@ -272,9 +269,11 @@ const MCPSessionPreview = memo(function MCPSessionPreview({
         >
             <div className="flex items-center justify-between gap-2">
                 {personLabel ? (
-                    <span className="font-medium truncate">{personLabel}</span>
+                    <span className="ph-no-capture font-medium truncate">{personLabel}</span>
                 ) : (
-                    <span className="font-mono text-secondary truncate">{session.distinct_id || 'unknown'}</span>
+                    <span className="ph-no-capture font-mono text-secondary truncate">
+                        {session.distinct_id || 'unknown'}
+                    </span>
                 )}
                 <span className="shrink-0 text-secondary">
                     <TZLabel time={session.session_start} />
@@ -295,7 +294,7 @@ const MCPSessionPreview = memo(function MCPSessionPreview({
                     {session.mcp_client_name ? (
                         <span className="flex items-center gap-1 truncate">
                             <IconSparkles className="shrink-0" />
-                            <span className="truncate">{session.mcp_client_name}</span>
+                            <span className="ph-no-capture truncate">{session.mcp_client_name}</span>
                         </span>
                     ) : null}
                 </div>

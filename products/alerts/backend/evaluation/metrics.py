@@ -38,7 +38,12 @@ class MetricsExtractor:
     """
 
     def extract(
-        self, alert: AlertConfiguration, insight: Insight, query: Any, execution_mode: ExecutionMode
+        self,
+        alert: AlertConfiguration,
+        insight: Insight,
+        query: Any,
+        execution_mode: ExecutionMode,
+        cache_age_seconds: int | None = None,
     ) -> ExtractionResult:
         metrics_query = MetricsQuery.model_validate(query)
         if not (alert.config and alert.config.get("type") == "MetricsAlertConfig"):
@@ -56,10 +61,20 @@ class MetricsExtractor:
 
         check_ongoing_interval = bool(config.check_ongoing_interval)
 
+        query_override = (
+            {
+                **query,
+                "variables": {name: value.model_dump(exclude_none=True) for name, value in config.variables.items()},
+            }
+            if config.variables
+            else None
+        )
         calculation_result = calculate_for_query_based_insight(
             insight,
             team=alert.team,
             execution_mode=execution_mode,
+            query_override=query_override,
+            cache_age_seconds=cache_age_seconds,
             # Scheduled alert check (no request user); attribute the read to the alert owner.
             user=alert.created_by,
             analytics_props={"source": EventSource.ALERT},

@@ -35,20 +35,30 @@ which item to diagnose and can skip Step 1's discovery search.
 | `external-data-sources-retrieve`                       | Full details for one source including all its schemas                      |
 | `external-data-schemas-list`                           | All table schemas across all sources, with per-table status + latest_error |
 | `external-data-schemas-retrieve`                       | Full details for one schema including sync_type_config                     |
+| `external-data-sources-jobs`                           | Sync job history for a source: each job's `created_at`, status and rows    |
+| `external-data-sync-logs`                              | Log lines of a table (`schema_id`); add `job_id` to read one job only      |
 | `external-data-schemas-cancel`                         | Cancel a sync currently in `Running` state                                 |
 | `external-data-schemas-reload`                         | Trigger a sync using the configured sync method (respects incremental)     |
 | `external-data-schemas-resync`                         | Full resync — wipes synced data and restarts. Destructive                  |
 | `external-data-schemas-delete-data`                    | Delete the synced table but keep the schema entry                          |
 | `external-data-schemas-partial-update`                 | Change sync_type / incremental_field / cdc_table_mode                      |
-| `external-data-sources-partial-update`                 | Update a source's credentials (`job_inputs`) after rotation                |
+| `data-warehouse-source-connect-link`                   | Secure browser link where the user re-enters a source's credentials        |
+| `data-warehouse-stored-credentials-list`               | Find the `credential_id` the user stored on the connect page               |
+| `external-data-sources-partial-update`                 | Reconnect a source with `{"payload": {"credential_id": ...}}`              |
 | `external-data-sources-reload`                         | Retrigger syncs for every enabled schema on a source                       |
 | `external-data-sources-refresh-schemas`                | Re-fetch the source's table list to pick up new tables                     |
 | `external-data-sources-check-cdc-prerequisites-create` | Verify Postgres CDC setup for a source                                     |
+| `external-data-sources-cdc-status-retrieve`            | Live CDC health: slot, publication, lag, paused schedule                   |
+| `external-data-sources-resume-cdc-create`              | Unpause CDC after a fixed failure, no re-snapshot                          |
+| `external-data-sources-repair-cdc-create`              | Recreate a lost slot or publication. Forces a full re-sync                 |
 | `external-data-schemas-incremental-fields-create`      | Refresh candidate incremental fields when the source schema has changed    |
 | `external-data-sources-webhook-info-retrieve`          | Check webhook registration state and external service status               |
 | `external-data-sources-create-webhook-create`          | Re-register a webhook that was lost or never registered                    |
 | `external-data-sources-update-webhook-inputs-create`   | Update the signing secret after rotation on the source side                |
 | `external-data-sources-delete-webhook-create`          | Remove a broken webhook before re-registering                              |
+| `platform-alerts-list`                                 | Check whether a sync failure alert already exists                          |
+| `platform-alerts-create`                               | Create a sync failure alert for a source or its tables                     |
+| `warehouse-alerts-destinations-create`                 | Choose where the alert notifies (Slack, webhook, and so on)                |
 
 ## Workflow
 
@@ -81,25 +91,33 @@ From `external-data-schemas-list`, each schema has a `status`:
 | `Billing limits` (serializer) / `BillingLimitReached` (enum)        | Team hit its warehouse row quota           | Billing issue, not a technical failure |
 | `Billing limits too low` (serializer) / `BillingLimitTooLow` (enum) | Team has insufficient credit               | Billing issue                          |
 
-Always check `last_synced_at` alongside status. A schema in `Running` with `last_synced_at` from 12 hours ago is
-almost certainly stuck, even though the status isn't `Failed`.
+`last_synced_at` is when the last successful sync started, not when the current job started. Use it to tell how
+fresh the data is. Do not use it to tell how long a `Running` job has run: a daily sync that takes six hours shows a
+`last_synced_at` more than a day old while its current job is only a few hours old.
+
+To judge a `Running` schema, call `external-data-sources-jobs` with the source id and the schema name in `schemas`.
+Skip jobs whose `cdc_write_mode` is `scd2_append`. A CDC table in `both` mode adds this second job to each run. It
+starts later, has no `workflow_run_id`, and gets its `rows_synced` only at the end of the run. The newest remaining job
+is the current one. If its `status` is not `Running`, or no job exists, the schema status is stale (see F). Otherwise,
+compare its age (from `created_at`) with the schema's sync frequency and with how long earlier `Completed` jobs took
+(`finished_at` minus `created_at`). Also read its `rows_synced` and `latest_error`.
 
 ### Step 3 — Interpret `latest_error`
 
 Map the `latest_error` string to a root cause. Common patterns:
 
-| Error substring                                                                      | Root cause                                                 | Fix                                                                                   |
-| ------------------------------------------------------------------------------------ | ---------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| `authentication failed`, `401`, `403`, `invalid credentials`                         | Credentials expired or rotated                             | User rotates creds, then `external-data-sources-partial-update` with new `job_inputs` |
-| `Could not establish session to SSH gateway`, `Could not connect to your SSH tunnel` | SSH tunnel misconfigured or remote host down               | User checks SSH host/key/bastion                                                      |
-| `Primary key required for incremental syncs`                                         | Table has no PK and sync_type is `incremental`/`cdc`       | Either add PK in source, or switch schema to `full_refresh`                           |
-| `primary keys for this table are not unique`                                         | Declared PK columns aren't actually unique                 | Pick different PK columns via `partial-update`                                        |
-| `Integration matching query does not exist`                                          | Source's saved integration was deleted                     | Recreate the source                                                                   |
-| `column "X" does not exist`, `does not have a column named`                          | Schema drift — incremental field or tracked column removed | Use `incremental-fields-create` to re-detect, then `partial-update`                   |
-| `relation "..." does not exist`                                                      | Source table was dropped/renamed                           | Remove schema or rename source-side                                                   |
-| `SSL`, `connection refused`, `timeout`, `unreachable`                                | Network / firewall / host reachability                     | User side — check host/port/allowlist                                                 |
-| `replication slot`, `publication`, `wal_level`                                       | CDC prerequisites broken                                   | Run `check-cdc-prerequisites-create`; may need slot recreate                          |
-| `Schema exceeds row limit`, `billing`                                                | Billing limit                                              | Upgrade plan or disable the schema                                                    |
+| Error substring                                                                      | Root cause                                                 | Fix                                                                                                             |
+| ------------------------------------------------------------------------------------ | ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `authentication failed`, `401`, `403`, `invalid credentials`                         | Credentials expired or rotated                             | Reconnect the source with a connect link (see B)                                                                |
+| `Could not establish session to SSH gateway`, `Could not connect to your SSH tunnel` | SSH tunnel misconfigured or remote host down               | User checks SSH host/key/bastion                                                                                |
+| `Primary key required for incremental syncs`                                         | Table has no PK and sync_type is `incremental`/`cdc`       | Either add PK in source, or switch schema to `full_refresh`                                                     |
+| `primary keys for this table are not unique`                                         | Declared PK columns aren't actually unique                 | Pick different PK columns via `external-data-schemas-partial-update`                                            |
+| `Integration matching query does not exist`                                          | Source's saved integration was deleted                     | Reconnect the source with a connect link (see B)                                                                |
+| `column "X" does not exist`, `does not have a column named`                          | Schema drift — incremental field or tracked column removed | Use `external-data-schemas-incremental-fields-create` to re-detect, then `external-data-schemas-partial-update` |
+| `relation "..." does not exist`                                                      | Source table was dropped/renamed                           | Remove schema or rename source-side                                                                             |
+| `SSL`, `connection refused`, `timeout`, `unreachable`                                | Network / firewall / host reachability                     | User side — check host/port/allowlist                                                                           |
+| `replication slot`, `publication`, `wal_level`                                       | CDC prerequisites broken                                   | Run `external-data-sources-check-cdc-prerequisites-create`; may need slot recreate                              |
+| `Schema exceeds row limit`, `billing`                                                | Billing limit                                              | Upgrade plan or disable the schema                                                                              |
 
 If `latest_error` is null but the schema is `Failed`, retrieve the schema directly — the error may only be populated
 on the detail view.
@@ -116,9 +134,21 @@ The recovery action depends on root cause, not just status. Match the user's sit
 
 **B. Credentials expired or rotated**
 
-- Every schema under the source is failing with an auth error.
-- Action: user rotates creds → `external-data-sources-partial-update` with the new `job_inputs` → the reload happens
-  automatically when the source status flips back to running, or trigger manually with `external-data-sources-reload`.
+- Every schema under the source is failing with an auth error, or the OAuth token expired.
+- Never ask the user to paste a password, API key, or token into the chat. Reconnect the source this way:
+  1. Call `data-warehouse-source-connect-link` with the source's `source_type` and share the `connect_url`.
+     The user enters new credentials or authorizes OAuth again in their browser. The page does not change the source.
+  2. When the user confirms they are done, call `data-warehouse-stored-credentials-list` with the same `source_type`
+     and take the newest `credential_id`.
+  3. Call `external-data-sources-partial-update` with the source id and `{"payload": {"credential_id": "<id>"}}`.
+     Do not send `job_inputs` in the same call. PostHog replaces the source's connection details with the stored
+     ones and checks the connection before it saves. An SSH tunnel the user did not enter on the page is turned off.
+     A failed update keeps the stored credential. When the connection check fails, get a new link so the user can
+     enter correct details.
+- The stored credential is single-use and expires after 24 hours. Only the user who filled the page can use it, so that
+  user must be the one this session authenticates as.
+- Then the reload happens automatically when the source status flips back to running, or trigger it manually with
+  `external-data-sources-reload`.
 
 **C. Schema drift — column renamed, dropped, or type changed**
 
@@ -142,13 +172,30 @@ The recovery action depends on root cause, not just status. Match the user's sit
 **E. CDC pipeline broken on Postgres**
 
 - Error mentions replication slot, publication, WAL.
-- Action: `external-data-sources-check-cdc-prerequisites-create` to enumerate what's broken, fix on the Postgres
-  side, then `external-data-schemas-reload`. If the WAL position was lost, a `resync` is sometimes unavoidable.
+- Action: call `external-data-sources-cdc-status-retrieve` first. It reads the source database, so a 400 means the
+  source is unreachable: fix the credentials first.
+- `schedule_paused=true` with `slot_exists` and `publication_exists` both true: a failure paused extraction and nothing
+  was lost. Fix the cause, then call `external-data-sources-resume-cdc-create`. It does not re-snapshot.
+- `slot_exists=false` or `publication_exists=false`: call `external-data-sources-repair-cdc-create`. It recreates them
+  and resets every CDC table to a full re-sync, so ask the user first. It refuses when CDC looks healthy.
+- Use `external-data-sources-check-cdc-prerequisites-create` to list setup problems on the Postgres side (wal_level,
+  permissions). Then call `external-data-schemas-reload`.
 
 **F. Sync is stuck in `Running` for hours**
 
-- Check `last_synced_at`. If it's hours old and still `Running`, the job is orphaned.
-- Action: `external-data-schemas-cancel` to stop it, then `external-data-schemas-reload`.
+- Do not decide from `last_synced_at`. An old `last_synced_at` only says the last successful sync started long ago.
+- Call `external-data-sources-jobs` for the schema and find the current job as Step 2 says. Its `created_at` is when
+  this run started.
+- If the current job's `status` is not `Running`, or no job exists, no sync is running and the schema status is stale.
+  `external-data-schemas-cancel` repairs the status. Then call `external-data-schemas-reload`.
+- The job is healthy when its age is in line with the earlier completed jobs, or when `rows_synced` grows between two
+  checks a few minutes apart. Tell the user it is still running and how long earlier runs took.
+- The job is likely orphaned when it has run much longer than earlier jobs and longer than the sync interval, and
+  `rows_synced` does not grow. Read `external-data-sync-logs` with the schema id as `schema_id`, the job's
+  `workflow_run_id` as `job_id`, and `level` set to `DEBUG` to confirm that no recent log lines exist. Batch writes log
+  at `DEBUG`, and the default level hides them.
+- Action, only for an orphaned job or a stale status: `external-data-schemas-cancel` to stop it, then
+  `external-data-schemas-reload`.
 
 **G. Table data is corrupt but you want to keep the schema config**
 
@@ -167,15 +214,15 @@ The recovery action depends on root cause, not just status. Match the user's sit
   the source side. Status may still read `Completed` because the bulk sync (the safety-net cadence) is succeeding —
   the problem is the push path.
 - Action:
-  1. `external-data-sources-webhook-info-retrieve({source_id})`.
-  2. If `exists: false` → the webhook was never registered, or was deleted. Call `create-webhook-create` to
+  1. `external-data-sources-webhook-info-retrieve({id})`.
+  2. If `exists: false` → the webhook was never registered, or was deleted. Call `external-data-sources-create-webhook-create` to
      register it.
   3. If `exists: true` but `external_status.error` is set → typically "API key doesn't have permission to read
      webhooks" or similar. The webhook may have been deleted on the source's dashboard. Re-create it.
   4. If `external_status.status` isn't `"enabled"` → the source disabled the webhook (usually after repeated
      delivery failures). Re-enable or re-register.
   5. If payloads are arriving but failing signature verification → the signing secret was rotated. Get the new
-     one from the source's dashboard and call `update-webhook-inputs-create({source_id}, {inputs:
+     one from the source's dashboard and call `update-webhook-inputs-create({id}, {inputs:
 {signing_secret: "..."}})`.
 - After any fix, check the source's webhook logs (on their side) to confirm PostHog is now responding 2xx.
 
@@ -190,6 +237,25 @@ Three recovery actions discard data and cannot be undone:
 Always present the fix you're proposing and wait for explicit approval before calling any of these. "Just try
 resync" is rarely the right default.
 
+### Step 6 — Offer a sync failure alert after the fix
+
+After the sync works again, offer to alert the user the next time it breaks, so they do not need to open PostHog to
+find out. Offer it once, and do not create the alert unless the user agrees.
+
+1. Call `platform-alerts-list` with `source_kind=warehouse_source`. If an enabled alert already watches this source
+   (its `source_config.source_ids` names it, or is empty) and has a destination (`destination_types` is not empty),
+   say so and stop. If an alert exists with no destination, offer to add one.
+2. Ask where messages go: a Slack channel, a webhook, Microsoft Teams, Discord, or PagerDuty. Do not guess the
+   channel.
+3. Call `platform-alerts-create` with `source_kind=warehouse_source`, a descriptive `name`, and
+   `source_config.source_ids` set to the source ID. Use `group_by=schema` and `grouping.keys=["schema_id"]` for one
+   message per failing table, or the default `group_by=source` and `grouping.keys=["source_id"]` for one message per
+   source.
+4. Call `warehouse-alerts-destinations-create` with the `id` the create call returned. An alert with no destination
+   notifies nobody.
+
+If the tools are not available, the user's project may not have sync failure alerts yet. Say so and skip this step.
+
 ## Example interaction
 
 ```text
@@ -203,15 +269,18 @@ Agent:
 
    To fix:
    1. Grab a fresh restricted API key from the Stripe dashboard.
-   2. I'll update the source with the new key.
-   3. Syncs will resume automatically — no data loss.
+   2. Enter it on this secure page: <connect_url>. Don't paste it here.
+   3. I'll reconnect the source, and syncs will resume — no data loss.
 
-   Paste the new key here when ready."
+   Tell me when you're done."
 
-User: "sk_live_..."
+(The agent got <connect_url> from data-warehouse-source-connect-link({source_type: "Stripe"}).)
+
+User: "Done"
 
 Agent:
-- external-data-sources-partial-update({id}, {job_inputs: {stripe_secret_key: "sk_live_..."}})
+- data-warehouse-stored-credentials-list({source_type: "Stripe"}) → newest credential_id
+- external-data-sources-partial-update({id}, {payload: {credential_id: "<credential_id>"}})
 - external-data-sources-reload({id}) to trigger retry
 - Report: "Updated and re-triggered. Check back in a few minutes — latest_error should clear."
 ```
@@ -220,14 +289,16 @@ Agent:
 
 - **Source status overrides schema status for diagnosis.** If the source is `Error`, nothing under it will work;
   fixing the source usually fixes all its schemas at once.
-- **`Running` isn't always healthy.** Cross-check `last_synced_at`. A sync stuck in `Running` needs `cancel` then
-  `reload`, not `resync`.
+- **`Running` isn't always healthy, and an old `last_synced_at` doesn't make it stuck.** Judge a `Running` schema
+  from its current job in `external-data-sources-jobs` (`created_at`, `rows_synced`, `latest_error`) against earlier
+  runs and the sync interval. A sync that is really stuck needs `external-data-schemas-cancel` then
+  `external-data-schemas-reload`, not `external-data-schemas-resync`.
 - **Resync is destructive.** It discards synced data. Only recommend it when the data itself is bad (duplicates,
   missing rows, corrupt) or when recovery genuinely requires a clean slate (lost WAL position on CDC). Never use it
   as a first-try for transient errors.
 - **Delete-data preserves config.** When a user says "I just want to start this table over from scratch", prefer
-  `delete-data` + `reload` over `resync` + new schema entry — it keeps the configured sync_type / incremental_field
-  / PK setup. `delete-data` turns syncing off, so set `should_sync: true` before the reload.
+  `external-data-schemas-delete-data` + `external-data-schemas-reload` over `external-data-schemas-resync` + new schema entry — it keeps the configured sync_type / incremental_field
+  / PK setup. `external-data-schemas-delete-data` turns syncing off, so set `should_sync: true` before the reload.
 - **A failure can belong to a destination, not the source.** Some projects sync a source to their own database as
   well as to PostHog. When they do, `latest_error` is prefixed with the destination's name, e.g.
   `customer postgres: connection refused`. That is the customer's database refusing the write, not the source failing
@@ -236,5 +307,5 @@ Agent:
 - **Billing limits aren't technical failures.** Don't try to retry or reconfigure your way out. Route to billing.
 - **Webhook failures can hide behind a green status.** A webhook-type schema whose bulk fallback sync succeeded looks
   `Completed` even when the push channel is broken. When users say "my data is hours behind" on a webhook schema,
-  call `webhook-info-retrieve` before looking at schema status. Webhook issues don't surface on
+  call `external-data-sources-webhook-info-retrieve` before looking at schema status. Webhook issues don't surface on
   `external-data-schemas-list`.

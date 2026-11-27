@@ -6,7 +6,7 @@ import { PersonPropertiesSizeViolationError } from '~/common/persons/repositorie
 import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
 import { uuidFromDistinctId } from '~/ingestion/common/persons/person-uuid'
 import { Properties } from '~/plugin-scaffold'
-import { InternalPerson, PropertyUpdateOperation } from '~/types'
+import { InternalPerson } from '~/types'
 
 import { PersonOutputs } from './person-context'
 import { PersonsStoreForBatch, PersonsStoreTransactionForBatch } from './persons-store-for-batch'
@@ -40,23 +40,11 @@ export class PersonCreateService {
         const uuid = uuidFromDistinctId(teamId, primaryDistinctId.distinctId)
 
         const props = { ...propertiesOnce, ...properties, ...{ $creator_event_uuid: creatorEventUuid } }
-        const propertiesLastOperation: Record<string, any> = {}
-        const propertiesLastUpdatedAt: Record<string, any> = {}
-        Object.keys(propertiesOnce).forEach((key) => {
-            propertiesLastOperation[key] = PropertyUpdateOperation.SetOnce
-            propertiesLastUpdatedAt[key] = createdAt.toISO()
-        })
-        Object.keys(properties).forEach((key) => {
-            propertiesLastOperation[key] = PropertyUpdateOperation.Set
-            propertiesLastUpdatedAt[key] = createdAt.toISO()
-        })
 
         try {
             const result = await (tx || this.store).createPerson(
                 createdAt,
                 props,
-                propertiesLastUpdatedAt,
-                propertiesLastOperation,
                 teamId,
                 isUserId,
                 isIdentified,
@@ -74,7 +62,12 @@ export class PersonCreateService {
                 // Try to fetch the person that was created concurrently
                 const allDistinctIds = [primaryDistinctId, ...(extraDistinctIds || [])]
                 for (const distinctIdInfo of allDistinctIds) {
-                    const existingPerson = await this.store.fetchForUpdate(teamId, distinctIdInfo.distinctId)
+                    // Read on the caller's transaction. A pool read needs a second connection while this
+                    // transaction holds one, so a pool full of conflicting transactions waits on itself
+                    // forever, holding row locks that block every other writer of these persons.
+                    const existingPerson = tx
+                        ? ((await tx.readPerson(teamId, distinctIdInfo.distinctId)) ?? null)
+                        : await this.store.fetchForUpdate(teamId, distinctIdInfo.distinctId)
                     if (existingPerson) {
                         return [existingPerson, false, [], true]
                     }

@@ -8,16 +8,15 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.hogql import ast
 
-from posthog.models import EventProperty
 from posthog.models.team import Team
 
+from products.event_definitions.backend.models import EventProperty
 from products.experiments.backend.facade import replay as facade_replay
 from products.experiments.backend.facade.contracts import InSessionExposureSemantics
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     DEFAULT_EXPOSURE_EVENT,
     EXPERIMENT_EXPOSURE_EVENT,
-    EXPERIMENT_EXPOSURE_EVENT_CUTOFF,
 )
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.replay_linkage import (
@@ -29,7 +28,7 @@ from products.experiments.backend.replay_linkage import (
     resolve_in_session_exposure_semantics,
 )
 from products.experiments.backend.session_exposure import resolve_session_exposure
-from products.experiments.backend.test.utils import patch_exposure_event_flag
+from products.experiments.backend.test.utils import EXPERIMENT_EXPOSURE_EVENT_CUTOFF, override_exposure_event_cutoff
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
@@ -167,16 +166,16 @@ class TestResolveInSessionExposureSemantics(BaseTest):
         assert semantics.unavailable_reason is None
         assert semantics.uses_stamped_fallback is True
 
-    def test_condition_matches_the_rollout_default_event_at_the_cutoff(self) -> None:
+    def test_condition_matches_the_experiment_exposure_default_at_the_cutoff(self) -> None:
         # The in-session narrowing reads the exposure event off this seam. If the seam kept the
-        # legacy default, exposures arriving as $experiment_exposure would leave every rollout
-        # experiment's in-session list empty.
+        # legacy default, exposures arriving as $experiment_exposure would leave the in-session list
+        # empty for every experiment that started at or after the cutoff.
         experiment = self._experiment(start_date=EXPERIMENT_EXPOSURE_EVENT_CUTOFF)
         EventProperty.objects.get_or_create(
             team=self.team, project_id=self.team.project_id, event=EXPERIMENT_EXPOSURE_EVENT, property="$session_id"
         )
 
-        with patch_exposure_event_flag(enabled=True):
+        with override_exposure_event_cutoff(enabled=True):
             semantics = resolve_in_session_exposure_semantics(self.team, experiment)
 
         assert semantics.session_exposure is not None

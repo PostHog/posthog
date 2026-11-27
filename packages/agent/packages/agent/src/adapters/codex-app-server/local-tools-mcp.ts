@@ -29,7 +29,10 @@ export interface LocalToolsMeta extends LocalToolGateMeta {
   taskRunId?: string;
   persistence?: { taskId?: string };
   baseBranch?: string;
+  finishReportRequired?: boolean;
 }
+
+const GITLAB_ENV_VARS = ["POSTHOG_GIT_PROVIDER", "GITLAB_TOKEN"] as const;
 
 function toMcpServerStdio(
   ctx: LocalToolCtx,
@@ -55,6 +58,12 @@ function toMcpServerStdio(
         value,
       })),
     );
+  }
+  // Codex gives an MCP child only a small default env, so the GitLab tool
+  // reads its credentials from these entries.
+  for (const name of GITLAB_ENV_VARS) {
+    const value = process.env[name];
+    if (value) env.push({ name, value });
   }
   return {
     name: LOCAL_TOOLS_MCP_NAME,
@@ -83,6 +92,7 @@ export function buildLocalToolsServer(
     taskId: resolveTaskId(meta),
     taskRunId: meta?.taskRunId,
     baseBranch: meta?.baseBranch,
+    finishReportRequired: meta?.finishReportRequired === true,
   };
   const names = enabledLocalTools(toolCtx, meta).map((tool) => tool.name);
   if (isTaskRunSandbox(process.env)) names.push(MEMORY_KILL_HOOK_TOOL_NAME);

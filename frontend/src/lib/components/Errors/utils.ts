@@ -22,7 +22,10 @@ export function getRuntimeFromLib(lib?: string | null): ErrorTrackingRuntime {
         case 'posthog-node':
         case 'analytics-node':
         case 'posthog-edge':
+        case 'posthog-electron':
             return 'node'
+        case 'posthog-convex':
+            return 'convex'
         case 'posthog-js':
         case 'web':
         case 'js':
@@ -31,6 +34,7 @@ export function getRuntimeFromLib(lib?: string | null): ErrorTrackingRuntime {
         case 'analytics-go':
             return 'go'
         case 'posthog-php':
+        case 'posthog-laravel':
             return 'php'
         case 'posthog-rs':
             return 'rust'

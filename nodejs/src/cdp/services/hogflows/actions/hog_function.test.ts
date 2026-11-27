@@ -1,6 +1,6 @@
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
-import { DateTime } from 'luxon'
+import { DateTime, Settings } from 'luxon'
 import { register } from 'prom-client'
 
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
@@ -8,19 +8,24 @@ import { insertHogFunctionTemplate, insertIntegration } from '~/cdp/_tests/fixtu
 import { createExampleHogFlowInvocation } from '~/cdp/_tests/fixtures-hogflows'
 import { EmailStatusOutput } from '~/cdp/outputs/outputs'
 import { HogFlowAction } from '~/cdp/schema/hogflow'
+import { template as emailHogTemplate } from '~/cdp/templates/_destinations/email/email.template'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
 import { PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
+import { LiquidRenderer } from '~/cdp/utils/liquid'
 import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
 import { workflowStepDispatchKeyFromInvocation } from '~/cdp/utils/workflow-step-dispatch-key'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { UsageIngestionClient, UsageRecordInput } from '~/common/usage-ingestion/client'
 import { closeHub, createHub } from '~/common/utils/db/hub'
+import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
-import { createTestTeamFixture } from '~/tests/helpers/sql'
+import { FakeSes } from '~/tests/helpers/fake-ses'
+import { createTestTeamFixture, uniqueTestId } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
 
-import { CyclotronJobInvocationHogFlow, DBHogFunctionTemplate } from '../../../types'
-import { HogExecutorAsyncService } from '../../hog-executor-async.service'
+import { CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult, DBHogFunctionTemplate } from '../../../types'
+import { HogExecutorAsyncService, HogExecutorExecuteAsyncOptions } from '../../hog-executor-async.service'
 import { HogExecutorService } from '../../hog-executor.service'
 import { HogInputsService } from '../../hog-inputs.service'
 import { HogFunctionTemplateManagerService } from '../../managers/hog-function-template-manager.service'
@@ -37,7 +42,7 @@ import { CdpUsageReporterService } from '../../usage/cdp-usage-reporter.service'
 import { HogFlowFunctionsService } from '../hogflow-functions.service'
 import { TRANSACTIONAL_EMAIL_EVENT } from '../hogflow-sensitivity'
 import { findActionByType } from '../hogflow-utils'
-import { HogFunctionHandler, messageOptOutsAfterStep } from './hog_function'
+import { HogFunctionHandler, RENDER_TIMEOUT_RETRY_DELAYS_SECONDS, messageOptOutsAfterStep } from './hog_function'
 
 describe('HogFunctionHandler', () => {
     describe('messageOptOutsAfterStep', () => {
@@ -93,7 +98,8 @@ describe('HogFunctionHandler', () => {
             new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
             new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
             new RecipientsManagerService(hub.postgres),
-            null
+            null,
+            { report: jest.fn(), reportEmailSent: jest.fn() }
         )
         mockHogFunctionExecutor = new HogExecutorAsyncService(
             new HogExecutorService({ executionTimeoutMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS }, hogInputsService),
@@ -129,7 +135,7 @@ describe('HogFunctionHandler', () => {
         )
         mockRecipientPreferencesService = {
             shouldSkipAction: jest.fn().mockResolvedValue(null),
-            isFrequencyCapped: jest.fn().mockResolvedValue(false),
+            checkFrequencyCap: jest.fn().mockResolvedValue({ capped: false }),
         } as any
         mockEmailValidationService = {
             getSkipReason: jest.fn().mockResolvedValue(null),
@@ -296,6 +302,72 @@ describe('HogFunctionHandler', () => {
         })
     })
 
+    describe('liquid render limits', () => {
+        const runStep = async (): Promise<
+            [
+                Awaited<ReturnType<HogFunctionHandler['execute']>> | undefined,
+                unknown,
+                CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>,
+            ]
+        > => {
+            const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+                queue: 'hog',
+                queuePriority: 0,
+            })
+            try {
+                return [
+                    await hogFunctionHandler.execute({ invocation, action, result: invocationResult }),
+                    undefined,
+                    invocationResult,
+                ]
+            } catch (error) {
+                return [undefined, error, invocationResult]
+            }
+        }
+
+        beforeEach(() => {
+            action.config.inputs.name = { value: 'Hi {{ person.properties.email }}', templating: 'liquid' }
+        })
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        it('retries a step that ran out of render time, then fails it once the retries run out', async () => {
+            const renderSpy = jest.spyOn(LiquidRenderer, 'renderWithHogFunctionGlobals').mockImplementation(() => {
+                throw new Error('template render limit exceeded, line:1, col:1')
+            })
+
+            for (const delaySeconds of RENDER_TIMEOUT_RETRY_DELAYS_SECONDS) {
+                const before = DateTime.now()
+                const [handlerResult, error, invocationResult] = await runStep()
+                expect(error).toBeUndefined()
+                expect(handlerResult?.scheduledAt?.diff(before, 'seconds').seconds).toBeCloseTo(delaySeconds, 0)
+                expect(invocationResult.logs.at(-1)?.message).toContain(`Retrying in ${delaySeconds}s`)
+            }
+
+            const [, error] = await runStep()
+            expect(String(error)).toContain('template render limit exceeded')
+            expect(mockFetch).not.toHaveBeenCalled()
+
+            renderSpy.mockRestore()
+            const [handlerResult] = await runStep()
+            expect(handlerResult?.nextAction?.id).toBe('exit')
+            expect(invocation.state.currentAction?.renderTimeoutAttempts).toBeUndefined()
+        })
+
+        it('fails a step over the memory limit without retrying', async () => {
+            jest.spyOn(LiquidRenderer, 'renderWithHogFunctionGlobals').mockImplementation(() => {
+                throw new Error('memory alloc limit exceeded, line:1, col:1')
+            })
+
+            const [, error] = await runStep()
+
+            expect(String(error)).toContain('memory alloc limit exceeded')
+            expect(invocation.state.currentAction?.renderTimeoutAttempts).toBeUndefined()
+        })
+    })
+
     describe('missing variable references', () => {
         beforeEach(() => {
             // {variables.coupon} compiled to hog bytecode; the run has no `coupon` variable
@@ -364,6 +436,44 @@ describe('HogFunctionHandler', () => {
 
         expect(handlerResult.error).toBeUndefined()
         expect(mockFetch.mock.calls[0][1].body).toContain(`"name":"Hog Flow|${invocation.hogFlow.id}"`)
+    })
+
+    it('ties the unsubscribe link in a workflow email to the step, run and version that send it', async () => {
+        const emailTemplate = await insertHogFunctionTemplate(hub.postgres, {
+            id: `template-test-hogflow-email-${team.id}`,
+            name: 'Test Email Template',
+            code: `fetch('http://localhost/test', { 'method': 'POST', 'body': inputs })`,
+            inputs_schema: [{ key: 'email', type: 'native_email', required: true }],
+        })
+        action.config.template_id = emailTemplate.template_id
+        action.config.inputs = {
+            email: {
+                templating: 'liquid',
+                value: { to: { email: 'person@example.com' }, html: '<a href="{{unsubscribe_url}}">Unsubscribe</a>' },
+            },
+        }
+        invocation.hogFlow.version = 7
+
+        const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+            queue: 'hog',
+            queuePriority: 0,
+        })
+        const handlerResult = await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
+
+        expect(handlerResult.error).toBeUndefined()
+        const html: string = parseJSON(mockFetch.mock.calls[0][1].body).email.html
+        const token = html.match(/messaging-preferences\/([^/]+)\//)![1]
+        const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
+        expect(recipientTokensService.validatePreferencesToken(token)).toEqual({
+            valid: true,
+            team_id: team.id,
+            identifier: 'person@example.com',
+            app_source_id: invocation.hogFlow.id,
+            instance_id: action.id,
+            workflow_id: invocation.hogFlow.id,
+            invocation_id: invocation.id,
+            workflow_version: 7,
+        })
     })
 
     it('should throw an error if template is not found', async () => {
@@ -446,8 +556,10 @@ describe('HogFunctionHandler', () => {
         expect(invocationResult.logs[0].message).toContain(
             `[Action:function] Recipient has opted out, skipping message delivery.`
         )
-        // Opt-out skips do not emit an app metric — no billable_invocation, no email_suppressed.
-        expect(invocationResult.metrics).toEqual([])
+        // A broadcast's audience breakdown counts opt-outs from this metric. It is not billable.
+        expect(invocationResult.metrics).toEqual([
+            expect.objectContaining({ metric_kind: 'email', metric_name: 'email_opted_out', count: 1 }),
+        ])
         expect(mockFetch).not.toHaveBeenCalled()
     })
 
@@ -496,7 +608,11 @@ describe('HogFunctionHandler', () => {
     ])(
         'should skip the send and emit message_frequency_capped when the recipient reached the frequency cap for %s',
         async (_label, parentRunId) => {
-            ;(mockRecipientPreferencesService.isFrequencyCapped as jest.Mock).mockResolvedValueOnce(true)
+            ;(mockRecipientPreferencesService.checkFrequencyCap as jest.Mock).mockResolvedValueOnce({
+                capped: true,
+                nextSlotAt: Date.now() + 60 * 60 * 1000,
+                holdHours: null,
+            })
             invocation.parentRunId = parentRunId
 
             const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
@@ -523,6 +639,126 @@ describe('HogFunctionHandler', () => {
             expect(mockFetch).not.toHaveBeenCalled()
         }
     )
+
+    const hour = 60 * 60 * 1000
+
+    it.each([
+        ['another send took the freed slot', 1 * hour, { capped: true, nextSlotAt: 1_800_000_000_000 + 3 * hour }, 1],
+        // A worker backlog can wake the send after the hold ended. It must not claim a slot that freed late.
+        ['the send wakes after the hold ended', 3 * hour, { capped: false }, 0],
+    ])(
+        'should hold a capped send until the next slot, then skip it when %s',
+        async (_label, wakeAfter, wakeCheck, checks) => {
+            const start = 1_800_000_000_000
+            const originalNow = Settings.now
+            jest.spyOn(Math, 'random').mockReturnValue(0)
+            const checkFrequencyCap = mockRecipientPreferencesService.checkFrequencyCap as jest.Mock
+            try {
+                Settings.now = () => start
+                checkFrequencyCap.mockResolvedValueOnce({ capped: true, nextSlotAt: start + hour, holdHours: 2 })
+                const held = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+                    queue: 'hog',
+                    queuePriority: 0,
+                })
+
+                const heldResult = await hogFunctionHandler.execute({ invocation, action, result: held })
+
+                expect(heldResult).toEqual({ scheduledAt: DateTime.fromMillis(start + hour) })
+                expect(held.invocation.state.currentAction?.frequencyCapHoldDeadlineAt).toBe(
+                    DateTime.fromMillis(start + 2 * hour).toISO()
+                )
+                expect(held.logs[0].message).toContain('Holding send until')
+                expect(held.metrics).toMatchObject([{ metric_name: 'message_frequency_cap_held', count: 1 }])
+
+                Settings.now = () => start + wakeAfter
+                checkFrequencyCap.mockClear()
+                checkFrequencyCap.mockResolvedValueOnce({ ...wakeCheck, holdHours: 2 })
+                const woken = createInvocationResult<CyclotronJobInvocationHogFlow>(held.invocation, {
+                    queue: 'hog',
+                    queuePriority: 0,
+                })
+
+                const wokenResult = await hogFunctionHandler.execute({
+                    invocation: held.invocation,
+                    action,
+                    result: woken,
+                })
+
+                expect(wokenResult.nextAction?.id).toBe('exit')
+                expect(woken.logs[0].message).toContain('no slot opened before the hold ended')
+                expect(woken.metrics).toMatchObject([
+                    { metric_name: 'message_frequency_capped', count: 1 },
+                    { metric_name: 'message_frequency_cap_hold_ended', count: 1 },
+                ])
+                expect(checkFrequencyCap).toHaveBeenCalledTimes(checks)
+                expect(mockFetch).not.toHaveBeenCalled()
+            } finally {
+                Settings.now = originalNow
+            }
+        }
+    )
+
+    it('should skip at once when the next slot frees after the hold would end', async () => {
+        ;(mockRecipientPreferencesService.checkFrequencyCap as jest.Mock).mockResolvedValueOnce({
+            capped: true,
+            nextSlotAt: Date.now() + 3 * hour,
+            holdHours: 2,
+        })
+        const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+            queue: 'hog',
+            queuePriority: 0,
+        })
+
+        const handlerResult = await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
+
+        expect(handlerResult.nextAction?.id).toBe('exit')
+        expect(invocationResult.metrics).toMatchObject([{ metric_name: 'message_frequency_capped', count: 1 }])
+    })
+
+    it('should not drop a held send that the email queue delays past the hold deadline', async () => {
+        ;(mockRecipientPreferencesService.checkFrequencyCap as jest.Mock).mockResolvedValueOnce({ capped: false })
+        invocation.state.currentAction!.frequencyCapHoldDeadlineAt = DateTime.now().minus({ hours: 1 }).toISO()!
+        invocation.state.currentAction!.hogFunctionState = {
+            globals: { ...createExampleHogFlowInvocation(invocation.hogFlow).state.event, inputs: {} } as any,
+            timings: [],
+            attempts: 0,
+        } as any
+        const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+            queue: 'email',
+            queuePriority: 0,
+        })
+
+        await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
+
+        expect(mockRecipientPreferencesService.checkFrequencyCap).toHaveBeenCalledTimes(1)
+        expect(invocationResult.metrics).not.toContainEqual(
+            expect.objectContaining({ metric_name: 'message_frequency_capped' })
+        )
+    })
+
+    it('should skip, not hold, a capped send that resumes on the email queue', async () => {
+        // A hold here would drop the pending send that the email queue continuation carries.
+        ;(mockRecipientPreferencesService.checkFrequencyCap as jest.Mock).mockResolvedValueOnce({
+            capped: true,
+            nextSlotAt: Date.now() + hour,
+            holdHours: 2,
+        })
+        invocation.state.currentAction!.hogFunctionState = {
+            globals: { ...createExampleHogFlowInvocation(invocation.hogFlow).state.event, inputs: {} } as any,
+            timings: [],
+            attempts: 0,
+        } as any
+        const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+            queue: 'email',
+            queuePriority: 0,
+        })
+
+        const handlerResult = await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
+
+        expect(handlerResult.nextAction?.id).toBe('exit')
+        expect(invocationResult.metrics).toMatchObject([{ metric_name: 'message_frequency_capped', count: 1 }])
+        expect(invocationResult.invocation.state.currentAction?.frequencyCapHoldDeadlineAt).toBeUndefined()
+    })
 
     it.each([
         ['a workflow run', undefined],
@@ -576,7 +812,11 @@ describe('HogFunctionHandler', () => {
             )
         }
         const skipFrequencyCapped = (): void => {
-            ;(mockRecipientPreferencesService.isFrequencyCapped as jest.Mock).mockResolvedValueOnce(true)
+            ;(mockRecipientPreferencesService.checkFrequencyCap as jest.Mock).mockResolvedValueOnce({
+                capped: true,
+                nextSlotAt: Date.now() + 60 * 60 * 1000,
+                holdHours: null,
+            })
         }
 
         it.each([
@@ -656,6 +896,62 @@ describe('HogFunctionHandler', () => {
         )
     })
 
+    const useEmailStep = async (): Promise<void> => {
+        const senderId = uniqueTestId()
+        await insertIntegration(hub.postgres, team.id, {
+            id: senderId,
+            kind: 'email',
+            config: {
+                email: 'sender@posthog.com',
+                name: 'Sender',
+                domain: 'posthog.com',
+                verified: true,
+                provider: 'maildev',
+            },
+        })
+        const emailTemplate = await insertHogFunctionTemplate(hub.postgres, {
+            id: `template-test-hogflow-send-email-${team.id}`,
+            name: 'Test Send Email Template',
+            code: `sendEmail(inputs.email)`,
+            inputs_schema: [{ key: 'email', type: 'native_email', integration: 'email', required: true }],
+        })
+        action.config.template_id = emailTemplate.template_id
+        action.config.inputs = {
+            email: {
+                value: {
+                    to: { email: 'person@example.com', name: 'Person' },
+                    from: { integrationId: senderId },
+                    subject: 'Subject',
+                    text: 'Text',
+                    html: 'HTML',
+                },
+            },
+        }
+    }
+
+    const executeStep = async (
+        handler: HogFunctionHandler,
+        flowInvocation: CyclotronJobInvocationHogFlow,
+        hogExecutorOptions?: HogExecutorExecuteAsyncOptions
+    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>> => {
+        let current = flowInvocation
+        const metrics: CyclotronJobInvocationResult['metrics'] = []
+        for (;;) {
+            const result = createInvocationResult<CyclotronJobInvocationHogFlow>(current, {
+                queue: current.queue,
+                queuePriority: current.queuePriority,
+                queueParameters: current.queueParameters,
+                queueMetadata: current.queueMetadata,
+            })
+            const handlerResult = await handler.execute({ invocation: current, action, result, hogExecutorOptions })
+            metrics.push(...result.metrics)
+            if (!handlerResult.scheduledAt || result.invocation.queue === current.queue) {
+                return { ...result, metrics }
+            }
+            current = result.invocation
+        }
+    }
+
     // The billing kind is the whole point of the per-channel handlers: push bills at its own rate
     // (roughly half of email), so a completed invocation must emit exactly one billable_invocation
     // carrying the handler's billing type — never fall back to another channel's kind.
@@ -677,9 +973,14 @@ describe('HogFunctionHandler', () => {
     )(
         'emits $billingType metrics and only excludes mocked usage in $mode mode',
         async ({ billingType, usageKey, isTest, mockFunctions }) => {
-            const usageReporter: Pick<CdpUsageReporterService, 'reportBillableInvocation'> = {
-                reportBillableInvocation: jest.fn(),
-            }
+            const ingested: UsageRecordInput[] = []
+            const usageIngestion = {
+                ingest: (records: UsageRecordInput[]) => {
+                    ingested.push(...records)
+                    return Promise.resolve()
+                },
+            } as unknown as UsageIngestionClient
+            const usageReporter = new CdpUsageReporterService(usageIngestion, () => true)
             const handler = new HogFunctionHandler(
                 mockHogFlowFunctionsService,
                 mockRecipientPreferencesService,
@@ -688,28 +989,30 @@ describe('HogFunctionHandler', () => {
                 null,
                 usageReporter
             )
+            if (billingType === 'email') {
+                await useEmailStep()
+            }
 
-            const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
-                queue: 'hog',
-                queuePriority: 0,
+            const invocationResult = await executeStep(handler, invocation, {
+                isTest,
+                ...(mockFunctions
+                    ? {
+                          asyncFunctionsNames: [],
+                          functions: { fetch: () => ({ status: 200, body: {} }), sendEmail: () => ({ success: true }) },
+                      }
+                    : {}),
             })
 
-            await handler.execute({
-                invocation,
-                action,
-                result: invocationResult,
-                hogExecutorOptions: {
-                    isTest,
-                    ...(mockFunctions
-                        ? { asyncFunctionsNames: [], functions: { fetch: () => ({ status: 200, body: {} }) } }
-                        : {}),
-                },
-            })
-
+            await usageReporter.flush()
             const billableMetrics = invocationResult.metrics.filter(
                 (metric) => metric.metric_name === 'billable_invocation'
             )
 
+            if (billingType === 'email' && mockFunctions) {
+                expect(billableMetrics).toEqual([])
+                expect(ingested).toEqual([])
+                return
+            }
             expect(billableMetrics).toHaveLength(1)
 
             expect(billableMetrics[0]).toMatchObject({
@@ -720,14 +1023,15 @@ describe('HogFunctionHandler', () => {
                 metric_name: 'billable_invocation',
                 count: 1,
             })
-            if (isTest && mockFunctions) {
-                expect(usageReporter.reportBillableInvocation).not.toHaveBeenCalled()
-            } else {
-                expect(usageReporter.reportBillableInvocation).toHaveBeenCalledTimes(1)
-                expect(usageReporter.reportBillableInvocation).toHaveBeenCalledWith(
-                    expect.objectContaining({ teamId: team.id, usageKey })
-                )
-            }
+            const expectedUsageKeys =
+                isTest && mockFunctions
+                    ? []
+                    : billingType === 'push'
+                      ? [usageKey, 'workflow_billable_invocations']
+                      : [usageKey]
+            expect(ingested.map((record) => ({ teamId: record.teamId, usageKey: record.usageKey }))).toEqual(
+                expectedUsageKeys.map((key) => ({ teamId: team.id, usageKey: key }))
+            )
         }
     )
 
@@ -767,9 +1071,18 @@ describe('HogFunctionHandler', () => {
 
         expect(invocationResult.metrics.some((metric) => metric.metric_name === 'billable_invocation')).toBe(shouldBill)
         if (shouldBill) {
-            expect(usageReporter.reportBillableInvocation).toHaveBeenCalledWith(
-                expect.objectContaining({ teamId: team.id, usageKey: 'workflow_push_sent' })
-            )
+            const recordId = `flow:${invocation.id}:${invocation.state.actionStepCount}:push`
+            expect(usageReporter.reportBillableInvocation).toHaveBeenCalledWith({
+                teamId: team.id,
+                usageKey: 'workflow_push_sent',
+                recordId,
+            })
+            expect(usageReporter.reportBillableInvocation).toHaveBeenCalledWith({
+                teamId: team.id,
+                usageKey: 'workflow_billable_invocations',
+                recordId,
+            })
+            expect(usageReporter.reportBillableInvocation).toHaveBeenCalledTimes(2)
         } else {
             expect(usageReporter.reportBillableInvocation).not.toHaveBeenCalled()
         }
@@ -780,12 +1093,13 @@ describe('HogFunctionHandler', () => {
     // received — the same version `email_sent` is counted under — so a send re-pins the attribution
     // version. A non-message step must leave it alone.
     it.each([
-        { billingType: 'email' as const, expected: 3 },
-        { billingType: 'push' as const, expected: 3 },
-        { billingType: 'fetch' as const, expected: 1 },
+        { billingType: 'email' as const, renderedVersion: 3, expected: 3, billedVersion: 3 },
+        { billingType: 'email' as const, renderedVersion: 2, expected: 2, billedVersion: 2 },
+        { billingType: 'push' as const, renderedVersion: 2, expected: 3, billedVersion: undefined },
+        { billingType: 'fetch' as const, renderedVersion: 2, expected: 1, billedVersion: undefined },
     ])(
-        'a completed $billingType step leaves the attribution version at $expected',
-        async ({ billingType, expected }) => {
+        'a completed $billingType step rendered under v$renderedVersion leaves the attribution version at $expected',
+        async ({ billingType, renderedVersion, expected, billedVersion }) => {
             const handler = new HogFunctionHandler(
                 mockHogFlowFunctionsService,
                 mockRecipientPreferencesService,
@@ -793,23 +1107,427 @@ describe('HogFunctionHandler', () => {
                 billingType,
                 null
             )
+            if (billingType === 'email') {
+                await useEmailStep()
+            }
             // The run entered on v1; v3 is what is live now and what this step executes under.
             const republished = {
                 ...invocation,
                 hogFlow: { ...invocation.hogFlow, version: 3 },
                 state: { ...invocation.state, flowVersion: 1 },
             }
+            const build = mockHogFlowFunctionsService.buildHogFunctionInvocation.bind(mockHogFlowFunctionsService)
+            jest.spyOn(mockHogFlowFunctionsService, 'buildHogFunctionInvocation').mockImplementation(
+                async (flowInvocation, hogFunction, globals) => {
+                    const built = await build(flowInvocation, hogFunction, globals)
+                    return { ...built, state: { ...built.state, renderedWorkflowVersion: renderedVersion } }
+                }
+            )
 
-            const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(republished, {
-                queue: 'hog',
-                queuePriority: 0,
-            })
-
-            await handler.execute({ invocation: republished, action, result: invocationResult })
+            const invocationResult = await executeStep(handler, republished)
 
             expect(invocationResult.invocation.state.flowVersion).toBe(expected)
+            expect(
+                invocationResult.metrics.find((metric) => metric.metric_name === 'billable_invocation')
+                    ?.app_source_version?.version
+            ).toBe(billedVersion)
         }
     )
+
+    it('keeps a paused protected send protected on its retry after protection is turned off', async () => {
+        const sentWith: any[] = []
+        jest.spyOn(mockHogFlowFunctionsService, 'executeWithAsyncFunctions').mockImplementation(
+            (hogFunctionInvocation: any) => {
+                sentWith.push(hogFunctionInvocation.hogFunction.metadata)
+                return Promise.resolve({
+                    finished: false,
+                    invocation: hogFunctionInvocation,
+                    logs: [],
+                    metrics: [],
+                    capturedPostHogEvents: [],
+                    warehouseWebhookPayloads: [],
+                    messageAssets: [],
+                    conversionWatchers: [],
+                })
+            }
+        )
+        ;(action.config as any).sensitive = true
+        const firstResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+            queue: 'hog',
+            queuePriority: 0,
+        })
+        await hogFunctionHandler.execute({ invocation, action, result: firstResult })
+        expect(firstResult.invocation.state.currentAction!.hogFunctionState!.sensitive).toBe(true)
+        ;(action.config as any).sensitive = false
+        await hogFunctionHandler.execute({
+            invocation: firstResult.invocation,
+            action,
+            result: createInvocationResult<CyclotronJobInvocationHogFlow>(firstResult.invocation, {
+                queue: 'hog',
+                queuePriority: 0,
+            }),
+        })
+
+        expect(sentWith.map((metadata) => metadata.sensitive)).toEqual([true, true])
+    })
+
+    describe('emails sent through SES', () => {
+        const fakeSes = new FakeSes({
+            'posthog-messaging': { opens: true, clicks: true },
+            'posthog-messaging-untracked': { opens: false, clicks: false },
+        })
+        const savedCredentials = { id: process.env.AWS_ACCESS_KEY_ID, secret: process.env.AWS_SECRET_ACCESS_KEY }
+        let sesEndpoint: string
+
+        beforeAll(async () => {
+            process.env.AWS_ACCESS_KEY_ID = 'fake-ses-key'
+            process.env.AWS_SECRET_ACCESS_KEY = 'fake-ses-secret'
+            sesEndpoint = await fakeSes.start()
+        })
+
+        afterAll(async () => {
+            await fakeSes.stop()
+            for (const [name, value] of [
+                ['AWS_ACCESS_KEY_ID', savedCredentials.id],
+                ['AWS_SECRET_ACCESS_KEY', savedCredentials.secret],
+            ] as const) {
+                if (value === undefined) {
+                    delete process.env[name]
+                } else {
+                    process.env[name] = value
+                }
+            }
+        })
+
+        beforeEach(() => {
+            fakeSes.deliveries.length = 0
+        })
+
+        type EmailConfig = Partial<Extract<HogFlowAction, { type: 'function_email' }>['config']>
+
+        const emailStepThroughSes = async (
+            config: EmailConfig,
+            send: CyclotronJobInvocationHogFlow['state']['send'],
+            html = '<body><a href="https://example.com/reset/tok">Reset</a></body>'
+        ) => {
+            const emailIntegrationId = uniqueTestId()
+            const emailTemplateId = `template-test-email-${team.id}`
+            await insertIntegration(hub.postgres, team.id, {
+                id: emailIntegrationId,
+                kind: 'email',
+                config: {
+                    email: 'test@posthog.com',
+                    name: 'Test User',
+                    domain: 'posthog.com',
+                    verified: true,
+                    provider: 'ses',
+                },
+            })
+            await insertHogFunctionTemplate(hub.postgres, {
+                id: emailTemplateId,
+                name: emailHogTemplate.name,
+                code: emailHogTemplate.code,
+                inputs_schema: emailHogTemplate.inputs_schema,
+            })
+
+            const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
+            const hogInputsService = new HogInputsService(
+                hub.integrationManager,
+                recipientTokensService,
+                hub.encryptedFields
+            )
+            const emailSuppressionService = new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
+            const recipientsManagerService = new RecipientsManagerService(hub.postgres)
+            const emailService = new EmailService(
+                {
+                    sesAccessKeyId: 'fake-ses-key',
+                    sesSecretAccessKey: 'fake-ses-secret',
+                    sesRegion: 'us-east-1',
+                    sesEndpoint,
+                    sesTrackedConfigurationSet: 'posthog-messaging',
+                    sesUntrackedConfigurationSet: 'posthog-messaging-untracked',
+                },
+                hub.integrationManager,
+                new TeamWorkflowsConfigService(hub.postgres, hub.pubSub),
+                hub.ENCRYPTION_SALT_KEYS,
+                hub.SITE_URL,
+                new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
+                emailSuppressionService,
+                recipientsManagerService,
+                null,
+                { report: jest.fn(), reportEmailSent: jest.fn() }
+            )
+            const executor = new HogExecutorAsyncService(
+                new HogExecutorService(
+                    { executionTimeoutMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS },
+                    hogInputsService
+                ),
+                {
+                    googleAdwordsDeveloperToken: hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
+                    fetchRetries: hub.CDP_FETCH_RETRIES,
+                    fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
+                    fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
+                    siteUrl: hub.SITE_URL,
+                    internalApiBaseUrl: hub.INTERNAL_API_BASE_URL,
+                },
+                {
+                    teamManager: hub.teamManager,
+                    conversationsTicketsJwt: new ScopedServiceJwt(
+                        PosthogJwtAudience.CONVERSATIONS_TICKETS,
+                        hub.CONVERSATIONS_TICKETS_JWT_SECRET
+                    ),
+                    customerAnalyticsAccountsJwt: new ScopedServiceJwt(
+                        PosthogJwtAudience.CUSTOMER_ANALYTICS_ACCOUNTS,
+                        hub.CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRET
+                    ),
+                    hogInputsService,
+                    emailService,
+                    recipientTokensService,
+                    pushNotificationService: undefined as any,
+                }
+            )
+            const emailHandler = new HogFunctionHandler(
+                new HogFlowFunctionsService(hub.SITE_URL, mockHogFunctionTemplateManager, executor),
+                new RecipientPreferencesService(recipientsManagerService, emailSuppressionService),
+                mockEmailValidationService,
+                'email',
+                null
+            )
+            const emailAction: Extract<HogFlowAction, { type: 'function_email' }> = {
+                id: 'email_action',
+                name: 'Send reset email',
+                description: '',
+                type: 'function_email',
+                config: {
+                    template_id: emailTemplateId as 'template-email',
+                    message_category_type: 'transactional',
+                    template_uuid: 'template-1',
+                    ...config,
+                    inputs: {
+                        email: {
+                            value: {
+                                to: { email: 'user@example.com', name: 'User' },
+                                from: { integrationId: emailIntegrationId, email: 'test@posthog.com', name: 'App' },
+                                replyTo: '',
+                                cc: '',
+                                bcc: '',
+                                subject: 'Reset your password',
+                                preheader: '',
+                                text: 'Reset',
+                                html,
+                            },
+                            templating: 'liquid',
+                        },
+                    },
+                },
+                created_at: 0,
+                updated_at: 0,
+                filters: null,
+            }
+            const emailFlow = new FixtureHogFlowBuilder()
+                .withTeamId(team.id)
+                .withWorkflow({
+                    actions: {
+                        email_action: emailAction,
+                        exit: { type: 'exit', config: {} },
+                    },
+                    edges: [{ from: 'email_action', to: 'exit', type: 'continue' }],
+                })
+                .build()
+            const emailInvocation = createExampleHogFlowInvocation(emailFlow)
+            emailInvocation.state = {
+                ...emailInvocation.state,
+                event: emailInvocation.state?.event ?? ({} as any),
+                actionStepCount: 0,
+                ...(send ? { send } : {}),
+                currentAction: { id: emailAction.id, startedAtTimestamp: DateTime.now().toMillis() },
+            }
+
+            const runOnQueue = async (
+                stepInvocation: CyclotronJobInvocationHogFlow,
+                queue: 'hogflow' | 'email'
+            ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>> => {
+                const result = createInvocationResult<CyclotronJobInvocationHogFlow>(stepInvocation, {
+                    queue,
+                    queuePriority: 0,
+                })
+                await emailHandler.execute({ invocation: stepInvocation, action: emailAction, result })
+                return result
+            }
+            const deliver = async (): Promise<void> => {
+                const queued = await runOnQueue(emailInvocation, 'hogflow')
+                await runOnQueue(queued.invocation, 'email')
+            }
+
+            return { emailAction, emailInvocation, runOnQueue, deliver }
+        }
+
+        it.each([
+            {
+                case: 'sensitive template turns click tracking on before the queued send delivers',
+                initialConfig: { sensitive: true },
+                updatedConfig: { sensitive: true, click_tracking_enabled: true },
+                send: undefined,
+                simulatePreDeployState: false,
+                expectTracked: false,
+                expectOpens: true,
+            },
+            {
+                case: 'sensitive template with master tracking off and clicks on turns tracking on before dequeue',
+                initialConfig: { sensitive: true, tracking_enabled: false, click_tracking_enabled: true },
+                updatedConfig: { sensitive: true, tracking_enabled: true, click_tracking_enabled: true },
+                send: undefined,
+                simulatePreDeployState: false,
+                expectTracked: false,
+                expectOpens: false,
+            },
+            {
+                case: 'code send with clicks on parked under master tracking off turns tracking on before dequeue',
+                initialConfig: { sensitive: true, tracking_enabled: false },
+                updatedConfig: { sensitive: true, tracking_enabled: true },
+                send: { tracking: { captureEngagement: true, clicks: true } },
+                simulatePreDeployState: false,
+                expectTracked: false,
+                expectOpens: false,
+            },
+            {
+                case: 'pre-deploy worker parked a sensitive code send on a non-sensitive template that later enables clicks',
+                initialConfig: { sensitive: false },
+                updatedConfig: { sensitive: false, click_tracking_enabled: true },
+                send: { sensitive: true, tracking: { captureEngagement: true } },
+                simulatePreDeployState: true,
+                expectTracked: false,
+                expectOpens: true,
+            },
+            {
+                case: 'opted-in sensitive template becomes non-sensitive while click tracking stays enabled',
+                initialConfig: { sensitive: true, click_tracking_enabled: true },
+                updatedConfig: { sensitive: false, click_tracking_enabled: true },
+                send: undefined,
+                simulatePreDeployState: false,
+                expectTracked: true,
+                expectOpens: true,
+            },
+            {
+                case: 'non-sensitive template with master tracking off turns tracking on before dequeue',
+                initialConfig: { sensitive: false, tracking_enabled: false },
+                updatedConfig: { sensitive: false, tracking_enabled: true },
+                send: undefined,
+                simulatePreDeployState: false,
+                expectTracked: true,
+                expectOpens: true,
+            },
+        ])(
+            'preserves queued click tracking behavior when $case',
+            async ({ initialConfig, updatedConfig, send, simulatePreDeployState, expectTracked, expectOpens }) => {
+                const { emailAction, emailInvocation, runOnQueue } = await emailStepThroughSes(initialConfig, send)
+
+                const firstResult = await runOnQueue(emailInvocation, 'hogflow')
+                expect(firstResult.invocation.queue).toBe('email')
+                expect(fakeSes.deliveries).toHaveLength(0)
+
+                if (simulatePreDeployState) {
+                    delete firstResult.invocation.state.currentAction!.hogFunctionState!.clickTrackingEnabled
+                }
+                Object.assign(emailAction.config, updatedConfig)
+
+                await runOnQueue(firstResult.invocation, 'email')
+
+                expect(fakeSes.deliveries).toHaveLength(1)
+                const deliveredHtml = fakeSes.deliveries[0].html!
+                const deliveredLinks = [...deliveredHtml.matchAll(/<a\b[^>]*\bhref="([^"]*)"/g)].map(([, href]) => href)
+                if (expectTracked) {
+                    expect(deliveredLinks).toEqual([expect.stringMatching(new RegExp(`^${sesEndpoint}/L0/\\d+$`))])
+                } else {
+                    expect(deliveredLinks).toEqual(['https://example.com/reset/tok'])
+                }
+                expect(deliveredHtml.includes(`<img src="${sesEndpoint}/I0/open.gif" />`)).toBe(expectOpens)
+            }
+        )
+
+        describe('a code send in a message category', () => {
+            const newsletterId = '0197a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b'
+            const codeSend = (category?: { id: string; type: 'marketing' | 'transactional' }) => ({
+                content: { subject: 'News', html: '<p>News</p><a href="{{ unsubscribe_url }}">Unsubscribe</a>' },
+                tracking: { captureEngagement: true, opens: false as const },
+                ...(category ? { category } : {}),
+            })
+            const optOut = async (preferences: Record<string, string>): Promise<void> => {
+                await hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    `INSERT INTO posthog_messagerecipientpreference (id, team_id, identifier, preferences, created_at, updated_at, deleted)
+                     VALUES ($1, $2, 'user@example.com', $3, NOW(), NOW(), false)`,
+                    [new UUIDT().toString(), team.id, JSON.stringify(preferences)],
+                    'testOptOutRecipient'
+                )
+            }
+            const unsubscribeLinks = (html: string) =>
+                [...html.matchAll(/<a\b[^>]*\bhref="([^"]*)"/g)].map(([, href]) => href)
+
+            it.each<{ case: string; preferences: Record<string, string> }>([
+                { case: 'this category', preferences: { [newsletterId]: 'OPTED_OUT' } },
+                { case: 'all marketing', preferences: { $all: 'OPTED_OUT' } },
+            ])('does not send a marketing email to a recipient who opted out of $case', async ({ preferences }) => {
+                await optOut(preferences)
+                const { deliver } = await emailStepThroughSes({}, codeSend({ id: newsletterId, type: 'marketing' }))
+
+                await deliver()
+
+                expect(fakeSes.deliveries).toHaveLength(0)
+            })
+
+            it('sends a marketing email with its unsubscribe link and List-Unsubscribe headers', async () => {
+                const { deliver } = await emailStepThroughSes({}, codeSend({ id: newsletterId, type: 'marketing' }))
+
+                await deliver()
+
+                expect(fakeSes.deliveries).toHaveLength(1)
+                const [delivery] = fakeSes.deliveries
+                expect(unsubscribeLinks(delivery.html)).toEqual([
+                    expect.stringMatching(new RegExp(`^${hub.SITE_URL}/messaging-preferences/[^/]+/$`)),
+                ])
+                expect(delivery.headers).toEqual(
+                    expect.arrayContaining([
+                        { name: 'List-Unsubscribe', value: expect.stringMatching(/^<.+one_click_unsubscribe=1>$/) },
+                        { name: 'List-Unsubscribe-Post', value: 'List-Unsubscribe=One-Click' },
+                    ])
+                )
+            })
+
+            it('does not send a marketing email that its unsubscribe links make too large to send', async () => {
+                const { emailInvocation, runOnQueue } = await emailStepThroughSes(
+                    {},
+                    {
+                        ...codeSend({ id: newsletterId, type: 'marketing' }),
+                        content: { subject: 'News', html: '{{ unsubscribe_url }}'.repeat(400_000) },
+                    }
+                )
+
+                const queued = await runOnQueue(emailInvocation, 'hogflow')
+                const result = await runOnQueue(queued.invocation, 'email')
+
+                expect(fakeSes.deliveries).toHaveLength(0)
+                expect(result.logs.map(({ message }) => message)).toContainEqual(
+                    expect.stringContaining('message_too_large')
+                )
+            })
+
+            it.each([
+                { case: 'no category', category: undefined },
+                { case: 'a transactional category', category: { id: newsletterId, type: 'transactional' as const } },
+            ])('sends with $case as a transactional email, even to an opted-out recipient', async ({ category }) => {
+                await optOut({ $all: 'OPTED_OUT' })
+                const { deliver } = await emailStepThroughSes({}, codeSend(category))
+
+                await deliver()
+
+                expect(fakeSes.deliveries).toHaveLength(1)
+                const [delivery] = fakeSes.deliveries
+                expect(unsubscribeLinks(delivery.html)).toEqual(['{{ unsubscribe_url }}'])
+                expect(delivery.headers.map(({ name }) => name)).not.toContain('List-Unsubscribe')
+            })
+        })
+    })
 
     it('should not emit a billable_invocation metric if function is not finished', async () => {
         // Mock the executeWithAsyncFunctions to return a non-finished result
@@ -1041,6 +1759,24 @@ describe('HogFunctionHandler', () => {
             expect(invocationResult.metrics.map((m) => m.metric_name)).toContain('billable_invocation')
             expect(invocationResult.logs.map((l) => l.message)).toContainEqual(
                 expect.stringContaining('Waiting for the task to finish')
+            )
+        })
+
+        it('links the AI task in the wait log, whatever the step stores', async () => {
+            // Serve the per-team template under the real id, because other test files share the template table.
+            const awaitedTemplateId = TASK_TEMPLATE_ID
+            const getTemplate =
+                mockHogFunctionTemplateManager.getHogFunctionTemplate.bind(mockHogFunctionTemplateManager)
+            jest.spyOn(mockHogFunctionTemplateManager, 'getHogFunctionTemplate').mockImplementation((id) =>
+                getTemplate(id === 'template-posthog-create-task' ? awaitedTemplateId : id)
+            )
+            TASK_TEMPLATE_ID = 'template-posthog-create-task'
+            buildTaskFlow()
+
+            const { invocationResult } = await execute()
+
+            expect(invocationResult.logs.map((l) => l.message)).toContainEqual(
+                expect.stringMatching(/Waiting for the task to finish \(up to .+\) \[Task:t1\|r1\]$/)
             )
         })
 

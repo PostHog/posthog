@@ -1,10 +1,12 @@
 import os
 import re
+from typing import Any
+from uuid import UUID
 
 from posthog.test.base import APIBaseTest
 from unittest import mock
 
-from django.urls import URLPattern, path
+from django.urls import URLPattern, path, re_path
 
 from drf_spectacular.generators import SchemaGenerator
 from parameterized import parameterized
@@ -14,6 +16,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.documentation import extend_schema
+from posthog.api.routing import PathParameter, TeamAndOrgViewSetMixin
 
 
 class _XInternalMarkerSerializer(serializers.Serializer):
@@ -66,6 +69,43 @@ class _RequestDependentScopesViewSet(viewsets.ViewSet):
         return Response({"ok": True})
 
 
+_UUID_SCHEMA = {"type": "string", "format": "uuid"}
+
+
+class _TypedPathViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    scope_object = "project"
+    path_parameters = {
+        "pk": PathParameter(type=UUID, description="A UUID string identifying this thing."),
+        "number": int,
+        "parent_id": UUID,
+    }
+
+    @extend_schema(responses={200: _XInternalMarkerSerializer})
+    def list(self, request: Request, **kwargs: Any) -> Response:
+        return Response({"ok": True})
+
+    @extend_schema(responses={200: _XInternalMarkerSerializer})
+    def retrieve(self, request: Request, pk: UUID, **kwargs: Any) -> Response:
+        return Response({"ok": True})
+
+    @extend_schema(responses={200: _XInternalMarkerSerializer})
+    @action(detail=True, methods=["GET"], url_path=r"numbers/(?P<number>[^/]+)")
+    def numbers(self, request: Request, pk: UUID, number: int, **kwargs: Any) -> Response:
+        return Response({"ok": True})
+
+
+def _ordered_viewset(docs_order: int | None) -> type[viewsets.ViewSet]:
+    class OrderedViewSet(viewsets.ViewSet):
+        scope_object = "project"
+        schema_docs_order = docs_order
+
+        @extend_schema(responses={200: _XInternalMarkerSerializer})
+        def list(self, request: Request, **kwargs: Any) -> Response:
+            return Response({"ok": True})
+
+    return OrderedViewSet
+
+
 class TestAPIDocsSchema(APIBaseTest):
     @parameterized.expand([("duplicate", False, True), ("not_a_duplicate", True, False)])
     def test_org_path_sharing_a_project_suffix(self, _name: str, opted_out: bool, deprecated: bool) -> None:
@@ -81,6 +121,24 @@ class TestAPIDocsSchema(APIBaseTest):
         operation = schema["paths"]["/api/organizations/{organization_id}/thing/"]["get"]
         assert operation.get("deprecated", False) is deprecated
         assert operation["operationId"] == ("org_thing_list" if deprecated else "thing_list")
+
+    def test_docs_order_sorts_operations_within_their_path_prefix(self) -> None:
+        routes = [
+            ("api/projects/<str:parent_lookup_team_id>/messages/", None),
+            ("api/projects/<str:parent_lookup_team_id>/messaging/attachments/", 2),
+            ("api/projects/<str:parent_lookup_team_id>/messaging/send/", 1),
+            ("api/projects/<str:parent_lookup_team_id>/messaging_templates/", None),
+        ]
+        patterns = [path(route, _ordered_viewset(order).as_view({"get": "list"})) for route, order in routes]
+
+        schema = SchemaGenerator(patterns=patterns).get_schema(request=None, public=True)
+
+        assert list(schema["paths"]) == [
+            "/api/projects/{project_id}/messages/",
+            "/api/projects/{project_id}/messaging/send/",
+            "/api/projects/{project_id}/messaging/attachments/",
+            "/api/projects/{project_id}/messaging_templates/",
+        ]
 
     def test_retired_project_environments_route_is_not_in_schema(self) -> None:
         self.client.logout()
@@ -136,6 +194,40 @@ class TestAPIDocsSchema(APIBaseTest):
 
         assert "x-request-dependent-scopes" not in schema["paths"]["/api/request_dependent/"]["get"]
         assert schema["paths"]["/api/request_dependent/{id}/"]["get"]["x-request-dependent-scopes"] is True
+
+    @parameterized.expand(
+        [
+            ("collection_has_none", "/api/typed/", {}),
+            ("described_id", "/api/typed/{id}/", {"id": (_UUID_SCHEMA, "A UUID string identifying this thing.")}),
+            (
+                "second_capture",
+                "/api/typed/{id}/numbers/{number}/",
+                {"id": (_UUID_SCHEMA, "A UUID string identifying this thing."), "number": ({"type": "integer"}, None)},
+            ),
+            ("parent_lookup", "/api/parents/{parent_id}/typed/", {"parent_id": (_UUID_SCHEMA, None)}),
+        ]
+    )
+    def test_path_parameters_type_the_path_parameters(
+        self, _name: str, path: str, expected: dict[str, tuple[dict, str | None]]
+    ) -> None:
+        patterns = [
+            re_path(r"^api/typed/$", _TypedPathViewSet.as_view({"get": "list"})),
+            re_path(r"^api/typed/(?P<pk>[^/.]+)/$", _TypedPathViewSet.as_view({"get": "retrieve"})),
+            re_path(
+                r"^api/typed/(?P<pk>[^/.]+)/numbers/(?P<number>[^/]+)/$",
+                _TypedPathViewSet.as_view({"get": "numbers"}),
+            ),
+            re_path(
+                r"^api/parents/(?P<parent_lookup_parent_id>[^/.]+)/typed/$", _TypedPathViewSet.as_view({"get": "list"})
+            ),
+        ]
+
+        schema = SchemaGenerator(patterns=patterns).get_schema(request=None, public=True)
+
+        parameters = schema["paths"][path]["get"].get("parameters", [])
+        assert {
+            param["name"]: (param["schema"], param.get("description")) for param in parameters if param["in"] == "path"
+        } == expected
 
     def test_can_generate_api_docs_schema(self) -> None:
         self.client.logout()

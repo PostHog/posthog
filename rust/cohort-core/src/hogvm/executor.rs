@@ -34,9 +34,14 @@ const COHORT_HOGVM_MAX_STEPS: usize = 131_072;
 /// Build the cohort evaluator's [`ExecutionContext`]: coercing comparisons plus the raised
 /// stack/step ceilings. Both construction sites route through this so production and the parity path
 /// share identical limits — a large `IN`-list must not overflow in one and succeed in the other.
+///
+/// Boolean text equality matches legacy, which reads an untyped or String-typed property such as
+/// `$feature/<flag>` as text. A change here that can flip a verdict must raise `EVALUATOR_VERSION`
+/// in [`crate::fingerprint`].
 fn cohort_execution_context(program: Program) -> ExecutionContext {
     ExecutionContext::with_defaults(program)
         .with_coercing_comparisons()
+        .with_boolean_text_equality()
         .with_max_stack_depth(COHORT_HOGVM_MAX_STACK_DEPTH)
         .with_max_steps(COHORT_HOGVM_MAX_STEPS)
 }
@@ -257,11 +262,16 @@ mod tests {
     const OP_GET_GLOBAL: i64 = 1;
     const OP_CALL_GLOBAL: i64 = 2;
     const OP_EQ: i64 = 11;
+    const OP_NOT_EQ: i64 = 12;
     const OP_GT: i64 = 13;
     const OP_LT: i64 = 15;
+    const OP_GT_EQ: i64 = 14;
+    const OP_LT_EQ: i64 = 16;
+    const OP_ARRAY: i64 = 43;
     const OP_TRUE: i64 = 29;
     const OP_FALSE: i64 = 30;
     const OP_IN: i64 = 21;
+    const OP_NOT_IN: i64 = 22;
     const OP_INTEGER: i64 = 33;
     const OP_STRING: i64 = 32;
     // Fixtures terminate explicitly with RETURN, mirroring what the catalog loader stores.
@@ -355,6 +365,17 @@ mod tests {
             EvalOutcome::VmError(_)
         ));
         assert!(!evaluate(&[], json!({})));
+    }
+
+    fn push_event_property(key: &str) -> Vec<Value> {
+        vec![
+            json!(OP_STRING),
+            json!(key),
+            json!(OP_STRING),
+            json!("properties"),
+            json!(OP_GET_GLOBAL),
+            json!(2),
+        ]
     }
 
     /// Build opcodes to read `person.properties.<key>`. GET_GLOBAL consumes path segments in
@@ -538,6 +559,171 @@ mod tests {
         assert!(!evaluate(&bc, globals(json!(5))));
         assert!(evaluate(&bc, globals(json!("20"))));
         assert!(!evaluate(&bc, globals(json!("05"))));
+    }
+
+    /// `sortableSemver` returns a numeric array, so a semver filter orders two arrays. ClickHouse
+    /// orders them lexicographically with a shorter prefix first.
+    #[test]
+    fn semver_filters_order_arrays_like_clickhouse() {
+        let semver = |version: &str| {
+            vec![
+                json!(OP_STRING),
+                json!(version),
+                json!(OP_CALL_GLOBAL),
+                json!("sortableSemver"),
+                json!(1),
+            ]
+        };
+        let compare = |op: i64, left: &str, right: &str| {
+            let mut bc = header();
+            bc.extend(semver(right));
+            bc.extend(semver(left));
+            bc.extend([json!(op), json!(OP_RETURN)]);
+            outcome_to_bool_matched(evaluate_detailed(&bc, json!({})))
+        };
+        let cases = [
+            (OP_GT, "2.0.0", "1.9.9", true),
+            (OP_GT, "1.9.9", "2.0.0", false),
+            (OP_GT_EQ, "2.0.0", "2.0.0", true),
+            (OP_LT, "2.9.0", "2.10.0", true),
+            (OP_LT, "2.10.0", "2.10.0", false),
+            (OP_LT_EQ, "2.10.0", "2.10.0", true),
+            (OP_LT_EQ, "2.10.1", "2.10.0", false),
+        ];
+        for (op, left, right, expected) in cases {
+            assert_eq!(
+                compare(op, left, right),
+                expected,
+                "op {op}: {left} vs {right}"
+            );
+        }
+    }
+
+    /// ClickHouse orders arrays lexicographically, a shorter prefix first.
+    #[test]
+    fn arrays_of_different_length_order_with_the_shorter_prefix_first() {
+        let array = |items: &[i64]| {
+            let mut bc: Vec<Value> = items
+                .iter()
+                .flat_map(|n| [json!(OP_INTEGER), json!(n)])
+                .collect();
+            bc.extend([json!(OP_ARRAY), json!(items.len())]);
+            bc
+        };
+        let compare = |op: i64, left: &[i64], right: &[i64]| {
+            let mut bc = header();
+            bc.extend(array(right));
+            bc.extend(array(left));
+            bc.extend([json!(op), json!(OP_RETURN)]);
+            outcome_to_bool_matched(evaluate_detailed(&bc, json!({})))
+        };
+        assert!(compare(OP_LT, &[1, 2], &[1, 2, 0]));
+        assert!(compare(OP_GT, &[1, 2, 0], &[1, 2]));
+        assert!(!compare(OP_GT_EQ, &[1, 2], &[1, 2, 0]));
+        assert!(compare(OP_GT, &[2], &[1, 9, 9]));
+    }
+
+    #[test]
+    fn ordering_arrays_with_a_non_number_is_a_type_error() {
+        let mut bc = header();
+        bc.extend([json!(OP_STRING), json!("a"), json!(OP_ARRAY), json!(1)]);
+        bc.extend([json!(OP_INTEGER), json!(1), json!(OP_ARRAY), json!(1)]);
+        bc.extend([json!(OP_GT), json!(OP_RETURN)]);
+        assert!(matches!(
+            evaluate_detailed(&bc, json!({})),
+            EvalOutcome::VmError(VmError::InvalidValue(..))
+        ));
+    }
+
+    fn outcome_to_bool_matched(outcome: EvalOutcome) -> bool {
+        match outcome {
+            EvalOutcome::Matched(matched) => matched,
+            other => panic!("expected a verdict, got {other:?}"),
+        }
+    }
+
+    /// The expected answers are legacy ClickHouse's: it reads `$feature/<flag>` as text, and a
+    /// Boolean-typed property through a case-sensitive `transform` of that text.
+    #[test]
+    fn a_boolean_property_equals_a_string_only_as_its_text() {
+        let flag = push_event_property("$feature/flag");
+        let verdict = |bytecode: &[Value], value: Value| match evaluate_detailed(
+            bytecode,
+            json!({ "properties": { "$feature/flag": value } }),
+        ) {
+            EvalOutcome::Matched(matched) => matched,
+            other => panic!("{other:?}"),
+        };
+        let string = |value: &str| vec![json!(OP_STRING), json!(value)];
+        let control_or_test = [string("control"), string("test")].concat();
+        let tuple = [control_or_test, vec![json!(OP_TUPLE), json!(2)]].concat();
+        let true_or_control = [
+            string("true"),
+            string("control"),
+            vec![json!(OP_TUPLE), json!(2)],
+        ]
+        .concat();
+        let true_constant = vec![json!(OP_TRUE)];
+        let cases = [
+            (
+                "off == 'variant'",
+                json!(false),
+                string("variant"),
+                OP_EQ,
+                false,
+            ),
+            (
+                "off != 'variant'",
+                json!(false),
+                string("variant"),
+                OP_NOT_EQ,
+                true,
+            ),
+            (
+                "off in (control, test)",
+                json!(false),
+                tuple.clone(),
+                OP_IN,
+                false,
+            ),
+            (
+                "off not in (control, test)",
+                json!(false),
+                tuple,
+                OP_NOT_IN,
+                true,
+            ),
+            (
+                "on in (true, control)",
+                json!(true),
+                true_or_control,
+                OP_IN,
+                true,
+            ),
+            ("on == 'true'", json!(true), string("true"), OP_EQ, true),
+            ("on == 'True'", json!(true), string("True"), OP_EQ, false),
+            (
+                "'true' == true",
+                json!("true"),
+                true_constant.clone(),
+                OP_EQ,
+                true,
+            ),
+            ("'True' == true", json!("True"), true_constant, OP_EQ, false),
+        ];
+        for (label, value, right, op, expected) in cases {
+            // The compiler emits a comparison as `right, left, op`.
+            let bytecode = [
+                header(),
+                right,
+                flag.clone(),
+                vec![json!(op), json!(OP_RETURN)],
+            ]
+            .concat();
+            assert_eq!(verdict(&bytecode, value), expected, "{label}");
+        }
+        let bare_read = [header(), flag, vec![json!(OP_RETURN)]].concat();
+        assert!(verdict(&bare_read, json!(true)));
     }
 
     /// `header + N×(OP_INTEGER, i) + OP_TUPLE N` — the exact shape a `person.properties.X IN (...)`

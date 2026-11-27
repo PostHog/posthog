@@ -53,6 +53,7 @@ from products.batch_exports.backend.temporal.batch_exports import (
     start_batch_export_run,
 )
 from products.batch_exports.backend.temporal.destinations.utils import get_query_timeout
+from products.batch_exports.backend.temporal.errors import ColumnTypeMappingError
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
 from products.batch_exports.backend.temporal.pipeline.producer import Producer
@@ -61,6 +62,7 @@ from products.batch_exports.backend.temporal.pipeline.types import BatchExportRe
 from products.batch_exports.backend.temporal.queue import RecordBatchQueue, wait_for_schema_or_producer
 from products.batch_exports.backend.temporal.utils import (
     JsonType,
+    handle_column_type_mapping_errors,
     handle_non_retryable_errors,
     make_retryable_with_exponential_backoff,
 )
@@ -83,6 +85,7 @@ LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_logger("EXTERNAL")
 
 NON_RETRYABLE_ERROR_TYPES = (
+    "UnsupportedColumnTypeError",
     # Raised on errors that are related to database operation.
     # For example: unexpected disconnect, database or other object not found.
     "OperationalError",
@@ -775,7 +778,7 @@ def postgres_default_fields() -> list[BatchExportField]:
     batch_export_fields = default_fields()
     batch_export_fields.append(
         {
-            "expression": "nullIf(JSONExtractString(properties, '$ip'), '')",
+            "expression": "ip",
             "alias": "ip",
         }
     )
@@ -813,6 +816,9 @@ def get_postgres_fields_from_record_schema(
             else:
                 pg_type = "TEXT"
 
+        elif isinstance(pa_field.type, pa.UuidType):
+            pg_type = "UUID"
+
         elif pa.types.is_signed_integer(pa_field.type) or pa.types.is_unsigned_integer(pa_field.type):
             if pa.types.is_uint64(pa_field.type) or pa.types.is_int64(pa_field.type):
                 pg_type = "BIGINT"
@@ -838,7 +844,7 @@ def get_postgres_fields_from_record_schema(
             pg_type = "TEXT[]"
 
         else:
-            raise TypeError(f"Unsupported type in field '{name}': '{pa_field.type}'")
+            raise ColumnTypeMappingError("PostgreSQL", name, pa_field.type)
 
         pg_schema.append((name, pg_type))
 
@@ -934,10 +940,11 @@ def _get_table_fields(
         # A retry can consume files staged before a new default column was added.
         return [field for field in table_fields if field[0] in record_batch_schema.names]
     else:
-        return get_postgres_fields_from_record_schema(
-            record_batch_schema,
-            known_json_columns=["properties", "set", "set_once", "person_properties"],
-        )
+        with handle_column_type_mapping_errors(model):
+            return get_postgres_fields_from_record_schema(
+                record_batch_schema,
+                known_json_columns=["properties", "set", "set_once", "person_properties"],
+            )
 
 
 class PostgreSQLIntegrationNotFoundError(Exception):
@@ -983,7 +990,7 @@ async def insert_into_postgres_activity_from_stage(inputs: PostgresInsertInputs)
         inputs.table_name,
     )
 
-    async with Heartbeater():
+    async with Heartbeater(), contextlib.AsyncExitStack() as cleanup:
         model = migrate_batch_export_model(inputs.batch_export_model)
 
         queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_POSTGRES_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
@@ -997,6 +1004,7 @@ async def insert_into_postgres_activity_from_stage(inputs: PostgresInsertInputs)
             max_record_batch_size_bytes=1024 * 1024 * 10,  # 10MB
             stage_folder=inputs.stage_folder,
         )
+        cleanup.push_async_callback(producer.stop)
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
         if record_batch_schema is None:
@@ -1100,6 +1108,7 @@ async def insert_into_postgres_activity_from_stage(inputs: PostgresInsertInputs)
                     escape_char=None,
                     line_terminator="\n",
                     quoting=csv.QUOTE_STRINGS,
+                    single_null_as_blank_line=True,
                     include_inserted_at=False,
                     max_file_size_bytes=settings.BATCH_EXPORT_POSTGRES_UPLOAD_CHUNK_SIZE_BYTES,
                 )

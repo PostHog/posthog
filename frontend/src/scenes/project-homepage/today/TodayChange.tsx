@@ -1,11 +1,22 @@
+import { todayChangeText } from './todayNumbers'
 import { type TodayTone, useTodayTonePalette } from './todayTone'
 
-export function TodayChange({ change, tone }: { change: number | null; tone: TodayTone }): JSX.Element | null {
+export function TodayChange({
+    change,
+    tone,
+    unit = '%',
+    decimals = 0,
+}: {
+    change: number | null
+    tone: TodayTone
+    unit?: '%' | 'pp'
+    decimals?: number
+}): JSX.Element | null {
     const palette = useTodayTonePalette()
     if (change === null) {
         return null
     }
-    const rounded = Math.round(change)
+    const text = todayChangeText(change, unit, decimals)
     return (
         <span
             className="TodayChange"
@@ -13,7 +24,7 @@ export function TodayChange({ change, tone }: { change: number | null; tone: Tod
             // eslint-disable-next-line react/forbid-dom-props
             style={tone === 'neutral' ? undefined : { color: palette[tone] }}
         >
-            {rounded === 0 ? '0%' : `${rounded > 0 ? '+' : '−'}${Math.abs(rounded)}%`}
+            {text}
         </span>
     )
 }

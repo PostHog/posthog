@@ -19,6 +19,7 @@ from posthog.models.team import Team
 
 from products.business_knowledge.backend import learning_settings, logic
 from products.business_knowledge.backend.learning.contracts import EvidenceBundle, EvidenceRef, evidence_key_for
+from products.business_knowledge.backend.llm_telemetry import RetrievalTrace, stable_trace_id
 from products.business_knowledge.backend.models import (
     KnowledgeDocument,
     KnowledgeLearningRun,
@@ -371,7 +372,7 @@ class TestLearningAnalyzer:
 
         with (
             patch(f"{_MODULE}.get_learning_provider", return_value=provider),
-            patch(f"{_MODULE}.build_ai_gateway_anthropic_client", return_value=client) as builder,
+            patch(f"{_MODULE}.build_anthropic_client", return_value=client) as builder,
             patch(f"{_MODULE}.generate_embedding") as embed,
             patch(f"{_MODULE}.logic.search_knowledge") as search,
             patch(f"{_MODULE}.logic.create_generated_knowledge_document") as publish,
@@ -455,6 +456,9 @@ class TestLearningAnalyzer:
         ]
         assert search.call_args.kwargs["use_semantic"] is True
         assert search.call_args.kwargs["query_embedding"] == [0.1, 0.2]
+        assert search.call_args.kwargs["trace"] == RetrievalTrace(
+            surface="learning", trace_id=stable_trace_id("learning", run.id)
+        )
         publish.assert_not_called()
 
     @pytest.mark.parametrize(
@@ -559,7 +563,7 @@ class TestLearningAnalyzer:
 
         with (
             patch(f"{_MODULE}.get_learning_provider", return_value=provider),
-            patch(f"{_MODULE}.build_ai_gateway_anthropic_client", return_value=client) as builder,
+            patch(f"{_MODULE}.build_anthropic_client", return_value=client) as builder,
             capture_logs() as logs,
             pytest.raises(LearningAnalysisError, match="extraction_model_failed") as raised,
         ):
@@ -609,7 +613,7 @@ class TestLearningAnalyzer:
 
         with (
             patch(f"{_MODULE}.get_learning_provider", return_value=provider),
-            patch(f"{_MODULE}.build_ai_gateway_anthropic_client", return_value=client),
+            patch(f"{_MODULE}.build_anthropic_client", return_value=client),
         ):
             result = analyze_learning_evidence(input)
 
@@ -648,7 +652,7 @@ class TestLearningAnalyzer:
 
         with (
             patch(f"{_MODULE}.get_learning_provider", return_value=provider),
-            patch(f"{_MODULE}.build_ai_gateway_anthropic_client", return_value=client),
+            patch(f"{_MODULE}.build_anthropic_client", return_value=client),
             patch(f"{_MODULE}.logic.create_generated_knowledge_document") as publish,
         ):
             result = analyze_learning_evidence(input)
@@ -669,7 +673,7 @@ class TestLearningAnalyzer:
         with (
             patch(f"{_MODULE}.get_learning_provider", return_value=provider),
             patch(
-                f"{_MODULE}.build_ai_gateway_anthropic_client",
+                f"{_MODULE}.build_anthropic_client",
                 side_effect=ValueError("AI_GATEWAY_URL and AI_GATEWAY_API_KEY must be configured"),
             ),
             pytest.raises(LearningAnalysisError, match="ai_gateway_not_configured") as raised,

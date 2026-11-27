@@ -221,7 +221,8 @@ export class TemplateTester {
             new EmailTrackingCodeSigner(config.ENCRYPTION_SALT_KEYS, config.CDP_EMAIL_TRACKING_URL),
             undefined as any,
             undefined as any,
-            null
+            null,
+            { report: () => Promise.resolve(), reportEmailSent: () => Promise.resolve() }
         )
         return new HogExecutorAsyncService(
             new HogExecutorService(
@@ -417,6 +418,12 @@ export class TemplateTester {
         invocation: CyclotronJobInvocationHogFunction
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         return this.hogExecutor.execute(invocation)
+    }
+
+    async executeFetch(
+        invocation: CyclotronJobInvocationHogFunction
+    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
+        return this.hogExecutor.executeFetch(invocation)
     }
 
     // Set before invoke(): the internal-route handler consumes it inline, then the VM

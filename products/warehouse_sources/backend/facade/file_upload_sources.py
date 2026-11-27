@@ -10,8 +10,6 @@ Temporal client, so this module stays off the ``django.setup()`` path.
 
 from uuid import UUID
 
-from posthog.models.team import Team
-
 from products.warehouse_sources.backend import file_upload_sources as _service
 from products.warehouse_sources.backend.facade.contracts import (
     FileUploadSourceError,
@@ -37,11 +35,11 @@ __all__ = [
     "can_replace_file",
     "create_file_upload_source",
     "discard_unused_upload",
-    "file_upload_sources_enabled",
     "has_file_upload_source",
     "hosted_upload_in_use",
     "is_legacy_upload_url",
     "is_safe_upload_filename",
+    "object_storage_sources_enabled",
     "read_upload_in_place",
     "replace_file_upload",
     "sanitize_upload_filename",
@@ -49,9 +47,9 @@ __all__ = [
 ]
 
 
-def file_upload_sources_enabled(team_id: int) -> bool:
-    team = Team.objects.only("id", "organization_id").get(pk=team_id)
-    return _service.file_upload_sources_enabled(team)
+def object_storage_sources_enabled(team_id: int) -> bool:
+    """Every team has the managed object storage sources, which replace self-managed tables."""
+    return True
 
 
 def read_upload_in_place(team_id: int, table_name: str, upload: UploadedFileRef) -> UploadReadSettings:
@@ -60,11 +58,18 @@ def read_upload_in_place(team_id: int, table_name: str, upload: UploadedFileRef)
 
 
 def create_file_upload_source(
-    team_id: int, table_id: UUID, upload: UploadedFileRef, read_settings: UploadReadSettings
+    team_id: int,
+    table_id: UUID,
+    upload: UploadedFileRef,
+    read_settings: UploadReadSettings,
+    *,
+    notebook_cell: str | None = None,
 ) -> None:
     """Give a saved table made from an upload its file upload source, and start the first sync."""
     table = DataWarehouseTable.objects.get(team_id=team_id, pk=table_id)
-    _service.create_file_upload_source(table, _service.UploadedFile.from_ref(team_id, upload), read_settings)
+    _service.create_file_upload_source(
+        table, _service.UploadedFile.from_ref(team_id, upload), read_settings, notebook_cell=notebook_cell
+    )
 
 
 def has_file_upload_source(team_id: int, table_id: UUID) -> bool:
@@ -86,14 +91,21 @@ def upload_format_for_table_format(table_format: str) -> str | None:
 
 
 def replace_file_upload(
-    team_id: int, table_id: UUID, upload: UploadedFileRef, read_settings: UploadReadSettings
+    team_id: int,
+    table_id: UUID,
+    upload: UploadedFileRef,
+    read_settings: UploadReadSettings,
+    *,
+    notebook_cell: str | None = None,
 ) -> None:
     """Raises `FileUploadSourceError` when the table has no file upload source or a sync can't start."""
     table = DataWarehouseTable.objects.get(team_id=team_id, pk=table_id)
     schema = _service.find_replaceable_upload_schema(table)
     if schema is None:
         raise FileUploadSourceError("Only a table made from an uploaded file can have its file replaced.")
-    _service.replace_file_upload(schema, _service.UploadedFile.from_ref(team_id, upload), read_settings)
+    _service.replace_file_upload(
+        schema, _service.UploadedFile.from_ref(team_id, upload), read_settings, notebook_cell=notebook_cell
+    )
 
 
 def hosted_upload_in_use(team_id: int, url_pattern: str, exclude_table_id: UUID) -> bool:

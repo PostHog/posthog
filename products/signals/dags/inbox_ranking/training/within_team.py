@@ -11,12 +11,22 @@ weighs each team the same, so a few large teams cannot carry it.
 
 `within_group_auc` is the same read over any grouping. The pair lane (`nn/pair_grade.py`) groups by
 user, because a personal score asks whether it ranks one person's reports better.
+
+`team_interval` is a bootstrap interval for a paired macro delta. It resamples teams, because the
+groups of one team share an inbox and are not independent reads.
 """
+
+from collections.abc import Sequence
+from typing import Any
 
 import numpy as np
 import pandas as pd
 
 from posthog.dataclasses import frozen
+
+BOOTSTRAP_DRAWS = 1000
+BOOTSTRAP_SEED = 0
+INTERVAL_PERCENTILES = (2.5, 97.5)
 
 
 @frozen
@@ -112,3 +122,41 @@ def within_team_auc(outcomes: np.ndarray, scores: np.ndarray, team_ids: np.ndarr
     if grade.auc is None:
         return NO_TEAMS
     return WithinTeamAuc(auc=grade.auc, macro=grade.macro, teams=grade.groups, pairs=grade.pairs)
+
+
+def team_interval(
+    experiment: Sequence[pd.DataFrame | None],
+    other: Sequence[pd.DataFrame | None],
+    group_teams: pd.Series,
+    *,
+    draws: int = BOOTSTRAP_DRAWS,
+    seed: int = BOOTSTRAP_SEED,
+) -> dict[str, Any]:
+    """A percentile interval for the macro within-group delta, resampling teams with replacement.
+
+    `experiment` and `other` hold the `group_aucs` of each paired seed, and `group_teams` maps a group
+    id to its team. A group that is a team maps to itself. Each group's delta is its AUC gap averaged
+    over the paired seeds. A resample's macro delta is the mean over every group of the drawn teams, a
+    team drawn twice counting twice, so it is the same statistic as the macro delta itself. Fewer than
+    two teams give no interval.
+    """
+    per_seed = [
+        e["u"] / e["pairs"] - o["u"] / o["pairs"]
+        for e, o in zip(experiment, other)
+        if e is not None and o is not None and not e.empty
+    ]
+    if not per_seed:
+        return {"low": None, "high": None, "teams": 0, "draws": 0}
+    per_group = pd.concat(per_seed, axis=1).mean(axis=1)
+    per_team = (
+        pd.DataFrame({"delta": per_group.to_numpy(), "team": group_teams.loc[per_group.index].to_numpy()})
+        .groupby("team")["delta"]
+        .agg(["sum", "size"])
+    )
+    teams = len(per_team)
+    if teams < 2:
+        return {"low": None, "high": None, "teams": teams, "draws": 0}
+    weights = np.random.default_rng(seed).multinomial(teams, np.full(teams, 1 / teams), size=draws)
+    macro = (weights @ per_team["sum"].to_numpy()) / (weights @ per_team["size"].to_numpy())
+    low, high = np.percentile(macro, INTERVAL_PERCENTILES)
+    return {"low": float(low), "high": float(high), "teams": teams, "draws": draws}

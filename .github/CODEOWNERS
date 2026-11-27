@@ -12,6 +12,13 @@
 # justification. If you are not _certain_ there is _no other way_
 # to manage the risk you're thinking about, do not add an entry.
 
+# team-security's required reviews are not in this file. The `master` branch ruleset requires
+# them (Settings > Rules > Rulesets > master), so an edit to this file cannot remove them. They
+# cover the CI security scans, the pull_request_target workflows, the
+# authentication code, the Content Security Policy and the dev sandbox.
+
+/.github/CODEOWNERS @PostHog/team-devex
+
 # ClickHouse team owns Clickhouse migrations
 posthog/clickhouse/migrations/** @PostHog/clickhouse
 
@@ -21,21 +28,10 @@ posthog/hogql/** @PostHog/hogql
 posthog/hogql/database/schema/**
 # ...and the generated schema snapshot, which changes when those definitions are regenerated
 posthog/hogql/database/test/__snapshots__/test_database.ambr
+# ...and documentation, which does not change HogQL behavior
+posthog/hogql/**/*.md
 
-# Being open source brings us unwanted problems because Github Actions are untrusted and inherently unsafe
-# so we have to be extra careful with changes here. Let's have the security team own these checks.
-.github/workflows/ci-security.yaml @PostHog/team-security
-# The composite action ci-security.yaml runs its blocking scans through — same ownership, or the scans could be weakened without security review.
-.github/actions/semgrep-ci/ @PostHog/team-security
-.github/workflows/codeql.yml @PostHog/team-security
-
-# This workflow runs on the `pull_request_target` event so that it can run without needing a GitHub org member to explicitly approve it.
-# We must be careful to only execute code from this repo's default branch, and never execute code from the PR's branch.
-.github/workflows/auto-assign-reviewers.yml @PostHog/team-security
-.github/scripts/assign-reviewers.js @PostHog/team-security
-# The vendored CODEOWNERS matcher the auto-assigner (and the ownership skill) depend on.
-.github/scripts/codeowners.js @PostHog/team-security
-# The distributed-ownership resolver the auto-assigner executes on that same
+# The distributed-ownership resolver that the auto-assign-reviewers workflow executes on its
 # pull_request_target event (via `python -m owners_yaml`), with packages/owners-yaml
 # as the privileged sys.path root. Anything importable placed in that tree can
 # shadow stdlib/pyyaml for the privileged process — top-level modules (yaml.py),
@@ -44,33 +40,21 @@ posthog/hogql/database/test/__snapshots__/test_database.ambr
 # DevEx maintains the resolver and reviews it with that risk in mind.
 packages/owners-yaml/** @PostHog/team-devex
 
-# And of course modifying this file can bring us problems so let's have the security team own it.
-# This does not affect the distributed owners.yaml files, which drive non-required reviewer
-# assignment and are much safer to change.
-CODEOWNERS @PostHog/team-security
+# Migration safety exceptions disable blocking checks and need independent DevEx approval.
+/posthog/management/migration_analysis/hot_table_acknowledged_migrations.txt @PostHog/team-devex
+/posthog/management/migration_analysis/atomic_false_acknowledged_migrations.txt @PostHog/team-devex
+/.github/scripts/migration-deletion-allowlist.txt @PostHog/team-devex
+
+# The scripts that the auto-assign-reviewers and auto-assign-labels workflows run on their
+# pull_request_target events, with a token that can write to the PR. They read data that a
+# fork PR controls, such as the title and the changed paths. DevEx maintains them and reviews
+# them with that risk in mind.
+.github/scripts/assign-reviewers.js @PostHog/team-devex
+.github/scripts/codeowners.js @PostHog/team-devex
+.github/scripts/label-pr-from-title.js @PostHog/team-devex
 
 # Ingestion team owns persons migrations
 rust/persons_migrations/** @PostHog/team-ingestion
-
-# Critical authentication logic
-ee/api/authentication.py @PostHog/team-security
-posthog/api/sso.py @PostHog/team-security
-posthog/api/authentication.py @PostHog/team-security
-posthog/auth.py @PostHog/team-security
-posthog/api/scim/auth.py @PostHog/team-security
-
-# The Content Security Policy every app and admin page carries. A browser refuses a resource the
-# policy does not name and shows the user no error, so a policy mistake breaks a feature with no
-# signal, and a widened directive removes a control the same way. Neither shows up in a test or a
-# stack trace, which is why review is the control. The semgrep rule stops a view from setting the
-# header outside this file, and each exception it carries names the policy it allows, so a fourth
-# document needs this team too.
-posthog/csp_middleware.py @PostHog/team-security
-posthog/test/test_csp_middleware.py @PostHog/team-security
-.semgrep/rules/security/csp-header-outside-csp-middleware.* @PostHog/team-security
-
-# Dev sandbox provides important protection in local dev
-bin/dev-sandbox* @PostHog/team-security
 
 # The MCP store catalog is a fleet-wide trust decision, not ordinary code: a merged entry
 # becomes (probe permitting) an active server template in every environment on the next
@@ -84,16 +68,39 @@ products/mcp_store/backend/catalog.py @PostHog/team-context-and-mcp
 # entry. Removals are the mechanical result of a product sealing and are a rubber stamp.
 products/isolation_baseline.txt @PostHog/team-devex
 
+# Hoglint's policy decides which boundary findings block every PR and which products skip the
+# full Django suite. A loosening (a rule turned off, a new exception, a narrower watched set, a
+# changed pin) can let a boundary break or let a product skip tests it needs, and it reaches
+# every PR at once, so DevEx reviews it. The engine pin lives in pyproject.toml, which stays
+# open, but test_hoglint_map.py requires hoglint_map.py to pin the same version, so a pin change
+# reaches this gate through those two files. hoglint.ledger stays open: every PR records its own
+# findings there, and the hook already asks for a person on any ledger growth.
+/hoglint.toml @PostHog/team-devex
+/hoglint.exceptions.toml @PostHog/team-devex
+/tools/hoglint/ @PostHog/team-devex
+/.github/scripts/*hoglint*.py @PostHog/team-devex
+
 # Agent instructions and the PR description format apply to every PR in the repo. They have
 # changed back and forth many times, and each change undid an earlier lesson that the author
 # could not see, so DevEx reviews them with that history in mind. Nested AGENTS.md files stay
 # with the teams that own their directories.
 /AGENTS.md @PostHog/team-devex
 /CLAUDE.md @PostHog/team-devex
+/.agents/agent-automation.md @PostHog/team-devex
+/.agents/architecture.md @PostHog/team-devex
+/.agents/ci.md @PostHog/team-devex
+/.agents/code-style.md @PostHog/team-devex
+/.agents/feature-usage-tracking.md @PostHog/team-devex
 .github/pull_request_template.md @PostHog/team-devex
 .agents/skills/writing-pr-descriptions/ @PostHog/team-devex
+docs/internal/ci-things-already-tried.md @PostHog/team-devex
 
-# The mobile owner reviews app changes and the workflows that build and release it.
-products/mobile/** @cvolzer3
-products/desktop/apps/mobile/** @cvolzer3
-.github/workflows/*mobile*.yml @cvolzer3
+# A changed commit in the lockfile means a workflow now runs different third-party code.
+.github/workflows/actions.lock @PostHog/team-devex
+
+# DevEx owns the CI acknowledgement because it gates merges for native build changes.
+.github/workflows/pr-housekeeping.yml @PostHog/team-devex
+.github/workflows/pr-native-rebuild.yml @PostHog/team-devex
+.github/workflows/pr-rebuild-notify.yml @PostHog/team-devex
+.github/scripts/mobile-rebuild.mjs @PostHog/team-devex
+.github/scripts/mobile-rebuild.test.mjs @PostHog/team-devex

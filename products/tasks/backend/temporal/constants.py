@@ -1,10 +1,8 @@
 """Shared constants for the task-run workflow stack.
 
-Both `task_management` (top-level orchestrator) and `execute_sandbox`
-(per-sandbox child) need the same timing and prompt values, and the
+The `process_task` workflow needs these timing and prompt values, and the
 relay activity consults the inactivity timeout to debounce its own
-heartbeats. Keeping the values here gives us one source of truth and lets
-`process_task` be deleted without breaking imports.
+heartbeats. Keeping the values here gives us one source of truth.
 """
 
 from datetime import timedelta
@@ -49,7 +47,11 @@ POSTHOG_AI_ORIGIN_PRODUCT = "posthog_ai"
 
 
 def resolve_inactivity_timeout(
-    *, is_user_origin: bool = False, origin_product: str | None = None, state: dict | None = None
+    *,
+    is_user_origin: bool = False,
+    origin_product: str | None = None,
+    state: dict | None = None,
+    profile_idle_minutes: int | None = None,
 ) -> timedelta:
     """Effective inactivity timeout for a task run, in priority order.
 
@@ -59,10 +61,11 @@ def resolve_inactivity_timeout(
     2. The `TASKS_INACTIVITY_TIMEOUT_SECONDS` env var (global fallback, e.g.
        `=30` to force a fast shutdown for local resume-flow testing).
     3. The test default (short, so orphaned runs don't pin a worker).
-    4. The origin-aware production default (longer for user-driven runs, shorter for
+    4. The task profile's `idle_minutes`, when the task has a profile.
+    5. The origin-aware production default (longer for user-driven runs, shorter for
        PostHog AI's chat-shaped ones).
 
-    `origin_product` narrows step 4 only. It stays a plain string so callers can pass
+    `origin_product` narrows step 5 only. It stays a plain string so callers can pass
     `task.origin_product` straight through without this module importing Django models.
     """
     per_task = (state or {}).get("inactivity_timeout_seconds")
@@ -72,13 +75,13 @@ def resolve_inactivity_timeout(
         return timedelta(seconds=settings.TASKS_INACTIVITY_TIMEOUT_SECONDS)
     if settings.TEST:
         return timedelta(seconds=INACTIVITY_TIMEOUT_TEST_SECONDS)
+    if profile_idle_minutes is not None:
+        return timedelta(minutes=profile_idle_minutes)
     if origin_product == POSTHOG_AI_ORIGIN_PRODUCT:
         return timedelta(seconds=POSTHOG_AI_IDLE_TIMEOUT_SECONDS)
     return timedelta(seconds=INACTIVITY_TIMEOUT_USER_SECONDS if is_user_origin else INACTIVITY_TIMEOUT_DEFAULT_SECONDS)
 
 
-# Module-level default (non-user origin, no per-task override) for callers that
-# don't have task context. The CI follow-up timing lives in `task_management`.
 INACTIVITY_TIMEOUT = resolve_inactivity_timeout()
 
 
@@ -125,22 +128,6 @@ CREDENTIAL_REFRESH_INITIAL_DELAY = timedelta(seconds=settings.TASKS_CREDENTIAL_R
 # format).
 PENDING_MESSAGE_FORWARD_TIMEOUT_SECONDS = 180
 
-# Debounce window for child-forwarded heartbeats reaching the orchestrator.
-# The relay emits these every ~30 seconds while the agent is active; the
-# orchestrator doesn't need finer resolution for CI timing decisions.
-HEARTBEAT_DEBOUNCE = timedelta(seconds=30)
-
-# How long the orchestrator waits for an ACK from the child before treating
-# a signal as lost and re-forwarding it. The child dedupes on `ack_id`, so a
-# spurious retry (ACK lost in transit, work already done) costs one extra
-# signal round-trip but never doubles a follow-up.
-ACK_TIMEOUT = timedelta(seconds=60)
-
-# Cap on how many times the orchestrator will re-send a single signal before
-# giving up and logging. After this, the slot is dropped; subsequent signals
-# under different ack_ids still work normally.
-MAX_ACK_RETRIES = 5
-
 # Versioned signal for steer delivery. Keeping the legacy follow-up signal's
 # positional arguments unchanged makes mixed-worker rolling deployments safe.
 SEND_STEER_SIGNAL = "send_steer_message"
@@ -149,17 +136,6 @@ STEERING_PROTOCOL_VERSION = 1
 # Capability discovery must never delay the durable legacy signal path when a
 # workflow worker is unavailable or too busy to answer queries.
 STEERING_PROTOCOL_QUERY_TIMEOUT = timedelta(seconds=2)
-
-# Cooldown after a failed outbound-signal flush on the child side. The child's
-# main loop wakes whenever `_pending_outbound` is non-empty; if the parent is
-# unreachable the re-queued items would otherwise keep waking the loop
-# immediately, starving the inactivity timer. Sleeping after a partial-failure
-# flush rate-limits retries.
-OUTBOUND_RETRY_BACKOFF = timedelta(seconds=10)
-# Final child cleanup must not wait forever for a parent workflow that has
-# already closed or remains unreachable. This caps the total attempts made by
-# the terminal flush before the child records the undelivered signals and exits.
-MAX_FINAL_OUTBOUND_FLUSH_ATTEMPTS = 5
 
 CI_TRUST_AND_LIMITS = """\
 Trust (who to listen to):

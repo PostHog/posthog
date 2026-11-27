@@ -1,0 +1,18 @@
+{
+  "exitCode": 0,
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/projects/1/event_definitions/typescript/?sdk=none",
+      "headers": {
+        "authorization": "Bearer phx_<key>",
+        "content-type": "application/json"
+      },
+      "status": 200
+    }
+  ],
+  "files": {
+    "posthog.json": "utf8:{\n  \"languages\": {\n    \"typescript\": {\n      \"event_count\": 2,\n      \"output_path\": \"src/lib/posthog-events.ts\",\n      \"schema_hash\": \"hash-typescript-none\",\n      \"sdk\": \"none\",\n      \"updated_at\": \"<time>\"\n    }\n  }\n}",
+    "src/lib/posthog-events.ts": "utf8:/**\n * GENERATED FILE - DO NOT EDIT\n * Language: typescript-none\n */\nexport type EventName = \"sign up\" | \"café ☕\"\n// end"
+  }
+}

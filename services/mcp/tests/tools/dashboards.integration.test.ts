@@ -305,7 +305,7 @@ describe('Dashboards', { concurrent: false }, () => {
             return { dashboardId: dashboard.id }
         }
 
-        function assertNoInsightResults(dashboard: any): void {
+        function assertNoInsightResults(dashboard: any, { hasQuery = true }: { hasQuery?: boolean } = {}): void {
             expect(dashboard.tiles).toBeTruthy()
             expect(dashboard.tiles.length).toBeGreaterThan(0)
 
@@ -321,7 +321,11 @@ describe('Dashboards', { concurrent: false }, () => {
                 }
                 // Sanity: identifying metadata should still be present
                 expect(tile.insight.id).toBeTruthy()
-                expect(tile.insight.query).toBeTruthy()
+                if (hasQuery) {
+                    expect(tile.insight.query).toBeTruthy()
+                } else {
+                    expect(tile.insight.query).toBeUndefined()
+                }
             }
         }
 
@@ -331,7 +335,14 @@ describe('Dashboards', { concurrent: false }, () => {
             const result = await getOneTool.handler(context, { id: dashboardId })
             const dashboard = parseToolResponse(result)
 
-            assertNoInsightResults(dashboard)
+            assertNoInsightResults(dashboard, { hasQuery: false })
+
+            const expanded = await getOneTool.handler(context, {
+                id: dashboardId,
+                expand: ['tiles.*.insight.query'],
+            })
+
+            assertNoInsightResults(parseToolResponse(expanded))
         })
 
         it('dashboard-update strips insight result fields', async () => {
@@ -343,7 +354,8 @@ describe('Dashboards', { concurrent: false }, () => {
             })
             const dashboard = parseToolResponse(result)
 
-            assertNoInsightResults(dashboard)
+            // The update response confirms the write; dashboard-get serves tile content such as the query.
+            assertNoInsightResults(dashboard, { hasQuery: false })
         })
 
         it('dashboard-create response has no tiles (and therefore no insight results)', async () => {

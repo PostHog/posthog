@@ -1,6 +1,7 @@
 import { BudgetExceededError, type BudgetFamily } from '@/api/budget'
 import { ApiError } from '@/api/client'
-import { retryUnlessMissing } from '@/api/reports'
+import { type PaginatedApi, retryUnlessMissing } from '@/api/reports'
+import { type FileSystemShortcutApi, fetchShortcuts } from '@/api/shortcuts'
 
 import { viewsQueue } from './refreshQueue'
 import { reportScopeError } from './useViewsAccess'
@@ -34,4 +35,18 @@ export async function listRead<T>(
         reportScopeError(error)
         throw error
     }
+}
+
+/**
+ * The pin list read that `usePins` and the home screen widget's prefetch share. `beforeRead` runs once the family's
+ * pause ends, just before the request, so a caller can stop a read that belongs to an earlier session.
+ */
+export function readShortcuts(
+    signal?: AbortSignal,
+    beforeRead?: () => void
+): Promise<PaginatedApi<FileSystemShortcutApi>> {
+    return listRead('dashboards', signal, () => {
+        beforeRead?.()
+        return fetchShortcuts(signal)
+    })
 }

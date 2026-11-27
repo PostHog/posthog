@@ -10,9 +10,9 @@ import {
     pluralizeResource,
     resourceToApiRoute,
 } from 'lib/utils/accessControlUtils'
-import { membersLogic } from 'scenes/organization/membersLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { membersLogic } from '~/models/membersLogic'
 import {
     APIScopeObject,
     AccessControlLevel,
@@ -134,7 +134,7 @@ export interface accessControlLogicActions {
     ) => {
         accessControls: {
             level: AccessControlLevel | null
-            member: string
+            member: OrganizationMemberType['id']
         }[]
         source: AccessControlUIVersion
     }
@@ -150,7 +150,7 @@ export interface accessControlLogicActions {
         payload?: {
             accessControls: {
                 level: AccessControlLevel | null
-                member: string
+                member: OrganizationMemberType['id']
             }[]
             source: AccessControlUIVersion
         }
@@ -159,7 +159,7 @@ export interface accessControlLogicActions {
         payload?: {
             accessControls: {
                 level: AccessControlLevel | null
-                member: string
+                member: OrganizationMemberType['id']
             }[]
             source: AccessControlUIVersion
         }
@@ -173,7 +173,7 @@ export interface accessControlLogicActions {
     ) => {
         accessControls: {
             level: AccessControlLevel | null
-            role: string
+            role: RoleType['id']
         }[]
         source: AccessControlUIVersion
     }
@@ -189,7 +189,7 @@ export interface accessControlLogicActions {
         payload?: {
             accessControls: {
                 level: AccessControlLevel | null
-                role: string
+                role: RoleType['id']
             }[]
             source: AccessControlUIVersion
         }
@@ -198,7 +198,7 @@ export interface accessControlLogicActions {
         payload?: {
             accessControls: {
                 level: AccessControlLevel | null
-                role: string
+                role: RoleType['id']
             }[]
             source: AccessControlUIVersion
         }

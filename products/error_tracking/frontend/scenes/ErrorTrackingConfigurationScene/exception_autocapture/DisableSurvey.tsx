@@ -2,18 +2,28 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 
 import { SurveyQuestionType } from '~/types'
 
 import { disableSurveyLogic } from './disableSurveyLogic'
+import { QuillDisableSurvey } from './QuillDisableSurvey'
 
 export function DisableSurvey(): JSX.Element | null {
     const { visible, surveyQuestions, selectedChoice, openResponse, submitted } = useValues(disableSurveyLogic)
     const { setSelectedChoice, setOpenResponse, submitResponse } = useActions(disableSurveyLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    const submitDisabledReason =
+        !selectedChoice && !openResponse.trim() ? 'Please select an option or enter feedback' : undefined
 
     if (!visible) {
         return null
+    }
+
+    if (todayRailNav) {
+        return <QuillDisableSurvey submitDisabledReason={submitDisabledReason} />
     }
 
     return (
@@ -53,11 +63,7 @@ export function DisableSurvey(): JSX.Element | null {
                         <LemonButton
                             type="primary"
                             size="small"
-                            disabledReason={
-                                !selectedChoice && !openResponse.trim()
-                                    ? 'Please select an option or enter feedback'
-                                    : undefined
-                            }
+                            disabledReason={submitDisabledReason}
                             onClick={submitResponse}
                         >
                             Submit

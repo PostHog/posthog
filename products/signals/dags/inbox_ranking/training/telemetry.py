@@ -8,6 +8,7 @@ per model family, and a drop in readability is an insight alert. Delivery is bes
 fails an asset.
 """
 
+import enum
 import datetime
 from collections.abc import Mapping, Sequence
 from typing import Any
@@ -40,6 +41,8 @@ HOLDOUT_CALIBRATION_EVENT = "inbox_ranking_holdout_calibration"
 SERVING_MANIFEST_PUBLISHED_EVENT = "inbox_ranking_serving_manifest_published"
 EXPERIMENT_COMPARED_EVENT = "inbox_ranking_experiment_compared"
 ENGAGEMENT_EXPORT_PUBLISHED_EVENT = "inbox_ranking_engagement_export_published"
+DATASET_PARTITION_WRITTEN_EVENT = "inbox_ranking_dataset_partition_written"
+FAMILY_SKIPPED_EVENT = "inbox_ranking_family_skipped"
 
 # Candidate metadata copied onto every per-head event so a chart can filter or break down on it.
 _CANDIDATE_CONTEXT_KEYS = (
@@ -54,6 +57,17 @@ _CANDIDATE_CONTEXT_KEYS = (
 )
 # Object names inside the models prefix; meaningless on a chart.
 _HEAD_FILE_KEYS = ("file", "holdout_file")
+
+
+class FamilySkipReason(enum.StrEnum):
+    """Why a family wrote no candidate for a partition. A chart breaks down on it, so keep the set fixed."""
+
+    EXPIRED = "expired"
+    MISSING_EXAMPLES = "missing_examples"
+    MISSING_SNAPSHOT = "missing_snapshot"
+    MISSING_STATE_COLUMN = "missing_state_column"
+    MISSING_SIDE_INPUT = "missing_side_input"
+    BACKFILL_BATCH_EMPTY = "backfill_batch_empty"
 
 
 @frozen
@@ -75,13 +89,26 @@ class MirrorPublication:
     skip_reason: str | None = None
 
 
-def candidate_events(metadata: Mapping[str, Any]) -> list[TrainingEvent]:
+def run_times(started_at: datetime.datetime, finished_at: datetime.datetime | None = None) -> dict[str, str]:
+    """When the step started and when it finished, in UTC ISO 8601. The event timestamp stays on
+    the partition day, because saved insights read it, so these two show when the work happened."""
+    finished_at = finished_at or datetime.datetime.now(datetime.UTC)
+    return {"run_started_at": started_at.isoformat(), "run_finished_at": finished_at.isoformat()}
+
+
+def candidate_events(metadata: Mapping[str, Any], times: Mapping[str, str] | None = None) -> list[TrainingEvent]:
     """One event per head: the head's metrics plus the candidate context. A head the candidate
     could not fit still gets an event (`trained` false, `readable` false), so a per-head alert sees
     a bad day instead of a missing one. The role is stamped rather than read from the metadata: this
     asset only ever fits candidates, and the unseen events carry both roles, so without it a chart
-    filtered to the candidate keeps the unseen line and drops these rows."""
-    context = {key: metadata.get(key) for key in _CANDIDATE_CONTEXT_KEYS} | {"model_role": CANDIDATE_ROLE}
+    filtered to the candidate keeps the unseen line and drops these rows. A candidate with a
+    readiness block also carries its late-group mask. `times` comes from `run_times`."""
+    context = (
+        {key: metadata.get(key) for key in _CANDIDATE_CONTEXT_KEYS}
+        | {"model_role": CANDIDATE_ROLE}
+        | _readiness_properties(metadata.get("readiness"))
+        | dict(times or {})
+    )
     trained = [
         TrainingEvent(
             event=CANDIDATE_TRAINED_EVENT,
@@ -118,8 +145,8 @@ def promotion_event(
     """`champion_aucs` and `champion_eces` were scored by the incumbent on this candidate's holdout.
     The incumbent is the served model when it has `model_name`, else `none`.
 
-    Training never moves the served pointer, so `promoted` is always false. A person promotes
-    through `inbox_ranking_promote_job`, which captures `MODEL_PROMOTED_EVENT`.
+    Training never moves the served pointer, so `promoted` is always false. The daily serving
+    publish or `inbox_ranking_promote_job` moves it later and captures `MODEL_PROMOTED_EVENT`.
     The two recipe hashes are None for a version written before the hash existed."""
     return TrainingEvent(
         event=PROMOTION_DECIDED_EVENT,
@@ -143,52 +170,91 @@ def promotion_event(
 
 
 _DELTA_KEYS = ("paired_seeds", "mean_delta_auc", "min_delta_auc", "max_delta_auc", "wins")
+_INTERVAL_KEYS = ("low", "high", "teams")
+# Saved insights read `within_team` and `pooled`, so the keys of those two reads never change.
+_REPORT_READS = (
+    "within_team",
+    "within_team_non_dogfood",
+    "within_team_macro",
+    "within_team_non_dogfood_macro",
+    "pooled",
+)
+
+
+PERSONAL_GRADE = "personal"
+COLD_PATH_GRADE = "cold_path"
 
 
 def _pair_comparison_events(block: Mapping[str, Any], context: Mapping[str, Any]) -> list[TrainingEvent]:
     """One event per head, scope and slice of a pair experiment's `vs_baseline` block, so a chart
     filters to one slice (such as `non_dogfood` users with 10 or more prior views) and reads its
-    within-user deltas against the baseline and the reference."""
+    within-user deltas against the baseline, the reference and the cold score. A `cold_path` block
+    adds one event per head and scope with `grade` set to `cold_path`. `group` says what the
+    `within_user` reads group by: a user, or a team for a per-report grade."""
     events: list[TrainingEvent] = []
-    for head, grade in (block.get("heads") or {}).items():
-        for scope, slices in (grade.get("scopes") or {}).items():
-            for slice_name, cell in slices.items():
-                properties: dict[str, Any] = {
-                    **context,
-                    "grain": block.get("grain"),
-                    "baseline_model_name": block.get("baseline"),
-                    "reference_model_name": block.get("reference"),
-                    "seeds": len(block.get("seeds", [])),
-                    "head": head,
-                    **{key: grade.get(key) for key in ("train_rows", "holdout_rows", "holdout_positives")},
-                    "scope": scope,
-                    "slice": slice_name,
-                    **{f"slice_{key}": cell.get(key) for key in ("rows", "positives", "users", "teams")},
-                }
-                for comparison in ("vs_baseline", "vs_reference"):
-                    deltas = cell.get(comparison) or {}
-                    for read in ("macro", "pooled"):
-                        properties |= {
-                            f"{comparison}_within_user_{read}_{key}": (deltas.get(read) or {}).get(key)
-                            for key in _DELTA_KEYS
-                        }
-                    interval = deltas.get("macro_team_interval") or {}
-                    properties |= {
-                        f"{comparison}_within_user_macro_interval_{key}": interval.get(key)
-                        for key in ("low", "high", "teams")
-                    }
-                events.append(TrainingEvent(event=EXPERIMENT_COMPARED_EVENT, properties=properties))
+    grades = (
+        (PERSONAL_GRADE, block.get("heads") or {}),
+        (COLD_PATH_GRADE, (block.get("cold_path") or {}).get("heads") or {}),
+    )
+    for grade_name, heads in grades:
+        for head, grade in heads.items():
+            for scope, slices in (grade.get("scopes") or {}).items():
+                for slice_name, cell in slices.items():
+                    events.append(
+                        _pair_comparison_event(block, context, grade_name, head, grade, scope, slice_name, cell)
+                    )
     return events
+
+
+def _pair_comparison_event(
+    block: Mapping[str, Any],
+    context: Mapping[str, Any],
+    grade_name: str,
+    head: str,
+    grade: Mapping[str, Any],
+    scope: str,
+    slice_name: str,
+    cell: Mapping[str, Any],
+) -> TrainingEvent:
+    properties: dict[str, Any] = {
+        **context,
+        "grain": block.get("grain"),
+        "baseline_model_name": block.get("baseline"),
+        "reference_model_name": block.get("reference"),
+        "seeds": len(block.get("seeds", [])),
+        "grade": grade_name,
+        "group": grade.get("group", "user"),
+        "head": head,
+        **{key: grade.get(key) for key in ("train_rows", "holdout_rows", "holdout_positives")},
+        "scope": scope,
+        "slice": slice_name,
+        **{f"slice_{key}": cell.get(key) for key in ("rows", "positives", "users", "teams")},
+    }
+    for comparison in ("vs_baseline", "vs_reference", "vs_cold"):
+        deltas = cell.get(comparison) or {}
+        for read in ("macro", "pooled"):
+            properties |= {
+                f"{comparison}_within_user_{read}_{key}": (deltas.get(read) or {}).get(key) for key in _DELTA_KEYS
+            }
+        interval = deltas.get("macro_team_interval") or {}
+        properties |= {f"{comparison}_within_user_macro_interval_{key}": interval.get(key) for key in _INTERVAL_KEYS}
+    return TrainingEvent(event=EXPERIMENT_COMPARED_EVENT, properties=properties)
 
 
 def experiment_comparison_events(metadata: Mapping[str, Any]) -> list[TrainingEvent]:
     """One event per head of an experiment candidate's `vs_baseline` block. The per-seed AUC lists
     stay in `metadata.json`: an insight cannot chart a JSON array, so the event carries the gaps.
-    A pair experiment's block gives one event per head, scope and slice instead."""
+    The non-dogfood macro delta also carries its team interval, and an experiment that reads feature
+    groups carries each group's importance as `group_importance_<group>_<read>` and the late groups
+    training zeroed as `zeroed_feature_groups`. A candidate with a readiness block also carries the
+    late groups training read, the share of fit rows that carry each one, and the backfill batch it
+    read, if any. A pair experiment's block gives one event per head, scope and slice instead."""
     block = metadata.get("vs_baseline") or {}
     context = {key: metadata.get(key) for key in ("model_name", "model_version", "run_id", "recipe_hash")}
     if block.get("grain") == PAIR_GRAIN:
         return _pair_comparison_events(block, context)
+    importance = (block.get("group_importance") or {}).get("heads") or {}
+    readiness = _readiness_properties(metadata.get("readiness"))
     return [
         TrainingEvent(
             event=EXPERIMENT_COMPARED_EVENT,
@@ -198,21 +264,59 @@ def experiment_comparison_events(metadata: Mapping[str, Any]) -> list[TrainingEv
                 "seeds": len(block.get("seeds", [])),
                 "head": head,
                 **{key: grade.get(key) for key in ("train_rows", "holdout_rows", "holdout_positives")},
+                **{f"{read}_{key}": (grade.get(read) or {}).get(key) for read in _REPORT_READS for key in _DELTA_KEYS},
                 **{
-                    f"{read}_{key}": (grade.get(read) or {}).get(key)
-                    for read in ("within_team", "pooled")
-                    for key in ("paired_seeds", "mean_delta_auc", "min_delta_auc", "max_delta_auc", "wins")
+                    f"within_team_non_dogfood_macro_interval_{key}": (
+                        grade.get("within_team_non_dogfood_macro_team_interval") or {}
+                    ).get(key)
+                    for key in _INTERVAL_KEYS
                 },
+                **(
+                    {"zeroed_feature_groups": block["zeroed_feature_groups"]}
+                    if "zeroed_feature_groups" in block
+                    else {}
+                ),
+                **{
+                    f"group_importance_{group}_{read}": drop
+                    for group, reads in (importance.get(head) or {}).items()
+                    for read, drop in reads.items()
+                },
+                **readiness,
             },
         )
         for head, grade in (block.get("heads") or {}).items()
     ]
 
 
-def model_promoted_event(*, model_key: str, previous_key: str | None, reason: str, run_id: str) -> TrainingEvent:
+def _readiness_properties(readiness: Mapping[str, Any] | None) -> dict[str, Any]:
+    if not readiness:
+        return {}
+    backfill = readiness.get("feature_backfill") or {}
+    return {
+        "enabled_feature_groups": readiness.get("enabled_feature_groups"),
+        "zeroed_feature_groups": readiness.get("zeroed_feature_groups"),
+        "feature_backfill_batch_id": backfill.get("batch_id"),
+        **{
+            f"{group}_fit_carried_share": stats.get("carried_share")
+            for group, stats in ((readiness.get("network_fit") or {}).get("groups") or {}).items()
+        },
+    }
+
+
+def model_promoted_event(
+    *, model_key: str, previous_key: str | None, reason: str, run_id: str, auto: bool
+) -> TrainingEvent:
+    """`auto` is true when the daily serving publish moved the pointer, and false for
+    `inbox_ranking_promote_job`. A read of served scores uses it to date each automatic swap."""
     return TrainingEvent(
         event=MODEL_PROMOTED_EVENT,
-        properties={"model_key": model_key, "previous_key": previous_key, "reason": reason, "run_id": run_id},
+        properties={
+            "model_key": model_key,
+            "previous_key": previous_key,
+            "reason": reason,
+            "run_id": run_id,
+            "auto": auto,
+        },
     )
 
 
@@ -228,11 +332,12 @@ def serving_manifest_event(
     bytes_copied: int = 0,
     mirror: MirrorPublication | None = None,
     recipe_hashes: Mapping[str, str | None] | None = None,
+    times: Mapping[str, str] | None = None,
 ) -> TrainingEvent:
     """What the day's manifest published. A run that wrote nothing still reports, with `reason`:
     the manifest is what makes the sweep serve anything, so a silent gap in this series would read
     the same as a day of ordinary publishing. `recipe_hashes` maps a model key to the `recipe_hash`
-    of its `metadata.json`."""
+    of its `metadata.json`. `times` comes from `run_times`."""
     properties: dict[str, object] = {
         "model_version": partition_key,
         "run_id": run_id,
@@ -242,6 +347,7 @@ def serving_manifest_event(
         "entries_copied": len(copied_keys),
         "entries_already_present": len(present_keys),
         "bytes_copied": bytes_copied,
+        **(times or {}),
     }
     if manifest is not None:
         properties |= {
@@ -287,6 +393,33 @@ def engagement_export_event(
             "bytes": bytes_written,
             "schema_version": schema_version,
         },
+    )
+
+
+def dataset_partition_written_event(
+    *, table: str, run_id: str, rows: int, bytes_written: int | None, schema_version: int | None
+) -> TrainingEvent:
+    """One dataset partition object the dataset dag wrote. Capture adds the `partition`. It carries
+    counts only, never a report id, a team id, text or a vector. `schema_version` is the version
+    stamped on the object, or None for a table that has no stamp."""
+    return TrainingEvent(
+        event=DATASET_PARTITION_WRITTEN_EVENT,
+        properties={
+            "table": table,
+            "run_id": run_id,
+            "rows": rows,
+            "bytes": bytes_written,
+            "schema_version": schema_version,
+        },
+    )
+
+
+def family_skipped_event(*, model_name: str, run_id: str, reason: FamilySkipReason) -> TrainingEvent:
+    """A family that wrote no candidate for the partition and kept what the partition holds.
+    Capture adds the `partition`."""
+    return TrainingEvent(
+        event=FAMILY_SKIPPED_EVENT,
+        properties={"model_name": model_name, "run_id": run_id, "reason": reason.value},
     )
 
 

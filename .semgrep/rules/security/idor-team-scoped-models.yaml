@@ -67,10 +67,16 @@ rules:
                               |AccountTrackRuleRun
                               |AccountView
                               |Action
-                              |ActionSelectorMatchChange
+                              |AEOBrand
+                              |AEOCheckBrand
+                              |AEOCheckCitation
+                              |AEOCheckSearch
                               |AEOCitationCheck
+                              |AEOEngineSetting
+                              |AEOKeyword
                               |AEOPrompt
                               |AEOPromptVersion
+                              |AEOTeamConfig
                               |AgentApplication
                               |AgentArtifact
                               |AgentIdentityCredential
@@ -97,6 +103,9 @@ rules:
                               |AutoresearchRun
                               |AutoresearchSuggestion
                               |AutoresearchTrainingRun
+                              |BaselineApproval
+                              |BaselineCommit
+                              |BaselineEntry
                               |BatchExport
                               |BatchExportBackfill
                               |BatchExportFileDownload
@@ -105,6 +114,8 @@ rules:
                               |BatchImport
                               |BriefConfig
                               |ButtonTile
+                              |WorkloadTrustPolicy
+                              |WorkloadTrustPolicyRequest
                               |Canvas
                               |CanvasBuild
                               |CanvasHomePreference
@@ -119,8 +130,10 @@ rules:
                               |ClusteringJob
                               |Cohort
                               |CohortBackfillChunk
+                              |CohortBackfillRefusal
                               |CohortBackfillRun
                               |CohortBackfillRunCohort
+                              |RealtimeCohortRequest
                               |Comment
                               |ContentAutopilotOpportunity
                               |ContentAutopilotProposal
@@ -145,8 +158,10 @@ rules:
                               |DAG
                               |TodayHighlights
                               |TodayPulsePins
+                              |UserInterfaceFragment
                               |Dashboard
                               |DashboardTemplate
+                              |DashboardV2Board
                               |DashboardWidget
                               |TeamHomeTabDashboardConfig
                               |DataColorTheme
@@ -183,6 +198,7 @@ rules:
                               |Endpoint
                               |EnterpriseEventDefinition
                               |EnterprisePropertyDefinition
+                              |EventDefinitionMetadata
                               |EventFilterConfig
                               |EventFilterPipelineOverride
                               |EventStream
@@ -197,6 +213,8 @@ rules:
                               |ErrorTrackingIssueChange
                               |ErrorTrackingIssueFingerprintV2
                               |ErrorTrackingIssueSummary
+                              |ErrorTrackingIssueTag
+                              |ErrorTrackingIssueTagRule
                               |ErrorTrackingRelease
                               |ErrorTrackingRecommendation
                               |ErrorTrackingSettings
@@ -208,13 +226,16 @@ rules:
                               |ErrorTrackingSymbolSet
                               |Evaluation
                               |EvaluationDirectory
+                              |EventsHealthDaily
                               |Experiment
                               |ExperimentHoldout
                               |ExperimentMetricsRecalculation
                               |ExperimentSavedMetric
+                              |ExperimentScoreSuiteDefault
                               |ExportedAsset
                               |ExportedRecording
                               |ExternalDataDestination
+                              |ExternalDataDestinationDelivery
                               |ExternalDataJob
                               |ExternalDataSchema
                               |ExternalDataSchemaDestination
@@ -222,6 +243,7 @@ rules:
                               |ExternalDataSource
                               |ExternalDataSourceDestination
                               |FeatureFlag
+                              |FeatureFlagCodeAnalysis
                               |FeatureRequest
                               |FeatureRequestAccountLink
                               |FeatureRequestEvidence
@@ -242,6 +264,7 @@ rules:
                               |FileSystem
                               |FileSystemFolderInstructions
                               |FileSystemFolderContextGeneration
+                              |FirstCodeSend
                               |GithubCommentMapping
                               |GitHubSyncConfig
                               |GitHubSyncPlan
@@ -249,6 +272,8 @@ rules:
                               |HealthIssue
                               |HogFlow
                               |HogFlowBatchJob
+                              |HogFlowBatchJobAudienceMember
+                              |HogFlowConversionGoal
                               |HogFlowOptimization
                               |HogFlowRevision
                               |HogFlowSchedule
@@ -257,6 +282,7 @@ rules:
                               |HogFunctionRevision
                               |Hook
                               |Insight
+                              |InsightExplanation
                               |InsightVariable
                               |Integration
                               |IntegrationRepositoryCacheEntry
@@ -264,11 +290,14 @@ rules:
                               |KnowledgeChunk
                               |KnowledgeDocument
                               |KnowledgeGapSuggestion
+                              |KnowledgeKeyLibrary
                               |KnowledgeLearningRun
                               |KnowledgeLibrary
                               |KnowledgeLibraryRepository
                               |KnowledgeLibrarySource
+                              |KnowledgeRunCitation
                               |KnowledgeSource
+                              |KnowledgeUsageRecord
                               |PlaygroundChat
                               |PlaygroundTurn
                               |Link
@@ -277,6 +306,7 @@ rules:
                               |LogsExclusionRule
                               |LogsMetricRule
                               |LogsRetentionRule
+                              |LogsSigningSecret
                               |LogsView
                               |Loop
                               |LoopFire
@@ -301,16 +331,26 @@ rules:
                               |MessageRecipientPreference
                               |MessageSuppression
                               |MessageTemplate
+                              |MembershipCleanupCandidate
+                              |MembershipCleanupScan
                               |Metric
+                              |MetricDailyQueryCount
+                              |MetricPrecomputedChunk
+                              |MetricPrecomputedMetric
+                              |MetricRecordingRule
                               |MetricsDashboardDiscovery
                               |MetricsDashboardSuggestion
                               |RelationshipProposal
+                              |UsageSnapshot
                               |MCPAnalyticsSubmission
+                              |MCPAnalyticsWrapped
                               |MCPAuditEvent
+                              |MCPCustomHarness
                               |MCPGatewayServer
                               |MCPIntentClusterSnapshot
                               |MCPIntentEmbeddingCache
                               |MCPMeasuredStats
+                              |MCPMemberAutoConnectOptOut
                               |MCPMemberServerRevocation
                               |MCPOrgRule
                               |MCPServiceAccount
@@ -322,6 +362,7 @@ rules:
                               |Node
                               |NotificationEvent
                               |Notebook
+                              |NotebookAppRelease
                               |NotebookNodeRun
                               |NotebookRun
                               |ObjectMediaPreview
@@ -339,6 +380,7 @@ rules:
                               |ProviderImportRun
                               |ProjectSecretAPIKey
                               |PropertyAccessControl
+                              |PropertyDefinitionMetadata
                               |PullRequestAudience
                               |PurgedTicketThread
                               |QuarantineLiftRequest
@@ -350,12 +392,19 @@ rules:
                               |QueueSchedulerState
                               |QuickFilter
                               |QuickFilterContext
+                              |RecommendationResolution
+                              |Release
+                              |ReleaseImportState
+                              |ReleaseAutoLinkedFlag
+                              |ReplayHighlightFeedEntry
+                              |ReplayHighlightFeedState
                               |ReplayObservation
                               |ReplayObservationAnchorSimilarity
                               |ReplayObservationFeedDismissal
                               |ReplayObservationFeedImpression
                               |ReplayObservationLabel
                               |ReplayObservationMedia
+                              |ReplayObservationRank
                               |ReplayObservationRequest
                               |ReplayObservationUsage
                               |ReplayObservationView
@@ -381,17 +430,22 @@ rules:
                               |SandboxSession
                               |ResourceLink
                               |ScoreDefinition
+                              |ScoreDefinitionInput
                               |SavedHeatmap
                               |HeatmapCaptureConfigVersion
                               |HeatmapCaptureRequest
                               |HeatmapScreenshotHistory
+                              |HostProxyDaily
                               |ScheduledChange
+                              |SdkVersionsDaily
                               |SessionGroupSummary
                               |SessionRecording
                               |SessionRecordingPlaylist
                               |SharingConfiguration
                               |SignalEmissionRecord
+                              |SignalGroupingRecord
                               |SignalFirstReportNotification
+                              |SignalRatedUsage
                               |SignalReport
                               |SignalReportAction
                               |SignalReportArtefact
@@ -411,22 +465,31 @@ rules:
                               |SignalRepositoryAreaActivity
                               |SignalTeamConfig
                               |SignalSourceConfig
+                              |SignalSourceFilterState
                               |SignalScoutConfig
                               |SignalScoutRun
                               |SignalScoutEmission
                               |SignalScoutNote
                               |SignalScoutStructuredOutput
+                              |SignalScoutMessage
+                              |SignalScoutMessageDelivery
+                              |SignalScoutPendingTrigger
                               |SignalScoutSuggestionSet
                               |SignalScoutBackgroundBand
                               |SignalSpend
+                              |SignalTrialGrant
                               |LegacySignalSpend
 
                               |AnomalyScoringState
+                              |AnomalyScoringDueInsight
+                              |PushTokenImport
                               |SignalScratchpad
+                              |SignalScratchpadRevision
                               |SignalProjectProfile
                               |SingleSessionSummary
                               |SlackThreadTaskMapping
                               |SlackThreadJoin
+                              |SlackDailyFocus
                               |SourceBatch
                               |SourceGroupLease
                               |StreamlitApp
@@ -439,12 +502,13 @@ rules:
                               |PlatformAlertDeliveryPath
                               |PlatformAlertThread
                               |AlertDestination
+                              |AlertReceiver
+                              |AlertRoute
                               |SupabaseAuthEmailConfig
                               |Survey
                               |SurveyResponseArchive
                               |TableCertification
                               |Tag
-                              |Tagger
                               |Task
                               |TaskActivity
                               |TaskArtifact
@@ -452,6 +516,9 @@ rules:
                               |TaskAutomation
                               |TaskPresence
                               |TaskRun
+                              |TaskRunGatewayRequest
+                              |AgentEgressRegistration
+                              |TaskStatusChange
                               |TaskWorkflowDispatch
                               |TaskSearchDocument
                               |TaskSession
@@ -463,6 +530,9 @@ rules:
                               |EmailChannel
                               |EvaluationReport
                               |EvaluationBackfill
+                              |EvalSuggestion
+                              |EvalSuggestionRun
+                              |EvalSuggestionTeamState
                               |Text
                               |Threshold
                               |ToleratedHash
@@ -470,14 +540,18 @@ rules:
                               |SigningSecret
                               |Ticket
                               |TicketView
+                              |TicketMacro
                               |TicketViewFavorite
                               |ZendeskImportJob
+                              |IntercomImportJob
+                              |PylonImportJob
                               |ReviewQueue
                               |ReviewQueueItem
                               |TraceReview
                               |TraceReviewScore
                               |TracesRetentionRule
                               |TracingView
+                              |TransactionalEmailKey
                               |UploadedMedia
                               |UptimeMonitor
                               |UserInterview
@@ -490,6 +564,8 @@ rules:
                               |WikiPageProposal
                               |WarehouseColumnAnnotation
                               |WarehouseColumnStatistics
+                              |WarehouseMigration
+                              |WarehouseMigrationItem
                               |WarehouseSuggestion
                               |WebAnalyticsAchievementProgress
                               |WebAnalyticsFilterPreset
@@ -569,7 +645,6 @@ rules:
                         |AccountTrackRuleRun
                         |AccountView
                         |Action
-                        |ActionSelectorMatchChange
                         |AgentApplication
                         |AgentArtifact
                         |AgentIdentityCredential
@@ -596,6 +671,9 @@ rules:
                         |AutoresearchRun
                         |AutoresearchSuggestion
                         |AutoresearchTrainingRun
+                        |BaselineApproval
+                        |BaselineCommit
+                        |BaselineEntry
                         |BatchExport
                         |BatchExportBackfill
                         |BatchExportFileDownload
@@ -604,6 +682,8 @@ rules:
                         |BatchImport
                         |BriefConfig
                         |ButtonTile
+                        |WorkloadTrustPolicy
+                        |WorkloadTrustPolicyRequest
                         |Canvas
                         |CanvasBuild
                         |CanvasHomePreference
@@ -618,8 +698,10 @@ rules:
                         |ClusteringJob
                         |Cohort
                         |CohortBackfillChunk
+                        |CohortBackfillRefusal
                         |CohortBackfillRun
                         |CohortBackfillRunCohort
+                        |RealtimeCohortRequest
                         |Comment
                         |ContentAutopilotOpportunity
                         |ContentAutopilotProposal
@@ -644,8 +726,10 @@ rules:
                         |DAG
                         |TodayHighlights
                         |TodayPulsePins
+                        |UserInterfaceFragment
                         |Dashboard
                         |DashboardTemplate
+                        |DashboardV2Board
                         |DashboardWidget
                         |TeamHomeTabDashboardConfig
                         |DataColorTheme
@@ -682,6 +766,7 @@ rules:
                         |Endpoint
                         |EnterpriseEventDefinition
                         |EnterprisePropertyDefinition
+                        |EventDefinitionMetadata
                         |EventFilterConfig
                         |EventFilterPipelineOverride
                         |EventStream
@@ -696,6 +781,8 @@ rules:
                         |ErrorTrackingIssueChange
                         |ErrorTrackingIssueFingerprintV2
                         |ErrorTrackingIssueSummary
+                        |ErrorTrackingIssueTag
+                        |ErrorTrackingIssueTagRule
                         |ErrorTrackingRelease
                         |ErrorTrackingRecommendation
                         |ErrorTrackingSettings
@@ -707,10 +794,12 @@ rules:
                         |ErrorTrackingSymbolSet
                         |Evaluation
                         |EvaluationDirectory
+                        |EventsHealthDaily
                         |Experiment
                         |ExperimentHoldout
                         |ExperimentMetricsRecalculation
                         |ExperimentSavedMetric
+                        |ExperimentScoreSuiteDefault
                         |ExportedAsset
                         |ExportedRecording
                         |ExternalDataJob
@@ -718,6 +807,7 @@ rules:
                         |ExternalDataSchemaOOMEvent
                         |ExternalDataSource
                         |FeatureFlag
+                        |FeatureFlagCodeAnalysis
                         |FeatureRequest
                         |FeatureRequestAccountLink
                         |FeatureRequestEvidence
@@ -738,6 +828,7 @@ rules:
                         |FileSystem
                         |FileSystemFolderInstructions
                         |FileSystemFolderContextGeneration
+                        |FirstCodeSend
                         |GithubCommentMapping
                         |GitHubSyncConfig
                         |GitHubSyncPlan
@@ -745,6 +836,8 @@ rules:
                         |HealthIssue
                         |HogFlow
                         |HogFlowBatchJob
+                        |HogFlowBatchJobAudienceMember
+                        |HogFlowConversionGoal
                         |HogFlowOptimization
                         |HogFlowRevision
                         |HogFlowSchedule
@@ -753,6 +846,7 @@ rules:
                         |HogFunctionRevision
                         |Hook
                         |Insight
+                        |InsightExplanation
                         |InsightVariable
                         |Integration
                         |IntegrationRepositoryCacheEntry
@@ -760,11 +854,14 @@ rules:
                         |KnowledgeChunk
                         |KnowledgeDocument
                         |KnowledgeGapSuggestion
+                        |KnowledgeKeyLibrary
                         |KnowledgeLearningRun
                         |KnowledgeLibrary
                         |KnowledgeLibraryRepository
                         |KnowledgeLibrarySource
+                        |KnowledgeRunCitation
                         |KnowledgeSource
+                        |KnowledgeUsageRecord
                         |PlaygroundChat
                         |PlaygroundTurn
                         |Link
@@ -792,14 +889,23 @@ rules:
                         |MessageRecipientPreference
                         |MessageSuppression
                         |MessageTemplate
+                        |MembershipCleanupCandidate
+                        |MembershipCleanupScan
                         |Metric
+                        |MetricDailyQueryCount
+                        |MetricPrecomputedChunk
+                        |MetricPrecomputedMetric
                         |MetricsDashboardDiscovery
                         |MetricsDashboardSuggestion
                         |RelationshipProposal
+                        |UsageSnapshot
+                        |MCPAnalyticsWrapped
                         |MCPAuditEvent
+                        |MCPCustomHarness
                         |MCPGatewayServer
                         |MCPIntentClusterSnapshot
                         |MCPIntentEmbeddingCache
+                        |MCPMemberAutoConnectOptOut
                         |MCPMemberServerRevocation
                         |MCPOrgRule
                         |MCPServiceAccount
@@ -811,6 +917,7 @@ rules:
                         |Node
                         |NotificationEvent
                         |Notebook
+                        |NotebookAppRelease
                         |NotebookNodeRun
                         |NotebookRun
                         |ObjectMediaPreview
@@ -828,6 +935,7 @@ rules:
                         |ProviderImportRun
                         |ProjectSecretAPIKey
                         |PropertyAccessControl
+                        |PropertyDefinitionMetadata
                         |PullRequestAudience
                         |PurgedTicketThread
                         |QuarantineLiftRequest
@@ -839,12 +947,19 @@ rules:
                         |QueueSchedulerState
                         |QuickFilter
                         |QuickFilterContext
+                        |RecommendationResolution
+                        |Release
+                        |ReleaseImportState
+                        |ReleaseAutoLinkedFlag
+                        |ReplayHighlightFeedEntry
+                        |ReplayHighlightFeedState
                         |ReplayObservation
                         |ReplayObservationAnchorSimilarity
                         |ReplayObservationFeedDismissal
                         |ReplayObservationFeedImpression
                         |ReplayObservationLabel
                         |ReplayObservationMedia
+                        |ReplayObservationRank
                         |ReplayObservationRequest
                         |ReplayObservationUsage
                         |ReplayObservationView
@@ -870,17 +985,22 @@ rules:
                         |SandboxSession
                         |ResourceLink
                         |ScoreDefinition
+                        |ScoreDefinitionInput
                         |SavedHeatmap
                         |HeatmapCaptureConfigVersion
                         |HeatmapCaptureRequest
                         |HeatmapScreenshotHistory
+                        |HostProxyDaily
                         |ScheduledChange
+                        |SdkVersionsDaily
                         |SessionGroupSummary
                         |SessionRecording
                         |SessionRecordingPlaylist
                         |SharingConfiguration
                         |SignalEmissionRecord
+                        |SignalGroupingRecord
                         |SignalFirstReportNotification
+                        |SignalRatedUsage
                         |SignalReport
                         |SignalReportAction
                         |SignalReportArtefact
@@ -900,22 +1020,31 @@ rules:
                         |SignalRepositoryAreaActivity
                         |SignalTeamConfig
                         |SignalSourceConfig
+                        |SignalSourceFilterState
                         |SignalScoutConfig
                         |SignalScoutRun
                         |SignalScoutEmission
                         |SignalScoutNote
                         |SignalScoutStructuredOutput
+                        |SignalScoutMessage
+                        |SignalScoutMessageDelivery
+                        |SignalScoutPendingTrigger
                         |SignalScoutSuggestionSet
                         |SignalScoutBackgroundBand
                         |SignalSpend
+                        |SignalTrialGrant
                         |LegacySignalSpend
 
                         |AnomalyScoringState
+                        |AnomalyScoringDueInsight
+                        |PushTokenImport
                         |SignalScratchpad
+                        |SignalScratchpadRevision
                         |SignalProjectProfile
                         |SingleSessionSummary
                         |SlackThreadTaskMapping
                         |SlackThreadJoin
+                        |SlackDailyFocus
                         |SourceBatch
                         |SourceGroupLease
                         |StreamlitApp
@@ -928,12 +1057,13 @@ rules:
                         |PlatformAlertDeliveryPath
                         |PlatformAlertThread
                         |AlertDestination
+                        |AlertReceiver
+                        |AlertRoute
                         |SupabaseAuthEmailConfig
                         |Survey
                         |SurveyResponseArchive
                         |TableCertification
                         |Tag
-                        |Tagger
                         |Task
                         |TaskActivity
                         |TaskArtifact
@@ -941,6 +1071,9 @@ rules:
                         |TaskAutomation
                         |TaskPresence
                         |TaskRun
+                        |TaskRunGatewayRequest
+                        |AgentEgressRegistration
+                        |TaskStatusChange
                         |TaskWorkflowDispatch
                         |TaskSession
                         |UserTasksConfig
@@ -951,6 +1084,9 @@ rules:
                         |EmailChannel
                         |EvaluationReport
                         |EvaluationBackfill
+                        |EvalSuggestion
+                        |EvalSuggestionRun
+                        |EvalSuggestionTeamState
                         |Text
                         |Threshold
                         |ToleratedHash
@@ -958,14 +1094,18 @@ rules:
                         |SigningSecret
                         |Ticket
                         |TicketView
+                        |TicketMacro
                         |TicketViewFavorite
                         |ZendeskImportJob
+                        |IntercomImportJob
+                        |PylonImportJob
                         |ReviewQueue
                         |ReviewQueueItem
                         |TraceReview
                         |TraceReviewScore
                         |TracesRetentionRule
                         |TracingView
+                        |TransactionalEmailKey
                         |UploadedMedia
                         |UptimeMonitor
                         |UserInterview
@@ -978,6 +1118,8 @@ rules:
                         |WikiPageProposal
                         |WarehouseColumnAnnotation
                         |WarehouseColumnStatistics
+                        |WarehouseMigration
+                        |WarehouseMigrationItem
                         |WarehouseSuggestion
                         |WebAnalyticsAchievementProgress
                         |WebAnalyticsFilterPreset
@@ -1064,6 +1206,7 @@ rules:
                         AccessControl
                         |ActivityLog
                         |AgentArtifact
+                        |AgentEgressRegistration
                         |AgentMemory
                         |AITrainingDeletionRequest
                         |Alert
@@ -1127,13 +1270,19 @@ rules:
                         |ErrorTrackingStackFrame
                         |ErrorTrackingSuppressionRule
                         |ErrorTrackingSymbolSet
+                        |EvalSuggestion
+                        |EvalSuggestionRun
+                        |EvalSuggestionTeamState
                         |Evaluation
                         |EvaluationConfig
                         |EvaluationContext
                         |EvaluationReport
                         |Event
+                        |EventDefinitionMetadata
                         |EventFilterConfig
                         |EventFilterPipelineOverride
+                        |EventsHealthDaily
+                        |ExperimentScoreSuiteDefault
                         |ExperimentTimeseriesRecalculation
                         |ExplicitTeamMembership
                         |ExportedAsset
@@ -1157,6 +1306,7 @@ rules:
                         |HogFlowTemplate
                         |HogFunction
                         |Hook
+                        |HostProxyDaily
                         |InsightViewed
                         |Integration
                         |IntegrationRepositoryCacheEntry
@@ -1165,6 +1315,7 @@ rules:
                         |KnowledgeChunk
                         |KnowledgeDocument
                         |KnowledgeSource
+                        |KnowledgeUsageRecord
                         |Link
                         |LiveDebuggerBreakpoint
                         |LLMModelConfiguration
@@ -1178,6 +1329,7 @@ rules:
                         |LogsAlertConfiguration
                         |LogsExclusionRule
                         |LogsRetentionRule
+                        |LogsSigningSecret
                         |LogsView
                         |MarketingAnalyticsGoalMapping
                         |MaterializedColumnSlot
@@ -1210,12 +1362,14 @@ rules:
                         |ProductTour
                         |ProjectSecretAPIKey
                         |PropertyAccessControl
+                        |PropertyDefinitionMetadata
                         |QueryTabState
                         |QueueJob
                         |QueueSchedulerDecision
                         |QueueSchedulerState
                         |QuickFilter
                         |QuickFilterContext
+                        |RealtimeCohortTeamAccess
                         |RemoteConfig
                         |ReplayObservation
                         |ReplayObservationLabel
@@ -1229,6 +1383,7 @@ rules:
                         |SandboxEnvironment
                         |SavedHeatmap
                         |ScoreDefinition
+                        |SdkVersionsDaily
                         |SessionRecording
                         |SessionRecordingEvent
                         |SessionRecordingPlaylist
@@ -1255,7 +1410,6 @@ rules:
                         |SurveyResponseArchive
                         |TableCertification
                         |TaggedItem
-                        |Tagger
                         |Task
                         |TaskRun
                         |TeamAccessControlConfig
@@ -1267,6 +1421,7 @@ rules:
                         |TeamDataQualityConfig
                         |TeamDataWarehouseConfig
                         |TeamDefaultEvaluationContext
+                        |TeamEventsPlanDeletion
                         |TeamEventsRetentionConfig
                         |TeamEventVolume
                         |TeamExperimentsConfig
@@ -1291,6 +1446,7 @@ rules:
                         |TraceReview
                         |TraceReviewScore
                         |TracesRetentionRule
+                        |TransactionalEmailKey
                         |User
                         |UserGroup
                         |UserInterview
@@ -1355,7 +1511,8 @@ rules:
                       metavariable: $MODEL
                       regex: |
                           (?x)(
-                              BillingAlertConfiguration
+                              AgentTranscriptSubmission
+                              |BillingAlertConfiguration
                               |BillingAlertEvaluationClaim
                               |BillingAlertEvent
                               |CIMDVerificationToken
@@ -1371,7 +1528,10 @@ rules:
                               |OrganizationMembership
                               |OrganizationMemberNotificationLock
                               |OrganizationDomain
+                              |OrganizationIPRestrictions
+                              |OrganizationEntitlementAppliedState
                               |OrganizationEventsRetentionConfig
+                              |OrganizationExternalProjectLink
                               |OrganizationFeatureFlagsConfig
                               |OrganizationIntegration
                               |OrganizationInvite
@@ -1382,6 +1542,8 @@ rules:
                               |Role
                               |RoleExternalReference
                               |RoleMembership
+                              |SandboxSenderOrganizationBlock
+                              |SlackChannelSettings
                           )$
                 - focus-metavariable: $SINK
       pattern-sanitizers:
@@ -1438,7 +1600,8 @@ rules:
                 metavariable: $MODEL
                 regex: |
                     (?x)(
-                        BillingAlertConfiguration
+                        AgentTranscriptSubmission
+                        |BillingAlertConfiguration
                         |BillingAlertEvaluationClaim
                         |BillingAlertEvent
                         |CIMDVerificationToken
@@ -1454,7 +1617,10 @@ rules:
                         |OrganizationMembership
                         |OrganizationMemberNotificationLock
                         |OrganizationDomain
+                        |OrganizationIPRestrictions
+                        |OrganizationEntitlementAppliedState
                         |OrganizationEventsRetentionConfig
+                        |OrganizationExternalProjectLink
                         |OrganizationFeatureFlagsConfig
                         |OrganizationIntegration
                         |OrganizationInvite
@@ -1465,6 +1631,8 @@ rules:
                         |Role
                         |RoleExternalReference
                         |RoleMembership
+                        |SandboxSenderOrganizationBlock
+                        |SlackChannelSettings
                     )$
           - pattern-not: $M.objects. ... .$METHOD2(..., organization=$O, ...)
           - pattern-not: $M.objects. ... .$METHOD2(..., organization_id=$O, ...)
@@ -1556,8 +1724,10 @@ rules:
                       regex: |
                           (?x)(
                               AccountAuditCredential
+                              |AdventCalendarAnswer
                               |CommunitySkillVote
                               |GitHubInstallRequest
+                              |IdentityProviderEmailVerification
                               |PersonalAPIKey
                               |ScoreDefinitionVersion
                               |SignalUserAutonomyConfig
@@ -1613,8 +1783,10 @@ rules:
                 regex: |
                     (?x)(
                         AccountAuditCredential
+                        |AdventCalendarAnswer
                         |CommunitySkillVote
                         |GitHubInstallRequest
+                        |IdentityProviderEmailVerification
                         |PersonalAPIKey
                         |ScoreDefinitionVersion
                         |SignalUserAutonomyConfig
@@ -1706,9 +1878,11 @@ rules:
                               |FileSystemHomeFolder
                               |FileSystemShortcut
                               |FileSystemViewLog
+                              |InsightAgentRead
                               |InsightViewed
                               |KernelRuntime
                               |MCPServerInstallation
+                              |PersonalInboxRanking
                               |Reminder
                               |SessionRecordingViewed
                               |UserActivitySummary
@@ -1782,8 +1956,10 @@ rules:
                         |FileSystemHomeFolder
                         |FileSystemShortcut
                         |FileSystemViewLog
+                        |InsightAgentRead
                         |InsightViewed
                         |KernelRuntime
+                        |PersonalInboxRanking
                         |Reminder
                         |SessionRecordingViewed
                         |UserActivitySummary

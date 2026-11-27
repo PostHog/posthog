@@ -1,116 +1,100 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { waitFor } from '@testing-library/react-native'
 
-import type { OrgAiStatus } from '@/features/chat/aiAccess'
-
-import {
-    DEFAULT_PAGES,
-    type DefaultPage,
-    defaultPageHref,
-    effectiveDefaultPage,
-    resolveStartPage,
-} from './defaultPageStore'
+import { DEFAULT_PAGES, type DefaultPage, defaultPageHref, effectiveDefaultPage } from './defaultPageStore'
 
 const STORAGE_KEY = 'posthog-mobile-default-page'
 
-jest.mock('@/lib/analytics', () => ({ track: jest.fn() }))
+jest.mock('@/lib/analytics', () => ({ track: jest.fn(), trackWhenReady: jest.fn() }))
 
 type DefaultPageModule = typeof import('./defaultPageStore')
 type DefaultPageStore = DefaultPageModule['useDefaultPageStore']
 
 interface IsolatedModules {
-    defaultPage: DefaultPageModule
-    auth: typeof import('@/auth/authStore')
+    store: DefaultPageStore
     analytics: typeof import('@/lib/analytics')
 }
 
-// One registry for all three modules, so the stores and the mocked track are the instances settleDefaultPage uses.
+// A fresh registry per load, so each store hydrates from storage once, the way the app does at launch.
 async function loadModules(): Promise<IsolatedModules> {
     let modules: IsolatedModules | undefined
     jest.isolateModules(() => {
         modules = {
-            defaultPage: jest.requireActual<DefaultPageModule>('./defaultPageStore'),
-            auth: jest.requireActual<typeof import('@/auth/authStore')>('@/auth/authStore'),
+            store: jest.requireActual<DefaultPageModule>('./defaultPageStore').useDefaultPageStore,
             analytics: jest.requireMock<typeof import('@/lib/analytics')>('@/lib/analytics'),
         }
     })
     if (!modules) {
         throw new Error('Default page store did not load')
     }
-    await modules.defaultPage.useDefaultPageStore.persist.rehydrate()
+    const { store } = modules
+    await waitFor(() => expect(store.persist.hasHydrated()).toBe(true))
     return modules
 }
 
 async function loadStore(): Promise<DefaultPageStore> {
-    return (await loadModules()).defaultPage.useDefaultPageStore
+    return (await loadModules()).store
+}
+
+async function save(page: unknown, version: number): Promise<void> {
+    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify({ state: { page }, version }))
 }
 
 describe('default page store', () => {
     afterEach(async () => {
         await AsyncStorage.clear()
+        jest.clearAllMocks()
     })
 
-    test('opens on the inbox when nothing is saved', async () => {
+    test('opens Home when nothing is saved', async () => {
         const store = await loadStore()
         expect(store.getState().page).toBeNull()
-        expect(effectiveDefaultPage(store.getState().page)).toBe('inbox')
+        expect(effectiveDefaultPage(store.getState().page)).toBe('live')
     })
 
-    test('a chosen page survives a restart', async () => {
+    test.each<DefaultPage>(['inbox', 'views', 'live'])('a chosen %s page survives a restart', async (page) => {
         const store = await loadStore()
-        store.getState().setPage('views')
-        await waitFor(async () => expect(await AsyncStorage.getItem(STORAGE_KEY)).toContain('"views"'))
+        store.getState().setPage(page)
+        await waitFor(async () => expect(await AsyncStorage.getItem(STORAGE_KEY)).toContain(`"${page}"`))
 
         const restarted = await loadStore()
-        expect(restarted.getState().page).toBe('views')
+        expect(restarted.getState().page).toBe(page)
     })
 
     test.each<[string, unknown]>([
-        ['a removed tab', 'home'],
+        ['a page the app does not have', 'web_analytics'],
         ['a non-string value', 3],
     ])('treats %s as no choice', async (_name, saved) => {
-        await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify({ state: { page: saved }, version: 0 }))
+        await save(saved, 1)
         const store = await loadStore()
         expect(store.getState().page).toBeNull()
     })
 
-    test.each<[DefaultPage | null, OrgAiStatus, DefaultPage, boolean]>([
-        [null, 'not_approved', 'views', true],
-        [null, 'approved', 'inbox', true],
-        [null, 'unknown', 'inbox', false],
-        ['chats', 'not_approved', 'chats', false],
-    ])('resolves saved page %s with organization %s to %s (settle: %s)', (saved, orgStatus, page, settle) => {
-        expect(resolveStartPage(saved, orgStatus)).toEqual({ page, settle })
+    test.each<[string, number, DefaultPage | null, boolean]>([
+        ['inbox', 0, null, true],
+        ['web_analytics', 0, null, true],
+        ['views', 0, 'views', false],
+        ['live', 0, 'live', false],
+        ['chats', 0, 'chats', false],
+        ['inbox', 2, 'inbox', false],
+    ])('moves a saved %s page from version %s to %s once', async (saved, version, page, migrated) => {
+        await save(saved, version)
+        const { store, analytics } = await loadModules()
+
+        expect(store.getState().page).toBe(page)
+        expect(jest.mocked(analytics.trackWhenReady).mock.calls).toEqual(
+            migrated ? [['mobile_default_page_migrated', { from: saved, to: 'live' }]] : []
+        )
+        await waitFor(async () => expect(await AsyncStorage.getItem(STORAGE_KEY)).toContain('"version":1'))
+
+        // Every isolated registry gets the same analytics mock, so the restart starts from an empty call list.
+        jest.mocked(analytics.trackWhenReady).mockClear()
+        const restarted = await loadModules()
+        expect(restarted.store.getState().page).toBe(page)
+        expect(restarted.analytics.trackWhenReady).not.toHaveBeenCalled()
     })
 
-    test("settles once on views when the selected project's organization has not approved AI", async () => {
-        const { defaultPage, auth, analytics } = await loadModules()
-        auth.useAuthStore.setState({
-            status: 'signed_in',
-            organizations: [
-                { id: 'org-a', name: 'A', aiDataProcessingApproved: false },
-                { id: 'org-b', name: 'B', aiDataProcessingApproved: true },
-            ],
-            projects: [
-                { id: 1, name: 'One', organizationId: 'org-a', organizationName: 'A' },
-                { id: 2, name: 'Two', organizationId: 'org-b', organizationName: 'B' },
-            ],
-            projectId: 1,
-        })
-
-        expect(defaultPage.settleDefaultPage()).toBe('views')
-        await waitFor(async () => expect(await AsyncStorage.getItem(STORAGE_KEY)).toContain('"views"'))
-        expect(analytics.track).toHaveBeenCalledTimes(1)
-        expect(analytics.track).toHaveBeenCalledWith('mobile_default_page_defaulted', {
-            page: 'views',
-            org_ai_approved: false,
-        })
-
-        expect(defaultPage.settleDefaultPage()).toBe('views')
-        expect(analytics.track).toHaveBeenCalledTimes(1)
-    })
-
-    test('every page maps to a tab route', () => {
-        expect(DEFAULT_PAGES.map(defaultPageHref)).toEqual(['/inbox', '/chats', '/views'])
+    test('every page maps to a tab route, with Home first', () => {
+        expect(DEFAULT_PAGES.map(defaultPageHref)).toEqual(['/live', '/inbox', '/chats', '/views'])
     })
 })

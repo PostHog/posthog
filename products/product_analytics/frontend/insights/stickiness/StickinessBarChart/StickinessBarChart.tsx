@@ -4,6 +4,7 @@ import { useCallback, useMemo } from 'react'
 import { TimeSeriesBarChart } from '@posthog/quill-charts'
 import type { PointClickData, Series, TimeSeriesBarChartConfig, TooltipContext } from '@posthog/quill-charts'
 
+import { makeChartErrorHandler } from 'lib/charts/chartErrorHandler'
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -24,7 +25,6 @@ import type { IndexedTrendResult } from 'products/product_analytics/frontend/ins
 import { hasTrendsChartData } from '../../shared/hasTrendsChartData'
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
 import { getSeriesIdentification } from '../../shared/seriesIdentification'
-import { makeChartErrorHandler } from '../../trends/shared/chartErrorHandler'
 import { getTrendsSeriesDisplayLabel } from '../../trends/shared/getTrendsSeriesDisplayLabel'
 import {
     buildTrendsSeriesMeta,

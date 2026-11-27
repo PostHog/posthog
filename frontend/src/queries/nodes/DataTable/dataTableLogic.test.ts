@@ -8,8 +8,8 @@ import { teamLogic } from 'scenes/teamLogic'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { DataTableRow, dataTableLogic } from '~/queries/nodes/DataTable/dataTableLogic'
 import { performQuery } from '~/queries/query'
+import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
-import { setLatestVersionsOnQuery } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
 
 jest.mock('~/queries/query')
@@ -67,7 +67,7 @@ describe('dataTableLogic', () => {
 
         expect(performQuery).toHaveBeenCalledWith(
             setLatestVersionsOnQuery({ kind: 'EventsQuery', select: ['*', 'event', 'timestamp'] }),
-            { signal: expect.any(Object) },
+            { signal: expect.any(Object), onRequestTiming: expect.any(Function) },
             'blocking',
             expect.any(String),
             expect.any(Function),

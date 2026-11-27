@@ -2,11 +2,16 @@ import io
 import tarfile
 from types import SimpleNamespace
 
+from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from owners_yaml import TeamTestCensus
 
+from posthog.models.team import Team
+
 from products.engineering_analytics.backend.logic.census import CENSUS_EVENT, collect_repo_census, emit_census_events
+from products.engineering_analytics.backend.tasks.tasks import emit_test_ownership_census
+from products.engineering_analytics.backend.tests._github_fixtures import create_github_source, enroll_team
 
 
 def _tarball(files: dict[str, bytes]) -> bytes:
@@ -82,3 +87,16 @@ def test_emit_census_events_captures_the_contract_layer_4_reads() -> None:
             },
         }
     ]
+
+
+class TestCensusFanOut(BaseTest):
+    @patch("products.engineering_analytics.backend.tasks.tasks.emit_team_test_census.delay")
+    def test_fans_out_only_to_enrolled_teams(self, mock_delay) -> None:
+        unenrolled = Team.objects.create(organization=self.organization, name="unenrolled")
+        create_github_source(self.team)
+        create_github_source(unenrolled)
+        enroll_team(self.team)
+
+        emit_test_ownership_census()
+
+        assert [call.kwargs["team_id"] for call in mock_delay.call_args_list] == [self.team.id]

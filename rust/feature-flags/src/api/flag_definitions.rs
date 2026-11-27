@@ -1,4 +1,5 @@
 use crate::api::api_key_usage::ApiKeyKind;
+use crate::utils::token_log::loggable_token;
 use crate::{
     api::{
         auth,
@@ -6,22 +7,24 @@ use crate::{
         instance_setting::{constance_key, fetch_instance_setting_raw_value},
     },
     flags::{flag_analytics::is_billable_flag_key, flag_request::FlagRequestType},
-    handler::types::Library,
+    handler::{canonical_log::truncate_chars, types::Library},
     metrics::consts::{
         FLAG_DEFINITIONS_AUTH_COUNTER, FLAG_DEFINITIONS_CACHE_HIT_COUNTER,
         FLAG_DEFINITIONS_CACHE_MISS_COUNTER, FLAG_DEFINITIONS_ETAG_COUNTER,
+        FLAG_DEFINITIONS_FEED_COUNTER, FLAG_DEFINITIONS_NOT_MODIFIED_BILLING_COUNTER,
         FLAG_DEFINITIONS_REBUILD_REQUESTED_COUNTER,
     },
     router::State as AppState,
     team::team_models::Team,
+    utils::user_agent::UserAgentInfo,
 };
 use axum::{
     debug_handler,
-    extract::{Query, State},
+    extract::{Query, RawQuery, State},
     http::{HeaderMap, Method, StatusCode},
     response::{IntoResponse, Json, Response},
 };
-use common_hypercache::{CacheSource, HyperCacheError, KeyType};
+use common_hypercache::{CacheSource, HyperCacheError, HyperCacheReader, KeyType};
 use common_metrics::inc;
 use common_redis::Client as RedisClient;
 use common_types::TeamId;
@@ -31,7 +34,7 @@ use serde_json::Value;
 use sqlx::PgPool;
 use std::collections::HashSet;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tracing::{info, warn};
 
 const ALLOWLIST_TTL_SECS: u64 = 60;
@@ -44,6 +47,14 @@ const ALLOWLIST_TTL_SECS: u64 = 60;
 pub(crate) const FLAG_DEFINITIONS_REBUILD_REQUESTS_ZSET: &str = "flag_definitions:rebuild_requests";
 pub(crate) const FLAG_DEFINITIONS_S3_REBUILD_REQUESTS_ZSET: &str =
     "flag_definitions:rebuild_s3_requests";
+
+/// Object name of the definitions v2 entry. The name is a contract with the Django writer.
+pub const FLAG_DEFINITIONS_V2_OBJECT_NAME: &str = "flags_with_cohorts_v2.json";
+
+const FEED_LEGACY: &str = "legacy";
+const FEED_V2: &str = "v2";
+
+const MAX_LOGGED_SDK_VERSION_CHARS: usize = 64;
 
 /// `trigger` label values for `FLAG_DEFINITIONS_REBUILD_REQUESTED_COUNTER`. The two triggers
 /// ramp independently, so the dashboard has to separate them.
@@ -125,6 +136,93 @@ pub async fn fetch_allowlist_from_db(pool: &PgPool) -> Result<Option<HashSet<Tea
 /// This is returned as raw JSON from cache to avoid deserialization overhead
 pub type FlagDefinitionsResponse = Value;
 
+/// Bound on the payload read a 304 makes when the memo has no entry for the
+/// current ETag. Matches the hypercache Redis timeout. A slow read delays the
+/// 304 by at most this long, and then the poll goes unbilled and the next one
+/// retries.
+const BILLABLE_LOOKUP_TIMEOUT: Duration = Duration::from_millis(500);
+
+/// How long a failed, slow, or non-Redis payload read is remembered. While
+/// the payload tier is degraded this caps the retries at one per pod per
+/// team per interval instead of one per poll, and every poll in between
+/// stays unbilled.
+const BILLABLE_MEMO_FAILURE_TTL: Duration = Duration::from_secs(30);
+
+type BillableMemoKey = (i32, String);
+
+/// A memoized answer outlives a mismatch between the ETag and the payload it
+/// was computed from for at most `answer_ttl`: the writer can publish a new
+/// version between the ETag read and the payload read of one request. A
+/// failure to answer is kept only briefly so the next poll retries soon.
+struct BillableMemoExpiry {
+    answer_ttl: Duration,
+    failure_ttl: Duration,
+}
+
+impl moka::Expiry<BillableMemoKey, Option<bool>> for BillableMemoExpiry {
+    fn expire_after_create(
+        &self,
+        _key: &BillableMemoKey,
+        value: &Option<bool>,
+        _created_at: std::time::Instant,
+    ) -> Option<Duration> {
+        Some(match value {
+            Some(_) => self.answer_ttl,
+            None => self.failure_ttl,
+        })
+    }
+}
+
+/// Memo of whether the definitions behind a `(team, etag)` contain a billable
+/// flag, so a 304 for definitions that hold only survey or product tour flags
+/// is not billed, without reading the payload the 304 deliberately skips.
+#[derive(Clone)]
+pub struct DefinitionsBillableCache {
+    entries: moka::future::Cache<BillableMemoKey, Option<bool>>,
+}
+
+impl DefinitionsBillableCache {
+    pub fn new(max_capacity: u64, answer_ttl: Duration) -> Self {
+        Self::with_failure_ttl(max_capacity, answer_ttl, BILLABLE_MEMO_FAILURE_TTL)
+    }
+
+    fn with_failure_ttl(max_capacity: u64, answer_ttl: Duration, failure_ttl: Duration) -> Self {
+        Self {
+            entries: moka::future::Cache::builder()
+                .max_capacity(max_capacity)
+                .expire_after(BillableMemoExpiry {
+                    answer_ttl,
+                    failure_ttl,
+                })
+                .build(),
+        }
+    }
+
+    pub async fn insert(&self, team_id: i32, etag: &str, billable: bool) {
+        self.entries
+            .insert((team_id, etag.to_string()), Some(billable))
+            .await;
+    }
+
+    /// Returns the memoized status, or runs `load` once for all concurrent
+    /// callers with the same key and stores the result. `None` when the load
+    /// returns `None`, fails, or exceeds the bound; that `None` is kept for
+    /// `BILLABLE_MEMO_FAILURE_TTL` before a later call retries.
+    pub async fn get_or_load<F>(&self, team_id: i32, etag: &str, load: F) -> Option<bool>
+    where
+        F: std::future::Future<Output = Option<bool>>,
+    {
+        self.entries
+            .get_with((team_id, etag.to_string()), async {
+                tokio::time::timeout(BILLABLE_LOOKUP_TIMEOUT, load)
+                    .await
+                    .ok()
+                    .flatten()
+            })
+            .await
+    }
+}
+
 /// Query parameters for the flag definitions endpoint
 #[derive(Debug, Deserialize, Serialize)]
 pub struct FlagDefinitionsQueryParams {
@@ -145,7 +243,7 @@ pub struct FlagDefinitionsQueryParams {
 /// - `token`: Team API token (e.g., `phc_...`) - specifies which team's flags to return
 ///
 /// **Authentication Methods (one required via Authorization header):**
-/// 1. Team secret API tokens (secret_api_token, secret_api_token_backup)
+/// 1. Project secret API keys (phs_-prefixed, legacy team secret tokens match via their mirror rows)
 /// 2. Personal API keys with feature_flag:read or feature_flag:write scopes
 ///
 /// The authentication must have access to the team specified by the token parameter.
@@ -163,12 +261,25 @@ pub struct FlagDefinitionsQueryParams {
 pub async fn flags_definitions(
     State(state): State<AppState>,
     Query(params): Query<FlagDefinitionsQueryParams>,
+    RawQuery(raw_query): RawQuery,
     headers: HeaderMap,
     method: Method,
 ) -> Result<Response, FlagError> {
+    let requests_v2 = requests_definitions_v2(raw_query.as_deref());
+    let user_agent = UserAgentInfo::parse(
+        headers
+            .get("user-agent")
+            .and_then(|value| value.to_str().ok()),
+    );
     info!(
         method = %method,
-        token = ?params.token,
+        token = ?params.token.as_deref().map(loggable_token),
+        requests_v2,
+        sdk_name = user_agent.sdk_name,
+        sdk_version = user_agent
+            .sdk_version
+            .as_deref()
+            .map(|version| truncate_chars(version, MAX_LOGGED_SDK_VERSION_CHARS)),
         "Processing flag definitions request"
     );
 
@@ -217,6 +328,40 @@ pub async fn flags_definitions(
     }
 
     let team_key = KeyType::team(team.clone());
+    let library = Library::from_headers(&headers);
+
+    let v2_step = if requests_v2 {
+        serve_v2_entry(&state, &team, &team_key, client_etag.as_deref(), library).await?
+    } else {
+        V2Step::Legacy {
+            full_budget_spent: false,
+        }
+    };
+    inc(
+        FLAG_DEFINITIONS_FEED_COUNTER,
+        &[
+            (
+                "requested".to_string(),
+                if requests_v2 { FEED_V2 } else { FEED_LEGACY }.to_string(),
+            ),
+            (
+                "served".to_string(),
+                if matches!(v2_step, V2Step::Served(_)) {
+                    FEED_V2
+                } else {
+                    FEED_LEGACY
+                }
+                .to_string(),
+            ),
+            ("library".to_string(), library.to_string()),
+        ],
+        1,
+    );
+    let full_budget_spent = match v2_step {
+        V2Step::Served(response) => return Ok(response),
+        V2Step::Legacy { full_budget_spent } => full_budget_spent,
+    };
+
     let current_etag = match state
         .flags_with_cohorts_hypercache_reader
         .get_etag(&team_key)
@@ -252,21 +397,20 @@ pub async fn flags_definitions(
     // If client sent a matching ETag, short-circuit with 304 (skip full data fetch)
     if let (Some(ref client_val), Some(ref current_val)) = (&client_etag, &current_etag) {
         if client_val == current_val {
-            inc(
-                FLAG_DEFINITIONS_ETAG_COUNTER,
-                &[("result".to_string(), "hit".to_string())],
-                1,
-            );
-            return Ok(not_modified_response(current_val));
+            return Ok(answer_not_modified(
+                &state,
+                &state.flags_with_cohorts_hypercache_reader,
+                &team_key,
+                team.id,
+                current_val,
+                library,
+            )
+            .await);
         }
     }
 
-    // A stale ETag gets a full response, so it spends the full-response budget too. The
-    // conditional limiter already counted this request.
-    if client_etag.is_some() {
-        state
-            .flag_definitions_full_limiter
-            .check_rate_limit_without_request_count(team.id)?;
+    if !full_budget_spent {
+        spend_full_budget_on_stale_etag(&state, team.id, client_etag.as_deref())?;
     }
 
     let etag_result = if client_etag.is_some() {
@@ -281,22 +425,195 @@ pub async fn flags_definitions(
     );
 
     // Retrieve cached response from HyperCache (always with cohorts)
-    let cached_response = get_from_cache(&state, &team_key, team.id).await?;
-
-    // Record usage for billing, filtering out non-billable flags (surveys, product tours).
-    // Placed after the ETag/304 path intentionally: 304 responses skip billing,
-    // matching Django's /local_evaluation behavior.
-    if !*state.config.skip_writes && has_billable_flags(&cached_response) {
-        let library = Library::from_headers(&headers);
-        state
-            .billing_aggregator
-            .record(team.id, FlagRequestType::FlagDefinitions, Some(library));
-    }
+    let (cached_response, cache_source) = get_from_cache(&state, &team_key, team.id).await?;
+    bill_full_response(
+        &state,
+        team.id,
+        &cached_response,
+        cache_source,
+        current_etag.as_deref(),
+        library,
+    )
+    .await;
 
     Ok(ok_response_with_etag(
         cached_response,
         current_etag.as_deref(),
     ))
+}
+
+/// Only a single `v` that decodes to `2` selects the definitions v2 feed, because clients
+/// already send other values. The typed extractor would answer 400 for a repeated `v`.
+fn requests_definitions_v2(raw_query: Option<&str>) -> bool {
+    let mut versions = url::form_urlencoded::parse(raw_query.unwrap_or_default().as_bytes())
+        .filter(|(name, _)| name == "v")
+        .map(|(_, value)| value);
+    matches!(
+        (versions.next().as_deref(), versions.next()),
+        (Some("2"), None)
+    )
+}
+
+enum V2Step {
+    Served(Response),
+    Legacy { full_budget_spent: bool },
+}
+
+/// Answers from the team's definitions v2 entry, which lives in Redis only. A team without config
+/// version 2 flags has no v2 entry, so a missing one requests no rebuild. A failed read cannot tell
+/// if the team has one, and an error would take the legacy entry's S3 copy from teams with none.
+async fn serve_v2_entry(
+    state: &AppState,
+    team: &Team,
+    team_key: &KeyType,
+    client_etag: Option<&str>,
+    library: Library,
+) -> Result<V2Step, FlagError> {
+    let reader = &state.flags_with_cohorts_v2_hypercache_reader;
+    let etag = match reader.get_etag(team_key).await {
+        Ok(Some(etag)) => etag,
+        Ok(None) => {
+            return Ok(V2Step::Legacy {
+                full_budget_spent: false,
+            })
+        }
+        Err(e) => {
+            warn!(
+                team_id = team.id,
+                error = %e,
+                "Failed to read flag definitions v2 ETag, serving the legacy entry"
+            );
+            return Ok(V2Step::Legacy {
+                full_budget_spent: false,
+            });
+        }
+    };
+
+    if client_etag == Some(etag.as_str()) {
+        return Ok(V2Step::Served(
+            answer_not_modified(state, reader, team_key, team.id, &etag, library).await,
+        ));
+    }
+
+    // Before the payload read, so that a request the budget refuses costs no payload read.
+    let full_budget_spent = spend_full_budget_on_stale_etag(state, team.id, client_etag)?;
+    let response = match reader
+        .get_typed_from_redis::<FlagDefinitionsResponse>(team_key)
+        .await
+    {
+        Ok(Some(response)) => response,
+        Ok(None) | Err(HyperCacheError::CacheMiss) => {
+            return Ok(V2Step::Legacy { full_budget_spent })
+        }
+        Err(e) => {
+            warn!(
+                team_id = team.id,
+                error = %e,
+                "Failed to read flag definitions v2 payload, serving the legacy entry"
+            );
+            return Ok(V2Step::Legacy { full_budget_spent });
+        }
+    };
+
+    inc(
+        FLAG_DEFINITIONS_ETAG_COUNTER,
+        &[(
+            "result".to_string(),
+            if client_etag.is_some() {
+                "miss"
+            } else {
+                "none"
+            }
+            .to_string(),
+        )],
+        1,
+    );
+    inc(
+        FLAG_DEFINITIONS_CACHE_HIT_COUNTER,
+        &[(
+            "source".to_string(),
+            CacheSource::Redis.as_log_str().to_string(),
+        )],
+        1,
+    );
+    info!(
+        team_id = team.id,
+        source = CacheSource::Redis.as_log_str(),
+        feed = FEED_V2,
+        "Cache hit for flag definitions"
+    );
+
+    bill_full_response(
+        state,
+        team.id,
+        &response,
+        CacheSource::Redis,
+        Some(&etag),
+        library,
+    )
+    .await;
+    Ok(V2Step::Served(ok_response_with_etag(response, Some(&etag))))
+}
+
+async fn answer_not_modified(
+    state: &AppState,
+    reader: &HyperCacheReader,
+    team_key: &KeyType,
+    team_id: i32,
+    etag: &str,
+    library: Library,
+) -> Response {
+    inc(
+        FLAG_DEFINITIONS_ETAG_COUNTER,
+        &[("result".to_string(), "hit".to_string())],
+        1,
+    );
+    if !*state.config.skip_writes
+        && is_billable_for_etag(state, reader, team_key, team_id, etag).await
+    {
+        state.billing_aggregator.record(
+            team_id,
+            FlagRequestType::FlagDefinitionsNotModified,
+            Some(library),
+        );
+    }
+    not_modified_response(etag)
+}
+
+/// A stale ETag gets a full response, so it spends that budget too. Returns whether it did.
+fn spend_full_budget_on_stale_etag(
+    state: &AppState,
+    team_id: i32,
+    client_etag: Option<&str>,
+) -> Result<bool, FlagError> {
+    if client_etag.is_none() {
+        return Ok(false);
+    }
+    state
+        .flag_definitions_full_limiter
+        .check_rate_limit_without_request_count(team_id)?;
+    Ok(true)
+}
+
+async fn bill_full_response(
+    state: &AppState,
+    team_id: i32,
+    response: &FlagDefinitionsResponse,
+    source: CacheSource,
+    etag: Option<&str>,
+    library: Library,
+) {
+    if let (Some(etag), Some(billable)) = (etag, billable_for_etag_from(response, source)) {
+        state
+            .definitions_billable_cache
+            .insert(team_id, etag, billable)
+            .await;
+    }
+    if !*state.config.skip_writes && has_billable_flags(response) {
+        state
+            .billing_aggregator
+            .record(team_id, FlagRequestType::FlagDefinitions, Some(library));
+    }
 }
 
 pub(crate) fn format_weak_etag(raw: &str) -> String {
@@ -394,7 +711,7 @@ async fn resolve_team_from_auth(state: &AppState, headers: &HeaderMap) -> Result
         let secret = auth::validate_secret_api_token(state, &token).await?;
         inc(
             FLAG_DEFINITIONS_AUTH_COUNTER,
-            &[("method".to_string(), secret.method_label().to_string())],
+            &[("method".to_string(), "project_secret_api_key".to_string())],
             1,
         );
 
@@ -432,6 +749,49 @@ fn cache_hit_metric_source_label(source: &CacheSource) -> &'static str {
     }
 }
 
+/// Only Redis holds the payload the ETag was published with. An S3 fallback
+/// may be another version, so it decides nothing.
+fn billable_for_etag_from(response: &FlagDefinitionsResponse, source: CacheSource) -> Option<bool> {
+    matches!(source, CacheSource::Redis).then(|| has_billable_flags(response))
+}
+
+/// Reads the payload at most once per pod per ETag per memo TTL. An
+/// unreadable, slow, or non-Redis payload is not memoized as an answer and
+/// counts as not billable, because over-billing is the worse failure.
+async fn is_billable_for_etag(
+    state: &AppState,
+    reader: &HyperCacheReader,
+    team_key: &KeyType,
+    team_id: i32,
+    etag: &str,
+) -> bool {
+    let billable = state
+        .definitions_billable_cache
+        .get_or_load(team_id, etag, async {
+            // Reads the hypercache directly: this lookup serves a 304, so it must not count as
+            // a definitions cache hit or queue a rebuild the way a full response does. It reads
+            // Redis only, because an S3 copy cannot decide (see `billable_for_etag_from`), so a
+            // fallback read would only add latency and S3 load. A Redis miss is not an answer.
+            let response = reader
+                .get_typed_from_redis::<FlagDefinitionsResponse>(team_key)
+                .await
+                .ok()?;
+            Some(response.is_some_and(|response| has_billable_flags(&response)))
+        })
+        .await;
+    let outcome = match billable {
+        Some(true) => "billable",
+        Some(false) => "not_billable",
+        None => "unknown",
+    };
+    inc(
+        FLAG_DEFINITIONS_NOT_MODIFIED_BILLING_COUNTER,
+        &[("outcome".to_string(), outcome.to_string())],
+        1,
+    );
+    billable.unwrap_or(false)
+}
+
 /// Retrieves the cached response using the pre-initialized HyperCacheReader
 ///
 /// Always uses the cache with cohorts included to match Django's behavior and ensure
@@ -444,7 +804,7 @@ async fn get_from_cache(
     state: &AppState,
     team_key: &KeyType,
     team_id: i32,
-) -> Result<FlagDefinitionsResponse, FlagError> {
+) -> Result<(FlagDefinitionsResponse, CacheSource), FlagError> {
     let result = state
         .flags_with_cohorts_hypercache_reader
         .get_with_source(team_key)
@@ -472,7 +832,7 @@ async fn get_from_cache(
             ) {
                 enqueue_flag_definitions_rebuild(state, team_id, REBUILD_TRIGGER_S3_HIT);
             }
-            Ok(data)
+            Ok((data, source))
         }
         Err(e) => {
             let reason = match &e {
@@ -594,7 +954,7 @@ async fn write_rebuild_request(
 /// Validates that the authentication credential has access to the specified team.
 ///
 /// Supports two authentication methods:
-/// 1. Team secret API tokens (secret_api_token, secret_api_token_backup) from Authorization header
+/// 1. Project secret API keys (phs_-prefixed) from the Authorization header
 /// 2. Personal API keys with feature_flag:read or feature_flag:write scopes
 ///
 /// Priority: Secret API tokens take precedence over personal API keys when both are provided.
@@ -611,7 +971,7 @@ async fn authenticate_flag_definitions(
         let secret = auth::validate_secret_api_token_for_team(state, &token, team.id).await?;
         inc(
             FLAG_DEFINITIONS_AUTH_COUNTER,
-            &[("method".to_string(), secret.method_label().to_string())],
+            &[("method".to_string(), "project_secret_api_key".to_string())],
             1,
         );
         state
@@ -676,6 +1036,30 @@ mod tests {
     }
 
     #[rstest]
+    #[case::exactly_2(Some("v=2"), true)]
+    #[case::beside_other_parameters(Some("token=phc_abc&v=2&send_cohorts"), true)]
+    #[case::percent_encoded_2(Some("v=%32"), true)]
+    #[case::no_query(None, false)]
+    #[case::no_version(Some("token=phc_abc&send_cohorts"), false)]
+    #[case::version_1(Some("v=1"), false)]
+    #[case::version_3(Some("v=3"), false)]
+    #[case::leading_zero(Some("v=02"), false)]
+    #[case::decimal(Some("v=2.0"), false)]
+    #[case::empty(Some("v="), false)]
+    #[case::no_value(Some("v"), false)]
+    #[case::leading_space(Some("v=+2"), false)]
+    #[case::trailing_space(Some("v=2%20"), false)]
+    #[case::malformed_escape(Some("v=%ZZ"), false)]
+    #[case::repeated(Some("v=2&v=2"), false)]
+    #[case::repeated_after_another_value(Some("v=1&v=2"), false)]
+    #[case::repeated_before_another_value(Some("v=2&v=3"), false)]
+    #[case::uppercase_name(Some("V=2"), false)]
+    #[case::other_name(Some("ver=2"), false)]
+    fn test_requests_definitions_v2(#[case] raw_query: Option<&str>, #[case] expected: bool) {
+        assert_eq!(requests_definitions_v2(raw_query), expected);
+    }
+
+    #[rstest]
     #[case::confirmed_redis_miss(CacheSource::S3, true, true)]
     #[case::redis_read_failed(CacheSource::S3AfterRedisError, true, false)]
     #[case::served_by_redis(CacheSource::Redis, true, false)]
@@ -718,6 +1102,67 @@ mod tests {
                 call.value
             );
         }
+    }
+
+    #[tokio::test]
+    async fn test_billable_cache_memoizes_a_successful_load() {
+        let cache = DefinitionsBillableCache::new(10, Duration::from_secs(3600));
+        assert_eq!(
+            cache.get_or_load(1, "etag", async { Some(true) }).await,
+            Some(true)
+        );
+        // A later load is never run once the key is memoized.
+        assert_eq!(
+            cache.get_or_load(1, "etag", async { None }).await,
+            Some(true)
+        );
+        // A new etag for the same team is a fresh key.
+        assert_eq!(
+            cache.get_or_load(1, "etag2", async { Some(false) }).await,
+            Some(false)
+        );
+    }
+
+    #[tokio::test]
+    async fn test_billable_cache_memoizes_a_failed_load_until_the_failure_ttl() {
+        let cache = DefinitionsBillableCache::with_failure_ttl(
+            10,
+            Duration::from_secs(3600),
+            Duration::from_millis(500),
+        );
+        assert_eq!(cache.get_or_load(1, "etag", async { None }).await, None);
+        assert_eq!(
+            cache.get_or_load(1, "etag", async { Some(true) }).await,
+            None
+        );
+        // moka expires entries on its own clock, so a paused tokio clock would not age this one.
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        assert_eq!(
+            cache.get_or_load(1, "etag", async { Some(true) }).await,
+            Some(true)
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_billable_cache_bounds_a_slow_load() {
+        let cache = DefinitionsBillableCache::new(10, Duration::from_secs(3600));
+        assert_eq!(
+            cache.get_or_load(1, "etag", std::future::pending()).await,
+            None
+        );
+    }
+
+    #[rstest]
+    #[case::redis(CacheSource::Redis, Some(true))]
+    #[case::s3(CacheSource::S3, None)]
+    #[case::s3_after_redis_error(CacheSource::S3AfterRedisError, None)]
+    #[case::fallback(CacheSource::Fallback, None)]
+    fn test_billable_for_etag_from_only_trusts_redis(
+        #[case] source: CacheSource,
+        #[case] expected: Option<bool>,
+    ) {
+        let response = json!({"flags": [{"key": "billable-flag"}]});
+        assert_eq!(billable_for_etag_from(&response, source), expected);
     }
 
     #[test]

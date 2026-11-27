@@ -5,30 +5,43 @@ import { IconArrowRight, IconLetter, IconNotification } from '@posthog/icons'
 import { LemonLabel, LemonTable, LemonTableColumns, LemonTag, Link, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { getColorVar } from 'lib/colors'
-import { type AppMetricsTimeSeriesResponse } from 'lib/components/AppMetrics/appMetricsLogic'
+import { appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
 import { AppMetricsTrends } from 'lib/components/AppMetrics/AppMetricsTrends'
 import { type ExpandableConfig } from 'lib/lemon-ui/LemonTable'
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 
+import { EmailMetricsIncidentBanner } from '../EmailMetricsIncidentBanner'
 import { EmailLinksTable } from './EmailLinksTable'
 import { WorkflowMetricCard } from './WorkflowMetricCard'
 import {
+    EMAIL_METRIC_INVOCATION_FILTERS,
+    estimateDeliveries,
     type EmailMetric,
     type EmailMetricName,
     type EmailMetricRow,
     METRIC_COLORS,
     type PushMetricRow,
+    SANDBOX_EMAIL_METRICS,
+    sumSeries,
+    WORKFLOW_EMAIL_METRICS,
     WORKFLOW_SUMMARY_METRICS,
     withDisplayName,
     workflowMetricsSummaryLogic,
     type WorkflowMetricsSummaryLogicProps,
 } from './workflowMetricsSummaryLogic'
 
+const TRANSACTIONAL_METRIC_KEYS: EmailMetric[] = ['email_sent', 'email_delivered', 'email_opened', 'email_link_clicked']
+
+const DELIVERY_SENDERS = [
+    ['email_delivered', 'email_sent', 'email_bounced'],
+    ['email_sandbox_delivered', 'email_sandbox_sent', 'email_sandbox_bounced'],
+] as const
+
 const TRACKED_SENDS_TOOLTIP =
     'Untracked sends can never record opens or clicks, so engagement is shown against tracked sends (sent minus untracked). Counts and rates compare activity within the selected date range, so opens of emails sent before the range can push a rate above 100%.'
 
 const ISSUE_RATES_TOOLTIP =
-    'Bounces and spam complaints are shown as a share of emails sent. A prevented bounce, a send with no email address, or a frequency-capped send is skipped before it is sent, so it is shown as a share of every send the step attempted (sent plus skipped).'
+    'Bounces and spam complaints are shown as a share of emails sent. A prevented bounce, a send with no email address, a frequency-capped send, or a send blocked by the PostHog test sender is skipped before it is sent, so it is shown as a share of every send the step attempted (sent plus skipped). The PostHog test sender blocks a send that fails one of its checks, such as a recipient who is not a member of your organization.'
 
 // Opens and clicks are only possible on tracked sends, so pair the raw count with the denominator it
 // should be read against, plus the rate over that denominator. A step with no tracked sends shows a
@@ -52,11 +65,13 @@ interface WorkflowMetricsSummaryProps extends WorkflowMetricsSummaryLogicProps {
     onSelectAction?: (actionId: string) => void
     /** Drill a per-email metric into its filtered logs (only bounced/blocked have a log filter). */
     onMetricClick?: (metricKey: EmailMetricName) => void
+    transactional?: boolean
 }
 
 export function WorkflowMetricsSummary({
     onSelectAction,
     onMetricClick,
+    transactional,
     ...props
 }: WorkflowMetricsSummaryProps): JSX.Element {
     const {
@@ -80,7 +95,49 @@ export function WorkflowMetricsSummary({
         hasConversionGoal,
         messagingChannels,
         sentSummaryLabel,
+        getSentSummarySeries,
+        appMetricsTrends,
+        appMetricsTrendsLoading,
     } = useValues(workflowMetricsSummaryLogic(props))
+    const { getDateRangeAbsolute } = useValues(appMetricsLogic({ logicKey: props.logicKey }))
+    const { dateFrom, dateTo } = getDateRangeAbsolute()
+
+    // A sender with no delivery receipts in the range counts sent minus bounced, as the Email steps table does.
+    const senderDelivered = (
+        [delivered, sent, bounced]: (typeof DELIVERY_SENDERS)[number],
+        previous: boolean
+    ): ReturnType<typeof getSingleTrendSeries> => {
+        const receipts = getSingleTrendSeries(delivered, previous)
+        if (receipts?.series[0]?.values.some(Boolean)) {
+            return receipts
+        }
+        const sends = getSingleTrendSeries(sent, previous)
+        const bounces = getSingleTrendSeries(bounced, previous)?.series[0]?.values ?? []
+        return (
+            sends && {
+                ...sends,
+                series: [{ name: delivered, values: estimateDeliveries(sends.series[0].values, bounces) }],
+            }
+        )
+    }
+    // PostHog test sender sends record their own metric names, so each card adds them in.
+    const transactionalSeries = (key: EmailMetric, previous = false): ReturnType<typeof getSingleTrendSeries> =>
+        sumSeries(
+            key === 'email_delivered'
+                ? DELIVERY_SENDERS.map((sender) => senderDelivered(sender, previous))
+                : [
+                      key,
+                      ...Object.keys(SANDBOX_EMAIL_METRICS).filter((name) => SANDBOX_EMAIL_METRICS[name] === key),
+                  ].map((name) => getSingleTrendSeries(name, previous)),
+            WORKFLOW_EMAIL_METRICS[key].name
+        )
+    const transactionalTrends =
+        transactional && appMetricsTrends
+            ? {
+                  ...appMetricsTrends,
+                  series: TRANSACTIONAL_METRIC_KEYS.flatMap((key) => transactionalSeries(key)?.series ?? []),
+              }
+            : null
 
     // Email and push don't share a funnel, so each channel gets its own table with the columns that
     // actually apply — email keeps the delivery→open→click funnel, push surfaces skipped/failed as
@@ -99,7 +156,9 @@ export function WorkflowMetricsSummary({
             {
                 title: 'Step',
                 key: 'step',
-                render: (_, row) => <span className="font-medium">{row.email}</span>,
+                render: (_, row) => (
+                    <span className={row.removed ? 'font-medium text-muted' : 'font-medium'}>{row.email}</span>
+                ),
             },
             { title: 'Sent', key: 'sent', align: 'right', render: (_, row) => row.sent.toLocaleString() },
             {
@@ -127,10 +186,8 @@ export function WorkflowMetricsSummary({
                 key: 'issues',
                 tooltip: ISSUE_RATES_TOOLTIP,
                 render: (_, row) => {
-                    // A prevented bounce, a missing recipient, or a frequency-capped send is skipped
-                    // before the provider sees it, so none is part of `sent` and their rates read
-                    // against everything the step attempted to send.
-                    const attempted = row.sent + row.bouncePrevented + row.missingRecipient + row.frequencyCapped
+                    const attempted =
+                        row.sent + row.bouncePrevented + row.missingRecipient + row.frequencyCapped + row.sandboxBlocked
                     const classifiedBounces = row.bouncedHard + row.bouncedSoft + row.bouncedUnknown
                     const bounceIssues: { label: string; value: number; metric: EmailMetricName }[] = [
                         { label: 'hard bounced', value: row.bouncedHard, metric: 'email_bounced_hard' },
@@ -148,7 +205,13 @@ export function WorkflowMetricsSummary({
                             metric: 'email_bounced',
                         },
                     ]
-                    const issues = [
+                    const allIssues: {
+                        label: string
+                        value: number
+                        total: number
+                        type: 'danger' | 'warning'
+                        metric: EmailMetricName
+                    }[] = [
                         ...bounceIssues.map((bounce) => ({
                             ...bounce,
                             total: row.sent,
@@ -158,47 +221,58 @@ export function WorkflowMetricsSummary({
                             label: 'marked as spam',
                             value: row.markedAsSpam,
                             total: row.sent,
-                            type: 'danger' as const,
-                            metric: 'email_blocked' as EmailMetric,
+                            type: 'danger',
+                            metric: 'email_blocked',
                         },
                         {
                             label: 'bounce prevented',
                             value: row.bouncePrevented,
                             total: attempted,
-                            type: 'warning' as const,
-                            metric: 'email_bounce_prevented' as EmailMetric,
+                            type: 'warning',
+                            metric: 'email_bounce_prevented',
                         },
                         {
                             label: 'no email address',
                             value: row.missingRecipient,
                             total: attempted,
-                            type: 'warning' as const,
-                            metric: 'email_missing_recipient' as EmailMetric,
+                            type: 'warning',
+                            metric: 'email_missing_recipient',
                         },
                         {
                             label: 'frequency capped',
                             value: row.frequencyCapped,
                             total: attempted,
-                            type: 'warning' as const,
-                            metric: 'message_frequency_capped' as EmailMetric,
+                            type: 'warning',
+                            metric: 'message_frequency_capped',
                         },
-                    ].filter((issue) => issue.value > 0)
+                        {
+                            label: 'blocked by PostHog test sender',
+                            value: row.sandboxBlocked,
+                            total: attempted,
+                            type: 'warning',
+                            metric: 'email_sandbox_blocked',
+                        },
+                    ]
+                    const issues = allIssues.filter((issue) => issue.value > 0)
                     if (issues.length === 0) {
                         return <span className="text-muted">—</span>
                     }
                     return (
                         <div className="flex flex-wrap gap-1">
-                            {issues.map((issue) => (
-                                <LemonTag
-                                    key={issue.label}
-                                    type={issue.type}
-                                    onClick={onMetricClick ? () => onMetricClick(issue.metric) : undefined}
-                                    forceClickable={!!onMetricClick}
-                                >
-                                    {issue.value.toLocaleString()} {issue.label}
-                                    {issue.total > 0 ? ` (${percentage(issue.value / issue.total, 1)})` : ''}
-                                </LemonTag>
-                            ))}
+                            {issues.map((issue) => {
+                                const canDrillDown = !!onMetricClick && !!EMAIL_METRIC_INVOCATION_FILTERS[issue.metric]
+                                return (
+                                    <LemonTag
+                                        key={issue.label}
+                                        type={issue.type}
+                                        onClick={canDrillDown ? () => onMetricClick(issue.metric) : undefined}
+                                        forceClickable={canDrillDown}
+                                    >
+                                        {issue.value.toLocaleString()} {issue.label}
+                                        {issue.total > 0 ? ` (${percentage(issue.value / issue.total, 1)})` : ''}
+                                    </LemonTag>
+                                )
+                            })}
                         </div>
                     )
                 },
@@ -209,7 +283,7 @@ export function WorkflowMetricsSummary({
                           title: '',
                           key: 'view',
                           align: 'right' as const,
-                          render: (_: unknown, row: EmailMetricRow) => viewMetricsColumn(row.id),
+                          render: (_: unknown, row: EmailMetricRow) => (row.removed ? null : viewMetricsColumn(row.id)),
                       },
                   ]
                 : []),
@@ -252,103 +326,100 @@ export function WorkflowMetricsSummary({
 
     return (
         <>
+            {messagingChannels.hasEmail ? <EmailMetricsIncidentBanner dateFrom={dateFrom} dateTo={dateTo} /> : null}
             <div className="flex flex-row gap-2 flex-wrap justify-center">
-                <div className="flex flex-1 flex-col relative border rounded p-3 bg-surface-primary min-w-[16rem]">
-                    <div className="flex flex-col h-full">
-                        <LemonLabel info={WORKFLOW_SUMMARY_METRICS.in_progress.description}>
-                            {WORKFLOW_SUMMARY_METRICS.in_progress.name}
-                        </LemonLabel>
-                        <div className="flex flex-1 items-center justify-center">
-                            {inProgressTotalLoading ? (
-                                <SpinnerOverlay />
-                            ) : inProgressTotal === 0 ? (
-                                <LemonLabel className="text-muted text-md mb-2">No workflows in progress</LemonLabel>
-                            ) : (
-                                <div className="text-6xl mb-2">{humanFriendlyNumber(inProgressTotal)}</div>
-                            )}
+                {transactional ? (
+                    TRANSACTIONAL_METRIC_KEYS.map((key) => {
+                        const metric = WORKFLOW_EMAIL_METRICS[key]
+                        return (
+                            <WorkflowMetricCard
+                                key={key}
+                                name={metric.name}
+                                description={metric.description}
+                                loading={appMetricsTrendsLoading}
+                                timeSeries={transactionalSeries(key)}
+                                previousPeriodTimeSeries={transactionalSeries(key, true)}
+                                color={metric.color}
+                                colorIfZero={getColorVar('muted')}
+                            />
+                        )
+                    })
+                ) : (
+                    <div className="flex flex-1 flex-col relative border rounded p-3 bg-surface-primary min-w-[16rem]">
+                        <div className="flex flex-col h-full">
+                            <LemonLabel info={WORKFLOW_SUMMARY_METRICS.in_progress.description}>
+                                {WORKFLOW_SUMMARY_METRICS.in_progress.name}
+                            </LemonLabel>
+                            <div className="flex flex-1 items-center justify-center">
+                                {inProgressTotalLoading ? (
+                                    <SpinnerOverlay />
+                                ) : inProgressTotal === 0 ? (
+                                    <LemonLabel className="text-muted text-md mb-2">
+                                        No workflows in progress
+                                    </LemonLabel>
+                                ) : (
+                                    <div className="text-6xl mb-2">{humanFriendlyNumber(inProgressTotal)}</div>
+                                )}
+                            </div>
                         </div>
                     </div>
-                </div>
-                {summaryMetricKeys.map((summaryMetric) => {
-                    if (summaryMetric === 'converted' && !hasConversionGoal) {
-                        return null
-                    }
-                    const metric = WORKFLOW_SUMMARY_METRICS[summaryMetric]
-                    const metricName = metricNameBySummaryMetric[summaryMetric]
-
-                    // The "sent" tile is channel-aware: email-only and push-only get their own label,
-                    // and a flow that sends both sums the two channels into one "Messages" total.
-                    const isSent = summaryMetric === 'persons_messaged'
-                    const { hasEmail, hasPush } = messagingChannels
-                    const name = isSent ? sentSummaryLabel : metric.name
-                    const description =
-                        isSent && hasEmail && hasPush
-                            ? 'Total number of messages (emails and push notifications) attempted to be sent by this workflow'
-                            : isSent && hasPush
-                              ? 'Total number of push notifications attempted to be sent by this workflow'
-                              : metric.description
-                    const sentSeries = (previous?: boolean): AppMetricsTimeSeriesResponse | null => {
-                        if (hasEmail && hasPush) {
-                            // Split the combined "Messages sent" tile into Emails + Push lines. The headline
-                            // number stays their sum (the metric card totals across series); the sparkline
-                            // and its tooltip break the total down by channel.
-                            const emailSeries = getSingleTrendSeries('email_sent', previous)
-                            const pushSeries = getSingleTrendSeries('push_sent', previous)
-                            const source = emailSeries ?? pushSeries
-                            if (!source) {
-                                return null
-                            }
-                            return {
-                                ...source,
-                                series: [
-                                    { name: 'Emails sent', values: emailSeries?.series[0]?.values ?? [] },
-                                    { name: 'Push notifications sent', values: pushSeries?.series[0]?.values ?? [] },
-                                ],
-                            }
+                )}
+                {!transactional &&
+                    summaryMetricKeys.map((summaryMetric) => {
+                        if (summaryMetric === 'converted' && !hasConversionGoal) {
+                            return null
                         }
-                        return withDisplayName(
-                            getSingleTrendSeries(hasPush ? 'push_sent' : 'email_sent', previous),
-                            name
+                        const metric = WORKFLOW_SUMMARY_METRICS[summaryMetric]
+                        const metricName = metricNameBySummaryMetric[summaryMetric]
+
+                        // The "sent" tile is channel-aware: email-only and push-only get their own label,
+                        // and a flow that sends both sums the two channels into one "Messages" total.
+                        const isSent = summaryMetric === 'persons_messaged'
+                        const { hasEmail, hasPush } = messagingChannels
+                        const name = isSent ? sentSummaryLabel : metric.name
+                        const description =
+                            isSent && hasEmail && hasPush
+                                ? 'Total number of messages (emails and push notifications) attempted to be sent by this workflow'
+                                : isSent && hasPush
+                                  ? 'Total number of push notifications attempted to be sent by this workflow'
+                                  : metric.description
+                        const timeSeries = isSent
+                            ? getSentSummarySeries()
+                            : summaryMetric === 'completed'
+                              ? withDisplayName(getCompletedSingleTrendSeries('succeeded'), name)
+                              : withDisplayName(getSingleTrendSeries(metricName), name)
+
+                        const previousPeriodTimeSeries = isSent
+                            ? getSentSummarySeries(true)
+                            : summaryMetric === 'completed'
+                              ? withDisplayName(getCompletedSingleTrendSeries('succeeded', true), name)
+                              : withDisplayName(getSingleTrendSeries(metricName, true), name)
+
+                        return (
+                            <WorkflowMetricCard
+                                key={summaryMetric}
+                                name={name}
+                                description={description}
+                                loading={loading}
+                                timeSeries={timeSeries}
+                                previousPeriodTimeSeries={previousPeriodTimeSeries}
+                                color={METRIC_COLORS[name] ?? metric.color}
+                                seriesColors={METRIC_COLORS}
+                                colorIfZero={getColorVar('muted')}
+                                footer={
+                                    summaryMetric === 'converted' &&
+                                    !conversionStatsLoading &&
+                                    conversionStats.conversions > 0 ? (
+                                        <Link to={convertedUsersUrl}>View converted users</Link>
+                                    ) : null
+                                }
+                            />
                         )
-                    }
-
-                    const timeSeries = isSent
-                        ? sentSeries()
-                        : summaryMetric === 'completed'
-                          ? withDisplayName(getCompletedSingleTrendSeries('succeeded'), name)
-                          : withDisplayName(getSingleTrendSeries(metricName), name)
-
-                    const previousPeriodTimeSeries = isSent
-                        ? sentSeries(true)
-                        : summaryMetric === 'completed'
-                          ? withDisplayName(getCompletedSingleTrendSeries('succeeded', true), name)
-                          : withDisplayName(getSingleTrendSeries(metricName, true), name)
-
-                    return (
-                        <WorkflowMetricCard
-                            key={summaryMetric}
-                            name={name}
-                            description={description}
-                            loading={loading}
-                            timeSeries={timeSeries}
-                            previousPeriodTimeSeries={previousPeriodTimeSeries}
-                            color={METRIC_COLORS[name] ?? metric.color}
-                            seriesColors={METRIC_COLORS}
-                            colorIfZero={getColorVar('muted')}
-                            footer={
-                                summaryMetric === 'converted' &&
-                                !conversionStatsLoading &&
-                                conversionStats.conversions > 0 ? (
-                                    <Link to={convertedUsersUrl}>View converted users</Link>
-                                ) : null
-                            }
-                        />
-                    )
-                })}
+                    })}
                 {hasConversionGoal && (
                     <div className="flex flex-1 flex-col relative border rounded p-3 bg-surface-primary min-w-[16rem]">
                         <div className="flex flex-col h-full">
-                            <LemonLabel info="Share of started workflow runs that recorded a conversion (Converted ÷ Started) over the selected date range.">
+                            <LemonLabel info="Share of workflow runs started in the selected date range that have converted so far. The rate for recent runs keeps rising until their conversion window closes. A date range that starts before November 13, 2026 counts the conversions that happened in the range.">
                                 Conversion rate
                             </LemonLabel>
                             <div className="flex flex-1 items-center justify-center">
@@ -362,11 +433,6 @@ export function WorkflowMetricsSummary({
                                     </div>
                                 )}
                             </div>
-                            {!conversionStatsLoading && conversionStats.conversions > 0 && (
-                                <Link to={convertedUsersUrl} className="text-xs text-center">
-                                    View converted users
-                                </Link>
-                            )}
                         </div>
                     </div>
                 )}
@@ -409,7 +475,12 @@ export function WorkflowMetricsSummary({
                 </div>
             ) : null}
 
-            <AppMetricsTrends appMetricsTrends={workflowSummaryTrends} loading={loading} seriesColors={METRIC_COLORS} />
+            <AppMetricsTrends
+                appMetricsTrends={transactional ? transactionalTrends : workflowSummaryTrends}
+                loading={transactional ? appMetricsTrendsLoading : loading}
+                seriesColors={METRIC_COLORS}
+                className={transactional ? 'h-96' : undefined}
+            />
         </>
     )
 }

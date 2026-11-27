@@ -7,6 +7,7 @@ from posthog.schema import (
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
     ExperimentMetricMathType,
+    ExperimentQuantileMetric,
     ExperimentRatioMetric,
     ExperimentRetentionMetric,
 )
@@ -23,13 +24,20 @@ from products.experiments.backend.hogql_queries.base_query_utils import (
     event_or_action_to_filter,
     get_source_value_expr,
 )
+from products.experiments.backend.hogql_queries.experiment_cuped_query_builder import extend_date_from_for_cuped
 from products.experiments.backend.hogql_queries.hogql_aggregation_utils import (
     aggregation_needs_numeric_input,
     build_aggregation_call,
     extract_aggregation_and_inner_expr,
 )
 
-ExperimentMetric = Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric, ExperimentRetentionMetric]
+ExperimentMetric = Union[
+    ExperimentMeanMetric,
+    ExperimentFunnelMetric,
+    ExperimentRatioMetric,
+    ExperimentRetentionMetric,
+    ExperimentQuantileMetric,
+]
 MetricSource = Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]
 
 
@@ -41,6 +49,14 @@ def get_conversion_window_seconds(metric: ExperimentMetric) -> int:
             metric.conversion_window_unit,
         )
     return 0
+
+
+def get_maturity_window_seconds(metric: ExperimentMetric) -> int:
+    """How long `only_count_matured_users` holds an entity back after the metric's anchor. Returns 0 when the metric
+    has no window. A retention metric can also carry a conversion window, which its maturity ignores."""
+    if isinstance(metric, ExperimentRetentionMetric):
+        return conversion_window_to_seconds(metric.retention_window_end, metric.retention_window_unit)
+    return get_conversion_window_seconds(metric)
 
 
 def build_conversion_window_predicate(conversion_window_seconds: int) -> ast.Expr:
@@ -105,15 +121,7 @@ def build_metric_predicate(
         timestamp_field_chain = [table_alias, "timestamp"]
         metric_event_filter = event_or_action_to_filter(team, source)
 
-    date_from = date_range_query.date_from_as_hogql()
-    if cuped_lookback_days is not None:
-        date_from = parse_expr(
-            "{date_from} - toIntervalDay({lookback_days})",
-            placeholders={
-                "date_from": date_from,
-                "lookback_days": ast.Constant(value=cuped_lookback_days),
-            },
-        )
+    date_from = extend_date_from_for_cuped(date_range_query.date_from_as_hogql(), cuped_lookback_days)
 
     return parse_expr(
         """

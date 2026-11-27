@@ -3,6 +3,21 @@
 HogQL recipes over `system.aeo_citation_checks`, one row per prompt x engine x run. Every
 query runs through `posthog:execute-sql`. All of them follow the three papercuts below.
 
+## Contents
+
+- [Papercuts](#papercuts)
+- [Citation rate per engine](#citation-rate-per-engine)
+- [Citation rate by topic](#citation-rate-by-topic)
+- [Daily citation rate per engine](#daily-citation-rate-per-engine)
+- [Top cited domains across the set, own domain marked](#top-cited-domains-across-the-set-own-domain-marked)
+- [Prompts answered but never cited in N days](#prompts-answered-but-never-cited-in-n-days)
+- [Latest result per prompt and engine](#latest-result-per-prompt-and-engine)
+- [Which of our pages get cited](#which-of-our-pages-get-cited)
+- [Searches the engines ran](#searches-the-engines-ran)
+- [Position when cited](#position-when-cited)
+- [Brand sentiment per engine](#brand-sentiment-per-engine)
+- [Runner health](#runner-health)
+
 ## Papercuts
 
 | Wrong                         | Right                                                                                       | Why                                                                             |
@@ -24,7 +39,7 @@ SELECT engine,
        countIf(check_failed = 1) AS failed,
        round(cited_checks / nullIf(answered, 0), 3) AS citation_rate
 FROM system.aeo_citation_checks
-WHERE created_at >= now() - INTERVAL 7 DAY
+WHERE created_at >= now() - INTERVAL 7 DAY AND mode = 'web_search'
 GROUP BY engine
 ORDER BY citation_rate
 ```
@@ -43,7 +58,7 @@ SELECT prompt_topic AS topic,
        countIf(cited = 1) AS cited_checks,
        round(cited_checks / nullIf(answered, 0), 3) AS citation_rate
 FROM system.aeo_citation_checks
-WHERE created_at >= now() - INTERVAL 7 DAY
+WHERE created_at >= now() - INTERVAL 7 DAY AND mode = 'web_search'
 GROUP BY topic
 ORDER BY citation_rate ASC, prompts DESC
 ```
@@ -61,7 +76,7 @@ SELECT toStartOfDay(created_at) AS day,
        countIf(check_failed = 1) AS failed,
        round(cited_checks / nullIf(answered, 0), 3) AS citation_rate
 FROM system.aeo_citation_checks
-WHERE created_at >= now() - INTERVAL 30 DAY
+WHERE created_at >= now() - INTERVAL 30 DAY AND mode = 'web_search'
 GROUP BY day, engine
 ORDER BY day, engine
 ```
@@ -84,7 +99,7 @@ FROM (
            arrayJoin(arrayMap(x -> JSONExtractString(x), JSONExtractArrayRaw(toString(top_cited_domains)))) AS cited_domain,
            has(arrayMap(u -> domain(JSONExtractString(u)), JSONExtractArrayRaw(toString(target_urls))), cited_domain) AS is_ours
     FROM system.aeo_citation_checks
-    WHERE created_at >= now() - INTERVAL 7 DAY
+    WHERE created_at >= now() - INTERVAL 7 DAY AND mode = 'web_search'
       AND check_failed = 0
 )
 GROUP BY cited_domain
@@ -107,7 +122,7 @@ SELECT prompt_id,
        uniqExactIf(engine, check_failed = 0) AS engines_answered,
        max(created_at) AS last_checked
 FROM system.aeo_citation_checks
-WHERE created_at >= now() - INTERVAL 14 DAY
+WHERE created_at >= now() - INTERVAL 14 DAY AND mode = 'web_search'
 GROUP BY prompt_id
 HAVING answered > 0 AND countIf(cited = 1) = 0
 ORDER BY answered DESC, last_checked DESC
@@ -130,7 +145,7 @@ SELECT prompt_id,
        target_best_position AS latest_position,
        created_at AS last_checked
 FROM system.aeo_citation_checks
-WHERE created_at >= now() - INTERVAL 7 DAY
+WHERE created_at >= now() - INTERVAL 7 DAY AND mode = 'web_search'
 ORDER BY prompt_id, engine, created_at DESC
 LIMIT 1 BY prompt_id, engine
 ```
@@ -153,7 +168,7 @@ FROM (
            engine,
            arrayJoin(arrayMap(x -> JSONExtractString(x), JSONExtractArrayRaw(toString(target_urls)))) AS url
     FROM system.aeo_citation_checks
-    WHERE created_at >= now() - INTERVAL 30 DAY
+    WHERE created_at >= now() - INTERVAL 30 DAY AND mode = 'web_search'
       AND cited = 1
 )
 GROUP BY url
@@ -177,7 +192,7 @@ FROM (
            engine,
            arrayJoin(arrayMap(x -> JSONExtractString(x), JSONExtractArrayRaw(toString(search_queries)))) AS q
     FROM system.aeo_citation_checks
-    WHERE created_at >= now() - INTERVAL 30 DAY
+    WHERE created_at >= now() - INTERVAL 30 DAY AND mode = 'web_search'
       AND check_failed = 0
 )
 GROUP BY search_query
@@ -196,7 +211,7 @@ SELECT engine,
        round(avgIf(target_best_position, cited = 1), 2) AS avg_best_position,
        countIf(cited = 1 AND target_best_position = 1) AS cited_first
 FROM system.aeo_citation_checks
-WHERE created_at >= now() - INTERVAL 30 DAY
+WHERE created_at >= now() - INTERVAL 30 DAY AND mode = 'web_search'
 GROUP BY engine
 ```
 
@@ -207,7 +222,7 @@ SELECT engine,
        brand_sentiment,
        count() AS answers
 FROM system.aeo_citation_checks
-WHERE created_at >= now() - INTERVAL 30 DAY
+WHERE created_at >= now() - INTERVAL 30 DAY AND mode = 'web_search'
   AND check_failed = 0
   AND brand_sentiment IS NOT NULL
 GROUP BY engine, brand_sentiment
@@ -226,7 +241,7 @@ SELECT toStartOfDay(created_at) AS day,
        countIf(check_failed = 1) AS failed,
        anyIf(error, check_failed = 1) AS sample_error
 FROM system.aeo_citation_checks
-WHERE created_at >= now() - INTERVAL 14 DAY
+WHERE created_at >= now() - INTERVAL 14 DAY AND mode = 'web_search'
 GROUP BY day, engine
 ORDER BY day DESC, engine
 ```

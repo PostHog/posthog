@@ -114,10 +114,11 @@ export function checkFeatureFlagConfirmation(
     dependentFlags?: DependentFlag[],
     isBeingDisabled?: boolean,
     requireStatusConfirmation = false,
-    onDisableAndArchive?: () => void
+    onDisableAndArchive?: () => void,
+    releasesToEveryone = false
 ): boolean {
     // Check if confirmation is needed
-    const needsConfirmation = !!updatedFlag.id && shouldDisplayConfirmation
+    const needsConfirmation = !!updatedFlag.id && (shouldDisplayConfirmation || releasesToEveryone)
 
     if (needsConfirmation) {
         const changes = detectFeatureFlagChanges(originalFlag, updatedFlag)
@@ -132,6 +133,7 @@ export function checkFeatureFlagConfirmation(
                 dependentFlags: dependentFlags,
                 isBeingDisabled: isBeingDisabled,
                 featureFlagConfirmationEnabled: featureFlagConfirmationEnabled,
+                releasesToEveryone: releasesToEveryone,
                 onConfirm: onConfirm,
             })
             return true // Confirmation modal shown, don't proceed with save

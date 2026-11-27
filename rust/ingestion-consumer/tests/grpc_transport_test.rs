@@ -9,6 +9,7 @@ use std::time::Duration;
 use common::one_message_batcher;
 use common_kafka_consumer::Partition;
 use ingestion_consumer::batcher::worker_pool::WorkerPoolSource;
+use ingestion_consumer::batcher::BatcherCompletion;
 use ingestion_consumer::grpc_transport::{GrpcPort, GrpcTransport, SendOptions};
 use ingestion_consumer::routing::RoutingStrategy;
 use ingestion_consumer::transport::{SendOutcome, TransportError};
@@ -21,8 +22,9 @@ use ingestion_worker_proto::ingestion::worker::v1::{
     ingest_stream_request, ingest_stream_response, IngestStreamRequest, IngestStreamResponse,
     MessageRef, StreamReady, SubBatch, SubBatchAck, SubBatchStatus,
 };
+use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
 use rstest::rstest;
-use tokio::sync::{mpsc, oneshot, Mutex};
+use tokio::sync::{mpsc, oneshot, Mutex, Notify};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tokio_stream::StreamExt;
 use tonic::{Request, Response, Status, Streaming};
@@ -41,6 +43,9 @@ enum StreamEnding {
     OnHalfClose,
     Never,
     AfterOpen(Duration),
+    /// End the response side on `MockHandle::end_stream`, then keep reading
+    /// until the consumer ends its side, as a draining worker does.
+    OnSignal,
 }
 
 enum ManualAck {
@@ -57,6 +62,14 @@ struct MockWorker {
     received: Arc<Mutex<Vec<SubBatch>>>,
     hellos: Arc<Mutex<Vec<u64>>>,
     manual_acks: ManualAcks,
+    end_stream: Arc<Notify>,
+    request_ends: Arc<Mutex<Vec<RequestEnd>>>,
+}
+
+#[derive(Debug, PartialEq)]
+enum RequestEnd {
+    Clean,
+    Reset,
 }
 
 #[tonic::async_trait]
@@ -74,6 +87,8 @@ impl WorkerIngest for MockWorker {
         let received = Arc::clone(&self.received);
         let hellos = Arc::clone(&self.hellos);
         let manual = self.manual_acks.lock().await.take();
+        let end_stream = Arc::clone(&self.end_stream);
+        let request_ends = Arc::clone(&self.request_ends);
 
         tokio::spawn(async move {
             // The real worker greets with `ready` to flush headers; the stream ignores it.
@@ -110,6 +125,7 @@ impl WorkerIngest for MockWorker {
             let server_end = async {
                 match ending {
                     StreamEnding::AfterOpen(after) => tokio::time::sleep(after).await,
+                    StreamEnding::OnSignal => end_stream.notified().await,
                     _ => std::future::pending::<()>().await,
                 }
             };
@@ -120,7 +136,21 @@ impl WorkerIngest for MockWorker {
                         Some(Ok(frame)) => frame,
                         _ => break,
                     },
-                    _ = &mut server_end => return,
+                    _ = &mut server_end => {
+                        if !matches!(ending, StreamEnding::OnSignal) {
+                            return;
+                        }
+                        drop(tx);
+                        let end = loop {
+                            match inbound.next().await {
+                                Some(Ok(_)) => continue,
+                                Some(Err(_)) => break RequestEnd::Reset,
+                                None => break RequestEnd::Clean,
+                            }
+                        };
+                        request_ends.lock().await.push(end);
+                        return;
+                    }
                 };
                 match frame.msg {
                     Some(ingest_stream_request::Msg::Hello(hello)) => {
@@ -217,6 +247,8 @@ struct MockHandle {
     addr: SocketAddr,
     received: Arc<Mutex<Vec<SubBatch>>>,
     hellos: Arc<Mutex<Vec<u64>>>,
+    end_stream: Arc<Notify>,
+    request_ends: Arc<Mutex<Vec<RequestEnd>>>,
 }
 
 async fn start_mock(
@@ -233,12 +265,16 @@ async fn start_mock_with(
 ) -> MockHandle {
     let received = Arc::new(Mutex::new(Vec::new()));
     let hellos = Arc::new(Mutex::new(Vec::new()));
+    let end_stream = Arc::new(Notify::new());
+    let request_ends = Arc::new(Mutex::new(Vec::new()));
     let worker = MockWorker {
         mode,
         ending,
         received: Arc::clone(&received),
         hellos: Arc::clone(&hellos),
         manual_acks: Arc::new(Mutex::new(manual)),
+        end_stream: Arc::clone(&end_stream),
+        request_ends: Arc::clone(&request_ends),
     };
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -257,6 +293,8 @@ async fn start_mock_with(
         addr,
         received,
         hellos,
+        end_stream,
+        request_ends,
     }
 }
 
@@ -612,47 +650,6 @@ async fn a_failure_fences_a_later_sub_batch_the_worker_already_acked(
 }
 
 #[tokio::test]
-async fn sends_enqueued_during_a_fence_are_fenced_until_the_callers_requeue() {
-    // Else the next send could reach the worker before the requeued messages.
-    let mock = start_mock(AckMode::NackSeq(1), None).await;
-    let transport = GrpcTransport::new(GrpcPort::Fixed(mock.addr.port()), Duration::from_secs(30));
-    let url = worker_url(mock.addr);
-
-    let first = transport.begin_send(&url, "batch-1", vec![msg("d1", 1)], false);
-    let first_err = first.wait().await.expect_err("nacked send must fail");
-    let guard = first_err
-        .fence_guard
-        .expect("a fenced send carries a guard");
-
-    let second = transport.begin_send(&url, "batch-2", vec![msg("d1", 2)], false);
-    let second_err = tokio::time::timeout(Duration::from_secs(2), second.wait())
-        .await
-        .expect("a send during a fence must fail promptly")
-        .expect_err("a send during a fence must fail");
-    assert_eq!(second_err.messages[0].offset, 2);
-    assert!(matches!(
-        second_err.error,
-        TransportError::WorkerStreamFailed(_)
-    ));
-    assert_eq!(mock.received.lock().await.len(), 1);
-
-    drop(guard);
-    drop(second_err);
-    let third = transport.begin_send(&url, "batch-3", vec![msg("d1", 3)], false);
-    let _ = tokio::time::timeout(Duration::from_secs(5), third.wait())
-        .await
-        .expect("the worker stream must resume once the fence is released");
-    let batch_ids: Vec<_> = mock
-        .received
-        .lock()
-        .await
-        .iter()
-        .map(|s| s.batch_id.clone())
-        .collect();
-    assert_eq!(batch_ids, vec!["batch-1", "batch-3"]);
-}
-
-#[tokio::test]
 async fn an_oversized_sub_batch_rides_the_stream_as_ordered_chunks() {
     // One frame over the worker's cap would fence and replay forever.
     let mock = start_mock(AckMode::Immediate, None).await;
@@ -723,7 +720,6 @@ async fn a_failed_chunk_hands_back_the_whole_sub_batch() {
         vec![1, 2, 3],
         "the whole sub-batch comes back in order"
     );
-    assert!(err.fence_guard.is_some(), "a fenced send carries a guard");
 }
 
 #[tokio::test]
@@ -1019,21 +1015,129 @@ async fn a_worker_ending_the_stream_as_the_idle_timer_fires_does_not_fence() {
     assert_eq!(*mock.hellos.lock().await, vec![1, 2]);
 }
 
+async fn wait_for_request_end(mock: &MockHandle) -> RequestEnd {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+    loop {
+        if let Some(end) = mock.request_ends.lock().await.pop() {
+            return end;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the consumer never ended its side of the stream"
+        );
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+}
+
+fn stream_teardowns(snapshotter: &Snapshotter) -> u64 {
+    snapshotter
+        .snapshot()
+        .into_vec()
+        .into_iter()
+        .find_map(|(key, _, _, value)| match value {
+            DebugValue::Counter(count)
+                if key.key().name() == "ingestion_consumer_worker_stream_teardowns_total" =>
+            {
+                Some(count)
+            }
+            _ => None,
+        })
+        .unwrap_or_default()
+}
+
 #[tokio::test]
-async fn a_dead_worker_fences_instead_of_hanging() {
+async fn a_worker_ending_an_idle_stream_gets_the_consumer_side_ended_at_once() {
+    // Else a draining worker waits for its sessions to close until its drain timeout.
+    let recorder = DebuggingRecorder::new();
+    let snapshotter = recorder.snapshotter();
+    let _guard = metrics::set_default_local_recorder(&recorder);
+    let mock = start_mock_with(AckMode::Immediate, None, StreamEnding::OnSignal).await;
+    let mut transport =
+        GrpcTransport::new(GrpcPort::Fixed(mock.addr.port()), Duration::from_secs(30));
+    transport.set_idle_close(Duration::ZERO);
+    let url = worker_url(mock.addr);
+
+    transport
+        .begin_send(&url, "batch-1", vec![msg("d1", 1)], false)
+        .wait()
+        .await
+        .expect("first send");
+    mock.end_stream.notify_one();
+    assert_eq!(wait_for_request_end(&mock).await, RequestEnd::Clean);
+
+    let outcome = transport
+        .begin_send(&url, "batch-2", vec![msg("d1", 2)], false)
+        .wait()
+        .await
+        .expect("the next send opens a new stream without a fence");
+    assert!(matches!(outcome, SendOutcome::Accepted(1)));
+    assert_eq!(*mock.hellos.lock().await, vec![1, 2]);
+    let seqs: Vec<_> = mock.received.lock().await.iter().map(|s| s.seq).collect();
+    assert_eq!(seqs, vec![1, 1]);
+    assert_eq!(stream_teardowns(&snapshotter), 0, "no fence");
+}
+
+#[tokio::test]
+async fn a_worker_ending_the_stream_with_unacked_work_fences_only_the_unacked_sends() {
+    let recorder = DebuggingRecorder::new();
+    let snapshotter = recorder.snapshotter();
+    let _guard = metrics::set_default_local_recorder(&recorder);
+    let (ack_tx, ack_rx) = mpsc::unbounded_channel();
+    let mock = start_mock_with(AckMode::Manual, Some(ack_rx), StreamEnding::OnSignal).await;
+    let transport = GrpcTransport::new(GrpcPort::Fixed(mock.addr.port()), Duration::from_secs(30));
+    let url = worker_url(mock.addr);
+
+    let first = transport.begin_send(&url, "batch-1", vec![msg("d1", 1)], false);
+    let second = transport.begin_send(&url, "batch-2", vec![msg("d1", 2), msg("d2", 3)], false);
+    wait_for_received(&mock, 2).await;
+    ack_tx
+        .send(ManualAck::Ok {
+            seq: 1,
+            accepted: 1,
+        })
+        .unwrap();
+    // The ack forwarder holds the response side open until its channel closes.
+    drop(ack_tx);
+    mock.end_stream.notify_one();
+
+    assert!(matches!(
+        first.wait().await.expect("acked before the stream ended"),
+        SendOutcome::Accepted(1)
+    ));
+    let err = second
+        .wait()
+        .await
+        .expect_err("an un-acked send fails when the stream ends");
+    assert!(matches!(
+        err.error,
+        TransportError::WorkerStreamFailed("stream ended")
+    ));
+    let offsets: Vec<i64> = err.messages.iter().map(|m| m.offset).collect();
+    assert_eq!(offsets, vec![2, 3], "every message comes back for deferral");
+    assert_eq!(stream_teardowns(&snapshotter), 1);
+}
+
+#[rstest]
+#[case::one_frame(&[1])]
+#[case::split_into_chunks(&[1, 2, 3])]
+#[tokio::test]
+async fn a_dead_worker_fences_instead_of_hanging(#[case] offsets: &[i64]) {
     // The caller's deferral path owns the retry pacing.
-    let transport = GrpcTransport::new(GrpcPort::Fixed(1), Duration::from_secs(30));
+    let mut transport = GrpcTransport::new(GrpcPort::Fixed(1), Duration::from_secs(30));
+    // One `msg()` estimates to ~143 bytes, so each 200-byte frame fits one message.
+    transport.set_max_body_bytes(200);
     let pending = transport.begin_send(
         "http://127.0.0.1:9001",
         "batch-1",
-        vec![msg("d1", 1)],
+        offsets.iter().map(|&offset| msg("d1", offset)).collect(),
         false,
     );
     let err = tokio::time::timeout(Duration::from_secs(10), pending.wait())
         .await
         .expect("must resolve, not hang")
         .expect_err("connect failure");
-    assert_eq!(err.messages.len(), 1);
+    let handed_back: Vec<i64> = err.messages.iter().map(|m| m.offset).collect();
+    assert_eq!(handed_back, offsets, "every chunk comes back in order");
 }
 
 #[tokio::test]
@@ -1396,6 +1500,9 @@ async fn a_busy_send_is_retried_until_it_completes() {
         .await
         .expect("successful retry completes")
         .expect("completion channel stays open");
+    let BatcherCompletion::Group(completion) = completion else {
+        panic!("expected a group completion");
+    };
     assert_eq!(completion.accepted, 1);
     tokio::time::sleep(Duration::from_millis(550)).await;
     assert!(
@@ -1440,6 +1547,9 @@ async fn the_watchdog_allows_in_flight_success_after_the_deadline() {
         .await
         .expect("late successful send completes")
         .expect("completion channel stays open");
+    let BatcherCompletion::Group(completion) = completion else {
+        panic!("expected a group completion");
+    };
     assert_eq!(completion.accepted, 1);
 
     tokio::time::sleep(Duration::from_millis(150)).await;

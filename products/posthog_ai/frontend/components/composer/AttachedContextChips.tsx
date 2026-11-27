@@ -7,9 +7,7 @@ import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 import { EmailPreviewThumbnail } from 'lib/components/EmailPreviewThumbnail/EmailPreviewThumbnail'
 import { IconAction, IconEvent } from 'lib/lemon-ui/icons'
 
-import { attachedContextLogic } from '../../logics/attachedContextLogic'
-import { contextPickerLogic } from '../../logics/contextPickerLogic'
-import { type AttachedContextItem, attachedContextItemKey } from '../../types/contextTypes'
+import { chatContextLogic } from '../../logics/chatContextLogic'
 
 function iconForType(type: string): JSX.Element {
     switch (type) {
@@ -28,16 +26,6 @@ function iconForType(type: string): JSX.Element {
         default:
             return <IconAtSign />
     }
-}
-
-function labelForItem(item: AttachedContextItem): string {
-    if (item.label) {
-        return item.label
-    }
-    if (item.type === 'text') {
-        return item.value ?? 'Text'
-    }
-    return `${item.type} ${item.key ?? ''}`.trim()
 }
 
 interface AttachmentPreviewProps {
@@ -73,34 +61,21 @@ function AttachmentPreview({ label, html, onRemove }: AttachmentPreviewProps): J
 
 export interface AttachedContextChipsProps {
     leading?: ReactNode
+    taskId?: string
 }
 
 /**
- * Removable chips for everything in `attachedContextLogic.contextItems`: picked items and
- * auto-registered providers (e.g. the scene bridge) alike. Closing a dismissible picked chip removes it
- * from the picker; closing any other dismissible provider's chip dismisses its key, which sticks even
- * when the provider re-registers the item. Providers can keep mandatory context visible with
+ * Removable chips for what `chatContextLogic` says is in this chat. Closing one removes a pick, dismisses a provider's
+ * item from a new chat, or takes the chip off a started chat. Providers can keep mandatory context visible with
  * `dismissible: false`. An item with `previewHtml` shows as a thumbnail in a row above the chips.
  * Renders nothing when there is neither context nor a `leading` slot.
  */
-export function AttachedContextChips({ leading }: AttachedContextChipsProps): JSX.Element | null {
-    const { contextItems } = useValues(attachedContextLogic)
-    const { dismissContext } = useActions(attachedContextLogic)
-    const { pickedKeys } = useValues(contextPickerLogic)
-    const { removePickedItem } = useActions(contextPickerLogic)
+export function AttachedContextChips({ leading, taskId }: AttachedContextChipsProps): JSX.Element | null {
+    const logic = chatContextLogic({ taskId })
+    const { chips, attachments } = useValues(logic)
+    const { removeChip } = useActions(logic)
 
-    const visibleItems = contextItems.filter((item) => !item.hidden)
-    const attachments = visibleItems.filter((item) => item.previewHtml)
-    const chips = visibleItems.filter((item) => !item.previewHtml)
-    const removeItem = (item: AttachedContextItem): (() => void) | undefined => {
-        if (item.dismissible === false) {
-            return undefined
-        }
-        const key = attachedContextItemKey(item)
-        return () => (pickedKeys.has(key) ? removePickedItem(key) : dismissContext(key, item.dismissGroup))
-    }
-
-    if (visibleItems.length === 0 && !leading) {
+    if (chips.length === 0 && attachments.length === 0 && !leading) {
         return null
     }
 
@@ -108,12 +83,12 @@ export function AttachedContextChips({ leading }: AttachedContextChipsProps): JS
         <div className="flex flex-col gap-2 min-w-0">
             {attachments.length > 0 && (
                 <div className="flex gap-2 overflow-x-auto" data-attr="posthog-ai-context-attachments">
-                    {attachments.map((item) => (
+                    {attachments.map(({ chip, previewHtml }) => (
                         <AttachmentPreview
-                            key={attachedContextItemKey(item)}
-                            label={labelForItem(item)}
-                            html={item.previewHtml!}
-                            onRemove={removeItem(item)}
+                            key={chip.id}
+                            label={chip.label}
+                            html={previewHtml}
+                            onRemove={chip.dismissible === false ? undefined : () => removeChip(chip)}
                         />
                     ))}
                 </div>
@@ -121,20 +96,18 @@ export function AttachedContextChips({ leading }: AttachedContextChipsProps): JS
             {(leading || chips.length > 0) && (
                 <div className="flex flex-wrap items-center gap-1 min-w-0">
                     {leading}
-                    {chips.map((item) => {
-                        const key = attachedContextItemKey(item)
-                        const label = labelForItem(item)
-                        const onRemove = removeItem(item)
+                    {chips.map((chip) => {
+                        const removable = chip.dismissible !== false
                         return (
-                            <Tooltip key={key} title={label}>
+                            <Tooltip key={chip.id} title={chip.label}>
                                 <LemonTag
-                                    icon={iconForType(item.type)}
-                                    onClose={onRemove}
-                                    closable={!!onRemove}
-                                    closeOnClick={!!onRemove}
+                                    icon={iconForType(chip.type)}
+                                    onClose={removable ? () => removeChip(chip) : undefined}
+                                    closable={removable}
+                                    closeOnClick={removable}
                                     className="flex items-center text-secondary max-w-48"
                                 >
-                                    <span className="truncate min-w-0 flex-1">{label}</span>
+                                    <span className="truncate min-w-0 flex-1">{chip.label}</span>
                                 </LemonTag>
                             </Tooltip>
                         )

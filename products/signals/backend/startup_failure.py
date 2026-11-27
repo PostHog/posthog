@@ -70,6 +70,9 @@ def startup_failure_message(failure: AgentStartupFailure) -> str:
         "org_pin_mismatch": "The agent's organization settings do not match its credentials.",
         "cli_version_too_old": "The agent requires a newer provider runtime.",
         "bypass_root": "The provider rejected the agent's permission configuration.",
+        "sandbox_required_unavailable": "The repository's Claude Code settings require a sandbox that is not available in this environment.",
+        "provider_not_allowed": "The agent's managed settings do not allow the configured provider.",
+        "org_config_refused": "The provider refused the organization's configuration for this sign-in.",
     }
     explanation = explanations.get(failure.reason or "") if failure.provider == "claude" else None
     if explanation and failure.retryability == "requires_action":
@@ -89,9 +92,11 @@ def report_startup_failure(failure: ResearchStartupFailure) -> dict[str, object]
 class ProjectOrganizationAdminRecipients(RecipientsResolver):
     def resolve(self, target_type: TargetType, target_id: str, team_id: int | None) -> list[int]:
         team = Team.objects.get(id=team_id)
-        admins = OrganizationMembership.objects.filter(
-            organization_id=team.organization_id, level__gte=OrganizationMembership.Level.ADMIN
-        ).values_list("user_id", flat=True)
+        admins = (
+            OrganizationMembership.objects.with_effective_level()
+            .filter(organization_id=team.organization_id, resolved_level__gte=OrganizationMembership.Level.ADMIN)
+            .values_list("user_id", flat=True)
+        )
         return list(team.all_users_with_access().filter(id__in=admins).values_list("id", flat=True))
 
 

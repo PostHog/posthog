@@ -181,7 +181,8 @@ describe('MetricsViewer', () => {
             </Provider>
         )
 
-        fireEvent.click(screen.getByText('Add to dashboard'))
+        fireEvent.click(screen.getByText('Save'))
+        fireEvent.click(await screen.findByText('Add to dashboard'))
 
         fireEvent.click(await screen.findByText('Add to a new dashboard'))
 

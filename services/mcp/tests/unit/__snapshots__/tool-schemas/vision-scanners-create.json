@@ -1,6 +1,5 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "description": "A Replay Vision scanner: its type, targeting query, and AI configuration.",
     "properties": {
         "creation_method": {
             "anyOf": [
@@ -77,7 +76,7 @@
             "description": "The experiment this scanner's targeting watches, if any. Set null when the experiment targeting is removed."
         },
         "free_only": {
-            "description": "Run only while the organization has free credits left this billing period, so the scanner never adds spend.",
+            "description": "Run only while the organization has free credits left this billing period, so the scanner never adds spend. When they run out it turns off with `disabled_reason` `free_credits_used`.",
             "type": "boolean"
         },
         "goal": {
@@ -108,12 +107,129 @@
             "type": "string"
         },
         "query": {
-            "description": "Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user."
-        },
-        "sampling_mode": {
-            "description": "Quality pre-filter applied before random sampling. focused = top sessions only, balanced = drops the lowest-quality, comprehensive = no filter (default).\n\n* `focused` - Focused\n* `balanced` - Balanced\n* `comprehensive` - Comprehensive",
-            "enum": ["focused", "balanced", "comprehensive"],
-            "type": "string"
+            "additionalProperties": {},
+            "description": "Which recordings the scanner watches, as a `RecordingsQuery`. Omit every filter to watch every new recording. The date range is ignored, because the schedule controls time.",
+            "properties": {
+                "actions": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "additionalProperties": {},
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Saved actions a recording must contain, such as `{\"id\": 12, \"type\": \"actions\", \"order\": 0}`."
+                },
+                "console_log_filters": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "additionalProperties": {},
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Console log filters, such as `{\"type\": \"log_entry\", \"key\": \"level\", \"value\": [\"error\"], \"operator\": \"exact\"}`."
+                },
+                "events": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "additionalProperties": {},
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Events a recording must contain, such as `{\"id\": \"$pageview\", \"type\": \"events\", \"order\": 0}`. Each can carry `properties` that filter that event."
+                },
+                "filter_test_accounts": {
+                    "anyOf": [
+                        {
+                            "type": "boolean"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Leave out recordings from internal and test accounts."
+                },
+                "having_predicates": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "additionalProperties": {},
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Duration filters, such as `{\"type\": \"recording\", \"key\": \"active_seconds\", \"value\": 60, \"operator\": \"gt\"}`. These always apply with AND, whatever `operand` says."
+                },
+                "kind": {
+                    "const": "RecordingsQuery",
+                    "default": "RecordingsQuery",
+                    "type": "string"
+                },
+                "operand": {
+                    "anyOf": [
+                        {
+                            "enum": ["AND", "OR"],
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "How `events`, `actions`, `properties` and `console_log_filters` combine. `AND`, the default when omitted, keeps recordings that match every condition. `OR` keeps recordings that match any one. An explicit `null` is read as `OR`. `having_predicates` and `filter_test_accounts` always apply with AND."
+                },
+                "properties": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "additionalProperties": {},
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Recording, session, person and cohort filters, such as `{\"type\": \"recording\", \"key\": \"visited_page\", \"value\": \"/checkout\", \"operator\": \"icontains\"}` or `{\"type\": \"cohort\", \"key\": \"id\", \"value\": 7, \"operator\": \"in\"}`."
+                }
+            },
+            "type": "object"
         },
         "sampling_rate": {
             "description": "0..1 random downsample applied after the query matches. Defaults to 1.0 (no downsampling). Use exactly 0 to pause scanning; non-zero rates below 0.0001 (0.01%) are rejected as below the sampling precision.",
@@ -129,6 +245,56 @@
             "enum": ["monitor", "classifier", "scorer", "summarizer", "experiment"],
             "type": "string"
         },
+        "scope": {
+            "anyOf": [
+                {
+                    "description": "An experiment scope: the sessions of people exposed to an experiment, labeled by variant.",
+                    "properties": {
+                        "balance": {
+                            "description": "Whether the budget is spent about evenly across the watched variants. False samples them proportionally to the experiment's rollout. Defaults to true.",
+                            "type": "boolean"
+                        },
+                        "experiment_id": {
+                            "description": "The experiment whose exposed sessions the scanner watches.",
+                            "minimum": 1,
+                            "type": "number"
+                        },
+                        "kind": {
+                            "description": "The kind of scope. Only `experiment` exists today.\n\n* `experiment` - Experiment",
+                            "enum": ["experiment"],
+                            "type": "string"
+                        },
+                        "start_on_launch": {
+                            "description": "Whether a scanner saved off against a draft experiment turns itself on when that experiment launches. Cleared once it starts. Defaults to false.",
+                            "type": "boolean"
+                        },
+                        "variants": {
+                            "description": "Every variant the scanner watches, named explicitly, with no repeats. Read them from the experiment first, because a variant added to the experiment later is not watched until it is added here. Absent only on a scope carried over from the older targeting shapes, which watches every variant.",
+                            "items": {
+                                "maxLength": 400,
+                                "type": "string"
+                            },
+                            "maxItems": 128,
+                            "type": "array"
+                        },
+                        "variants_source": {
+                            "description": "Whether `variants` was the experiment's full variant set when the scanner was made, or a subset someone picked. The launch receiver adds new variants only to the first.\n\n* `all_at_creation` - Every variant the experiment had when the scanner was made\n* `user` - A subset someone picked",
+                            "enum": ["all_at_creation", "user"],
+                            "type": "string"
+                        }
+                    },
+                    "required": ["kind", "experiment_id"],
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Which sessions the scanner watches beyond its filters, and the label it gives each one. Null watches every session the filters match. Set null to remove the scope."
+        },
         "tags": {
             "description": "Organizational tags for this scanner. Distinct from a classifier's categories in scanner_config. Tags cannot contain commas.",
             "items": {
@@ -137,6 +303,10 @@
             },
             "maxItems": 32,
             "type": "array"
+        },
+        "take_over_as_creator": {
+            "description": "Set with `enabled: true` to turn on a scanner whose creator can no longer view recordings. The caller becomes the scanner's creator, and scheduled scans then run as the caller. Without it, that request fails with code `scanner_creator_lost_access`.",
+            "type": "boolean"
         }
     },
     "required": ["name", "scanner_type", "scanner_config", "model"],

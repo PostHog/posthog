@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from typing import Any
 from uuid import UUID
 
 from django.db import transaction
@@ -434,7 +435,7 @@ class ReviewerRules:
         reviewers = SuggestedReviewers(root=list(proposed))
         if current is not None and edit is None and proposal is not None and proposal.source == "research":
             # Research can rephrase its evidence without changing the selection.
-            comparison_exclusions = {
+            comparison_exclusions: dict[str, Any] = {
                 "__all__": {"reason": True, "github_name": True, "relevant_commits": {"__all__": {"reason"}}}
             }
             previous = SuggestedReviewers(root=list(snapshot.reviewers))

@@ -3,13 +3,16 @@ from posthog.test.base import APIBaseTest
 from django.core.cache import cache
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import Organization, User
+from posthog.constants import AvailableFeature
+from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_invite import OrganizationInvite
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
 
 
@@ -39,17 +42,31 @@ class TestWelcomeEndpoint(APIBaseTest):
         # Always falls back to at least one suggested step.
         self.assertGreaterEqual(len(data["suggested_next_steps"]), 1)
 
-    def test_inviter_returned_from_invited_by_on_membership(self):
-        """Primary inviter path: persisted on the membership when the invite was accepted."""
-        founder = User.objects.create_and_join(self.organization, "founder@example.com", None, "Founder")
+    @parameterized.expand(
+        [
+            ("different_first_name", "Founder", "", "Alex", "", "Founder"),
+            ("no_first_name_uses_email_local_part", "", "", "Alex", "", "founder"),
+            ("same_first_name_uses_full_name", "Alex", "Lee", "alex", "Kim", "Alex Lee"),
+            ("same_full_name_uses_email", "Alex", "Lee", "Alex", "Lee", "founder@example.com"),
+            ("same_first_name_no_last_name_uses_email", "Alex", "", "Alex", "", "founder@example.com"),
+        ]
+    )
+    def test_inviter_returned_from_invited_by_on_membership(
+        self, _name, inviter_first, inviter_last, invitee_first, invitee_last, expected_name
+    ):
+        founder = User.objects.create_and_join(
+            self.organization, "founder@example.com", None, inviter_first, last_name=inviter_last
+        )
+        self.user.first_name = invitee_first
+        self.user.last_name = invitee_last
+        self.user.save(update_fields=["first_name", "last_name"])
         membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
         membership.invited_by = founder
         membership.save(update_fields=["invited_by"])
 
         response = self.client.get("/api/organizations/@current/welcome/current/")
         data = response.json()
-        self.assertIsNotNone(data["inviter"])
-        self.assertEqual(data["inviter"]["email"], founder.email)
+        self.assertEqual(data["inviter"], {"name": expected_name, "email": founder.email})
 
     def test_inviter_falls_back_to_lingering_invite_row(self):
         """Fallback for pre-1102 memberships or legacy paths that didn't populate invited_by."""
@@ -73,10 +90,6 @@ class TestWelcomeEndpoint(APIBaseTest):
         self.assertNotIn(self.user.email, emails)
 
     def test_team_members_respect_member_list_visibility(self):
-        from posthog.constants import AvailableFeature
-
-        from products.access_control.backend.models.access_control import AccessControl
-
         project_mate = User.objects.create_and_join(self.organization, "mate@example.com", None, "Mate")
         User.objects.create_and_join(self.organization, "hidden@example.com", None, "Hidden")
         # Private project: default "none" with explicit grants for the requester and one project mate
@@ -197,13 +210,25 @@ class TestWelcomeEndpoint(APIBaseTest):
         data = response.json()
         self.assertEqual(len(data["recent_activity"][0]["entity_name"]), 200)
 
-    def test_recent_activity_excludes_foreign_team_rows(self):
+    @parameterized.expand([("foreign_team",), ("private_project",)])
+    def test_recent_activity_excludes_foreign_team_rows(self, source: str):
         """Rows from teams the user can't access (or teams outside this org) must not leak."""
-        # Use a team id that doesn't belong to this org — we don't need a real Team row, the endpoint
-        # only filters by team_id membership in the current org's team set.
-        foreign_team_id = 9_999_999
+        if source == "private_project":
+            private_team = Team.objects.create(organization=self.organization, name="Private")
+            AccessControl.objects.create(
+                team=private_team, resource="project", resource_id=str(private_team.id), access_level="none"
+            )
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+            ]
+            self.organization.save()
+            team_id = private_team.id
+        else:
+            # Use a team id that doesn't belong to this org — we don't need a real Team row, the endpoint
+            # only filters by team_id membership in the current org's team set.
+            team_id = 9_999_999
         ActivityLog.objects.create(
-            team_id=foreign_team_id,
+            team_id=team_id,
             scope="Insight",
             activity="created",
             item_id="42",

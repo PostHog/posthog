@@ -39,9 +39,9 @@ use sqlx::PgPool;
 
 mod support;
 use support::{
-    empty_pinned, ensure_fence_lost, historical, insert_cohort, insert_participation,
-    insert_person_participation, insert_person_run, insert_reconciling_run, insert_run,
-    person_pinned, set_marker_bits, trailing, with_db,
+    empty_pinned, ensure_fence_lost, historical, insert_access, insert_cohort,
+    insert_participation, insert_person_participation, insert_person_run, insert_reconciling_run,
+    insert_run, person_pinned, set_marker_bits, trailing, with_db,
 };
 
 const ONE_BAND: NonZeroU16 = NonZeroU16::MIN;
@@ -1082,12 +1082,17 @@ async fn discovery_classifies_each_phase_and_drops_observed_runs() -> Result<()>
         ensure!(!counts.contains_key(&RunKind::PersonProperty));
 
         // Both statements have a team-scoped variant, and dev — where this rollout lands first —
-        // is the environment that runs allowlisted.
+        // is the environment that runs allowlisted. Both also admit a team the access record grants.
+        let granted = insert_reconciling_run(&pool, 8).await?;
+        insert_access(&pool, 8, "processing", Duration::from_secs(600)).await?;
         let allowlisted = TeamAllowlist::Only([4, 6].into_iter().collect());
         let scoped = discover_completions(&pool, &allowlisted, BOTH_KINDS, MARKER_TOPIC).await?;
-        ensure!(scoped.iter().map(|row| row.run_id).eq([dispatched]));
+        ensure!(scoped
+            .iter()
+            .map(|row| row.run_id)
+            .eq([dispatched, granted]));
         let scoped_counts = count_reconciling_by_kind(&pool, &allowlisted, BOTH_KINDS).await?;
-        ensure!(scoped_counts.get(&RunKind::Behavioral) == Some(&2));
+        ensure!(scoped_counts.get(&RunKind::Behavioral) == Some(&3));
         Ok(())
     })
     .await

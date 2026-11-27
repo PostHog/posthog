@@ -194,7 +194,7 @@ export function IntegrationChoice({
     return (
         <>
             {integrationKind ? (
-                <IntegrationView schema={schema} integration={integrationKind} suffix={button} />
+                <IntegrationView schema={schema} integration={integrationKind} suffix={button} hideWebhookReconnect />
             ) : valueIsMissing ? (
                 <div className="flex flex-col gap-2">
                     <LemonBanner type="warning">

@@ -4,6 +4,7 @@ import { Platform } from 'react-native'
 
 import { ApiError } from '@/api/client'
 import { registerPushToken, unregisterPushToken } from '@/api/pushTokens'
+import { TransportError } from '@/api/transport'
 import { useAuthStore } from '@/auth/authStore'
 import { sessionGeneration } from '@/auth/tokens'
 import { track } from '@/lib/analytics'
@@ -18,6 +19,7 @@ export const ANDROID_CHANNEL_ID = 'default'
 
 const UNREGISTER_TIMEOUT_MS = 4_000
 const REGISTER_TIMEOUT_MS = 4_000
+const TOKEN_TIMEOUT_MS = 15_000
 let closingSession: number | null = null
 
 /** `never`: register only if already granted. `once`: ask the first time after sign in. `always`: ask while allowed. */
@@ -39,7 +41,7 @@ function registrationFailure(error: unknown, gotToken: boolean): RegistrationFai
     if (error instanceof ApiError) {
         return 'api_error'
     }
-    return error instanceof TypeError ? 'network' : 'unknown'
+    return error instanceof TransportError ? 'network' : 'unknown'
 }
 
 export function configureNotifications(): void {
@@ -87,11 +89,11 @@ function isCurrentRegistration(session: number, key: string): boolean {
     return sessionGeneration() === session && registrationKey() === key && closingSession !== session
 }
 
-async function withTimeout(work: (signal: AbortSignal) => Promise<void>, timeoutMs: number): Promise<void> {
+async function withTimeout<T>(work: (signal: AbortSignal) => Promise<T>, timeoutMs: number): Promise<T> {
     const controller = new AbortController()
     let timer: ReturnType<typeof setTimeout> | undefined
     try {
-        await Promise.race([
+        return await Promise.race([
             work(controller.signal),
             new Promise<never>((_resolve, reject) => {
                 timer = setTimeout(() => {
@@ -143,8 +145,9 @@ async function syncOnce(policy: PromptPolicy): Promise<void> {
     let gotToken = false
     try {
         const projectId: unknown = Constants.expoConfig?.extra?.eas?.projectId
-        const { data: token } = await Notifications.getExpoPushTokenAsync(
-            typeof projectId === 'string' ? { projectId } : {}
+        const { data: token } = await withTimeout(
+            () => Notifications.getExpoPushTokenAsync(typeof projectId === 'string' ? { projectId } : {}),
+            TOKEN_TIMEOUT_MS
         )
         gotToken = true
         if (!isCurrentRegistration(session, key)) {

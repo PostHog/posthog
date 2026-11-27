@@ -28,3 +28,5 @@ export const QuotaExhausted: Story = { args: { reason: 'quota-exhausted' } }
 export const AllCapped: Story = { args: { reason: 'all-capped' } }
 export const Filtered: Story = { args: { reason: 'filtered' } }
 export const QuietWindow: Story = { args: { reason: 'quiet-window' } }
+export const ReplayOff: Story = { args: { reason: 'replay-off' } }
+export const NoRecordings: Story = { args: { reason: 'no-recordings' } }

@@ -38,19 +38,50 @@ It stays off the credentials service, because every deployment that holds a call
 
 The App's webhook settings subscribe to the `Issue` resource type.
 Linear creates the webhook for a workspace when the workspace authorizes the App, so a workspace that authorized it before the webhook settings existed gets deliveries only after it connects again.
+The integration API reports such a connection as `needs_webhook_reconnect`, and the settings page asks for the reconnect.
 
 One Linear App serves both regions.
 Its webhook URL names the primary region, `https://eu.posthog.com/webhooks/linear`, so every delivery arrives there first.
+Both regions hold the same `LINEAR_APP_WEBHOOK_SECRET`, because the primary region forwards the signed body and the secondary region verifies it again.
 
 ## Quirks
 
 Success answers 200, not the default 202, because Linear counts any other status as a failed delivery.
 Linear retries a failed delivery after 1 minute, 1 hour and 6 hours, and it can disable a webhook that keeps failing.
 `retry_status` is 500, so a consumer that raised or that the request budget skipped asks for that retry.
+A failed ownership lookup and a failed forward to the secondary region ask for it too.
 A missing secret answers 403 rather than 500, because a self-hosted deployment may never set up the Linear App.
 Rejections carry an empty body, so a caller cannot tell a missing secret from a bad signature.
 
+A workspace that teams in both regions connect gets its deliveries in the primary region only, because the ownership lookup there answers `LOCAL` and nothing is forwarded.
+
 ## Consumers
 
-None. The endpoint verifies each delivery and answers 200, and nothing acts on it.
+`error_tracking_linear_status_sync`, declared in `products/error_tracking/backend/webhook_consumers.py`.
+It handles `Issue` updates that change the workflow state, and queues one task per change.
+Its `ownership` lookup reads `organization_id` against the `linear` integration rows, see [Regional forwarding](../README.md#regional-forwarding).
+A state change from a workspace that no team here connects is `ELSEWHERE`, so the primary region forwards it.
+Every other delivery is `UNDECIDED`, so a ticket edit that no region acts on stays in the region it arrived in.
+The task reads the current state of every linked Linear ticket from Linear, so a delivery that arrives late or out of order cannot apply a state the ticket no longer has.
+
+`error_tracking_linear_external_references`, declared in the same file.
+It handles created tickets and `Issue` updates that change the description or the title, and queues one task per project whose error tracking issues the description links to.
+Its `ownership` lookup reads `organization_id` the same way, but only for a ticket whose description links to an error tracking issue at this instance's URL or one of the configured regional origins.
+Every other delivery is `UNDECIDED`.
+The task waits 60 seconds before linking and uses the ticket's immutable ID, so a move between Linear teams does not lose the link.
+It honors the description in the signed event, even if the URL is removed before the task runs.
+
+The project must connect the ticket's workspace, and its token must still be able to read the ticket.
+The event's actor must be an active human user in that workspace, with general access to public teams or membership of the ticket's current team.
+Private and restricted teams always require membership, including for administrators.
+Guests can link tickets in teams they belong to, matching [Linear's member roles](https://linear.app/docs/members-roles).
+Individually shared private issues and inherited restricted-team access do not qualify without team membership.
+These checks also apply when refreshing a linked ticket's title.
+A task shares one access check across all references to the same ticket and actor within each project's integration.
+No permission result is cached across tasks, so a later delivery rechecks access.
+
+After linking, the task reconciles the current states of all the issue's linked Linear tickets, using the existing status-sync rules and kill switch.
+A completed ticket can therefore resolve the issue without another state-change delivery.
+An open ticket does not by itself reactivate an issue that someone resolved in PostHog.
+
 See the [Endpoints table](../README.md#endpoints).

@@ -1,6 +1,7 @@
+from contextlib import suppress
 from datetime import datetime, timedelta
 
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, count_organization_access_cache_round_trips
 from unittest import mock
 from unittest.mock import patch
 
@@ -13,7 +14,6 @@ from posthog.models import Organization, OrganizationInvite
 from posthog.models.organization import BillingPeriod, OrganizationMembership
 from posthog.models.user import User
 from posthog.organization_caching import (
-    access_cache,
     get_cached_organization,
     get_cached_organization_membership,
     get_cached_organization_memberships,
@@ -297,22 +297,10 @@ class TestOrganization(BaseTest):
             if warm:
                 lookup()
 
-            # The local memory test cache implements get_many with one get per key, unlike Redis MGET.
-            unpatched_get = access_cache.get
-            missing = object()
-            with (
-                patch.object(access_cache, "get", wraps=access_cache.get) as get,
-                patch.object(
-                    access_cache,
-                    "get_many",
-                    side_effect=lambda keys: {
-                        key: value for key in keys if (value := unpatched_get(key, missing)) is not missing
-                    },
-                ) as get_many,
-            ):
+            with count_organization_access_cache_round_trips() as cache_round_trips:
                 memberships = lookup()
 
-            assert get.call_count + get_many.call_count == round_trips
+            assert cache_round_trips() == round_trips
             expected = {self.organization} if single else set(organizations)
             assert {membership.organization for membership in memberships} == expected
 
@@ -668,6 +656,28 @@ class TestOrganization(BaseTest):
             assert gateway_redis.get(other_generation_key) == b"4"
             gateway_redis.delete(other_generation_key)
 
+    @parameterized.expand(
+        [
+            (
+                "flags_sync_fails",
+                "ee.billing.quota_limiting.sync_deactivated_org_flags_limit",
+                "ee.billing.quota_limiting.invalidate_llm_gateway_quota_cache",
+            ),
+            (
+                "gateway_invalidation_fails",
+                "ee.billing.quota_limiting.invalidate_llm_gateway_quota_cache",
+                "ee.billing.quota_limiting.sync_deactivated_org_flags_limit",
+            ),
+        ]
+    )
+    def test_is_active_change_runs_each_quota_callback_when_the_other_fails(self, _name, failing, surviving):
+        with patch(failing, side_effect=Exception("boom")), patch(surviving) as survivor:
+            with suppress(Exception), self.captureOnCommitCallbacks(execute=True):
+                self.organization.is_active = False
+                self.organization.save()
+
+        survivor.assert_called_once()
+
     @patch("ee.billing.quota_limiting.get_client")
     def test_get_limited_products_no_limits(self, mock_get_client):
         mock_redis = mock_get_client.return_value
@@ -805,6 +815,11 @@ class TestOrganizationMembership(BaseTest):
         mock_capture.assert_called_once_with(
             event="membership level changed",
             distinct_id=user.distinct_id,
-            properties={"new_level": 15, "previous_level": 1, "$set": mock.ANY},
+            properties={
+                "new_level": 15,
+                "previous_level": 1,
+                "$set": mock.ANY,
+                "$update_person_last_seen_at": False,
+            },
             groups=mock.ANY,
         )

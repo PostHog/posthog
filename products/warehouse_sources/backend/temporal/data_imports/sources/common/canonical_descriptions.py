@@ -41,10 +41,9 @@ def get_canonical_descriptions_for_source(
     from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import (
         SourceRegistry,  # noqa: PLC0415
     )
-    from products.warehouse_sources.backend.types import ExternalDataSourceType  # noqa: PLC0415
 
     try:
-        source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
+        source = SourceRegistry.get_source(source_type)
     except Exception:
         return {}
     try:

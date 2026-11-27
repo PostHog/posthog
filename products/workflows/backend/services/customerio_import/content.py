@@ -9,7 +9,7 @@ from typing import Any
 
 import structlog
 
-from posthog.models.integration import Integration
+from posthog.integrations import IntegrationManager
 
 from products.messaging.backend.facade.categories import list_categories
 from products.workflows.backend.facade.contracts import (
@@ -26,7 +26,13 @@ from products.workflows.backend.services.customerio_import.app_api import Custom
 
 logger = structlog.get_logger(__name__)
 
-_MESSAGE_ACTION_TYPES = {"email_action", "webhook_action", "attribute_update_action"}
+_MESSAGE_ACTION_TYPES = {"email_action", "webhook_action", "attribute_update_action", "create_event_action"}
+
+_PLAIN_TEXT_NOTE = ImportNote(
+    level=WorkflowImportNoteLevel.APPROXIMATED,
+    message="PostHog read these emails with your Customer.io App API key, which doesn't return the plain text someone "
+    "wrote for an email. If an email has its own plain text, import again with its template to keep it.",
+)
 
 
 def import_content(
@@ -40,6 +46,7 @@ def import_content(
 ) -> ImportContent:
     sender_addresses = {**_identity_addresses(sender_identities), **options.sender_addresses}
     segment_info = {**_segment_info(segments), **options.segments}
+    snippets = options.snippets
     fetch_notes: dict[str, tuple[ImportNote, ...]] = {}
     fetched = False
 
@@ -57,6 +64,8 @@ def import_content(
                 sender_addresses = _identity_addresses(api.sender_identities())
             if not segment_info:
                 segment_info = _segment_info(api.segments())
+            if not snippets:
+                snippets = _snippet_values(api.snippets())
         except CustomerioApiError as error:
             logger.info("workflows.import.customerio_lookup_failed", team_id=team_id, status=error.status)
         filled: list[CampaignSource] = []
@@ -65,8 +74,11 @@ def import_content(
                 filled.append(source)
                 continue
             try:
-                filled.append(_with_fetched_templates(source, api.campaign_actions(str(source.campaign.get("id")))))
+                with_templates = _with_fetched_templates(source, api.campaign_actions(str(source.campaign.get("id"))))
+                filled.append(with_templates)
                 fetched = True
+                if _fetched_email_without_text(source, with_templates):
+                    fetch_notes[str(source.campaign.get("id"))] = (_PLAIN_TEXT_NOTE,)
             except CustomerioApiError as error:
                 fetch_notes[str(source.campaign.get("id"))] = (
                     ImportNote(
@@ -81,7 +93,7 @@ def import_content(
     return ImportContent(
         sources=sources,
         options=ImportOptions(
-            snippets=options.snippets,
+            snippets=snippets,
             segment_cohorts=options.segment_cohorts,
             layouts=options.layouts,
             sender_addresses=sender_addresses,
@@ -107,10 +119,14 @@ def _misses_templates(source: CampaignSource) -> bool:
 def _with_fetched_templates(source: CampaignSource, app_actions: list[dict[str, Any]]) -> CampaignSource:
     """The source with a template for every message action whose App API action shares its id.
 
-    Language variants share the default variant's id through `parent_action_id`, so the variant whose own id
-    matches is the default-language message.
+    Translations are separate objects. They can share the default message's id, or name its language branch.
     """
-    by_id = {str(app_action.get("id")): app_action for app_action in app_actions}
+    by_id: dict[str, dict[str, Any]] = {}
+    for message in app_actions:
+        # A translation can come with its default message's id, and the default has no language.
+        key = str(message.get("id"))
+        if key not in by_id or (by_id[key].get("language") and not message.get("language")):
+            by_id[key] = message
     templates = dict(source.templates)
     for action in source.actions:
         template_id = action.get("template_id")
@@ -118,8 +134,35 @@ def _with_fetched_templates(source: CampaignSource, app_actions: list[dict[str, 
             continue
         app_action = by_id.get(str(action.get("id")))
         if app_action is not None:
-            templates[str(template_id)] = _template_from_app_action(app_action)
+            templates[str(template_id)] = {
+                **_template_from_app_action(app_action),
+                "languages": _other_languages(app_action, app_actions),
+            }
     return CampaignSource(campaign=source.campaign, actions=source.actions, templates=templates)
+
+
+def _fetched_email_without_text(source: CampaignSource, filled: CampaignSource) -> bool:
+    fetched = {str(action.get("template_id")) for action in source.actions if action.get("type") == "email_action"} & (
+        filled.templates.keys() - source.templates.keys()
+    )
+    return any(not filled.templates[template_id].get("body_plain") for template_id in fetched)
+
+
+def _other_languages(app_action: dict[str, Any], app_actions: list[dict[str, Any]]) -> list[str]:
+    """The languages of the translations of one message, which share its id or its language branch."""
+    branch = app_action.get("multi_language_branch_action_id")
+    return sorted(
+        {
+            str(other["language"])
+            for other in app_actions
+            if other.get("language")
+            and other["language"] != app_action.get("language")
+            and (
+                other.get("id") == app_action.get("id")
+                or (branch is not None and other.get("multi_language_branch_action_id") == branch)
+            )
+        }
+    )
 
 
 def _template_from_app_action(app_action: dict[str, Any]) -> dict[str, Any]:
@@ -133,6 +176,11 @@ def _template_from_app_action(app_action: dict[str, Any]) -> dict[str, Any]:
     return {
         "subject": app_action.get("subject"),
         "body": app_action.get("body"),
+        "body_plain": app_action.get("body_plain"),
+        "body_amp": app_action.get("body_amp"),
+        "cc": app_action.get("cc"),
+        "bcc": app_action.get("bcc"),
+        "fake_bcc": app_action.get("fake_bcc"),
         "preheader_text": app_action.get("preheader_text"),
         "recipient": app_action.get("recipient"),
         "from": app_action.get("from"),
@@ -147,14 +195,14 @@ def _template_from_app_action(app_action: dict[str, Any]) -> dict[str, Any]:
 
 
 def _stored_app_api_key(team_id: int) -> str | None:
-    integration = Integration.objects.filter(team_id=team_id, kind=Integration.IntegrationKind.CUSTOMERIO_APP).first()
+    integration = IntegrationManager.customerio_app.token.find(team_id)
     key = (integration.sensitive_config or {}).get("app_api_key") if integration else None
     return str(key) if key else None
 
 
 def _team_senders(team_id: int) -> dict[str, ImportSender]:
     senders: dict[str, ImportSender] = {}
-    for integration in Integration.objects.filter(team_id=team_id, kind=Integration.IntegrationKind.EMAIL):
+    for integration in IntegrationManager.email.credentials.list(team_id):
         config = integration.config or {}
         address = str(config.get("email") or integration.integration_id or "").lower()
         if address:
@@ -188,7 +236,19 @@ def _identity_addresses(identities: list[dict[str, Any]]) -> dict[str, str]:
 
 def _segment_info(segments: list[dict[str, Any]]) -> dict[str, ImportSegment]:
     return {
-        str(segment["id"]): ImportSegment(name=str(segment.get("name") or ""), type=str(segment.get("type") or ""))
+        str(segment["id"]): ImportSegment(
+            name=str(segment.get("name") or ""),
+            type=str(segment.get("type") or ""),
+            conditions=segment["conditions"] if isinstance(segment.get("conditions"), dict) else None,
+        )
         for segment in segments
         if isinstance(segment, dict) and segment.get("id") is not None
+    }
+
+
+def _snippet_values(snippets: list[dict[str, Any]]) -> dict[str, str]:
+    return {
+        str(snippet["name"]): str(snippet.get("value") or "")
+        for snippet in snippets
+        if isinstance(snippet, dict) and snippet.get("name")
     }

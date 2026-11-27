@@ -171,6 +171,35 @@ describe('Flag evaluations shadow-routing E2E', () => {
         }
     )
 
+    // Some lanes run without the fork. An operator can also turn the fork off on any lane.
+    // Only the fork step removes a call from events, so a lane without it must still store the call there.
+    testWithTeamIngester(
+        'FLAG_EVALUATIONS_ONLY team on a lane without the fork: the call lands in events',
+        {
+            teamOverrides: { flag_evaluations_mode: FlagEvaluationsMode.FlagEvaluationsOnly },
+            pluginServerConfig: {
+                INGESTION_FLAG_EVALUATIONS_MODE: 'disabled',
+                INGESTION_OUTPUT_REALTIME_ONLY_EVENTS_TOPIC: KAFKA_REALTIME_ONLY_EVENTS_JSON,
+            },
+        },
+        async ({ ingester, team, kafkaProducer, token }) => {
+            const event = new EventBuilder(team)
+                .withEvent('$feature_flag_called')
+                .withProperties({ $feature_flag: 'my-flag', $feature_flag_response: true })
+                .build()
+
+            await ingester.handleKafkaBatch(createKafkaMessages([event], token))
+            await waitForKafkaMessages(kafkaProducer)
+
+            const events = await waitForExpect(async () => {
+                const rows = await fetchEvents(clickhouse, team.id)
+                expect(rows).toHaveLength(1)
+                return rows
+            }, 30_000)
+            expect(events[0]).toMatchObject({ uuid: event.uuid, event: '$feature_flag_called' })
+        }
+    )
+
     it('ships disabled by default', () => {
         // The only thing the round trip above would add for the disabled case:
         // that nothing flipped the fleet default. createFlagEvaluationsService

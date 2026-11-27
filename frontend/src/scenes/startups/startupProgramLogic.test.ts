@@ -5,7 +5,8 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { billingLogic } from 'scenes/billing/billingLogic'
+import { dayjs } from 'lib/dayjs'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { billingJson } from '~/mocks/fixtures/_billing'
@@ -181,6 +182,100 @@ describe('startupProgramLogic', () => {
             const logic = await mountStartupProgramLogic({ email: 'founder@posthog.com' })
 
             expect(logic.values.startupProgramValidationErrors.yc_verification_url).toBeUndefined()
+        })
+    })
+
+    describe('referrer', () => {
+        it('requires a referrer on the plain startup form', async () => {
+            const logic = await mountStartupProgramLogic({ email: 'founder@posthog.com' })
+
+            expect(logic.values.startupProgramValidationErrors.referrer).toEqual(
+                'Please tell us how you heard about the startup program'
+            )
+
+            logic.actions.setStartupProgramValue('referrer', '   ')
+            expect(logic.values.startupProgramValidationErrors.referrer).toEqual(
+                'Please tell us how you heard about the startup program'
+            )
+
+            logic.actions.setStartupProgramValue('referrer', 'GetProven')
+            expect(logic.values.startupProgramValidationErrors.referrer).toBeUndefined()
+        })
+
+        it.each(['yc', 'stripe-atlas'])('does not ask for a referrer on the /startups/%s page', async (referrer) => {
+            const logic = await mountStartupProgramLogic({ email: 'founder@posthog.com', referrer })
+
+            expect(logic.values.startupProgramValidationErrors.referrer).toBeUndefined()
+        })
+    })
+
+    describe('eligibility', () => {
+        it.each([
+            ['nothing is answered yet', {}, null],
+            [
+                'funding is $5M or more',
+                { raised: '5000000' },
+                'Companies that have raised $5M or more are not eligible for the startup program',
+            ],
+            [
+                'the company is more than 2 years old',
+                { incorporation_date: dayjs().subtract(3, 'year') },
+                'Company must be less than 2 years old to be eligible',
+            ],
+            ['the answers are eligible', { raised: '4999999', incorporation_date: dayjs().subtract(1, 'year') }, null],
+            [
+                'funding is $5M or more and there is no paid plan yet',
+                { raised: '5000000' },
+                'Companies that have raised $5M or more are not eligible for the startup program',
+                { has_active_subscription: false },
+            ],
+        ])(
+            'shows the eligibility error before submit when %s',
+            async (_, formValues, expectedError, billing: Partial<BillingType> = {}) => {
+                const logic = await mountStartupProgramLogic({ email: 'founder@posthog.com', billing })
+
+                logic.actions.setStartupProgramValues(formValues)
+
+                expect(logic.values.eligibilityError).toEqual(expectedError)
+            }
+        )
+
+        it('captures a blocked event when validation stops the submit', async () => {
+            const logic = await mountStartupProgramLogic({ email: 'founder@posthog.com' })
+            logic.actions.setStartupProgramValues({ raised: '5000000' })
+
+            await expectLogic(logic, () => logic.actions.submitStartupProgram()).toFinishAllListeners()
+
+            expect(blockedEvents()).toEqual([
+                [
+                    'startup program application blocked',
+                    {
+                        program: StartupProgramType.Startup,
+                        organization_id: MOCK_DEFAULT_ORGANIZATION.id,
+                        blocked_at: 'validation',
+                        invalid_fields: ['raised', 'incorporation_date', 'referrer'],
+                        raised: '5000000',
+                    },
+                ],
+            ])
+        })
+
+        it('does not capture a blocked event when the billing service rejects a valid form', async () => {
+            const logic = await mountStartupProgramLogic({ email: 'founder@posthog.com' })
+            useMocks({ post: { '/api/billing/startups/apply': () => [400, { detail: 'Not eligible' }] } })
+            logic.actions.setStartupProgramValues({
+                raised: '4999999',
+                incorporation_date: dayjs().subtract(1, 'year'),
+                referrer: 'A friend',
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.submitStartupProgram()
+                logic.actions.setStartupProgramValues({ raised: '5000000' })
+            }).toFinishAllListeners()
+
+            expect(logic.values.formSubmitted).toBe(false)
+            expect(blockedEvents()).toHaveLength(0)
         })
     })
 })

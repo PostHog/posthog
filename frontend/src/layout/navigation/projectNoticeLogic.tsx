@@ -13,27 +13,30 @@ import { LemonBannerProps } from 'lib/lemon-ui/LemonBanner/LemonBanner'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { Link } from 'lib/lemon-ui/Link'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
+import { billingLogic, BillingAlertConfig } from 'lib/logic/billing/billingLogic'
 import { eventIngestionRestrictionLogic } from 'lib/logic/eventIngestionRestrictionLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { inviteLogic } from 'lib/logic/inviteLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { liveEventsLogic } from 'scenes/activity/live/liveEventsLogic'
 import { verifyEmailLogic } from 'scenes/authentication/verify-email/verifyEmailLogic'
-import { billingLogic, BillingAlertConfig } from 'scenes/billing/billingLogic'
 import { sampleDataStateLogic } from 'scenes/insights/EmptyStates/sampleDataStateLogic'
-import { membersLogic } from 'scenes/organization/membersLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { ProxyRecord } from 'scenes/settings/environment/proxyLogic'
-import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 import { brandingForProduct } from 'scenes/welcome/productBranding'
 
+import { membersLogic } from '~/models/membersLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { OnboardingStepKey, TeamPublicType, TeamType, UserType } from '~/types'
+import type { OrganizationType, PreflightStatus } from '~/types'
+
+import type { ProxyRecordApi } from 'products/platform_features/frontend/generated/api.schemas'
 
 import { EventIngestionRestrictionDetails } from './EventIngestionRestrictionDetails'
 import { OrganizationMemberNoticeMessage } from './OrganizationMemberNoticeMessage'
@@ -290,18 +293,18 @@ export interface projectNoticeLogicMeta {
             warehouseSetupStatus: ProductSetupStatus
         }
         postHogNoticeVariant: (
-            currentOrganization: null | import('~/types').OrganizationType,
+            currentOrganization: OrganizationType | null,
             projectData: {
                 currentTeam: TeamPublicType | TeamType | null
                 warehouseSetupStatus: ProductSetupStatus
             },
-            preflight: null | import('~/types').PreflightStatus,
+            preflight: PreflightStatus | null,
             isCloudOrDev: boolean | undefined,
             user: UserType | null,
             memberCount: number,
             internetConnectionIssue: boolean,
             hasProjectNoticeRestriction: boolean,
-            proxyRecords: import('products/platform_features/frontend/generated/api.schemas').ProxyRecordApi[] | null,
+            proxyRecords: ProxyRecordApi[] | null,
             effectiveBillingAlert: BillingAlertConfig | null,
             currentLocation: {
                 hash: string
@@ -330,7 +333,7 @@ export interface projectNoticeLogicMeta {
             projectNoticeVariant: ProjectNoticeVariant | null,
             effectiveBillingAlert: BillingAlertConfig | null,
             projectNoticeDismissKey: string | null,
-            currentOrganization: null | import('~/types').OrganizationType,
+            currentOrganization: OrganizationType | null,
             user: UserType | null,
             canAccessBilling: boolean,
             currentLocation: {
@@ -521,8 +524,8 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                     proxyRecords !== null &&
                     proxyRecords.length === 0 &&
                     // ...and only once the checker has confirmed there's no self-managed proxy
-                    // routing events. While it's still null (not yet checked) we hold the nudge
-                    // back to avoid flashing it at DIY-proxy users before detection resolves.
+                    // routing events. While it's still null (not yet checked, or no $pageview
+                    // traffic to judge, as in a mobile-only project) we hold the nudge back.
                     hasReverseProxy === false
                 ) {
                     return 'missing_reverse_proxy'

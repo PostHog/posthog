@@ -146,6 +146,43 @@
                                     "default": "MetricsAlertConfig",
                                     "enum": ["MetricsAlertConfig"],
                                     "type": "string"
+                                },
+                                "variables": {
+                                    "anyOf": [
+                                        {
+                                            "additionalProperties": {
+                                                "properties": {
+                                                    "all": {
+                                                        "anyOf": [
+                                                            {
+                                                                "type": "boolean"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ]
+                                                    },
+                                                    "values": {
+                                                        "description": "The selected values. Empty when `all` is true: All stands for every option of the variable.",
+                                                        "items": {
+                                                            "type": "string"
+                                                        },
+                                                        "type": "array"
+                                                    }
+                                                },
+                                                "required": ["values"],
+                                                "type": "object"
+                                            },
+                                            "propertyNames": {
+                                                "type": "string"
+                                            },
+                                            "type": "object"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "Values for the `$name` variables in the insight's query."
                                 }
                             },
                             "type": "object"
@@ -2229,9 +2266,123 @@
                                     ],
                                     "description": "What counts as unusual or interesting for this metric, in your own words. Optional."
                                 },
+                                "model": {
+                                    "anyOf": [
+                                        {
+                                            "enum": ["claude-haiku-5-5", "gpt-6-luna"],
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "The model that judges each check: claude-haiku-5-5 or gpt-6-luna. Optional. When it is not set, the alert uses claude-haiku-5-5."
+                                },
                                 "type": {
                                     "default": "llm",
                                     "enum": ["llm"],
+                                    "type": "string"
+                                }
+                            },
+                            "type": "object"
+                        },
+                        {
+                            "properties": {
+                                "above": {
+                                    "anyOf": [
+                                        {
+                                            "properties": {
+                                                "min_absolute_change": {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "type": "null"
+                                                        }
+                                                    ],
+                                                    "description": "The value is at least this far from the expected value, in the series' units"
+                                                },
+                                                "min_relative_change": {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "type": "null"
+                                                        }
+                                                    ],
+                                                    "description": "The value is at least this fraction away from the expected value. 1 = 100%"
+                                                },
+                                                "quantile": {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "type": "null"
+                                                        }
+                                                    ],
+                                                    "description": "The value is beyond this forecast quantile. Above: 0.55 to 0.95 in steps of 0.05, or 0.99. Below: 0.01, or 0.05 to 0.45 in steps of 0.05."
+                                                }
+                                            },
+                                            "type": "object"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "Rule for a value higher than expected. Omit to ignore that side."
+                                },
+                                "below": {
+                                    "anyOf": [
+                                        {
+                                            "properties": {
+                                                "min_absolute_change": {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "type": "null"
+                                                        }
+                                                    ],
+                                                    "description": "The value is at least this far from the expected value, in the series' units"
+                                                },
+                                                "min_relative_change": {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "type": "null"
+                                                        }
+                                                    ],
+                                                    "description": "The value is at least this fraction away from the expected value. 1 = 100%"
+                                                },
+                                                "quantile": {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "type": "null"
+                                                        }
+                                                    ],
+                                                    "description": "The value is beyond this forecast quantile. Above: 0.55 to 0.95 in steps of 0.05, or 0.99. Below: 0.01, or 0.05 to 0.45 in steps of 0.05."
+                                                }
+                                            },
+                                            "type": "object"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "Rule for a value lower than expected. Omit to ignore that side."
+                                },
+                                "type": {
+                                    "default": "forecast",
+                                    "enum": ["forecast"],
                                     "type": "string"
                                 }
                             },

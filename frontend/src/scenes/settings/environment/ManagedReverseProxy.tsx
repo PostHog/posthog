@@ -22,12 +22,13 @@ import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { DomainConnectBanner } from 'lib/components/DomainConnect'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Link } from 'lib/lemon-ui/Link'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { isKeyOf } from 'lib/utils/guards'
 import { useMaxTool } from 'scenes/max/useMaxTool'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
@@ -40,11 +41,8 @@ import {
     proxyLogic,
 } from './proxyLogic'
 import { ProxySDKSetup } from './ProxySDKSetup'
-
-const statusText = {
-    valid: 'live',
-    timed_out: 'timed out',
-}
+import { PROXY_STATUS_TOOLTIPS, statusText } from './proxyStatusText'
+import { QuillManagedReverseProxy } from './QuillManagedReverseProxy'
 
 export function ManagedReverseProxy(): JSX.Element {
     const {
@@ -61,6 +59,7 @@ export function ManagedReverseProxy(): JSX.Element {
     // until the request settles.
     const { deleteRecord } = useAsyncActions(proxyLogic)
     const { preflight } = useValues(preflightLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const cloudflareProxyEnabled = preflight?.instance_preferences?.cloudflare_proxy_enabled
 
@@ -112,6 +111,34 @@ export function ManagedReverseProxy(): JSX.Element {
         { active: proxyRecords.length > 0 && !restrictionReason }
     )
 
+    const confirmDeleteRecord = (id: ProxyRecord['id']): void => {
+        LemonDialog.open({
+            title: 'Delete managed proxy',
+            width: '20rem',
+            content:
+                'Are you sure you want to delete this managed proxy? This cannot be undone and if it is in use then events sent to the domain will not be processed.',
+            primaryButton: {
+                status: 'danger',
+                onClick: () => deleteRecord(id),
+                children: 'Delete',
+            },
+            secondaryButton: {
+                children: 'Cancel',
+            },
+            shouldAwaitSubmit: true,
+        })
+    }
+
+    if (todayRailNav) {
+        return (
+            <QuillManagedReverseProxy
+                restrictionReason={restrictionReason}
+                showCloudflareOptIn={!!cloudflareProxyEnabled && shouldShowCloudflareOptIn}
+                onDelete={confirmDeleteRecord}
+            />
+        )
+    }
+
     const columns: LemonTableColumns<ProxyRecord> = [
         {
             title: 'Domain',
@@ -139,12 +166,12 @@ export function ManagedReverseProxy(): JSX.Element {
                         {status === 'issuing' && <Spinner />}
                         <span className="capitalize">{isKeyOf(status, statusText) ? statusText[status] : status}</span>
                         {status === 'waiting' && (
-                            <Tooltip title="Waiting for DNS records to be created">
+                            <Tooltip title={PROXY_STATUS_TOOLTIPS.waiting}>
                                 <IconInfo className="cursor-pointer" />
                             </Tooltip>
                         )}
                         {status === 'timed_out' && (
-                            <Tooltip title="Timed out waiting for DNS records to be created. Please delete the record and try again">
+                            <Tooltip title={PROXY_STATUS_TOOLTIPS.timed_out}>
                                 <IconInfo className="cursor-pointer" />
                             </Tooltip>
                         )}
@@ -179,23 +206,7 @@ export function ManagedReverseProxy(): JSX.Element {
                                 {
                                     label: 'Delete',
                                     status: 'danger' as const,
-                                    onClick: () => {
-                                        LemonDialog.open({
-                                            title: 'Delete managed proxy',
-                                            width: '20rem',
-                                            content:
-                                                'Are you sure you want to delete this managed proxy? This cannot be undone and if it is in use then events sent to the domain will not be processed.',
-                                            primaryButton: {
-                                                status: 'danger',
-                                                onClick: () => deleteRecord(id),
-                                                children: 'Delete',
-                                            },
-                                            secondaryButton: {
-                                                children: 'Cancel',
-                                            },
-                                            shouldAwaitSubmit: true,
-                                        })
-                                    },
+                                    onClick: () => confirmDeleteRecord(id),
                                 },
                             ]}
                         >

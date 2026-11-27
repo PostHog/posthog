@@ -1,4 +1,4 @@
-import { IconChevronRight, IconCopy, IconDashboard, IconHome, IconSparkles, IconStack } from '@posthog/icons'
+import { IconChevronRight, IconCopy, IconDashboard, IconHome, IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
 export interface HomeDashboardStarterModalProps {
@@ -6,7 +6,6 @@ export interface HomeDashboardStarterModalProps {
     onClose: () => void
     onCopyPostHogHome: () => void
     onTalkToAI: () => void
-    onStartFromTemplate: () => void
     onChooseExisting: () => void
     hasCustomDashboard: boolean
     onRestorePostHogHome?: () => void
@@ -20,7 +19,6 @@ export function HomeDashboardStarterModal({
     onClose,
     onCopyPostHogHome,
     onTalkToAI,
-    onStartFromTemplate,
     onChooseExisting,
     hasCustomDashboard,
     onRestorePostHogHome,
@@ -48,15 +46,6 @@ export function HomeDashboardStarterModal({
             dataAttr: 'home-dashboard-start-ai',
             loading: creatingWithAI,
             disabledReason: creationDisabledReason || aiDisabledReason,
-        },
-        {
-            title: 'Start from a template',
-            description: 'Choose a ready-made dashboard and adapt it to your product.',
-            icon: <IconStack />,
-            onClick: onStartFromTemplate,
-            dataAttr: 'home-dashboard-start-template',
-            loading: false,
-            disabledReason: creationDisabledReason,
         },
         {
             title: 'Choose an existing dashboard',

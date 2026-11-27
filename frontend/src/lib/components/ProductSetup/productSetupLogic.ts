@@ -3,15 +3,14 @@ import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { SetupTaskId } from 'lib/components/ProductSetup'
+import { inviteLogic } from 'lib/logic/inviteLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { ActivationTaskStatus } from '~/types'
 
-import type { AvailableSetupTaskIdsEnumApi } from '../../../generated/core/api.schemas'
 import type { TeamPublicType, TeamType } from '../../../types'
 import { reverseProxyCheckerLogic } from '../ReverseProxyChecker/reverseProxyCheckerLogic'
 import { globalSetupLogic } from './globalSetupLogic'
@@ -59,10 +58,10 @@ export interface productSetupLogicActions {
         value: true
     } // globalSetupLogic
     markTaskAsCompleted: (taskIdOrIds: SetupTaskId | SetupTaskId[]) => {
-        taskIdOrIds: AvailableSetupTaskIdsEnumApi | AvailableSetupTaskIdsEnumApi[]
+        taskIdOrIds: SetupTaskId | SetupTaskId[]
     } // globalSetupLogic
     markTaskAsSkipped: (taskIdOrIds: SetupTaskId | SetupTaskId[]) => {
-        taskIdOrIds: AvailableSetupTaskIdsEnumApi | AvailableSetupTaskIdsEnumApi[]
+        taskIdOrIds: SetupTaskId | SetupTaskId[]
     } // globalSetupLogic
     openGlobalSetup: () => {
         value: true
@@ -75,10 +74,10 @@ export interface productSetupLogicActions {
         selector: string
     } // globalSetupLogic
     unmarkTaskAsCompleted: (taskIdOrIds: SetupTaskId | SetupTaskId[]) => {
-        taskIdOrIds: AvailableSetupTaskIdsEnumApi | AvailableSetupTaskIdsEnumApi[]
+        taskIdOrIds: SetupTaskId | SetupTaskId[]
     } // globalSetupLogic
     unmarkTaskAsSkipped: (taskIdOrIds: SetupTaskId | SetupTaskId[]) => {
-        taskIdOrIds: AvailableSetupTaskIdsEnumApi | AvailableSetupTaskIdsEnumApi[]
+        taskIdOrIds: SetupTaskId | SetupTaskId[]
     } // globalSetupLogic
     showInviteModal: () => {
         value: true
@@ -90,10 +89,10 @@ export interface productSetupLogicActions {
         value: true
     }
     runTask: (taskId: SetupTaskId) => {
-        taskId: AvailableSetupTaskIdsEnumApi
+        taskId: SetupTaskId
     }
     setExpandedTaskId: (taskId: SetupTaskId | null) => {
-        taskId: AvailableSetupTaskIdsEnumApi | null
+        taskId: SetupTaskId | null
     }
     setShowCelebration: (show: boolean) => {
         show: boolean

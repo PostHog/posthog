@@ -31,30 +31,10 @@ describe('HogFlow Quota Limiting', () => {
             billable_action_types: [],
         } as unknown as HogFlow
 
-        it('should not limit workflow when team has no quota limits', async () => {
-            mockQuotaLimiting.isTeamQuotaLimited.mockResolvedValue(false)
-
-            const hogFlow: HogFlow = {
-                ...baseHogFlow,
-                actions: [{ type: 'function_email' } as any, { type: 'function' } as any],
-                billable_action_types: ['function_email', 'function'],
-            }
-
-            const result = await checkHogFlowQuotaLimits(hogFlow, teamId, mockQuotaLimiting)
-
-            expect(result.isLimited).toBe(false)
-            expect(mockQuotaLimiting.isTeamQuotaLimited).toHaveBeenCalledTimes(2)
-            expect(mockQuotaLimiting.isTeamQuotaLimited).toHaveBeenCalledWith(teamId, 'workflow_emails')
-            expect(mockQuotaLimiting.isTeamQuotaLimited).toHaveBeenCalledWith(
-                teamId,
-                'workflow_destinations_dispatched'
-            )
-        })
-
         it('should limit workflow with email action when team has email quota limit', async () => {
-            mockQuotaLimiting.isTeamQuotaLimited.mockImplementation((_teamId, resource) => {
-                return Promise.resolve(resource === 'workflow_emails')
-            })
+            mockQuotaLimiting.isTeamQuotaLimited.mockImplementation((team, resource) =>
+                Promise.resolve(team === teamId && resource === 'workflow_emails')
+            )
 
             const hogFlow: HogFlow = {
                 ...baseHogFlow,
@@ -71,6 +51,27 @@ describe('HogFlow Quota Limiting', () => {
         const marketingEmail = { type: 'function_email', config: { message_category_type: 'marketing' } }
 
         it.each([
+            {
+                name: 'a team under every quota is not limited',
+                trigger: { type: 'event' },
+                actions: [marketingEmail, { type: 'function', config: {} }],
+                limitedResources: [],
+                expected: false,
+            },
+            {
+                name: 'a webhook alone is not limited by the email quota',
+                trigger: { type: 'event' },
+                actions: [{ type: 'function', config: {} }],
+                limitedResources: ['workflow_emails'],
+                expected: false,
+            },
+            {
+                name: 'a push send alone is limited by the destination quota',
+                trigger: { type: 'event' },
+                actions: [{ type: 'function_push', config: {} }],
+                limitedResources: ['workflow_destinations_dispatched'],
+                expected: true,
+            },
             {
                 name: 'only transactional emails are not limited',
                 trigger: { type: 'event' },
@@ -100,8 +101,8 @@ describe('HogFlow Quota Limiting', () => {
                 expected: true,
             },
         ])('$name', async ({ trigger, actions, limitedResources, expected }) => {
-            mockQuotaLimiting.isTeamQuotaLimited.mockImplementation((_teamId, resource) =>
-                Promise.resolve(limitedResources.includes(resource))
+            mockQuotaLimiting.isTeamQuotaLimited.mockImplementation((team, resource) =>
+                Promise.resolve(team === teamId && limitedResources.includes(resource))
             )
 
             const hogFlow: HogFlow = {
@@ -117,9 +118,9 @@ describe('HogFlow Quota Limiting', () => {
         })
 
         it('should limit workflow with push action when team has destination quota limit', async () => {
-            mockQuotaLimiting.isTeamQuotaLimited.mockImplementation((_teamId, resource) => {
-                return Promise.resolve(resource === 'workflow_destinations_dispatched')
-            })
+            mockQuotaLimiting.isTeamQuotaLimited.mockImplementation((team, resource) =>
+                Promise.resolve(team === teamId && resource === 'workflow_destinations_dispatched')
+            )
 
             const hogFlow: HogFlow = {
                 ...baseHogFlow,
@@ -133,9 +134,9 @@ describe('HogFlow Quota Limiting', () => {
         })
 
         it('should limit workflow with destination action when team has destination quota limit', async () => {
-            mockQuotaLimiting.isTeamQuotaLimited.mockImplementation((_teamId, resource) => {
-                return Promise.resolve(resource === 'workflow_destinations_dispatched')
-            })
+            mockQuotaLimiting.isTeamQuotaLimited.mockImplementation((team, resource) =>
+                Promise.resolve(team === teamId && resource === 'workflow_destinations_dispatched')
+            )
 
             const hogFlow: HogFlow = {
                 ...baseHogFlow,
@@ -163,35 +164,22 @@ describe('HogFlow Quota Limiting', () => {
             expect(mockQuotaLimiting.isTeamQuotaLimited).not.toHaveBeenCalled()
         })
 
-        it('should not limit workflow when billable_action_types is null', async () => {
-            mockQuotaLimiting.isTeamQuotaLimited.mockResolvedValue(true)
+        it.each([null, undefined])(
+            'should not limit workflow when billable_action_types is %s',
+            async (billableActionTypes) => {
+                mockQuotaLimiting.isTeamQuotaLimited.mockResolvedValue(true)
 
-            const hogFlow: HogFlow = {
-                ...baseHogFlow,
-                actions: [{ type: 'function' } as any],
-                billable_action_types: null,
+                const hogFlow: HogFlow = {
+                    ...baseHogFlow,
+                    actions: [{ type: 'function' } as any],
+                    billable_action_types: billableActionTypes,
+                }
+
+                const result = await checkHogFlowQuotaLimits(hogFlow, teamId, mockQuotaLimiting)
+
+                expect(result.isLimited).toBe(false)
             }
-
-            const result = await checkHogFlowQuotaLimits(hogFlow, teamId, mockQuotaLimiting)
-
-            expect(result.isLimited).toBe(false)
-            expect(mockQuotaLimiting.isTeamQuotaLimited).not.toHaveBeenCalled()
-        })
-
-        it('should not check quota limits when billable_action_types is undefined', async () => {
-            mockQuotaLimiting.isTeamQuotaLimited.mockResolvedValue(true)
-
-            const hogFlow: HogFlow = {
-                ...baseHogFlow,
-                actions: [{ type: 'function' } as any],
-                billable_action_types: undefined,
-            }
-
-            const result = await checkHogFlowQuotaLimits(hogFlow, teamId, mockQuotaLimiting)
-
-            expect(result.isLimited).toBe(false)
-            expect(mockQuotaLimiting.isTeamQuotaLimited).not.toHaveBeenCalled()
-        })
+        )
 
         it('should only check relevant quota limits based on billable action types', async () => {
             mockQuotaLimiting.isTeamQuotaLimited.mockResolvedValue(false)
@@ -216,6 +204,7 @@ describe('HogFlow Quota Limiting', () => {
 
     describe('shouldBlockHogFlowDueToQuota', () => {
         let mockHogFunctionMonitoringService: jest.Mocked<HogFunctionMonitoringService>
+        let mockWorkflowsActivationReporter: { report: jest.Mock }
         const teamId = 123
         const baseItem: CyclotronJobInvocationHogFlow = {
             teamId,
@@ -238,6 +227,7 @@ describe('HogFlow Quota Limiting', () => {
             mockHogFunctionMonitoringService = {
                 queueAppMetric: jest.fn(),
             } as any
+            mockWorkflowsActivationReporter = { report: jest.fn() }
             // Reset the counter spy
             jest.spyOn(counterHogFlowQuotaLimited, 'labels').mockReturnValue({
                 inc: jest.fn(),
@@ -258,29 +248,58 @@ describe('HogFlow Quota Limiting', () => {
             const result = await shouldBlockHogFlowDueToQuota(item, {
                 quotaLimiting: mockQuotaLimiting,
                 hogFunctionMonitoringService: mockHogFunctionMonitoringService,
+                workflowsActivationReporter: mockWorkflowsActivationReporter,
             })
 
             expect(result).toBe(false)
             expect(mockHogFunctionMonitoringService.queueAppMetric).not.toHaveBeenCalled()
             expect(counterHogFlowQuotaLimited.labels).not.toHaveBeenCalled()
+            expect(mockWorkflowsActivationReporter.report).not.toHaveBeenCalled()
         })
 
-        it('should block invocation and emit metrics when quota limited', async () => {
+        it.each([
+            [
+                'an email send on the email quota',
+                'workflow_emails',
+                ['function_email'],
+                [
+                    [
+                        teamId,
+                        'workflows send blocked',
+                        { reason: 'quota_limited', channel: 'email', workflow_id: 'test-flow-id' },
+                    ],
+                ],
+            ],
+            ['a webhook on the destination quota', 'workflow_destinations_dispatched', ['function'], []],
+            [
+                'an email send next to a webhook on the destination quota',
+                'workflow_destinations_dispatched',
+                ['function_email', 'function'],
+                [
+                    [
+                        teamId,
+                        'workflows send blocked',
+                        { reason: 'quota_limited', channel: 'email', workflow_id: 'test-flow-id' },
+                    ],
+                ],
+            ],
+        ] as const)('should block %s and emit metrics', async (_name, limitedResource, actionTypes, reports) => {
             mockQuotaLimiting.isTeamQuotaLimited.mockImplementation((_teamId, resource) => {
-                return Promise.resolve(resource === 'workflow_emails')
+                return Promise.resolve(resource === limitedResource)
             })
 
             const item: CyclotronJobInvocationHogFlow = {
                 ...baseItem,
                 hogFlow: {
                     ...baseItem.hogFlow,
-                    billable_action_types: ['function_email'],
+                    billable_action_types: [...actionTypes],
                 },
             }
 
             const result = await shouldBlockHogFlowDueToQuota(item, {
                 quotaLimiting: mockQuotaLimiting,
                 hogFunctionMonitoringService: mockHogFunctionMonitoringService,
+                workflowsActivationReporter: mockWorkflowsActivationReporter,
             })
 
             expect(result).toBe(true)
@@ -296,6 +315,36 @@ describe('HogFlow Quota Limiting', () => {
                 },
                 'hog_flow'
             )
+            expect(mockWorkflowsActivationReporter.report.mock.calls).toEqual(reports)
+        })
+
+        it('should report a blocked email send when the destination quota stops transactional emails next to a webhook', async () => {
+            mockQuotaLimiting.isTeamQuotaLimited.mockResolvedValue(true)
+
+            const item: CyclotronJobInvocationHogFlow = {
+                ...baseItem,
+                hogFlow: {
+                    ...baseItem.hogFlow,
+                    actions: [
+                        { type: 'function_email', config: { message_category_type: 'transactional' } },
+                        { type: 'function', config: {} },
+                    ],
+                    billable_action_types: ['function_email', 'function'],
+                } as unknown as HogFlow,
+            }
+
+            const result = await shouldBlockHogFlowDueToQuota(item, {
+                quotaLimiting: mockQuotaLimiting,
+                hogFunctionMonitoringService: mockHogFunctionMonitoringService,
+                workflowsActivationReporter: mockWorkflowsActivationReporter,
+            })
+
+            expect(result).toBe(true)
+            expect(mockWorkflowsActivationReporter.report).toHaveBeenCalledWith(teamId, 'workflows send blocked', {
+                reason: 'quota_limited',
+                channel: 'email',
+                workflow_id: 'test-flow-id',
+            })
         })
 
         it('should handle workflow with no billable actions', async () => {
@@ -312,6 +361,7 @@ describe('HogFlow Quota Limiting', () => {
             const result = await shouldBlockHogFlowDueToQuota(item, {
                 quotaLimiting: mockQuotaLimiting,
                 hogFunctionMonitoringService: mockHogFunctionMonitoringService,
+                workflowsActivationReporter: mockWorkflowsActivationReporter,
             })
 
             expect(result).toBe(false)

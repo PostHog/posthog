@@ -110,7 +110,10 @@ describe('ResourceCatalog', () => {
 
     describe('warmup and resource listing', () => {
         it('serves slim metadata for context-mill resources after warmup', async () => {
-            vi.mocked(fetchAndExtractEntries).mockResolvedValue([makeEntry('guide'), makeEntry('faq')])
+            vi.mocked(fetchAndExtractEntries).mockResolvedValue({
+                entries: [makeEntry('guide'), makeEntry('faq')],
+                omnibusSkillsArchive: null,
+            })
             vi.mocked(getPromptsFromManifest).mockResolvedValue([
                 {
                     name: 'greet',
@@ -144,7 +147,10 @@ describe('ResourceCatalog', () => {
         })
 
         it('pre-merges resource list so getResourcesList returns a stable array', async () => {
-            vi.mocked(fetchAndExtractEntries).mockResolvedValue([makeEntry('a')])
+            vi.mocked(fetchAndExtractEntries).mockResolvedValue({
+                entries: [makeEntry('a')],
+                omnibusSkillsArchive: null,
+            })
             vi.mocked(getPromptsFromManifest).mockResolvedValue([])
 
             const catalog = new ResourceCatalog(mockEnv, redis)
@@ -155,8 +161,49 @@ describe('ResourceCatalog', () => {
             expect(list1).toBe(list2)
         })
 
+        it.each([
+            [['none'], []],
+            [['skills'], ['posthog://skills/feature-flags/react', 'posthog://skills/logs/python']],
+            [['feature-flags'], ['posthog://skills/feature-flags/react']],
+            [
+                ['feature-flags', 'docs'],
+                ['posthog://skills/feature-flags/react', 'posthog://docs/identify-users'],
+            ],
+            [['unknown-group'], []],
+        ])('lists only the resources in the %j groups', async (groups, expected) => {
+            vi.mocked(fetchAndExtractEntries).mockResolvedValue({
+                entries: [
+                    makeEntry('skills/feature-flags/react'),
+                    makeEntry('skills/logs/python'),
+                    makeEntry('docs/identify-users'),
+                ],
+                omnibusSkillsArchive: null,
+            })
+            vi.mocked(getPromptsFromManifest).mockResolvedValue([])
+
+            const catalog = new ResourceCatalog(mockEnv, redis)
+            await catalog.warmup()
+
+            expect(catalog.getResourcesList(groups).resources.map((r) => r.uri)).toEqual(expected)
+        })
+
+        it('lists only UI apps for the apps group', async () => {
+            vi.mocked(fetchAndExtractEntries).mockResolvedValue({
+                entries: [makeEntry('skills/logs/python')],
+                omnibusSkillsArchive: null,
+            })
+            vi.mocked(getPromptsFromManifest).mockResolvedValue([])
+
+            const catalog = new ResourceCatalog(mockEnv, redis)
+            await catalog.warmup()
+
+            const uris = catalog.getResourcesList(['apps']).resources.map((r) => r.uri)
+            expect(uris.length).toBeGreaterThan(0)
+            expect(uris.every((uri) => uri.startsWith('ui://posthog/'))).toBe(true)
+        })
+
         it('lists the Visual Review artifact source in its CSP metadata', async () => {
-            vi.mocked(fetchAndExtractEntries).mockResolvedValue([])
+            vi.mocked(fetchAndExtractEntries).mockResolvedValue({ entries: [], omnibusSkillsArchive: null })
             vi.mocked(getPromptsFromManifest).mockResolvedValue([])
 
             const catalog = new ResourceCatalog(mockEnv, redis)
@@ -173,14 +220,20 @@ describe('ResourceCatalog', () => {
         })
 
         it('revalidates context-mill resources on demand', async () => {
-            vi.mocked(fetchAndExtractEntries).mockResolvedValueOnce([makeEntry('old')])
+            vi.mocked(fetchAndExtractEntries).mockResolvedValueOnce({
+                entries: [makeEntry('old')],
+                omnibusSkillsArchive: null,
+            })
             vi.mocked(getPromptsFromManifest).mockResolvedValue([])
 
             const catalog = new ResourceCatalog(mockEnv, redis)
             await catalog.warmup()
 
             redis._store.delete(MANIFEST_CURRENT_KEY)
-            vi.mocked(fetchAndExtractEntries).mockResolvedValueOnce([makeEntry('new')])
+            vi.mocked(fetchAndExtractEntries).mockResolvedValueOnce({
+                entries: [makeEntry('new')],
+                omnibusSkillsArchive: null,
+            })
 
             await catalog.revalidateContextMillResources('initialize')
 
@@ -197,7 +250,10 @@ describe('ResourceCatalog', () => {
         it('keeps existing context-mill resources when revalidation fails', async () => {
             const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
             try {
-                vi.mocked(fetchAndExtractEntries).mockResolvedValueOnce([makeEntry('stable')])
+                vi.mocked(fetchAndExtractEntries).mockResolvedValueOnce({
+                    entries: [makeEntry('stable')],
+                    omnibusSkillsArchive: null,
+                })
                 vi.mocked(getPromptsFromManifest).mockResolvedValue([])
 
                 const catalog = new ResourceCatalog(mockEnv, redis)
@@ -227,7 +283,7 @@ describe('ResourceCatalog', () => {
 
     describe('readResource', () => {
         it('includes the Visual Review artifact source in its CSP metadata', async () => {
-            vi.mocked(fetchAndExtractEntries).mockResolvedValue([])
+            vi.mocked(fetchAndExtractEntries).mockResolvedValue({ entries: [], omnibusSkillsArchive: null })
             vi.mocked(getPromptsFromManifest).mockResolvedValue([])
 
             const catalog = new ResourceCatalog(mockEnv, redis)
@@ -242,7 +298,10 @@ describe('ResourceCatalog', () => {
         })
 
         it('lazy-loads a context-mill body from Redis on first read', async () => {
-            vi.mocked(fetchAndExtractEntries).mockResolvedValue([makeEntry('doc')])
+            vi.mocked(fetchAndExtractEntries).mockResolvedValue({
+                entries: [makeEntry('doc')],
+                omnibusSkillsArchive: null,
+            })
             vi.mocked(getPromptsFromManifest).mockResolvedValue([])
 
             const catalog = new ResourceCatalog(mockEnv, redis)
@@ -256,7 +315,7 @@ describe('ResourceCatalog', () => {
         })
 
         it('returns empty contents for unknown URI', async () => {
-            vi.mocked(fetchAndExtractEntries).mockResolvedValue([])
+            vi.mocked(fetchAndExtractEntries).mockResolvedValue({ entries: [], omnibusSkillsArchive: null })
             vi.mocked(getPromptsFromManifest).mockResolvedValue([])
 
             const catalog = new ResourceCatalog(mockEnv, redis)
@@ -267,7 +326,10 @@ describe('ResourceCatalog', () => {
         })
 
         it('returns empty contents when a body has aged out without triggering a refresh', async () => {
-            vi.mocked(fetchAndExtractEntries).mockResolvedValue([makeEntry('doc')])
+            vi.mocked(fetchAndExtractEntries).mockResolvedValue({
+                entries: [makeEntry('doc')],
+                omnibusSkillsArchive: null,
+            })
             vi.mocked(getPromptsFromManifest).mockResolvedValue([])
 
             const catalog = new ResourceCatalog(mockEnv, redis)
@@ -295,7 +357,7 @@ describe('ResourceCatalog', () => {
 
     describe('getPrompt', () => {
         it('returns messages for a known prompt name', async () => {
-            vi.mocked(fetchAndExtractEntries).mockResolvedValue([])
+            vi.mocked(fetchAndExtractEntries).mockResolvedValue({ entries: [], omnibusSkillsArchive: null })
             vi.mocked(getPromptsFromManifest).mockResolvedValue([
                 {
                     name: 'test-prompt',
@@ -313,7 +375,7 @@ describe('ResourceCatalog', () => {
         })
 
         it('returns empty messages for unknown prompt', async () => {
-            vi.mocked(fetchAndExtractEntries).mockResolvedValue([])
+            vi.mocked(fetchAndExtractEntries).mockResolvedValue({ entries: [], omnibusSkillsArchive: null })
             vi.mocked(getPromptsFromManifest).mockResolvedValue([])
 
             const catalog = new ResourceCatalog(mockEnv, redis)
@@ -340,7 +402,10 @@ describe('ResourceCatalog', () => {
         })
 
         it('continues serving resources when prompt fetch fails', async () => {
-            vi.mocked(fetchAndExtractEntries).mockResolvedValue([makeEntry('r')])
+            vi.mocked(fetchAndExtractEntries).mockResolvedValue({
+                entries: [makeEntry('r')],
+                omnibusSkillsArchive: null,
+            })
             vi.mocked(getPromptsFromManifest).mockRejectedValue(new Error('fail'))
 
             const catalog = new ResourceCatalog(mockEnv, redis)

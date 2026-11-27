@@ -5,6 +5,7 @@
     },
     "dependencies": {
         "@posthog/quill": "workspace:*",
+        "@posthog/quill-components": "workspace:*",
         "kea": "catalog:",
         "kea-forms": "catalog:",
         "kea-loaders": "catalog:",
@@ -14,6 +15,8 @@
         "query-selector-shadow-dom": "catalog:"
     },
     "devDependencies": {
+        "@testing-library/jest-dom": "^7.0.1",
+        "@testing-library/react": "^16.3.3",
         "@types/query-selector-shadow-dom": "catalog:",
         "kea-test-utils": "catalog:"
     },

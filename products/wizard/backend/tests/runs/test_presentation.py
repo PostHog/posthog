@@ -182,6 +182,15 @@ class TestWizardRunViewSet(APIBaseTest):
         invalid_date_response = self.client.get(f"{self._url()}?created_after=invalid")
         self.assertEqual(invalid_date_response.status_code, status.HTTP_400_BAD_REQUEST)
 
+        other_user = User.objects.create_and_join(self.organization, "teammate@example.com", None)
+        WizardRun.objects.for_team(self.team.id).filter(id=run_ids[1]).update(created_by=other_user)
+        own_response = self.client.get(f"{self._url()}?created_by_id={self.user.id}")
+        self.assertEqual(own_response.status_code, status.HTTP_200_OK)
+        self.assertEqual([run["id"] for run in own_response.json()["results"]], [run_ids[2], run_ids[0]])
+
+        invalid_user_response = self.client.get(f"{self._url()}?created_by_id=me")
+        self.assertEqual(invalid_user_response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_create_requires_program_id(self) -> None:
         response = self.client.post(
             self._url(),
@@ -682,6 +691,9 @@ class TestWizardRunViewSet(APIBaseTest):
                         "head_branch": "posthog/wizard-123",
                         "base_branch": "master",
                         "created_at": artifact["created_at"],
+                        "state": "open",
+                        "merged_at": None,
+                        "closed_at": None,
                     }
                 ],
             },

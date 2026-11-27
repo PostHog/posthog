@@ -1,11 +1,15 @@
+from typing import Any
+
 import pytest
 
 from django.test.client import Client as HttpClient
 
 from rest_framework import status
 
-from posthog.models.integration import Integration
+from posthog.integrations import IntegrationManager, IntegrationRecord
+from posthog.models import Team, User
 
+from products.batch_exports.backend.models.batch_export import BatchExport
 from products.batch_exports.backend.tests.api.operations import (
     create_batch_export_ok,
     get_batch_export_ok,
@@ -18,7 +22,9 @@ pytestmark = [
 ]
 
 
-def create_copy_batch_export(client: HttpClient, team, user, copy_inputs: dict, integration_pk: int) -> dict:
+def create_copy_batch_export(
+    client: HttpClient, team: Team, user: User, copy_inputs: dict[str, Any], integration_pk: int
+) -> dict[str, Any]:
     destination_data = {
         "type": "Redshift",
         "config": {
@@ -32,7 +38,7 @@ def create_copy_batch_export(client: HttpClient, team, user, copy_inputs: dict, 
         "integration": integration_pk,
     }
     batch_export_data = {
-        "name": "my-production-redshift-destination",
+        "name": "test-redshift-export",
         "destination": destination_data,
         "interval": "hour",
     }
@@ -40,168 +46,271 @@ def create_copy_batch_export(client: HttpClient, team, user, copy_inputs: dict, 
     return create_batch_export_ok(client, team.pk, batch_export_data)
 
 
-def test_can_patch_redshift_batch_export(
-    client: HttpClient, temporal, organization, team, user, aws_redshift_integration
-):
-    """Test we can patch a Redshift batch export preserving credentials."""
-    destination_data = {
-        "type": "Redshift",
-        "config": {
-            "database": "my-db",
-            "host": "localhost",
-            "schema": "public",
-            "table_name": "my_events",
-            "mode": "COPY",
-            "copy_inputs": {
-                "s3_bucket": "my-production-s3-bucket",
-                "region_name": "us-east-1",
-                "s3_key_prefix": "posthog-events/",
-                "bucket_credentials": {"aws_access_key_id": "abc123", "aws_secret_access_key": "secret"},
-                "authorization": {"aws_access_key_id": "abc123", "aws_secret_access_key": "secret"},
-            },
+@pytest.mark.parametrize("field_name", ["authorization", "bucket_credentials"])
+@pytest.mark.parametrize(
+    "patch_kind, expected_status",
+    [
+        ("omit", status.HTTP_400_BAD_REQUEST),
+        ("unchanged", status.HTTP_400_BAD_REQUEST),
+        ("integration", status.HTTP_200_OK),
+    ],
+)
+def test_patching_redshift_batch_export_with_stored_inline_copy_credentials(
+    client: HttpClient,
+    team: Team,
+    user: User,
+    aws_s3_integration: IntegrationRecord,
+    aws_redshift_integration: IntegrationRecord,
+    field_name: str,
+    patch_kind: str,
+    expected_status: int,
+) -> None:
+    batch_export = create_copy_batch_export(
+        client,
+        team,
+        user,
+        {
+            "s3_bucket": "test-staging-bucket",
+            "region_name": "us-east-1",
+            "s3_key_prefix": "posthog-events/",
+            "bucket_credentials": aws_s3_integration.id,
+            "authorization": aws_s3_integration.id,
         },
-        "integration": aws_redshift_integration.pk,
-    }
+        aws_redshift_integration.id,
+    )
+    destination = (
+        BatchExport.objects.select_related("destination").get(id=batch_export["id"], team_id=team.id).destination
+    )
+    stored_credentials = {"aws_access_key_id": "test-access-key", "aws_secret_access_key": "test-secret-key"}
+    destination.config["copy_inputs"][field_name] = stored_credentials
+    destination.save()
 
-    batch_export_data = {
-        "name": "my-production-redshiftn-destination",
-        "destination": destination_data,
-        "interval": "hour",
-    }
+    config: dict[str, Any] = {"table_name": "updated_events"}
+    if patch_kind == "unchanged":
+        config["copy_inputs"] = {field_name: stored_credentials}
+    elif patch_kind == "integration":
+        config["copy_inputs"] = {field_name: aws_s3_integration.id}
 
-    client.force_login(user)
-
-    batch_export = create_batch_export_ok(
+    response = patch_batch_export(
         client,
         team.pk,
-        batch_export_data,
+        batch_export["id"],
+        {"destination": {"type": "Redshift", "config": config, "integration": destination.integration_id}},
     )
+    assert response.status_code == expected_status, response.json()
 
-    # Updates bucket name, leaves everything else untouched. The integration is re-sent because an
-    # export that has one cannot drop it, matching what the edit form submits.
-    new_destination_data = {
-        "type": "Redshift",
-        "config": {
-            "copy_inputs": {
-                "s3_bucket": "my-new-production-s3-bucket",
-            },
-        },
-        "integration": aws_redshift_integration.pk,
-    }
-
-    new_batch_export_data = {
-        "destination": new_destination_data,
-    }
-
-    response = patch_batch_export(client, team.pk, batch_export["id"], new_batch_export_data)
-    assert response.status_code == status.HTTP_200_OK, response.json()
-
-    # Verify the bucket name update worked
-    batch_export = get_batch_export_ok(client, team.pk, batch_export["id"])
-    assert batch_export["destination"]["type"] == "Redshift"
-    assert batch_export["destination"]["config"]["copy_inputs"]["s3_bucket"] == "my-new-production-s3-bucket"
+    destination.refresh_from_db()
+    if expected_status == status.HTTP_200_OK:
+        assert destination.config["table_name"] == "updated_events"
+        assert int(destination.config["copy_inputs"][field_name]) == aws_s3_integration.id
+    else:
+        detail = response.json()["detail"]
+        assert "Inline AWS access keys are no longer accepted" in detail
+        assert all(value not in detail for value in stored_credentials.values())
+        assert destination.config["copy_inputs"][field_name] == stored_credentials
 
 
-def test_can_patch_redshift_batch_export_switching_authorization_to_credentials(
-    client: HttpClient, temporal, organization, team, user, aws_redshift_integration
-):
-    """Test an update can switch 'authorization' from an IAM role to inline credentials.
-
-    The config merge used to raise a TypeError on this transition and return a 500.
-    """
+@pytest.mark.parametrize(
+    "field_name,previous_source",
+    [
+        ("bucket_credentials", "integration"),
+        ("authorization", "integration"),
+        ("authorization", "iam_role"),
+        ("bucket_credentials", "legacy"),
+        ("authorization", "legacy"),
+    ],
+)
+@pytest.mark.parametrize("changed_key", ["aws_access_key_id", "aws_secret_access_key", "both"])
+def test_patching_redshift_batch_export_rejects_changed_inline_copy_credentials(
+    client: HttpClient,
+    team: Team,
+    user: User,
+    aws_s3_integration: IntegrationRecord,
+    aws_redshift_integration: IntegrationRecord,
+    field_name: str,
+    previous_source: str,
+    changed_key: str,
+) -> None:
     batch_export = create_copy_batch_export(
         client,
         team,
         user,
         {
-            "s3_bucket": "my-production-s3-bucket",
+            "s3_bucket": "test-staging-bucket",
             "region_name": "us-east-1",
             "s3_key_prefix": "posthog-events/",
-            "bucket_credentials": {"aws_access_key_id": "abc123", "aws_secret_access_key": "secret"},
-            "authorization": "arn:aws:iam::123456789012:role/my-role",
+            "bucket_credentials": aws_s3_integration.id,
+            "authorization": (
+                "arn:aws:iam::000000000000:role/test-copy" if previous_source == "iam_role" else aws_s3_integration.id
+            ),
         },
-        aws_redshift_integration.pk,
+        aws_redshift_integration.id,
     )
+    destination = (
+        BatchExport.objects.select_related("destination").get(id=batch_export["id"], team_id=team.id).destination
+    )
+    legacy_credentials = {"aws_access_key_id": "test-access-key", "aws_secret_access_key": "test-secret-key"}
+    if previous_source == "legacy":
+        destination.config["copy_inputs"][field_name] = legacy_credentials
+        destination.save()
+    destination.refresh_from_db()
+    stored_value = destination.config["copy_inputs"][field_name]
 
-    new_batch_export_data = {
-        "destination": {
-            "type": "Redshift",
-            "config": {
-                "copy_inputs": {
-                    "authorization": {"aws_access_key_id": "new-key", "aws_secret_access_key": "new-secret"},
-                },
-            },
-            "integration": aws_redshift_integration.pk,
-        },
+    credentials = {
+        key: f"changed-{value}" if changed_key in {key, "both"} else value for key, value in legacy_credentials.items()
     }
-
-    response = patch_batch_export(client, team.pk, batch_export["id"], new_batch_export_data)
-    assert response.status_code == status.HTTP_200_OK, response.json()
-
-    batch_export = get_batch_export_ok(client, team.pk, batch_export["id"])
-    assert batch_export["destination"]["config"]["copy_inputs"]["s3_bucket"] == "my-production-s3-bucket"
-
-
-@pytest.mark.parametrize("field_name", ["authorization", "bucket_credentials"])
-def test_patching_redshift_batch_export_rejects_switching_copy_integration_to_inline(
-    client: HttpClient, temporal, organization, team, user, aws_s3_integration, aws_redshift_integration, field_name
-):
-    """Test COPY credentials backed by an integration cannot switch back to inline values."""
-    batch_export = create_copy_batch_export(
+    if previous_source == "legacy" and changed_key != "both":
+        credentials = {changed_key: credentials[changed_key]}
+    response = patch_batch_export(
         client,
-        team,
-        user,
+        team.pk,
+        batch_export["id"],
         {
-            "s3_bucket": "my-production-s3-bucket",
-            "region_name": "us-east-1",
-            "s3_key_prefix": "posthog-events/",
-            "bucket_credentials": aws_s3_integration.pk,
-            "authorization": aws_s3_integration.pk,
+            "destination": {
+                "type": "Redshift",
+                "config": {"copy_inputs": {field_name: credentials}},
+                "integration": destination.integration_id,
+            }
         },
-        aws_redshift_integration.pk,
     )
-
-    new_batch_export_data = {
-        "destination": {
-            "type": "Redshift",
-            "config": {
-                "copy_inputs": {
-                    field_name: {"aws_access_key_id": "abc123", "aws_secret_access_key": "secret"},
-                },
-            },
-            "integration": aws_redshift_integration.pk,
-        },
-    }
-
-    response = patch_batch_export(client, team.pk, batch_export["id"], new_batch_export_data)
     assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-    assert f"Cannot switch '{field_name}' from an integration to inline credentials" in response.json()["detail"]
+    detail = response.json()["detail"]
+    assert "AWS S3 integration" in detail
+    assert "Inline AWS access keys are no longer accepted" in detail
+    assert all(value not in detail for value in credentials.values())
+    destination.refresh_from_db()
+    assert destination.config["copy_inputs"][field_name] == stored_value
+
+
+@pytest.mark.parametrize(
+    "new_authorization,expected_status",
+    [
+        ("arn:aws:iam::123456789012:role/new-copy-role", status.HTTP_200_OK),
+        ("default", status.HTTP_200_OK),
+        ("not-an-arn", status.HTTP_400_BAD_REQUEST),
+        ("arn:aws:iam::123:role/too-short-account", status.HTTP_400_BAD_REQUEST),
+    ],
+)
+def test_patching_redshift_batch_export_authorization_from_integration_to_iam_role(
+    client: HttpClient,
+    team: Team,
+    user: User,
+    aws_s3_integration: IntegrationRecord,
+    aws_redshift_integration: IntegrationRecord,
+    new_authorization: str,
+    expected_status: int,
+) -> None:
+    batch_export = create_copy_batch_export(
+        client,
+        team,
+        user,
+        {
+            "s3_bucket": "test-staging-bucket",
+            "region_name": "us-east-1",
+            "s3_key_prefix": "posthog-events/",
+            "bucket_credentials": aws_s3_integration.id,
+            "authorization": aws_s3_integration.id,
+        },
+        aws_redshift_integration.id,
+    )
+    destination = (
+        BatchExport.objects.select_related("destination").get(id=batch_export["id"], team_id=team.id).destination
+    )
+
+    response = patch_batch_export(
+        client,
+        team.pk,
+        batch_export["id"],
+        {
+            "destination": {
+                "type": "Redshift",
+                "config": {"copy_inputs": {"authorization": new_authorization}},
+                "integration": destination.integration_id,
+            }
+        },
+    )
+    assert response.status_code == expected_status, response.json()
+
+    destination.refresh_from_db()
+    if expected_status == status.HTTP_200_OK:
+        assert destination.config["copy_inputs"]["authorization"] == new_authorization
+    else:
+        assert "must be an IAM role ARN" in response.json()["detail"]
+        assert int(destination.config["copy_inputs"]["authorization"]) == aws_s3_integration.id
+
+
+def test_can_patch_redshift_batch_export_with_unchanged_non_arn_iam_role(
+    client: HttpClient,
+    team: Team,
+    user: User,
+    aws_s3_integration: IntegrationRecord,
+    aws_redshift_integration: IntegrationRecord,
+) -> None:
+    batch_export = create_copy_batch_export(
+        client,
+        team,
+        user,
+        {
+            "s3_bucket": "test-staging-bucket",
+            "region_name": "us-east-1",
+            "s3_key_prefix": "posthog-events/",
+            "bucket_credentials": aws_s3_integration.id,
+            "authorization": "default",
+        },
+        aws_redshift_integration.id,
+    )
+    destination = (
+        BatchExport.objects.select_related("destination").get(id=batch_export["id"], team_id=team.id).destination
+    )
+    # Exports saved before ARN validation may hold any non-empty string.
+    destination.config["copy_inputs"]["authorization"] = "legacy-role-value"
+    destination.save()
+
+    response = patch_batch_export(
+        client,
+        team.pk,
+        batch_export["id"],
+        {
+            "destination": {
+                "type": "Redshift",
+                "config": {"table_name": "updated_events"},
+                "integration": destination.integration_id,
+            }
+        },
+    )
+    assert response.status_code == status.HTTP_200_OK, response.json()
+
+    destination.refresh_from_db()
+    assert destination.config["table_name"] == "updated_events"
+    assert destination.config["copy_inputs"]["authorization"] == "legacy-role-value"
 
 
 def test_can_patch_redshift_batch_export_swapping_copy_integration(
-    client: HttpClient, temporal, organization, team, user, aws_s3_integration, aws_redshift_integration
-):
-    """Test COPY credentials backed by an integration can swap to a different integration."""
-    other_integration = Integration.objects.create(
-        team=team,
-        kind=Integration.IntegrationKind.AWS_S3,
-        integration_id="prod-aws-2",
-        config={"name": "prod-aws-2", "aws_account_id": "123456789012"},
-        sensitive_config={"aws_access_key_id": "key-2", "aws_secret_access_key": "secret-2"},
-        created_by=user,
+    client: HttpClient,
+    team: Team,
+    user: User,
+    aws_s3_integration: IntegrationRecord,
+    aws_redshift_integration: IntegrationRecord,
+) -> None:
+    other_integration = IntegrationManager.aws_s3.credentials.create(
+        team_id=team.id,
+        external_id="test-aws-2",
+        config={"name": "test-aws-2"},
+        sensitive_config={"aws_access_key_id": "test-key-2", "aws_secret_access_key": "test-secret-2"},
+        created_by_id=user.id,
     )
     batch_export = create_copy_batch_export(
         client,
         team,
         user,
         {
-            "s3_bucket": "my-production-s3-bucket",
+            "s3_bucket": "test-staging-bucket",
             "region_name": "us-east-1",
             "s3_key_prefix": "posthog-events/",
-            "bucket_credentials": aws_s3_integration.pk,
-            "authorization": aws_s3_integration.pk,
+            "bucket_credentials": aws_s3_integration.id,
+            "authorization": aws_s3_integration.id,
         },
-        aws_redshift_integration.pk,
+        aws_redshift_integration.id,
     )
 
     new_batch_export_data = {
@@ -209,11 +318,11 @@ def test_can_patch_redshift_batch_export_swapping_copy_integration(
             "type": "Redshift",
             "config": {
                 "copy_inputs": {
-                    "bucket_credentials": other_integration.pk,
-                    "authorization": other_integration.pk,
+                    "bucket_credentials": other_integration.id,
+                    "authorization": other_integration.id,
                 },
             },
-            "integration": aws_redshift_integration.pk,
+            "integration": aws_redshift_integration.id,
         },
     }
 
@@ -221,5 +330,51 @@ def test_can_patch_redshift_batch_export_swapping_copy_integration(
     assert response.status_code == status.HTTP_200_OK, response.json()
 
     batch_export = get_batch_export_ok(client, team.pk, batch_export["id"])
-    assert batch_export["destination"]["config"]["copy_inputs"]["bucket_credentials"] == other_integration.pk
-    assert batch_export["destination"]["config"]["copy_inputs"]["authorization"] == other_integration.pk
+    assert batch_export["destination"]["config"]["copy_inputs"]["bucket_credentials"] == other_integration.id
+    assert batch_export["destination"]["config"]["copy_inputs"]["authorization"] == other_integration.id
+
+
+@pytest.mark.parametrize(
+    "destination_patch, expected_status",
+    [
+        ({"integration": None}, status.HTTP_400_BAD_REQUEST),
+        ({}, status.HTTP_200_OK),
+    ],
+    ids=["explicit_null_is_rejected", "omitted_keeps_integration"],
+)
+def test_updating_redshift_batch_export_keeps_its_integration(
+    client: HttpClient,
+    team: Team,
+    user: User,
+    aws_redshift_integration: IntegrationRecord,
+    destination_patch: dict[str, Any],
+    expected_status: int,
+) -> None:
+    """A config-only PATCH keeps the linked integration; an explicit null cannot remove it."""
+    client.force_login(user)
+    batch_export = create_batch_export_ok(
+        client,
+        team.pk,
+        {
+            "name": "test-redshift-export",
+            "destination": {
+                "type": "Redshift",
+                "config": {"database": "my-db", "host": "localhost", "schema": "public", "table_name": "my_events"},
+                "integration": aws_redshift_integration.id,
+            },
+            "interval": "hour",
+        },
+    )
+
+    response = patch_batch_export(
+        client,
+        team.pk,
+        batch_export["id"],
+        {"destination": {"type": "Redshift", "config": {"table_name": "my_new_events"}, **destination_patch}},
+    )
+
+    assert response.status_code == expected_status, response.json()
+    if expected_status == status.HTTP_200_OK:
+        assert response.json()["destination"]["integration"] == aws_redshift_integration.id
+    else:
+        assert response.json()["detail"] == "Integration is required for Redshift batch exports"

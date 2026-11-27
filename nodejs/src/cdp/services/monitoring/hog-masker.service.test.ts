@@ -10,7 +10,7 @@ import { HOG_FLOW_MASK_EXAMPLES, HOG_MASK_EXAMPLES } from '../../_tests/examples
 import { createExampleInvocation, createHogExecutionGlobals, createHogFunction } from '../../_tests/fixtures'
 import { createExampleHogFlowInvocation } from '../../_tests/fixtures-hogflows'
 import { createCdpValkeyShadowPools } from '../../cdp-services'
-import { CyclotronJobInvocationHogFunction, HogFunctionType } from '../../types'
+import { CyclotronJobInvocationHogFlow, CyclotronJobInvocationHogFunction, HogFunctionType } from '../../types'
 import { BASE_REDIS_KEY, HogMaskerService } from './hog-masker.service'
 
 const mockNow: jest.SpyInstance = jest.spyOn(Date, 'now')
@@ -461,11 +461,60 @@ describe('HogMasker', () => {
                     expect(extra.masked).toHaveLength(1)
                 })
 
+                it('release() leaves the Valkey mirror alone when its increment failed there', async () => {
+                    const mirrorWhoseIncrementTimesOut: RedisV2 = {
+                        useClient: (options, callback) => valkey.useClient(options, callback),
+                        usePipeline: (options, callback) =>
+                            options.name === 'masker-mirror'
+                                ? Promise.resolve([
+                                      [new Error('Command timed out'), null],
+                                      [null, 0],
+                                  ])
+                                : valkey.usePipeline(options, callback),
+                    }
+                    const claim = await new HogMaskerService(redis, mirrorWhoseIncrementTimesOut).filterByMasking([
+                        createExampleHogFlowInvocation(hogFlowEvery),
+                    ])
+
+                    await claim.release()
+
+                    expect(
+                        await valkey.useClient({ name: 'read-mirror-keys' }, (client) =>
+                            client.keys(`*${hogFlowEvery.id}*`)
+                        )
+                    ).toEqual([])
+                })
+
                 it('uses threshold for onceEver flow trigger masking', async () => {
                     const inv = createExampleHogFlowInvocation(hogFlowOnceEver)
                     expect((await masker.filterByMasking([inv])).notMasked).toHaveLength(1)
                     expect((await masker.filterByMasking([inv])).masked).toHaveLength(1)
                     expect((await masker.filterByMasking([inv])).masked).toHaveLength(1)
+                })
+
+                it('masks hog flow per group when the hash uses groups', async () => {
+                    const hogFlowPerGroup = {
+                        ...hogFlowEvery,
+                        id: `hf_per_group-${testRunId}`,
+                        trigger_masking: {
+                            ttl: 30,
+                            hash: '{groups.company.id}',
+                            bytecode: ['_h', 32, 'id', 32, 'company', 32, 'groups', 1, 3],
+                            threshold: null,
+                        },
+                    } as HogFlow
+                    const withCompany = (id: string): CyclotronJobInvocationHogFlow => ({
+                        ...createExampleHogFlowInvocation(hogFlowPerGroup),
+                        groups: { company: { id, type: 'company', index: 0, url: '', properties: {} } },
+                    })
+
+                    const res = await masker.filterByMasking([
+                        withCompany('company-a'),
+                        withCompany('company-a'),
+                        withCompany('company-b'),
+                    ])
+                    expect(res.notMasked.map((x) => x.groups?.company.id)).toEqual(['company-a', 'company-b'])
+                    expect(res.masked.map((x) => x.groups?.company.id)).toEqual(['company-a'])
                 })
 
                 it('deduplicates hog flow per calendar day and resets on next day', async () => {

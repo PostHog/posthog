@@ -5,12 +5,20 @@ import { urls } from 'scenes/urls'
 
 import { FileSystemIconType, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
-import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
+import { ActivityScope, FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 import { AI_OBSERVABILITY_CLUSTER_URL_PATTERN } from './frontend/clusters/constants'
 import { scorerFiltersFromSearchParams } from './frontend/scoreDefinitions/scoreDefinitionNavigation'
 
 export const manifest: ProductManifest = {
     name: 'AI observability',
+    activityDescribers: {
+        [ActivityScope.LLM_PROMPT]: () =>
+            import('./frontend/prompts/promptActivityDescriber').then((module) => module.promptActivityDescriber),
+        [ActivityScope.LLM_PROMPT_LABEL]: () =>
+            import('./frontend/prompts/promptLabelActivityDescriber').then(
+                (module) => module.promptLabelActivityDescriber
+            ),
+    },
     scenes: {
         AIObservability: {
             import: () => import('./frontend/AIObservabilityScene'),
@@ -22,7 +30,7 @@ export const manifest: ProductManifest = {
             docsHref: 'https://posthog.com/docs/ai-observability',
         },
         AIObservabilityTrace: {
-            import: () => import('./frontend/AIObservabilityTraceScene'),
+            import: () => import('./frontend/redesign/trace/TraceScene'),
             projectBased: true,
             name: 'AI observability trace',
             layout: 'app-container',
@@ -126,24 +134,6 @@ export const manifest: ProductManifest = {
             layout: 'app-container',
             iconType: 'llm_evaluations',
         },
-        AIObservabilityTags: {
-            import: () => import('./frontend/tags/AIObservabilityTagsScene'),
-            projectBased: true,
-            name: 'Taggers',
-            description: 'Add custom tags to your AI generations automatically.',
-            activityScope: 'AIObservability',
-            layout: 'app-container',
-            iconType: 'llm_tags',
-            docsHref: 'https://posthog.com/docs/ai-evals/taggers',
-        },
-        AIObservabilityTag: {
-            import: () => import('./frontend/tags/AIObservabilityTagScene'),
-            projectBased: true,
-            name: 'Tagger',
-            activityScope: 'AIObservability',
-            layout: 'app-container',
-            iconType: 'llm_tags',
-        },
         AIObservabilityPrompts: {
             import: () => import('./frontend/prompts/LLMPromptsScene'),
             projectBased: true,
@@ -195,8 +185,6 @@ export const manifest: ProductManifest = {
         '/ai-observability/clusters/:runId': ['AIObservabilityClusters', 'aiObservabilityClusters'],
         [AI_OBSERVABILITY_CLUSTER_URL_PATTERN]: ['AIObservabilityCluster', 'aiObservabilityCluster'],
         '/ai-evals/evaluations/offline/datasets/:id': ['AIObservabilityDataset', 'aiObservabilityDataset'],
-        '/ai-evals/taggers': ['AIObservabilityTags', 'aiObservabilityTags'],
-        '/ai-evals/taggers/:id': ['AIObservabilityTag', 'aiObservabilityTag'],
         '/ai-evals/evaluations': ['AIObservabilityEvaluations', 'aiObservabilityEvaluations'],
         '/ai-evals/evaluations/offline/experiments': [
             'AIObservabilityOfflineExperiments',
@@ -244,10 +232,19 @@ export const manifest: ProductManifest = {
             combineUrl(urls.aiObservabilityDataset(params.id), searchParams, hashParams).url,
         '/ai-evals/evaluations/offline': (_params, searchParams, hashParams) =>
             combineUrl(urls.aiObservabilityOfflineEvaluations(), searchParams, hashParams).url,
+        // Taggers were retired in favor of categorical evaluations, so old tagger links land on evaluations.
+        '/ai-evals/taggers': (_params, searchParams, hashParams) =>
+            combineUrl(urls.aiObservabilityEvaluations(), searchParams, hashParams).url,
+        '/ai-evals/taggers/:id': (_params, searchParams, hashParams) =>
+            combineUrl(urls.aiObservabilityEvaluations(), searchParams, hashParams).url,
         '/ai-evals/tags': (_params, searchParams, hashParams) =>
-            combineUrl(urls.aiObservabilityTags(), searchParams, hashParams).url,
-        '/ai-evals/tags/:id': (params, searchParams, hashParams) =>
-            combineUrl(urls.aiObservabilityTag(params.id), searchParams, hashParams).url,
+            combineUrl(urls.aiObservabilityEvaluations(), searchParams, hashParams).url,
+        '/ai-evals/tags/:id': (_params, searchParams, hashParams) =>
+            combineUrl(urls.aiObservabilityEvaluations(), searchParams, hashParams).url,
+        '/llm-analytics/tags': (_params, searchParams, hashParams) =>
+            combineUrl(urls.aiObservabilityEvaluations(), searchParams, hashParams).url,
+        '/llm-analytics/tags/:id': (_params, searchParams, hashParams) =>
+            combineUrl(urls.aiObservabilityEvaluations(), searchParams, hashParams).url,
         '/prompt-management': (_params, searchParams, hashParams) =>
             combineUrl(urls.aiObservabilityPrompts(), searchParams, hashParams).url,
         '/llm-analytics': (_params, searchParams, hashParams) =>
@@ -304,10 +301,6 @@ export const manifest: ProductManifest = {
             combineUrl(urls.aiObservabilityDatasets(), { ...searchParams, tab: 'datasets' }, hashParams).url,
         '/llm-analytics/datasets/:id': (params, searchParams, hashParams) =>
             combineUrl(urls.aiObservabilityDataset(params.id), searchParams, hashParams).url,
-        '/llm-analytics/tags': (_params, searchParams, hashParams) =>
-            combineUrl(urls.aiObservabilityTags(), searchParams, hashParams).url,
-        '/llm-analytics/tags/:id': (params, searchParams, hashParams) =>
-            combineUrl(urls.aiObservabilityTag(params.id), searchParams, hashParams).url,
         '/llm-analytics/evaluations': (_params, searchParams, hashParams) =>
             combineUrl(urls.aiObservabilityEvaluations(), searchParams, hashParams).url,
         '/llm-analytics/evaluations/offline': (_params, searchParams, hashParams) =>
@@ -404,16 +397,19 @@ export const manifest: ProductManifest = {
                 timestamp?: string
             }
         ): string => {
+            // kea-router runs decodeURI on the path before matching, so a character that would split the segment or
+            // fall outside the route's charset keeps a second encoded layer.
+            const segment = id.replace(/[^A-Za-z0-9\-_~.@()!'|:]/gu, (character) =>
+                character === ' ' ? '%20' : encodeURIComponent(encodeURIComponent(character))
+            )
             const queryParams = new URLSearchParams(params)
             const stringifiedParams = queryParams.toString()
-            return `/ai-observability/sessions/${id}${stringifiedParams ? `?${stringifiedParams}` : ''}`
+            return `/ai-observability/sessions/${segment}${stringifiedParams ? `?${stringifiedParams}` : ''}`
         },
         aiObservabilityPlayground: (): string => '/ai-observability/playground',
         aiObservabilityDatasets: (): string => '/ai-evals/evaluations/offline/experiments?tab=datasets',
         aiObservabilityDataset: (id: string, params?: { item?: string }): string =>
             combineUrl(`/ai-evals/evaluations/offline/datasets/${id}`, params).url,
-        aiObservabilityTags: (): string => '/ai-evals/taggers',
-        aiObservabilityTag: (id: string): string => `/ai-evals/taggers/${id}`,
         aiObservabilityEvaluations: (): string => '/ai-evals/evaluations',
         aiObservabilityScorers: (): string => '/ai-evals/evaluations/scorers',
         aiObservabilityScorer: (scorerId: string, params?: { duplicate?: string }): string =>
@@ -449,9 +445,12 @@ export const manifest: ProductManifest = {
             visualOrder: 1,
             type: 'llm_analytics',
             iconType: 'llm_analytics' as FileSystemIconType,
-            iconColor: ['var(--color-product-llm-analytics-light)'] as FileSystemIconColor,
+            iconColor: [
+                'var(--color-product-llm-analytics-light)',
+                'var(--color-product-llm-analytics-dark)',
+            ] as FileSystemIconColor,
             href: urls.aiObservabilityDashboard(),
-            searchKeywords: ['llm observability', 'llm costs', 'token usage'],
+            searchKeywords: ['llm analytics', 'llm observability', 'llm costs', 'token usage'],
             searchTabs: [
                 { name: 'Traces', href: urls.aiObservabilityTraces() },
                 { name: 'Generations', href: urls.aiObservabilityGenerations() },
@@ -494,30 +493,13 @@ export const manifest: ProductManifest = {
             iconType: 'llm_evaluations' as FileSystemIconType,
             iconColor: ['var(--color-product-llm-evaluations-light)', 'var(--color-product-llm-evaluations-dark)'],
             href: urls.aiObservabilityEvaluations(),
-            searchKeywords: ['llm judge', 'llm as a judge', 'grading', 'datasets', 'test sets', 'golden set'],
+            searchKeywords: ['evals', 'llm judge', 'llm as a judge', 'grading', 'datasets', 'test sets', 'golden set'],
             searchTabs: [
-                {
-                    name: 'Offline evals',
-                    href: urls.aiObservabilityOfflineEvaluations(),
-                    flag: FEATURE_FLAGS.AI_OBSERVABILITY_OFFLINE_EVALUATIONS,
-                },
+                { name: 'Offline evals', href: urls.aiObservabilityOfflineEvaluations() },
                 { name: 'Datasets', href: urls.aiObservabilityDatasets(), flag: FEATURE_FLAGS.LLM_ANALYTICS_DATASETS },
                 { name: 'Scorers', href: urls.aiObservabilityScorers() },
             ],
             sceneKey: 'AIObservabilityEvaluations',
-        },
-        {
-            path: 'Taggers',
-            intents: [ProductKey.AI_OBSERVABILITY],
-            category: ProductItemCategory.AI_ENGINEERING,
-            type: 'llm_tags',
-            iconType: 'llm_tags' as FileSystemIconType,
-            iconColor: ['var(--color-product-llm-tags-light)', 'var(--color-product-llm-tags-dark)'],
-            href: urls.aiObservabilityTags(),
-            searchKeywords: ['llm tags', 'auto-tagging'],
-            flag: FEATURE_FLAGS.LLM_ANALYTICS_TAGS,
-            tags: ['alpha'],
-            sceneKey: 'AIObservabilityTags',
         },
         {
             path: 'Prompts',

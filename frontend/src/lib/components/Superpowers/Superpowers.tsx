@@ -8,7 +8,6 @@ import { LemonButton, LemonDivider, LemonSelect, LemonSwitch, LemonTag } from '@
 import { pngHoggie } from 'lib/brand/hoggies'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { preflightLogic } from 'lib/logic/preflightLogic'
-import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -251,7 +250,7 @@ function SuperpowersContent(): JSX.Element {
     const { fakeStatusOverride, fakeBillingAlert, mcpHintsDismissed } = useValues(superpowersLogic)
     const { closeSuperpowers, setFakeStatusOverride, setFakeBillingAlert, reenableMCPHints } =
         useActions(superpowersLogic)
-    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+    const { currentOrganization } = useValues(organizationLogic)
     const { updateOrganization } = useActions(organizationLogic)
     const { isDev } = useValues(preflightLogic)
 
@@ -399,7 +398,7 @@ function SuperpowersContent(): JSX.Element {
                         description="Toggle organization-level AI data processing approval (dev only)"
                         control={
                             <LemonSwitch
-                                checked={dataProcessingAccepted}
+                                checked={!!currentOrganization?.is_ai_data_processing_approved}
                                 onChange={(checked) => updateOrganization({ is_ai_data_processing_approved: checked })}
                             />
                         }

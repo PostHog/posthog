@@ -1,6 +1,6 @@
 import { buildYTickFormatter } from '@posthog/quill-charts'
 
-import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
+import { AggregationAxisFormat } from 'lib/insights/aggregationAxisFormat'
 
 import { CurrencyCode, TrendsFilter } from '~/queries/schema/schema-general'
 

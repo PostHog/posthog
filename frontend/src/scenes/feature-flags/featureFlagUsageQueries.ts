@@ -3,14 +3,16 @@
 // dashboards, so that both surfaces report the same numbers. The test fixture in
 // products/feature_flags/backend/test/usage_dashboard_fixtures.py reproduces the total volume and
 // unique calls insights. The function add_enriched_insights_to_feature_flag_dashboard in
-// posthog/helpers/dashboard_templates.py adds the enriched insights.
+// products/feature_flags/backend/usage_dashboard.py adds the enriched insights.
 // Titles differ on purpose: update_feature_flag_dashboard looks tiles up by name, so the Python
 // names are pinned, while these use sentence case. The interval here follows the user's date range
 // rather than the saved dashboards' fixed "day".
 import { dateMapping, dateStringToDayJs, getDefaultInterval } from 'lib/utils/dateFilters'
+import { escapeHogQLString } from 'lib/utils/hogql'
 import { BREAKDOWN_NULL_DISPLAY } from 'scenes/insights/utils'
 
 import { Noun } from '~/models/groupsModel'
+import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import {
     ChartSettings,
     DataVisualizationNode,
@@ -22,7 +24,6 @@ import {
     TrendsQuery,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
-import { escapeHogQLString, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     AnyPropertyFilter,
     BaseMathType,

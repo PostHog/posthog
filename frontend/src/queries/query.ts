@@ -1,11 +1,20 @@
 import api, { ApiMethodOptions, isAbortError } from 'lib/api'
 import { ApiError, NetworkError } from 'lib/api-error'
-import { ApiRequestTiming } from 'lib/apiRequestTiming'
+import { ApiRequestTiming, flattenRequestTiming } from 'lib/apiRequestTiming'
 import posthog from 'lib/posthog-typed'
 import { delay, retryWithBackoff } from 'lib/utils/async'
 import { uuid } from 'lib/utils/dom'
+import { HogQLQueryString } from 'lib/utils/hogql'
 
 import { isSharedView } from '~/exporter/exporterViewLogic'
+import { queryUsesDataWarehouse } from '~/queries/schema/node-accessors'
+import {
+    isDataTableNode,
+    isDataVisualizationNode,
+    isHogQLQuery,
+    isInsightQueryNode,
+    isPersonsNode,
+} from '~/queries/schema/node-guards'
 import {
     DashboardFilter,
     DataNode,
@@ -20,17 +29,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { OnlineExportContext, QueryExportContext } from '~/types'
 
-import {
-    dataWarehouseSourcesFromResponse,
-    HogQLQueryString,
-    isAsyncResponse,
-    isDataTableNode,
-    isDataVisualizationNode,
-    isHogQLQuery,
-    isInsightQueryNode,
-    isPersonsNode,
-    queryUsesDataWarehouse,
-} from './utils'
+import { dataWarehouseSourcesFromResponse, isAsyncResponse } from './utils'
 
 export function waitForPageVisible(signal?: AbortSignal): Promise<void> {
     if (typeof document === 'undefined' || document.visibilityState === 'visible') {
@@ -119,24 +118,6 @@ type QuerySubmitTelemetry = {
     retry_recovered: boolean
     submit_request_timings: ApiRequestTiming[]
     result_poll_timing?: ApiRequestTiming
-}
-
-const FLATTENED_REQUEST_TIMING_FIELDS = [
-    'http_request_id',
-    'time_to_headers_ms',
-    'body_read_ms',
-    'json_parse_ms',
-    'resource_timing_status',
-] as const
-
-function flattenRequestTiming(
-    timing: ApiRequestTiming | undefined,
-    prefix: '' | 'result_poll_'
-): Record<string, string | number | undefined> {
-    if (!timing) {
-        return {}
-    }
-    return Object.fromEntries(FLATTENED_REQUEST_TIMING_FIELDS.map((field) => [`${prefix}${field}`, timing[field]]))
 }
 
 function requestTimingProperties(telemetry: QuerySubmitTelemetry): Record<string, string | number | undefined> {
@@ -346,6 +327,7 @@ async function executeQuery<N extends DataNode>(
                                 if (submitTelemetry.submit_request_timings.length < MAX_RECORDED_SUBMIT_TIMINGS) {
                                     submitTelemetry.submit_request_timings.push(timing)
                                 }
+                                methodOptions?.onRequestTiming?.(timing)
                             },
                         },
                         clientQueryId,
@@ -454,10 +436,15 @@ async function executeQuery<N extends DataNode>(
     return statusResponse.results
 }
 
+export interface QueryRequestOptions extends ApiMethodOptions {
+    captureQueryTelemetry?: boolean
+    queryTelemetry?: 'metadata'
+}
+
 // Return data for a given query
 export async function performQuery<N extends DataNode>(
     queryNode: N,
-    methodOptions?: ApiMethodOptions,
+    options?: QueryRequestOptions,
     refresh?: RefreshType,
     queryId?: string,
     setPollResponse?: (status: QueryStatus) => void,
@@ -467,6 +454,8 @@ export async function performQuery<N extends DataNode>(
     limitContext?: 'posthog_ai',
     acceptStaleCache = false
 ): Promise<NonNullable<N['response']>> {
+    const { captureQueryTelemetry = true, queryTelemetry, ...apiMethodOptions } = options ?? {}
+    const telemetryQuery = queryTelemetry === 'metadata' ? { kind: queryNode.kind } : queryNode
     let response: NonNullable<N['response']>
     const logParams: Record<string, any> = {}
     const submitTelemetry: QuerySubmitTelemetry = {
@@ -482,12 +471,12 @@ export async function performQuery<N extends DataNode>(
     try {
         if (isPersonsNode(queryNode)) {
             // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
-            response = await api.get(getPersonsEndpoint(queryNode), methodOptions)
+            response = await api.get(getPersonsEndpoint(queryNode), apiMethodOptions)
         } else {
             response = await executeQuery(
                 queryNode,
                 submitTelemetry,
-                methodOptions,
+                apiMethodOptions,
                 refresh,
                 queryId,
                 setPollResponse,
@@ -497,7 +486,7 @@ export async function performQuery<N extends DataNode>(
                 limitContext,
                 acceptStaleCache
             )
-            if (isHogQLQuery(queryNode) && response && typeof response === 'object') {
+            if (queryTelemetry !== 'metadata' && isHogQLQuery(queryNode) && response && typeof response === 'object') {
                 logParams.clickhouse_sql = (response as HogQLQueryResponse)?.clickhouse
             }
             if (response && typeof response === 'object') {
@@ -518,37 +507,39 @@ export async function performQuery<N extends DataNode>(
             }
         }
         const warehouseSources = dataWarehouseSourcesFromResponse(response)
-        posthog.capture('query completed', {
-            query: queryNode,
-            queryId,
-            duration: performance.now() - startTime,
-            is_cached: response?.is_cached,
-            uses_data_warehouse_source: warehouseSources.length > 0 || queryUsesDataWarehouse(queryNode),
-            data_warehouse_source_ids: warehouseSources.map((s) => s.id),
-            data_warehouse_source_types: warehouseSources.map((s) => s.source_type).filter(Boolean),
-            ...logParams,
-            ...submitTelemetry,
-            ...requestTimingProperties(submitTelemetry),
-        })
-        const historySources = warehouseSources.filter((s) => s.uses_history_table)
-        if (historySources.length > 0) {
-            posthog.capture('data warehouse history table queried', {
-                query_kind: queryNode.kind,
+        if (captureQueryTelemetry) {
+            posthog.capture('query completed', {
+                query: telemetryQuery,
                 queryId,
+                duration: performance.now() - startTime,
                 is_cached: response?.is_cached,
-                data_warehouse_source_ids: historySources.map((s) => s.id),
-                data_warehouse_source_types: historySources.map((s) => s.source_type).filter(Boolean),
+                uses_data_warehouse_source: warehouseSources.length > 0 || queryUsesDataWarehouse(queryNode),
+                data_warehouse_source_ids: warehouseSources.map((s) => s.id),
+                data_warehouse_source_types: warehouseSources.map((s) => s.source_type).filter(Boolean),
+                ...logParams,
+                ...submitTelemetry,
+                ...requestTimingProperties(submitTelemetry),
             })
+            const historySources = warehouseSources.filter((s) => s.uses_history_table)
+            if (historySources.length > 0) {
+                posthog.capture('data warehouse history table queried', {
+                    query_kind: queryNode.kind,
+                    queryId,
+                    is_cached: response?.is_cached,
+                    data_warehouse_source_ids: historySources.map((s) => s.id),
+                    data_warehouse_source_types: historySources.map((s) => s.source_type).filter(Boolean),
+                })
+            }
         }
         return response
     } catch (e) {
         // A superseded query or navigating away mid-request aborts, not fails — skip so the
         // 'query failed' metric isn't drowned in cancellation noise.
-        if (!isAbortError(e)) {
+        if (captureQueryTelemetry && !isAbortError(e)) {
             // Raw error detail/message can echo query fragments, so telemetry only gets status and code
             const error = e as (Error & { status?: number; code?: string | null; queryId?: string }) | null
             posthog.capture('query failed', {
-                query: queryNode,
+                query: telemetryQuery,
                 queryId: error?.queryId ?? queryId,
                 duration: performance.now() - startTime,
                 error_status: error?.status ?? null,

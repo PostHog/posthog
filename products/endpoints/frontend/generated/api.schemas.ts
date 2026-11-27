@@ -7,6 +7,18 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface EndpointPlanClampApi {
+    /**
+     * The data freshness, in seconds, the endpoint had before the rewrite. Null when it had none.
+     * @nullable
+     */
+    previous_data_freshness_seconds: number | null
+    /** The data freshness, in seconds, the endpoint was set to: the fastest the organization's plan allowed. */
+    plan_floor_seconds: number
+    /** When the data freshness was rewritten. */
+    at: string
+}
+
 /**
  * * `engineering` - Engineering
  * * `data` - Data
@@ -130,8 +142,15 @@ export interface EndpointResponseApi {
     query: unknown
     /** Whether the endpoint can be executed via the API. */
     is_active: boolean
-    /** How fresh the data is, in seconds. One of: 900, 1800, 3600, 21600, 43200, 86400, 604800. */
+    /** Effective data freshness, in seconds. Materialized endpoints use the node's refresh target, which can differ from the standard freshness choices. Other endpoints use the cache duration. */
     data_freshness_seconds: number
+    /**
+     * The fastest data freshness, in seconds, the organization's plan allows for a materialized endpoint. A faster value can't be saved while the endpoint is materialized. Null when the plan sets no minimum.
+     * @nullable
+     */
+    plan_refresh_floor_seconds: number | null
+    /** Set when a scheduled run slowed this materialized endpoint's data freshness to the fastest one the organization's plan allows. Saving a different data freshness clears it. Null when no such rewrite stands. */
+    plan_clamp: EndpointPlanClampApi | null
     /** Relative API path to execute this endpoint (e.g. /api/projects/{team_id}/endpoints/{name}/run). */
     endpoint_path: string
     /**
@@ -287,8 +306,15 @@ export interface EndpointVersionResponseApi {
     query: unknown
     /** Whether the endpoint can be executed via the API. */
     is_active: boolean
-    /** How fresh the data is, in seconds. One of: 900, 1800, 3600, 21600, 43200, 86400, 604800. */
+    /** Effective data freshness, in seconds. Materialized endpoints use the node's refresh target, which can differ from the standard freshness choices. Other endpoints use the cache duration. */
     data_freshness_seconds: number
+    /**
+     * The fastest data freshness, in seconds, the organization's plan allows for a materialized endpoint. A faster value can't be saved while the endpoint is materialized. Null when the plan sets no minimum.
+     * @nullable
+     */
+    plan_refresh_floor_seconds: number | null
+    /** Set when a scheduled run slowed this materialized endpoint's data freshness to the fastest one the organization's plan allows. Saving a different data freshness clears it. Null when no such rewrite stands. */
+    plan_clamp: EndpointPlanClampApi | null
     /** Relative API path to execute this endpoint (e.g. /api/projects/{team_id}/endpoints/{name}/run). */
     endpoint_path: string
     /**
@@ -1097,6 +1123,9 @@ export const QueryScanFindingKindApi = {
     NoEventFilter: 'no_event_filter',
     NoStartDate: 'no_start_date',
     PersonsJoin: 'persons_join',
+    RepeatedCteExpansion: 'repeated_cte_expansion',
+    CrossJoinEquality: 'cross_join_equality',
+    DateArraysBeforeBreakdownLimit: 'date_arrays_before_breakdown_limit',
 } as const
 
 export interface QueryScanWarningApi {
@@ -1222,6 +1251,11 @@ export type EndpointsLogsRetrieveParams = {
      * @maximum 500
      */
     limit?: number
+    /**
+     * Number of log entries to skip before the first returned entry (default 0).
+     * @minimum 0
+     */
+    offset?: number
     /**
      * Case-insensitive substring search across log messages.
      * @minLength 1

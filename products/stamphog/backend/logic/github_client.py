@@ -12,6 +12,7 @@ just supplies its own ``Authorization`` header and the installation id as the bu
 import time
 import base64
 import binascii
+from collections.abc import Iterator, Sequence
 from dataclasses import field
 from datetime import datetime, timedelta
 from typing import Any
@@ -85,21 +86,32 @@ def _is_own_bot_actor(user: dict, expected_login: str | None, *, allow_any_bot: 
     return allow_any_bot
 
 
-def _is_own_sticky_comment(comment: dict, expected_login: str | None) -> bool:
+def _is_own_sticky_comment(comment: dict, expected_login: str | None, *, allow_any_bot: bool = False) -> bool:
     """Whether ``comment`` was posted by this App, not just any account carrying the marker.
 
     The marker is visible in the rendered comment source, so a user could plant it to trick a naive
-    upsert into PATCHing (hijacking) their comment. The "any Bot" fallback is acceptable here — a
-    mis-targeted sticky PATCH is cosmetic, never a standing approval (contrast the approval paths).
+    upsert into PATCHing (hijacking) their comment. The "any Bot" fallback is acceptable for an
+    upsert — a mis-targeted sticky PATCH is cosmetic, never a standing approval (contrast the
+    approval paths). So only the upsert passes ``allow_any_bot=True``. A delete keeps the exact
+    match, because it cannot be undone.
     """
-    return _is_own_bot_actor(comment.get("user") or {}, expected_login, allow_any_bot=True)
+    return _is_own_bot_actor(comment.get("user") or {}, expected_login, allow_any_bot=allow_any_bot)
+
+
+def _with_marker(body: str, marker: str) -> str:
+    """``body`` with ``marker`` first, so the comment can be found again but the marker stays invisible."""
+    return body if body.startswith(marker) else f"{marker}\n{body}"
 
 
 # Cap on how many comment/file pages we page through, so a pathological PR can't spin forever.
 _MAX_PAGES = 20
 _PER_PAGE = 100
+# The most check runs `get_check_runs` returns. A listing of this size may have stopped short.
+MAX_CHECK_RUNS = _MAX_PAGES * _PER_PAGE
 # GitHub lists at most 250 commits for a pull request, which is three pages of _PER_PAGE.
 _MAX_PR_COMMIT_PAGES = 3
+# GitHub's limit on the files that one compare response lists.
+_MAX_COMPARE_FILES = 300
 
 # Ceiling on a single compare diff. The value sits well above any diff that stamphog could have
 # approved, because stamphog's size gate refuses much smaller diffs. It also sits well below the
@@ -412,6 +424,24 @@ def list_user_accessible_repositories(installation_id: str, user_access_token: s
 
 
 @frozen
+class RepositoryIdentity:
+    """What a GitHub Actions OIDC token says about the repository that ran the job."""
+
+    id: int
+    full_name: str
+    default_branch: str
+
+
+@frozen
+class GitObjectId:
+    """One object of a commit, as GraphQL's `object(expression:)` reports it."""
+
+    # GraphQL's type name: "Blob" for a file, "Tree" for a directory, "Commit" for a submodule.
+    kind: str
+    oid: str
+
+
+@frozen
 class RepoPathEntry:
     """One path at a ref, as the contents API reports it."""
 
@@ -439,8 +469,11 @@ class StamphogGitHubClient:
     one per review run.
     """
 
-    def __init__(self, installation_id: str) -> None:
+    def __init__(self, installation_id: str, *, lane: Priority | None = None) -> None:
         self.installation_id = installation_id
+        # Overrides the priority of every request. A caller whose reads are optional passes BATCH, so the egress
+        # limiter sheds them before the installation reserve that review writes need.
+        self.lane = lane
 
     # --- Installation token lifecycle ---
 
@@ -543,7 +576,7 @@ class StamphogGitHubClient:
                 source=_SOURCE,
                 headers={**(headers or {}), "Authorization": f"Bearer {token}"},
                 installation_id=self.installation_id,
-                priority=priority,
+                priority=priority if self.lane is None else self.lane,
                 endpoint=endpoint,
                 params=params,
                 json=json_body,
@@ -848,6 +881,30 @@ class StamphogGitHubClient:
             merge_base_sha=str((merge_base or {}).get("sha") or "") if isinstance(merge_base, dict) else "",
         )
 
+    def compare_files(self, repo: str, base_sha: str, head_sha: str) -> list[dict] | None:
+        """The changed files between two commits, or None when GitHub may have cut the list short.
+
+        Both ends are commit shas, so the list belongs to those two commits. ``get_pr_files`` answers
+        for whichever head is live when the request runs. The list is in the ``get_pr_files`` shape,
+        renames included. GitHub returns at most ``_MAX_COMPARE_FILES`` files and does not page them,
+        so a list of that length can be incomplete.
+        """
+        path = f"/repos/{repo}/compare/{base_sha}...{head_sha}"
+        # The files come with the first page of commits whatever its size.
+        response = self._request(
+            "GET", path, endpoint="/repos/{owner}/{repo}/compare/{basehead}", params={"per_page": 1}
+        )
+        if response.status_code != 200:
+            raise StamphogGitHubError(
+                f"Failed to compare {base_sha}...{head_sha} in {repo}: {response.text[:300]}",
+                status_code=response.status_code,
+            )
+        data = self._json(response, path)
+        files = data.get("files") if isinstance(data, dict) else None
+        if not isinstance(files, list) or len(files) >= _MAX_COMPARE_FILES:
+            return None
+        return [file for file in files if isinstance(file, dict)]
+
     def get_pr_reviews(self, repo: str, number: int) -> list[dict]:
         """Fetch the PR's top-level reviews, paginating through GitHub's list endpoint.
 
@@ -1069,21 +1126,35 @@ class StamphogGitHubClient:
             "refusing to review a truncated thread"
         )
 
-    def get_check_runs(self, repo: str, head_sha: str) -> list[dict]:
+    def get_check_runs(
+        self,
+        repo: str,
+        head_sha: str,
+        *,
+        check_name: str | None = None,
+        app_id: int | None = None,
+        all_runs: bool = False,
+        priority: Priority = Priority.CRITICAL,
+    ) -> list[dict]:
         """Fetch the check runs for a commit, paginating through GitHub's endpoint.
 
         Returns the raw GitHub check-run objects (``name``, ``conclusion``, ``status``, ...). The engine's
         migration gate uses them: a passing ``Migration risk`` check lets a migration-only PR bypass the
         deny-list. Without them the hosted path can't see that success and over-refuses safe migration PRs.
-        Bounded by ``_MAX_PAGES``.
+        ``check_name`` and ``app_id`` make GitHub return only that check's runs. GitHub returns only the
+        newest run of each name unless ``all_runs`` asks for every one. Bounded by ``_MAX_PAGES``.
         """
+        only = {key: value for key, value in (("check_name", check_name), ("app_id", app_id)) if value is not None}
+        if all_runs:
+            only["filter"] = "all"
         check_runs: list[dict] = []
         for page in range(1, _MAX_PAGES + 1):
             response = self._request(
                 "GET",
                 f"/repos/{repo}/commits/{head_sha}/check-runs",
                 endpoint="/repos/{owner}/{repo}/commits/{ref}/check-runs",
-                params={"per_page": _PER_PAGE, "page": page},
+                params={"per_page": _PER_PAGE, "page": page, **only},
+                priority=priority,
             )
             if response.status_code != 200:
                 raise StamphogGitHubError(
@@ -1098,6 +1169,55 @@ class StamphogGitHubClient:
             if len(page_runs) < _PER_PAGE:
                 break
         return check_runs
+
+    def count_check_suites(self, repo: str, ref: str, *, priority: Priority = Priority.CRITICAL) -> int:
+        """How many check suites GitHub holds for a commit, from one minimal page."""
+        path = f"/repos/{repo}/commits/{ref}/check-suites"
+        response = self._request(
+            "GET",
+            path,
+            endpoint="/repos/{owner}/{repo}/commits/{ref}/check-suites",
+            params={"per_page": 1},
+            priority=priority,
+        )
+        if response.status_code != 200:
+            raise StamphogGitHubError(
+                f"Failed to count check suites {repo}@{ref}: {response.text[:300]}", status_code=response.status_code
+            )
+        data = self._json(response, path)
+        total = data.get("total_count") if isinstance(data, dict) else None
+        if type(total) is not int:
+            raise StamphogGitHubError(f"Unexpected check suites payload for {repo}@{ref}")
+        return total
+
+    def get_repository_identity(self, repo: str, *, priority: Priority = Priority.CRITICAL) -> RepositoryIdentity:
+        """The repository's id, its name as GitHub spells it, and its default branch."""
+        path = f"/repos/{repo}"
+        response = self._request("GET", path, endpoint="/repos/{owner}/{repo}", priority=priority)
+        if response.status_code != 200:
+            raise StamphogGitHubError(
+                f"Failed to fetch repository {repo}: {response.text[:300]}", status_code=response.status_code
+            )
+        data = self._json(response, path)
+        if not isinstance(data, dict):
+            raise StamphogGitHubError(f"Unexpected repository payload for {repo}")
+        repo_id, full_name, default_branch = data.get("id"), data.get("full_name"), data.get("default_branch")
+        if type(repo_id) is not int or not isinstance(full_name, str) or not isinstance(default_branch, str):
+            raise StamphogGitHubError(f"Unexpected repository payload for {repo}")
+        return RepositoryIdentity(id=repo_id, full_name=full_name, default_branch=default_branch)
+
+    def get_workflow_job(self, repo: str, job_id: int, *, priority: Priority = Priority.CRITICAL) -> dict | None:
+        """One Actions job of this repository, or None when the repository has no such job."""
+        path = f"/repos/{repo}/actions/jobs/{job_id}"
+        response = self._request("GET", path, endpoint="/repos/{owner}/{repo}/actions/jobs/{job_id}", priority=priority)
+        if response.status_code == 404:
+            return None
+        if response.status_code != 200:
+            raise StamphogGitHubError(
+                f"Failed to fetch job {repo}/{job_id}: {response.text[:300]}", status_code=response.status_code
+            )
+        data = self._json(response, path)
+        return data if isinstance(data, dict) else None
 
     def get_author_merged_pr_numbers(self, repo: str, author: str, *, max_results: int = 1000) -> list[int]:
         """Return the author's merged-PR numbers in this repo (best-effort).
@@ -1173,6 +1293,17 @@ class StamphogGitHubClient:
         Raises on any HTTP, GraphQL, or shape failure. These queries feed an advisory signal, so
         they run on the sheddable BATCH lane.
         """
+        commit = self._repository_graphql(repo, query, variables, timeout=timeout, priority=Priority.BATCH).get(
+            "object"
+        )
+        if not isinstance(commit, dict):
+            raise StamphogGitHubError(f"Commit not found in {repo}")
+        return commit
+
+    def _repository_graphql(
+        self, repo: str, query: str, variables: dict[str, Any], *, timeout: int, priority: Priority
+    ) -> dict:
+        """Run a query against ``repo`` and return the repository's fields, raising on any failure."""
         owner, name = repo.split("/", 1)
         response = self._request(
             "POST",
@@ -1180,7 +1311,7 @@ class StamphogGitHubClient:
             endpoint="/graphql",
             json_body={"query": query, "variables": {"owner": owner, "name": name, **variables}},
             timeout=timeout,
-            priority=Priority.BATCH,
+            priority=priority,
         )
         if response.status_code != 200:
             raise StamphogGitHubError(f"GraphQL request failed on {repo}", status_code=response.status_code)
@@ -1192,10 +1323,10 @@ class StamphogGitHubClient:
             raise GitHubRateLimitError(f"GitHub GraphQL rate limit exceeded on {repo}")
         if not isinstance(data, dict) or errors:
             raise StamphogGitHubError(f"GraphQL errors on {repo}")
-        commit = ((data.get("data") or {}).get("repository") or {}).get("object")
-        if not isinstance(commit, dict):
-            raise StamphogGitHubError(f"Commit not found in {repo}")
-        return commit
+        repository = (data.get("data") or {}).get("repository")
+        if not isinstance(repository, dict):
+            raise StamphogGitHubError(f"Repository not found: {repo}")
+        return repository
 
     def get_blame_ranges(self, repo: str, oid: str, path: str, *, timeout: int) -> list[dict]:
         """The blame ranges of ``path`` at commit ``oid``, as GraphQL returns them."""
@@ -1302,18 +1433,76 @@ class StamphogGitHubClient:
         except (binascii.Error, UnicodeDecodeError) as exc:
             raise StamphogGitHubError(f"Failed to decode base64 contents for {repo}:{path}") from exc
 
-    def get_default_branch_file(self, repo: str, path: str) -> str | None:
+    def get_default_branch_objects(
+        self, repo: str, paths: list[str], *, priority: Priority = Priority.CRITICAL
+    ) -> dict[str, GitObjectId | None]:
+        """The object at each of ``paths`` on the default branch now, None for a path it lacks."""
+        return self.get_objects(repo, "HEAD", paths, priority=priority)
+
+    def get_objects(
+        self, repo: str, revision: str, paths: list[str], *, priority: Priority = Priority.CRITICAL
+    ) -> dict[str, GitObjectId | None]:
+        """The object at each of ``paths`` in ``revision``, None for a path it lacks.
+
+        A path that ends in `/` names a directory, and is looked up without the slash. The answer
+        carries the object's type, so the caller can tell a tree from a blob. The paths come from a
+        check run, so they travel as GraphQL variables and never as query text.
+        `object(expression:)` answers null for a missing path. `Commit.file` answers it with a
+        NOT_FOUND error, which would fail the whole request.
+        """
+        declarations = " ".join(f"$p{index}: String!" for index in range(len(paths)))
+        aliases = " ".join(
+            f"p{index}: object(expression: $p{index}) {{ __typename oid }}" for index in range(len(paths))
+        )
+        query = (
+            f"query($owner: String!, $name: String!, {declarations}) "
+            f"{{ repository(owner: $owner, name: $name) {{ {aliases} }} }}"
+        )
+        variables = {f"p{index}": f"{revision}:{path.removesuffix('/')}" for index, path in enumerate(paths)}
+        repository = self._repository_graphql(repo, query, variables, timeout=15, priority=priority)
+        objects: dict[str, GitObjectId | None] = {}
+        for index, path in enumerate(paths):
+            found = repository.get(f"p{index}") or {}
+            kind, oid = found.get("__typename"), found.get("oid")
+            objects[path] = GitObjectId(kind=kind, oid=oid) if isinstance(kind, str) and isinstance(oid, str) else None
+        return objects
+
+    def get_default_branch_blob_text(self, repo: str, path: str) -> str | None:
+        """The text of the git blob at ``path`` on the default branch, or None when it holds none.
+
+        It reads the blob itself, so a symlink reads as its link text. The contents API follows an
+        in-repo symlink to its target, and an edit to that target changes no object at ``path``.
+        A directory, a binary blob and a blob GitHub cuts short read as None as well.
+        """
+        query = (
+            "query($owner: String!, $name: String!, $expression: String!) "
+            "{ repository(owner: $owner, name: $name) { object(expression: $expression) "
+            "{ ... on Blob { text isBinary isTruncated } } } }"
+        )
+        repository = self._repository_graphql(
+            repo, query, {"expression": f"HEAD:{path}"}, timeout=15, priority=Priority.CRITICAL
+        )
+        blob = repository.get("object") or {}
+        text = blob.get("text")
+        if blob.get("isBinary") or blob.get("isTruncated") or not isinstance(text, str):
+            return None
+        return text
+
+    def get_default_branch_file(self, repo: str, path: str, *, priority: Priority = Priority.CRITICAL) -> str | None:
         """Fetch a file's text from the repo's DEFAULT branch, or ``None`` if it doesn't exist.
 
         Policy files are always read from the default branch (never PR head), so a PR can't rewrite the
         policy that gates it. Omitting ``ref`` makes GitHub serve the default branch. The ``raw`` media
         type returns the file body directly (no base64 wrapper); a 404 means the file is absent.
         """
+        # Quoted so a `%2e%2e` segment stays a literal name. The HTTP layer would otherwise decode it
+        # into `..` and read another repository's file.
         response = self._request(
             "GET",
-            f"/repos/{repo}/contents/{path}",
+            f"/repos/{repo}/contents/{quote(path, safe='/')}",
             endpoint="/repos/{owner}/{repo}/contents/{path}",
             headers={"Accept": "application/vnd.github.raw+json"},
+            priority=priority,
         )
         if response.status_code == 404:
             return None
@@ -1373,9 +1562,9 @@ class StamphogGitHubClient:
     def remove_pr_label(self, repo: str, number: int, label: str) -> None:
         """Remove a label from a PR (``DELETE .../issues/{number}/labels/{label}``).
 
-        Strips the trigger label after a refused/escalated verdict in label-triggered review mode, so
-        the author re-adds it to request another review — Action parity. A 404 means the label is
-        already gone (benign, swallowed); any other non-success raises so the activity can retry.
+        Strips the trigger label after a refused/escalated verdict, so the author adds it to request
+        another review — Action parity. A 404 means the label is already gone or was never on the PR
+        (benign, swallowed); any other non-success raises so the activity can retry.
         """
         path = f"/repos/{repo}/issues/{number}/labels/{quote(label, safe='')}"
         response = self._request(
@@ -1492,36 +1681,27 @@ class StamphogGitHubClient:
                 error_types=[e.get("type") for e in errors or [] if isinstance(e, dict)],
             )
 
-    def upsert_sticky_comment(self, repo: str, number: int, body: str) -> dict:
-        """Create or update Stamphog's single status comment on a PR, identified by a hidden marker.
+    def upsert_sticky_comment(self, repo: str, number: int, body: str, *, marker: str = STICKY_COMMENT_MARKER) -> dict:
+        """Create or update one of Stamphog's comments on a PR, identified by a hidden marker.
 
-        Finds an existing comment carrying :data:`STICKY_COMMENT_MARKER` and edits it in place; otherwise
-        posts a new one. The marker is prepended so it survives round-trips but stays invisible in the
-        rendered comment. Returns the created/updated comment object.
+        Finds an existing comment of this App carrying ``marker`` and edits it in place; otherwise
+        posts a new one. The marker is prepended unless the body already starts with it, so it
+        survives round-trips but stays invisible in the rendered comment. Returns the
+        created/updated comment object.
         """
-        marked_body = f"{STICKY_COMMENT_MARKER}\n{body}"
-        existing_id = self._find_sticky_comment_id(repo, number)
-        if existing_id is not None:
-            path = f"/repos/{repo}/issues/comments/{existing_id}"
-            response = self._request(
-                "PATCH",
-                path,
-                endpoint="/repos/{owner}/{repo}/issues/comments/{comment_id}",
-                json_body={"body": marked_body},
-            )
-            if response.status_code != 200:
-                raise StamphogGitHubError(
-                    f"Failed to update sticky comment on {repo}#{number}: {response.text[:200]}",
-                    status_code=response.status_code,
-                )
-            return self._json(response, path)
+        existing_id = self._find_sticky_comment_id(repo, number, marker=marker, allow_any_bot=True)
+        if existing_id is None:
+            return self.create_marked_comment(repo, number, body, marker=marker)
+        return self.update_marked_comment(repo, number, existing_id, body, marker=marker)
 
+    def create_marked_comment(self, repo: str, number: int, body: str, *, marker: str) -> dict:
+        """Post a comment that starts with ``marker``. Returns the created comment object."""
         path = f"/repos/{repo}/issues/{number}/comments"
         response = self._request(
             "POST",
             path,
             endpoint="/repos/{owner}/{repo}/issues/{issue_number}/comments",
-            json_body={"body": marked_body},
+            json_body={"body": _with_marker(body, marker)},
         )
         if response.status_code != 201:
             raise StamphogGitHubError(
@@ -1529,6 +1709,108 @@ class StamphogGitHubClient:
                 status_code=response.status_code,
             )
         return self._json(response, path)
+
+    def update_marked_comment(self, repo: str, number: int, comment_id: int, body: str, *, marker: str) -> dict:
+        """Replace the body of comment ``comment_id``, keeping ``marker`` first. Returns the updated comment object."""
+        path = f"/repos/{repo}/issues/comments/{comment_id}"
+        response = self._request(
+            "PATCH",
+            path,
+            endpoint="/repos/{owner}/{repo}/issues/comments/{comment_id}",
+            json_body={"body": _with_marker(body, marker)},
+        )
+        if response.status_code != 200:
+            raise StamphogGitHubError(
+                f"Failed to update sticky comment on {repo}#{number}: {response.text[:200]}",
+                status_code=response.status_code,
+            )
+        return self._json(response, path)
+
+    def delete_comment(self, repo: str, number: int, comment_id: int) -> None:
+        """Delete comment ``comment_id``. A comment that is already gone counts as deleted."""
+        response = self._request(
+            "DELETE",
+            f"/repos/{repo}/issues/comments/{comment_id}",
+            endpoint="/repos/{owner}/{repo}/issues/comments/{comment_id}",
+        )
+        if response.status_code not in (204, 404):
+            raise StamphogGitHubError(
+                f"Failed to delete comment on {repo}#{number}: {response.text[:200]}",
+                status_code=response.status_code,
+            )
+
+    def delete_sticky_comment(self, repo: str, number: int, *, marker: str) -> bool:
+        """Delete this App's comment carrying ``marker``. Returns whether there was one to delete.
+
+        Matches only the exact ``<slug>[bot]`` login, so it does nothing when the slug is unset.
+        """
+        existing_id = self._find_sticky_comment_id(repo, number, marker=marker)
+        if existing_id is None:
+            return False
+        self.delete_comment(repo, number, existing_id)
+        return True
+
+    def _post_requested_reviewers(self, repo: str, number: int, body: dict[str, list[str]]) -> int:
+        response = self._request(
+            "POST",
+            f"/repos/{repo}/pulls/{number}/requested_reviewers",
+            endpoint="/repos/{owner}/{repo}/pulls/{pull_number}/requested_reviewers",
+            json_body=body,
+        )
+        if response.status_code not in (201, 422):
+            raise StamphogGitHubError(
+                f"Failed to request reviewers on {repo}#{number}: {response.text[:200]}",
+                status_code=response.status_code,
+            )
+        return response.status_code
+
+    def request_reviewers(self, repo: str, number: int, *, users: list[str], teams: list[str]) -> list[str]:
+        """Request reviews from ``users`` (logins) and ``teams`` (slugs). Returns the ones GitHub refused.
+
+        GitHub answers 422 for the whole request when any one reviewer cannot be requested: a renamed
+        team, a login that left, or the PR author. So a 422 retries each reviewer alone, and the
+        refused ones come back as ``@login`` or the team slug rather than failing the rest.
+        """
+        if not users and not teams:
+            return []
+        bulk: dict[str, list[str]] = {}
+        if users:
+            bulk["reviewers"] = users
+        if teams:
+            bulk["team_reviewers"] = teams
+        if self._post_requested_reviewers(repo, number, bulk) == 201:
+            return []
+        refused: list[str] = []
+        for user in users:
+            if self._post_requested_reviewers(repo, number, {"reviewers": [user]}) == 422:
+                refused.append(f"@{user}")
+        for team in teams:
+            if self._post_requested_reviewers(repo, number, {"team_reviewers": [team]}) == 422:
+                refused.append(team)
+        return refused
+
+    def add_pr_labels(self, repo: str, number: int, labels: list[str]) -> bool:
+        """Add labels to a PR (``POST .../issues/{number}/labels``). Returns whether GitHub took them.
+
+        A refused label (403, 422) returns False, because it must not stop the review requests. A 5xx
+        raises, so the caller retries: for a fork PR the label is the only signal those teams get.
+        """
+        if not labels:
+            return True
+        response = self._request(
+            "POST",
+            f"/repos/{repo}/issues/{number}/labels",
+            endpoint="/repos/{owner}/{repo}/issues/{issue_number}/labels",
+            json_body={"labels": labels},
+        )
+        if response.status_code == 200:
+            return True
+        if response.status_code >= 500:
+            raise StamphogGitHubError(
+                f"Failed to add labels on {repo}#{number}: {response.text[:200]}", status_code=response.status_code
+            )
+        logger.info("stamphog github: labels not added", repo=repo, pr_number=number, status_code=response.status_code)
+        return False
 
     def _team_lookup_page(self, org: str, login: str, after: str | None) -> dict | None:
         """One page of the teams that ``login`` belongs to in ``org``, or None after logging a failure."""
@@ -1589,12 +1871,19 @@ class StamphogGitHubClient:
         ``exempt_author_teams`` exempts nobody, so the owning team's PRs on those paths are refused.
         The engine treats the list as complete, so every page is read.
         """
+        return self.find_user_team_slugs(org, login) or []
+
+    def find_user_team_slugs(self, org: str, login: str) -> list[str] | None:
+        """The same list as ``get_user_team_slugs``, or None when a lookup failed.
+
+        For a caller that must not read a failed lookup as "on no team".
+        """
         slugs: set[str] = set()
         after: str | None = None
         for _ in range(_MAX_PAGES):
             teams = self._team_lookup_page(org, login, after)
             if teams is None:
-                return []
+                return None
             slugs.update(
                 node["slug"] for node in teams.get("nodes") or [] if isinstance(node, dict) and node.get("slug")
             )
@@ -1605,14 +1894,8 @@ class StamphogGitHubClient:
         logger.warning("stamphog_github_team_lookup_page_cap", org=org, login=login, pages=_MAX_PAGES)
         return sorted(slugs)
 
-    def _find_sticky_comment_id(self, repo: str, number: int) -> int | None:
-        """Return the id of the App's own sticky comment on the PR, or ``None`` if there isn't one.
-
-        Matching on the marker alone would let a user plant the (source-visible) marker and have the App
-        PATCH their comment; candidates are filtered to this App's bot identity (see
-        _is_own_sticky_comment) so an impostor comment is ignored and a fresh one is posted instead.
-        """
-        expected_login = expected_app_bot_login()
+    def _marked_comments(self, repo: str, number: int, marker: str) -> Iterator[dict]:
+        """The PR's issue comments whose body carries ``marker``, read page by page."""
         for page in range(1, _MAX_PAGES + 1):
             response = self._request(
                 "GET",
@@ -1629,13 +1912,40 @@ class StamphogGitHubClient:
             if not isinstance(comments, list):
                 raise StamphogGitHubError(f"Unexpected comments payload for {repo}#{number}")
             for comment in comments:
-                if not (isinstance(comment, dict) and STICKY_COMMENT_MARKER in (comment.get("body") or "")):
-                    continue
-                if not _is_own_sticky_comment(comment, expected_login):
-                    continue
-                comment_id = comment.get("id")
-                if isinstance(comment_id, int):
-                    return comment_id
+                if isinstance(comment, dict) and marker in (comment.get("body") or ""):
+                    yield comment
             if len(comments) < _PER_PAGE:
-                break
+                return
+
+    def _find_sticky_comment_id(
+        self, repo: str, number: int, *, marker: str = STICKY_COMMENT_MARKER, allow_any_bot: bool = False
+    ) -> int | None:
+        """Return the id of the App's own comment carrying ``marker``, or ``None`` if there isn't one.
+
+        Matching on the marker alone would let a user plant the (source-visible) marker and have the App
+        PATCH their comment; candidates are filtered to this App's bot identity (see
+        _is_own_sticky_comment) so an impostor comment is ignored and a fresh one is posted instead.
+        """
+        expected_login = expected_app_bot_login()
+        for comment in self._marked_comments(repo, number, marker):
+            if not _is_own_sticky_comment(comment, expected_login, allow_any_bot=allow_any_bot):
+                continue
+            comment_id = comment.get("id")
+            if isinstance(comment_id, int):
+                return comment_id
+        return None
+
+    def find_marked_comment(
+        self, repo: str, number: int, *, marker: str, bot_logins: Sequence[str | None]
+    ) -> dict | None:
+        """The first comment carrying ``marker`` that one of ``bot_logins`` posted, or None.
+
+        Matches the exact login only, never "any Bot", so a None login (an unset App slug) matches nothing.
+        """
+        for comment in self._marked_comments(repo, number, marker):
+            user = comment.get("user") or {}
+            if not any(_is_own_bot_actor(user, login, allow_any_bot=False) for login in bot_logins if login):
+                continue
+            if isinstance(comment.get("id"), int):
+                return comment
         return None

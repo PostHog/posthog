@@ -1,50 +1,32 @@
-import { IconClock, IconWarning } from '@posthog/icons'
+import { IconClock } from '@posthog/icons'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { dayjs } from 'lib/dayjs'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
-// Marketing analytics serves from precomputed data refreshed by the hourly warmer, so the numbers can
-// trail live by up to ~2 hours. Past that the warmer is likely behind, so the badge switches to a warning.
-const STALE_WARNING_HOURS = 2
-
-export function MarketingAnalyticsFreshness({ computedAt }: { computedAt: string | null }): JSX.Element | null {
-    if (!computedAt) {
+export function MarketingAnalyticsFreshness({
+    latestDayComputedAt,
+}: {
+    latestDayComputedAt: string | null
+}): JSX.Element | null {
+    if (!latestDayComputedAt) {
         return null
     }
-
-    const behindByHours = dayjs().diff(dayjs(computedAt), 'hour')
-    const isBehind = behindByHours >= STALE_WARNING_HOURS
 
     return (
         <Tooltip
             title={
                 <div className="flex flex-col gap-1">
-                    <span>
-                        {isBehind
-                            ? 'Marketing analytics refreshes about once an hour. This data is older than that, so the refresh is running behind.'
-                            : 'Marketing analytics refreshes about once an hour, so numbers can be up to 2 hours old.'}
-                    </span>
-                    <div className="flex items-center gap-1">
-                        <span>Data from</span>
-                        <TZLabel time={computedAt} showPopover={false} />
-                    </div>
+                    <span>The numbers for the most recent day in this range were computed at this time or later.</span>
+                    <span>Ad spend also depends on when your data warehouse source last synced.</span>
+                    <TZLabel time={latestDayComputedAt} timestampStyle="absolute" showPopover={false} />
                 </div>
             }
         >
-            <LemonButton
-                icon={isBehind ? <IconWarning /> : <IconClock />}
-                status={isBehind ? 'danger' : 'default'}
-                type="secondary"
-                size="small"
-                // Informational only: keep it out of the tab order but labelled for screen readers.
-                tabIndex={-1}
-                aria-label="Marketing analytics data freshness"
-                data-attr="marketing-analytics-freshness"
-            >
-                Updated hourly
-            </LemonButton>
+            <LemonTag type="muted" icon={<IconClock />} data-attr="marketing-analytics-freshness">
+                <span>Computed&nbsp;</span>
+                <TZLabel time={latestDayComputedAt} showPopover={false} noStyles />
+            </LemonTag>
         </Tooltip>
     )
 }

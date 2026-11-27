@@ -4,8 +4,8 @@ import { loaders } from 'kea-loaders'
 import { uuid } from 'lib/utils/dom'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { isBIVisualizationNode } from '~/queries/schema/node-guards'
 import { BIField, BIHierarchy } from '~/queries/schema/schema-business-intelligence'
-import { isBIVisualizationNode } from '~/queries/utils'
 
 import { insightsList, insightsRetrieve } from 'products/product_analytics/frontend/generated/api'
 
@@ -14,6 +14,7 @@ import type { InsightApi, PaginatedInsightListApi } from '../../product_analytic
 import { biEditorLogic } from './biEditorLogic'
 import { BIEditorView, parseBIEditorState } from './biEditorTypes'
 import type { BIDataPaneFields } from './biEditorTypes'
+import type { BIShelf } from './biEditorTypes'
 import { hierarchyError, hierarchyFieldKey } from './biHierarchies'
 
 export interface BIHierarchyProps {
@@ -45,10 +46,10 @@ export interface biHierarchyLogicValues {
 export interface biHierarchyLogicActions {
     addFieldToShelf: (
         field: BIField,
-        shelf: import('./biEditorTypes').BIShelf
+        shelf: BIShelf
     ) => {
         field: BIField
-        shelf: import('./biEditorTypes').BIShelf
+        shelf: BIShelf
     } // biEditorLogic
     upsertHierarchy: (hierarchy: BIHierarchy) => {
         hierarchy: BIHierarchy

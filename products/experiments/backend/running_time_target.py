@@ -18,10 +18,9 @@ from pydantic import ValidationError
 from posthog.schema import (
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
+    ExperimentQuantileMetric,
     ExperimentQueryResponse,
     ExperimentStatsBaseValidated,
-    ExperimentVariantResultBayesian,
-    ExperimentVariantResultFrequentist,
 )
 
 from posthog.dataclasses import frozen
@@ -32,6 +31,7 @@ from products.experiments.backend.hogql_queries.utils import (
     metric_variant_to_cuped_data,
     metric_variant_to_statistic,
 )
+from products.experiments.backend.logic.result_stats import VariantResult
 from products.experiments.backend.metric_calculation.config import (
     MetricCalculationConfig,
     build_primary_calculation_configs,
@@ -39,7 +39,7 @@ from products.experiments.backend.metric_calculation.config import (
 )
 from products.experiments.backend.metric_calculation.results import MetricResultStore
 from products.experiments.backend.metric_resolution import ExperimentMetric, build_metric
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.models.experiment import Experiment, experiment_variants
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.running_time_calculator import (
     comparison_detectable_difference,
@@ -50,13 +50,12 @@ from products.experiments.backend.setup_context import PRODUCT_DEFAULT_MINIMUM_D
 from products.experiments.stats.shared.cuped import cuped_adjust
 from products.experiments.stats.shared.statistics import (
     ProportionStatistic,
+    QuantileStatistic,
     RatioStatistic,
     SampleMeanStatistic,
     StatisticError,
 )
 from products.feature_flags.backend.facade.edits import Split, parse_variants
-
-VariantResult = ExperimentVariantResultBayesian | ExperimentVariantResultFrequentist
 
 # A funnel's stored stats carry sample sessions per step, which can be large, and the target never reads them.
 _STATS_FIELDS = set(ExperimentStatsBaseValidated.model_fields) - {"step_sessions"}
@@ -246,7 +245,7 @@ def running_time_target(
     metric = _analyzed_metric(calculation_config.definition) if calculation_config is not None else None
     confidence_level = _confidence_level(calculation_config) if calculation_config is not None else 0.95
     sizing = (
-        _sizing(metric, response, parse_variants(experiment.feature_flag.variants), confidence_level)
+        _sizing(metric, response, parse_variants(experiment_variants(experiment)), confidence_level)
         if metric is not None and response is not None
         else None
     )
@@ -316,6 +315,9 @@ def project_outlook(
 def _sizing(
     metric: ExperimentMetric, response: ExperimentQueryResponse, split: Split, confidence_level: float
 ) -> _Sizing | None:
+    # A quantile variance is per event while the sizing counts users, so the two cannot be combined.
+    if isinstance(metric, ExperimentQuantileMetric):
+        return None
     baseline = response.baseline
     if baseline is None or baseline.number_of_samples < 2:
         return None
@@ -381,7 +383,7 @@ def _running_time_calculation(experiment: Experiment) -> dict:
 
 def _comparison_variance(
     metric: ExperimentMetric,
-    control: SampleMeanStatistic | ProportionStatistic | RatioStatistic,
+    control: SampleMeanStatistic | ProportionStatistic | RatioStatistic | QuantileStatistic,
     baseline: ExperimentStatsBaseValidated,
     variant: ExperimentStatsBaseValidated,
 ) -> ComparisonVariance:
@@ -423,8 +425,8 @@ def _traffic_shares(split: Split, control_key: str, variant_keys: list[str]) -> 
     return {key: percentage / total for key, percentage in served.items()}
 
 
-def _value(statistic: SampleMeanStatistic | ProportionStatistic | RatioStatistic) -> float:
-    if isinstance(statistic, SampleMeanStatistic):
+def _value(statistic: SampleMeanStatistic | ProportionStatistic | RatioStatistic | QuantileStatistic) -> float:
+    if isinstance(statistic, SampleMeanStatistic | QuantileStatistic):
         return statistic.mean
     if isinstance(statistic, ProportionStatistic):
         return statistic.proportion

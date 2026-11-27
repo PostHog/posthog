@@ -1,14 +1,17 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonCheckbox } from '@posthog/lemon-ui'
-
+import { ChartOptionSwitch } from 'lib/components/ChartOptions/ChartOptionSwitch'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { insightAlertsLogic } from 'products/alerts/frontend/logic/insightAlertsLogic'
 
 export function ShowAlertAnomalyPointsFilter(): JSX.Element | null {
     const { insightProps, insight } = useValues(insightLogic)
-    const logic = insightAlertsLogic({ insightId: insight.id!, insightLogicProps: insightProps })
+    const logic = insightAlertsLogic({
+        insightId: insight.id!,
+        insightLogicProps: insightProps,
+        deferInitialAlertsLoad: !insight.id,
+    })
     const { showAlertAnomalyPointsFlag, hasDetectorAlerts } = useValues(logic)
     const { setShowAlertAnomalyPoints } = useActions(logic)
 
@@ -17,12 +20,10 @@ export function ShowAlertAnomalyPointsFilter(): JSX.Element | null {
     }
 
     return (
-        <LemonCheckbox
-            className="p-1 px-2"
-            onChange={() => setShowAlertAnomalyPoints(!showAlertAnomalyPointsFlag)}
+        <ChartOptionSwitch
+            label="Show alert anomaly points"
             checked={showAlertAnomalyPointsFlag}
-            label={<span className="font-normal">Show alert anomaly points</span>}
-            size="small"
+            onChange={(checked) => setShowAlertAnomalyPoints(checked)}
         />
     )
 }

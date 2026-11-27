@@ -31,7 +31,7 @@ import { ACTIVITY_SEARCH_PARAM } from 'lib/components/ActivityLog/activityLogLog
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { describeCron } from 'lib/cron'
+import { describeCron, nextCronOccurrence } from 'lib/cron'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { scrollToFormError } from 'lib/forms/scrollToFormError'
 import { ToastButton, lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -45,6 +45,7 @@ import { capitalizeFirstLetter, humanList, slugify } from 'lib/utils/strings'
 import { showApprovalRequiredToast } from 'scenes/approvals/ApprovalRequiredBanner'
 import { dispatchChangeRequestCreated } from 'scenes/approvals/utils'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
+import { percentageDistribution } from 'scenes/experiments/utils'
 import {
     FeatureFlagsTab,
     carriedListFilterParams,
@@ -110,6 +111,7 @@ import {
     reloadIfStaleRowVersion,
     rowVersionToken,
 } from 'products/feature_flags/frontend/featureFlagConfigFormat'
+import { forgetFlagLookup } from 'products/feature_flags/frontend/featureFlagSummaryLogic'
 import { TEMPLATE_NAMES } from 'products/feature_flags/frontend/featureFlagTemplateConstants'
 import {
     featureFlagsCopyFlagsCreate,
@@ -166,6 +168,7 @@ import { checkFeatureFlagConfirmation } from './featureFlagConfirmationLogic'
 import type { FlagIntent } from './featureFlagIntentWarningLogic'
 import { confirmFeatureFlagKeyChange } from './featureFlagKeyChangeDialog'
 import { featureFlagReleaseConditionsLogic } from './featureFlagReleaseConditionsLogic'
+import { MAX_VARIANTS } from './featureFlagRulesV2Draft'
 import {
     ProjectSelectOption,
     aggregateCopyResponse,
@@ -335,6 +338,12 @@ function liveFlagToastOptions(
     // Toasts with the same message share an id and a visible one swallows the next, which would drop this button.
     return { button, toastId: `feature-flag-live-${flagId}` }
 }
+
+const COHORT_REFUSAL_ERROR_CODES = new Set([
+    'behavioral_cohort_found',
+    'realtime_cohort_not_ready',
+    'cohort_does_not_exist',
+])
 
 function reportFailedToCreateFeatureFlagWithCohort(code: string, detail: string): void {
     posthog.capture('failed to create feature flag with cohort', { detail, code })
@@ -535,6 +544,17 @@ export function scheduleDateFromStoredISO(isoString: string, timezone: string): 
     return dayjs(dayjs.utc(isoString).tz(timezone).format('YYYY-MM-DDTHH:mm:ss.SSS'))
 }
 
+// Returns the first cron match after now, or on or after `fromDay` when that day is later, or null for an invalid cron.
+// `fromDay` is a browser-local Dayjs whose wall clock shows project time, so `.tz(timezone, true)` reinterprets it.
+// Searching from a previously computed run would skip the first match after a second cron edit.
+export function nextCronRunDate(cron: string, timezone: string, fromDay: Dayjs | null): Dayjs | null {
+    const now = new Date()
+    // Step back 1 ms so that a match at exactly midnight of the picked day counts.
+    const dayStart = fromDay?.startOf('day').tz(timezone, true).subtract(1, 'millisecond').toDate()
+    const nextDate = nextCronOccurrence(cron, timezone, dayStart && dayStart > now ? dayStart : now)
+    return nextDate ? scheduleDateFromStoredISO(nextDate.toISOString(), timezone) : null
+}
+
 // Order scheduled changes by their `scheduled_at` time, soonest first. `scheduled_at` holds the
 // next occurrence for recurring changes too, so it is a uniform sort key across all change types.
 // Unparseable/missing dates sort last; ties break by `id` (creation order) for a stable order.
@@ -665,6 +685,26 @@ const EMPTY_MULTIVARIATE_OPTIONS: MultivariateFlagOptions = {
     ],
 }
 
+/** The `?key=` from a new-flag link, or null when it isn't a valid key. Code examples render it before save-time validation. */
+export function prefilledFlagKey(value: unknown): string | null {
+    const key = scalarParam(value) ?? ''
+    return validateFeatureFlagKey(key) ? null : key
+}
+
+// The router JSON-decodes `[...]` and `{...}` params, and `String()` can throw on an object.
+function scalarParam(value: unknown): string | null {
+    return ['string', 'number', 'boolean'].includes(typeof value) ? String(value) : null
+}
+
+function variantsFromSearchParam(value: unknown): MultivariateFlagVariant[] {
+    const raw = Array.isArray(value) ? value.map(scalarParam) : (scalarParam(value)?.split(',') ?? [])
+    const keys = [...new Set(raw.map((key) => (key ?? '').trim()))]
+        .filter((key) => !validateFeatureFlagVariantKey(key))
+        .slice(0, MAX_VARIANTS)
+    const percentages = percentageDistribution(keys.length)
+    return keys.map((key, index) => ({ key, name: '', rollout_percentage: percentages[index] }))
+}
+
 const FLAG_DEPENDENCY_TIMEOUT_MS = 2000
 
 // Only returns true when groups are present and ALL explicitly set to 0.
@@ -709,7 +749,7 @@ export function validateFeatureFlagKey(key: string): string | undefined {
 }
 
 // Mirrors RESERVED_NEW_VARIANT_KEYS in products/feature_flags/backend/reserved_variant_keys.py.
-const RESERVED_NEW_VARIANT_KEYS: readonly string[] = ['null']
+const RESERVED_NEW_VARIANT_KEYS: readonly string[] = ['null', 'true', 'false']
 
 /** Check whether a string is a valid variant key. If not, a reason string is returned - otherwise undefined.
  * Wider than flag keys: dots and slashes are allowed because variant keys often carry values SDKs consume
@@ -1241,7 +1281,7 @@ export interface featureFlagLogicValues {
     currentProjectId: number | null // projectLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     currentTeamId: number | null // teamLogic
-    hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
+    hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean // userLogic
     user: UserType | null // userLogic
     accessDeniedToFeatureFlag: boolean
     activeRecurringSchedules: ScheduledChangeType[]
@@ -1293,10 +1333,10 @@ export interface featureFlagLogicValues {
     featureFlagCopyLoading: boolean
     featureFlagErrors: DeepPartialMap<
         {
-            _create_in_folder?: string | null | undefined
+            _create_in_folder?: string | null
             active: boolean
             archived: boolean
-            bucketing_identifier?: FeatureFlagBucketingIdentifier | null | undefined
+            bucketing_identifier?: FeatureFlagBucketingIdentifier | null
             can_edit: boolean
             created_at: string | null
             created_by: UserBasicType | null
@@ -1315,19 +1355,19 @@ export interface featureFlagLogicValues {
             features: MinimalEarlyAccessFeatureType[] | null
             filters: FeatureFlagFilters
             has_encrypted_payloads: boolean
-            has_enriched_analytics?: boolean | undefined
+            has_enriched_analytics?: boolean
             id: number | null
             is_remote_configuration: boolean
-            is_used_in_replay_settings?: boolean | undefined
+            is_used_in_replay_settings?: boolean
             key: string
-            last_called_at?: string | null | undefined
+            last_called_at?: string | null
             last_modified_by: UserBasicType | null
             name: string
             status: 'ACTIVE' | 'ARCHIVED' | 'DELETED' | 'STALE' | 'UNKNOWN'
             surveys: Survey[] | null
             tags: string[]
             updated_at: string | null
-            usage_dashboard?: number | null | undefined
+            usage_dashboard?: number | null
             user_access_level: AccessControlLevel
             version: number | null
         },
@@ -1347,10 +1387,10 @@ export interface featureFlagLogicValues {
     featureFlagTouches: Record<string, boolean>
     featureFlagValidationErrors: DeepPartialMap<
         {
-            _create_in_folder?: string | null | undefined
+            _create_in_folder?: string | null
             active: boolean
             archived: boolean
-            bucketing_identifier?: FeatureFlagBucketingIdentifier | null | undefined
+            bucketing_identifier?: FeatureFlagBucketingIdentifier | null
             can_edit: boolean
             created_at: string | null
             created_by: UserBasicType | null
@@ -1369,19 +1409,19 @@ export interface featureFlagLogicValues {
             features: MinimalEarlyAccessFeatureType[] | null
             filters: FeatureFlagFilters
             has_encrypted_payloads: boolean
-            has_enriched_analytics?: boolean | undefined
+            has_enriched_analytics?: boolean
             id: number | null
             is_remote_configuration: boolean
-            is_used_in_replay_settings?: boolean | undefined
+            is_used_in_replay_settings?: boolean
             key: string
-            last_called_at?: string | null | undefined
+            last_called_at?: string | null
             last_modified_by: UserBasicType | null
             name: string
             status: 'ACTIVE' | 'ARCHIVED' | 'DELETED' | 'STALE' | 'UNKNOWN'
             surveys: Survey[] | null
             tags: string[]
             updated_at: string | null
-            usage_dashboard?: number | null | undefined
+            usage_dashboard?: number | null
             user_access_level: AccessControlLevel
             version: number | null
         },
@@ -1447,6 +1487,7 @@ export interface featureFlagLogicValues {
     scheduleFormState: ScheduleFormState
     schedulePayload: ScheduleFlagPayload
     schedulePayloadErrors: any
+    schedulePickedDay: Dayjs | null
     schedulePreset: PairedPresetKey | null
     scheduleTimelineOccurrences: ScheduleOccurrence[]
     scheduledChange: ScheduledChangeType
@@ -1846,10 +1887,10 @@ export interface featureFlagLogicActions {
     }
     resetEncryptedPayload: () => {}
     resetFeatureFlag: (values?: {
-        _create_in_folder?: string | null | undefined
+        _create_in_folder?: string | null
         active: boolean
         archived: boolean
-        bucketing_identifier?: FeatureFlagBucketingIdentifier | null | undefined
+        bucketing_identifier?: FeatureFlagBucketingIdentifier | null
         can_edit: boolean
         created_at: string | null
         created_by: UserBasicType | null
@@ -1868,27 +1909,27 @@ export interface featureFlagLogicActions {
         features: MinimalEarlyAccessFeatureType[] | null
         filters: FeatureFlagFilters
         has_encrypted_payloads: boolean
-        has_enriched_analytics?: boolean | undefined
+        has_enriched_analytics?: boolean
         id: number | null
         is_remote_configuration: boolean
-        is_used_in_replay_settings?: boolean | undefined
+        is_used_in_replay_settings?: boolean
         key: string
-        last_called_at?: string | null | undefined
+        last_called_at?: string | null
         last_modified_by: UserBasicType | null
         name: string
         status: 'ACTIVE' | 'ARCHIVED' | 'DELETED' | 'STALE' | 'UNKNOWN'
         surveys: Survey[] | null
         tags: string[]
         updated_at: string | null
-        usage_dashboard?: number | null | undefined
+        usage_dashboard?: number | null
         user_access_level: AccessControlLevel
         version: number | null
     }) => {
         values?: {
-            _create_in_folder?: string | null | undefined
+            _create_in_folder?: string | null
             active: boolean
             archived: boolean
-            bucketing_identifier?: FeatureFlagBucketingIdentifier | null | undefined
+            bucketing_identifier?: FeatureFlagBucketingIdentifier | null
             can_edit: boolean
             created_at: string | null
             created_by: UserBasicType | null
@@ -1907,19 +1948,19 @@ export interface featureFlagLogicActions {
             features: MinimalEarlyAccessFeatureType[] | null
             filters: FeatureFlagFilters
             has_encrypted_payloads: boolean
-            has_enriched_analytics?: boolean | undefined
+            has_enriched_analytics?: boolean
             id: number | null
             is_remote_configuration: boolean
-            is_used_in_replay_settings?: boolean | undefined
+            is_used_in_replay_settings?: boolean
             key: string
-            last_called_at?: string | null | undefined
+            last_called_at?: string | null
             last_modified_by: UserBasicType | null
             name: string
             status: 'ACTIVE' | 'ARCHIVED' | 'DELETED' | 'STALE' | 'UNKNOWN'
             surveys: Survey[] | null
             tags: string[]
             updated_at: string | null
-            usage_dashboard?: number | null | undefined
+            usage_dashboard?: number | null
             user_access_level: AccessControlLevel
             version: number | null
         }
@@ -2053,10 +2094,10 @@ export interface featureFlagLogicActions {
     }
     setFeatureFlagValues: (
         values: DeepPartial<{
-            _create_in_folder?: string | null | undefined
+            _create_in_folder?: string | null
             active: boolean
             archived: boolean
-            bucketing_identifier?: FeatureFlagBucketingIdentifier | null | undefined
+            bucketing_identifier?: FeatureFlagBucketingIdentifier | null
             can_edit: boolean
             created_at: string | null
             created_by: UserBasicType | null
@@ -2075,28 +2116,28 @@ export interface featureFlagLogicActions {
             features: MinimalEarlyAccessFeatureType[] | null
             filters: FeatureFlagFilters
             has_encrypted_payloads: boolean
-            has_enriched_analytics?: boolean | undefined
+            has_enriched_analytics?: boolean
             id: number | null
             is_remote_configuration: boolean
-            is_used_in_replay_settings?: boolean | undefined
+            is_used_in_replay_settings?: boolean
             key: string
-            last_called_at?: string | null | undefined
+            last_called_at?: string | null
             last_modified_by: UserBasicType | null
             name: string
             status: 'ACTIVE' | 'ARCHIVED' | 'DELETED' | 'STALE' | 'UNKNOWN'
             surveys: Survey[] | null
             tags: string[]
             updated_at: string | null
-            usage_dashboard?: number | null | undefined
+            usage_dashboard?: number | null
             user_access_level: AccessControlLevel
             version: number | null
         }>
     ) => {
         values: DeepPartial<{
-            _create_in_folder?: string | null | undefined
+            _create_in_folder?: string | null
             active: boolean
             archived: boolean
-            bucketing_identifier?: FeatureFlagBucketingIdentifier | null | undefined
+            bucketing_identifier?: FeatureFlagBucketingIdentifier | null
             can_edit: boolean
             created_at: string | null
             created_by: UserBasicType | null
@@ -2115,19 +2156,19 @@ export interface featureFlagLogicActions {
             features: MinimalEarlyAccessFeatureType[] | null
             filters: FeatureFlagFilters
             has_encrypted_payloads: boolean
-            has_enriched_analytics?: boolean | undefined
+            has_enriched_analytics?: boolean
             id: number | null
             is_remote_configuration: boolean
-            is_used_in_replay_settings?: boolean | undefined
+            is_used_in_replay_settings?: boolean
             key: string
-            last_called_at?: string | null | undefined
+            last_called_at?: string | null
             last_modified_by: UserBasicType | null
             name: string
             status: 'ACTIVE' | 'ARCHIVED' | 'DELETED' | 'STALE' | 'UNKNOWN'
             surveys: Survey[] | null
             tags: string[]
             updated_at: string | null
-            usage_dashboard?: number | null | undefined
+            usage_dashboard?: number | null
             user_access_level: AccessControlLevel
             version: number | null
         }>
@@ -2184,6 +2225,9 @@ export interface featureFlagLogicActions {
         payloads: Record<string, any> | null | undefined
         variants: MultivariateFlagVariant[] | null | undefined
     }
+    setSchedulePickedDay: (day: Dayjs | null) => {
+        day: Dayjs | null
+    }
     setSchedulePreset: (preset: PairedPresetKey | null) => {
         preset: PairedPresetKey | null
     }
@@ -2209,11 +2253,11 @@ export interface featureFlagLogicActions {
         updatedFlag: Partial<FeatureFlagType>
     }) => {
         dependentFlags: DependentFlag[]
-        isBeingDisabled?: boolean | undefined
+        isBeingDisabled?: boolean
         onConfirm: () => void
-        onDisableAndArchive?: (() => void) | undefined
+        onDisableAndArchive?: () => void
         originalFlag: FeatureFlagType | null
-        requireStatusConfirmation?: boolean | undefined
+        requireStatusConfirmation?: boolean
         updatedFlag: Partial<FeatureFlagType>
     }
     startNewFlagDisabled: () => {
@@ -2233,10 +2277,10 @@ export interface featureFlagLogicActions {
         errors: Record<string, any>
     }
     submitFeatureFlagRequest: (featureFlag: {
-        _create_in_folder?: string | null | undefined
+        _create_in_folder?: string | null
         active: boolean
         archived: boolean
-        bucketing_identifier?: FeatureFlagBucketingIdentifier | null | undefined
+        bucketing_identifier?: FeatureFlagBucketingIdentifier | null
         can_edit: boolean
         created_at: string | null
         created_by: UserBasicType | null
@@ -2255,27 +2299,27 @@ export interface featureFlagLogicActions {
         features: MinimalEarlyAccessFeatureType[] | null
         filters: FeatureFlagFilters
         has_encrypted_payloads: boolean
-        has_enriched_analytics?: boolean | undefined
+        has_enriched_analytics?: boolean
         id: number | null
         is_remote_configuration: boolean
-        is_used_in_replay_settings?: boolean | undefined
+        is_used_in_replay_settings?: boolean
         key: string
-        last_called_at?: string | null | undefined
+        last_called_at?: string | null
         last_modified_by: UserBasicType | null
         name: string
         status: 'ACTIVE' | 'ARCHIVED' | 'DELETED' | 'STALE' | 'UNKNOWN'
         surveys: Survey[] | null
         tags: string[]
         updated_at: string | null
-        usage_dashboard?: number | null | undefined
+        usage_dashboard?: number | null
         user_access_level: AccessControlLevel
         version: number | null
     }) => {
         featureFlag: {
-            _create_in_folder?: string | null | undefined
+            _create_in_folder?: string | null
             active: boolean
             archived: boolean
-            bucketing_identifier?: FeatureFlagBucketingIdentifier | null | undefined
+            bucketing_identifier?: FeatureFlagBucketingIdentifier | null
             can_edit: boolean
             created_at: string | null
             created_by: UserBasicType | null
@@ -2294,28 +2338,28 @@ export interface featureFlagLogicActions {
             features: MinimalEarlyAccessFeatureType[] | null
             filters: FeatureFlagFilters
             has_encrypted_payloads: boolean
-            has_enriched_analytics?: boolean | undefined
+            has_enriched_analytics?: boolean
             id: number | null
             is_remote_configuration: boolean
-            is_used_in_replay_settings?: boolean | undefined
+            is_used_in_replay_settings?: boolean
             key: string
-            last_called_at?: string | null | undefined
+            last_called_at?: string | null
             last_modified_by: UserBasicType | null
             name: string
             status: 'ACTIVE' | 'ARCHIVED' | 'DELETED' | 'STALE' | 'UNKNOWN'
             surveys: Survey[] | null
             tags: string[]
             updated_at: string | null
-            usage_dashboard?: number | null | undefined
+            usage_dashboard?: number | null
             user_access_level: AccessControlLevel
             version: number | null
         }
     }
     submitFeatureFlagSuccess: (featureFlag: {
-        _create_in_folder?: string | null | undefined
+        _create_in_folder?: string | null
         active: boolean
         archived: boolean
-        bucketing_identifier?: FeatureFlagBucketingIdentifier | null | undefined
+        bucketing_identifier?: FeatureFlagBucketingIdentifier | null
         can_edit: boolean
         created_at: string | null
         created_by: UserBasicType | null
@@ -2334,27 +2378,27 @@ export interface featureFlagLogicActions {
         features: MinimalEarlyAccessFeatureType[] | null
         filters: FeatureFlagFilters
         has_encrypted_payloads: boolean
-        has_enriched_analytics?: boolean | undefined
+        has_enriched_analytics?: boolean
         id: number | null
         is_remote_configuration: boolean
-        is_used_in_replay_settings?: boolean | undefined
+        is_used_in_replay_settings?: boolean
         key: string
-        last_called_at?: string | null | undefined
+        last_called_at?: string | null
         last_modified_by: UserBasicType | null
         name: string
         status: 'ACTIVE' | 'ARCHIVED' | 'DELETED' | 'STALE' | 'UNKNOWN'
         surveys: Survey[] | null
         tags: string[]
         updated_at: string | null
-        usage_dashboard?: number | null | undefined
+        usage_dashboard?: number | null
         user_access_level: AccessControlLevel
         version: number | null
     }) => {
         featureFlag: {
-            _create_in_folder?: string | null | undefined
+            _create_in_folder?: string | null
             active: boolean
             archived: boolean
-            bucketing_identifier?: FeatureFlagBucketingIdentifier | null | undefined
+            bucketing_identifier?: FeatureFlagBucketingIdentifier | null
             can_edit: boolean
             created_at: string | null
             created_by: UserBasicType | null
@@ -2373,19 +2417,19 @@ export interface featureFlagLogicActions {
             features: MinimalEarlyAccessFeatureType[] | null
             filters: FeatureFlagFilters
             has_encrypted_payloads: boolean
-            has_enriched_analytics?: boolean | undefined
+            has_enriched_analytics?: boolean
             id: number | null
             is_remote_configuration: boolean
-            is_used_in_replay_settings?: boolean | undefined
+            is_used_in_replay_settings?: boolean
             key: string
-            last_called_at?: string | null | undefined
+            last_called_at?: string | null
             last_modified_by: UserBasicType | null
             name: string
             status: 'ACTIVE' | 'ARCHIVED' | 'DELETED' | 'STALE' | 'UNKNOWN'
             surveys: Survey[] | null
             tags: string[]
             updated_at: string | null
-            usage_dashboard?: number | null | undefined
+            usage_dashboard?: number | null
             user_access_level: AccessControlLevel
             version: number | null
         }
@@ -2463,9 +2507,9 @@ export interface featureFlagLogicMeta {
         checkDependentFlagsAndConfirm: (
             payload: {
                 onConfirm: () => void
-                onDisableAndArchive?: (() => void) | undefined
+                onDisableAndArchive?: () => void
                 originalFlag: FeatureFlagType | null
-                requireStatusConfirmation?: boolean | undefined
+                requireStatusConfirmation?: boolean
                 updatedFlag: Partial<FeatureFlagType>
             },
             breakpoint: BreakPointFunction,
@@ -2473,9 +2517,9 @@ export interface featureFlagLogicMeta {
                 type: string
                 payload: {
                     onConfirm: () => void
-                    onDisableAndArchive?: (() => void) | undefined
+                    onDisableAndArchive?: () => void
                     originalFlag: FeatureFlagType | null
-                    requireStatusConfirmation?: boolean | undefined
+                    requireStatusConfirmation?: boolean
                     updatedFlag: Partial<FeatureFlagType>
                 }
             },
@@ -2484,11 +2528,11 @@ export interface featureFlagLogicMeta {
         showDependentFlagsConfirmation: (
             payload: {
                 dependentFlags: DependentFlag[]
-                isBeingDisabled?: boolean | undefined
+                isBeingDisabled?: boolean
                 onConfirm: () => void
-                onDisableAndArchive?: (() => void) | undefined
+                onDisableAndArchive?: () => void
                 originalFlag: FeatureFlagType | null
-                requireStatusConfirmation?: boolean | undefined
+                requireStatusConfirmation?: boolean
                 updatedFlag: Partial<FeatureFlagType>
             },
             breakpoint: BreakPointFunction,
@@ -2496,11 +2540,11 @@ export interface featureFlagLogicMeta {
                 type: string
                 payload: {
                     dependentFlags: DependentFlag[]
-                    isBeingDisabled?: boolean | undefined
+                    isBeingDisabled?: boolean
                     onConfirm: () => void
-                    onDisableAndArchive?: (() => void) | undefined
+                    onDisableAndArchive?: () => void
                     originalFlag: FeatureFlagType | null
-                    requireStatusConfirmation?: boolean | undefined
+                    requireStatusConfirmation?: boolean
                     updatedFlag: Partial<FeatureFlagType>
                 }
             },
@@ -2509,7 +2553,7 @@ export interface featureFlagLogicMeta {
     }
     __keaTypeGenInternalSelectorTypes: {
         props: (arg: any) => any
-        availableTabs: (featureFlag: FeatureFlagType, props: any) => FeatureFlagsTab[]
+        availableTabs: (featureFlag: FeatureFlagType, props: any, enabledFeatures: FeatureFlagsSet) => FeatureFlagsTab[]
         configFormat: (featureFlag: FeatureFlagType) => FeatureFlagConfigFormat
         asksRollbackReason: (enabledFeatures: FeatureFlagsSet, configFormat: FeatureFlagConfigFormat) => boolean
         editorKind: (
@@ -2538,13 +2582,13 @@ export interface featureFlagLogicMeta {
             | 'Release toggle (boolean)'
             | 'Remote configuration (single payload)'
         roleBasedAccessEnabled: (
-            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
+            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean
         ) => boolean
         variants: (featureFlag: FeatureFlagType) => MultivariateFlagVariant[]
         nonEmptyVariants: (variants: MultivariateFlagVariant[]) => MultivariateFlagVariant[]
         aggregationTargetName: (
             featureFlag: FeatureFlagType,
-            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
         ) => string
         breadcrumbs: (featureFlag: FeatureFlagType, searchParams: Record<string, any>) => Breadcrumb[]
         projectTreeRef: (arg: number | 'link' | 'new') => ProjectTreeRef
@@ -2708,6 +2752,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         ) => ({ copyDependencyRequirements }),
         loadCopyDependencyRequirementsFailure: (error: string, errorObject?: unknown) => ({ error, errorObject }),
         setScheduleDateMarker: (dateMarker: any) => ({ dateMarker }),
+        setSchedulePickedDay: (day: Dayjs | null) => ({ day }),
         setScheduleFormExpanded: (expanded: boolean) => ({ expanded }),
         resetScheduleFormExpanded: true,
         setSchedulePayload: (
@@ -3184,6 +3229,16 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 setScheduleDateMarker: (_, { dateMarker }) => dateMarker,
             },
         ],
+        // The day last picked in the date picker. Kept apart from scheduleDateMarker, which each
+        // cron edit overwrites, so a cron typed after picking a day still searches from that day.
+        schedulePickedDay: [
+            null as Dayjs | null,
+            {
+                setSchedulePickedDay: (_, { day }) => day,
+                // A null marker means the form was reset or the picker was cleared, so drop the picked day
+                setScheduleDateMarker: (state, { dateMarker }) => (dateMarker ? state : null),
+            },
+        ],
         // Null until the user opens or closes the form; the default is derived from
         // whether the flag already has active schedules (see scheduleFormState).
         scheduleFormManuallyExpanded: [
@@ -3451,6 +3506,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
 
             const shouldDisplayConfirmation = featureFlagConfirmationEnabled || dependentFlags.length > 0
+            // Releasing an existing flag to everyone is always confirmed, whatever the team setting says.
+            const releasesToEveryone = flagWentLive(originalFlag, updatedFlag as FeatureFlagType)
 
             const confirmationShown = checkFeatureFlagConfirmation(
                 originalFlag,
@@ -3462,7 +3519,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 dependentFlags,
                 isBeingDisabled,
                 requireStatusConfirmation,
-                onDisableAndArchive
+                onDisableAndArchive,
+                releasesToEveryone
             )
 
             // If no confirmation was shown, proceed immediately
@@ -3606,17 +3664,23 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         }
                     }
 
+                    const prefilledKey = prefilledFlagKey(router.values.searchParams.key)
+                    if (prefilledKey) {
+                        baseFlagConfig = { ...baseFlagConfig, key: prefilledKey }
+                    }
+
                     // Apply type-specific configuration
                     if (flagType === 'multivariate') {
+                        const prefilledVariants = variantsFromSearchParam(router.values.searchParams.variants)
                         baseFlagConfig = {
                             ...baseFlagConfig,
                             filters: {
                                 ...baseFlagConfig.filters,
                                 multivariate: {
-                                    variants: [
-                                        { key: 'control', name: '', rollout_percentage: 50 },
-                                        { key: 'test', name: '', rollout_percentage: 50 },
-                                    ],
+                                    variants:
+                                        prefilledVariants.length > 0
+                                            ? prefilledVariants
+                                            : EMPTY_MULTIVARIATE_OPTIONS.variants,
                                 },
                             },
                         }
@@ -3715,7 +3779,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     savedFlag.id && refreshTreeItem('feature_flag', String(savedFlag.id))
                     return variantKeyToIndexFeatureFlagPayloads(savedFlag)
                 } catch (error: any) {
-                    if (error.code === 'behavioral_cohort_found' || error.code === 'cohort_does_not_exist') {
+                    if (COHORT_REFUSAL_ERROR_CODES.has(error.code)) {
                         reportFailedToCreateFeatureFlagWithCohort(error.code, error.detail)
                     } else if (isAccessDeniedError(error)) {
                         // Mirror the load path's access-denied handling instead of the generic
@@ -3759,7 +3823,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
 
                     return variantKeyToIndexFeatureFlagPayloads(savedFlag)
                 } catch (error: any) {
-                    if (error.code === 'behavioral_cohort_found' || error.code === 'cohort_does_not_exist') {
+                    if (COHORT_REFUSAL_ERROR_CODES.has(error.code)) {
                         reportFailedToCreateFeatureFlagWithCohort(error.code, error.detail)
                     }
                     throw error
@@ -4304,26 +4368,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             if (!cronExpression) {
                 return
             }
-            // Only compute next run for valid 5-field cron expressions
-            const fields = cronExpression.trim().split(/\s+/)
-            if (fields.length !== 5) {
-                return
-            }
-            try {
-                const timezone = values.currentTeam?.timezone || 'UTC'
-                // scheduleDateMarker is a browser-local Dayjs whose wall clock matches the
-                // project timezone. Reinterpret it in the project timezone before passing to
-                // cron-parser so the cron fields (e.g. "0 9") are evaluated in the project's
-                // timezone rather than the browser's.
-                const baseDate = values.scheduleDateMarker?.tz(timezone, true).toDate() ?? new Date()
-                const interval = CronExpressionParser.parse(cronExpression, {
-                    currentDate: baseDate,
-                    tz: timezone,
-                })
-                const nextDate = interval.next().toDate()
-                actions.setScheduleDateMarker(scheduleDateFromStoredISO(nextDate.toISOString(), timezone))
-            } catch {
-                // Invalid expression — don't update the date picker
+            const timezone = values.currentTeam?.timezone || 'UTC'
+            const nextRun = nextCronRunDate(cronExpression, timezone, values.schedulePickedDay)
+            // Invalid expression: leave the date picker as it is
+            if (nextRun) {
+                actions.setScheduleDateMarker(nextRun)
             }
         },
         setRepeatsValue: ({ value }) => {
@@ -4511,6 +4560,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
         saveFeatureFlagSuccess: ({ featureFlag }) => {
             delete cache.rollbackReasonAnswer
+            forgetFlagLookup(featureFlag.key)
             lemonToast.success(
                 'Feature flag saved',
                 liveFlagToastOptions(
@@ -4961,6 +5011,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
             actions.loadRelatedInsights()
             actions.loadDependentFlags()
+            // A key prefilled from the URL never goes through the key field, so check it once here.
+            if (props.id === 'new' && featureFlag?.key) {
+                actions.checkKeyConflict(featureFlag.key)
+            }
             reportFlagWithDeletedCohortLoaded(featureFlag, cache)
             // Experiment is now loaded inline during loadFeatureFlag, not here
 
@@ -5436,8 +5490,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         props: [() => [(_, props) => props], (props) => props],
         // Which tabs the flag offers; FeatureFlag.tsx renders exactly this set
         availableTabs: [
-            (s) => [s.featureFlag, s.props],
-            (featureFlag: FeatureFlagType, props: FeatureFlagLogicProps): FeatureFlagsTab[] => {
+            (s) => [s.featureFlag, s.props, s.enabledFeatures],
+            (
+                featureFlag: FeatureFlagType,
+                props: FeatureFlagLogicProps,
+                enabledFeatures: FeatureFlagsSet
+            ): FeatureFlagsTab[] => {
                 const tabs = [FeatureFlagsTab.OVERVIEW]
                 // Projects (copy), Schedule and Testing read or rewrite the v1 document.
                 const v1 = isV1FeatureFlagConfig(featureFlag.filters)
@@ -5456,6 +5514,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 tabs.push(FeatureFlagsTab.FEEDBACK, FeatureFlagsTab.EXPERIMENTS)
                 if (props.id && v1) {
                     tabs.push(FeatureFlagsTab.TESTING)
+                }
+                if (featureFlag.id && enabledFeatures[FEATURE_FLAGS.FEATURE_FLAG_CODE_ANALYSIS]) {
+                    tabs.push(FeatureFlagsTab.CODE)
                 }
                 return tabs
             },

@@ -1,13 +1,80 @@
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
+
+from parameterized import parameterized
+
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, User
-from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.activity_logging.activity_log import ActivityLog, Change, changes_between
+from posthog.models.activity_logging.model_activity import ActingUserContext
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_invite import OrganizationInvite
 from posthog.models.uploaded_media import UploadedMedia
 from posthog.test.activity_log_utils import ActivityLogTestHelper
 
+from products.access_control.backend.models.role import Role
+
 
 class TestOrganizationActivityLogging(ActivityLogTestHelper):
+    @parameterized.expand(
+        [
+            ("deferred_fields", ("id", "members_can_invite"), "posthog_organization"),
+            ("unchanged_foreign_key", None, "ee_role"),
+        ]
+    )
+    def test_diff_does_not_reload_rows_for_unchanged_fields(
+        self, _name: str, loaded_fields: tuple[str, ...] | None, table: str
+    ) -> None:
+        role = Role.objects.create(name="Default role", organization=self.organization)
+        Organization.objects.filter(id=self.organization.id).update(default_role=role, members_can_invite=True)
+        row_id = {"posthog_organization": self.organization.id, "ee_role": role.id}[table]
+
+        previous = Organization.objects.get(id=self.organization.id)
+        queryset = Organization.objects.all() if loaded_fields is None else Organization.objects.only(*loaded_fields)
+        current = queryset.get(id=self.organization.id)
+        current.members_can_invite = False
+
+        with CaptureQueriesContext(connection) as queries:
+            changes = changes_between("Organization", previous=previous, current=current)
+
+        row_reads = [
+            query["sql"]
+            for query in queries.captured_queries
+            if f'FROM "{table}"' in query["sql"] and str(row_id) in query["sql"]
+        ]
+        assert row_reads == []
+        assert changes == [
+            Change(
+                type="Organization",
+                field="member invitation permissions",
+                action="changed",
+                before=True,
+                after=False,
+            )
+        ]
+
+    @parameterized.expand(
+        [
+            ("deactivation", {"is_active": False}, True, False),
+            ("reactivation", {"is_active": True}, False, True),
+            ("other_setting", {"members_can_invite": False}, True, True),
+        ]
+    )
+    def test_a_staff_change_names_the_staff_member_unless_it_deactivates_the_organization(
+        self, _name: str, change: dict[str, bool], active_before: bool, names_staff: bool
+    ) -> None:
+        Organization.objects.filter(id=self.organization.id).update(is_active=active_before)
+        organization = Organization.objects.get(id=self.organization.id)
+        staff = User.objects.create(email="staff@example.com", is_staff=True)
+
+        with ActingUserContext(staff):
+            for field, value in change.items():
+                setattr(organization, field, value)
+            organization.save(update_fields=list(change))
+
+        logged = ActivityLog.objects.get(organization_id=self.organization.id, scope="Organization", activity="updated")
+        assert logged.user_id == (staff.id if names_staff else None)
+
     def test_organization_creation_activity_logging(self):
         organization = self.create_organization("Test Organization")
 
@@ -26,7 +93,9 @@ class TestOrganizationActivityLogging(ActivityLogTestHelper):
         organization = self.create_organization("Original Organization")
         self.update_organization(organization["id"], {"name": "Updated Organization"})
 
-        log = ActivityLog.objects.filter(organization_id=organization["id"], activity="updated").first()
+        log = ActivityLog.objects.filter(
+            organization_id=organization["id"], scope="Organization", activity="updated"
+        ).first()
 
         assert log is not None
         assert log.detail is not None
@@ -47,7 +116,9 @@ class TestOrganizationActivityLogging(ActivityLogTestHelper):
         )
         self.update_organization(organization["id"], {"enforce_2fa": True})
 
-        log = ActivityLog.objects.filter(organization_id=organization["id"], activity="updated").first()
+        log = ActivityLog.objects.filter(
+            organization_id=organization["id"], scope="Organization", activity="updated"
+        ).first()
 
         assert log is not None
         assert log.detail is not None
@@ -67,7 +138,7 @@ class TestOrganizationActivityLogging(ActivityLogTestHelper):
         self.update_organization(organization["id"], {"members_can_invite": False})
 
         log = (
-            ActivityLog.objects.filter(organization_id=organization["id"], activity="updated")
+            ActivityLog.objects.filter(organization_id=organization["id"], scope="Organization", activity="updated")
             .order_by("-created_at")
             .first()
         )
@@ -81,7 +152,7 @@ class TestOrganizationActivityLogging(ActivityLogTestHelper):
         self.update_organization(organization["id"], {"members_can_use_personal_api_keys": False})
 
         log = (
-            ActivityLog.objects.filter(organization_id=organization["id"], activity="updated")
+            ActivityLog.objects.filter(organization_id=organization["id"], scope="Organization", activity="updated")
             .order_by("-created_at")
             .first()
         )
@@ -99,7 +170,9 @@ class TestOrganizationActivityLogging(ActivityLogTestHelper):
         )
         self.update_organization(organization["id"], {"allow_publicly_shared_resources": False})
 
-        log = ActivityLog.objects.filter(organization_id=organization["id"], activity="updated").first()
+        log = ActivityLog.objects.filter(
+            organization_id=organization["id"], scope="Organization", activity="updated"
+        ).first()
         assert log is not None
         assert log.detail is not None
         changes = log.detail.get("changes", [])
@@ -120,7 +193,9 @@ class TestOrganizationActivityLogging(ActivityLogTestHelper):
             {"name": "New Multi Change Org", "enforce_2fa": True, "members_can_invite": False},
         )
 
-        log = ActivityLog.objects.filter(organization_id=organization["id"], activity="updated").first()
+        log = ActivityLog.objects.filter(
+            organization_id=organization["id"], scope="Organization", activity="updated"
+        ).first()
         assert log is not None
         assert log.detail is not None
         changes = log.detail.get("changes", [])
@@ -137,7 +212,9 @@ class TestOrganizationActivityLogging(ActivityLogTestHelper):
         organization = self.create_organization("Name Test Org")
         self.update_organization(organization["id"], {"name": "Name Test Org Updated"})
 
-        log = ActivityLog.objects.filter(organization_id=organization["id"], activity="updated").first()
+        log = ActivityLog.objects.filter(
+            organization_id=organization["id"], scope="Organization", activity="updated"
+        ).first()
         assert log is not None
         assert log.detail is not None
         changes = log.detail.get("changes", [])
@@ -152,7 +229,9 @@ class TestOrganizationActivityLogging(ActivityLogTestHelper):
         )
         self.update_organization(organization["id"], {"enforce_2fa": True})
 
-        log = ActivityLog.objects.filter(organization_id=organization["id"], activity="updated").first()
+        log = ActivityLog.objects.filter(
+            organization_id=organization["id"], scope="Organization", activity="updated"
+        ).first()
         assert log is not None
         assert log.detail is not None
         changes = log.detail.get("changes", [])
@@ -164,7 +243,9 @@ class TestOrganizationActivityLogging(ActivityLogTestHelper):
         organization = self.create_organization("AI Consent Test Org")
         self.update_organization(organization["id"], {"is_ai_data_processing_approved": False})
 
-        log = ActivityLog.objects.filter(organization_id=organization["id"], activity="updated").first()
+        log = ActivityLog.objects.filter(
+            organization_id=organization["id"], scope="Organization", activity="updated"
+        ).first()
         assert log is not None
         assert log.detail is not None
         self.assertEqual(log.user, self.user)

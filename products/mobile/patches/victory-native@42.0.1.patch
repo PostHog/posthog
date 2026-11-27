@@ -1,0 +1,37 @@
+diff --git a/dist/cartesian/CartesianChart.d.ts b/dist/cartesian/CartesianChart.d.ts
+index 3ea8c3f457f97c1ada5b7cd9343c09dbea2597a8..115b7fa08a65dbed74fd3d73aa4546b9231815a2 100644
+--- a/dist/cartesian/CartesianChart.d.ts
++++ b/dist/cartesian/CartesianChart.d.ts
+@@ -1,7 +1,7 @@
+ import * as React from "react";
+ import { type CanvasRef } from "@shopify/react-native-skia";
+ import { type SharedValue } from "react-native-reanimated";
+-import { type ComposedGesture } from "react-native-gesture-handler";
++import { type LegacyComposedGesture as ComposedGesture } from "react-native-gesture-handler";
+ import { type MutableRefObject } from "react";
+ import type { ScaleLinear } from "d3-scale";
+ import type { AxisProps, CartesianChartRenderArg, InputFields, NumericalFields, SidedNumber, ChartBounds, YAxisInputProps, XAxisInputProps, FrameInputProps, ChartPressPanConfig, Viewport, GestureHandlerConfig, CartesianChartOrientation } from "../types";
+diff --git a/src/cartesian/CartesianChart.tsx b/src/cartesian/CartesianChart.tsx
+index c719f1e6a1f31d8e802f6c744540141763bb458b..f87a157a23a7625c42080e60050367416e902942 100644
+--- a/src/cartesian/CartesianChart.tsx
++++ b/src/cartesian/CartesianChart.tsx
+@@ -3,7 +3,7 @@ import { Group, type CanvasRef } from "@shopify/react-native-skia";
+ import { type SharedValue, useSharedValue } from "react-native-reanimated";
+ import { type ContextBridge, FiberProvider, useContextBridge } from "its-fine";
+ import {
+-  type ComposedGesture,
++  type LegacyComposedGesture as ComposedGesture,
+   Gesture,
+   type TouchData,
+ } from "react-native-gesture-handler";
+diff --git a/src/shared/GestureHandler.tsx b/src/shared/GestureHandler.tsx
+index 4ac99e13bb9b4695ce3813749f3d6522a4754c63..2f0cca8abe0a766997385671fcd7e53ae4f60b6c 100644
+--- a/src/shared/GestureHandler.tsx
++++ b/src/shared/GestureHandler.tsx
+@@ -1,5 +1,5 @@
+ import {
+-  type ComposedGesture,
++  type LegacyComposedGesture as ComposedGesture,
+   GestureDetector,
+   type GestureType,
+ } from "react-native-gesture-handler";

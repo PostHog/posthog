@@ -8,13 +8,16 @@ import { urls } from 'scenes/urls'
 
 import { captureInboxRunOpened } from '../../inboxAnalytics'
 import { SignalRun } from '../../types'
+import { useInboxReportDetailUrl } from '../../utils/inboxReportUrls'
 import { stripScoutPrefix } from '../../utils/scoutRunsWindow'
+import { RecordedSpend } from '../spend/RecordedSpend'
 import { inboxCardRowClassName } from './inboxCardRowClassName'
 import { resolveRunVariant, RunStatusIndicator } from './runStatusVariant'
 
 export function SignalRunCard({ run }: { run: SignalRun }): JSX.Element {
     const isScout = run.kind === 'scout'
     const displayTitle = isScout ? stripScoutPrefix(run.title) : run.title
+    const reportUrl = useInboxReportDetailUrl()
 
     return (
         <div className={clsx('relative', inboxCardRowClassName(false))}>
@@ -51,16 +54,18 @@ export function SignalRunCard({ run }: { run: SignalRun }): JSX.Element {
                         <span>
                             Started <TZLabel time={run.created_at} className="tabular-nums align-baseline" />
                         </span>
+                        {isScout && (
+                            <span className="text-[11px] text-muted">
+                                <RecordedSpend amount={run.total_spend} />
+                            </span>
+                        )}
                     </div>
                 </div>
             </Link>
 
             {run.report_id && (
                 <div className="flex items-center shrink-0 @lg:self-stretch @lg:border-l @lg:border-primary @lg:pl-3">
-                    <Link
-                        to={urls.inboxReport('reports', run.report_id)}
-                        className="text-xs font-medium text-accent no-underline"
-                    >
+                    <Link to={reportUrl(run.report_id)} className="text-xs font-medium text-accent no-underline">
                         View report
                     </Link>
                 </div>

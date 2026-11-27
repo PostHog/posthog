@@ -6,13 +6,17 @@ using framework-free DTOs, wrapping the existing ExperimentService.
 """
 
 import dataclasses
+from collections import defaultdict
 from collections.abc import Collection, Sequence
 from datetime import datetime
 from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.exceptions import (
+    PermissionDenied as DjangoPermissionDenied,
+    ValidationError as DjangoValidationError,
+)
 
 import pydantic
 import structlog
@@ -21,48 +25,65 @@ from posthog.schema import ExperimentEventExposureConfig
 
 from posthog.models.team import Team
 from posthog.models.team.extensions import get_or_create_team_extension
+from posthog.models.team.team import DEPRECATED_ATTRS
 from posthog.models.user import User
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.actions.backend.facade.api import get_actions
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.flag_enrollment import enrolled_people_by_flag
-from products.experiments.backend.health.inputs_payload import health_inputs_payload
-from products.experiments.backend.health.loader import load_experiment_health_context, load_experiment_health_inputs
-from products.experiments.backend.health.registry import (
-    EXPERIMENT_HEALTH_CHECKS,
-    evaluate as evaluate_health,
-)
+from products.experiments.backend.health.loader import evaluate_experiment_health
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     DEFAULT_EXPOSURE_EVENT,
-    get_exposure_event_and_property,
+    exposure_nodes_without_copies,
     is_default_exposure_config,
     normalize_to_exposure_criteria,
-    resolve_default_exposure_event,
 )
+from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
 from products.experiments.backend.metric_calculation.config import (
     build_primary_calculation_configs,
     calculation_metric_name,
 )
 from products.experiments.backend.metric_calculation.results import MetricResultStore
-from products.experiments.backend.models.experiment import Experiment as ExperimentModel
+from products.experiments.backend.metric_utils import collect_metric_events_and_action_ids
+from products.experiments.backend.models.experiment import (
+    Experiment as ExperimentModel,
+    ExperimentMetricsRecalculation,
+    experiment_variants,
+    flag_has_live_experiment as _flag_has_live_experiment,
+)
 from products.experiments.backend.models.team_experiments_config import (
     TeamExperimentsConfig,
     validate_recalculation_times as _validate_stored_recalculation_times,
 )
 from products.experiments.backend.running_time_target import load_running_time_target
+from products.experiments.backend.warehouse_native_sources import (
+    user_may_read_warehouse_native_results,
+    validate_warehouse_native_connection_access,
+)
 from products.experiments.stats.shared.enums import DifferenceType
+from products.feature_flags.backend.facade.rules import ExperimentRuleError
 
 from .contracts import (
+    ActiveRecalculationRun,
     CreateExperimentInput,
     DigestCompletedExperiment,
     DigestLaunchedExperiment,
     EndedExperiment,
     Experiment,
+    ExperimentAssistantContext,
     ExperimentDetectableEffectCheckpoint,
+    ExperimentFlagVariantSplit,
     ExperimentHealth,
     ExperimentHealthReaderAccess,
     ExperimentRunningTimeOutlook,
     ExperimentRunningTimeTarget,
     ExperimentValidationError,
+    LatestRecalculation,
+    LinkedExperiment,
+    MetricRecalculationResult,
+    RecalculationRun,
+    RequestedRecalculation,
     RunningExperiment,
     RunningTimeMode,
     StoredArmResult,
@@ -70,8 +91,10 @@ from .contracts import (
     TeamExperimentsSettings,
     TeamExperimentsSettingsUpdate,
     Unset,
+    WarehouseNativeResultAccessDenied,
 )
-from .enums import MAX_DEFAULT_CONFIDENCE_LEVEL, MIN_DEFAULT_CONFIDENCE_LEVEL
+from .enums import LEGACY_METRIC_KINDS, MAX_DEFAULT_CONFIDENCE_LEVEL, MIN_DEFAULT_CONFIDENCE_LEVEL
+from .warehouse_native_access import warehouse_native_connection_id
 
 logger = structlog.get_logger(__name__)
 
@@ -144,68 +167,92 @@ def create_experiment(*, team: Team, user: User, input_dto: CreateExperimentInpu
         repository=input_dto.repository,
         serializer_context=input_dto.serializer_context,
         allow_unknown_events=input_dto.allow_unknown_events,
+        feature_flag_rule_id=input_dto.feature_flag_rule_id,
     )
 
     # Convert model to DTO
     return _experiment_model_to_dto(experiment_model)
 
 
-def count_running_experiments_on_feature_flag_called(organization_id: UUID) -> int:
-    """Count the organization's running experiments that count exposures on $feature_flag_called.
+def count_running_experiments_needing_flag_calls_in_events(organization_id: UUID) -> int:
+    """Count the organization's running experiments that read $feature_flag_called from events without its
+    $experiment_exposure copy: through an exposure action, an activation, or a primary, secondary or shared metric.
 
-    Those exposures come from the events table, so they stop when ingestion stops writing
-    $feature_flag_called to events.
+    Ingestion stops writing $feature_flag_called to events on FLAG_EVALUATIONS_ONLY, so those reads find no new
+    calls. A default exposure on $feature_flag_called does not count, because it also reads the copy. That relies on
+    ingestion copying every team's multivariate flag calls, as EXPERIMENT_EXPOSURE_DUPLICATION_TEAMS="*" does on
+    PostHog Cloud. Legacy metrics do not count, because nothing computes them.
     """
     experiments = (
         ExperimentModel.objects.filter(
             team__organization_id=organization_id, start_date__isnull=False, end_date__isnull=True, archived=False
         )
         .exclude(deleted=True)
-        .select_related("team", "feature_flag")
+        .select_related("team")
+        .prefetch_related("experimenttosavedmetric_set__saved_metric")
     )
-    count = 0
+    reads_by_project: dict[int, list[tuple[set[str], set[int]]]] = defaultdict(list)
     for experiment in experiments:
-        exposure_event, _ = get_exposure_event_and_property(
-            experiment.feature_flag.key,
-            experiment.exposure_criteria,
-            default_exposure_event=resolve_default_exposure_event(experiment.team, experiment.start_date),
+        reads_by_project[experiment.team.project_id].append(
+            collect_metric_events_and_action_ids(_nodes_read_without_exposure_copy(experiment))
         )
-        count += exposure_event == DEFAULT_EXPOSURE_EVENT
+    count = 0
+    for project_id, reads in reads_by_project.items():
+        # The queries resolve actions by project and keep reading deleted ones, so this lookup does the same.
+        action_ids = set().union(*(ids for _, ids in reads))
+        flag_call_action_ids = {
+            action.id
+            for action in get_actions(action_ids=action_ids, project_id=project_id, include_deleted=True)
+            if DEFAULT_EXPOSURE_EVENT in action.get_step_events()
+        }
+        count += sum(DEFAULT_EXPOSURE_EVENT in events or bool(ids & flag_call_action_ids) for events, ids in reads)
     return count
 
 
+def _nodes_read_without_exposure_copy(experiment: ExperimentModel) -> list[dict[str, Any]]:
+    metrics = [
+        *(experiment.metrics or []),
+        *(experiment.metrics_secondary or []),
+        *(link.saved_metric.query for link in experiment.experimenttosavedmetric_set.all() if link.saved_metric.query),
+    ]
+    nodes = [metric for metric in metrics if metric.get("kind") not in LEGACY_METRIC_KINDS]
+    try:
+        criteria = normalize_to_exposure_criteria(experiment.exposure_criteria)
+    except pydantic.ValidationError:
+        logger.warning("experiment_exposure_criteria_invalid", experiment_id=experiment.id, exc_info=True)
+        return nodes
+    return [*nodes, *exposure_nodes_without_copies(criteria)]
+
+
 def get_experiment_health(
-    *, team_id: int, experiment_id: int, reader_access: ExperimentHealthReaderAccess, user: User | None
+    *,
+    team_id: int,
+    experiment_id: int,
+    reader_access: ExperimentHealthReaderAccess,
+    user: User | None,
+    at_launch: bool = False,
 ) -> ExperimentHealth:
     """The findings and the result of each health check that reads the experiment, its flag, its linked metrics,
-    and the changes of the flag since launch and the flag's recent calls, as far as `reader_access` allows. The
-    metric queries compile with `user`'s warehouse access."""
-    context = load_experiment_health_context(
-        team_id=team_id, experiment_id=experiment_id, reader_access=reader_access, user=user
+    and the changes of the flag since launch and the flag's recent calls, as far as `reader_access` allows, and the
+    flag's settings that decide the variant. The metric queries compile with `user`'s warehouse access. With
+    `at_launch`, a draft's checks that run only after launch run as if it launched now."""
+    return evaluate_experiment_health(
+        team_id=team_id, experiment_id=experiment_id, reader_access=reader_access, user=user, at_launch=at_launch
     )
-    return evaluate_health(context, EXPERIMENT_HEALTH_CHECKS)
 
 
-def get_experiment_health_inputs(
-    *, team_id: int, experiment_id: int, reader_access: ExperimentHealthReaderAccess, user: User | None
-) -> dict[str, Any]:
-    """Everything the health checks read for the reader, as plain data in the shape of the staff `health_inputs`
-    response: the checks' context, the exposure query's answer that the exposure checks read, and the project's
-    experiment defaults and SDK profile."""
-    inputs = load_experiment_health_inputs(
-        team_id=team_id, experiment_id=experiment_id, reader_access=reader_access, user=user
-    )
-    return health_inputs_payload(inputs)
-
-
-def get_stored_primary_result(*, team_id: int, experiment_id: int) -> StoredPrimaryResult | None:
-    """The current stored result of the experiment's primary metric. It reads Postgres only, not ClickHouse.
+def get_stored_primary_result(*, team_id: int, experiment_id: int, user_id: int | None) -> StoredPrimaryResult | None:
+    """The current stored result of the experiment's primary metric, for the user who reads it. It reads Postgres
+    only, not ClickHouse.
 
     None for an experiment that reports absolute differences: the calculation key leaves out the difference type,
-    so the stored interval can be in either unit."""
+    so the stored interval can be in either unit. None for a warehouse-native experiment whose connection the reader
+    cannot read, because the stored totals came from that connection."""
     experiment = ExperimentModel.objects.filter(team_id=team_id, pk=experiment_id, deleted=False).first()
     config = next(iter(build_primary_calculation_configs(experiment)), None) if experiment else None
     if experiment is None or config is None or config.settings.stats.difference_type == DifferenceType.ABSOLUTE:
+        return None
+    if not user_may_read_warehouse_native_results(experiment.team, experiment.exposure_criteria, user_id):
         return None
     stats = MetricResultStore(experiment_id=experiment_id).current_result(config)
     if stats is None:
@@ -303,6 +350,8 @@ def list_running_experiments(
         start_date__lte=started_before,
         end_date__isnull=True,
         archived=False,
+        # The caller counts flag calls, and a rule-linked experiment enrolls on $experiment_exposure.
+        feature_flag_rule_id__isnull=True,
     ).exclude(deleted=True)
     if started_after is not None:
         experiments = experiments.filter(start_date__gt=started_after)
@@ -316,8 +365,106 @@ def list_running_experiments(
     ]
 
 
+def list_own_running_experiments(*, team_id: int, user_id: int, limit: int) -> list[RunningExperiment]:
+    rows = (
+        ExperimentModel.objects.filter(
+            team_id=team_id, created_by_id=user_id, start_date__isnull=False, end_date__isnull=True, archived=False
+        )
+        .exclude(deleted=True)
+        .order_by("-start_date")
+        .values_list("id", "name", "start_date", "feature_flag__key")[:limit]
+    )
+    return [
+        RunningExperiment(id=id, name=name, started_at=started_at, flag_key=flag_key)
+        for id, name, started_at, flag_key in rows
+    ]
+
+
+def viewable_experiment_names(*, team: Team, user: User, experiment_ids: Collection[int]) -> dict[int, str]:
+    rows = list(
+        ExperimentModel.objects.filter(team_id=team.id, id__in=experiment_ids)
+        .exclude(deleted=True)
+        .values_list("id", "name", "team_id", "created_by_id")
+    )
+    denied = set(
+        UserAccessControl(user=user, team=team, organization_id=str(team.organization_id)).denied_object_ids(
+            "experiment",
+            ((str(id), team_id, created_by_id) for id, _name, team_id, created_by_id in rows),
+            "viewer",
+        )
+    )
+    return {id: name for id, name, _team_id, _created_by_id in rows if str(id) not in denied}
+
+
 def count_enrolled_people(*, team: Team, user: User, flag_keys: list[str]) -> dict[str, int]:
     return enrolled_people_by_flag(team, user, flag_keys)
+
+
+def _to_assistant_context(experiment: ExperimentModel) -> ExperimentAssistantContext:
+    flag = experiment.feature_flag
+    try:
+        variants = experiment_variants(experiment)
+    except ExperimentRuleError:
+        variants = []
+    return ExperimentAssistantContext(
+        id=experiment.id,
+        team_id=experiment.team_id,
+        created_by_id=experiment.created_by_id,
+        name=experiment.name,
+        description=experiment.description,
+        type=experiment.type,
+        start_date=experiment.start_date,
+        end_date=experiment.end_date,
+        created_at=experiment.created_at,
+        conclusion=experiment.conclusion,
+        conclusion_comment=experiment.conclusion_comment,
+        stats_method=get_experiment_stats_method(experiment),
+        variant_names={key: variant.get("name", key) for key, variant in (experiment.variants or {}).items()},
+        feature_flag_key=flag.key,
+        feature_flag_variants=tuple(
+            ExperimentFlagVariantSplit(key=variant.get("key"), rollout_percentage=variant.get("rollout_percentage", 0))
+            for variant in variants
+        ),
+    )
+
+
+async def aget_experiment_assistant_context(
+    team_id: int, *, experiment_id: int | None = None, feature_flag_key: str | None = None
+) -> ExperimentAssistantContext | None:
+    """The experiment with `experiment_id`, or else the experiment on the flag with `feature_flag_key`. None when
+    neither is given, or when no experiment of the team matches. Only rows whose `deleted` is false match, so a row
+    whose `deleted` is NULL does not."""
+    # `team=` matches the id exactly, so the result's `team_id` is always `team_id`, which an object access check of
+    # the caller's team requires. RootTeamQuerySet rewrites a `team_id=` filter to the project's root team.
+    experiments = ExperimentModel.objects.select_related("feature_flag").filter(team=team_id, deleted=False)
+    try:
+        if experiment_id is not None:
+            experiment = await experiments.aget(id=experiment_id)
+        elif feature_flag_key is not None:
+            experiment = await experiments.aget(feature_flag__key=feature_flag_key)
+        else:
+            return None
+    except ExperimentModel.DoesNotExist:
+        return None
+    return _to_assistant_context(experiment)
+
+
+def get_experiment_team_id(experiment_id: int) -> int | None:
+    """The team of the experiment with this id, deleted experiments included. None when no experiment has the id.
+
+    The lookup is not scoped to a team, so the caller must check that the user may see the returned team."""
+    # The Vercel SSO redirect has no team yet. It checks the user's membership in the returned team.
+    # nosemgrep: idor-lookup-without-team
+    return ExperimentModel.objects.filter(pk=experiment_id).values_list("team_id", flat=True).first()
+
+
+def experiment_ids_created_by(*, team_id: int, user_id: int, experiment_ids: Collection[str] | None) -> frozenset[str]:
+    """Ids of the team's experiments that the user created, deleted experiments included, among `experiment_ids`
+    (or among all of them when it is None)."""
+    experiments = ExperimentModel.objects.filter(team_id=team_id, created_by_id=user_id)
+    if experiment_ids is not None:
+        experiments = experiments.filter(id__in=[int(id) for id in experiment_ids if id.isdigit()])
+    return frozenset(str(id) for id in experiments.values_list("id", flat=True))
 
 
 def team_has_launched_experiments(team_id: int) -> bool:
@@ -384,7 +531,18 @@ def list_precomputation_enabled_team_ids(team_ids: Collection[int] | None = None
 
 
 def _team_experiments_config(team_id: int) -> TeamExperimentsConfig:
-    return get_or_create_team_extension(Team.objects.get(id=team_id), TeamExperimentsConfig)
+    try:
+        # Join the team because the activity log on every save and the repository check read `config.team`.
+        # `select_related` builds the team columns from the model rather than through `TeamManager`, so re-apply
+        # its defer. Without it every settings read and update loads the deprecated taxonomy columns, which TOAST
+        # out to megabytes per team.
+        return (
+            TeamExperimentsConfig.objects.select_related("team")
+            .defer(*(f"team__{attr}" for attr in DEPRECATED_ATTRS))
+            .get(team_id=team_id)
+        )
+    except TeamExperimentsConfig.DoesNotExist:
+        return get_or_create_team_extension(Team.objects.get(id=team_id), TeamExperimentsConfig)
 
 
 def set_precomputation_enabled(*, team_id: int, enabled: bool) -> None:
@@ -418,6 +576,162 @@ def get_team_experiments_settings(team_id: int) -> TeamExperimentsSettings:
     return _to_team_experiments_settings(_team_experiments_config(team_id))
 
 
+def start_timeseries_recalculation_workflow(recalculation_id: str, *, team_id: int) -> None:
+    """Start the timeseries backfill workflow for a row that ``request_timeseries_recalculation`` created.
+
+    When the start fails, the row is marked failed, and the exception propagates.
+    """
+    from products.experiments.backend.recalculation import (  # noqa: PLC0415, these modules load temporalio, which must stay off the django.setup() path
+        admission,
+    )
+
+    admission.start_timeseries_recalculation_workflow(recalculation_id, team_id=team_id)
+
+
+# drf-spectacular names a choice field's enum by its (value, label) pairs, so these keep the model's enum names.
+RECALCULATION_STATUS_CHOICES: list[tuple[str, str]] = [
+    (value, str(label)) for value, label in ExperimentMetricsRecalculation.Status.choices
+]
+RECALCULATION_REQUEST_TRIGGER_CHOICES: list[tuple[str, str]] = [
+    (value, str(label)) for value, label in ExperimentMetricsRecalculation.RequestTrigger.choices
+]
+RECALCULATION_TRIGGER_AGENT_MCP: str = ExperimentMetricsRecalculation.Trigger.AGENT_MCP.value
+
+
+def start_metrics_recalculation(
+    *, team_id: int, experiment_id: int, user_id: int, trigger: str
+) -> RequestedRecalculation:
+    """Request a run, and start its workflow when the run is new and pending.
+
+    When the start fails, the run is marked failed if no workflow took it yet, and the dispatch error propagates.
+    """
+    from products.experiments.backend.recalculation import (  # noqa: PLC0415, these modules load temporalio, which must stay off the django.setup() path
+        admission,
+    )
+
+    experiment = ExperimentModel.objects.select_related("team").get(team_id=team_id, id=experiment_id)
+    user = User.objects.get(id=user_id)
+    try:
+        started = admission.start_metrics_recalculation(experiment, user, trigger)
+    except admission.RecalculationWorkflowNotStarted as error:
+        dispatch_error = error.cause
+    else:
+        return RequestedRecalculation(
+            **_run_summary_fields(started.job),
+            is_existing=started.outcome == admission.MetricsRecalculationStartOutcome.REUSED,
+        )
+    # Raised outside the except block, so the API reports the dispatch error's type with its own exception chain.
+    raise dispatch_error
+
+
+def get_latest_recalculation(*, team_id: int, experiment_id: int, user_id: int | None) -> LatestRecalculation | None:
+    """None when the experiment has no run and no timeseries data to show.
+
+    Raises WarehouseNativeResultAccessDenied when the reader may not read the stored results.
+    """
+    from products.experiments.backend.recalculation import (  # noqa: PLC0415, these modules load temporalio, which must stay off the django.setup() path
+        admission,
+        payloads,
+        runs,
+    )
+
+    experiment = ExperimentModel.objects.select_related("team").get(team_id=team_id, id=experiment_id)
+    _check_warehouse_native_result_access(experiment, user_id)
+    active = runs.get_active_recalculation(experiment)
+    latest = runs.get_latest_recalculation(experiment)
+    payload: dict[str, Any] | None
+    if latest is not None:
+        payload = _recalculation_run_payload(latest)
+    else:
+        # Cold start: no terminal run worth showing. Fall back to the latest timeseries data as a read-only
+        # placeholder so the user sees results immediately, even while a first run is active (its pending
+        # payload would blank them out); an active run still rides along for polling. Pure read, no
+        # workflow start.
+        payload = payloads.build_timeseries_cold_start_payload(experiment)
+        if payload is None and active is not None:
+            payload = _recalculation_run_payload(active)
+
+    if payload is None:
+        return None
+    run = _recalculation_run(payload)
+    return LatestRecalculation(
+        **{field.name: getattr(run, field.name) for field in dataclasses.fields(run)},
+        active_run=ActiveRecalculationRun(id=str(active.id), status=active.status) if active is not None else None,
+        result_source=payload.get("result_source", "recalculation"),
+        exceeds_recalculation_age_limit=admission.exceeds_recalculation_age_limit(experiment),
+    )
+
+
+def get_recalculation_run(
+    *, team_id: int, experiment_id: int, recalculation_id: str, user_id: int | None
+) -> RecalculationRun | None:
+    """Raises WarehouseNativeResultAccessDenied when the reader may not read the stored results."""
+    from products.experiments.backend.recalculation import (  # noqa: PLC0415, these modules load temporalio, which must stay off the django.setup() path
+        runs,
+    )
+
+    experiment = ExperimentModel.objects.select_related("team").get(team_id=team_id, id=experiment_id)
+    _check_warehouse_native_result_access(experiment, user_id)
+    recalc = runs.get_recalculation_by_id(experiment, recalculation_id)
+    return None if recalc is None else _recalculation_run(_recalculation_run_payload(recalc))
+
+
+def _check_warehouse_native_result_access(experiment: ExperimentModel, user_id: int | None) -> None:
+    # A stored run holds totals read from the customer's warehouse. The check runs on the instance that the reads use,
+    # so a change to the exposure criteria after the check cannot serve totals of a connection the reader may not read.
+    connection_id = warehouse_native_connection_id(experiment.exposure_criteria)
+    if connection_id is None:
+        return
+    user = User.objects.filter(id=user_id).first() if user_id is not None else None
+    try:
+        validate_warehouse_native_connection_access(experiment.team, user, connection_id)
+    except DjangoPermissionDenied as error:
+        raise WarehouseNativeResultAccessDenied(str(error)) from error
+
+
+def _recalculation_run_payload(recalc: ExperimentMetricsRecalculation) -> dict[str, Any]:
+    from products.experiments.backend.recalculation import (  # noqa: PLC0415, these modules load temporalio, which must stay off the django.setup() path
+        payloads,
+    )
+
+    return payloads.build_job_payload(recalc, include_results=True, include_live_progress=True)
+
+
+def _run_summary_fields(payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": str(payload["id"]),
+        "experiment_id": payload["experiment_id"],
+        "status": payload["status"],
+        "total_metrics": payload["total_metrics"],
+        "completed_metrics": payload["completed_metrics"],
+        "failed_metrics": payload["failed_metrics"],
+        "metric_errors": payload["metric_errors"],
+        "created_at": payload["created_at"],
+        "started_at": payload["started_at"],
+        "completed_at": payload["completed_at"],
+        "query_to": payload["query_to"],
+    }
+
+
+def _recalculation_run(payload: dict[str, Any]) -> RecalculationRun:
+    return RecalculationRun(
+        **_run_summary_fields(payload),
+        metric_retries=payload["metric_retries"],
+        results=tuple(
+            MetricRecalculationResult(
+                metric_uuid=item["metric_uuid"],
+                status=item["status"],
+                result=item["result"],
+                error_message=item["error_message"],
+                configuration_status=item["configuration_status"],
+            )
+            for item in payload["results"]
+        ),
+        rows_read=payload.get("rows_read"),
+        estimated_rows_total=payload.get("estimated_rows_total"),
+    )
+
+
 def validate_recalculation_times(times: Sequence[str] | None) -> None:
     try:
         _validate_stored_recalculation_times(None if times is None else list(times))
@@ -440,13 +754,7 @@ def _connected_cleanup_repository(team: Team, repository: str | None) -> str | N
     repository = repository.lower()
     # Reject repos outside the team's GitHub installation now rather than storing a
     # default the cleanup resolution would silently ignore.
-    github = tasks_repo_selection.resolve_team_github_integration(team.id, team=team, team_only=True)
-    cached = {
-        full_name.lower()
-        for repo in (github.list_all_cached_repositories(max_repos=1000) if github else [])
-        if (full_name := repo.get("full_name"))
-    }
-    if repository not in cached:
+    if repository not in (tasks_repo_selection.team_repository_names(team.id, team=team) or {}):
         raise ExperimentValidationError(
             "This repository is not connected to the project's GitHub integration.", field="flag_cleanup_repository"
         )
@@ -505,3 +813,22 @@ def _experiment_model_to_dto(experiment: ExperimentModel) -> Experiment:
         created_at=experiment.created_at,
         updated_at=experiment.updated_at,
     )
+
+
+def flag_has_live_experiment(feature_flag_id: int) -> bool:
+    """Whether an experiment that is not deleted uses the flag. Flag ids are unique across teams, so the id scopes
+    the read."""
+    return _flag_has_live_experiment(feature_flag_id)
+
+
+def live_experiments_by_flag(feature_flag_ids: Collection[int]) -> dict[int, tuple[LinkedExperiment, ...]]:
+    """The experiments that are not deleted on each of the flags, archived ones included, keyed by flag id, in no set
+    order. A flag without one has no key. Flag ids are unique across teams, so pass ids from a team-scoped read."""
+    experiments: defaultdict[int, list[LinkedExperiment]] = defaultdict(list)
+    for experiment in ExperimentModel.objects.filter(deleted=False, feature_flag_id__in=feature_flag_ids).only(
+        "id", "name", "feature_flag_id", "start_date", "end_date"
+    ):
+        experiments[experiment.feature_flag_id].append(
+            LinkedExperiment(id=experiment.id, name=experiment.name, is_running=experiment.is_running)
+        )
+    return {flag_id: tuple(linked) for flag_id, linked in experiments.items()}

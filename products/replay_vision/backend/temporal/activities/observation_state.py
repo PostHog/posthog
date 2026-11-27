@@ -24,6 +24,7 @@ from products.replay_vision.backend.temporal.metrics import (
     record_observation,
     record_observation_e2e,
 )
+from products.replay_vision.backend.temporal.scanners.monitor import MonitorOutput
 from products.replay_vision.backend.temporal.types import (
     MarkObservationFailedInputs,
     MarkObservationIneligibleInputs,
@@ -108,6 +109,10 @@ def _capture_terminal_scan(*, observation_id: UUID, status: ObservationStatus, s
 @activity.defn
 @track_activity()
 def mark_observation_running_activity(inputs: MarkObservationRunningInputs) -> None:
+    return mark_observation_running(inputs)
+
+
+def mark_observation_running(inputs: MarkObservationRunningInputs) -> None:
     """Flip pending → running. Idempotent: an at-least-once retry against the now-RUNNING row is a no-op."""
     ReplayObservation.objects.filter(
         pk=inputs.observation_id,
@@ -188,6 +193,10 @@ def mark_observation_ineligible_activity(inputs: MarkObservationIneligibleInputs
 @activity.defn
 @track_activity()
 def mark_observation_succeeded_activity(inputs: MarkObservationSucceededInputs) -> None:
+    return mark_observation_succeeded(inputs)
+
+
+def mark_observation_succeeded(inputs: MarkObservationSucceededInputs) -> None:
     """Flip pending/running → succeeded and persist the scanner result. Idempotent: SUCCEEDED is not in the source filter."""
     with transaction.atomic():
         updated = ReplayObservation.objects.filter(
@@ -208,6 +217,7 @@ def mark_observation_succeeded_activity(inputs: MarkObservationSucceededInputs) 
             "scanner_id",
             "triggered_by",
             "created_at",
+            "recording_subject_email",
             "scanner_snapshot__model",
             "scanner_snapshot__scanner_version",
         ).get(pk=inputs.observation_id)
@@ -240,6 +250,10 @@ def mark_observation_succeeded_activity(inputs: MarkObservationSucceededInputs) 
         observation_id=str(inputs.observation_id),
         scanner_type=inputs.scanner_type,
     )
+    model_output = inputs.scanner_result.model_output
+    verdict_properties = (
+        {"scanner_output_verdict": model_output.verdict} if isinstance(model_output, MonitorOutput) else {}
+    )
     # Internal cross-customer telemetry: one event per succeeded scan, for adoption/volume dashboards.
     # Gated on the transition above so an at-least-once retry can't double-count a scan.
     posthoganalytics.capture(
@@ -259,6 +273,8 @@ def mark_observation_succeeded_activity(inputs: MarkObservationSucceededInputs) 
             "scanner_version": obs["scanner_snapshot__scanner_version"],
             "team_id": obs["team_id"],
             "organization_id": str(obs["team__organization_id"]),
+            "has_subject_email": bool(obs["recording_subject_email"]),
+            **verdict_properties,
         },
         # Mirrors posthog.event_usage.groups() without fetching the Team row.
         groups={

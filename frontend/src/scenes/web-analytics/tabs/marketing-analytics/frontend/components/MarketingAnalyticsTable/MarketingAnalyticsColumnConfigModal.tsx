@@ -11,6 +11,7 @@ import { DataTableNode } from '~/queries/schema/schema-general'
 
 import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
 import { marketingAnalyticsTableLogic } from '../../logic/marketingAnalyticsTableLogic'
+import { columnsForView } from '../../logic/marketingTableColumnViews'
 import { createMarketingAnalyticsOrderBy } from '../../logic/utils'
 
 const directionOptions = [
@@ -27,7 +28,9 @@ export function MarketingAnalyticsColumnConfigModal({ query: rawQuery }: { query
     const marketingQuery = useMemo(() => rawQuery?.source as MarketingAnalyticsTableQuery | undefined, [rawQuery])
 
     // Local draft state — changes are buffered here until the user applies them
-    const [draftSelect, setDraftSelect] = useState<string[]>(marketingQuery?.select || sortedColumns)
+    const [draftSelect, setDraftSelect] = useState<string[]>(
+        marketingQuery?.select || columnsForView('default', sortedColumns)
+    )
     const [draftOrderBy, setDraftOrderBy] = useState<[string, string][] | undefined>(marketingQuery?.orderBy)
     const [draftPinnedColumns, setDraftPinnedColumns] = useState<string[]>(rawQuery?.pinnedColumns || [])
 
@@ -41,7 +44,7 @@ export function MarketingAnalyticsColumnConfigModal({ query: rawQuery }: { query
     useEffect(() => {
         if (columnConfigModalVisible) {
             const { marketingQuery: mq, sortedColumns: sc, rawQuery: rq } = latestQueryRef.current
-            setDraftSelect(mq?.select || sc)
+            setDraftSelect(mq?.select || columnsForView('default', sc))
             setDraftOrderBy(mq?.orderBy)
             setDraftPinnedColumns(rq?.pinnedColumns || [])
         }
@@ -169,7 +172,7 @@ export function MarketingAnalyticsColumnConfigModal({ query: rawQuery }: { query
     )
 
     const resetColumnConfigToDefaults = useCallback(() => {
-        setDraftSelect(sortedColumns)
+        setDraftSelect(columnsForView('default', sortedColumns))
         setDraftOrderBy(undefined)
         setDraftPinnedColumns([])
     }, [sortedColumns])

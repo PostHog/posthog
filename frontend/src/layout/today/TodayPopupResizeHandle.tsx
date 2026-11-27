@@ -2,7 +2,7 @@ import { useActions } from 'kea'
 
 import { ResizeGrip, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
-import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
+import { ResizerLogicProps, resizerLogic } from 'lib/lemon-ui/Resizer/resizerLogic'
 
 /**
  * A resize grip centered on a popup's end edge, which `resizerLogic` drags and keeps. Pass it as the popup's

@@ -21,18 +21,24 @@ from posthog.settings import (
     OBJECT_STORAGE_SECRET_ACCESS_KEY,
 )
 from posthog.storage.object_storage import (
+    MULTIPART_MIN_PART_BYTES,
     ObjectStorage,
     ObjectStorageError,
+    StoredObjectSummary,
     UnavailableStorage,
+    append,
     copy_objects,
     get_presigned_post,
     get_presigned_put,
     get_presigned_url,
+    head_object,
     health_check,
     is_usable_endpoint,
+    iter_keys,
     list_objects,
     object_storage_client,
     read,
+    read_bytes,
     write,
 )
 
@@ -75,6 +81,29 @@ class TestStorage(APIBaseTest):
             file_name = f"{TEST_BUCKET}/test_write_and_read_works_with_known_content/{name}"
             write(file_name, b"my content")
             assert read(file_name) == "my content"
+
+    @parameterized.expand(
+        [
+            ("missing", None, False),
+            ("small", b'{"n": 0}', False),
+            ("large", b"x" * MULTIPART_MIN_PART_BYTES, True),
+        ]
+    )
+    def test_append_keeps_existing_content(
+        self, _name: str, existing: bytes | None, expected_assembled_in_storage: bool
+    ) -> None:
+        with self.settings(OBJECT_STORAGE_ENABLED=True):
+            file_name = f"{TEST_BUCKET}/test_append_keeps_existing_content/{uuid.uuid4()}"
+            if existing is not None:
+                write(file_name, existing)
+
+            created = append(file_name, b'{"n": 1}', separator=b"\n")
+
+            assert created == (existing is None)
+            self.assertEqual(read_bytes(file_name), (existing + b"\n" if existing else b"") + b'{"n": 1}')
+            head = head_object(file_name)
+            assert head is not None
+            assert head["ETag"].endswith('-2"') == expected_assembled_in_storage
 
     def test_can_generate_presigned_url_for_existing_file(self) -> None:
         with self.settings(OBJECT_STORAGE_ENABLED=True):
@@ -164,6 +193,7 @@ class TestStorage(APIBaseTest):
                 "test_storage_bucket/a_shared_prefix/b",
                 "test_storage_bucket/a_shared_prefix/c",
             ]
+            assert list(iter_keys(prefix=f"{TEST_BUCKET}/{shared_prefix}", page_size=2)) == listing
 
     @patch("posthog.storage.object_storage.capture_exception")
     def test_can_list_unknown_prefix(self, mock_capture_exception) -> None:
@@ -260,6 +290,35 @@ class TestStorage(APIBaseTest):
         with self.assertRaises(ObjectStorageError):
             storage.read_bytes("test-bucket", "test-key")
 
+    @parameterized.expand(
+        [
+            ("part_copy_fails", "upload_part_copy", b"", 1),
+            ("completion_response_lost", "complete_multipart_upload", b"\nnew", 0),
+        ]
+    )
+    def test_append_rewrites_the_object_only_when_part_copy_did_not_land(
+        self, _name: str, failing_call: str, landed_suffix: bytes, expected_rewrites: int
+    ) -> None:
+        existing_content = b"x" * MULTIPART_MIN_PART_BYTES
+        closed_stream = {"ContentLength": len(existing_content), "Body": MagicMock(read=MagicMock(return_value=b""))}
+        reread_stream = {
+            "ContentLength": len(existing_content),
+            "Body": MagicMock(read=MagicMock(return_value=existing_content)),
+        }
+        mock_client = MagicMock()
+        mock_client.get_object.side_effect = [closed_stream, reread_stream]
+        mock_client.head_object.return_value = {"ContentLength": len(existing_content) + len(landed_suffix)}
+        error_response = {"Error": {"Code": "InternalError", "Message": "We encountered an internal error"}}
+        getattr(mock_client, failing_call).side_effect = ClientError(error_response, failing_call)  # type: ignore[arg-type]
+        storage = ObjectStorage(mock_client)
+
+        created = storage.append("test-bucket", "test-key", b"new", separator=b"\n")
+
+        assert not created
+        mock_client.abort_multipart_upload.assert_called_once()
+        rewritten_bodies = [put.kwargs["Body"] for put in mock_client.put_object.call_args_list]
+        assert [body == existing_content + b"\nnew" for body in rewritten_bodies] == [True] * expected_rewrites
+
     def test_delete_objects_batches_keys_and_returns_failures(self) -> None:
         mock_client = MagicMock()
         mock_client.delete_objects.side_effect = [
@@ -295,6 +354,61 @@ class TestObjectStorageStrictHead(SimpleTestCase):
 
         with self.assertRaises(ObjectStorageError):
             storage.head_object_strict("test-bucket", "test-key")
+
+
+class TestObjectStorageListObjectSummaries(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("empty_prefix", [{"KeyCount": 0, "IsTruncated": False}], []),
+            (
+                "paginated",
+                [
+                    {
+                        "Contents": [{"Key": "p/a.md", "ETag": '"aa"', "Size": 1}],
+                        "IsTruncated": True,
+                        "NextContinuationToken": "page-2",
+                    },
+                    {"Contents": [{"Key": "p/b.md", "ETag": '"bb"', "Size": 2}], "IsTruncated": False},
+                ],
+                [
+                    StoredObjectSummary(key="p/a.md", etag='"aa"', size=1),
+                    StoredObjectSummary(key="p/b.md", etag='"bb"', size=2),
+                ],
+            ),
+        ]
+    )
+    def test_lists_every_page(self, _name: str, responses: list[dict], expected: list[StoredObjectSummary]) -> None:
+        mock_client = MagicMock()
+        mock_client.list_objects_v2.side_effect = responses
+        storage = ObjectStorage(mock_client)
+
+        assert storage.list_object_summaries("test-bucket", "p/") == expected
+        if len(responses) > 1:
+            assert mock_client.list_objects_v2.call_args_list[1].kwargs["ContinuationToken"] == "page-2"
+
+    def test_stops_paginating_at_the_limit(self) -> None:
+        mock_client = MagicMock()
+        mock_client.list_objects_v2.side_effect = [
+            {
+                "Contents": [{"Key": f"p/{name}.md", "ETag": '"aa"', "Size": 1} for name in ("a", "b", "c")],
+                "IsTruncated": True,
+                "NextContinuationToken": "page-2",
+            },
+        ]
+        storage = ObjectStorage(mock_client)
+
+        summaries = storage.list_object_summaries("test-bucket", "p/", limit=2)
+
+        assert [summary.key for summary in summaries] == ["p/a.md", "p/b.md"]
+        assert mock_client.list_objects_v2.call_count == 1
+
+    def test_raises_instead_of_reporting_an_empty_prefix_on_failure(self) -> None:
+        mock_client = MagicMock()
+        mock_client.list_objects_v2.side_effect = TimeoutError("object storage timed out")
+        storage = ObjectStorage(mock_client)
+
+        with self.assertRaises(ObjectStorageError):
+            storage.list_object_summaries("test-bucket", "p/")
 
 
 class TestObjectStorageClientFactory(SimpleTestCase):

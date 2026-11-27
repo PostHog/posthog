@@ -111,20 +111,20 @@ lens**, not on every run:
 
 ## Eval / enrichment config health — read `posthog:exploring-llm-evaluations`
 
-The configuration surface, not the telemetry — evals, **taggers**, and **scorers** are all
-LLM/Hog jobs that can silently break.
+The configuration surface, not the telemetry — evals and **scorers** are both LLM/Hog jobs
+that can silently break.
 
-- **Signal.** A config that's meant to be running but isn't doing its job: an eval / tagger
-  / scorer disabled or status-flipped unexpectedly, an N/A-heavy eval (applicability too
+- **Signal.** A config that's meant to be running but isn't doing its job: an eval or scorer
+  disabled or status-flipped unexpectedly, an N/A-heavy eval (applicability too
   broad — count the `$ai_evaluation_applicable = false` rows), a job pointed at a
   **deprecated model** or a
   **disabled/revoked provider key**, or a Hog evaluator hitting the 5s execution limit.
-- **How to read it.** `llma-evaluation-list` (status/enabled, type), `llma-tagger-list`
-  (`enabled`, `model_configuration.provider_key_id`, `conditions`),
-  `llma-score-definition-list`. Cross-reference provider-key failures the error-tracking
+- **How to read it.** Shortlist with `llma-evaluation-list` (status/enabled, type), then
+  call `llma-evaluation-get` on the ones to inspect (`model_configuration.provider_key_id`,
+  `conditions`), plus `llma-score-definition-list`. Cross-reference provider-key failures the error-tracking
   lens has already surfaced (ProviderMismatchError, disabled-key) — those are this surface
   failing _reactively_; this lens is how you'd catch it _proactively_.
-- **Discipline.** These are config objects — a deliberately-disabled tagger is not a
+- **Discipline.** These are config objects — a deliberately-disabled eval is not a
   defect. Report only when something meant to be running is silently failing or scoring
   nothing.
 

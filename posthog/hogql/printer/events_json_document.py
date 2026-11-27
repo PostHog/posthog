@@ -3,8 +3,11 @@
 The cleaner splits event properties at insert: each `$feature/<key>` value goes into the typed `$feature_flags` map,
 `$active_feature_flags` is dropped, and the keys `is_temporary_event_property` names go into `temporary_properties`,
 which ClickHouse clears 60 days after insertion. A whole-document read puts those parts back so the document matches
-the legacy table while the parts exist. The HogQL printer and the batch export source share this builder so every
-whole-document reader returns the same document.
+the legacy table while the parts exist. The cleaner also stores every object and array as a string of its JSON text,
+and the builder puts each one back as the object or array. The JSON type cannot store `null`, so the cleaner drops
+every top-level null field and records its key in the column's null-key array. This builder does not read those
+arrays, so a property sent as `null` has no member in the rebuilt document. The HogQL printer and the batch export
+source share this builder so every whole-document reader returns the same document.
 """
 
 from collections.abc import Iterable
@@ -18,10 +21,7 @@ from posthog.hogql.escape_sql import escape_clickhouse_string
 
 from posthog.clickhouse.events_json import EVENTS_PROPERTIES_JSON_SUBCOLUMNS, PERSON_PROPERTIES_JSON_SUBCOLUMNS
 
-
-def declared_array_paths(subcolumns: dict[str, str]) -> tuple[str, ...]:
-    """The declared paths of a JSON column whose type is an array."""
-    return tuple(sorted(path for path, declared_type in subcolumns.items() if declared_type.startswith("Array(")))
+_FEATURE_FLAGS_KEY = "$feature_flags"
 
 
 def declared_string_paths(subcolumns: dict[str, str]) -> tuple[str, ...]:
@@ -33,37 +33,62 @@ def declared_string_paths(subcolumns: dict[str, str]) -> tuple[str, ...]:
     )
 
 
-EVENTS_PROPERTIES_DECLARED_ARRAY_PATHS = declared_array_paths(EVENTS_PROPERTIES_JSON_SUBCOLUMNS)
 EVENTS_PROPERTIES_DECLARED_STRING_PATHS = declared_string_paths(EVENTS_PROPERTIES_JSON_SUBCOLUMNS)
 PERSON_PROPERTIES_DECLARED_STRING_PATHS = declared_string_paths(PERSON_PROPERTIES_JSON_SUBCOLUMNS)
+
+
+def is_container_string_member_sql(raw_sql: str) -> str:
+    """Whether a member's raw JSON is a string that holds a JSON object or array.
+
+    `raw_sql` is a value as `JSONExtractKeysAndValuesRaw` returns it. The quoted prefix is tested first, so only a
+    string that starts like a container is unquoted and parsed.
+    """
+    starts_like_container = f"(startsWith({raw_sql}, '\"[') or startsWith({raw_sql}, '\"{{'))"
+    return f"{starts_like_container} and isValidJSON(JSONExtractString({raw_sql}))"
 
 
 def json_member_pairs_sql(
     document_sql: str,
     *,
     exclude_key: str | None = None,
-    declared_array_paths: Iterable[str] = (),
+    exclude_empty_key: str | None = None,
     declared_string_paths: Iterable[str] = (),
 ) -> str:
     """`"key":<raw json>` strings for the members of a JSON column.
 
-    The JSON type materializes a declared path on every row, as `[]` for an array and `''` for a string, so under
-    those keys an empty value means the key was absent and the pair is left out. An empty array or string under any
-    other key was sent and stays; the cleaner already removed nulls at insert, so nothing else is filtered.
+    The cleaner stores an object or array as a string of its JSON text, and nothing records which strings those are.
+    A string that is a valid JSON object or array therefore goes into the document as that object or array, whether
+    the cleaner stored it or the SDK sent that text.
+
+    The JSON type materializes a declared string path on every row as `''`, so under those keys an empty value means
+    the key was absent and the pair is left out. An empty string under any other key was sent and stays.
+    `exclude_empty_key` names a declared object path, such as the `$feature_flags` map, that every row has and that is
+    left out when it is empty.
     """
     conditions = []
-    array_paths = ", ".join(escape_clickhouse_string(path) for path in declared_array_paths)
-    if array_paths:
-        conditions.append(f"not (kv.2 = '[]' and kv.1 in ({array_paths}))")
     string_paths = ", ".join(escape_clickhouse_string(path) for path in declared_string_paths)
     if string_paths:
         conditions.append(f"not (kv.2 = '\"\"' and kv.1 in ({string_paths}))")
     if exclude_key is not None:
         conditions.append(f"kv.1 != {escape_clickhouse_string(exclude_key)}")
+    if exclude_empty_key is not None:
+        conditions.append(f"not (kv.1 = {escape_clickhouse_string(exclude_empty_key)} and kv.2 = '{{}}')")
     members = f"JSONExtractKeysAndValuesRaw(toJSONString({document_sql}))"
     if conditions:
         members = f"arrayFilter(kv -> {' and '.join(conditions)}, {members})"
-    return f"arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), {members})"
+    value = f"if({is_container_string_member_sql('kv.2')}, JSONExtractString(kv.2), kv.2)"
+    return f"arrayMap(kv -> concat(toJSONString(kv.1), ':', {value}), {members})"
+
+
+def json_value_sql(path_sql: str) -> str:
+    """The JSON of the value at an undeclared path of a JSON column, or NULL when the row has no such key.
+
+    A string prints quoted and a number or a Bool as it is. A string that is a valid JSON object or array prints as
+    that object or array, the way `json_member_pairs_sql` puts it into a document.
+    """
+    text = f"CAST({path_sql}, 'Nullable(String)')"
+    is_container = f"(startsWith({text}, '[') or startsWith({text}, '{{')) and isValidJSON({text})"
+    return f"if(isNull({path_sql}), NULL, if({is_container}, {text}, toJSONString({path_sql})))"
 
 
 def feature_flag_pairs_sql(feature_flags_sql: str) -> str:
@@ -71,7 +96,8 @@ def feature_flag_pairs_sql(feature_flags_sql: str) -> str:
 
     A boolean flag is stored as 'true' or 'false' and comes back as a JSON boolean. A variant comes back as a JSON
     string, with the cleaner sentinels mapped to the variant names. `$active_feature_flags` lists the flags not
-    evaluated to off, in map order, and is present whenever the map has an entry.
+    evaluated to off, in map order, and is present whenever the map has an entry. A flag sent as `null` is not in the
+    map, so it has no pair.
     """
     variant_branches = ", ".join(
         f"value = {escape_clickhouse_string(sentinel)}, {escape_clickhouse_string(variant)}"
@@ -92,14 +118,11 @@ def feature_flag_pairs_sql(feature_flags_sql: str) -> str:
 
 
 def json_document_sql(
-    document_sql: str,
-    *,
-    declared_array_paths: Iterable[str] = (),
-    declared_string_paths: Iterable[str] = (),
+    document_sql: str, *, exclude_empty_key: str | None = None, declared_string_paths: Iterable[str] = ()
 ) -> str:
     """A JSON column as document text, built from its member pairs so declared defaults can be left out."""
     pairs = json_member_pairs_sql(
-        document_sql, declared_array_paths=declared_array_paths, declared_string_paths=declared_string_paths
+        document_sql, exclude_empty_key=exclude_empty_key, declared_string_paths=declared_string_paths
     )
     return f"concat('{{', arrayStringConcat({pairs}, ','), '}}')"
 
@@ -109,7 +132,11 @@ def person_document_sql(person_properties_sql: str) -> str:
     return json_document_sql(person_properties_sql, declared_string_paths=PERSON_PROPERTIES_DECLARED_STRING_PATHS)
 
 
-def event_document_sql(properties_sql: str, temporary_properties_sql: str, feature_flags_sql: str | None) -> str:
+def event_document_sql(
+    properties_sql: str,
+    temporary_properties_sql: str,
+    feature_flags_sql: str | None,
+) -> str:
     """The rebuilt document as JSON text. The caller wraps it in any restricted-key masking.
 
     `feature_flags_sql` is the flags map to rebuild from, already filtered of restricted flags, or None when every
@@ -119,8 +146,7 @@ def event_document_sql(properties_sql: str, temporary_properties_sql: str, featu
     pairs = [
         json_member_pairs_sql(
             properties_sql,
-            exclude_key="$feature_flags",
-            declared_array_paths=EVENTS_PROPERTIES_DECLARED_ARRAY_PATHS,
+            exclude_key=_FEATURE_FLAGS_KEY,
             declared_string_paths=EVENTS_PROPERTIES_DECLARED_STRING_PATHS,
         )
     ]

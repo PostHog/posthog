@@ -10,9 +10,12 @@ from collections.abc import Callable, Iterable
 from typing import TYPE_CHECKING
 
 from django.db import transaction
+from django.db.models import QuerySet
 
 import structlog
 
+from products.data_modeling.backend.facade.contracts import MaterializationEngine
+from products.data_modeling.backend.models.data_modeling_job import DataModelingJobEngine
 from products.data_modeling.backend.models.node import Node
 
 if TYPE_CHECKING:
@@ -109,6 +112,10 @@ def _persist_change(node: Node, change: Callable[[Node], bool]) -> bool:
     return True
 
 
+def suspended_nodes(nodes: QuerySet[Node]) -> QuerySet[Node]:
+    return nodes.filter(properties__system__suspended__isnull=False).exclude(properties__system__suspended={})
+
+
 def unsuspend_nodes(
     nodes: Iterable[Node],
     *,
@@ -174,12 +181,22 @@ def suspended_saved_query_ids_by_team(engine: str) -> dict[int, list[str]]:
     return {team_id: sorted(ids) for team_id, ids in by_team.items()}
 
 
-def unsuspend_saved_query(saved_query: "DataWarehouseSavedQuery", *, by: str = "api") -> int:
+_SUSPENSION_ENGINES = {
+    MaterializationEngine.CLICKHOUSE: DataModelingJobEngine.CLICKHOUSE,
+    MaterializationEngine.TRINO: DataModelingJobEngine.MANAGED_WAREHOUSE,
+}
+
+
+def unsuspend_saved_query(
+    saved_query: "DataWarehouseSavedQuery", *, by: str = "api", engine: MaterializationEngine | None = None
+) -> int:
     """Clears the marker on every node the query backs, which is more than one when it landed in
-    duplicate DAGs. Schedules nothing: the next tier fire runs the node because no marker stops it."""
+    duplicate DAGs. Schedules nothing: the next tier fire runs the node because no marker stops it.
+    Without an engine, every engine's marker is cleared."""
     return unsuspend_nodes(
-        Node.objects.filter(team_id=saved_query.team_id, saved_query_id=saved_query.id),
+        suspended_nodes(Node.objects.filter(team_id=saved_query.team_id, saved_query_id=saved_query.id)),
         by=by,
+        engine=_SUSPENSION_ENGINES[engine].value if engine is not None else None,
     )
 
 

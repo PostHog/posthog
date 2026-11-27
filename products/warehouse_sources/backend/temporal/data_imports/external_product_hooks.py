@@ -14,7 +14,7 @@ import dataclasses
 from collections.abc import Callable, Collection
 from typing import TYPE_CHECKING, Any, Optional
 
-from products.warehouse_sources.backend.facade.contracts import RevenueViewSyncInput
+from products.warehouse_sources.backend.facade.contracts import PersonPropertySyncProgress, RevenueViewSyncInput
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
@@ -236,7 +236,8 @@ class PersonPropertySyncSource:
     the identifier (a person's distinct_id, or a group's key) and ``column_property_map`` maps
     warehouse column -> property name. ``property_descriptions`` maps property name -> description
     (only the properties given one). ``target`` is "person" or "group"; ``group_type_index`` is the
-    group type (0-4) for group targets, else None."""
+    group type (0-4) for group targets, else None. ``remove_when_missing`` is person-only and is
+    acted on only when the run proves it read the complete table."""
 
     source_id: str
     definition_id: str
@@ -245,6 +246,7 @@ class PersonPropertySyncSource:
     property_descriptions: dict[str, str] = dataclasses.field(default_factory=dict)
     target: str = "person"
     group_type_index: int | None = None
+    remove_when_missing: bool = False
 
 
 PersonPropertySyncSourcesResolver = Callable[[int, WarehouseBinding], Optional[list[PersonPropertySyncSource]]]
@@ -282,6 +284,7 @@ class PersonPropertySyncActivityInputs:
     schema_name: str
     last_synced_at: str | None
     saved_query_id: uuid.UUID | None = None
+    complete_table_read: bool = False
 
     @property
     def binding(self) -> WarehouseBinding:
@@ -297,6 +300,7 @@ class PersonPropertySyncActivityInputs:
             "job_id": self.job_id,
             "source_type": self.source_type,
             "schema_name": self.schema_name,
+            "complete_table_read": self.complete_table_read,
         }
 
 
@@ -434,6 +438,10 @@ class PersonPropertySyncRunRecord:
     skipped_missing_person: int
     error: str | None
     count_failure: bool = True
+    # The Temporal run that did the work, so the run's progress lines can be found in log_entries.
+    workflow_id: str | None = None
+    workflow_run_id: str | None = None
+    removed: int = 0
 
 
 PersonPropertySyncRecorder = Callable[[PersonPropertySyncRunRecord], None]
@@ -449,3 +457,18 @@ def record_person_property_sync_run(record: PersonPropertySyncRunRecord) -> None
     if _person_property_sync_recorder is None:
         return
     _person_property_sync_recorder(record)
+
+
+PersonPropertySyncProgressRecorder = Callable[[PersonPropertySyncProgress], None]
+_person_property_sync_progress_recorder: Optional[PersonPropertySyncProgressRecorder] = None
+
+
+def register_person_property_sync_progress_recorder(fn: PersonPropertySyncProgressRecorder) -> None:
+    global _person_property_sync_progress_recorder
+    _person_property_sync_progress_recorder = fn
+
+
+def record_person_property_sync_progress(progress: PersonPropertySyncProgress) -> None:
+    if _person_property_sync_progress_recorder is None:
+        return
+    _person_property_sync_progress_recorder(progress)

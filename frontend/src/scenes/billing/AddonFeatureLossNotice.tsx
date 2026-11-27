@@ -5,12 +5,12 @@ import { useState } from 'react'
 import { LemonBanner } from '@posthog/lemon-ui'
 
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 
 import { BillingAddonFeaturesList } from './BillingAddonFeaturesList'
-import { billingLogic } from './billingLogic'
 
 interface AddonFeatureLossNoticeProps {
     product: BillingProductV2Type | BillingProductV2AddonType

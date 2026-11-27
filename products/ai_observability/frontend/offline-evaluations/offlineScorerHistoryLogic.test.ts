@@ -26,15 +26,40 @@ describe('offlineScorerHistoryLogic', () => {
         jest.mocked(api.llmAnalyticsScoreDefinitionsRetrieve).mockResolvedValue(OFFLINE_STORY_DEFINITION)
         jest.mocked(api.llmAnalyticsScoreDefinitionsVersionsList).mockResolvedValue({
             results: [OFFLINE_STORY_VERSION],
+            next: null,
+            previous: null,
             next_cursor: null,
             count: 1,
         })
         jest.mocked(api.llmAnalyticsScoreDefinitionsVersionsRetrieve).mockResolvedValue(OFFLINE_STORY_VERSION)
         jest.mocked(api.aiObservabilityOfflineScorersHistoryList).mockResolvedValue({
             results: [makeOfflineHistoryPoint(1)],
+            next: null,
+            previous: null,
             next_cursor: 'older',
             count: 150,
         })
+    })
+
+    it('loads all pinned versions when opening an experiment scorer and can return there after filtering', async () => {
+        jest.mocked(api.llmAnalyticsScoreDefinitionsRetrieve).mockResolvedValue({
+            ...OFFLINE_STORY_DEFINITION,
+            scope: 'experiment',
+        })
+        const props = { scorerId: OFFLINE_STORY_DEFINITION.id, teamId: 1 }
+        router.actions.push(urls.aiObservabilityOfflineScorerHistory(props.scorerId))
+        const logic = offlineScorerHistoryLogic(props)
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        const history = jest.mocked(api.aiObservabilityOfflineScorersHistoryList)
+        expect(history.mock.lastCall?.[2]?.scorer_version_ids).toBeUndefined()
+        expect(logic.values.primaryPage?.count).toBe(150)
+        await expectLogic(logic, () =>
+            logic.actions.setFilters({ version: OFFLINE_STORY_VERSION.id })
+        ).toFinishAllListeners()
+        expect(history.mock.lastCall?.[2]?.scorer_version_ids).toEqual(OFFLINE_STORY_VERSION.id)
+        await expectLogic(logic, () => logic.actions.setFilters({ version: '' })).toFinishAllListeners()
+        expect(history.mock.lastCall?.[2]?.scorer_version_ids).toBeUndefined()
     })
 
     it('restores breakdowns from the URL and resets pagination when they change', async () => {
@@ -267,7 +292,13 @@ describe('offlineScorerHistoryLogic', () => {
         })
         logic.actions.loadOfflineHistoryPrimaryPage()
         await started
-        const newest = { results: [makeOfflineHistoryPoint(3)], next_cursor: null, count: 1 }
+        const newest = {
+            results: [makeOfflineHistoryPoint(3)],
+            next: null,
+            previous: null,
+            next_cursor: null,
+            count: 1,
+        }
         jest.mocked(api.aiObservabilityOfflineScorersHistoryList).mockResolvedValueOnce(newest)
         await expectLogic(logic, () => logic.actions.loadOfflineHistoryPrimaryPage()).toDispatchActions([
             'loadOfflineHistoryPrimaryPageSuccess',

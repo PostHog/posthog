@@ -11,6 +11,118 @@ import {
 } from "./posthog-client";
 
 describe("PostHogAPIClient", () => {
+  it.each([
+    ["getGithubRepositories", "timeout", "headers"],
+    ["getGithubRepositories", "timeout", "body"],
+    ["getGithubRepositories", "cancel", "headers"],
+    ["getGithubRepositories", "cancel", "body"],
+    ["refreshGithubRepositories", "timeout", "headers"],
+    ["refreshGithubRepositories", "timeout", "body"],
+    ["refreshGithubRepositories", "cancel", "headers"],
+    ["refreshGithubRepositories", "cancel", "body"],
+  ] as const)(
+    "aborts %s on %s while waiting for %s",
+    async (method, reason, stage) => {
+      vi.useFakeTimers();
+      try {
+        let markStarted!: (signal: AbortSignal) => void;
+        const started = new Promise<AbortSignal>((resolve) => {
+          markStarted = resolve;
+        });
+        const fetch = vi.fn(
+          (_url: string | URL | Request, init?: RequestInit) => {
+            const pending = new Promise<never>((_resolve, reject) => {
+              const signal = init?.signal ?? new AbortController().signal;
+              signal.addEventListener("abort", () => reject(signal.reason), {
+                once: true,
+              });
+              markStarted(signal);
+            });
+            if (stage === "headers") return pending;
+            const response = new Response();
+            vi.spyOn(response, "json").mockReturnValue(pending);
+            return Promise.resolve(response);
+          },
+        );
+        const client = new PostHogAPIClient(
+          "https://example.com",
+          async () => "test-token",
+          async () => "test-token",
+          42,
+          { fetch },
+        );
+        const controller = new AbortController();
+        const result = expect(
+          client[method](1, controller.signal),
+        ).rejects.toThrow("abort");
+        const signal = await started;
+        if (reason === "timeout") {
+          await vi.runAllTimersAsync();
+        } else {
+          controller.abort();
+        }
+        expect(signal.aborted).toBe(true);
+        await result;
+        expect(fetch).toHaveBeenCalledOnce();
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it("loads every GitHub repository page when the total duration exceeds one page timeout", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetch = vi.fn(
+        (input: string | URL | Request, init?: RequestInit) =>
+          new Promise<Response>((resolve, reject) => {
+            const offset = new URL(String(input)).searchParams.get("offset");
+            const timer = setTimeout(
+              () =>
+                resolve(
+                  new Response(
+                    JSON.stringify({
+                      repositories: [
+                        offset === "0" ? "example/first" : "example/second",
+                      ],
+                      has_more: offset === "0",
+                    }),
+                  ),
+                ),
+              10_000,
+            );
+            init?.signal?.addEventListener(
+              "abort",
+              () => {
+                clearTimeout(timer);
+                reject(init.signal?.reason);
+              },
+              { once: true },
+            );
+          }),
+      );
+      const client = new PostHogAPIClient(
+        "https://example.com",
+        async () => "test-token",
+        async () => "test-token",
+        42,
+        { fetch },
+      );
+      const pending = client.getGithubRepositories(1).then(
+        (repositories) => ({ repositories }),
+        (error: unknown) => ({ error }),
+      );
+
+      await vi.advanceTimersByTimeAsync(20_000);
+
+      expect(await pending).toEqual({
+        repositories: ["example/first", "example/second"],
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it.each(["implementation", "discussion"] as const)(
     "creates a report %s without client repository credentials",
     async (relationship) => {
@@ -60,6 +172,8 @@ describe("PostHogAPIClient", () => {
     { provenance: "posthog_web", action: "creates" },
     { provenance: "posthog_mobile", action: "warms" },
     { provenance: "posthog_web", action: "warms" },
+    { provenance: "posthog_desktop", action: "sends a turn to" },
+    { provenance: "posthog_web", action: "sends a turn to" },
   ] as const)(
     "sends $provenance provenance when it $action a task",
     async ({ provenance, action }) => {
@@ -83,6 +197,10 @@ describe("PostHogAPIClient", () => {
 
       if (action === "creates") {
         await client.createTask({ description: "Create a task" });
+      } else if (action === "sends a turn to") {
+        await client.sendCloudRunCommand("task-1", "run-1", "user_message", {
+          content: "Continue",
+        });
       } else {
         await client.warmTask({ repository: null, github_integration: null });
       }
@@ -1037,25 +1155,21 @@ describe("PostHogAPIClient", () => {
     expect(request.body).toBe(JSON.stringify({}));
   });
 
-  it("builds cloud task config from the authenticated gateway catalog", async () => {
+  it("builds cloud task config from the Django model catalog", async () => {
     const fetch = vi.fn().mockResolvedValue(
       new Response(
         JSON.stringify({
-          data: [
+          models: [
             {
-              id: "claude-opus-4-8",
-              owned_by: "anthropic",
-              context_window: 200000,
-              supports_streaming: true,
-              supports_vision: true,
+              runtime_adapter: "claude",
+              model: "claude-opus-4-8",
+              context_window: 1000000,
               allowed: true,
             },
             {
-              id: "claude-fable-5",
-              owned_by: "anthropic",
-              context_window: 200000,
-              supports_streaming: true,
-              supports_vision: true,
+              runtime_adapter: "claude",
+              model: "claude-fable-5",
+              context_window: 1000000,
               allowed: false,
             },
           ],
@@ -1074,14 +1188,9 @@ describe("PostHogAPIClient", () => {
     const options = await client.getCloudTaskConfigOptions("claude");
 
     expect(fetch).toHaveBeenCalledWith(
-      new URL("https://gateway.eu.posthog.com/posthog_code/v1/models"),
-      expect.objectContaining({
-        method: "GET",
-        headers: expect.any(Headers),
-      }),
+      new URL("https://eu.posthog.com/api/projects/123/tasks/models/"),
+      expect.objectContaining({ method: "GET" }),
     );
-    const requestHeaders = fetch.mock.calls[0]?.[1]?.headers as Headers;
-    expect(requestHeaders.get("X-PostHog-Project-Id")).toBe("123");
     expect(options.find((option) => option.category === "model")).toMatchObject(
       {
         currentValue: "claude-opus-4-8",
@@ -2228,24 +2337,6 @@ describe("PostHogAPIClient", () => {
   });
 
   describe("getSignalReport", () => {
-    function makeClient(fetch: ReturnType<typeof vi.fn>) {
-      const client = new PostHogAPIClient(
-        "http://localhost:8000",
-        async () => "token",
-        async () => "token",
-        123,
-      );
-      (
-        client as unknown as {
-          api: { baseUrl: string; fetcher: { fetch: typeof fetch } };
-        }
-      ).api = {
-        baseUrl: "http://localhost:8000",
-        fetcher: { fetch },
-      };
-      return client;
-    }
-
     it("returns the parsed report on success", async () => {
       const fetch = vi.fn().mockResolvedValue({
         json: async () => ({ id: "abc", title: "hi" }),
@@ -2394,25 +2485,41 @@ describe("PostHogAPIClient", () => {
     });
   });
 
-  describe("clearTaskRunConversation", () => {
-    function makeClient(fetch: ReturnType<typeof vi.fn>) {
-      const client = new PostHogAPIClient(
-        "http://localhost:8000",
-        async () => "token",
-        async () => "token",
-        123,
-      );
-      (
-        client as unknown as {
-          api: { baseUrl: string; fetcher: { fetch: typeof fetch } };
-        }
-      ).api = {
-        baseUrl: "http://localhost:8000",
-        fetcher: { fetch },
-      };
-      return client;
-    }
+  function makeClient(fetch: ReturnType<typeof vi.fn>) {
+    const client = new PostHogAPIClient(
+      "http://localhost:8000",
+      async () => "token",
+      async () => "token",
+      123,
+    );
+    (
+      client as unknown as {
+        api: { baseUrl: string; fetcher: { fetch: typeof fetch } };
+      }
+    ).api = {
+      baseUrl: "http://localhost:8000",
+      fetcher: { fetch },
+    };
+    return client;
+  }
 
+  describe("heartbeatTaskRun", () => {
+    it("posts to the run's heartbeat endpoint", async () => {
+      const fetch = vi.fn().mockResolvedValue(undefined);
+      const client = makeClient(fetch);
+
+      await client.heartbeatTaskRun("task-1", "run-1");
+
+      const path = "/api/projects/123/tasks/task-1/runs/run-1/heartbeat/";
+      expect(fetch).toHaveBeenCalledWith({
+        method: "post",
+        url: new URL(`http://localhost:8000${path}`),
+        path,
+      });
+    });
+  });
+
+  describe("clearTaskRunConversation", () => {
     it("surfaces the backend's clean error message", async () => {
       const fetch = vi
         .fn()
@@ -2622,24 +2729,6 @@ describe("PostHogAPIClient", () => {
   });
 
   describe("getSignalReportArtefacts", () => {
-    function makeClient(fetch: ReturnType<typeof vi.fn>) {
-      const client = new PostHogAPIClient(
-        "http://localhost:8000",
-        async () => "token",
-        async () => "token",
-        123,
-      );
-      (
-        client as unknown as {
-          api: { baseUrl: string; fetcher: { fetch: typeof fetch } };
-        }
-      ).api = {
-        baseUrl: "http://localhost:8000",
-        fetcher: { fetch },
-      };
-      return client;
-    }
-
     // One row per backend ArtefactType (products/signals/backend/models.py),
     // content shapes mirroring artefact_schemas.py / real API payloads.
     const ROWS = [

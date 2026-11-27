@@ -1,8 +1,7 @@
 import { Scene } from 'scenes/sceneTypes'
 
+import type { PhaiViewMode } from '~/layout/ai/aiPanelIds'
 import { SidePanelTab } from '~/types'
-
-import type { PhaiViewMode } from '../maxGlobalLogic'
 
 /** The composer a takeover targets. */
 export type PhaiOnboardingHost = 'scene' | 'side-panel'

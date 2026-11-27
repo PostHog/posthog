@@ -1,3 +1,4 @@
+import json
 import threading
 from typing import Literal
 
@@ -6,6 +7,7 @@ import time_machine
 
 from django.db import OperationalError
 
+from products.tasks.backend.constants import DEV_STACK_IMAGE_NAME
 from products.tasks.backend.exceptions import (
     OAuthTokenError,
     OrganizationExecutionError,
@@ -16,9 +18,11 @@ from products.tasks.backend.exceptions import (
     SandboxTimeoutError,
 )
 from products.tasks.backend.facade.contracts import AgentStartupFailure
+from products.tasks.backend.facade.profiles import get_task_profile
+from products.tasks.backend.logic.services.docker_sandbox import DockerSandbox
 from products.tasks.backend.logic.services.launch_preparation_metrics import record_launch_preparation_ms
 from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
-from products.tasks.backend.logic.services.sandbox import ExecutionResult, sandbox_repo_path
+from products.tasks.backend.logic.services.sandbox import ExecutionResult, SandboxConfig, sandbox_repo_path
 from products.tasks.backend.logic.services.startup_failure import AgentServerStartupError
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.activities.start_agent_server import (
@@ -27,20 +31,23 @@ from products.tasks.backend.temporal.process_task.activities.start_agent_server 
     _agentsh_domains_for,
     _emit_agent_server_log_tail,
     _ensure_repository_on_disk,
-    _include_personal_mcp_for_task,
     _invoke_start_agent_server,
     _launch_agent_shadow,
+    _launch_run_policy,
     _LaunchParams,
     _network_enforcement_observation,
     _prepare_launch,
     _read_agent_shadow_result,
     _record_boot_total,
     _resolve_protected_base_branch,
+    _restore_native_git_stat_checks,
+    _spawn_post_ready_diagnostics,
     await_agent_server_ready,
     collect_agent_shadow_result,
     launch_agent_server,
     start_agent_server,
 )
+from products.tasks.backend.temporal.process_task.ai_gateway_token import resolve_sandbox_ai_product
 from products.tasks.backend.temporal.process_task.utils import UserMcpServerConfigs
 
 
@@ -50,6 +57,14 @@ def organization_state(mocker):
     state = teams.return_value.values_list.return_value.first
     state.return_value = (False, True)
     return state
+
+
+@pytest.fixture(autouse=True)
+def bundled_skills(mocker):
+    return mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.posthog_code_keeps_bundled_skills",
+        return_value=False,
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -63,6 +78,10 @@ def task_run_state(mocker):
     )
     state = runs.return_value.values_list.return_value.first
     state.return_value = None
+    startup = mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.TaskRun.objects.select_for_update"
+    )
+    startup.return_value.only.return_value.get.return_value = mocker.Mock(state={}, is_terminal=False)
     return state
 
 
@@ -347,6 +366,35 @@ def test_invoke_start_agent_server_forwards_sandbox_runtime(
     assert sandbox.start_agent_server.call_args.kwargs["sandbox_runtime"] == expected_runtime
 
 
+def test_invoke_start_agent_server_launches_the_agent_with_the_run_policy(mocker) -> None:
+    sandbox = DockerSandbox(container_id="c" * 64, config=SandboxConfig(name="test-sandbox"), host_port=8000)
+    commands: list[str] = []
+
+    def execute(command: str, **kwargs) -> ExecutionResult:
+        commands.append(command)
+        return ExecutionResult(stdout="", stderr="", exit_code=0)
+
+    mocker.patch.object(sandbox, "is_running", return_value=True)
+    mocker.patch.object(sandbox, "write_file", return_value=ExecutionResult(stdout="", stderr="", exit_code=0))
+    mocker.patch.object(sandbox, "execute", side_effect=execute)
+    params = _LaunchParams(
+        mcp_configs=[],
+        relayed_mcp_servers=[],
+        actor_user_id=None,
+        agentsh_domains=None,
+        protected_base_branch=None,
+        event_ingest_token=None,
+        task_run_session_token=None,
+        codex_run_token=None,
+        event_ingest_url=None,
+        run_policy='{"finish_tool":true}',
+    )
+
+    _invoke_start_agent_server(sandbox, _context(), params, repo_ready_file=None)
+
+    assert any("""POSTHOG_TASK_RUN_POLICY='{"finish_tool":true}'""" in command for command in commands)
+
+
 @pytest.mark.parametrize(
     ("error", "expected_statuses"),
     [
@@ -515,6 +563,7 @@ async def test_await_agent_server_ready_relaunches_on_activity_retries(mocker, a
             task_run_session_token=None,
             codex_run_token=None,
             event_ingest_url=None,
+            run_policy="{}",
         ),
     )
     mocker.patch(
@@ -660,6 +709,7 @@ async def test_await_agent_server_ready_records_failed_relaunch(
             task_run_session_token=None,
             codex_run_token=None,
             event_ingest_url=None,
+            run_policy="{}",
         ),
     )
     mocker.patch("products.tasks.backend.exceptions.capture_exception")
@@ -699,7 +749,7 @@ def _mock_github_integration(mocker, pr_base: str | None):
     integration.access_token_expired.return_value = False
     integration.get_open_pr_base_for_head.return_value = pr_base
     mocker.patch(
-        "products.tasks.backend.temporal.process_task.activities.start_agent_server.Integration.objects.get",
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.IntegrationManager.github.oauth.get",
         return_value=mocker.Mock(),
     )
     mocker.patch(
@@ -707,21 +757,6 @@ def _mock_github_integration(mocker, pr_base: str | None):
         return_value=integration,
     )
     return integration
-
-
-@pytest.mark.parametrize(
-    "internal,expected",
-    [
-        # Internal/autonomous runs (support reply, signals) get shared team
-        # connections only — never a resolved member's personal MCP creds.
-        (True, False),
-        # User-initiated Code runs get shared + the creator's personal installs.
-        (False, True),
-    ],
-)
-def test_include_personal_mcp_for_task(mocker, internal, expected) -> None:
-    task = mocker.Mock(internal=internal)
-    assert _include_personal_mcp_for_task(task) is expected
 
 
 def test_prepare_launch_retries_task_read_and_keeps_db_drop_identity(mocker) -> None:
@@ -747,7 +782,7 @@ def test_prepare_launch_retries_task_read_and_keeps_db_drop_identity(mocker) -> 
     ],
 )
 def test_prepare_launch_relabels_only_non_transient_token_errors(mocker, raised, expected) -> None:
-    task = mocker.Mock(internal=True, created_by_id=None, team_id=1)
+    task = mocker.Mock(internal=True, stored_profile=None, created_by_id=None, team_id=1)
     mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.Task.objects.select_related"
     ).return_value.get.return_value = task
@@ -803,7 +838,7 @@ def test_resolve_protected_base_branch_for_stacked_run(mocker, stack_base_branch
 
 def test_resolve_protected_base_skips_lookup_without_repository(mocker) -> None:
     get = mocker.patch(
-        "products.tasks.backend.temporal.process_task.activities.start_agent_server.Integration.objects.get",
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.IntegrationManager.github.oauth.get",
     )
     context = _context(github_integration_id=42, repository=None, branch="some-branch")
     assert _resolve_protected_base_branch(context) is None
@@ -814,6 +849,7 @@ def _mock_prepare_launch_dependencies(mocker) -> None:
     prefix = "products.tasks.backend.temporal.process_task.activities.start_agent_server"
     task = mocker.Mock(
         internal=True,
+        stored_profile=None,
         runtime="claude",
         origin_product=None,
         mcp_builtin_agent_key=None,
@@ -846,6 +882,53 @@ def test_prepare_launch_releases_boot_milestone_claims(mocker) -> None:
 
 
 @pytest.mark.parametrize(
+    "origin_product,run_state,expected",
+    [
+        ("workflow", {"end_run_when_done": True}, (True, True, "workflows")),
+        ("signal_report", {}, (True, False, "signals")),
+        ("signal_report", {"billing_product": "posthog_ai"}, (True, False, "posthog_ai")),
+    ],
+    ids=["end_run_opt_in", "origin_billing_product", "run_billing_override"],
+)
+def test_prepare_launch_resolves_the_run_policy_from_the_task_and_its_run(
+    mocker, origin_product: str, run_state: dict, expected: tuple[bool, bool, str]
+) -> None:
+    prefix = "products.tasks.backend.temporal.process_task.activities.start_agent_server"
+    _mock_prepare_launch_dependencies(mocker)
+    mocker.patch(f"{prefix}.Task.objects.select_related").return_value.get.return_value = mocker.Mock(
+        internal=False,
+        stored_profile=None,
+        runtime="claude",
+        origin_product=origin_product,
+        mcp_builtin_agent_key=None,
+        mcp_credential_owner_id=None,
+        mcp_gateway_server_allowlist=None,
+    )
+    mocker.patch(f"{prefix}.TaskRun.objects.filter").return_value.first.return_value = mocker.Mock(state=run_state)
+
+    params = _prepare_launch(_context(), "read_only", "sandbox-id")
+
+    policy = json.loads(params.run_policy)
+    assert (policy["finish_tool"], policy["finish_report_required"], policy["billing_product"]) == expected
+    assert policy["run_id"] == "run-id"
+
+
+def test_launch_run_policy_carries_the_product_the_agent_splits_by_stage(mocker) -> None:
+    profile = get_task_profile("signals.research")
+    task = mocker.Mock(internal=not profile.listed, stored_profile=profile, origin_product=profile.origin_product)
+
+    sent = json.loads(_launch_run_policy(task, "run-id", {"ai_stage": "research"}))["billing_product"]
+
+    pinned = resolve_sandbox_ai_product(
+        task.origin_product, "research", internal=task.internal, profile_billing_product=profile.billing_product
+    )
+    split_by_the_agent = resolve_sandbox_ai_product(
+        task.origin_product, "research", internal=task.internal, profile_billing_product=sent
+    )
+    assert (sent, split_by_the_agent) == ("signals", pinned)
+
+
+@pytest.mark.parametrize(
     "pr_base,lookup_error,lookup_hangs,expected",
     [
         ("master", None, False, "master"),
@@ -860,7 +943,7 @@ def test_prepare_launch_resolves_protected_base_branch_alongside_preparation(
     prefix = "products.tasks.backend.temporal.process_task.activities.start_agent_server"
     _mock_prepare_launch_dependencies(mocker)
     if lookup_error is not None:
-        mocker.patch(f"{prefix}.Integration.objects.get", side_effect=lookup_error)
+        mocker.patch(f"{prefix}.IntegrationManager.github.oauth.get", side_effect=lookup_error)
     else:
         integration = _mock_github_integration(mocker, pr_base=pr_base)
     if lookup_hangs:
@@ -880,7 +963,7 @@ def test_prepare_launch_resolves_protected_base_branch_alongside_preparation(
 
 def test_resolve_protected_base_falls_back_to_branch_on_error(mocker) -> None:
     mocker.patch(
-        "products.tasks.backend.temporal.process_task.activities.start_agent_server.Integration.objects.get",
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.IntegrationManager.github.oauth.get",
         side_effect=RuntimeError("boom"),
     )
     context = _context(github_integration_id=42, repository="PostHog/posthog", branch="posthog-code/fix")
@@ -953,6 +1036,7 @@ def test_subscription_compatibility_is_checked_before_launch(mocker, access, exi
         task_run_session_token=None,
         codex_run_token=None,
         event_ingest_url=None,
+        run_policy="{}",
     )
     context = _context(claude_model_access=access)
     if access == "own-subscription" and exit_code != 0:
@@ -1182,6 +1266,7 @@ async def test_start_agent_server_uses_captured_sandbox_event_ingest_flag(
         created_by_id=None,
         team_id=1,
         internal=True,
+        stored_profile=None,
         origin_product="support_reply",
         mcp_builtin_agent_key="support",
         mcp_credential_owner_id=17,
@@ -1253,6 +1338,7 @@ async def test_start_agent_server_uses_captured_sandbox_event_ingest_flag(
         task_agent_key="support",
         credential_owner_id=17,
         allowed_gateway_server_ids=["srv-1"],
+        profile=None,
     )
     sandbox.start_agent_server.assert_called_once()
     sandbox.wait_for_agent_server_ready.assert_not_called()
@@ -1279,6 +1365,7 @@ async def test_start_agent_server_forwards_imported_and_relayed_mcp_servers(mock
         created_by_id=None,
         team_id=1,
         internal=False,
+        stored_profile=None,
         origin_product="user_created",
         mcp_builtin_agent_key=None,
         mcp_credential_owner_id=None,
@@ -1338,6 +1425,7 @@ async def test_start_agent_server_passes_initial_permission_mode(mocker) -> None
         created_by_id=None,
         team_id=1,
         internal=False,
+        stored_profile=None,
         origin_product="user_created",
         mcp_builtin_agent_key=None,
         mcp_credential_owner_id=None,
@@ -1384,3 +1472,69 @@ def test_emit_agent_server_log_tail_reports_empty_log(mocker, stdout, expected_m
     _emit_agent_server_log_tail(context, sandbox)
 
     emit.assert_called_once_with(context.run_id, "debug", expected_message)
+
+
+def _baked_context(
+    *,
+    baked_repo_clone_enabled: bool = True,
+    custom_image_name: str | None = DEV_STACK_IMAGE_NAME,
+    repository: str | None = "posthog/posthog",
+) -> TaskProcessingContext:
+    context = _context(repository=repository)
+    context.baked_repo_clone_enabled = baked_repo_clone_enabled
+    context.custom_image_name = custom_image_name
+    return context
+
+
+@pytest.mark.parametrize(
+    "baked_repo_clone_enabled,custom_image_name,repository,expects_unset",
+    [
+        (True, DEV_STACK_IMAGE_NAME, "posthog/posthog", True),
+        (False, DEV_STACK_IMAGE_NAME, "posthog/posthog", False),
+        (True, "team-custom-image", "posthog/posthog", False),
+        (True, None, "posthog/posthog", False),
+        (True, DEV_STACK_IMAGE_NAME, None, False),
+    ],
+)
+def test_restore_native_git_stat_checks_only_runs_for_baked_checkouts(
+    mocker, baked_repo_clone_enabled, custom_image_name, repository, expects_unset
+) -> None:
+    sandbox = mocker.Mock(id="sandbox-id")
+
+    _restore_native_git_stat_checks(
+        _baked_context(
+            baked_repo_clone_enabled=baked_repo_clone_enabled,
+            custom_image_name=custom_image_name,
+            repository=repository,
+        ),
+        sandbox,
+    )
+
+    assert sandbox.execute.called is expects_unset
+
+
+def test_restore_native_git_stat_checks_unsets_both_settings_in_the_repository(mocker) -> None:
+    sandbox = mocker.Mock(id="sandbox-id")
+
+    _restore_native_git_stat_checks(_baked_context(), sandbox)
+
+    repo_path = sandbox_repo_path("posthog/posthog")
+    assert sandbox.execute.call_args.args[0] == (
+        f"git -C {repo_path} config --unset core.checkStat; git -C {repo_path} config --unset core.trustctime; true"
+    )
+
+
+def test_post_ready_step_survives_a_failing_git_settings_restore(mocker) -> None:
+    sandbox = mocker.Mock(id="sandbox-id")
+    sandbox.execute.side_effect = RuntimeError("sandbox gone")
+    emit_agent_server = mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server._emit_agent_server_log_tail"
+    )
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.threading.Thread",
+        side_effect=lambda target, **kwargs: mocker.Mock(start=target),
+    )
+
+    _spawn_post_ready_diagnostics(_baked_context(), sandbox, None)
+
+    emit_agent_server.assert_called_once()

@@ -104,6 +104,16 @@ class TestHogQLHasMorePaginator(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response.results), 10)
         self.assertFalse(response.hasMore)
 
+    def test_raw_bytes_in_the_has_more_probe_row_do_not_fail_the_page(self):
+        paginator = HogQLHasMorePaginator(limit=1)
+        paginator.execute_hogql_query(
+            parse_select("SELECT x FROM (SELECT 'a' AS x UNION ALL SELECT unhex('FF') AS x) ORDER BY x"),
+            query_type="HogQLQuery",
+            team=self.team,
+        )
+        self.assertEqual(paginator.results, [("a",)])
+        self.assertTrue(paginator.has_more())
+
     def test_empty_result_set(self):
         """Test behavior when query returns no results."""
         runner = self._create_runner(

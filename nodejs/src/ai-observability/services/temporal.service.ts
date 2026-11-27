@@ -13,7 +13,7 @@ import { LRUCache } from 'lru-cache'
 import { Counter } from 'prom-client'
 
 import { EncryptionCodec } from '~/common/temporal/codec'
-import { isDevEnv } from '~/common/utils/env-utils'
+import { isCloud, isDevEnv } from '~/common/utils/env-utils'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 
@@ -207,7 +207,14 @@ export class TemporalService {
         ttl: AGGREGATE_START_DEDUP_TTL_MS,
     })
 
-    constructor(private config: TemporalServiceConfig) {}
+    constructor(private config: TemporalServiceConfig) {
+        // Self-hosted runs with NODE_ENV=production and no TEMPORAL_SECRET_KEY, so only Cloud fails closed.
+        if (isCloud() && !config.TEMPORAL_SECRET_KEY) {
+            throw new Error(
+                'TEMPORAL_SECRET_KEY is required on PostHog Cloud. Without it, evaluation workflow payloads reach Temporal unencrypted.'
+            )
+        }
+    }
 
     private async ensureConnected(): Promise<Client> {
         if (this.client) {
@@ -432,39 +439,6 @@ export class TemporalService {
             }
             throw error
         }
-    }
-
-    async startTaggerRunWorkflow(taggerId: string, event: RawKafkaEvent): Promise<WorkflowHandle> {
-        const client = await this.ensureConnected()
-
-        const workflowId = `llma-tagger-${taggerId}-${event.uuid}-ingestion`
-        const { eventData, payload, startOptions } = toWorkflowEventStart(event)
-
-        const handle = await client.workflow.start('run-tagger', {
-            ...startOptions,
-            args: [
-                {
-                    tagger_id: taggerId,
-                    event_data: eventData,
-                },
-            ],
-            taskQueue: EVALUATION_TASK_QUEUE,
-            workflowId,
-            workflowIdConflictPolicy: 'USE_EXISTING',
-            workflowIdReusePolicy: 'ALLOW_DUPLICATE_FAILED_ONLY',
-            workflowTaskTimeout: '2 minutes',
-        })
-
-        temporalWorkflowsStarted.labels({ status: 'success', payload }).inc()
-
-        logger.debug('Started tagger run workflow', {
-            workflowId,
-            taggerId,
-            targetEventId: event.uuid,
-            timestamp: event.timestamp,
-        })
-
-        return handle
     }
 
     async disconnect(): Promise<void> {

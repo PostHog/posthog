@@ -1,0 +1,31 @@
+rules:
+    - id: facade-views-read-object-not-dangerously-get-object
+      message: |
+          `dangerously_get_object()` skips the object permission checks of `TeamAndOrgViewSetMixin`,
+          so each override has to call `check_object_permissions` itself, and nothing makes it adapt
+          a facade contract for `AccessControlPermission`.
+
+          A view that reads through a facade overrides `read_object()` instead. The mixin's
+          `get_object()` then runs the object permission checks on the record and returns it. Also
+          define `object_access_ref(record)` to return the record's `ObjectAccessRef`, or set
+          `records_have_object_access_rules = False` when no access rule can name one record.
+          See "Who owns RBAC?" in `products/architecture.md`.
+      severity: ERROR
+      languages: [python]
+      paths:
+          include:
+              - 'products/**'
+          exclude:
+              - '**/test/**'
+              - '**/tests/**'
+              - '**/test_*.py'
+              - '**/*_test.py'
+              # Workflow templates are INTERNAL to access control, and their own permission class
+              # reads the template's scope from the returned object.
+              - 'products/workflows/backend/presentation/views/hog_flow_template.py'
+      patterns:
+          - pattern: |
+                def dangerously_get_object(...):
+                    ...
+      metadata:
+          category: best-practice

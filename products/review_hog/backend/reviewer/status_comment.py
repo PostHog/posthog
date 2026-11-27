@@ -28,7 +28,8 @@ from django.utils import timezone
 
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
-from posthog.models.integration import GitHubIntegration, Integration
+from posthog.integrations import IntegrationManager
+from posthog.models.integration import GitHubIntegration
 from posthog.utils import pluralize
 
 from products.review_hog.backend.models import ReviewReport
@@ -291,11 +292,12 @@ def render_in_progress_body(
             rows.append((step, f"{done}/{total}" if done is not None and total else "running", ""))
     if failed:
         verb = "couldn't finish reviewing"
-        # A push starts only a Standard review. A Deep review runs only when someone asks for it.
+        # A push starts a Standard review again. A push never retries a failed Deep review: a repository can make
+        # the automatic review of a pull request Deep, but only once, so a person asks for the retry.
         retry = (
             "It runs again on the next push to this pull request."
             if review_mode == REVIEW_MODE_FLASH
-            else "Ask for a Deep review again to retry."
+            else "Ask for a Deep review to retry."
         )
         intro = [f'The review failed at "{steps[current]}". {retry}', ""]
     else:
@@ -489,7 +491,9 @@ def _auth_from_row(team_id: int, integration_row_id: int) -> tuple[str, str | No
     revocation surfaces there and is swallowed like any other status-comment failure.
     """
     github = GitHubIntegration(
-        Integration.objects.get(id=integration_row_id, team_id=team_id), source="review_hog", priority=Priority.CRITICAL
+        IntegrationManager.github.oauth.get(team_id, integration_row_id),
+        source="review_hog",
+        priority=Priority.CRITICAL,
     )
     return github.get_access_token(), github.github_installation_id
 

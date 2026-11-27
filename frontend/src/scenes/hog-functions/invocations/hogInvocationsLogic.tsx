@@ -1,6 +1,6 @@
 import { MakeLogicType, actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, router, urlToAction } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -8,9 +8,9 @@ import api, { ApiConfig } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { getAppContext } from 'lib/utils/getAppContext'
+import { escapeHogQLString, hogql } from 'lib/utils/hogql'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { escapeHogQLString, hogql } from '~/queries/utils'
 import { HogFunctionTypeType, LogEntryLevel, PersonType } from '~/types'
 
 import { hogFunctionsRerunCreate } from 'products/cdp/frontend/generated/api'
@@ -65,13 +65,24 @@ export interface HogInvocationRow {
     person_id: string
     parent_run_id: string
     /**
-     * Worst log-entry level for this invocation (`error` > `warn`), or null.
-     * Surfaces async problems (e.g. an SES bounce/complaint logged after the
-     * invocation already finished `succeeded`) so a run that went wrong doesn't
-     * read as a clean success at the row level.
+     * Worst log-entry level for this invocation (`error` > `warn`), or null, so a run that logged a problem after it
+     * finished `succeeded` doesn't read as a clean success. A workflow run leaves out the lines `email_outcome` names.
      */
     problem_log_level: 'warn' | 'error' | null
+    email_outcome: EmailOutcome | null
 }
+
+export type EmailOutcome = 'bounced' | 'complained'
+
+interface RunProblems {
+    level: 'warn' | 'error' | null
+    emailOutcome: EmailOutcome | null
+}
+
+// pinned: the lines formatSesEventLogs in nodejs/src/cdp/services/messaging/helpers/ses.ts writes
+const BOUNCE_LINE = `match(message, '^([[]Action:[a-zA-Z0-9_-]+] )?(Permanent|Transient|Undetermined) bounce to ')`
+// A not-spam complaint corrects an earlier spam report, so it stays an ordinary warning.
+const COMPLAINT_LINE = `(match(message, '^([[]Action:[a-zA-Z0-9_-]+] )?Complaint from ') AND NOT message ILIKE '%feedback type: not-spam')`
 
 export type RunsOrderBy = 'latest_scheduled' | 'first_scheduled'
 
@@ -169,6 +180,8 @@ const filtersToSearchParams = (filters: HogInvocationsFilters): Record<string, s
     [URL_PARAMS.log_levels]: filters.log_levels?.length ? filters.log_levels.join(',') : undefined,
 })
 
+const isFlagOn = (value: string | undefined): boolean => !!value && !['0', 'false'].includes(value.toLowerCase())
+
 const searchParamsToFilters = (searchParams: Record<string, string | undefined>): Partial<HogInvocationsFilters> => {
     const next: Partial<HogInvocationsFilters> = {}
     const dateFrom = searchParams[URL_PARAMS.date_from]
@@ -199,7 +212,7 @@ const searchParamsToFilters = (searchParams: Record<string, string | undefined>)
     if (orderBy === 'first_scheduled' || orderBy === 'latest_scheduled') {
         next.order_by = orderBy
     }
-    if (searchParams[URL_PARAMS.problem_only]) {
+    if (isFlagOn(searchParams[URL_PARAMS.problem_only])) {
         next.problem_only = true
     }
     if (searchParams[URL_PARAMS.person_uuid]) {
@@ -210,6 +223,14 @@ const searchParamsToFilters = (searchParams: Record<string, string | undefined>)
         next.log_levels = logLevels.split(',').filter(Boolean) as LogEntryLevel[]
     }
     return next
+}
+
+const readRawSearchParams = (search: string): Record<string, string> => {
+    const params: Record<string, string> = {}
+    new URLSearchParams(search).forEach((value, key) => {
+        params[key] = /^(\[.*\]|\{.*\}) +$/.test(value) ? value.slice(0, -1) : value
+    })
+    return params
 }
 
 const DEFAULT_FILTERS: HogInvocationsFilters = {
@@ -233,38 +254,6 @@ export function buildHogInvocationsSearchParams(filters: Partial<HogInvocationsF
     return Object.fromEntries(
         Object.entries(params).filter((entry): entry is [string, string] => entry[1] !== undefined)
     )
-}
-
-const AUTO_REFRESH_INTERVAL_MS = 10000
-// After a rerun is enqueued the matching rows aren't `running` yet (the worker
-// drains asynchronously), so the `hasRunningRows` guard alone wouldn't restart
-// polling. Force a short polling window so the re-run rows surface on their own.
-const FORCE_REFRESH_WINDOW_MS = 30000
-
-const scheduleAutoRefresh = (
-    // Kea types `cache` as `Record<string, any>` upstream — that's where the
-    // `disposables` plugin attaches its handle, but the registration is
-    // dynamic so the narrow type isn't visible at this call site.
-    cache: Record<string, any>,
-    actions: { loadRuns: (payload: null) => void },
-    values: { hasRunningRows: boolean; runsLoading: boolean }
-): void => {
-    const forcing = typeof cache.forceRefreshUntil === 'number' && Date.now() < cache.forceRefreshUntil
-    if (!values.hasRunningRows && !forcing) {
-        return
-    }
-    cache.disposables.add(() => {
-        const timeoutId = setTimeout(() => {
-            // Skip this tick if a load is still in flight — don't stack a second
-            // heavy aggregation on ClickHouse. Re-arm so polling resumes once it settles.
-            if (values.runsLoading) {
-                scheduleAutoRefresh(cache, actions, values)
-            } else {
-                actions.loadRuns(null)
-            }
-        }, AUTO_REFRESH_INTERVAL_MS)
-        return () => clearTimeout(timeoutId)
-    }, 'autoRefresh')
 }
 
 /**
@@ -771,6 +760,7 @@ async function fetchRunsPage(
             person_id,
             parent_run_id,
             problem_log_level: null,
+            email_outcome: null,
         }
     })
 
@@ -785,11 +775,11 @@ async function fetchRunsPage(
  * after the invocation already finished `succeeded`, so without this a delivery failure
  * reads as a clean success. Kept off the runs query's critical path — see `enrichProblems`.
  */
-async function fetchProblemLevels(
+async function fetchRunProblems(
     props: HogInvocationsLogicProps,
     filters: HogInvocationsFilters,
     ids: string[]
-): Promise<Record<string, 'warn' | 'error'>> {
+): Promise<Record<string, RunProblems>> {
     if (ids.length === 0) {
         return {}
     }
@@ -798,15 +788,23 @@ async function fetchProblemLevels(
     // finishes, so an upper bound could hide late problems. The lower bound keeps the
     // query off old log_entries partitions (older data is tiered to object storage) —
     // logs can't predate the invocations on the page, which are >= date_from.
+    // Only workflow runs log SES lines, and the level skips the lines the email outcome names.
+    const columns =
+        props.functionKind === 'hog_flow'
+            ? hogql.raw(
+                  `maxIf(if(lower(level) = 'error', 2, 1), NOT (${BOUNCE_LINE} OR ${COMPLAINT_LINE})) AS sev` +
+                      `, countIf(${BOUNCE_LINE}) > 0 AS bounced, countIf(${COMPLAINT_LINE}) > 0 AS complained`
+              )
+            : hogql.raw(`max(if(lower(level) = 'error', 2, 1)) AS sev`)
     const severityQuery = hogql`
-        SELECT instance_id, max(multiIf(lower(level) = 'error', 2, lower(level) = 'warn', 1, 0)) AS sev
+        SELECT instance_id, ${columns}
         FROM log_entries
         WHERE log_source = ${props.functionKind}
           AND log_source_id = ${props.id}
           AND timestamp >= {filters.dateRange.from}
+          AND lower(level) IN ('warn', 'error')
           AND ${idClause}
         GROUP BY instance_id
-        HAVING sev > 0
     `
     const severityResponse = await api.queryHogQL(
         severityQuery,
@@ -818,12 +816,16 @@ async function fetchProblemLevels(
             filtersOverride: { date_from: filters.date_from },
         }
     )
-    const levelByInvocationId: Record<string, 'warn' | 'error'> = {}
+    const problemsByInvocationId: Record<string, RunProblems> = {}
     for (const severityRow of severityResponse.results ?? []) {
-        const [instanceId, sev] = severityRow as unknown as [string, number]
-        levelByInvocationId[instanceId] = Number(sev) >= 2 ? 'error' : 'warn'
+        const [instanceId, sev, bounced, complained] = severityRow as unknown as [string, number, unknown, unknown]
+        problemsByInvocationId[instanceId] = {
+            level: Number(sev) >= 2 ? 'error' : Number(sev) === 1 ? 'warn' : null,
+            // A bounce outranks a complaint: a complaint means the email arrived.
+            emailOutcome: Number(bounced) ? 'bounced' : Number(complained) ? 'complained' : null,
+        }
     }
-    return levelByInvocationId
+    return problemsByInvocationId
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
@@ -835,7 +837,6 @@ export interface hogInvocationsLogicValues {
     filters: HogInvocationsFilters
     hasLoadedOnce: boolean
     hasMore: boolean
-    hasRunningRows: boolean
     personPropertiesById: Record<
         string,
         {
@@ -908,7 +909,7 @@ export interface hogInvocationsLogicActions {
         personPropertiesById: Record<
             string,
             {
-                distinct_ids?: string[] | undefined
+                distinct_ids?: string[]
                 properties: Record<string, any>
             }
         >,
@@ -919,7 +920,7 @@ export interface hogInvocationsLogicActions {
         personPropertiesById: Record<
             string,
             {
-                distinct_ids?: string[] | undefined
+                distinct_ids?: string[]
                 properties: Record<string, any>
             }
         >
@@ -1034,7 +1035,6 @@ export interface hogInvocationsLogicMeta {
         selectedCount: (selectedIds: Record<string, boolean>) => number
         canBulkRerun: (selectedCount: number) => boolean
         rerunableSelectedIds: (selectedIds: Record<string, boolean>, runs: HogInvocationRow[]) => string[]
-        hasRunningRows: (runs: HogInvocationRow[]) => boolean
         selectableIds: (runs: HogInvocationRow[]) => string[]
         selectAllState: (selectedIds: Record<string, boolean>, selectableIds: string[]) => 'all' | 'none' | 'some'
     }
@@ -1180,9 +1180,10 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
                     breakpoint()
                     // Carry forward already-resolved problem levels so the indicator
                     // doesn't flicker off each refresh before `enrichProblems` re-resolves it.
-                    const priorLevels = new Map(values.runs.map((r) => [r.invocation_id, r.problem_log_level]))
+                    const priorRuns = new Map(values.runs.map((r) => [r.invocation_id, r]))
                     for (const row of rows) {
-                        row.problem_log_level = priorLevels.get(row.invocation_id) ?? null
+                        row.problem_log_level = priorRuns.get(row.invocation_id)?.problem_log_level ?? null
+                        row.email_outcome = priorRuns.get(row.invocation_id)?.email_outcome ?? null
                     }
                     actions.setHasMore(rows.length >= HOG_INVOCATIONS_PAGE_SIZE)
                     return rows
@@ -1207,9 +1208,9 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
                     if (ids.length === 0) {
                         return values.runs
                     }
-                    let levelByInvocationId: Record<string, 'warn' | 'error'>
+                    let problemsByInvocationId: Record<string, RunProblems>
                     try {
-                        levelByInvocationId = await fetchProblemLevels(props, values.filters, ids)
+                        problemsByInvocationId = await fetchRunProblems(props, values.filters, ids)
                     } catch {
                         // Leave levels as-is — the run statuses are still accurate.
                         return values.runs
@@ -1218,10 +1219,12 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
                     // Patch onto the *current* runs (not a pre-await snapshot) so a refresh
                     // that landed mid-flight isn't clobbered with a stale page; unresolved
                     // rows keep any carried-forward level.
-                    return values.runs.map((row) => ({
-                        ...row,
-                        problem_log_level: levelByInvocationId[row.invocation_id] ?? row.problem_log_level ?? null,
-                    }))
+                    return values.runs.map((row) => {
+                        const problems = problemsByInvocationId[row.invocation_id]
+                        return problems
+                            ? { ...row, problem_log_level: problems.level, email_outcome: problems.emailOutcome }
+                            : row
+                    })
                 },
             },
         ],
@@ -1335,10 +1338,6 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
                 })
             },
         ],
-        hasRunningRows: [
-            (s) => [s.runs],
-            (runs: HogInvocationRow[]): boolean => runs.some((r) => r.status === 'running'),
-        ],
         selectableIds: [
             (s) => [s.runs],
             (runs: HogInvocationRow[]): string[] =>
@@ -1396,8 +1395,7 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
             actions.setFilters({ person_uuid: person?.uuid ?? undefined })
         },
         loadRunsSuccess: () => {
-            scheduleAutoRefresh(cache, actions, values)
-            // Full-list enrichment: a 10s poll can surface brand-new invocation ids.
+            // Full-list enrichment: a refresh can surface brand-new invocation ids.
             actions.enrichProblems(null)
             const personIds = Array.from(new Set(values.runs.map((r) => r.person_id).filter(Boolean)))
             if (personIds.length > 0) {
@@ -1405,7 +1403,6 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
             }
         },
         loadMoreSuccess: () => {
-            scheduleAutoRefresh(cache, actions, values)
             actions.enrichProblems((cache.lastPageInvocationIds as string[] | undefined) ?? null)
             const personIds = Array.from(new Set(values.runs.map((r) => r.person_id).filter(Boolean)))
             if (personIds.length > 0) {
@@ -1451,11 +1448,9 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
                         ? await hogFunctionsRerunCreate(String(teamId), props.id, requestBody)
                         : await hogFlowsRerunCreate(String(teamId), props.id, requestBody)
                 lemonToast.success(
-                    `Rerun job ${response.rerun_job_id.slice(0, 8)}… queued. Updated rows will appear here as the worker drains the job.`
+                    `Rerun job ${response.rerun_job_id.slice(0, 8)}… queued. Refresh to see updated rows as the worker drains the job.`
                 )
                 actions.clearSelected()
-                // Re-run rows aren't `running` yet — force a short polling window so they surface.
-                cache.forceRefreshUntil = Date.now() + FORCE_REFRESH_WINDOW_MS
                 actions.loadRuns(null)
             } catch (e: any) {
                 lemonToast.error(`Failed to enqueue rerun: ${e?.detail ?? e?.message ?? String(e)}`)
@@ -1480,9 +1475,6 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
                 } else {
                     lemonToast.info('Nothing to cancel. The runs may have finished or are already being canceled.')
                 }
-                // Canceled rows flip once the worker terminates them, so poll briefly and the
-                // status change surfaces without a manual refresh.
-                cache.forceRefreshUntil = Date.now() + FORCE_REFRESH_WINDOW_MS
                 actions.loadRuns(null)
             } catch (e: any) {
                 lemonToast.error(`Failed to cancel: ${e?.detail ?? e?.message ?? String(e)}`)
@@ -1513,9 +1505,6 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
                 } else {
                     lemonToast.info('No runs are in flight for this workflow.')
                 }
-                // Canceled rows flip once the worker terminates them, so poll briefly and the
-                // status change surfaces without a manual refresh.
-                cache.forceRefreshUntil = Date.now() + FORCE_REFRESH_WINDOW_MS
                 actions.loadRuns(null)
             } catch (e: any) {
                 lemonToast.error(`Failed to cancel: ${e?.detail ?? e?.message ?? String(e)}`)
@@ -1554,8 +1543,6 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
                 lemonToast.success(
                     `Re-run job ${response.rerun_job_id.slice(0, 8)}… queued. Matching invocations will be re-run in the background.`
                 )
-                // Re-run rows aren't `running` yet — force a short polling window so they surface.
-                cache.forceRefreshUntil = Date.now() + FORCE_REFRESH_WINDOW_MS
                 actions.loadRuns(null)
             } catch (e: any) {
                 lemonToast.error(`Failed to enqueue re-run: ${e?.detail ?? e?.message ?? String(e)}`)
@@ -1563,38 +1550,39 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
         },
     })),
 
-    actionToUrl(({ values, props }) => {
-        // Per-job scoped tables (batch view) don't own the URL — several can mount on one
-        // scene and they'd clobber the shared `inv_*` params. Only the flat list syncs.
-        if (props.parentRunId) {
-            return {}
-        }
-        const buildUrl = (): [
-            string,
-            Record<string, string | undefined>,
-            Record<string, string>,
-            { replace: true },
-        ] => [
-            router.values.location.pathname,
-            { ...router.values.searchParams, ...filtersToSearchParams(values.filters) },
-            router.values.hashParams,
-            { replace: true },
-        ]
-        return {
-            setFilters: buildUrl,
-            resetFilters: buildUrl,
-        }
-    }),
-
-    urlToAction(({ actions, values, props }) => {
-        const handleSearch = (_: any, searchParams: Record<string, string | undefined>): void => {
+    listeners(({ values, props }) => {
+        const writeUrl = (): void => {
             // Per-job scoped tables (batch view) don't own the URL — several can mount on one
             // scene and they'd clobber the shared `inv_*` params. Only the flat list syncs.
             if (props.parentRunId) {
                 return
             }
-            const next = searchParamsToFilters(searchParams)
-            // Diff against current state to avoid looping with actionToUrl.
+            const current = readRawSearchParams(router.values.location.search)
+            const next = filtersToSearchParams(values.filters)
+            if (Object.values(URL_PARAMS).every((key) => current[key] === next[key])) {
+                return
+            }
+            router.actions.replace(
+                router.values.location.pathname,
+                { ...router.values.searchParams, ...next },
+                router.values.hashParams
+            )
+        }
+        return {
+            setFilters: writeUrl,
+            resetFilters: writeUrl,
+        }
+    }),
+
+    urlToAction(({ actions, values, props }) => {
+        const handleSearch = (): void => {
+            // Per-job scoped tables (batch view) don't own the URL — several can mount on one
+            // scene and they'd clobber the shared `inv_*` params. Only the flat list syncs.
+            if (props.parentRunId) {
+                return
+            }
+            const next = searchParamsToFilters(readRawSearchParams(router.values.location.search))
+            // Diff against current state to avoid looping with the URL write above.
             const changed = Object.entries(next).some(
                 ([key, value]) =>
                     JSON.stringify(value) !== JSON.stringify(values.filters[key as keyof HogInvocationsFilters])

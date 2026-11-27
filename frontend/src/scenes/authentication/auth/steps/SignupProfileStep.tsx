@@ -8,13 +8,13 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { Link } from 'lib/lemon-ui/Link'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { AuthBanner } from 'scenes/authentication/shared/authScene/AuthBanner'
 import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
 import { AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
 import { TurnstileChallenge } from 'scenes/authentication/shared/TurnstileChallenge'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
-import { signupLogic } from '../signupLogic'
+import { SIGNUP_NETWORK_ERROR_CODE, signupLogic } from '../signupLogic'
 
 export function SignupProfileStep(): JSX.Element {
     const {
@@ -76,27 +76,28 @@ export function SignupProfileStep(): JSX.Element {
             {signupPanelOnboardingManualErrors?.generic && (
                 <AuthBanner variant="danger" className="mb-4">
                     <span>{signupPanelOnboardingManualErrors.generic.detail || 'Could not complete your signup.'}</span>
-                    {preflight?.cloud && (
-                        <>
-                            {' '}
-                            <Link
-                                // The login banner uses `login-error-contact-support`. A shared
-                                // attribute would mix both pages into one autocapture funnel arm.
-                                data-attr="signup-error-contact-support"
-                                onClick={(e) => {
-                                    e.preventDefault()
-                                    openSupportForm({
-                                        kind: 'support',
-                                        email: signupEmail,
-                                    })
-                                }}
-                                className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
-                            >
-                                Contact us
-                            </Link>{' '}
-                            <span>to resolve this.</span>
-                        </>
-                    )}
+                    {preflight?.cloud &&
+                        signupPanelOnboardingManualErrors.generic.code !== SIGNUP_NETWORK_ERROR_CODE && (
+                            <>
+                                {' '}
+                                <Link
+                                    // The login banner uses `login-error-contact-support`. A shared
+                                    // attribute would mix both pages into one autocapture funnel arm.
+                                    data-attr="signup-error-contact-support"
+                                    onClick={(e) => {
+                                        e.preventDefault()
+                                        openSupportForm({
+                                            kind: 'support',
+                                            email: signupEmail,
+                                        })
+                                    }}
+                                    className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
+                                >
+                                    Contact us
+                                </Link>{' '}
+                                <span>to resolve this.</span>
+                            </>
+                        )}
                 </AuthBanner>
             )}
             <Form
@@ -141,7 +142,8 @@ export function SignupProfileStep(): JSX.Element {
                     <TurnstileChallenge
                         siteKey={turnstileSiteKey}
                         onSuccess={setTurnstileToken}
-                        tokenReceived={!!turnstileToken}
+                        pendingLabel={turnstileToken ? 'Creating your account...' : undefined}
+                        troublePrompt="Having trouble signing up?"
                         email={signupEmail}
                     />
                 ) : (

@@ -13,7 +13,7 @@ from temporalio.common import MetricMeter
 
 from posthog.api.embedding_worker import generate_embedding
 from posthog.dataclasses import frozen
-from posthog.llm.gateway_client import build_ai_gateway_anthropic_client, team_distinct_id
+from posthog.llm.gateway_client import build_anthropic_client, team_distinct_id
 from posthog.models.activity_logging.activity_log import Trigger
 from posthog.models.activity_logging.model_activity import ActivityTriggerContext
 from posthog.models.organization import OrganizationMembership
@@ -27,6 +27,7 @@ from products.business_knowledge.backend import learning_settings, logic
 from products.business_knowledge.backend.constants import BK_EMBEDDING_MODEL, BK_QUERY_EMBEDDING_TIMEOUT
 from products.business_knowledge.backend.learning.contracts import EvidenceBundle, EvidenceRef
 from products.business_knowledge.backend.learning.providers import get_learning_provider
+from products.business_knowledge.backend.llm_telemetry import RetrievalTrace, stable_trace_id
 from products.business_knowledge.backend.models import KnowledgeLearningRun, LearningRunResult, LearningRunStatus
 
 from ..constants import (
@@ -235,7 +236,7 @@ def _invoke_structured_model(
     first_call_wins: bool = False,
 ) -> ModelOutput:
     try:
-        client = build_ai_gateway_anthropic_client(
+        client = build_anthropic_client(
             ai_product=_LEARNING_AI_PRODUCT,
             trace_id=trace_id,
             distinct_id=team_distinct_id(team.id),
@@ -475,7 +476,7 @@ def _contradiction_gate_rejection(
     return "none"
 
 
-def _search_existing_knowledge(team: Team, query: str) -> list[logic.KnowledgeSearchResult]:
+def _search_existing_knowledge(team: Team, query: str, *, run_id: UUID) -> list[logic.KnowledgeSearchResult]:
     embedding = generate_embedding(
         team,
         query,
@@ -490,6 +491,8 @@ def _search_existing_knowledge(team: Team, query: str) -> list[logic.KnowledgeSe
         limit=LEARNING_SEARCH_LIMIT,
         use_semantic=True,
         query_embedding=embedding,
+        # Keyed on the run, so a retried analysis is counted once.
+        trace=RetrievalTrace(surface="learning", trace_id=stable_trace_id("learning", run_id)),
     )
 
 
@@ -762,7 +765,7 @@ def _analyze(run: KnowledgeLearningRun, input: AnalyzeLearningEvidenceInput) -> 
         return _finish_without_knowledge(run, rejection_code="pii")
 
     try:
-        results = _search_existing_knowledge(run.team, generated_text)
+        results = _search_existing_knowledge(run.team, generated_text, run_id=run.id)
     except Exception:
         raise LearningAnalysisError("knowledge_search_failed") from None
     retrieved = _render_search_context(results)

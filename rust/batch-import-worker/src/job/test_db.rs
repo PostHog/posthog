@@ -81,6 +81,7 @@ pub struct StoredJob {
     pub status_message: Option<String>,
     pub display_status_message: Option<String>,
     pub lease_id: Option<String>,
+    pub leased_until: Option<DateTime<Utc>>,
     pub state: JobState,
     pub pending_commit: Option<Value>,
     pub backoff_until: Option<DateTime<Utc>>,
@@ -89,8 +90,8 @@ pub struct StoredJob {
 pub async fn read_job(pool: &PgPool, id: Uuid) -> StoredJob {
     let row = sqlx::query(
         r#"
-        SELECT status, status_message, display_status_message, lease_id, state, pending_commit,
-               backoff_until
+        SELECT status, status_message, display_status_message, lease_id, leased_until, state,
+               pending_commit, backoff_until
         FROM posthog_batchimport WHERE id = $1
         "#,
     )
@@ -103,6 +104,7 @@ pub async fn read_job(pool: &PgPool, id: Uuid) -> StoredJob {
         status_message: row.get("status_message"),
         display_status_message: row.get("display_status_message"),
         lease_id: row.get("lease_id"),
+        leased_until: row.get("leased_until"),
         state: serde_json::from_value(row.get("state")).expect("state json"),
         pending_commit: row.get("pending_commit"),
         backoff_until: row.get("backoff_until"),
@@ -179,5 +181,6 @@ pub fn claimed_model(id: Uuid, row: &JobRowFixture) -> JobModel {
             .clone()
             .map(|v| serde_json::from_value(v).expect("pending commit")),
         was_leased: false,
+        recovered_commit: None,
     }
 }

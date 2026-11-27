@@ -221,16 +221,28 @@ describe('validateEventAgainstSchema', () => {
         })
     })
 
-    describe('Object type coercion', () => {
-        it.each([
+    describe.each(['Object', 'Array'])('%s type coercion', (propertyType) => {
+        const objectCases: [string, unknown][] = [
             ['plain object', { foo: 'bar' }],
             ['empty object', {}],
+        ]
+        const arrayCases: [string, unknown][] = [
             ['array', [1, 2, 3]],
             ['empty array', []],
-        ])('should accept %s as Object', (_, value) => {
+            ['mixed array', [1, 'two', null, { nested: [true] }]],
+        ]
+        const primitiveCases: [string, unknown][] = [
+            ['string', 'hello'],
+            ['number', 42],
+            ['boolean', true],
+        ]
+        const acceptCases = propertyType === 'Object' ? [...objectCases, ...arrayCases] : arrayCases
+        const rejectCases = propertyType === 'Object' ? primitiveCases : [...objectCases, ...primitiveCases]
+
+        it.each(acceptCases)('should accept %s', (_, value) => {
             const schema: EventSchemaEnforcement = {
                 event_name: 'test_event',
-                required_properties: new Map([['prop', ['Object']]]),
+                required_properties: new Map([['prop', [propertyType]]]),
             }
 
             const result = validateEventAgainstSchema({ prop: value }, schema)
@@ -238,14 +250,10 @@ describe('validateEventAgainstSchema', () => {
             expect(result.valid).toBe(true)
         })
 
-        it.each([
-            ['string', 'hello'],
-            ['number', 42],
-            ['boolean', true],
-        ])('should reject %s as Object', (_, value) => {
+        it.each(rejectCases)('should reject %s', (_, value) => {
             const schema: EventSchemaEnforcement = {
                 event_name: 'test_event',
-                required_properties: new Map([['prop', ['Object']]]),
+                required_properties: new Map([['prop', [propertyType]]]),
             }
 
             const result = validateEventAgainstSchema({ prop: value }, schema)

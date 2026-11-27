@@ -11,9 +11,9 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, tag_queries
-from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT
+from posthog.tasks.survey_system_stop import log_survey_stopped_by_system
 
 from products.surveys.backend.models import Survey
 
@@ -61,29 +61,18 @@ def _stop_survey_if_reached_limit(survey: Survey, responses_count: int) -> None:
     if responses_count < survey.responses_limit:
         return
 
+    responses_limit = survey.responses_limit
     survey.end_date = timezone.now()
     survey.responses_limit = None
     survey.save(update_fields=["end_date", "responses_limit"])
-    _log_survey_closed_by_responses_limit(survey)
+    _log_survey_closed_by_responses_limit(survey, responses_limit)
 
 
-def _log_survey_closed_by_responses_limit(survey: Survey) -> None:
+def _log_survey_closed_by_responses_limit(survey: Survey, responses_limit: int) -> None:
     # This task saves directly on the model, bypassing the API viewset that writes
     # activity-log entries. Without this, the survey stops with no trace and the user
     # has no way to see why. Mirror the schedule-close entry in update_survey_iteration.
-    log_activity(
-        organization_id=survey.team.organization_id,
-        team_id=survey.team_id,
-        user=None,  # system action: renders as PostHog in the activity log
-        was_impersonated=False,
-        item_id=survey.id,
-        scope="Survey",
-        activity="updated",
-        detail=Detail(
-            name=survey.name,
-            changes=[Change(type="Survey", field="end_date", action="created", after=survey.end_date)],
-        ),
-    )
+    log_survey_stopped_by_system(survey, "survey_responses_limit_reached", {"responses_limit": responses_limit})
 
 
 def stop_surveys_reached_target() -> None:

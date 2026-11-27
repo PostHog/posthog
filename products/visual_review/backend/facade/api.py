@@ -15,6 +15,7 @@ Do NOT:
 - Return ORM instances or QuerySets
 """
 
+from collections.abc import Callable
 from dataclasses import replace
 from datetime import datetime
 from uuid import UUID
@@ -25,6 +26,8 @@ from django.utils import timezone
 from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.helpers.trigram_search import search_match_type_from_instance
+from posthog.paging import Page, PageRequest
+from posthog.queryset_paging import select_page
 
 from ..diff_metadata import (
     DiffMetadata,
@@ -34,11 +37,16 @@ from ..logic import (
     approvals,
     artifact_store,
     baseline_overview,
+    baseline_record,
     baselines,
+    commit_status,
     errors,
     flakiness,
     gating,
     history,
+    ledger_adopt,
+    ledger_push,
+    ledger_repair,
     owners,
     quarantine,
     quarantine_lifts,
@@ -50,7 +58,7 @@ from ..logic import (
     toleration,
 )
 from . import contracts
-from .enums import ActorType, QuarantineLiftState, RunPurpose, RunReviewFilter, ShiftBandKind
+from .enums import ActorType, QuarantineLiftState, RunGate, RunPurpose, RunReviewFilter, ShiftBandKind
 
 User = get_user_model()
 
@@ -67,6 +75,9 @@ _RESERVED_RUN_METADATA_KEYS = frozenset(
         "github_comment_id",
         "baseline_commit_sha",
         "baseline_healed_from_merge_base",
+        # The frozen baseline record names the approvals a run counted. A client that could send it
+        # would make another pull request's approvals land with its own.
+        baseline_record.METADATA_KEY,
     }
 )
 
@@ -99,6 +110,9 @@ PRSHAMismatchError = errors.PRSHAMismatchError
 StaleRunError = errors.StaleRunError
 RunNotFullyResolvedError = errors.RunNotFullyResolvedError
 BaselineFilePathNotConfiguredError = errors.BaselineFilePathNotConfiguredError
+CommitStatusNotPostedError = errors.CommitStatusNotPostedError
+BaselineRepairError = errors.BaselineRepairError
+BaselineAdoptionError = errors.BaselineAdoptionError
 
 
 # --- Converters (model -> DTO) ---
@@ -226,7 +240,10 @@ def _compute_unresolved(run) -> int:
 
 
 def _to_run(
-    run, user_basic_infos: dict[int, contracts.UserBasicInfo] | None = None, unresolved: int | None = None
+    run,
+    user_basic_infos: dict[int, contracts.UserBasicInfo] | None = None,
+    unresolved: int | None = None,
+    stale_approval_count: int = 0,
 ) -> contracts.Run:
     approved_by = (user_basic_infos or {}).get(run.approved_by_id) if run.approved_by_id else None
     return contracts.Run(
@@ -258,6 +275,8 @@ def _to_run(
         metadata=run.metadata or {},
         # Present only when the queryset came from a trigram search (annotation absent otherwise).
         search_match_type=search_match_type_from_instance(run),
+        gate=RunGate(run.gate),
+        stale_approval_count=stale_approval_count,
     )
 
 
@@ -270,6 +289,7 @@ def _to_repo(repo) -> contracts.Repo:
         baseline_file_paths=repo.baseline_file_paths,
         enable_pr_comments=repo.enable_pr_comments,
         debt_digest_enabled=repo.debt_digest_enabled,
+        auto_quarantine_mode=repo.auto_quarantine_mode,
         created_at=repo.created_at,
     )
 
@@ -282,9 +302,45 @@ def get_repo(repo_id: UUID, team_id: int) -> contracts.Repo:
     return _to_repo(repo)
 
 
-def list_repos(team_id: int) -> list[contracts.Repo]:
-    projects = repos.list_repos_for_team(team_id)
-    return [_to_repo(p) for p in projects]
+def repair_baseline_ledger(
+    repo_id: UUID,
+    team_id: int,
+    run_type: str,
+    *,
+    apply: bool,
+    on_progress: Callable[[int, int], None] | None = None,
+) -> contracts.BaselineLedgerRepair:
+    """Plan, or with `apply` write, the entries that make the baseline ledger equal the baseline file. Shadow mode only.
+
+    `on_progress` gets the number of ledger positions read so far and the number to read.
+    """
+    repo = repos.get_repo(repo_id, team_id)
+    if apply:
+        return ledger_repair.apply_repair(repo, run_type, on_progress)
+    return ledger_repair.plan_repair(repo, run_type, on_progress)
+
+
+def plan_ledger_adoption(
+    repo_id: UUID, team_id: int, run_type: str, run_id: UUID, identifiers: list[str]
+) -> contracts.BaselineLedgerAdoption:
+    """The entries that would set the ledger to what a full default-branch run rendered, without writing them.
+
+    Ledger mode only. Covers only the named identifiers.
+    """
+    repo = repos.get_repo(repo_id, team_id)
+    return ledger_adopt.plan_adoption(repo, run_type, run_id, identifiers)
+
+
+def adopt_ledger_renders(
+    repo_id: UUID, team_id: int, run_type: str, run_id: UUID, identifiers: list[str]
+) -> contracts.BaselineLedgerAdoption:
+    """Write the entries that set the ledger to what a full default-branch run rendered. Ledger mode only."""
+    repo = repos.get_repo(repo_id, team_id)
+    return ledger_adopt.adopt_renders(repo, run_type, run_id, identifiers)
+
+
+def list_repos(team_id: int, page: PageRequest) -> Page[contracts.Repo]:
+    return select_page(repos.list_repos_for_team(team_id), page).map(_to_repo)
 
 
 def create_repo(team_id: int, repo_external_id: int, repo_full_name: str) -> contracts.Repo:
@@ -527,7 +583,9 @@ def list_runs(
     commit_sha: str | None = None,
     branch: str | None = None,
     search: str | None = None,
-) -> list[contracts.Run]:
+    *,
+    page: PageRequest,
+) -> Page[contracts.Run]:
     runs = run_queries.list_runs_for_team(
         team_id,
         review_state=review_state,
@@ -537,7 +595,7 @@ def list_runs(
         branch=branch,
         search=search,
     )
-    return [_to_run(r) for r in runs]
+    return select_page(runs, page).map(_to_run)
 
 
 def get_review_state_counts(team_id: int, repo_id: UUID | None = None) -> dict[str, int]:
@@ -559,6 +617,15 @@ def create_run(input: contracts.CreateRunInput, team_id: int) -> contracts.Creat
     ]
 
     return contracts.CreateRunResult(run_id=run.id, uploads=upload_targets)
+
+
+def report_no_run_needed(input: contracts.NoRunNeededInput, team_id: int) -> contracts.NoRunNeededResult:
+    """Post a passing commit status for a commit that needs no visual run, unless a run owns the status."""
+    repo = repos.get_repo(input.repo_id, team_id)
+    outcome = commit_status.report_no_run_needed(repo, input)
+    return contracts.NoRunNeededResult(
+        outcome=outcome, detail=commit_status.no_run_needed_detail(outcome, input.run_type)
+    )
 
 
 def add_snapshots(input: contracts.AddSnapshotsInput, run_id: UUID, team_id: int) -> contracts.AddSnapshotsResult:
@@ -600,7 +667,12 @@ def get_run(run_id: UUID, team_id: int | None = None) -> contracts.Run:
     run = run_queries.get_run(run_id, team_id=team_id)
     user_ids = {run.approved_by_id} if run.approved_by_id else set()
     user_basic_infos = _fetch_user_basic_infos(user_ids)
-    return _to_run(run, user_basic_infos, unresolved=gating.count_unresolved(run))
+    return _to_run(
+        run,
+        user_basic_infos,
+        unresolved=gating.count_unresolved(run),
+        stale_approval_count=commit_status.stale_approval_count(run),
+    )
 
 
 def get_run_scope(run_id: UUID, team_id: int) -> contracts.RunScope:
@@ -830,6 +902,7 @@ def _to_quarantined_entry(
         updated_at=q.updated_at,
         created_by=created_by,
         source_run=source_run,
+        lift_reason=q.lift_reason,
     )
 
 
@@ -849,12 +922,19 @@ def _to_baseline_quarantine_summary(
 
 
 def list_quarantined(
-    repo_id: UUID, team_id: int, identifier: str | None = None, run_type: str | None = None
-) -> list[contracts.QuarantinedIdentifierEntry]:
-    entries = quarantine.list_quarantined_identifiers(repo_id, team_id, identifier=identifier, run_type=run_type)
-    user_ids = {e.created_by_id for e in entries if e.created_by_id}
+    repo_id: UUID,
+    team_id: int,
+    identifier: str | None = None,
+    run_type: str | None = None,
+    *,
+    page: PageRequest,
+) -> Page[contracts.QuarantinedIdentifierEntry]:
+    entries = select_page(
+        quarantine.list_quarantined_identifiers(repo_id, team_id, identifier=identifier, run_type=run_type), page
+    )
+    user_ids = {e.created_by_id for e in entries.results if e.created_by_id}
     user_basic_infos = _fetch_user_basic_infos(user_ids)
-    return [_to_quarantined_entry(q, user_basic_infos) for q in entries]
+    return entries.map(lambda entry: _to_quarantined_entry(entry, user_basic_infos))
 
 
 def quarantine_identifier(
@@ -946,3 +1026,15 @@ def list_quarantine_lifts_for_run(run_id: UUID, team_id: int) -> list[contracts.
 
 def cancel_quarantine_lift(run_id: UUID, request_id: UUID, team_id: int) -> None:
     quarantine_lifts.cancel_lift_request(request_id, team_id=team_id, run_id=run_id)
+
+
+# --- Baseline ledger ---
+
+
+def advance_baseline_ledgers_after_push(github_repo_id: int) -> None:
+    """Enqueue an advance of every baseline ledger that follows this GitHub repository.
+
+    Call it for a push to the repository's default branch. The lookup is held in the process for
+    a minute, so nearly every call costs no query, and a repository without a ledger gets no task.
+    """
+    ledger_push.advance_after_push(github_repo_id)

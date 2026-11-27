@@ -130,7 +130,6 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         self._create_ai_events(
             self.team, distinct_id, "$ai_evaluation", 1, properties={"$ai_evaluation_runtime": "sentiment"}
         )
-        self._create_ai_events(self.team, distinct_id, "$ai_tag", 9)
         self._create_ai_events(self.team, distinct_id, "$ai_trace_summary", 7)
         self._create_ai_events(self.team, distinct_id, "$ai_generation_summary", 12)
         self._create_ai_events(self.team, distinct_id, "$ai_trace_clusters", 2)
@@ -177,7 +176,6 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         assert metrics.ai_llm_judge_evaluation_count == 3
         assert metrics.ai_hog_evaluation_count == 2
         assert metrics.ai_sentiment_evaluation_count == 1
-        assert metrics.ai_tag_count == 9
         assert metrics.ai_trace_summary_count == 7
         assert metrics.ai_generation_summary_count == 12
         assert metrics.ai_trace_clusters_count == 2
@@ -604,7 +602,7 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         all_data = defaultdict(dict, {key: dict(rows) for key, rows in counter_report.counts.items()})
         org_id = str(self.organization.id)
         before = list(OfflineEvaluationUsageLedger.objects.for_team(self.team.id).order_by("id").values())
-        celery_report = _get_all_org_reports(period=period, counter_report=counter_report)[org_id]
+        celery_report = _get_all_org_reports(period=period)[org_id]
         ctx = WorkflowContext(
             run_id="offline-usage", date_str="2026-10-31", period_start=period.start, period_end=period.end
         )
@@ -804,6 +802,32 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         )
         self._create_ai_events(team_2, distinct_id_2, "$llm_prompt_fetched", 1)
 
+        self._create_ai_events(
+            team_2,
+            "user@example.com",
+            "$ai_generation",
+            3,
+            properties={"$ai_session_id": "session-1", "$ai_tool_call_count": 2},
+        )
+        self._create_ai_events(
+            team_2,
+            "user@example.com",
+            "$ai_generation",
+            1,
+            properties={"$ai_tool_call_count": 0, "$ai_ingestion_source": "gateway"},
+        )
+        self._create_ai_events(team_2, "trace-1", "$ai_generation", 1, properties={"$ai_trace_id": "trace-1"})
+        self._create_ai_events(
+            team_2, "user@example.com", "$ai_generation", 2, properties={"$ai_ingestion_source": "otel"}
+        )
+        self._create_ai_events(
+            team_2,
+            "user@example.com",
+            "$ai_span",
+            1,
+            properties={"$ai_session_id": "session-1", "$ai_tool_call_count": 2, "$ai_ingestion_source": "otel"},
+        )
+
         # Generate reports
         org_reports = _get_all_ai_observability_reports(period=period)
 
@@ -850,7 +874,11 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         org_2_report = org_reports[str(org_2.id)]
         assert org_2_report["organization_name"] == org_2.name
         assert org_2_report["ai_embedding_count"] == 7
-        assert org_2_report["ai_generation_count"] == 2
+        assert org_2_report["ai_generation_count"] == 9
+        assert org_2_report["ai_generation_with_session_count"] == 3
+        assert org_2_report["ai_generation_identified_count"] == 6
+        assert org_2_report["ai_generation_with_tool_calls_count"] == 3
+        assert org_2_report["ai_otel_generation_count"] == 2
         assert org_2_report["ai_llm_judge_evaluation_count"] == 0
         assert org_2_report["ai_hog_evaluation_count"] == 0
         assert org_2_report["ai_sentiment_evaluation_count"] == 0

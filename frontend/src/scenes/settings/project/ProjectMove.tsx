@@ -2,14 +2,19 @@ import { useActions, useValues } from 'kea'
 import { Dispatch, SetStateAction, useState } from 'react'
 
 import { IconArrowRight } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonModal, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonModal, LemonSearchableSelect } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo'
 import { projectLogic } from 'scenes/projectLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { OrganizationBasicType } from '~/types'
+
+import { QuillMoveProjectDialog } from './QuillMoveProjectDialog'
+import { QuillProjectMove } from './QuillProjectMove'
 
 export function MoveProjectModal({
     isOpen,
@@ -24,11 +29,35 @@ export function MoveProjectModal({
     const { moveProject } = useActions(projectLogic)
 
     const [isConfirmed, setConfirmed] = useState(false)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    const closeModal = !projectBeingMovedLoading ? () => setIsOpen(false) : undefined
+    const moveCurrentProject = currentProject ? () => moveProject(currentProject, organization.id) : undefined
+    const handleConfirmationChange = (value: string): void => {
+        if (currentProject) {
+            setConfirmed(value.toLowerCase() === currentProject.name.toLowerCase())
+        }
+    }
+
+    if (todayRailNav) {
+        return (
+            <QuillMoveProjectDialog
+                isOpen={isOpen}
+                onClose={closeModal}
+                onCancel={() => setIsOpen(false)}
+                projectName={currentProject?.name}
+                isConfirmed={isConfirmed}
+                isMoving={projectBeingMovedLoading}
+                onConfirmationChange={handleConfirmationChange}
+                onMove={moveCurrentProject}
+            />
+        )
+    }
 
     return (
         <LemonModal
             title="Move the project to another organization?"
-            onClose={!projectBeingMovedLoading ? () => setIsOpen(false) : undefined}
+            onClose={closeModal}
             closable={!projectBeingMovedLoading}
             maxWidth="30rem"
             footer={
@@ -46,7 +75,7 @@ export function MoveProjectModal({
                         loading={projectBeingMovedLoading}
                         data-attr="move-project-ok"
                         status="danger"
-                        onClick={currentProject ? () => moveProject(currentProject, organization.id) : undefined}
+                        onClick={moveCurrentProject}
                     >{`Move ${currentProject ? currentProject.name : 'the current project'}`}</LemonButton>
                 </>
             }
@@ -59,14 +88,7 @@ export function MoveProjectModal({
             <p>
                 Please type <strong>{currentProject ? currentProject.name : "this project's name"}</strong> to confirm.
             </p>
-            <LemonInput
-                type="text"
-                onChange={(value) => {
-                    if (currentProject) {
-                        setConfirmed(value.toLowerCase() === currentProject.name.toLowerCase())
-                    }
-                }}
-            />
+            <LemonInput type="text" onChange={handleConfirmationChange} />
         </LemonModal>
     )
 }
@@ -89,12 +111,50 @@ export function ProjectMove(): JSX.Element {
         scope: RestrictionScope.Project,
     })
     const { moveProjectDisabledReason } = useValues(projectLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     // Moving a project requires admin (or owner) on BOTH organizations — the API enforces this. The source org is
     // covered by `restrictedReason` above; guard the target org here so a member of the target org gets a clear
     // message instead of a failed request.
     const targetOrgRestrictionReason =
         targetOrganization && notAdminOfOrg(targetOrganization) ? NOT_ADMIN_OF_TARGET_REASON : null
+
+    const selectTargetOrganization = (value: string | null): void => {
+        const organization = otherOrganizations.find((o) => o.id === value)
+        setTargetOrganization(organization || null)
+    }
+    const openModal = (): void => setIsModalVisible(true)
+    const selectDisabledReason = restrictedReason ?? moveProjectDisabledReason
+    const moveDisabledReason =
+        restrictedReason ??
+        moveProjectDisabledReason ??
+        (targetOrganization === null
+            ? 'Please select the target organization'
+            : (targetOrgRestrictionReason ?? undefined))
+
+    if (todayRailNav) {
+        return (
+            <>
+                <QuillProjectMove
+                    projectName={currentProject?.name}
+                    organizations={otherOrganizations}
+                    getOrganizationDisabledReason={(o) => (notAdminOfOrg(o) ? NOT_ADMIN_OF_TARGET_REASON : undefined)}
+                    targetOrganizationId={targetOrganization?.id ?? null}
+                    onTargetOrganizationChange={selectTargetOrganization}
+                    selectDisabledReason={selectDisabledReason}
+                    onMoveClick={openModal}
+                    moveDisabledReason={moveDisabledReason}
+                />
+                {targetOrganization && (
+                    <MoveProjectModal
+                        isOpen={isModalVisible}
+                        setIsOpen={setIsModalVisible}
+                        organization={targetOrganization}
+                    />
+                )}
+            </>
+        )
+    }
 
     return (
         <>
@@ -103,34 +163,29 @@ export function ProjectMove(): JSX.Element {
             </p>
 
             <div className="flex items-center gap-2">
-                <LemonSelect
+                <LemonSearchableSelect
                     options={otherOrganizations.map((o) => ({
                         label: o.name,
                         value: o.id,
+                        icon: <UploadedLogo size="xsmall" name={o.name} entityId={o.id} mediaId={o.logo_media_id} />,
                         disabledReason: notAdminOfOrg(o) ? NOT_ADMIN_OF_TARGET_REASON : undefined,
                     }))}
                     placeholder="Select target organization"
-                    onChange={(value) => {
-                        const organization = otherOrganizations.find((o) => o.id === value)
-                        setTargetOrganization(organization || null)
-                    }}
+                    searchPlaceholder="Search organizations..."
+                    searchInputDataAttr="move-project-target-organization-search"
+                    noResultsMessage="No organizations match"
+                    onChange={selectTargetOrganization}
                     value={targetOrganization?.id}
-                    disabledReason={restrictedReason ?? moveProjectDisabledReason}
+                    disabledReason={selectDisabledReason}
                 />
 
                 <LemonButton
                     status="danger"
                     type="secondary"
-                    onClick={() => setIsModalVisible(true)}
+                    onClick={openModal}
                     data-attr="move-project-button"
                     icon={<IconArrowRight />}
-                    disabledReason={
-                        restrictedReason ??
-                        moveProjectDisabledReason ??
-                        (targetOrganization === null
-                            ? 'Please select the target organization'
-                            : (targetOrgRestrictionReason ?? undefined))
-                    }
+                    disabledReason={moveDisabledReason}
                 >
                     Move {currentProject?.name || 'the current project'}
                 </LemonButton>

@@ -1,3 +1,4 @@
+import type { AttachedContextItem } from '~/layout/ai/attachedContext'
 import {
     AnyEntityNode,
     EventsNode,
@@ -5,8 +6,9 @@ import {
     FunnelsQuery,
     GroupNode,
     InsightVizNode,
+    NodeKind,
 } from '~/queries/schema/schema-general'
-import { DashboardTile, InsightModel, SurveyEventsWithProperties } from '~/types'
+import { DashboardTile, FunnelVizType, InsightModel, SurveyEventsWithProperties } from '~/types'
 
 export interface FunnelContext {
     insightName: string
@@ -16,14 +18,38 @@ export interface FunnelContext {
 
 interface FunnelStepResult {
     count: number
-    type: string
 }
 
 export interface SurveyableFunnelInsight {
     id?: number
+    short_id?: InsightModel['short_id']
     name?: string
     query: InsightVizNode<FunnelsQuery>
     result: FunnelStepResult[]
+}
+
+export function surveyOpportunityContextItems(
+    insight: Pick<SurveyableFunnelInsight, 'id' | 'short_id'>,
+    funnelContext: FunnelContext | null
+): AttachedContextItem[] | null {
+    return funnelContext
+        ? [
+              {
+                  type: 'insight',
+                  key: insight.id,
+                  pageId: insight.short_id ?? null,
+                  label: funnelContext.insightName,
+              },
+              {
+                  type: 'survey_opportunity_funnel_context',
+                  value: JSON.stringify({
+                      conversionRate: funnelContext.conversionRate,
+                      steps: funnelContext.steps,
+                  }),
+                  label: 'Funnel conversion context',
+              },
+          ]
+        : null
 }
 
 /**
@@ -63,12 +89,19 @@ export function isSurveyableFunnelInsight(
 ): insight is SurveyableFunnelInsight {
     const query = insight?.query as InsightVizNode<FunnelsQuery> | undefined
     const result = insight?.result
+    if (!query || !isValidFunnelQuery(query)) {
+        return false
+    }
+    // Only steps and flow funnels return one row per step.
+    const vizType = query.source.funnelsFilter?.funnelVizType ?? FunnelVizType.Steps
 
     return (
-        isValidFunnelQuery(query) &&
+        query.source.series.every((node) => node.kind === NodeKind.EventsNode || node.kind === NodeKind.ActionsNode) &&
+        (vizType === FunnelVizType.Steps || vizType === FunnelVizType.Flow) &&
         Array.isArray(result) &&
         result.length >= 2 &&
-        result.every((step: FunnelStepResult) => step.type === 'events' || step.type === 'actions')
+        // A breakdown funnel returns a list of steps for each breakdown value.
+        result.every((step) => !Array.isArray(step))
     )
 }
 

@@ -1,6 +1,6 @@
 import { createContext, useContext } from 'react'
 
-import type { WebExperimentVariant } from '~/toolbar/shared/types'
+import type { WebExperimentUrlMatchType, WebExperimentVariant } from '~/toolbar/shared/types'
 import type { ExperimentIdType } from '~/types'
 
 import type { ElementSelectorType } from './elementSelectorTypes'
@@ -28,6 +28,8 @@ export interface WebExperimentEditor {
     inspectForTransformation: (variant: string, index: number | null) => void
     setTransformationField: (variant: string, index: number, field: 'html' | 'css', value: string) => void
     setTransformationSelector: (variant: string, index: number, selector: string) => void
+    /** An empty url lets the variant change every page. */
+    setVariantUrlCondition: (variant: string, url: string, urlMatchType: WebExperimentUrlMatchType) => void
 }
 
 export function canRenameVariant(
@@ -36,6 +38,26 @@ export function canRenameVariant(
     newKey: string
 ): boolean {
     return !!variants[variant] && !!newKey && newKey !== variant && !variants[newKey]
+}
+
+/** Returns null when the variant is gone, so a caller can leave the form alone. */
+export function variantsWithUrlCondition(
+    variants: Record<string, WebExperimentVariant>,
+    variant: string,
+    url: string,
+    urlMatchType: WebExperimentUrlMatchType
+): Record<string, WebExperimentVariant> | null {
+    const webVariant = variants[variant]
+    if (!webVariant) {
+        return null
+    }
+    return {
+        ...variants,
+        [variant]: {
+            ...webVariant,
+            conditions: { ...webVariant.conditions, url: url || undefined, urlMatchType },
+        },
+    }
 }
 
 export const WebExperimentEditorContext = createContext<WebExperimentEditor | null>(null)

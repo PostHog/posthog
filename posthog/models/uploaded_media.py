@@ -5,6 +5,7 @@ from typing import Optional
 from django.conf import settings
 from django.db import models
 from django.db.models import Q
+from django.utils import timezone
 
 import structlog
 from PIL import ExifTags, Image
@@ -32,6 +33,14 @@ MEDIA_PURPOSE_EMAIL = "email"
 MEDIA_PURPOSE_CANVAS = "canvas"
 MEDIA_PURPOSE_EXPERIMENT = "experiment"
 MEDIA_PURPOSES = [MEDIA_PURPOSE_EMAIL, MEDIA_PURPOSE_CANVAS, MEDIA_PURPOSE_EXPERIMENT]
+
+# Upload-only purposes: an upload can carry one, but no library lists it. A support reply image
+# can show a customer's data, and the library list does not check access to the ticket.
+MEDIA_PURPOSE_CONVERSATIONS = "conversations"
+UPLOAD_ONLY_MEDIA_PURPOSES = [MEDIA_PURPOSE_CONVERSATIONS]
+# Gates the `conversations` purpose and the check that ticket reply images are this team's uploads.
+CONVERSATIONS_REPLY_IMAGES_FLAG = "conversations-mcp-reply-images"
+UPLOAD_MEDIA_PURPOSES = [*MEDIA_PURPOSES, *UPLOAD_ONLY_MEDIA_PURPOSES]
 
 # These uploads must never be served through the unauthenticated /uploaded_media route.
 # Their owning product provides an authenticated download endpoint instead.
@@ -147,6 +156,9 @@ class UploadedMedia(UUIDTModel, RootTeamMixin):
     # Set when a user removes the image from its library. The row and its bytes stay, because
     # content that already embeds the URL (a sent email, a live template) must keep loading it.
     archived_at = models.DateTimeField(null=True, blank=True)
+    # Set by staff to take an image down. Unlike archived_at, the public URL stops serving it.
+    # The row and its bytes stay, so the takedown can be audited and reversed.
+    serving_disabled_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         indexes = [
@@ -165,6 +177,29 @@ class UploadedMedia(UUIDTModel, RootTeamMixin):
         if settings.UPLOADED_MEDIA_PUBLIC_URL:
             return f"{settings.UPLOADED_MEDIA_PUBLIC_URL}{path}"
         return absolute_uri(path)
+
+    def stop_serving(self) -> bool:
+        """Make the public URL return 404. Returns False when serving was already stopped."""
+        if self.serving_disabled_at is not None:
+            return False
+        self.serving_disabled_at = timezone.now()
+        self.save(update_fields=["serving_disabled_at"])
+        return True
+
+    @classmethod
+    def delete_stored_files(cls, media: list["UploadedMedia"]) -> list["UploadedMedia"]:
+        """Delete the image bytes from object storage and keep the rows as a record of the takedown.
+
+        Returns the images whose bytes are gone. An image whose delete failed keeps its location, so
+        the delete can be retried. One batched call keeps a slow storage backend from blocking the
+        caller once per image.
+        """
+        failed = set(object_storage.delete_objects([item.media_location for item in media if item.media_location]))
+        deleted = [item for item in media if item.media_location not in failed]
+        cls.objects.filter(pk__in=[item.pk for item in deleted]).update(media_location=None)
+        for item in deleted:
+            item.media_location = None
+        return deleted
 
     @staticmethod
     def build_media_location(team_id: int, media_id) -> str:
@@ -196,7 +231,7 @@ class UploadedMedia(UUIDTModel, RootTeamMixin):
     def save_content(
         cls,
         team: Team,
-        created_by: User,
+        created_by: User | None,
         file_name: str,
         content_type: str,
         content: bytes,

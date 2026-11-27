@@ -75,6 +75,24 @@ describe('SuggestionRow', () => {
         expect(screen.queryByText('Open settings')).toBeNull()
     })
 
+    /** The test app context carries no access level, which the gate treats as no access.
+     * Only ops that write marketing config go through `apply_setup_ops`, so only those
+     * should lose their button; a navigation CTA has no permission of its own to check. */
+    it.each([
+        ['open_source_wizard', 'Connect', false],
+        ['create_conversion_goal', 'Review change', true],
+    ])('gates the %s CTA (%s) on edit access: %s', async (op, label, disabled) => {
+        render(
+            <SuggestionRow
+                suggestion={{ ...suggestion({ kind: 'fix_conversion_goal' }), apply: { op } } as Suggestion}
+                onReview={() => {}}
+            />
+        )
+
+        await waitFor(() => expect(screen.getByText(label)).toBeTruthy())
+        expect(screen.getByText(label).closest('button')?.getAttribute('aria-disabled') === 'true').toBe(disabled)
+    })
+
     it('does not offer the section it is already rendered in', async () => {
         render(
             <SuggestionRow

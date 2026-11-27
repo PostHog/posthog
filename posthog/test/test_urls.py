@@ -23,6 +23,7 @@ from posthog.frontend_views import (
     region_host_from_current_instance,
 )
 from posthog.models.instance_setting import override_instance_config
+from posthog.models.user import User, UserType
 from posthog.temporal.codec_server import decode_payloads
 from posthog.views import handler500, metrics_view
 
@@ -30,6 +31,16 @@ from products.ai_observability.backend.api.personal_spend import PersonalSpendEU
 
 
 class TestUrls(APIBaseTest):
+    @override_settings(AUTO_LOGIN=True)
+    def test_auto_login_skips_service_accounts(self) -> None:
+        self.client.logout()
+        User.objects.all().update(type=UserType.SERVICE_ACCOUNT)
+
+        response = self.client.get("/")
+
+        self.assertRedirects(response, "/login", fetch_redirect_response=False)
+        self.assertNotIn("_auth_user_id", self.client.session)
+
     def test_logged_out_user_is_redirected_to_login(self):
         self.client.logout()
 
@@ -126,6 +137,34 @@ class TestUrls(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("app_route_redirect", "/project/1/settings", status.HTTP_302_FOUND, "noindex"),
+            ("admin_redirect", "/admin/", status.HTTP_302_FOUND, "noindex"),
+            ("invite_signup", f"/signup/{uuid.uuid4()}", status.HTTP_200_OK, "noindex"),
+            ("login", "/login?next=/project/1/settings", status.HTTP_200_OK, None),
+            ("signup", "/signup/", status.HTTP_200_OK, None),
+        ]
+    )
+    @override_settings(ADMIN_PORTAL_ENABLED=True)
+    def test_only_login_and_signup_are_indexable(self, _name, request_path, expected_status, expected_robots_tag):
+        self.client.logout()
+
+        response = self.client.get(request_path, follow=False)
+
+        self.assertEqual(response.status_code, expected_status)
+        self.assertEqual(response.headers.get("X-Robots-Tag"), expected_robots_tag)
+
+    @override_settings(SECURE_SSL_REDIRECT=True)
+    def test_https_redirect_of_an_app_route_is_not_indexable(self):
+        self.client.logout()
+
+        response = self.client.get("/project/1/settings", follow=False)
+
+        self.assertEqual(response.status_code, status.HTTP_301_MOVED_PERMANENTLY)
+        self.assertEqual(response["Location"], "https://testserver/project/1/settings")
+        self.assertEqual(response.headers.get("X-Robots-Tag"), "noindex")
+
+    @parameterized.expand(
+        [
             ("no_slash_no_qs", "/sign-up", "/signup"),
             ("trailing_slash_no_qs", "/sign-up/", "/signup"),
             ("no_slash_with_qs", "/sign-up?email=foo%40bar.com", "/signup?email=foo%40bar.com"),
@@ -158,12 +197,22 @@ class TestUrls(APIBaseTest):
         response = self.client.get(
             "/authorize_and_redirect/?redirect=https://not-permitted.com",
             headers={"referer": "https://not-permitted.com"},
+            follow=True,
         )
+        self.assertEqual(response.redirect_chain, [("/toolbar_oauth/error", 302)])
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        content = response.content.decode()
-        self.assertIn("Domain not authorized", content)
-        self.assertIn("not-permitted.com", content)
-        self.assertIn("/settings/project-toolbar#authorized-urls", content)
+        self.assertEqual(
+            response.context["posthog_app_context"]["toolbar_oauth_error"],
+            {
+                "title": "Domain not authorized",
+                "message": "The toolbar cannot authenticate on this domain because it is not in your project's authorized URLs.",
+                "detail": (
+                    "The hostname not-permitted.com needs to be added to your project's "
+                    "authorized URLs before the toolbar can be used on this site."
+                ),
+                "links_to_authorized_urls": True,
+            },
+        )
 
         response = self.client.get(
             "/authorize_and_redirect/?redirect=https://domain.com", headers={"referer": "https://not.com"}
@@ -313,6 +362,43 @@ class TestLegacyDuckgresAdminUrls(SimpleTestCase):
 
         assert response.status_code == 302
         assert response["Location"] == expected_location
+
+
+class TestAgentDiscoveryFiles(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("llms_txt_on_cloud", "/llms.txt", "US", 200),
+            ("llms_txt_on_local_dev", "/llms.txt", "LOCAL", 200),
+            ("llms_txt_on_hobby", "/llms.txt", None, 404),
+            ("ai_catalog", "/ai-catalog.json", "US", 404),
+            ("well_known_ai_catalog", "/.well-known/ai-catalog.json", "US", 404),
+        ]
+    )
+    def test_agent_discovery_files_do_not_fall_through_to_the_app(
+        self, _name: str, request_path: str, region: str | None, expected_status: int
+    ) -> None:
+        request = RequestFactory().get(request_path)
+        match = resolve(request.path)
+
+        with override_settings(CLOUD_DEPLOYMENT=region, SITE_URL="https://us.example.com"):
+            response = match.func(request, *match.args, **match.kwargs)
+
+        assert response.status_code == expected_status
+        if expected_status == 200:
+            body = response.content.decode()
+            assert body.startswith("# ")
+            assert "](https://mcp.posthog.com/mcp)" in body
+            assert "](https://us.example.com/settings/user-api-keys)" in body
+
+    @parameterized.expand([("no_slash", "/.well-known/security.txt"), ("trailing_slash", "/.well-known/security.txt/")])
+    def test_security_txt_redirects_to_the_posthog_com_copy(self, _name: str, request_path: str) -> None:
+        request = RequestFactory().get(request_path)
+        match = resolve(request.path)
+
+        response = match.func(request, *match.args, **match.kwargs)
+
+        assert response.status_code == 301
+        assert response["Location"] == "https://posthog.com/.well-known/security.txt"
 
 
 class TestConditionalRoutes(SimpleTestCase):

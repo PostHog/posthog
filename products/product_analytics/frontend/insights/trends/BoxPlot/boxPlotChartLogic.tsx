@@ -1,7 +1,7 @@
 import { MakeLogicType, connect, kea, key, path, props, selectors } from 'kea'
 
+import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 import { BoxPlotDatum } from '~/queries/schema/schema-general'
 import type {

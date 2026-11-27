@@ -12,12 +12,14 @@ from types import SimpleNamespace
 
 import pytest
 
+import click
 from click.testing import CliRunner
 from hogli_commands.doctor import (
     _GIT_HOUSEKEEPING_PGREP_PATTERN,
     FLOX_LOG_MAX_AGE_DAYS,
     FLOX_LOG_MAX_TOTAL_BYTES,
     CleanupEstimate,
+    DevProcess,
     GitHealth,
     _binary_arches,
     _check_git_health,
@@ -36,7 +38,6 @@ from hogli_commands.doctor import (
     _find_volume_mount,
     _format_kv_block,
     _generated_config_path,
-    _get_process_cwds,
     _git_common_dir,
     _git_health,
     _git_housekeeping_running,
@@ -56,11 +57,15 @@ from hogli_commands.doctor import (
     _scan_port_holders,
     _scan_unheld_via_lsof,
     _select_flox_logs_to_remove,
+    _sweepable_cargo_targets,
     _tail,
+    doctor_disk,
     doctor_git,
     doctor_migrate_volumes,
     doctor_ports,
+    doctor_zombies,
 )
+from hogli_commands.processes import process_cwds
 
 _QUARTER_BUDGET = FLOX_LOG_MAX_TOTAL_BYTES // 4
 _TWO_FIFTHS_BUDGET = int(FLOX_LOG_MAX_TOTAL_BYTES * 0.4)
@@ -134,6 +139,9 @@ def test_select_flox_logs_to_remove(
         pytest.param("grep -r pattern .", id="grep"),
         pytest.param("/usr/bin/lsof -p 123", id="lsof"),
         pytest.param("watchman watch-project /some/path", id="watchman"),
+        pytest.param(
+            "/Users/x/code/github/posthog/.flox/cache/venv/bin/python -P -m hogli watch", id="hogli-watch-background"
+        ),
     ],
 )
 def test_is_excluded_matches_excluded_executables(args: str) -> None:
@@ -255,25 +263,25 @@ def test_probe_command_imports(commands: dict[str, dict], expected_failure: tupl
     assert expected_failure[1] in error
 
 
-def test_get_process_cwds_skips_lsof_for_empty_input(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_process_cwds_skips_lsof_for_empty_input(monkeypatch: pytest.MonkeyPatch) -> None:
     def fail(*_args: object, **_kwargs: object) -> SimpleNamespace:
         raise AssertionError("lsof must not run for an empty pid list")
 
-    monkeypatch.setattr("hogli_commands.doctor.subprocess.run", fail)
-    assert _get_process_cwds([]) == {}
+    monkeypatch.setattr("hogli_commands.processes.subprocess.run", fail)
+    assert process_cwds([]) == {}
 
 
-def test_get_process_cwds_parses_and_batches(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_process_cwds_parses_and_batches(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, object] = {}
 
     def fake_run(cmd: list[str], **_kwargs: object) -> SimpleNamespace:
         captured["cmd"] = cmd
         return SimpleNamespace(returncode=1, stdout="p100\nn/repo/a\np200\nn/repo/b\n", stderr="")
 
-    monkeypatch.setattr("hogli_commands.doctor.subprocess.run", fake_run)
+    monkeypatch.setattr("hogli_commands.processes.subprocess.run", fake_run)
 
     # Non-zero rc (a pid vanished) must not discard the records that did resolve.
-    assert _get_process_cwds([100, 200]) == {100: "/repo/a", 200: "/repo/b"}
+    assert process_cwds([100, 200]) == {100: "/repo/a", 200: "/repo/b"}
     # One batched, ANDed lsof call covering every pid — not one call per pid.
     cmd = captured["cmd"]
     assert isinstance(cmd, list)
@@ -557,6 +565,37 @@ def test_confirm_stack_teardown_accepts_yes(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setattr("hogli_commands.doctor.select.select", lambda *a, **_k: (a[0], [], []))
     monkeypatch.setattr("hogli_commands.doctor.sys.stdin.readline", lambda: "y\n")
     assert _confirm_stack_teardown("some-stack", timeout=0.01) is True
+
+
+@pytest.mark.parametrize(
+    ("command", "args", "expected_flag"),
+    [
+        pytest.param(doctor_disk, ["--area", "flox-logs"], "--dry-run", id="disk"),
+        pytest.param(doctor_zombies, [], "--yes", id="zombies"),
+    ],
+)
+def test_cleanup_without_terminal_or_flags_names_the_flag(
+    monkeypatch: pytest.MonkeyPatch, command: click.Command, args: list[str], expected_flag: str
+) -> None:
+    orphan = DevProcess(
+        pid=4321,
+        ppid=1,
+        name="python",
+        cmdline="python manage.py runserver",
+        cpu_percent=0.0,
+        memory_rss_kb=1024,
+        start_time="10:00",
+        is_orphan=True,
+        category="django",
+    )
+    monkeypatch.setattr("hogli_commands.doctor._scan_posthog_processes", lambda _root: [orphan])
+    monkeypatch.setattr("hogli_commands.doctor._kill_processes", lambda _p: pytest.fail("killed without consent"))
+
+    # CliRunner's stdin is never a terminal, like an agent's shell.
+    result = CliRunner().invoke(command, args)
+
+    assert result.exit_code == 2, result.output
+    assert expected_flag in result.output
 
 
 def test_doctor_ports_silent_when_nothing_foreign(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2010,11 +2049,28 @@ def test_estimate_sccache_accepts_a_directory_of_its_own(monkeypatch: pytest.Mon
     assert estimate.total_size == 2048
 
 
+@pytest.mark.parametrize("ignored", [True, False], ids=["ignored_by_its_checkout", "not_ignored"])
+def test_cargo_units_area_sweeps_a_target_inside_a_checkout_only_when_git_ignores_it(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, ignored: bool
+) -> None:
+    checkout = tmp_path / "checkout"
+    checkout.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=checkout, check=True)
+    if ignored:
+        (checkout / ".gitignore").write_text(".build-cache/\n")
+    target = checkout / ".build-cache"
+    (target / "debug" / ".fingerprint").mkdir(parents=True)
+    (target / "CACHEDIR.TAG").write_text("Signature: 8a477f597d28d172789f06886806bc55\n")
+    monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
+    monkeypatch.setenv("CARGO_TARGET_DIR", str(target))
+
+    assert _sweepable_cargo_targets(tmp_path / "elsewhere") == ([target.resolve()] if ignored else [])
+
+
 def test_collect_rust_target_dirs_includes_the_shared_cargo_target_dir(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    # The Flox env points CARGO_TARGET_DIR outside the checkout, so a repo-only
-    # scan reports the Rust artifacts as empty while they hold tens of GB.
+    # A CARGO_TARGET_DIR outside the checkout holds the Rust artifacts, so a repo-only scan reports them as empty.
     repo = tmp_path / "repo"
     repo.mkdir()
     shared_target = tmp_path / "cargo-target"

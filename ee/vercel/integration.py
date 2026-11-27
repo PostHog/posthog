@@ -2,8 +2,8 @@ import copy
 import hmac
 import hashlib
 from collections.abc import Callable
-from dataclasses import asdict, dataclass, field
-from typing import Any, Literal, Union
+from dataclasses import asdict, dataclass
+from typing import Any, Literal
 from urllib.parse import quote, urlencode
 
 from django.conf import settings
@@ -15,8 +15,8 @@ from django.utils.text import slugify
 
 import structlog
 from rest_framework import exceptions
-from two_factor.utils import default_device
 
+from posthog.api.email_verification import email_verification_code_verifier
 from posthog.api.signup import SIGNUP_BLOCKED_DETAIL, signup_refused
 from posthog.auth import ACCOUNT_BLOCKED_LOGIN_URL, account_refused
 from posthog.cloud_utils import get_cached_instance_license
@@ -24,9 +24,8 @@ from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_signed_up
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import EmailLookupHandler
-from posthog.helpers.two_factor_session import has_passkeys
-from posthog.integrations import IntegrationConflict, IntegrationManager, IntegrationRecord
-from posthog.models.integration import Integration
+from posthog.helpers.normal_login import normal_login_required_reason
+from posthog.integrations import CrossTeamFilter, IntegrationConflict, IntegrationManager, IntegrationRecord
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.organization_integration import OrganizationIntegration
@@ -34,17 +33,19 @@ from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.product_intent import ProductIntent
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.project_creation_limits import PROJECT_LIMIT_MESSAGES, ProjectLimit, organization_project_limit_reached
 from posthog.schema_enums import ProductIntentContext, ProductKey
 from posthog.utils import absolute_uri
 
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.facade.api import get_experiment_team_id
+from products.experiments.backend.facade.contracts import ExperimentChanged
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.security.backend.facade.api import REFUSAL_CODE as SECURITY_REFUSAL_CODE
 
 from ee.api.authentication import VercelAuthentication
 from ee.api.vercel.types import VercelClaims, VercelUserClaims
 from ee.billing.billing_types import BillingProvider
-from ee.vercel.client import SSOTokenResponse, VercelAPIClient
+from ee.vercel.client import InstallationTokenError, SSOTokenResponse, VercelAPIClient, get_installation_access_token
 
 logger = structlog.get_logger(__name__)
 
@@ -54,6 +55,14 @@ VercelItemType = Literal["flag", "experiment"]
 # same values are injected under every prefix we support. NEXT_PUBLIC_ must stay first: it is the
 # original contract for already-installed users.
 CLIENT_ENV_PREFIXES = ("NEXT_PUBLIC_", "VITE_", "NUXT_PUBLIC_", "PUBLIC_")
+
+# Connect and read timeouts, in seconds, for the billing read that resource creation waits on.
+BILLING_FEATURES_REFRESH_TIMEOUT = (5, 10)
+# Bounds the billing reads that repeated plan-limit refusals for one organization can cause.
+BILLING_FEATURES_REFRESH_COOLDOWN_SECONDS = 10
+BILLING_FEATURES_REFRESH_CACHE_KEY = "vercel:billing_features_refresh:{organization_id}"
+
+SSO_VERIFY_EMAIL_REASON = "vercel_sso"
 
 
 class VercelSSOError(Exception):
@@ -67,6 +76,14 @@ class RequiresExistingUserLogin(Exception):
         self.installation_id = installation_id
         self.prefill_email = prefill_email
         super().__init__(f"User {email} must login first")
+
+
+class RequiresEmailVerification(Exception):
+    def __init__(self, user: User, installation_id: str, email_verified: bool | None):
+        self.user = user
+        self.installation_id = installation_id
+        self.email_verified = email_verified
+        super().__init__(f"User {user.pk} must verify their email first")
 
 
 class SSOLoginRefused(Exception):
@@ -99,12 +116,6 @@ class ResourceConfig:
     protocolSettings: dict[str, Any] | None = None
 
 
-@frozen
-class InstallationCredentials:
-    access_token: str = field(repr=False)
-    token_type: str
-
-
 @dataclass
 class InstallationContact:
     email: str
@@ -118,11 +129,10 @@ class InstallationAccount:
     name: str | None = None
 
 
-@dataclass
+@frozen
 class InstallationConfig:
     scopes: list[str]
     acceptedPolicies: dict[str, Any]
-    credentials: InstallationCredentials
     account: InstallationAccount
 
 
@@ -137,9 +147,15 @@ class VercelSetupResult:
     resource_id: str
 
 
-@dataclass
+def _get_feature_flag_team_id(flag_id: int) -> int | None:
+    # nosemgrep: idor-lookup-without-team (the SSO redirect checks the user's membership in the returned team)
+    return FeatureFlag.objects.filter(pk=flag_id).values_list("team_id", flat=True).first()
+
+
+@frozen
 class SSOExperimentationConfig:
-    model: Union[type[FeatureFlag], type[Experiment]]
+    # The team of the item with this id, or None when there is no such item.
+    get_team_id: Callable[[int], int | None]
     url_template: str
 
 
@@ -175,11 +191,11 @@ class VercelIntegration:
     # this could be handled in the frontend instead.
     SSO_EXPERIMENTATION_CONFIG: dict[str, SSOExperimentationConfig] = {
         "flag": SSOExperimentationConfig(
-            model=FeatureFlag,
+            get_team_id=_get_feature_flag_team_id,
             url_template="/project/{team_id}/feature-flags/{item_pk}",
         ),
         "experiment": SSOExperimentationConfig(
-            model=Experiment,
+            get_team_id=get_experiment_team_id,
             url_template="/project/{team_id}/experiments/{item_pk}",
         ),
     }
@@ -194,32 +210,30 @@ class VercelIntegration:
             raise exceptions.NotFound("Installation not found")
 
     @staticmethod
-    def _get_resource(resource_id: str) -> Integration:
+    def _get_resource(installation: OrganizationIntegration, resource_id: str) -> IntegrationRecord:
+        """The resource with this id in a team of the installation's organization."""
         try:
-            # nosemgrep: idor-lookup-without-team (Vercel integration auth validates ownership)
-            return Integration.objects.get(pk=resource_id, kind=Integration.IntegrationKind.VERCEL)
-        except Integration.DoesNotExist:
+            resource_pk = int(resource_id)
+        except (TypeError, ValueError):
             raise exceptions.NotFound("Resource not found")
-
-    @staticmethod
-    def _validate_resource_belongs_to_installation(
-        resource: Integration, installation: OrganizationIntegration
-    ) -> None:
-        if not resource.team.organization.organizationintegration_set.filter(
-            kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL, integration_id=installation.integration_id
-        ).exists():
-            raise exceptions.ValidationError({"resource": "Resource does not belong to this installation."})
-
-    @staticmethod
-    def _get_resource_with_installation(resource_id: str) -> tuple[Integration, OrganizationIntegration]:
-        resource = VercelIntegration._get_resource(resource_id)
-        org_integration = resource.team.organization.organizationintegration_set.get(
-            kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL
+        # Vercel names a resource only by our row id, and an integration read by id needs the team.
+        # The installation gives the organization, so read the Vercel rows of its teams.
+        team_ids = Team.objects.filter(organization_id=installation.organization_id).values_list("id", flat=True)
+        # Rows come back ordered by id, so `after_id` with `limit=1` reads only the row with this id, if any.
+        resources = IntegrationManager.vercel.oauth.list_across_teams(
+            CrossTeamFilter(team_ids=tuple(team_ids), after_id=resource_pk - 1, limit=1)
         )
-        if not org_integration.integration_id:
-            raise exceptions.NotFound("Installation not found")
-        installation = VercelIntegration._get_installation(org_integration.integration_id)
-        return resource, installation
+        resource = resources[0] if resources and resources[0].id == resource_pk else None
+        if resource is None:
+            raise exceptions.NotFound("Resource not found")
+        return resource
+
+    @staticmethod
+    def _get_resource_with_installation(
+        installation_id: str, resource_id: str
+    ) -> tuple[IntegrationRecord, OrganizationIntegration]:
+        installation = VercelIntegration._get_installation(installation_id)
+        return VercelIntegration._get_resource(installation, resource_id), installation
 
     @staticmethod
     def _cleanup_failed_installation(
@@ -289,22 +303,16 @@ class VercelIntegration:
     def upsert_installation(installation_id: str, payload: dict[str, Any], user_claims: VercelUserClaims) -> None:
         account_data = payload.get("account", {})
         contact_data = account_data.get("contact", {})
-        credentials_data = payload.get("credentials", {})
 
         vercel_user_id = user_claims.user_id
 
         contact = InstallationContact(email=contact_data["email"], name=contact_data.get("name"))
-
-        credentials = InstallationCredentials(
-            access_token=credentials_data["access_token"], token_type=credentials_data["token_type"]
-        )
 
         account = InstallationAccount(url=account_data["url"], contact=contact, name=account_data.get("name"))
 
         config = InstallationConfig(
             scopes=payload["scopes"],
             acceptedPolicies=payload["acceptedPolicies"],
-            credentials=credentials,
             account=account,
         )
 
@@ -336,11 +344,9 @@ class VercelIntegration:
         ).first()
 
         config_dict = asdict(config)
-        credentials = config_dict.pop("credentials", {})
 
         if org_integration is not None:
             org_integration.config = config_dict
-            org_integration.sensitive_config = {"credentials": credentials}
             org_integration.save()
             logger.info("Vercel installation updated", installation_id=installation_id, integration="vercel")
             return
@@ -356,7 +362,7 @@ class VercelIntegration:
                 organization=organization, partner=OrganizationProvisioning.Partner.VERCEL
             )
 
-            existing_user = User.objects.filter(email=config.account.contact.email).first()
+            existing_user = EmailLookupHandler.get_user_by_email(config.account.contact.email, is_active=None)
 
             if existing_user:
                 user = existing_user
@@ -381,7 +387,6 @@ class VercelIntegration:
                     integration_id=installation_id,
                     defaults={
                         "config": config_dict,
-                        "sensitive_config": {"credentials": credentials},
                         "created_by": user,
                     },
                 )
@@ -469,11 +474,10 @@ class VercelIntegration:
             raise RuntimeError("No license available to deauthorize billing")
 
         org_membership = (
-            OrganizationMembership.objects.filter(
-                organization=organization, level__gte=OrganizationMembership.Level.ADMIN
-            )
+            OrganizationMembership.objects.with_effective_level()
+            .filter(organization=organization, resolved_level__gte=OrganizationMembership.Level.ADMIN)
             .select_related("user")
-            .order_by("-level")
+            .order_by("-resolved_level")
             .first()
         )
         if not org_membership:
@@ -547,6 +551,42 @@ class VercelIntegration:
         return {"plans": VercelIntegration.get_vercel_plans()}
 
     @staticmethod
+    def _refresh_available_product_features(organization: Organization) -> None:
+        license = get_cached_instance_license()
+        if not license:
+            return
+        try:
+            # Deferred for the same reason as in upsert_installation: keep the billing stack off the import path.
+            from ee.billing.billing_manager import BillingManager  # noqa: PLC0415
+
+            BillingManager(license).update_available_product_features(
+                organization, timeout=BILLING_FEATURES_REFRESH_TIMEOUT
+            )
+        except Exception as e:
+            logger.exception(
+                "Failed to refresh available product features for Vercel resource creation",
+                organization_id=str(organization.id),
+                integration="vercel",
+            )
+            capture_exception(e)
+
+    @staticmethod
+    def _assert_organization_can_add_project(organization: Organization) -> None:
+        reached_limit = organization_project_limit_reached(organization)
+        if reached_limit == ProjectLimit.PLAN:
+            # upsert_installation authorizes billing but does not store the plan's features, which
+            # arrive later from the billing service. A resource created soon after the install can
+            # find them missing and fall back to the one-project limit, so read them from billing
+            # before refusing.
+            refresh_key = BILLING_FEATURES_REFRESH_CACHE_KEY.format(organization_id=organization.id)
+            if cache.add(refresh_key, True, timeout=BILLING_FEATURES_REFRESH_COOLDOWN_SECONDS):
+                VercelIntegration._refresh_available_product_features(organization)
+                reached_limit = organization_project_limit_reached(organization)
+
+        if reached_limit is not None:
+            raise exceptions.PermissionDenied(PROJECT_LIMIT_MESSAGES[reached_limit])
+
+    @staticmethod
     def create_resource(installation_id: str, resource_data: dict[str, Any]) -> dict[str, Any]:
         logger.info(
             "Starting Vercel resource creation",
@@ -562,6 +602,8 @@ class VercelIntegration:
 
         installation = VercelIntegration._get_installation(installation_id)
         organization: Organization = installation.organization
+
+        VercelIntegration._assert_organization_can_add_project(organization)
 
         team = Team.objects.create_with_data(
             initiating_user=installation.created_by or None,
@@ -605,30 +647,33 @@ class VercelIntegration:
         return VercelIntegration._build_resource_response(resource, team, installation)
 
     @staticmethod
-    def get_resource(resource_id: str) -> dict[str, Any]:
-        resource, installation = VercelIntegration._get_resource_with_installation(resource_id)
-        return VercelIntegration._build_resource_response(resource, resource.team, installation)
+    def get_resource(installation_id: str, resource_id: str) -> dict[str, Any]:
+        resource, installation = VercelIntegration._get_resource_with_installation(installation_id, resource_id)
+        team = Team.objects.get(pk=resource.team_id)
+        return VercelIntegration._build_resource_response(resource, team, installation)
 
     @staticmethod
-    def update_resource(resource_id: str, resource_data: dict[str, Any]) -> dict[str, Any]:
+    def update_resource(installation_id: str, resource_id: str, resource_data: dict[str, Any]) -> dict[str, Any]:
         logger.info("Starting Vercel resource update", resource_id=resource_id, integration="vercel")
-        resource, installation = VercelIntegration._get_resource_with_installation(resource_id)
+        resource, installation = VercelIntegration._get_resource_with_installation(installation_id, resource_id)
 
-        updated_config = copy.deepcopy(resource.config)
+        updated_config = copy.deepcopy(dict(resource.config))
         updated_config.update(resource_data)
 
         validated_config = ResourceConfig(**updated_config)
-        resource.config = asdict(validated_config)
-        resource.save(update_fields=["config"])
+        resource = IntegrationManager.vercel.oauth.update(
+            resource.team_id, resource.id, config_patch=asdict(validated_config)
+        )
 
         logger.info("Successfully updated Vercel resource", resource_id=resource_id, integration="vercel")
-        return VercelIntegration._build_resource_response(resource, resource.team, installation)
+        team = Team.objects.get(pk=resource.team_id)
+        return VercelIntegration._build_resource_response(resource, team, installation)
 
     @staticmethod
-    def delete_resource(resource_id: str) -> None:
+    def delete_resource(installation_id: str, resource_id: str) -> None:
         logger.info("Starting Vercel resource deletion", resource_id=resource_id, integration="vercel")
-        resource, _ = VercelIntegration._get_resource_with_installation(resource_id)
-        resource.delete()
+        resource, _ = VercelIntegration._get_resource_with_installation(installation_id, resource_id)
+        IntegrationManager.vercel.oauth.delete(resource.team_id, resource.id, ignore_usages=True)
         logger.info("Successfully deleted Vercel resource", resource_id=resource_id, integration="vercel")
 
     @staticmethod
@@ -676,17 +721,22 @@ class VercelIntegration:
 
     @staticmethod
     def _get_access_token(installation: OrganizationIntegration) -> str | None:
-        access_token = installation.sensitive_config.get("credentials", {}).get("access_token")
-        if not access_token:
-            # Fallback for installations not yet migrated
-            access_token = installation.config.get("credentials", {}).get("access_token")
-        if not access_token:
+        if not installation.integration_id:
+            logger.error(
+                "Vercel installation has no installation ID", installation_pk=installation.pk, integration="vercel"
+            )
+            return None
+        try:
+            return get_installation_access_token(installation.integration_id)
+        except InstallationTokenError as e:
             logger.exception(
-                "Missing access token for Vercel installation",
+                "Failed to get access token for Vercel installation",
                 installation_id=installation.integration_id,
+                status_code=e.status_code,
+                error_code=e.code,
                 integration="vercel",
             )
-        return access_token
+            return None
 
     @staticmethod
     def _create_vercel_client(access_token: str) -> VercelAPIClient | None:
@@ -885,22 +935,22 @@ class VercelIntegration:
         )
 
     @staticmethod
-    def sync_experiment_to_vercel(experiment: Experiment, created: bool) -> None:
-        vercel_item = VercelIntegration._convert_experiment_to_vercel_item(experiment, created)
+    def sync_experiment_to_vercel(team: Team, experiment: ExperimentChanged) -> None:
+        vercel_item = VercelIntegration._convert_experiment_to_vercel_item(experiment)
         VercelIntegration._sync_item_to_vercel(
-            team=experiment.team,
+            team=team,
             item_type="experiment",
-            item_pk=experiment.pk,
+            item_pk=experiment.experiment_id,
             vercel_item=vercel_item,
-            created=created,
+            created=experiment.created,
         )
 
     @staticmethod
-    def delete_experiment_from_vercel(experiment: Experiment) -> None:
+    def delete_experiment_from_vercel(team: Team, experiment_id: int) -> None:
         VercelIntegration._delete_item_from_vercel(
-            team=experiment.team,
+            team=team,
             item_type="experiment",
-            item_id=VercelIntegration._get_vercel_item_id("experiment", experiment.pk),
+            item_id=VercelIntegration._get_vercel_item_id("experiment", experiment_id),
         )
 
     @staticmethod
@@ -918,11 +968,14 @@ class VercelIntegration:
         }
 
     @staticmethod
-    def _convert_experiment_to_vercel_item(experiment: Experiment, created: bool) -> dict:
+    def _convert_experiment_to_vercel_item(experiment: ExperimentChanged) -> dict:
+        experiment_id = experiment.experiment_id
         return {
-            **({"id": VercelIntegration._get_vercel_item_id("experiment", experiment.pk)} if created else {}),
-            "slug": slugify(experiment.name) or f"experiment-{experiment.pk}",
-            "origin": absolute_uri(f"/project/{experiment.team.id}/experiments/{experiment.pk}"),
+            **(
+                {"id": VercelIntegration._get_vercel_item_id("experiment", experiment_id)} if experiment.created else {}
+            ),
+            "slug": slugify(experiment.name) or f"experiment-{experiment_id}",
+            "origin": absolute_uri(f"/project/{experiment.team_id}/experiments/{experiment_id}"),
             "category": "experiment",
             "name": experiment.name,
             "description": experiment.description or "",
@@ -974,10 +1027,9 @@ class VercelIntegration:
             return "email_unverified"
         if not VercelIntegration._claims_prove_email(claims, user.email):
             return "email_mismatch"
-        if default_device(user) or (user.passkeys_enabled_for_2fa and has_passkeys(user)):
-            return "two_factor_required"
-        if OrganizationDomain.objects.get_sso_enforcement_for_email_address(user.email):
-            return "sso_enforced"
+        normal_login_reason = normal_login_required_reason(user)
+        if normal_login_reason is not None:
+            return normal_login_reason
         if OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(user.email, installation.organization):
             return "domain_blocked"
         return None
@@ -991,9 +1043,21 @@ class VercelIntegration:
             # Vercel verified the mailbox before issuing the claim, so this login proves it.
             user.is_email_verified = True
             user.save(update_fields=["is_email_verified"])
-        login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+
         if resource_id:
-            VercelIntegration.set_active_project(user, resource_id)
+            VercelIntegration.set_active_project(user, claims.installation_id, resource_id)
+
+        if user.is_email_verified is not True:
+            # Only a new account gets here, because the other branches require the claim to prove the email.
+            # This gate ignores the email-verification-disabled flag and an instance without email, which
+            # password login honors. The Vercel claim is the only proof of the address. A session for an
+            # unproven address lets an attacker pre-create the account, and a later social login by the
+            # real owner links to that account while the attacker's session stays live.
+            raise RequiresEmailVerification(
+                user, installation_id=claims.installation_id, email_verified=claims.user_email_verified
+            )
+
+        login(request, user, backend="django.contrib.auth.backends.ModelBackend")
         return user
 
     @staticmethod
@@ -1057,7 +1121,7 @@ class VercelIntegration:
 
             # Set active project if provided, otherwise set the user's current organization
             if params.resource_id:
-                VercelIntegration.set_active_project(request.user, params.resource_id)
+                VercelIntegration.set_active_project(request.user, claims.installation_id, params.resource_id)
 
             redirect_url = VercelIntegration.determine_sso_redirect(
                 path=params.path,
@@ -1126,6 +1190,30 @@ class VercelIntegration:
         cache.set(claims_key, claims, timeout=timeout)
 
     @staticmethod
+    def _verify_email_redirect(blocked: RequiresEmailVerification, next_url: str) -> str:
+        email_sent = True
+        try:
+            email_verification_code_verifier.send_code(blocked.user)
+        except Exception:
+            # The login stays blocked when the send fails, because the verify-email page can send a new code.
+            email_sent = False
+
+        logger.info(
+            "Vercel SSO new user needs email verification",
+            installation_id=blocked.installation_id,
+            user_id=blocked.user.pk,
+            email_verified=blocked.email_verified,
+            email_sent=email_sent,
+            method="verify_email_flow",
+            integration="vercel",
+        )
+
+        params = {"reason": SSO_VERIFY_EMAIL_REASON, "next": next_url}
+        if not email_sent:
+            params["email_sent"] = "false"
+        return f"/verify_email/{blocked.user.uuid}?{urlencode(params)}"
+
+    @staticmethod
     def authenticate_sso(request, params: SSOParams) -> str:
         claims: VercelClaims | None = None
         try:
@@ -1174,6 +1262,14 @@ class VercelIntegration:
                 integration="vercel",
             )
             return login_url
+        except RequiresEmailVerification as e:
+            next_url = VercelIntegration.determine_sso_redirect(
+                path=params.path,
+                url=params.url,
+                experimentation_item_id=params.experimentation_item_id,
+                user=e.user,
+            )
+            return VercelIntegration._verify_email_redirect(e, next_url)
         except SSOLoginRefused:
             return ACCOUNT_BLOCKED_LOGIN_URL
         except Exception as e:
@@ -1292,6 +1388,17 @@ class VercelIntegration:
             user.current_organization = installation.organization
             user.save(update_fields=["current_organization"])
         else:
+            # The same checks _sso_login_block_reason applies to an existing account. With an enforced identity
+            # provider, the login page offers only that provider, so the account and the membership come from its
+            # login and the continue step, never from this Vercel token.
+            sso_enforced = OrganizationDomain.objects.get_sso_enforcement_for_email_address(claims.user_email)
+            domain_blocked = OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(
+                claims.user_email, installation.organization
+            )
+            if sso_enforced or domain_blocked:
+                raise RequiresExistingUserLogin(
+                    email=claims.user_email, vercel_user_id=claims.user_id, installation_id=claims.installation_id
+                )
             intended_level = VercelIntegration._determine_membership_level(claims.user_email, installation)
             user = VercelIntegration._create_user_for_email(
                 email=claims.user_email,
@@ -1338,16 +1445,15 @@ class VercelIntegration:
         if not config:
             return None
 
-        model_class = config.model
-        item = model_class.objects.filter(pk=item_pk).first()
-        if not item:
+        team_id = config.get_team_id(item_pk)
+        if team_id is None:
             return None
 
         # Sanity check to ensure the user has access to the item's team
-        if not user.teams.filter(pk=item.team.pk).exists():
+        if not user.teams.filter(pk=team_id).exists():
             return None
 
-        return config.url_template.format(team_id=item.team.id, item_pk=item.pk)
+        return config.url_template.format(team_id=team_id, item_pk=item_pk)
 
     @staticmethod
     def _parse_sso_item_id(item_id: str) -> tuple[str | None, int | None]:
@@ -1363,13 +1469,13 @@ class VercelIntegration:
         return None, None
 
     @staticmethod
-    def set_active_project(user: User, resource_id: str):
-        # nosemgrep: idor-lookup-without-team (Vercel integration auth validates ownership)
-        resource = Integration.objects.filter(pk=resource_id, kind=Integration.IntegrationKind.VERCEL).first()
-        if not resource:
+    def set_active_project(user: User, installation_id: str, resource_id: str):
+        try:
+            resource, _ = VercelIntegration._get_resource_with_installation(installation_id, resource_id)
+        except exceptions.NotFound:
             raise exceptions.NotFound(f"Vercel resource not found: {resource_id}")
 
-        team = resource.team
+        team = Team.objects.filter(pk=resource.team_id).first()
         if not team:
             raise exceptions.ValidationError(f"Resource has no associated team: {resource_id}")
 
@@ -1446,9 +1552,13 @@ def _safe_vercel_sync(
         if is_delete:
             return
         installation = VercelIntegration._get_installation_for_organization(team.organization)
-        if not installation:
+        if not installation or not installation.integration_id:
             return
         try:
+            # A resource created without an import is never imported later, so get the token first.
+            access_token = VercelIntegration._get_access_token(installation)
+            if not access_token:
+                return
             resource, created = get_or_create_connectable_resource(team)
             if created:
                 logger.info(
@@ -1456,16 +1566,14 @@ def _safe_vercel_sync(
                     team_id=team.pk,
                     integration="vercel",
                 )
-                access_token = VercelIntegration._get_access_token(installation)
-                if access_token and installation.integration_id:
-                    client = VercelAPIClient(bearer_token=access_token)
-                    client.import_resource(
-                        integration_config_id=installation.integration_id,
-                        resource_id=str(resource.id),
-                        product_id="posthog",
-                        name=team.name,
-                        secrets=VercelIntegration._build_secrets(team),
-                    )
+                client = VercelAPIClient(bearer_token=access_token)
+                client.import_resource(
+                    integration_config_id=installation.integration_id,
+                    resource_id=str(resource.id),
+                    product_id="posthog",
+                    name=team.name,
+                    secrets=VercelIntegration._build_secrets(team),
+                )
         except Exception as e:
             logger.exception("Failed to auto-create Vercel resource", team_id=team.pk, integration="vercel")
             capture_exception(e)

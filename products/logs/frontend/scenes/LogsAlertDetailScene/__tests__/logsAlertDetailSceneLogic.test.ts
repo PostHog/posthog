@@ -1,5 +1,8 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { initKeaTests } from '~/test/init'
 
 import { logsAlertFormLogic } from 'products/logs/frontend/components/LogsAlerting/logsAlertFormLogic'
@@ -149,6 +152,8 @@ describe('logsAlertDetailSceneLogic — save-then-enable chain', () => {
     it('keeps the pending enable while a regroup waits for confirmation, then enables once confirmed', async () => {
         const platformAlert: LogsAlertConfigurationApi = { ...MOCK_ALERT, platform_owned: true }
         mockedApi.logsAlertsRetrieve.mockResolvedValue(platformAlert)
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.LOGS_ALERTS_GROUPING]: true })
         const logic = await mountSceneLogic()
         // The scene renders the form with the loaded alert, which is what tells the form it can group.
         const formLogic = logsAlertFormLogic({ alert: platformAlert })

@@ -102,6 +102,52 @@ class TestStructuredOutputComplete:
         assert "result" in schema["properties"]
         assert "reason" in schema["properties"]
 
+    @parameterized.expand(
+        [
+            ("budget_model", "claude-haiku-4-5", "medium", {"type": "enabled", "budget_tokens": 4096}, None, 12288),
+            (
+                "dated_claude_4_0",
+                "claude-sonnet-4-20250514",
+                "low",
+                {"type": "enabled", "budget_tokens": 2048},
+                None,
+                10240,
+            ),
+            ("adaptive_model", "claude-haiku-5-5", "high", {"type": "adaptive"}, "high", 16384),
+            ("adaptive_minimal_is_low", "claude-opus-4-7", "minimal", {"type": "adaptive"}, "low", 9216),
+            ("unlisted_newer_model", "claude-sonnet-9", "low", {"type": "adaptive"}, "low", 10240),
+            ("no_level", "claude-haiku-5-5", None, None, None, 8192),
+            ("claude_3", "claude-3-haiku-20240307", "high", None, None, 8192),
+        ]
+    )
+    @patch("products.ai_observability.backend.llm.providers.anthropic.settings")
+    @patch("products.ai_observability.backend.llm.providers.anthropic.anthropic.Anthropic")
+    def test_structured_output_applies_reasoning_level(
+        self,
+        _name,
+        model,
+        level,
+        expected_thinking,
+        expected_effort,
+        expected_max_tokens,
+        mock_anthropic_cls,
+        mock_settings,
+    ):
+        mock_client = MagicMock()
+        mock_anthropic_cls.return_value = mock_client
+        mock_client.messages.create.return_value = self._make_mock_response('{"result": true, "reason": "ok"}')
+        request = self._make_request(response_format=BooleanEvalResult)
+        request.model = model
+        request.reasoning_level = level
+
+        AnthropicAdapter().complete(request, api_key="sk-ant-test", analytics=AnalyticsContext(capture=False))
+
+        call_kwargs = mock_client.messages.create.call_args.kwargs
+        assert call_kwargs.get("thinking") == expected_thinking
+        assert call_kwargs["output_config"].get("effort") == expected_effort
+        assert call_kwargs["output_config"]["format"]["type"] == "json_schema"
+        assert call_kwargs["max_tokens"] == expected_max_tokens
+
     @patch("products.ai_observability.backend.llm.providers.anthropic.settings")
     @patch("products.ai_observability.backend.llm.providers.anthropic.anthropic.Anthropic")
     def test_structured_output_parses_valid_json(self, mock_anthropic_cls, mock_settings):

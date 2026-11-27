@@ -2,11 +2,15 @@
 # ruff: noqa: T201 allow print statements
 """Gate a branch on new code duplication in Python and TypeScript.
 
-Runs jscpd over this tree and over a worktree of the branch point, and
-diffs the two clone sets, so only duplication the branch introduces can
-fail the gate. Existing duplication is grandfathered in. App code and
-test code are held to different bars: a clone between two test files may
+Runs jscpd over this tree and, when it has reportable candidates, over a
+worktree of the branch point. Diffs the two clone sets so only duplication
+the branch introduces can fail the gate. Existing duplication is grandfathered
+in. App code and test code are held to different bars: a clone between two test files may
 run longer before it fails, because repeated setup is idiomatic in tests.
+
+jscpd pairs files only within one format, so a clone the branch introduces
+carries the format of a file the branch changed, and a change set that touches
+one format can scan that format alone.
 
 With --report-dir, also writes one findings file per language for the CI
 report comment (.github/scripts/post-duplication-section.mjs).
@@ -21,11 +25,15 @@ import tempfile
 import subprocess
 import collections
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 JSCPD_VERSION = "5.1.1"
 
-FORMATS = "python,typescript,tsx"
+FORMAT_EXTENSIONS: dict[str, tuple[str, ...]] = {
+    "python": (".py", ".pyx", ".pxd", ".pxi"),
+    "typescript": (".ts", ".mts", ".cts"),
+    "tsx": (".tsx",),
+}
 
 # Migrations and generated code duplicate by design; .depot/ is a vendored
 # mirror of .github/actions/.
@@ -71,6 +79,22 @@ def is_test_file(path: str) -> bool:
     return bool(TEST_PATH.search(path))
 
 
+def formats_touched(changed_files: set[str]) -> list[str]:
+    """Return the jscpd formats a clone in this change set can have.
+
+    Any changed file with no extension keeps the full scan, because jscpd reads
+    it by shebang (`bin/sandbox` is Python) and the extension lists above
+    therefore cannot place it.
+    """
+    if any(not PurePosixPath(path).suffix for path in changed_files):
+        return list(FORMAT_EXTENSIONS)
+    return [
+        format_name
+        for format_name, extensions in FORMAT_EXTENSIONS.items()
+        if any(path.endswith(extensions) for path in changed_files)
+    ]
+
+
 def clone_language(clone: dict) -> str:
     return "python" if clone.get("format") == "python" else "typescript"
 
@@ -110,8 +134,29 @@ def build_findings(failures: list[tuple[dict, bool]]) -> dict[str, list[dict]]:
     return findings
 
 
-def run_jscpd(scan_root: Path, out_dir: Path) -> list[dict]:
-    """Scan one tree with jscpd and return its clone list."""
+def write_findings(report_dir: str | None, findings: dict[str, list[dict]]) -> None:
+    """Write the per-language findings files the CI report poster reads."""
+    if not report_dir:
+        return
+    (Path(report_dir) / "duplication-scan-status.json").write_text(json.dumps({"status": "ok"}) + "\n")
+    report_names = {"python": "duplication-findings-python.json", "typescript": "duplication-findings-ts.json"}
+    for language, language_findings in findings.items():
+        (Path(report_dir) / report_names[language]).write_text(json.dumps(language_findings, indent=2) + "\n")
+
+
+def run_jscpd(scan_root: Path, out_dir: Path, formats: list[str]) -> list[dict]:
+    """Scan one tree in a separate jscpd process for each format.
+
+    jscpd keeps every format's tokens in memory. Separate runs preserve clone
+    detection because jscpd only compares files within one format, while
+    limiting peak memory to the largest format.
+    """
+    return [
+        clone for format_name in formats for clone in run_jscpd_format(scan_root, out_dir / format_name, format_name)
+    ]
+
+
+def run_jscpd_format(scan_root: Path, out_dir: Path, format_name: str) -> list[dict]:
     try:
         proc = subprocess.run(
             [
@@ -119,7 +164,7 @@ def run_jscpd(scan_root: Path, out_dir: Path) -> list[dict]:
                 "--yes",
                 f"jscpd@{JSCPD_VERSION}",
                 "--format",
-                FORMATS,
+                format_name,
                 "--min-lines",
                 str(SCAN_MIN_LINES),
                 "--min-tokens",
@@ -135,8 +180,8 @@ def run_jscpd(scan_root: Path, out_dir: Path) -> list[dict]:
             ],
             capture_output=True,
             text=True,
-            # Two scans must finish inside the CI job's timeout-minutes, or the
-            # job dies before the failure section can post.
+            # Bound each subprocess so a stalled format scan cannot consume the
+            # CI job's entire timeout before it posts the failure section.
             timeout=SCAN_TIMEOUT_SECONDS,
             cwd=scan_root,
         )
@@ -212,6 +257,25 @@ def changed_files_between(baseline: str, current: str, repo: Path) -> set[str]:
     )
 
 
+def scan_revision(repo: Path, revision: str, scan_dir: Path, formats: list[str]) -> list[dict]:
+    worktree = scan_dir / "worktree"
+    scan_dir.mkdir()
+    try:
+        add = subprocess.run(
+            ["git", "worktree", "add", "--detach", str(worktree), revision],
+            capture_output=True,
+            text=True,
+            cwd=repo,
+        )
+        if add.returncode != 0:
+            print(add.stderr[-2000:])
+            print(f"duplication lint could not check out {revision}")
+            raise SystemExit(2)
+        return run_jscpd(worktree, scan_dir / "report", formats)
+    finally:
+        subprocess.run(["git", "worktree", "remove", "--force", str(worktree)], capture_output=True, cwd=repo)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base", default="origin/master", help="git ref to compare clones against")
@@ -242,6 +306,15 @@ def main() -> int:
     baseline = resolve_baseline(args.base, repo)
     print(f"Comparing clones against {baseline}")
 
+    # Read before the scans: they skip the formats this change set cannot clone in.
+    changed_files = changed_files_between(baseline, "HEAD", repo)
+    formats = formats_touched(changed_files)
+    if not formats:
+        print("No changed file in a scanned format, so no clone can be new.")
+        write_findings(args.report_dir, {language: [] for language in LANGUAGES})
+        return 0
+    print(f"Scanning {', '.join(formats)}")
+
     # jscpd's own --baseline-from-ref mismatches clones whose files moved on
     # the base since the branch forked, and some stable pairs it re-flags
     # with no visible cause. Scan both trees with identical flags and diff
@@ -253,52 +326,34 @@ def main() -> int:
     scan_failed = False
     with tempfile.TemporaryDirectory(prefix="jscpd-") as tmp:
         tmp_path = Path(tmp)
-        current_worktree = tmp_path / "current-worktree"
-        baseline_worktree = tmp_path / "baseline-worktree"
-        scan_worktrees = ((current_worktree, "HEAD"), (baseline_worktree, baseline))
         # Registrations from runs killed mid-scan point at paths that no
         # longer exist; drop them before adding a fresh one.
         subprocess.run(["git", "worktree", "prune"], capture_output=True, cwd=repo)
         try:
-            for worktree, revision in scan_worktrees:
-                add = subprocess.run(
-                    ["git", "worktree", "add", "--detach", str(worktree), revision],
-                    capture_output=True,
-                    text=True,
-                    cwd=repo,
+            current_clones = scan_revision(repo, "HEAD", tmp_path / "current", formats)
+            # A baseline can only grandfather candidates; it cannot add a finding.
+            mark_new_clones(current_clones, [], changed_files)
+            if find_gate_failures(current_clones):
+                baseline_clones = scan_revision(repo, baseline, tmp_path / "baseline", formats)
+                mark_new_clones(current_clones, baseline_clones, changed_files)
+                print(
+                    f"{len(current_clones)} clones in this tree, "
+                    f"{sum(1 for c in current_clones if c['isNew'])} not in the baseline"
                 )
-                if add.returncode != 0:
-                    print(add.stderr[-2000:])
-                    print(f"duplication lint could not check out {revision}")
-                    return 2
-            current_clones = run_jscpd(current_worktree, tmp_path / "current-report")
-            baseline_clones = run_jscpd(baseline_worktree, tmp_path / "baseline-report")
+            else:
+                print("No reportable clones touch changed files; skipping the baseline scan.")
         except SystemExit:
             scan_failed = True
             current_clones = []
-        finally:
-            for worktree, _ in scan_worktrees:
-                subprocess.run(["git", "worktree", "remove", "--force", str(worktree)], capture_output=True, cwd=repo)
 
     if scan_failed:
         return 2
 
-    changed_files = changed_files_between(baseline, "HEAD", repo)
-    mark_new_clones(current_clones, baseline_clones, changed_files)
-    print(
-        f"{len(current_clones)} clones in this tree, {sum(1 for c in current_clones if c['isNew'])} not in the baseline"
-    )
     if args.report_dir:
         (Path(args.report_dir) / "duplication-scan-status.json").write_text(json.dumps({"status": "ok"}) + "\n")
 
     failures = find_gate_failures(current_clones)
-    findings = build_findings(failures)
-
-    if args.report_dir:
-        report_names = {"python": "duplication-findings-python.json", "typescript": "duplication-findings-ts.json"}
-        for language, language_findings in findings.items():
-            (Path(args.report_dir) / report_names[language]).write_text(json.dumps(language_findings, indent=2) + "\n")
-
+    write_findings(args.report_dir, build_findings(failures))
     if not failures:
         print("No new code duplication above the bars.")
         return 0

@@ -2,17 +2,20 @@ import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { phaiSidePanelComposerSeedLogic } from 'scenes/max/phaiSidePanelComposerSeedLogic'
 
+import { SCOUT_AI_PANEL } from '~/layout/ai/aiPanelIds'
+import { attachedContextLogic } from '~/layout/ai/attachedContextLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { SidePanelTab } from '~/types'
 
-import { attachedContextLogic } from 'products/posthog_ai/frontend/api/logics'
 import { taskTrackerSceneLogic } from 'products/posthog_ai/frontend/scenes/TaskTracker/taskTrackerSceneLogic'
 
-import { SCOUT_AI_PANEL, scoutAiContextItems, scoutAiLogic } from './scoutAiLogic'
+import { scoutAiContextItems, scoutAiLogic } from './scoutAiLogic'
 
 describe('scoutAiLogic', () => {
     let logic: ReturnType<typeof scoutAiLogic.build>
@@ -64,6 +67,8 @@ describe('scoutAiLogic', () => {
             ...MOCK_DEFAULT_ORGANIZATION,
             is_ai_data_processing_approved: consent,
         })
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true })
         sidePanelStateLogic.mount()
         sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Max)
         trackerLogic = taskTrackerSceneLogic({ panelId: 'max-side-panel' })
@@ -73,6 +78,20 @@ describe('scoutAiLogic', () => {
         logic = scoutAiLogic()
         logic.mount()
     }
+
+    it('does not start a scout question without AI access', async () => {
+        mountWithOpenPanel(true)
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: false })
+        await expectLogic(logic, () =>
+            logic.actions.askScout(
+                { scoutId: 'scout-1', skillName: 'checkout-watcher', scoutName: 'Checkout watcher' },
+                'What changed?'
+            )
+        ).toFinishAllListeners()
+        expect(createdDescriptions).toEqual([])
+        expect(startedMessages).toEqual([])
+        expect(logic.values.pendingSeed).toBeNull()
+    })
 
     it('sends the question once and opens the scout panel', async () => {
         mountWithOpenPanel(true)

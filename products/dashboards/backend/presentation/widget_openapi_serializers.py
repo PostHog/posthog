@@ -1,0 +1,605 @@
+"""OpenAPI serializers for dashboard PATCH, widget batch writes and the widget catalog.
+
+The typed widget config schemas are built from the widget config models, so a new widget type needs
+no serializer here.
+"""
+
+from __future__ import annotations
+
+from typing import Any, cast
+
+from django.db import models
+
+from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_field, extend_schema_serializer
+from pydantic import BaseModel
+from rest_framework import serializers
+
+from posthog.schema import BreakdownFilter, CompareFilter, IntervalType
+
+from posthog.enums import LabeledStrEnum
+
+from products.dashboards.backend.facade.enums import (
+    DASHBOARD_GRID_COLUMN_COUNT,
+    DASHBOARD_GRID_COMPACTION_MODES,
+    DASHBOARD_TILE_GROUP_DISPLAY_MODES,
+    MAX_GROUP_KEY_LENGTH,
+    MAX_GROUP_TITLE_LENGTH,
+    DashboardTileBadge,
+    DashboardTileGroupColor,
+    TileSpacing,
+)
+from products.dashboards.backend.facade.widget_configs import WIDGET_CONFIG_MODELS
+from products.dashboards.backend.presentation.pydantic_openapi import pydantic_config_field, pydantic_stub_serializer
+
+GROUPS_HELP_TEXT = (
+    "Settings for tile groups, keyed by the tiles' group_key. Each group shows as a band of its tiles under a "
+    "heading that viewers can open and close. Viewers who do not have bands yet see only the group title above "
+    "its tiles. A write replaces the whole map. Send an empty object or null to remove all group settings."
+)
+GROUP_TITLES_HELP_TEXT = (
+    "Deprecated: use groups. Titles for tile groups, keyed by group_key. A write replaces all titles and keeps "
+    "the other group settings. Send an empty object or null to clear titles. Do not send it with groups."
+)
+GROUP_KEY_HELP_TEXT = (
+    "Key that puts this tile in a group with the other tiles that have the same key on this dashboard. "
+    "Set the group's title and style in the dashboard's groups. Null or an empty string removes the tile from its "
+    "group."
+)
+BADGE_HELP_TEXT = (
+    "Badge on the tile. winner shows a crown in the top left corner, for example to mark the best tile in a group. "
+    "cheeky-hog shows a hedgehog when a person hovers over the tile. Null removes the badge. "
+    "More than one tile in a group can have the winner badge."
+)
+
+
+# No field has a default, so a write stores only the settings the client sent. customization.py
+# validates stored settings with the same fields, and test_dashboard_groups.py keeps the two in step.
+class DashboardTileGroupSerializer(serializers.Serializer):
+    title = serializers.CharField(
+        max_length=MAX_GROUP_TITLE_LENGTH,
+        required=False,
+        allow_blank=True,
+        help_text="Heading for the group. When it is blank or omitted, the heading shows the number of tiles.",
+    )
+    collapsed = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Whether the group starts closed. Defaults to false. When a viewer opens or closes the group, their "
+            "browser keeps that choice and it wins over this default. A closed group loads its tiles when a viewer "
+            "opens it."
+        ),
+    )
+    color = serializers.ChoiceField(
+        choices=DashboardTileGroupColor.choices,
+        required=False,
+        allow_null=True,
+        help_text="Color of a dot before the group heading. Null or omitted shows no dot.",
+    )
+
+
+WIDGET_BATCH_ADD_OPENAPI_HELP = (
+    "Widget tiles to add atomically. Supported widget_type values: "
+    + ", ".join(sorted(WIDGET_CONFIG_MODELS))
+    + ". Use dashboard-widget-catalog-list for per-type config_schema documentation."
+)
+
+
+class DashboardWidgetType(models.TextChoices):
+    """Every registered widget type. test_widget_openapi_enums checks it against WIDGET_SPECS."""
+
+    ACTIVITY_EVENTS_LIST = "activity_events_list"
+    CANVAS_APP = "canvas_app"
+    CONVERSATIONS_RECENT_TICKETS = "conversations_recent_tickets"
+    ERROR_TRACKING_LIST = "error_tracking_list"
+    EXPERIMENT_RESULTS = "experiment_results"
+    EXPERIMENTS_LIST = "experiments_list"
+    LOGS_LIST = "logs_list"
+    METRICS_TABLE = "metrics_table"
+    NOTEBOOK_WIDGET = "notebook_widget"
+    SESSION_REPLAY_LIST = "session_replay_list"
+    SURVEY_RESULTS = "survey_results"
+
+
+# Batch tool schemas leave config untyped so they do not grow with each widget type.
+# validate_widget_config still checks every config against its widget type.
+WIDGET_CONFIG_BATCH_HELP = (
+    "Widget configuration as a JSON object. Its keys depend on widget_type: read that type's config_schema "
+    "from dashboard-widget-catalog-list. The API validates the config and returns a 400 that names each "
+    "invalid field."
+)
+
+
+def _config_model_openapi_prefix(config_model: type[BaseModel]) -> str:
+    name = config_model.__name__
+    if name.endswith("WidgetConfig"):
+        return name[: -len("Config")]
+    if name.endswith("Config"):
+        return name[: -len("Config")]
+    return name
+
+
+class _TileLayoutBoxOpenApiSerializer(serializers.Serializer):
+    x = serializers.IntegerField(
+        required=False,
+        help_text="Column position in the dashboard grid (0-indexed).",
+    )
+    y = serializers.IntegerField(
+        required=False,
+        help_text="Row position in the dashboard grid (0-indexed).",
+    )
+    w = serializers.IntegerField(
+        required=False,
+        help_text="Width in grid columns. The desktop grid is 12 columns wide.",
+    )
+    h = serializers.IntegerField(required=False, help_text="Height in grid rows.")
+
+
+class _TileLayoutsOpenApiSerializer(serializers.Serializer):
+    sm = _TileLayoutBoxOpenApiSerializer(
+        required=False,
+        help_text="Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.",
+    )
+    xs = _TileLayoutBoxOpenApiSerializer(
+        required=False,
+        help_text=(
+            "Layout for the small (mobile) breakpoint, on a 1-column grid. The dashboard derives this layout "
+            "from the sm order and heights, so a stored xs box does not change what renders."
+        ),
+    )
+
+
+class _DashboardPatchTileLayoutBoxOpenApiSerializer(serializers.Serializer):
+    x = serializers.IntegerField(
+        min_value=0,
+        max_value=DASHBOARD_GRID_COLUMN_COUNT - 1,
+        help_text="Column position in the dashboard grid (0-indexed).",
+    )
+    y = serializers.IntegerField(min_value=0, help_text="Row position in the dashboard grid (0-indexed).")
+    w = serializers.IntegerField(
+        min_value=1,
+        max_value=DASHBOARD_GRID_COLUMN_COUNT,
+        help_text="Width in grid columns. The desktop grid is 12 columns wide.",
+    )
+    h = serializers.IntegerField(min_value=1, help_text="Height in grid rows.")
+
+
+class _DashboardPatchTileLayoutsOpenApiSerializer(serializers.Serializer):
+    sm = _DashboardPatchTileLayoutBoxOpenApiSerializer(
+        help_text=(
+            "Layout for the standard (desktop) breakpoint. The grid is 12 columns wide. A write replaces the "
+            "tile's whole layout and the dashboard reads desktop placement from this box, so send it whenever "
+            "you send layouts."
+        ),
+    )
+    xs = _DashboardPatchTileLayoutBoxOpenApiSerializer(
+        required=False,
+        help_text=(
+            "Layout for the small (mobile) breakpoint, on a 1-column grid. The dashboard derives this layout "
+            "from the sm order and heights, so a stored xs box does not change what renders."
+        ),
+    )
+
+
+class _AddDashboardWidgetTileFieldsOpenApiSerializer(serializers.Serializer):
+    name = serializers.CharField(
+        max_length=400,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Optional custom display name for the widget tile.",
+    )
+    description = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Optional markdown description shown when show_description is enabled.",
+    )
+    layouts = _TileLayoutsOpenApiSerializer(
+        required=False,
+        help_text="Optional react-grid-layout positions keyed by breakpoint (sm, xs).",
+    )
+    show_description = serializers.BooleanField(
+        required=False,
+        help_text="Whether to show the description on the dashboard tile.",
+    )
+
+
+def _build_catalog_entry_serializers() -> dict[str, type[serializers.Serializer]]:
+    catalog_entry_serializers: dict[str, type[serializers.Serializer]] = {}
+
+    for widget_type, config_model in WIDGET_CONFIG_MODELS.items():
+        prefix = _config_model_openapi_prefix(config_model)
+        # A one-member class per type: the ENUM_NAME_OVERRIDES entry for the type names its enum. The cast
+        # is for the functional Enum API, which the LabeledStrEnum stubs do not describe.
+        widget_type_choices = cast(
+            type[LabeledStrEnum],
+            cast(Any, LabeledStrEnum)(
+                f"{prefix}CatalogEntryWidgetType", [(widget_type.upper(), (widget_type, widget_type))]
+            ),
+        )
+        catalog_entry_serializers[widget_type] = type(
+            f"{prefix}CatalogEntryOpenApiSerializer",
+            (serializers.Serializer,),
+            {
+                "widget_type": serializers.ChoiceField(choices=widget_type_choices.choices),
+                "group_id": serializers.CharField(),
+                "group_label": serializers.CharField(),
+                "label": serializers.CharField(),
+                "description": serializers.CharField(),
+                "config_schema": pydantic_config_field(
+                    config_model,
+                    read_only=True,
+                    help_text=(
+                        "Config shape for this widget type. Build the config for the batch add and batch update "
+                        "tools from it, because their schemas do not list config keys."
+                    ),
+                ),
+                "required_product_access": serializers.CharField(required=False, allow_null=True),
+                "live": serializers.BooleanField(
+                    help_text=(
+                        "Whether tiles of this type self-update in real time after load. Live tiles show a "
+                        "fixed real-time window and cannot apply test-account filtering to the stream, so "
+                        "their config takes neither dateRange nor filterTestAccounts."
+                    ),
+                ),
+            },
+        )
+
+    return catalog_entry_serializers
+
+
+WIDGET_CONFIG_SERIALIZERS: dict[str, type[serializers.Serializer]] = {
+    widget_type: pydantic_stub_serializer(config_model) for widget_type, config_model in WIDGET_CONFIG_MODELS.items()
+}
+_WIDGET_CATALOG_ENTRY_SERIALIZERS = _build_catalog_entry_serializers()
+
+DashboardWidgetConfigOpenApi = PolymorphicProxySerializer(
+    component_name="DashboardWidgetConfig",
+    serializers=list(WIDGET_CONFIG_SERIALIZERS.values()),
+    resource_type_field_name=None,
+)
+
+
+@extend_schema_field(DashboardWidgetConfigOpenApi)
+class DashboardWidgetConfigField(serializers.JSONField):
+    """JSONField annotated with per-widget-type config schemas for OpenAPI generation."""
+
+    pass
+
+
+@extend_schema_serializer(component_name="AddDashboardWidgetRequest")
+class _AddDashboardWidgetRequestOpenApiSerializer(_AddDashboardWidgetTileFieldsOpenApiSerializer):
+    widget_type = serializers.ChoiceField(
+        choices=DashboardWidgetType.choices,
+        help_text="Widget type to add. Use dashboard-widget-catalog-list to pick one.",
+    )
+    config = serializers.DictField(child=serializers.JSONField(), help_text=WIDGET_CONFIG_BATCH_HELP)
+
+
+AddDashboardWidgetRequestOpenApi = _AddDashboardWidgetRequestOpenApiSerializer()
+
+
+class _UpdateDashboardWidgetTileFieldsOpenApiSerializer(serializers.Serializer):
+    tile_id = serializers.IntegerField(
+        help_text="ID of the widget tile to update. Use dashboard-get to look up widget tile IDs.",
+    )
+    name = serializers.CharField(
+        max_length=400,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="New display name for the widget. Empty string or null clears it; omit to leave unchanged.",
+    )
+    description = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="New markdown description for the widget. Omit to leave unchanged.",
+    )
+
+
+@extend_schema_serializer(component_name="UpdateDashboardWidgetRequest")
+class _UpdateDashboardWidgetRequestOpenApiSerializer(_UpdateDashboardWidgetTileFieldsOpenApiSerializer):
+    widget_type = serializers.ChoiceField(
+        choices=DashboardWidgetType.choices,
+        required=False,
+        help_text="The tile's widget type. It cannot be changed, so omit it or pass the current type.",
+    )
+    config = serializers.DictField(
+        child=serializers.JSONField(),
+        required=False,
+        help_text=(
+            f"{WIDGET_CONFIG_BATCH_HELP} Each top-level key you send replaces the stored value, and keys you "
+            "leave out stay as they are. Omit config to leave it unchanged."
+        ),
+    )
+
+
+UpdateDashboardWidgetRequestOpenApi = _UpdateDashboardWidgetRequestOpenApiSerializer()
+
+WidgetCatalogEntryOpenApi = PolymorphicProxySerializer(
+    component_name="WidgetCatalogEntry",
+    serializers=cast("dict[str, Any]", _WIDGET_CATALOG_ENTRY_SERIALIZERS),
+    resource_type_field_name="widget_type",
+)
+
+
+class WidgetCatalogResponseSerializer(serializers.Serializer):
+    results = serializers.ListField(
+        child=WidgetCatalogEntryOpenApi,
+        help_text="Registered dashboard widget types.",
+    )
+
+
+class DashboardPatchWidgetOpenApiSerializer(serializers.Serializer):
+    id = serializers.UUIDField(
+        required=False,
+        help_text="Existing widget row ID when updating a widget tile via dashboard PATCH.",
+    )
+    widget_type = serializers.ChoiceField(
+        choices=DashboardWidgetType.choices,
+        required=False,
+        help_text="Widget type identifier (cannot be changed on update).",
+    )
+    config = DashboardWidgetConfigField(
+        required=False,
+        help_text="Widget-specific configuration. Shape depends on the tile's widget_type.",
+    )
+    name = serializers.CharField(
+        max_length=400,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Optional custom display name for the widget tile.",
+    )
+    description = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Optional markdown description shown when show_description is enabled.",
+    )
+
+
+class DashboardPatchTileOpenApiSerializer(serializers.Serializer):
+    id = serializers.IntegerField(required=False, help_text="Dashboard tile ID to update.")
+    layouts = _DashboardPatchTileLayoutsOpenApiSerializer(
+        required=False,
+        help_text=(
+            "Grid position and size per breakpoint. Works for every tile type, including insight tiles. "
+            "A write replaces the tile's whole layout, so send a complete sm box rather than the one value "
+            "you want to change. Boxes are stored as sent and overlaps are not resolved, so send sm boxes "
+            "that do not overlap, and include every tile you move in the same request."
+        ),
+    )
+    show_description = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Whether to show the tile's description underneath its title on the dashboard. Works for every "
+            "tile type. The description itself is unaffected and still comes from the tile's insight, text, "
+            "or widget content — this only toggles whether it renders on the dashboard."
+        ),
+    )
+    group_key = serializers.CharField(
+        max_length=MAX_GROUP_KEY_LENGTH,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text=GROUP_KEY_HELP_TEXT,
+    )
+    badge = serializers.ChoiceField(
+        choices=DashboardTileBadge.choices,
+        required=False,
+        allow_null=True,
+        help_text=BADGE_HELP_TEXT,
+    )
+    widget = DashboardPatchWidgetOpenApiSerializer(required=False, help_text="Nested widget row updates.")
+
+
+@extend_schema_field(BreakdownFilter)  # type: ignore[arg-type]
+class DashboardBreakdownFilterField(serializers.JSONField):
+    pass
+
+
+@extend_schema_field(CompareFilter)  # type: ignore[arg-type]
+class DashboardCompareFilterField(serializers.JSONField):
+    pass
+
+
+class DashboardFiltersOpenApiSerializer(serializers.Serializer):
+    """OpenAPI-only shape for a dashboard's filters object (agents/MCP).
+
+    Documents the dashboard-level filters that act as the single source of truth for the
+    dashboard's tiles. Runtime persistence reads the raw ``filters`` dict from the request body, so
+    extra keys are accepted, but these are the ones agents should set.
+    """
+
+    date_from = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Dashboard-level start of the date range, e.g. '-30d', '-7d', or an ISO date. Applies to all tiles.",
+    )
+    date_to = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Dashboard-level end of the date range, e.g. '-1d' or an ISO date. Null/omitted means up to now.",
+    )
+    properties = serializers.JSONField(
+        required=False,
+        help_text="Dashboard-level property filters applied to every tile (PostHog property filter group).",
+    )
+    breakdown_filter = DashboardBreakdownFilterField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Dashboard-level breakdown applied to every tile that supports one, replacing the tile's own breakdown. "
+            'Example: {"breakdown_type": "event", "breakdown": "$browser"}. Null clears it.'
+        ),
+    )
+    # nosemgrep: choices-need-a-class -- generated query schema enum, ENUM_NAME_OVERRIDES pins IntervalTypeEnum
+    interval = serializers.ChoiceField(
+        choices=[interval.value for interval in IntervalType],
+        required=False,
+        allow_null=True,
+        help_text="Time granularity forced onto every tile that supports one. Null means each tile keeps its own.",
+    )
+    compareFilter = DashboardCompareFilterField(
+        required=False,
+        allow_null=True,
+        help_text="Period comparison forced onto every tile that supports one. Null means each tile keeps its own.",
+    )
+    filterTestAccounts = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        help_text="True forces test accounts out of every tile, false forces them in, null keeps each tile's setting.",
+    )
+
+
+class BreakdownColorConfigSource(models.TextChoices):
+    AUTO = "auto", "auto"
+    MANUAL = "manual", "manual"
+
+
+class BreakdownColorConfigSerializer(serializers.Serializer):
+    breakdownValue = serializers.CharField(
+        allow_blank=True,
+        help_text="The breakdown value this color applies to, as it appears in the chart legend.",
+    )
+    # A token names a slot in the dashboard's color theme, not a color. getColorFromToken parses the
+    # N out and indexes the theme with it, so any other string yields theme['preset-NaN'], which is
+    # undefined. The pattern rather than a fixed range, because a theme may carry more slots than the
+    # default palette and the token wraps past its end.
+    #
+    # The slot starts at 1 and its digits must be ASCII. getColorFromToken wraps the index as
+    # ((N - 1) % slots) + 1, so `preset-0` reads theme['preset-0'], and JavaScript parseInt reads
+    # another script's digits as NaN.
+    colorToken = serializers.RegexField(
+        r"^preset-[1-9][0-9]*$",
+        allow_null=True,
+        help_text=(
+            "Palette slot to color the value with, as `preset-1` upwards. Not a CSS color: a hex "
+            "value is rejected. Null leaves the value on its default color."
+        ),
+    )
+    breakdownType = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Breakdown type the value came from, such as `event`, `person`, `session`, or `cohort`.",
+    )
+    # Null means the same as omitted for both keys below: the frontend reads
+    # `breakdownProperty != null` for property scoping, and treats an entry with no source as a
+    # manual pin. So an explicit null must not fail a write.
+    breakdownProperty = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Breakdown property the color is scoped to, so the color applies only to tiles that break "
+            "down by that property. Omit to apply it under every property."
+        ),
+    )
+    # `source` is also the name of a Field attribute on the Serializer base class, which mypy reads as
+    # a shadowed assignment. SerializerMetaclass pops every declared field out of the class namespace,
+    # so the base attribute survives and the entry key stays `source`, which is what the frontend
+    # persists.
+    source = serializers.ChoiceField(  # type: ignore[assignment]
+        choices=BreakdownColorConfigSource.choices,
+        required=False,
+        allow_null=True,
+        help_text="`manual` for a color a person picked, `auto` for one the dashboard assigned.",
+    )
+
+
+class PatchedDashboardOpenApiSerializer(serializers.Serializer):
+    """OpenAPI-only PATCH body for dashboards (agents/MCP).
+
+    Must be a superset of ``dashboard_patch_runtime_openapi_field_names()`` — ``extend_schema(request=...)``
+    replaces the inferred schema entirely. Contract: ``test_dashboard_openapi.py``.
+    """
+
+    name = serializers.CharField(max_length=400, required=False, allow_null=True)
+    description = serializers.CharField(required=False, allow_blank=True)
+    pinned = serializers.BooleanField(required=False)
+    filters = DashboardFiltersOpenApiSerializer(
+        required=False,
+        help_text="Dashboard-level filters (date range, properties, breakdown, interval, comparison) applied across all tiles as the source of truth.",
+    )
+    breakdown_colors = serializers.ListField(
+        child=BreakdownColorConfigSerializer(),
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Colors pinned to specific breakdown values across the dashboard's tiles. "
+            "A list of entries, not an object keyed by breakdown value. Send an empty list to clear them."
+        ),
+    )
+    data_color_theme_id = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="ID of the color theme used for chart visualizations.",
+    )
+    tags = serializers.ListField(child=serializers.CharField(), required=False)
+    quick_filter_ids = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        allow_null=True,
+        help_text="List of quick filter IDs associated with this dashboard.",
+    )
+    grid_spacing = serializers.ChoiceField(
+        choices=TileSpacing.choices,
+        required=False,
+        help_text="Named tile density preset. Use tight, condensed, standard, relaxed, or wide.",
+    )
+    layout_compaction = serializers.ChoiceField(
+        choices=DASHBOARD_GRID_COMPACTION_MODES,
+        required=False,
+        help_text=(
+            "How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles "
+            "to the left, and stable preserves positions while moving colliding tiles."
+        ),
+    )
+    group_display = serializers.ChoiceField(
+        choices=DASHBOARD_TILE_GROUP_DISPLAY_MODES,
+        required=False,
+        help_text=(
+            "How tile groups show. sections shows each group as a band that opens and closes. tabs shows one "
+            "group at a time, and tiles outside any group get their own first tab."
+        ),
+    )
+    groups = serializers.DictField(
+        child=DashboardTileGroupSerializer(),
+        required=False,
+        allow_null=True,
+        help_text=GROUPS_HELP_TEXT,
+    )
+    group_titles = serializers.DictField(
+        child=serializers.CharField(max_length=MAX_GROUP_TITLE_LENGTH),
+        required=False,
+        allow_null=True,
+        help_text=GROUP_TITLES_HELP_TEXT,
+    )
+    tiles = DashboardPatchTileOpenApiSerializer(
+        many=True,
+        required=False,
+        help_text=(
+            "Dashboard tiles to update, each identified by its tile id. Any tile type accepts `layouts` to set "
+            "its grid position and size. Widget tiles also accept nested widget.config patches."
+        ),
+    )
+    use_template = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Template key to create the dashboard from a predefined template.",
+    )
+    use_dashboard = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="ID of an existing dashboard to duplicate.",
+    )
+    delete_insights = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="When deleting, also delete insights that are only on this dashboard.",
+    )
+
+
+def __getattr__(name: str) -> Any:
+    for serializer in WIDGET_CONFIG_SERIALIZERS.values():
+        if serializer.__name__ == name:
+            return serializer
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

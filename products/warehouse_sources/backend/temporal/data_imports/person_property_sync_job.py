@@ -7,18 +7,17 @@ competes with the sync workers themselves; ``start_temporal_worker`` registers i
 ``PERSON_PROPERTY_SYNC_WORKFLOWS``/``PERSON_PROPERTY_SYNC_ACTIVITIES``.
 
 Failure semantics: the activity retries up to 3 times, then the (abandoned) child workflow fails
-without affecting the sync. Nothing is lost — staged files are only cleared on success and the
-dedup snapshot only advances per produced person, so the next sync's run re-reads and re-diffs.
-Each failed attempt is captured to error tracking. The workflow then records the run as failed and
-counts it once in the metrics below, also when the activity was timed out, cancelled or killed.
+without affecting the sync. The dedup snapshot only advances per produced person, so a Backfill can
+recover rows left by an interrupted incremental run without resending confirmed updates. Each failed
+attempt is captured to error tracking. The workflow then records the run as failed and counts it once
+in the metrics below, also when the activity was timed out, cancelled or killed.
 """
 
 import json
 import time
 import dataclasses
-from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import structlog
 from prometheus_client import Counter, Histogram
@@ -34,18 +33,25 @@ from products.warehouse_sources.backend.temporal.data_imports.external_product_h
     PersonPropertyFailedRunInputs,
     PersonPropertySyncActivityInputs,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_run_log import (
+    PersonPropertyRunLog,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_sync import (
     failed_run_error,
     is_worker_interruption,
+    progress_recorder,
     record_completed_runs,
     record_failed_runs,
     record_started_runs,
     run_person_property_sync,
 )
 
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
+
 logger = structlog.get_logger(__name__)
 
-INTERRUPTED_RUN_NEXT_STEP = "Check the source status, then click Sync now to try again."
+INTERRUPTED_RUN_NEXT_STEP = "Run a Backfill to deliver any rows left by the interrupted sync."
 # Three recorder attempts of up to 5 minutes each.
 RECORD_FAILED_RUN_RESERVE = timedelta(minutes=15)
 RECORD_FAILED_RUN_PATCH = "person-property-sync-record-failed-run-2026-10"
@@ -78,7 +84,8 @@ async def sync_warehouse_person_properties_activity(inputs: PersonPropertySyncAc
     log = logger.bind(**inputs.properties_to_log)
     log.info(f"Starting person-property sync for {inputs.source_type}/{inputs.schema_name}")
     start = time.monotonic()
-    started_at = datetime.now(UTC).isoformat()
+    # A retry keeps the time the run was first scheduled, so the run row shows its whole duration.
+    started_at = activity.info().scheduled_time.isoformat()
     binding = inputs.binding
     await record_started_runs(
         team_id=inputs.team_id,
@@ -89,7 +96,15 @@ async def sync_warehouse_person_properties_activity(inputs: PersonPropertySyncAc
     )
     try:
         async with Heartbeater():
-            result = await run_person_property_sync(team_id=inputs.team_id, binding=binding, job_id=inputs.job_id)
+            result = await run_person_property_sync(
+                team_id=inputs.team_id,
+                binding=binding,
+                job_id=inputs.job_id,
+                complete_table_read=inputs.complete_table_read,
+                on_progress=progress_recorder(
+                    team_id=inputs.team_id, binding=binding, job_id=inputs.job_id, trigger="scheduled"
+                ),
+            )
     except Exception as e:
         # Re-raised so Temporal retries; captured so a terminal failure is visible in error
         # tracking rather than dying silently in an abandoned child workflow. The failed outcome is
@@ -123,6 +138,7 @@ async def sync_warehouse_person_properties_activity(inputs: PersonPropertySyncAc
         ("changed", result.changed),
         ("existing", result.existing),
         ("produced", result.produced),
+        ("removed", result.removed),
         ("skipped_missing_person", result.skipped_missing_person),
     ):
         if count:
@@ -135,6 +151,7 @@ async def sync_warehouse_person_properties_activity(inputs: PersonPropertySyncAc
         changed=result.changed,
         existing=result.existing,
         produced=result.produced,
+        removed=result.removed,
         skipped_missing_person=result.skipped_missing_person,
     )
     return dataclasses.asdict(result)
@@ -142,6 +159,7 @@ async def sync_warehouse_person_properties_activity(inputs: PersonPropertySyncAc
 
 @activity.defn
 async def record_failed_person_property_sync_runs_activity(inputs: PersonPropertyFailedRunInputs) -> None:
+    PersonPropertyRunLog(inputs.team_id, inputs.binding).failed(inputs.error)
     await record_failed_runs(
         team_id=inputs.team_id,
         binding=inputs.binding,
@@ -205,7 +223,7 @@ class SyncWarehousePersonPropertiesWorkflow(PostHogWorkflow):
 
 
 PERSON_PROPERTY_SYNC_WORKFLOWS = [SyncWarehousePersonPropertiesWorkflow]
-PERSON_PROPERTY_SYNC_ACTIVITIES: list[Callable[..., Any]] = [
+PERSON_PROPERTY_SYNC_ACTIVITIES: list[ActivityDefinition] = [
     sync_warehouse_person_properties_activity,
     record_failed_person_property_sync_runs_activity,
 ]

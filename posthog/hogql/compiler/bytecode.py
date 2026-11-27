@@ -8,6 +8,7 @@ from posthog.hogql import ast
 from posthog.hogql.base import AST
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import QueryError
+from posthog.hogql.functions.mapping import find_hogql_function
 from posthog.hogql.parser import parse_program
 from posthog.hogql.visitor import Visitor
 
@@ -520,7 +521,31 @@ class BytecodeCompiler(Visitor):
                 f"Add a last value to fall back to.",
             )
 
+    def _is_library_function(self, name: str) -> bool:
+        return (
+            name in STL
+            or name in BYTECODE_STL
+            or name in self.supported_functions
+            or (self.context.allowed_functions is not None and name in self.context.allowed_functions)
+        )
+
+    def _with_resolved_function_case(self, node: ast.Call) -> ast.Call:
+        # The variable lookups here run only when the libraries cannot decide, because a lookup marks an outer
+        # variable of that name as captured, and the enclosing scope then closes it with CLOSE_UPVALUE instead of POP.
+        lowered = node.name.lower()
+        if (
+            lowered == node.name
+            or self._is_library_function(node.name)
+            or self._names_a_variable(node.name)
+            or not self._is_library_function(lowered)
+            or find_hogql_function(node.name) is None
+            or find_hogql_function(node.name) is not find_hogql_function(lowered)
+        ):
+            return node
+        return dataclasses.replace(node, name=lowered)
+
     def visit_call(self, node: ast.Call):
+        node = self._with_resolved_function_case(node)
         self._check_declared_call(node)
         if node.name in ("inCohort", "notInCohort") and not self._compiling_cohort_membership_call:
             raise QueryError(f"Can't call {node.name}() directly. Use a cohort property filter instead.")
@@ -617,7 +642,7 @@ class BytecodeCompiler(Visitor):
                     )
                 elif self.context.allowed_functions is not None:
                     pass  # checked by _check_declared_call
-                elif node.name in self.supported_functions or node.name in STL or node.name in BYTECODE_STL:
+                elif self._is_library_function(node.name):
                     pass
                 else:
                     self.context.add_error(
@@ -1017,8 +1042,8 @@ class BytecodeCompiler(Visitor):
         body = node.body
 
         # Sometimes blocks like `fn x() {foo}` get parsed as placeholders
-        if isinstance(body, ast.Placeholder):  # type: ignore[unreachable]
-            body = ast.Block(declarations=[ast.ExprStatement(expr=body.expr), ast.ReturnStatement(expr=None)])  # type: ignore[unreachable]
+        if isinstance(body, ast.Placeholder):
+            body = ast.Block(declarations=[ast.ExprStatement(expr=body.expr), ast.ReturnStatement(expr=None)])
         elif isinstance(node.body, ast.Block):
             if len(node.body.declarations) == 0 or not isinstance(node.body.declarations[-1], ast.ReturnStatement):
                 body = ast.Block(declarations=[*node.body.declarations, ast.ReturnStatement(expr=None)])

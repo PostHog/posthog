@@ -1,5 +1,8 @@
 """
-Dashboard membership of an insight, for callers outside this product.
+Dashboards and their insight tiles, for callers outside this product.
+
+Callers read a dashboard as a `DashboardSummary` contract and check object access through its
+`access_ref`, so they never hold the dashboard model class.
 
 An insight sits on a dashboard through a tile, and a tile is a dashboards row: the queries that
 find it, the permission checks that guard it, its JSON shape and its soft-delete semantics all
@@ -9,82 +12,90 @@ never has to hold the tile or dashboard model classes itself.
 Everything that writes runs inside the caller's transaction; each function says so where it
 matters. Refusals are raised as the error types defined here — the caller decides which HTTP
 response they become.
+
+The sharing publish gate is imported at call time. It loads the subscriptions facade, which loads
+the exports facade, and the exports facade imports this module.
 """
 
 import re
-from collections.abc import Collection, Sequence
+import json
+from collections.abc import AsyncIterator, Callable, Collection, Iterable, Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
+from uuid import UUID
 
-from django.db.models import Exists, OuterRef, Prefetch, QuerySet
-from django.utils.timezone import now
+from django.db.models import Exists, OuterRef, Prefetch, Q, QuerySet
 
-from pydantic.dataclasses import dataclass
-from rest_framework import serializers
+from pydantic import JsonValue
 
-from posthog.api.sharing_publish_gate import check_can_add_insight_to_dashboard
-from posthog.helpers.dashboard_templates import create_from_template
+from posthog.caching.insight_result import InsightResult
+from posthog.helpers.full_text_search import to_search_results
 from posthog.models.user import User
 from posthog.models.user_home_settings import UserHomeSettings
+from posthog.paging import Page, PageRequest
+from posthog.resource_limits import LimitKey, check_count_limit
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.access_control.backend.facade.contracts import ObjectAccessRef
+from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
+from products.dashboards.backend.facade import contracts
+from products.dashboards.backend.facade.contracts import (
+    AppliedDashboard,
+    CannotAddToDashboard,
+    CannotRemoveFromDashboard,
+    DashboardInsights,
+    DashboardInsightTile,
+    DashboardInsightTileSummary,
+    DashboardNotEditable,
+    DashboardNotFound,
+    DashboardNotViewable,
+    DashboardRef,
+    DashboardSummary,
+    DashboardTemplateDefinition,
+    Frame,
+    InsightPlacement,
+    InsightTilePlacement,
+    MembershipChange,
+    PlacedInsightTile,
+    QueryBatchBusy,
+    QueryBatchInput,
+    TeamDashboardRef,
+    TilePlacement,
+)
+from products.dashboards.backend.facade.enums import (
+    DashboardCreationMode,
+    DashboardTemplateScope,
+    DashboardUsageCount,
+    ResultFormat,
+)
+from products.dashboards.backend.logic import (
+    dashboards as dashboards_logic,
+    frames as frames_logic,
+    insight_membership as insight_membership_logic,
+    search as search_logic,
+    team_settings as team_settings_logic,
+    template_library as template_library_logic,
+    templates as templates_logic,
+    tiles as tiles_logic,
+    usage as usage_logic,
+    visibility as visibility_logic,
+)
+from products.dashboards.backend.logic.template_instantiation import create_from_template
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.dashboards.backend.v2 import (
+    board_stream as v2_board_stream,
+    boards as v2_boards,
+    cached_tiles as v2_cached_tiles,
+    first_load as v2_first_load,
+    query_batch as v2_query_batch,
+)
+from products.dashboards.backend.v2.query_batch import MAX_QUERIES_PER_BATCH
 
 if TYPE_CHECKING:
+    from posthog.api.services.query import PlannedQuery
     from posthog.models.team import Team
-
-    from products.product_analytics.backend.facade.models import Insight
-
-
-class DashboardNotFound(Exception):
-    """A requested dashboard is not one this team can place an insight on."""
-
-
-class DashboardNotEditable(Exception):
-    """The requester may not change which insights sit on this dashboard."""
-
-    def __init__(self, dashboard_id: int) -> None:
-        super().__init__(str(dashboard_id))
-        self.dashboard_id = dashboard_id
-
-
-class DashboardNotViewable(Exception):
-    """The requester may not view this dashboard."""
-
-
-class CannotAddToDashboard(DashboardNotEditable):
-    """Raised while placing an insight on a dashboard the requester can only view."""
-
-
-class CannotRemoveFromDashboard(DashboardNotEditable):
-    """Raised while taking an insight off a dashboard the requester can only view."""
-
-
-@dataclass(frozen=True)
-class DashboardRef:
-    """A dashboard as insight payloads and activity logs refer to it."""
-
-    id: int
-    name: str | None
-
-
-@dataclass(frozen=True)
-class MembershipChange:
-    """What one membership write changed, for the caller's analytics events and activity log."""
-
-    added_dashboard_ids: tuple[int, ...]
-    removed_dashboard_ids: tuple[int, ...]
-    dashboards: tuple[DashboardRef, ...]
-
-
-# The tile shape an insight payload carries for each dashboard it sits on. No docstring: it would
-# land in the generated OpenAPI component as a description.
-class DashboardTileBasicSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = DashboardTile
-        fields = ["id", "dashboard_id", "deleted"]
 
 
 def _refs_in_given_order(dashboard_ids: Sequence[int]) -> tuple[DashboardRef, ...]:
@@ -96,21 +107,6 @@ def _refs_in_given_order(dashboard_ids: Sequence[int]) -> tuple[DashboardRef, ..
         for dashboard_id in dashboard_ids
         if dashboard_id in names
     )
-
-
-@dataclass(frozen=True)
-class DashboardInsightTile:
-    insight_short_id: str
-    filters_overrides: dict[str, Any] | None
-
-
-@dataclass(frozen=True)
-class DashboardInsights:
-    dashboard_id: int
-    name: str | None
-    filters: dict[str, Any]
-    variables: dict[str, Any] | None
-    tiles: tuple[DashboardInsightTile, ...]
 
 
 def home_dashboard_insights(*, team: "Team", user: User, limit: int) -> DashboardInsights | None:
@@ -187,16 +183,255 @@ def create_dashboard_from_tiles(
     template = DashboardTemplate(
         template_name=name, dashboard_description=description, dashboard_filters=filters, tiles=tiles, tags=tags
     )
-    dashboard = Dashboard.objects.create(
-        team_id=team.id, name=name, created_by=user, creation_mode=Dashboard.CreationMode.TEMPLATE
+    # With the template's values set here, the template step logs no second "updated" activity entry.
+    dashboard = dashboards_logic.create_template_dashboard(
+        team_id=team.id, name=name, description=description, filters=filters, created_by=user
     )
     create_from_template(dashboard, template, user, user_access_control=UserAccessControl(user=user, team=team))
     return DashboardRef(id=dashboard.id, name=dashboard.name)
 
 
+def apply_dashboard_template(
+    *,
+    team_id: int,
+    dashboard_id: int,
+    template_key: str,
+    user_id: int | None,
+    user_access_control: UserAccessControl | None = None,
+) -> None:
+    """Fill a new dashboard from the saved or code-defined template named `template_key`.
+
+    Raises AttributeError when the team can see no template with that name. The template writes the
+    dashboard row, so reload a dashboard model read before the call. With a `user_id`, the insights and
+    widgets it adds name that user as their creator. With a `user_access_control`, each widget first
+    checks that user's access to its product. Opens no transaction: wrap the call to roll back the
+    tiles of a template that fails part way.
+    """
+    templates_logic.apply_template_by_key(
+        team_id=team_id,
+        dashboard_id=dashboard_id,
+        template_key=template_key,
+        user_id=user_id,
+        user_access_control=user_access_control,
+    )
+
+
+def apply_dashboard_template_json(
+    *,
+    team_id: int,
+    dashboard_id: int,
+    template: Mapping[str, JsonValue],
+    user_id: int | None,
+    user_access_control: UserAccessControl | None = None,
+) -> None:
+    """Fill a new dashboard from a template body in the `create_from_template_json` request shape.
+
+    Raises KeyError when the body has no `template_name`, `dashboard_description`, `dashboard_filters` or
+    `tiles`. What `apply_dashboard_template` says about the dashboard row, the user, the access control
+    and the transaction applies here too.
+    """
+    templates_logic.apply_template_json(
+        team_id=team_id,
+        dashboard_id=dashboard_id,
+        template=template,
+        user_id=user_id,
+        user_access_control=user_access_control,
+    )
+
+
 def dashboard_refs(dashboard_ids: Sequence[int]) -> tuple[DashboardRef, ...]:
     """Dashboard IDs and names for callers that already validated the dashboard IDs."""
     return _refs_in_given_order(dashboard_ids)
+
+
+def create_dashboard(
+    *,
+    team_id: int,
+    name: str,
+    description: str = "",
+    pinned: bool = False,
+    variables: dict[str, Any] | None = None,
+) -> DashboardRef:
+    """Create an empty dashboard as the system, with no access check, for code that seeds a project."""
+    dashboard = dashboards_logic.create_empty_dashboard(
+        team_id=team_id,
+        name=name,
+        description=description,
+        pinned=pinned,
+        variables=variables if variables is not None else {},
+    )
+    return DashboardRef(id=dashboard.id, name=dashboard.name)
+
+
+def add_insight_tile(
+    *, dashboard_id: int, insight_id: int, layouts: dict[str, Any] | None = None, color: str | None = None
+) -> int:
+    """Place an insight on a dashboard as the system, with no access check, and return the tile's id."""
+    return insight_membership_logic.create_insight_tile(
+        dashboard_id=dashboard_id, insight_id=insight_id, layouts=layouts, color=color
+    )
+
+
+def _to_summary(dashboard: Dashboard) -> DashboardSummary:
+    return DashboardSummary(
+        id=dashboard.id,
+        team_id=dashboard.team_id,
+        name=dashboard.name,
+        description=dashboard.description,
+        created_at=dashboard.created_at,
+        created_by_id=dashboard.created_by_id,
+        deleted=dashboard.deleted,
+        pinned=dashboard.pinned,
+        creation_mode=DashboardCreationMode(dashboard.creation_mode),
+        last_accessed_at=dashboard.last_accessed_at,
+        last_refresh=dashboard.last_refresh,
+        filters=dashboard.filters or {},
+        variables=dashboard.variables,
+    )
+
+
+def _team_dashboards(team_id: int, *, include_deleted: bool) -> QuerySet[Dashboard]:
+    # `team_id=` goes through the root-team filter, so an environment's id finds its project's dashboards.
+    manager = Dashboard.objects_including_soft_deleted if include_deleted else Dashboard.objects
+    return manager.filter(team_id=team_id)
+
+
+def metric_variable_names(*, team_id: int) -> frozenset[str]:
+    """The names of the metrics variables that this team's dashboards define."""
+    names: set[str] = set()
+    for filters in (
+        _team_dashboards(team_id, include_deleted=False)
+        .filter(filters__has_key="metricVariables")
+        .values_list("filters", flat=True)
+    ):
+        variables = filters.get("metricVariables") if isinstance(filters, dict) else None
+        for variable in variables if isinstance(variables, list) else []:
+            if isinstance(variable, dict) and isinstance(variable.get("name"), str):
+                names.add(variable["name"])
+    return frozenset(names)
+
+
+def get_dashboard(*, team_id: int, dashboard_id: int, include_deleted: bool = False) -> DashboardSummary | None:
+    """One dashboard of this team, or None. A soft-deleted dashboard counts only with `include_deleted`.
+
+    Does not check object-level access: pass `summary.access_ref` to the caller's access check.
+    """
+    dashboard = _team_dashboards(team_id, include_deleted=include_deleted).filter(pk=dashboard_id).first()
+    return _to_summary(dashboard) if dashboard is not None else None
+
+
+def get_dashboards(
+    *, team_id: int, dashboard_ids: Collection[int], include_deleted: bool = False
+) -> dict[int, DashboardSummary]:
+    """The dashboards of this team among these ids, keyed by id. Ids that match none are left out."""
+    dashboards = _team_dashboards(team_id, include_deleted=include_deleted).filter(id__in=dashboard_ids)
+    return {dashboard.id: _to_summary(dashboard) for dashboard in dashboards}
+
+
+def live_dashboard_ids(*, team_id: int, dashboard_ids: Collection[int]) -> set[int]:
+    """Which of these ids are a live dashboard of this team."""
+    return set(
+        _team_dashboards(team_id, include_deleted=False).filter(id__in=dashboard_ids).values_list("id", flat=True)
+    )
+
+
+def _filter_viewable(dashboards: QuerySet[Dashboard], user_access_control: UserAccessControl) -> QuerySet[Dashboard]:
+    """Keep the dashboards the user may view, judged by the rules of the team that stores them.
+
+    `_team_dashboards` finds an environment's dashboards on its project's root team, and access
+    rules are per team, so the check has to read the root team's rules, not the environment's.
+    """
+    owner_team_id = dashboards.order_by().values_list("team_id", flat=True).first()
+    if owner_team_id is None:
+        return dashboards
+    owner_access = user_access_control.for_team_ids([owner_team_id]).get(owner_team_id)
+    if owner_access is None:
+        return dashboards.none()
+    return owner_access.filter_queryset_by_access_level(dashboards)
+
+
+def viewable_dashboard_ids(
+    *, team_id: int, dashboard_ids: Collection[int], user_access_control: UserAccessControl
+) -> set[int]:
+    """Which of these ids are a live dashboard of this team that the user may view."""
+    dashboards = _team_dashboards(team_id, include_deleted=False).filter(id__in=dashboard_ids)
+    return set(_filter_viewable(dashboards, user_access_control).values_list("id", flat=True))
+
+
+def recently_accessed_dashboards(
+    *, team_id: int, limit: int, user_access_control: UserAccessControl | None = None
+) -> list[DashboardSummary]:
+    """This team's live dashboards that someone has opened, most recently opened first.
+
+    With `user_access_control`, only the dashboards that user may view count towards the limit.
+    """
+    dashboards = _team_dashboards(team_id, include_deleted=False).filter(last_accessed_at__isnull=False)
+    if user_access_control is not None:
+        dashboards = _filter_viewable(dashboards, user_access_control)
+    return [_to_summary(dashboard) for dashboard in dashboards.order_by("-last_accessed_at")[:limit]]
+
+
+def dashboard_access_ref(*, team_id: int, dashboard_id: int) -> ObjectAccessRef | None:
+    """What object-level access control reads from a live dashboard stored on this team, or None.
+
+    None too when the id finds a dashboard of the environment's project: a ref is checked against
+    one team's rules, and those rules belong to the project's team. Use `can_access_dashboard` there.
+    """
+    summary = get_dashboard(team_id=team_id, dashboard_id=dashboard_id)
+    return summary.access_ref if summary is not None and summary.team_id == team_id else None
+
+
+def can_access_dashboard(
+    dashboard: DashboardSummary,
+    *,
+    user_access_control: UserAccessControl,
+    required_level: AccessControlLevel = "viewer",
+) -> bool:
+    """Whether the user has `required_level` on this dashboard, judged by the rules of the dashboard's own team.
+
+    The dashboard may live on the project's team while `user_access_control` is bound to one of its
+    environments; the check reads the dashboard's team either way.
+    """
+    return not user_access_control.denied_object_ids(
+        "dashboard", [(str(dashboard.id), dashboard.team_id, dashboard.created_by_id)], required_level
+    )
+
+
+def insight_tiles(*, dashboard_id: int) -> list[DashboardInsightTileSummary]:
+    """The live tiles of a dashboard that place a live insight, oldest tile first.
+
+    An empty list when the dashboard is soft-deleted.
+    """
+    # The caller resolved this id through a team-scoped dashboard lookup first.
+    # nosemgrep: idor-lookup-without-team
+    tiles = DashboardTile.objects.filter(
+        dashboard_id=dashboard_id, insight_id__isnull=False, insight__deleted=False
+    ).order_by("id")
+    return [
+        DashboardInsightTileSummary(
+            id=tile.id,
+            dashboard_id=tile.dashboard_id,
+            insight_id=tile.insight_id,
+            layouts=tile.layouts or {},
+            filters_overrides=tile.filters_overrides,
+        )
+        for tile in tiles
+        if tile.insight_id is not None
+    ]
+
+
+def tile_filters_overrides(*, dashboard_id: int, insight_id: int) -> dict[str, JsonValue] | None:
+    """The filter overrides of the live tile that places this insight on this dashboard.
+
+    None when there is no such tile, or the tile carries no overrides.
+    """
+    # The caller holds both ids from one of its own team-scoped rows.
+    # nosemgrep: idor-lookup-without-team
+    return (
+        DashboardTile.objects.filter(dashboard_id=dashboard_id, insight_id=insight_id)
+        .values_list("filters_overrides", flat=True)
+        .first()
+    )
 
 
 def dashboards_by_insight(insight_ids: Collection[int], *, team_id: int) -> dict[int, tuple[DashboardRef, ...]]:
@@ -267,6 +502,32 @@ def live_tile_insight_ids(dashboard_id: int) -> list[int]:
     )
 
 
+def live_tile_insight_ids_on_dashboards(dashboard_ids: Collection[int], *, team_id: int) -> set[int]:
+    """Ids of the insights on the live tiles of these dashboards of this team, leaving out deleted insights, in one query."""
+    if not dashboard_ids:
+        return set()
+    return set(
+        DashboardTile.objects.filter(
+            dashboard__team_id=team_id,
+            dashboard_id__in=list(dashboard_ids),
+            insight_id__isnull=False,
+            insight__deleted=False,
+        )
+        .values_list("insight_id", flat=True)
+        .distinct()
+    )
+
+
+def has_tiles_shown_in_image_export(dashboard_id: int) -> bool:
+    """Whether an image export of this dashboard renders at least one tile. The export view hides widget tiles."""
+    # The caller resolved this id through a team-scoped dashboard lookup first.
+    # nosemgrep: idor-lookup-without-team
+    return DashboardTile.objects.filter(
+        Q(insight__isnull=False, insight__deleted=False) | Q(text__isnull=False) | Q(button_tile__isnull=False),
+        dashboard_id=dashboard_id,
+    ).exists()
+
+
 def unknown_dashboard_ids(dashboard_ids: Collection[int], *, team_id: int) -> list[int]:
     """Which of these ids are not a live dashboard of this team, in the order they were given.
 
@@ -282,6 +543,20 @@ def active_tile_count(dashboard_id: int) -> int:
     # The caller resolved this id through the team-scoped dashboards field first.
     # nosemgrep: idor-lookup-without-team
     return DashboardTile.objects.filter(dashboard_id=dashboard_id).exclude(deleted=True).count()
+
+
+def check_insight_tile_limit(*, team: "Team", dashboard_id: int, dashboard_name: str | None, user: User) -> None:
+    """Report a `resource limit hit` event when one more tile would put the dashboard at its insight limit.
+
+    The limit only notifies, so the caller places the tile either way.
+    """
+    check_count_limit(
+        team=team,
+        key=LimitKey.MAX_INSIGHTS_PER_DASHBOARD,
+        current_count=active_tile_count(dashboard_id),
+        user=user,
+        resource_properties={"dashboard_id": dashboard_id, "dashboard_name": dashboard_name or ""},
+    )
 
 
 def tile_ids_prefetch(lookup: str = "dashboard_tiles") -> Prefetch:
@@ -306,30 +581,108 @@ def insight_has_listed_tile() -> Exists:
     return Exists(DashboardTile.objects.filter(insight=OuterRef("pk")).exclude(dashboard__creation_mode="unlisted"))
 
 
-def insight_ids_on_dashboard(dashboard_id: int) -> QuerySet:
-    """Ids of the insights with a tile on this dashboard, as a subquery for `id__in`."""
+def insight_ids_on_dashboard(dashboard_id: int, *, include_removed_tiles: bool = False) -> frozenset[int]:
+    """Ids of the insights with a tile on this dashboard.
+
+    With `include_removed_tiles`, a soft-deleted tile counts too, as it does in the `Insight.dashboards` relation.
+    """
+    manager = DashboardTile.objects_including_soft_deleted if include_removed_tiles else DashboardTile.objects
     # Filtering a list the caller has already scoped to its own team.
     # nosemgrep: idor-lookup-without-team
-    return DashboardTile.objects.filter(dashboard__id=dashboard_id).values_list("insight__id", flat=True).all()
+    tiles = manager.filter(dashboard_id=dashboard_id, insight_id__isnull=False)
+    return frozenset(tiles.values_list("insight_id", flat=True))
 
 
-def tile_for_insight_on_dashboard(*, insight_id: int, dashboard_id: int | str) -> DashboardTile | None:
-    """The tile that places one insight on one dashboard, with its dashboard loaded.
+def insight_ids_on_dashboards(
+    dashboard_ids: Collection[int], *, team_id: int, include_removed_tiles: bool = False
+) -> dict[int, frozenset[int]]:
+    """Ids of the insights with a tile on each of these dashboards of the team, read in one query.
+
+    Every requested dashboard is a key. It maps to an empty set when it has no tile or is not a dashboard of the
+    team. With `include_removed_tiles`, a soft-deleted tile counts too, as it does in the `Insight.dashboards`
+    relation.
+    """
+    if not dashboard_ids:
+        return {}
+    manager = DashboardTile.objects_including_soft_deleted if include_removed_tiles else DashboardTile.objects
+    insight_ids: dict[int, set[int]] = {int(dashboard_id): set() for dashboard_id in dashboard_ids}
+    # The ids can come from a request, so only the team's own dashboards are read.
+    team_dashboards = Dashboard.objects_including_soft_deleted.filter(team_id=team_id, id__in=insight_ids.keys())
+    # Scoped to the team through the dashboard subquery above.
+    # nosemgrep: idor-lookup-without-team
+    tiles = manager.filter(dashboard_id__in=team_dashboards.values("id"), insight_id__isnull=False).values_list(
+        "dashboard_id", "insight_id"
+    )
+    for dashboard_id, insight_id in tiles:
+        insight_ids[dashboard_id].add(insight_id)
+    return {dashboard_id: frozenset(ids) for dashboard_id, ids in insight_ids.items()}
+
+
+def tile_for_insight_on_dashboard(
+    *, insight_id: int, dashboard_id: int | str
+) -> contracts.InsightTileOnDashboard | None:
+    """The tile that places one insight on one dashboard, with its dashboard.
 
     Returns a tile whatever the requester may see: the caller checks dashboard access on the
     result, because the checks differ between session and sharing-token callers.
     """
     # nosemgrep: idor-lookup-without-team
-    return (
+    tile = (
         DashboardTile.objects.filter(dashboard__id=dashboard_id, insight__id=insight_id)
         .select_related("dashboard")
         .first()
     )
+    if tile is None:
+        return None
+    return contracts.InsightTileOnDashboard(
+        id=tile.id, dashboard=_to_summary(tile.dashboard), color=tile.color, layouts=_tile_layouts(tile.layouts)
+    )
 
 
-def tile_for_render(*, insight: "Insight", dashboard: Dashboard) -> DashboardTile | None:
-    """The tile an insight renders as on a dashboard, with the relations the render reads."""
-    return DashboardTile.dashboard_queryset(DashboardTile.objects.filter(insight=insight, dashboard=dashboard)).first()
+# Real layouts map a breakpoint to a position, two levels deep. Anything far deeper is not a layout, and the
+# contract's JSON validation recurses once per level, so such a value is dropped instead of failing the request.
+_MAX_LAYOUTS_DEPTH = 8
+
+
+def _tile_layouts(stored: JsonValue) -> JsonValue:
+    layouts = stored
+    if isinstance(layouts, str):
+        # Tiles migrated from the old schema store layouts as a JSON string. A template can store any
+        # string, so an unparseable one is passed through as stored rather than failing the request.
+        try:
+            layouts = json.loads(layouts)
+        except json.JSONDecodeError:
+            return stored
+        except RecursionError:
+            return {}
+    return layouts if _nesting_at_most(layouts, _MAX_LAYOUTS_DEPTH) else {}
+
+
+def _nesting_at_most(value: JsonValue, limit: int) -> bool:
+    pending: list[tuple[JsonValue, int]] = [(value, 1)]
+    while pending:
+        item, depth = pending.pop()
+        children: Iterable[JsonValue]
+        if isinstance(item, dict):
+            children = item.values()
+        elif isinstance(item, list):
+            children = item
+        else:
+            continue
+        if depth > limit:
+            return False
+        pending.extend((child, depth + 1) for child in children)
+    return True
+
+
+def tile_for_render(*, insight_id: int, dashboard_id: int) -> contracts.InsightRenderTile | None:
+    """The tile an insight renders as on a dashboard, or None when the insight has no live tile there."""
+    tile = DashboardTile.dashboard_queryset(
+        DashboardTile.objects.filter(insight_id=insight_id, dashboard_id=dashboard_id)
+    ).first()
+    if tile is None:
+        return None
+    return contracts.InsightRenderTile(id=tile.id, filters_overrides=tile.filters_overrides)
 
 
 def hide_tiles_for_insights(insight_ids: Collection[int]) -> None:
@@ -337,7 +690,7 @@ def hide_tiles_for_insights(insight_ids: Collection[int]) -> None:
 
     Run inside the caller's transaction: it is one half of soft-deleting the insights themselves.
     """
-    DashboardTile.objects_including_soft_deleted.filter(insight_id__in=insight_ids).update(deleted=True)
+    insight_membership_logic.hide_tiles_for_insights(insight_ids)
 
 
 def _dashboard_edit_access_by_team(
@@ -408,46 +761,32 @@ def restore_tiles_for_insights(insight_ids: Collection[int], *, user_access_cont
         if access_by_team[tile.dashboard.team_id].check_access_level_for_object(tile.dashboard, "editor")
     ]
     if restorable_tile_ids:
-        DashboardTile.objects_including_soft_deleted.filter(id__in=restorable_tile_ids).update(deleted=False)
+        insight_membership_logic.restore_tiles(restorable_tile_ids)
 
 
-class InsightTilePlacement:
-    """Dashboards cleared to receive a tile for one insight.
+def restore_tiles_for_insights_without_access_check(insight_ids: Collection[int]) -> None:
+    """Re-activate every soft-deleted tile of these insights that sits on a live dashboard.
 
-    Built by `plan_insight_tile_placement` before the insight row exists, so a refusal can't leave
-    an orphaned insight behind, then applied with `create_tiles` once it does. Holding the
-    dashboards it read is what keeps applying free of a second read.
+    For staff tooling that restores insights outside a user's access rules. Run inside the caller's
+    transaction, like `restore_tiles_for_insights`.
     """
-
-    def __init__(self, dashboards: list[Dashboard]) -> None:
-        self._dashboards = dashboards
-
-    @property
-    def dashboards(self) -> tuple[DashboardRef, ...]:
-        return tuple(DashboardRef(id=dashboard.id, name=dashboard.name) for dashboard in self._dashboards)
-
-    def create_tiles(self, insight: "Insight") -> tuple[DashboardRef, ...]:
-        """Place the insight on every cleared dashboard, and report which ones those were."""
-        for dashboard in self._dashboards:
-            DashboardTile.objects.create(
-                insight=insight, dashboard=dashboard, team_id=dashboard.team_id, last_refresh=now()
-            )
-        return self.dashboards
+    insight_membership_logic.restore_tiles_on_live_dashboards(insight_ids)
 
 
 def plan_insight_tile_placement(
     *,
     dashboard_ids: Sequence[int],
     team_id: int,
-    query: Any,
+    query: Mapping[str, JsonValue] | None,
     user: User,
     user_access_control: UserAccessControl | None,
 ) -> InsightTilePlacement:
-    """Check that an insight carrying `query` may be placed on these dashboards.
+    """Check that an insight carrying `query` may be placed on these dashboards, and plan the tiles.
 
     Raises `CannotAddToDashboard` when the requester can only view one of them, `DashboardNotFound`
     when one belongs to another team, and the shared-dashboard publish gate's own ValidationError
     when the query would reach further through a dashboard's public link than the requester can.
+    An id that matches no live dashboard is left out of the plan.
     """
     # nosemgrep: idor-lookup-without-team (team check below)
     found = {dashboard.id: dashboard for dashboard in Dashboard.objects.filter(id__in=dashboard_ids)}
@@ -462,15 +801,105 @@ def plan_insight_tile_placement(
         ):
             raise CannotAddToDashboard(dashboard.id)
         # The dashboard's public link or subscription must not expose a query the editor can't run.
-        check_can_add_insight_to_dashboard(user, dashboard, query, user_access_control)
-    return InsightTilePlacement(dashboards)
+        from posthog.api.sharing_publish_gate import check_can_add_insight_to_dashboard
+
+        check_can_add_insight_to_dashboard(user, _to_summary(dashboard), query, user_access_control)
+    return InsightTilePlacement(
+        team_id=team_id,
+        dashboards=tuple(DashboardRef(id=dashboard.id, name=dashboard.name) for dashboard in dashboards),
+    )
+
+
+def create_planned_insight_tiles(placement: InsightTilePlacement, *, insight_id: int) -> None:
+    """Place the insight on every dashboard of the plan. The insight must belong to the plan's team.
+
+    Run inside the caller's transaction.
+    """
+    insight_membership_logic.create_insight_tiles(
+        insight_id=insight_id,
+        team_id=placement.team_id,
+        dashboard_ids=[dashboard.id for dashboard in placement.dashboards],
+    )
+
+
+def _place_insight_tile(
+    *,
+    insight_id: int,
+    insight_team_id: int,
+    dashboard: Dashboard,
+    query: Mapping[str, JsonValue] | None,
+    user: User,
+    user_access_control: UserAccessControl | None,
+    dashboard_access: UserAccessControl | None,
+) -> tuple[DashboardTile, bool]:
+    """Put the insight on one dashboard, and report whether it was missing from it before.
+
+    `dashboard_access` is `user_access_control` resolved against the dashboard's own team; None
+    skips the edit check. A removed tile is restored rather than duplicated, so it keeps its layout.
+    An insight already on the dashboard returns its tile before any check, because nothing changes.
+    """
+    if dashboard.team_id != insight_team_id:
+        raise DashboardNotFound
+
+    live_tile = DashboardTile.objects.filter(insight_id=insight_id, dashboard=dashboard).first()
+    if live_tile is not None:
+        return live_tile, False
+
+    # Adding a tile is an edit of the dashboard.
+    if dashboard_access is not None and not dashboard_access.check_access_level_for_object(dashboard, "editor"):
+        raise CannotAddToDashboard(dashboard.id)
+
+    # The dashboard's public link or subscription must not expose a query the editor can't run.
+    from posthog.api.sharing_publish_gate import check_can_add_insight_to_dashboard
+
+    check_can_add_insight_to_dashboard(user, _to_summary(dashboard), query, user_access_control)
+
+    return insight_membership_logic.restore_or_create_insight_tile(dashboard=dashboard, insight_id=insight_id)
+
+
+def add_insight_to_dashboard(
+    *,
+    insight_id: int,
+    insight_team_id: int,
+    query: Mapping[str, JsonValue] | None,
+    dashboard_id: int,
+    user: User,
+    user_access_control: UserAccessControl,
+) -> PlacedInsightTile:
+    """Place an existing insight on one dashboard, with the checks the insight API's `dashboards` field runs.
+
+    `query` is the insight's stored query, for the shared-dashboard publish gate. An insight already
+    on the dashboard keeps its tile and nothing changes. Refusals raise `CannotAddToDashboard`,
+    `DashboardNotFound` or the publish gate's ValidationError.
+
+    Run inside the caller's transaction.
+    """
+    dashboard = Dashboard.objects.filter(team_id=insight_team_id, pk=dashboard_id).first()
+    if dashboard is None:
+        raise DashboardNotFound(str(dashboard_id))
+    live_tile = DashboardTile.objects.filter(insight_id=insight_id, dashboard=dashboard).first()
+    if live_tile is not None:
+        return PlacedInsightTile(id=live_tile.id, dashboard_id=dashboard.id, added=False)
+    check_insight_tile_limit(team=dashboard.team, dashboard_id=dashboard.id, dashboard_name=dashboard.name, user=user)
+    access_by_team = _dashboard_edit_access_by_team([dashboard], user_access_control)
+    tile, added = _place_insight_tile(
+        insight_id=insight_id,
+        insight_team_id=insight_team_id,
+        dashboard=dashboard,
+        query=query,
+        user=user,
+        user_access_control=user_access_control,
+        dashboard_access=access_by_team[dashboard.team_id],
+    )
+    return PlacedInsightTile(id=tile.id, dashboard_id=dashboard.id, added=added)
 
 
 def update_insight_dashboard_membership(
     *,
-    insight: "Insight",
+    insight_id: int,
+    insight_team_id: int,
     dashboard_ids: Sequence[int],
-    query: Any,
+    query: Mapping[str, JsonValue] | None,
     user: User,
     user_access_control: UserAccessControl | None,
 ) -> MembershipChange | None:
@@ -487,11 +916,10 @@ def update_insight_dashboard_membership(
     Run inside the caller's transaction — a refusal partway through must not leave the insight on
     some of the dashboards but not others.
 
-    Reads `insight.dashboard_tiles`, and leaves that prefetch stale: the writes below go through
-    separate querysets, so a caller that serializes the insight afterwards has to drop the
-    prefetched relation first.
+    A caller that holds the insight's tiles prefetched has to drop that prefetch before it serializes
+    the insight again, because the writes here go through separate querysets.
     """
-    old_dashboard_ids = [tile.dashboard_id for tile in insight.dashboard_tiles.all()]
+    old_dashboard_ids = list(DashboardTile.objects.filter(insight_id=insight_id).values_list("dashboard_id", flat=True))
     new_dashboard_ids = list(dashboard_ids)
     if sorted(old_dashboard_ids) == sorted(new_dashboard_ids):
         return None
@@ -504,25 +932,18 @@ def update_insight_dashboard_membership(
     add_dashboards = list(Dashboard.objects.filter(id__in=ids_to_add))
     add_access_by_team = _dashboard_edit_access_by_team(add_dashboards, user_access_control)
     for dashboard in add_dashboards:
-        if dashboard.team != insight.team:
-            raise DashboardNotFound
-
-        if user_access_control is not None and not add_access_by_team[dashboard.team_id].check_access_level_for_object(
-            dashboard, "editor"
-        ):
-            raise CannotAddToDashboard(dashboard.id)
-
-        # The dashboard's public link or subscription must not expose a query the editor can't run.
-        check_can_add_insight_to_dashboard(user, dashboard, query, user_access_control)
-
-        tile, _ = DashboardTile.objects_including_soft_deleted.get_or_create(insight=insight, dashboard=dashboard)
-        if tile.deleted:
-            tile.deleted = False
-            tile.save()
-
+        _place_insight_tile(
+            insight_id=insight_id,
+            insight_team_id=insight_team_id,
+            dashboard=dashboard,
+            query=query,
+            user=user,
+            user_access_control=user_access_control,
+            dashboard_access=add_access_by_team.get(dashboard.team_id),
+        )
         added_dashboard_ids.append(dashboard.id)
 
-    removed_dashboard_ids: list[int] = []
+    removed_dashboard_ids: tuple[int, ...] = ()
     if ids_to_remove:
         # nosemgrep: idor-lookup-without-team (team check after lookup)
         remove_dashboards = list(Dashboard.objects.filter(id__in=ids_to_remove))
@@ -533,38 +954,429 @@ def update_insight_dashboard_membership(
             ].check_access_level_for_object(dashboard, "editor"):
                 raise CannotRemoveFromDashboard(dashboard.id)
 
-        # Capture the still-active tiles before soft-deleting so the caller can report one
-        # removal per tile that is actually removed.
-        tiles_to_remove = list(DashboardTile.objects.filter(dashboard_id__in=ids_to_remove, insight=insight))
-        DashboardTile.objects.filter(dashboard_id__in=ids_to_remove, insight=insight).update(deleted=True)
-        removed_dashboard_ids = [tile.dashboard_id for tile in tiles_to_remove]
+        removed_dashboard_ids = insight_membership_logic.remove_insight_tiles(
+            insight_id=insight_id, dashboard_ids=ids_to_remove
+        )
 
     return MembershipChange(
         added_dashboard_ids=tuple(added_dashboard_ids),
-        removed_dashboard_ids=tuple(removed_dashboard_ids),
+        removed_dashboard_ids=removed_dashboard_ids,
         dashboards=_refs_in_given_order(new_dashboard_ids),
     )
+
+
+# For callers outside this product that still query the dashboard models; parity tests pin each query.
+
+
+def search_dashboards(
+    *,
+    project_id: int,
+    query: str | None,
+    access_control: UserAccessControl,
+    limit: int,
+    offset: int = 0,
+    with_access_levels: bool = False,
+    include_count: bool = True,
+) -> tuple[list[dict[str, JsonValue]], int]:
+    """Ranked full-text search over a project's dashboards, in the result shape of core search.
+
+    Leaves out the dashboards the user may not view and the ones built from a template. Without a
+    query the dashboards come in name order. `with_access_levels` adds `user_access_level`, the
+    user's resolved level for each dashboard. `include_count=False` skips the count query and
+    reports a total of 0.
+    """
+    rows, total_count = search_logic.search(
+        project_id=project_id,
+        query=query,
+        access_control=access_control,
+        limit=limit,
+        offset=offset,
+        include_count=include_count,
+    )
+    access_levels = (
+        access_control.bulk_object_access_levels("dashboard", [(str(row["id"]), row["created_by_id"]) for row in rows])
+        if with_access_levels
+        else None
+    )
+    return to_search_results(
+        rows, entity_type="dashboard", ranked=bool(query), access_levels=access_levels
+    ), total_count
+
+
+def dashboards_by_last_access(
+    *, team_ids: list[int], user_access_control: UserAccessControl, limit: int
+) -> list[DashboardSummary]:
+    """These teams' live dashboards the user may view, most recently opened first.
+
+    Dashboards nobody opened come last, newest first. Org admins see every dashboard.
+    """
+    if not team_ids:
+        return []
+    dashboards = usage_logic.by_last_access(team_ids=team_ids, user_access_control=user_access_control, limit=limit)
+    return [_to_summary(dashboard) for dashboard in dashboards]
+
+
+def find_dashboard_team_id(*, dashboard_id: int) -> int | None:
+    """The team that stores a live dashboard, or None when there is no live dashboard with this id.
+
+    Unscoped: only for a caller that checks the user's access to the returned team itself.
+    """
+    # nosemgrep: idor-lookup-without-team (the caller checks access to the returned team)
+    return Dashboard.objects.filter(pk=dashboard_id).values_list("team_id", flat=True).first()
+
+
+def home_tab_dashboard_id(*, team_id: int) -> int | None:
+    """The dashboard this team's product analytics Home tab shows, or None for the built-in view.
+
+    A dashboard that was soft-deleted since, or that another team stores, counts as none.
+    """
+    return team_settings_logic.home_tab_dashboard_id(team_id=team_id)
+
+
+def set_home_tab_dashboard(*, team_id: int, dashboard_id: int | None) -> None:
+    """Point this team's Home tab at a dashboard, or back at the built-in view with None.
+
+    Does not check the dashboard: validate it against the team first, with `get_dashboard`.
+    """
+    team_settings_logic.set_home_tab_dashboard(team_id=team_id, dashboard_id=dashboard_id)
+
+
+def remove_quick_filter_from_dashboards(*, team_id: int, quick_filter_id: str) -> int:
+    """Take a deleted quick filter off every dashboard stored on this team, and return how many changed."""
+    return team_settings_logic.remove_quick_filter_from_dashboards(team_id=team_id, quick_filter_id=quick_filter_id)
+
+
+def placements_on_dashboards_accessed_since(
+    *, placements: Collection[InsightPlacement], since: datetime, shared_only: bool = False
+) -> list[InsightPlacement]:
+    """Which of these placements have a live tile on a dashboard someone opened since the given time.
+
+    With `shared_only`, the dashboard must also have an enabled sharing configuration. One query.
+    """
+    return tiles_logic.placements_on_dashboards_accessed_since(
+        placements=placements, since=since, shared_only=shared_only
+    )
+
+
+def live_tile_placements(
+    *, dashboard_ids: Collection[int] | None = None, insight_ids: Collection[int] | None = None
+) -> list[TilePlacement]:
+    """The live tiles on these dashboards, or of these insights, or both, oldest tile first.
+
+    Live means neither the tile nor its dashboard is soft-deleted. A tile of a deleted insight still
+    counts. Pass at least one of the two filters. Unscoped: the ids come from the caller's own rows.
+    """
+    return tiles_logic.live_tile_placements(dashboard_ids=dashboard_ids, insight_ids=insight_ids)
+
+
+def live_tile_layouts(dashboard_id: int, *, limit: int) -> list[dict[str, JsonValue]]:
+    """The grid layouts of at most `limit` live tiles of this dashboard, one dict per tile, keyed by breakpoint.
+
+    Live means neither the tile nor its dashboard is soft-deleted. Unscoped: the id comes from the
+    caller's own row.
+    """
+    return tiles_logic.live_tile_layouts(dashboard_id=dashboard_id, limit=limit)
+
+
+def insight_ids_on_template_dashboards(
+    *, insight_ids: Collection[int], name_prefix: str, description_prefix: str
+) -> set[int]:
+    """Which of these insights have a live tile on a live dashboard built from a template, whose name
+    and description start with these prefixes. Product-generated dashboards carry such prefixes."""
+    return tiles_logic.insight_ids_on_template_dashboards(
+        insight_ids=insight_ids, name_prefix=name_prefix, description_prefix=description_prefix
+    )
+
+
+def delete_widget_tiles_for_teams(team_ids: list[int]) -> None:
+    """Delete every widget tile of these teams, soft-deleted ones included, without signals.
+
+    Team deletion calls this before the Team row goes, because a tile protects its widget from the
+    cascade.
+    """
+    tiles_logic.delete_widget_tiles_for_teams(team_ids)
+
+
+def has_user_created_dashboard(*, team_id: int) -> bool:
+    """Whether a person, not the system, created a live dashboard stored on this exact team.
+
+    The project's dashboards are stored on its root team, so this is False for an environment.
+    """
+    return usage_logic.has_user_created_dashboard(team_id=team_id)
+
+
+def dashboard_counts_by_team(count: DashboardUsageCount) -> dict[int, int]:
+    """For the usage report: how many live dashboards of the given kind each team stores, keyed by team id.
+
+    A shared dashboard counts once per enabled sharing configuration, and a tagged one once per tag.
+    """
+    return usage_logic.counts_by_team(count)
+
+
+def dashboards_created_between(
+    *, period_start: datetime, period_end: datetime, team_ids: range
+) -> list[TeamDashboardRef]:
+    """The live dashboards created after `period_start` and up to `period_end`, by teams in `team_ids`.
+
+    Generated dashboards stay out. For cross-team batch jobs off the request path.
+    """
+    return usage_logic.created_between(period_start=period_start, period_end=period_end, team_ids=team_ids)
+
+
+def create_global_template_if_missing(template: DashboardTemplateDefinition) -> bool:
+    """Store a template every project can use, unless one with its name exists. True when it was created."""
+    return templates_logic.create_global_template_if_missing(template)
+
+
+def create_starter_dashboard(*, team_id: int) -> DashboardRef:
+    """Create the pinned starter dashboard a new project gets, with the signup template's tiles.
+
+    Run inside the caller's transaction. The caller makes it the team's primary dashboard.
+    """
+    dashboard = templates_logic.create_starter_dashboard(team_id=team_id)
+    return DashboardRef(id=dashboard.id, name=dashboard.name)
+
+
+def create_unlisted_dashboard(*, team: "Team", user: User, template: DashboardTemplateDefinition) -> DashboardRef:
+    """Create an unlisted dashboard from a template definition, with the template's tiles.
+
+    Run inside the caller's transaction. The caller enforces one unlisted dashboard per template tag.
+    """
+    dashboard = templates_logic.create_unlisted_dashboard(team=team, user=user, template=template)
+    return DashboardRef(id=dashboard.id, name=dashboard.name)
+
+
+def widget_type_label(widget_type: str) -> str | None:
+    """The catalog label of a widget type, or None for a type the catalog does not list."""
+    # Imported at call time: the catalog loads every widget spec, and they import posthog.schema.
+    from products.dashboards.backend.widget_catalog import WIDGET_CATALOG  # noqa: PLC0415
+
+    entry = WIDGET_CATALOG.get(widget_type)
+    return entry["label"] if entry is not None else None
+
+
+def hidden_dashboard_ids(
+    *, team_id: int, dashboard_ids: Collection[int], user_access_control: UserAccessControl, include_deleted: bool
+) -> set[int]:
+    """Which of these dashboards of this team the user may not view. A soft-deleted one counts only with `include_deleted`.
+
+    Without dashboard resource access, every dashboard is hidden except the ones granted to the user
+    and the ones the user created. Org admins see every dashboard.
+    """
+    return visibility_logic.hidden_dashboard_ids(
+        team_id=team_id,
+        dashboard_ids=dashboard_ids,
+        user_access_control=user_access_control,
+        include_deleted=include_deleted,
+    )
+
+
+def insight_placements(
+    *,
+    team_id: int,
+    dashboard_ids: Collection[int],
+    include_deleted: bool,
+    insight_ids: Collection[int] | None = None,
+) -> list[InsightPlacement]:
+    """The insight tiles on these dashboards of this team, oldest tile first. With `insight_ids`, only those insights.
+
+    Without `include_deleted`, a removed tile and a tile on a soft-deleted dashboard do not count.
+    A tile of a soft-deleted insight counts either way.
+    """
+    return tiles_logic.insight_placements(
+        team_id=team_id, dashboard_ids=dashboard_ids, insight_ids=insight_ids, include_deleted=include_deleted
+    )
+
+
+def _to_template_creator(user: User | None) -> contracts.DashboardTemplateCreator | None:
+    if user is None:
+        return None
+    return contracts.DashboardTemplateCreator(
+        id=user.id,
+        uuid=user.uuid,
+        distinct_id=user.distinct_id,
+        first_name=user.first_name,
+        last_name=user.last_name,
+        email=user.email,
+        is_email_verified=user.is_email_verified,
+        hedgehog_config=user.hedgehog_config,
+        role_at_organization=user.role_at_organization,
+    )
+
+
+def _to_dashboard_template(template: DashboardTemplate) -> contracts.DashboardTemplate:
+    return contracts.DashboardTemplate(
+        id=template.id,
+        team_id=template.team_id,
+        template_name=template.template_name,
+        dashboard_description=template.dashboard_description,
+        dashboard_filters=template.dashboard_filters,
+        tiles=template.tiles,
+        variables=template.variables,
+        customization=template.customization,
+        tags=template.tags,
+        created_at=template.created_at,
+        created_by_id=template.created_by_id,
+        created_by=_to_template_creator(template.created_by),
+        deleted=template.deleted,
+        image_url=template.image_url,
+        scope=DashboardTemplateScope(template.scope)
+        if template.scope in DashboardTemplateScope.values
+        else template.scope,
+        availability_contexts=template.availability_contexts,
+        is_featured=template.is_featured,
+    )
+
+
+def list_dashboard_templates(
+    *, team_id: int, organization_id: UUID, filters: contracts.DashboardTemplateFilters, page: PageRequest
+) -> Page[contracts.DashboardTemplate]:
+    """The live templates the project sees: global ones, its organization's, and its own, narrowed by `filters`."""
+    templates = template_library_logic.list_templates(
+        team_id=team_id, organization_id=organization_id, filters=filters, page=page
+    )
+    return templates.map(_to_dashboard_template)
+
+
+def get_dashboard_template(
+    *,
+    team_id: int,
+    organization_id: UUID,
+    template_id: UUID,
+    filters: contracts.DashboardTemplateFilters,
+    include_deleted: bool,
+) -> contracts.DashboardTemplate | None:
+    """A template the project sees under `filters`, or None. Pass `include_deleted` to resolve one to restore."""
+    template = template_library_logic.get_template(
+        team_id=team_id,
+        organization_id=organization_id,
+        template_id=template_id,
+        filters=filters,
+        include_deleted=include_deleted,
+    )
+    return _to_dashboard_template(template) if template is not None else None
+
+
+def create_dashboard_template(
+    *, team_id: int, organization_id: UUID, created_by_id: int | None, write: contracts.DashboardTemplateWrite
+) -> contracts.DashboardTemplate:
+    """Save a template for the project. Raises `DashboardTemplateWriteRejected`."""
+    template = template_library_logic.create_template(
+        team_id=team_id, organization_id=organization_id, created_by_id=created_by_id, write=write
+    )
+    return _to_dashboard_template(template)
+
+
+def update_dashboard_template(
+    *,
+    team_id: int,
+    organization_id: UUID,
+    template_id: UUID,
+    filters: contracts.DashboardTemplateFilters,
+    write: contracts.DashboardTemplateWrite,
+) -> contracts.DashboardTemplate:
+    """Change a template the project sees under `filters`, deleted or not.
+
+    Raises `DashboardTemplateNotFound` or `DashboardTemplateWriteRejected`.
+    """
+    template = template_library_logic.update_template(
+        team_id=team_id, organization_id=organization_id, template_id=template_id, filters=filters, write=write
+    )
+    return _to_dashboard_template(template)
+
+
+def dashboard_template_copy_source(
+    *, team_id: int, organization_id: UUID, source_template_id: UUID
+) -> contracts.DashboardTemplate:
+    """The team template of another project in the organization that project `team_id` may copy.
+
+    Raises `DashboardTemplateNotFound` or `DashboardTemplateWriteRejected`. The caller still checks that
+    the user can read the source project.
+    """
+    source = template_library_logic.copy_source(
+        team_id=team_id, organization_id=organization_id, source_template_id=source_template_id
+    )
+    return _to_dashboard_template(source)
+
+
+def copy_dashboard_template(
+    *, team_id: int, organization_id: UUID, source: contracts.DashboardTemplate, created_by_id: int | None
+) -> contracts.DashboardTemplate:
+    """Save a team template copy of `source` for the project, under a name the project does not use yet.
+
+    Raises `DashboardTemplateWriteRejected`.
+    """
+    template = template_library_logic.copy_template(
+        team_id=team_id, organization_id=organization_id, source=source, created_by_id=created_by_id
+    )
+    return _to_dashboard_template(template)
+
+
+def dashboard_template_for_display(
+    template: contracts.DashboardTemplate, *, ai_data_processing_approved: bool
+) -> contracts.DashboardTemplate:
+    """The template as the API shows it. Tiles keep their `agent_context` only on a team template of an
+    organization that approved AI data processing."""
+    return template_library_logic.for_display(template, ai_data_processing_approved=ai_data_processing_approved)
+
+
+def dashboard_template_non_portable_references(
+    template: contracts.DashboardTemplate,
+) -> contracts.NonPortableReferences:
+    """The actions, cohorts and warehouse tables the template's tiles use, which another project may not have."""
+    return template_library_logic.non_portable_references(template)
 
 
 __all__ = [
     "CannotAddToDashboard",
     "CannotRemoveFromDashboard",
+    "DashboardInsightTile",
+    "DashboardInsightTileSummary",
+    "DashboardInsights",
     "DashboardNotEditable",
     "DashboardNotFound",
+    "QueryBatchBusy",
     "DashboardNotViewable",
     "DashboardRef",
-    "DashboardTileBasicSerializer",
+    "DashboardSummary",
     "InsightTilePlacement",
+    "MAX_QUERIES_PER_BATCH",
     "MembershipChange",
+    "PlacedInsightTile",
     "active_tile_count",
+    "can_access_dashboard",
+    "add_insight_tile",
+    "add_insight_to_dashboard",
+    "apply_dashboard_template",
+    "apply_dashboard_template_json",
+    "check_insight_tile_limit",
+    "create_dashboard",
+    "create_dashboard_from_tiles",
+    "create_planned_insight_tiles",
+    "dashboard_access_ref",
     "dashboard_exists",
+    "dashboard_insight_tile",
+    "dashboard_insights",
     "dashboard_refs",
+    "dashboards_by_insight",
+    "get_dashboard",
+    "get_dashboards",
+    "has_tiles_shown_in_image_export",
     "hide_tiles_for_insights",
+    "home_dashboard_insights",
     "insight_has_listed_tile",
     "insight_ids_on_dashboard",
+    "insight_ids_on_dashboards",
+    "insight_ids_on_dashboards_accessed_since",
+    "insight_tiles",
+    "insights_with_dashboard_edit_access",
+    "live_dashboard_ids",
     "live_tile_insight_ids",
     "plan_insight_tile_placement",
+    "recently_accessed_dashboards",
     "restore_tiles_for_insights",
+    "restore_tiles_for_insights_without_access_check",
+    "tile_filters_overrides",
     "tile_for_insight_on_dashboard",
     "tile_for_render",
     "tile_ids_prefetch",
@@ -572,4 +1384,216 @@ __all__ = [
     "unknown_dashboard_ids",
     "update_insight_dashboard_membership",
     "viewable_dashboard_id",
+    "viewable_dashboard_ids",
+    "viewable_dashboard_ref",
+    "AppliedDashboard",
+    "DashboardTemplateDefinition",
+    "DashboardUsageCount",
+    "InsightPlacement",
+    "TeamDashboardRef",
+    "TilePlacement",
+    "create_global_template_if_missing",
+    "create_starter_dashboard",
+    "dashboard_counts_by_team",
+    "dashboards_by_last_access",
+    "dashboards_created_between",
+    "delete_widget_tiles_for_teams",
+    "find_dashboard_team_id",
+    "has_user_created_dashboard",
+    "hidden_dashboard_ids",
+    "home_tab_dashboard_id",
+    "insight_ids_on_template_dashboards",
+    "insight_placements",
+    "live_tile_placements",
+    "placements_on_dashboards_accessed_since",
+    "remove_quick_filter_from_dashboards",
+    "search_dashboards",
+    "set_home_tab_dashboard",
+    "widget_type_label",
+    "copy_dashboard_template",
+    "create_dashboard_template",
+    "dashboard_template_copy_source",
+    "dashboard_template_for_display",
+    "dashboard_template_non_portable_references",
+    "get_dashboard_template",
+    "list_dashboard_templates",
+    "update_dashboard_template",
 ]
+
+
+@contextmanager
+def shared_tile_work(team: "Team", user: User | None) -> Iterator[None]:
+    """Tiles serialized inside the block share their per-tile setup when `dashboard-v2` is on for the team."""
+    with v2_first_load.shared_tile_work(team, user):
+        yield
+
+
+def read_cached_tiles(
+    *,
+    team: "Team",
+    user: User,
+    tile_ids: Sequence[int],
+    found_tile_ids: Collection[int],
+    forbidden_tile_ids: Collection[int],
+    plan_tile: Callable[[int], "PlannedQuery | None"],
+    serialize_tile: Callable[[int], dict[str, Any]],
+    context: dict[str, Any],
+) -> list[contracts.CachedTileResult]:
+    """The `dashboard-v2` batched cached-tiles read. The caller looks the tiles up, checks access, and passes in
+    how to plan and serialize one tile by ID."""
+    return v2_cached_tiles.read_cached_tiles(
+        team=team,
+        user=user,
+        tile_ids=tile_ids,
+        found_tile_ids=found_tile_ids,
+        forbidden_tile_ids=forbidden_tile_ids,
+        plan_tile=plan_tile,
+        serialize_tile=serialize_tile,
+        context=context,
+    )
+
+
+def board_stream_cached_event(
+    cached: list[dict[str, Any]], *, force: bool
+) -> contracts.DashboardQuerySharingCachedEvent:
+    """The first event of a `dashboard-v2` board stream, built from `read_cached_tiles` results as JSON objects."""
+    return v2_board_stream.cached_event(cached, force=force)
+
+
+def insight_frames(query: Mapping[str, Any], result: InsightResult) -> list[Frame] | None:
+    """Chart-ready frames for a cached insight result, or None when its query kind or display has none yet."""
+    return frames_logic.insight_frames(query, result)
+
+
+def has_frames(query: Mapping[str, Any]) -> bool:
+    """Whether `insight_frames` can return frames for this query's kind and display."""
+    return frames_logic.has_frames(query)
+
+
+def query_batch_stream(
+    *,
+    team: "Team",
+    user: User,
+    inputs: Sequence[QueryBatchInput],
+    dashboard_id: int | None,
+    client_query_id: str,
+    asynchronous: bool,
+    traceparent: str | None = None,
+    result_format: ResultFormat = ResultFormat.RESULT,
+) -> Iterator[bytes] | AsyncIterator[bytes]:
+    """The `dashboard-v2` query batch as NDJSON: plans every query for `user` and reads the cache before it returns,
+    then streams one line per query. Pass a `dashboard_id` the user may view to run its queries as that dashboard's
+    tiles, under the dashboard query limits. `client_query_id` is the prefix of each query's id, which adds the tile,
+    the refId and a short uuid. `traceparent` is tagged on every query the batch runs. With `result_format` frames, each
+    line carries chart-ready frames where its kind has them. Raises `QueryBatchBusy` when the batch cannot be admitted."""
+    batch = v2_query_batch.QueryBatch(
+        team=team,
+        user=user,
+        inputs=inputs,
+        dashboard_id=dashboard_id,
+        client_query_id=client_query_id,
+        traceparent=traceparent,
+        result_format=result_format,
+    )
+    return batch.astream() if asynchronous else batch.stream()
+
+
+def widget_product_access_error(*, widget_type: str, user_access_control: UserAccessControl) -> str | None:
+    """Why the user may not use widgets of this type, or None when they may. An unregistered type is refused."""
+    # Imported at call time: the widget registry loads every widget spec, and the specs import the facades of the
+    # products they show, some of which import this module.
+    from products.dashboards.backend.widget_access import widget_product_access_error as access_error  # noqa: PLC0415
+
+    return access_error(widget_type, user_access_control)
+
+
+def validate_new_widget(
+    *, team: "Team", user: User, user_access_control: UserAccessControl, widget_type: str, config: JsonValue
+) -> contracts.ValidatedWidget:
+    """Check that the user may add a widget of this type with this config, and return the validated config.
+
+    Raises DRF `ValidationError` for an unknown type, a type not enabled for the project or an invalid config,
+    and DRF `PermissionDenied` when the user lacks the product access that the type needs.
+    """
+    from products.dashboards.backend.widget_create import prepare_widget_tile_create  # noqa: PLC0415
+
+    validated_type, validated_config = prepare_widget_tile_create(
+        team=team, widget_type=widget_type, config=config, user=user, user_access_control=user_access_control
+    )
+    return contracts.ValidatedWidget(widget_type=validated_type, config=validated_config)
+
+
+def create_widget_tiles(
+    *,
+    team_id: int,
+    dashboard_id: int,
+    user: User,
+    user_access_control: UserAccessControl,
+    tiles: Sequence[contracts.NewWidgetTile],
+) -> tuple[int, ...]:
+    """Add widget tiles to a dashboard in one transaction. Returns the tile ids in the order of `tiles`.
+
+    Raises the DRF errors of `validate_new_widget` for the first tile that fails its checks, and no tile is added.
+    """
+    from products.dashboards.backend.logic import widgets as widgets_logic  # noqa: PLC0415
+
+    return tuple(
+        widgets_logic.create_widget_tiles(
+            team_id=team_id,
+            dashboard_id=dashboard_id,
+            user=user,
+            user_access_control=user_access_control,
+            tiles=tiles,
+        )
+    )
+
+
+def update_widget(
+    *, team_id: int, widget_id: UUID, user: User, user_access_control: UserAccessControl, patch: contracts.WidgetPatch
+) -> contracts.UpdatedWidget:
+    """Apply a settings patch to a widget. Run inside the caller's transaction.
+
+    Raises DRF `PermissionDenied` when the user lacks the product access of the widget type, and DRF
+    `ValidationError` when the patch changes the widget type or the merged config is invalid.
+    """
+    from products.dashboards.backend.logic import widgets as widgets_logic  # noqa: PLC0415
+
+    return widgets_logic.update_widget(
+        team_id=team_id, widget_id=widget_id, user=user, user_access_control=user_access_control, patch=patch
+    )
+
+
+# `dashboard-v2` boards. Each is one row that holds the whole version 2 document.
+
+
+def list_boards(
+    team_id: int, page: PageRequest, access: contracts.BoardListAccess | None
+) -> Page[contracts.BoardSummary]:
+    """List a team's live boards the viewer may see, the most recently saved first. `None` access lists them all."""
+    return v2_boards.list_boards(team_id, page, access)
+
+
+def get_board(team_id: int, uid: str) -> contracts.BoardDetail:
+    """Read one live board. Raises `BoardNotFound` for a uid of another team or a deleted board."""
+    return v2_boards.get_board(team_id, uid)
+
+
+def create_board(team_id: int, user_id: int, spec: dict[str, JsonValue]) -> contracts.BoardDetail:
+    """Save a document as a new native board at version 1, upgraded to the current schema. Raises `BoardSpecInvalid`."""
+    return v2_boards.create_board(team_id, user_id, spec)
+
+
+def update_board(
+    team_id: int, uid: str, user_id: int, spec: dict[str, JsonValue], base_version: int | None
+) -> contracts.BoardDetail:
+    """Replace a board's document and add 1 to its version.
+
+    Raises `BoardVersionConflict` when `base_version` is given and the board is at another version, and
+    `BoardReadOnly` for a board that is not native.
+    """
+    return v2_boards.update_board(team_id, uid, user_id, spec, base_version)
+
+
+def delete_board(team_id: int, uid: str, user_id: int) -> None:
+    """Soft-delete a native board, which frees its uid. Raises `BoardReadOnly` for any other board."""
+    v2_boards.delete_board(team_id, uid, user_id)

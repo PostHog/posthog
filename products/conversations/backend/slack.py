@@ -994,48 +994,54 @@ def _nudge_classifier_verdict(
     heuristics-only (the classifier refines the nudge, it must not be able to kill it); a
     completed call nudges only on an affirmative answer.
     """
-    # DEBUG/TEST default LLM_GATEWAY_URL to a dev value, so "gateway configured" is only a
-    # real signal outside tests, and unit tests must never depend on whether something is
-    # listening on that port. Classifier tests opt back in with override_settings(TEST=False).
+    # Unit tests must never depend on whether a gateway is listening. Classifier tests opt
+    # back in with override_settings(TEST=False).
     if settings.TEST:
         return "skipped"
     if not team.organization.is_ai_data_processing_approved:
         return "skipped"
     if not _is_nudge_classifier_flag_enabled(team):
         return "skipped"
-    if not settings.LLM_GATEWAY_URL or not settings.LLM_GATEWAY_API_KEY:
-        return "skipped"
 
     # slack.py loads at django.setup() via the conversations wiring, and the gateway client
     # drags the openai/anthropic SDKs (~200ms) in — only pay that once a message actually
     # reaches the classifier.
-    from posthog.llm.gateway_client import get_llm_client  # noqa: PLC0415 — keeps heavy SDKs off the setup path
+    from posthog.llm.gateway_client import (  # noqa: PLC0415 — keeps heavy SDKs off the setup path
+        build_anthropic_client,
+        openai_gateway_configured,
+    )
+
+    if not openai_gateway_configured():
+        return "skipped"
 
     team_id = _get_team_id(team)
     content = (text or "")[:NUDGE_CLASSIFIER_MAX_TEXT_CHARS]
     if files:
         content += f"\n\n[the message has {len(files)} file attachment(s)]"
     try:
-        client = get_llm_client(product="conversations", team_id=team_id)
-        response = client.chat.completions.create(
+        client = build_anthropic_client(
+            ai_product="conversations",
+            team_id=team_id,
+            distinct_id=f"team-{team_id}",
+            # slack_* keys mirror nudge_event_properties so a generation joins its funnel outcome.
+            properties={
+                "team_id": str(team_id),
+                "feature": NUDGE_CLASSIFIER_FEATURE,
+                "$ai_span_name": NUDGE_CLASSIFIER_FEATURE,
+                "slack_channel_id": channel,
+                "slack_thread_ts": message_ts,
+            },
+        )
+        response = client.messages.create(
             model=NUDGE_CLASSIFIER_MODEL,
             max_tokens=8,
             temperature=0,
             timeout=NUDGE_CLASSIFIER_TIMEOUT_SECONDS,
-            user=f"team-{team_id}",
-            # slack_* keys mirror nudge_event_properties so a generation joins its funnel outcome.
-            extra_headers={
-                "x-posthog-property-feature": NUDGE_CLASSIFIER_FEATURE,
-                "x-posthog-property-$ai_span_name": NUDGE_CLASSIFIER_FEATURE,
-                "x-posthog-property-slack_channel_id": channel,
-                "x-posthog-property-slack_thread_ts": message_ts,
-            },
-            messages=[
-                {"role": "system", "content": NUDGE_CLASSIFIER_SYSTEM_PROMPT},
-                {"role": "user", "content": content},
-            ],
+            metadata={"user_id": f"team-{team_id}"},
+            system=NUDGE_CLASSIFIER_SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": content}],
         )
-        answer = (response.choices[0].message.content or "").strip().lower()
+        answer = "".join(block.text for block in response.content if block.type == "text").strip().lower()
     except Exception as e:
         logger.warning("slack_nudge_classifier_failed", team_id=team_id, error=str(e))
         return "error"

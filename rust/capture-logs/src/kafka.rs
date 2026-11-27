@@ -1,6 +1,6 @@
 use crate::avro_schema::AVRO_SCHEMA;
 use crate::log_record::{min_kafka_log_row_timestamp_micros, sum_kafka_log_row_bytes, KafkaLogRow};
-use crate::metric_record::KafkaMetricRow;
+use crate::metric_record::{sum_kafka_metric_row_bytes, KafkaMetricRow};
 use crate::metrics_avro_schema::METRICS_AVRO_SCHEMA;
 use crate::trace_record::KafkaTraceRow;
 use crate::traces_avro_schema::TRACES_AVRO_SCHEMA;
@@ -579,6 +579,7 @@ impl KafkaSink {
         token: &str,
         rows: Vec<KafkaMetricRow>,
         uncompressed_bytes: u64,
+        records_uncompressed_bytes: Option<u64>,
         timestamps_overridden: u64,
     ) -> Result<(), anyhow::Error> {
         if rows.is_empty() {
@@ -589,6 +590,15 @@ impl KafkaSink {
             counter!("capture_metrics_timestamps_overridden").increment(timestamps_overridden);
         }
 
+        // Callers that strip labels before the write (the capture-apm-metrics
+        // series label gate) pass the billable bytes measured beforehand, so
+        // the meter counts every label the customer sent.
+        let records_uncompressed_bytes =
+            records_uncompressed_bytes.unwrap_or_else(|| sum_kafka_metric_row_bytes(&rows));
+        counter!("capture_metrics_bytes_uncompressed_payload").increment(uncompressed_bytes);
+        counter!("capture_metrics_bytes_uncompressed_records")
+            .increment(records_uncompressed_bytes);
+
         self.write_avro_batch(
             &self.metrics_producer,
             &self.metrics_topic,
@@ -596,7 +606,7 @@ impl KafkaSink {
             token,
             &rows,
             uncompressed_bytes,
-            None,
+            Some(records_uncompressed_bytes),
             timestamps_overridden,
             None,
             None,

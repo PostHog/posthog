@@ -28,7 +28,7 @@ from posthog.clickhouse.query_tagging import get_query_tag_value
 from posthog.constants import AvailableFeature
 from posthog.errors import CHQueryErrorQueryWasCancelled, ExposedCHQueryError
 from posthog.exceptions import APIQueriesBudgetExceeded
-from posthog.models import PersonalAPIKey, PropertyDefinition
+from posthog.models import PersonalAPIKey
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.team import Team
@@ -37,6 +37,8 @@ from products.access_control.backend.facade.api import upsert_property_access_co
 from products.access_control.backend.facade.contracts import PropertyAccessLevel, UpsertPropertyAccessControlInput
 from products.access_control.backend.models.access_control import AccessControl
 from products.cohorts.backend.models.cohort import Cohort
+from products.event_definitions.backend.facade.enums import PropertyDefinitionType
+from products.event_definitions.backend.facade.testing import create_property_definition
 from products.product_analytics.backend.facade.contracts import (
     InsightDataCheck,
     InsightDataChecks,
@@ -150,6 +152,8 @@ class TestEvaluateDataChecks(SimpleTestCase):
             ("local_tiny_share_still_counts", checked(1_000_000, local=60), {LOCAL: WARNING}),
             ("local_under_50_events", checked(100, local=49), {}),
             ("local_fifth_is_still_a_warning", checked(1000, local=200), {LOCAL: WARNING}),
+            ("local_under_nine_tenths_is_still_a_warning", checked(1000, local=899), {LOCAL: WARNING}),
+            ("local_nearly_every_event_is_the_app_itself", checked(1000, local=900), {}),
             ("too_many_events_to_count_skips_only_internal_users", checked(1000, counted=False), {INTERNAL: SKIPPED}),
             ("bots_small_share_is_a_warning", checked(10_000, bots=200), {BOTS: WARNING}),
             (
@@ -562,7 +566,8 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
         self, _name: str, days_with_events: range, status: str, events_checked: int
     ) -> None:
         for days_ago in days_with_events:
-            self._events(10, event=WIDELY_SENT_EVENT, days_ago=days_ago, properties={"$host": LOCAL_HOST})
+            self._events(8, event=WIDELY_SENT_EVENT, days_ago=days_ago, properties={"$host": LOCAL_HOST})
+            self._events(2, event=WIDELY_SENT_EVENT, days_ago=days_ago)
         flush_persons_and_events()
         query = self._query(
             [{"kind": "EventsNode", "event": WIDELY_SENT_EVENT}],
@@ -858,17 +863,17 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("a_property_the_checks_read", "$host", PropertyDefinition.Type.EVENT, "unsupported", None),
-            ("a_property_the_checks_do_not_read", "plan", PropertyDefinition.Type.EVENT, "warning", None),
-            ("the_email_of_a_person", "email", PropertyDefinition.Type.PERSON, "warning", "hidden_property"),
-            ("an_event_property_named_email", "email", PropertyDefinition.Type.EVENT, "warning", None),
+            ("a_property_the_checks_read", "$host", PropertyDefinitionType.EVENT, "unsupported", None),
+            ("a_property_the_checks_do_not_read", "plan", PropertyDefinitionType.EVENT, "warning", None),
+            ("the_email_of_a_person", "email", PropertyDefinitionType.PERSON, "warning", "hidden_property"),
+            ("an_event_property_named_email", "email", PropertyDefinitionType.EVENT, "warning", None),
         ]
     )
     def test_a_hidden_property_stops_the_checks_only_when_they_read_it(
         self,
         _name: str,
         hidden_property: str,
-        property_type: PropertyDefinition.Type,
+        property_type: PropertyDefinitionType,
         status: str,
         internal_users_skip_reason: str | None,
     ) -> None:
@@ -876,7 +881,7 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
             {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
         ]
         self.organization.save()
-        definition = PropertyDefinition.objects.create(team=self.team, name=hidden_property, type=property_type)
+        definition = create_property_definition(team_id=self.team.id, name=hidden_property, type=property_type)
         upsert_property_access_control(
             team_id=self.team.id,
             created_by_id=self.user.id,

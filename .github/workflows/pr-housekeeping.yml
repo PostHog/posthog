@@ -37,12 +37,20 @@ jobs:
         uses: ./.github/workflows/ci-turbo.yml
 
     mobile-ci:
+        name: Mobile CI
         # Dispatch on every PR so repository rules can require "Mobile CI Pass".
         # Its own changes job skips the work when the diff does not touch the app.
         if: contains(fromJSON('["opened", "synchronize", "reopened"]'), github.event.action)
         uses: ./.github/workflows/mobile-ci.yml
         secrets:
             GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
+
+    mobile-rebuild:
+        name: Mobile Rebuild
+        if: >-
+            contains(fromJSON('["opened", "synchronize", "reopened"]'), github.event.action)
+            || (github.event.action == 'edited' && github.event.changes.base != null)
+        uses: ./.github/workflows/pr-native-rebuild.yml
 
     trunk-impacted-targets:
         # Also on ready_for_review: Trunk keys the upload to a head SHA, and a PR

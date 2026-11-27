@@ -2,25 +2,32 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 /* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper, not a React hook */
 import { waitFor } from '@testing-library/react'
+import { getPluginContext } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 import type { CaptureOptions } from 'posthog-js'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
+import { todayShellLogic } from '~/layout/today/todayShellLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { OriginProduct, Task, TaskRun, TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
+import type { SignalScoutConfigApi } from 'products/signals/frontend/generated/api.schemas'
 import { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { myClaim } from './__mocks__/inboxMocks'
-import { inboxSceneLogic, mergeSignalRuns } from './inboxSceneLogic'
+import { inboxSceneLogic, mergeSignalRuns, REPORT_READ_ACTIVE_MS } from './inboxSceneLogic'
 import { inboxBulkActionsLogic } from './logics/inboxBulkActionsLogic'
 import { reportListLogic, sectionListLogicProps } from './logics/reportListLogic'
-import { SignalReport, SignalReportStatus, SignalScoutRunSummary } from './types'
+import { scoutFleetLogic } from './logics/scoutFleetLogic'
+import { InboxTabKey, SignalReport, SignalReportStatus, SignalScoutRunSummary } from './types'
+import { scoutDisplayName } from './utils/scoutRunsWindow'
 
 function openedCalls(spy: jest.SpyInstance): any[][] {
     return spy.mock.calls.filter((call) => call[0] === 'Inbox report opened')
@@ -47,6 +54,7 @@ function scoutRun(overrides: Partial<SignalScoutRunSummary> = {}): SignalScoutRu
         completed_at: null,
         task_id: 'task-scout',
         summary: '',
+        summary_lead: '',
         emitted_count: 0,
         emitted_finding_ids: [],
         emitted_report_ids: [],
@@ -101,10 +109,23 @@ describe('mergeSignalRuns', () => {
 
     it('tags kind and title per source (scout → skill_name, signal → report title)', () => {
         const [scoutRow, signalRow] = mergeSignalRuns(
-            [scoutRun({ task_id: 'scout', skill_name: 'signals-scout-surveys', created_at: '2026-06-11T11:00:00Z' })],
+            [
+                scoutRun({
+                    task_id: 'scout',
+                    skill_name: 'signals-scout-surveys',
+                    created_at: '2026-06-11T11:00:00Z',
+                    total_spend: 125.25,
+                    status: 'in_progress',
+                }),
+            ],
             [signalTask({ id: 'signal', title: 'Slow query', created_at: '2026-06-11T08:00:00Z' })]
         )
-        expect(scoutRow).toMatchObject({ kind: 'scout', title: 'signals-scout-surveys', report_id: null })
+        expect(scoutRow).toMatchObject({
+            kind: 'scout',
+            title: 'signals-scout-surveys',
+            report_id: null,
+            total_spend: 125.25,
+        })
         expect(signalRow).toMatchObject({ kind: 'signal', title: 'Slow query', report_id: 'report-1' })
     })
 
@@ -165,10 +186,93 @@ describe('inboxSceneLogic routing', () => {
         expect(logic.values.activeTab).toBe(expectedTab)
     })
 
+    it.each<[boolean, InboxTabKey]>([
+        [true, 'monitoring'],
+        [false, 'reports'],
+    ])('the Monitoring tab URL with the Monitoring flag %s lands on %s', async (enabled, expectedTab) => {
+        window.history.replaceState({}, '', '/')
+        Object.assign(getPluginContext('router'), { history: window.history, location: window.location })
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: enabled })
+        mountLogic()
+        router.actions.push(urls.inbox('monitoring'))
+        expect(logic.values.activeTab).toBe(expectedTab)
+
+        router.actions.push(combineUrl(urls.inboxReport('reports', 'report-1'), { back: urls.inbox('monitoring') }).url)
+        expect(logic.values.selectedReportId).toBe('report-1')
+
+        window.history.back()
+        await waitFor(() => {
+            expect(logic.values.activeTab).toBe(expectedTab)
+            expect(logic.values.selectedReportId).toBeNull()
+            expect(window.location.pathname.endsWith(urls.inbox(expectedTab))).toBe(true)
+        })
+
+        window.history.forward()
+        await waitFor(() => {
+            expect(logic.values.selectedReportId).toBe('report-1')
+            expect(window.location.pathname.endsWith(urls.inboxReport('reports', 'report-1'))).toBe(true)
+        })
+    })
+
+    it.each<[string, string]>([
+        ['the Scouts tab', urls.inbox('scouts')],
+        ['a scout page', combineUrl(urls.inboxScout('signals-scout-error-tracking'), { tab: 'runs' }).url],
+        ['the findings panel', urls.inboxFindings()],
+        ['the runs list', urls.inboxRuns()],
+        ['the scratchpad', urls.inboxScratchpad()],
+    ])('Back and Forward across a report opened from %s keep the history', async (_, origin) => {
+        window.history.replaceState({}, '', '/')
+        Object.assign(getPluginContext('router'), { history: window.history, location: window.location })
+        mountLogic()
+        router.actions.push(origin)
+        const historyLength = window.history.length
+
+        router.actions.push(combineUrl(urls.inboxReport('reports', 'report-1'), { back: origin }).url)
+        expect(logic.values.selectedReportId).toBe('report-1')
+        expect(logic.values.activeTab).toBe('scouts')
+        expect(router.values.searchParams.back).toBe(origin)
+
+        window.history.back()
+        await waitFor(() => {
+            expect(logic.values.selectedReportId).toBeNull()
+            expect(logic.values.activeTab).toBe('scouts')
+            expect(removeProjectIdIfPresent(window.location.pathname) + window.location.search).toBe(origin)
+        })
+
+        window.history.forward()
+        await waitFor(() => {
+            expect(logic.values.selectedReportId).toBe('report-1')
+            expect(window.location.pathname.endsWith(urls.inboxReport('reports', 'report-1'))).toBe(true)
+        })
+        expect(window.history.length).toBe(historyLength + 1)
+    })
+
     it('a bare /inbox lands on the reports tab', () => {
         mountLogic()
         router.actions.push(urls.inbox())
         expect(logic.values.activeTab).toBe('reports')
+    })
+
+    it('uses the open report title in breadcrumbs and restores the inbox title on close', () => {
+        mountLogic()
+        const inboxBreadcrumbs = logic.values.breadcrumbs
+        expect(inboxBreadcrumbs).toHaveLength(1)
+
+        logic.actions.setSelectedReportId('report-1')
+        logic.actions.loadSelectedReportSuccess({ id: 'report-1', title: 'Example report' } as SignalReport)
+        expect(logic.values.breadcrumbs).toEqual([...inboxBreadcrumbs, { key: 'report-1', name: 'Example report' }])
+
+        logic.actions.setSelectedReportId('report-2')
+        expect(logic.values.breadcrumbs).toEqual(inboxBreadcrumbs)
+        logic.actions.loadSelectedReportSuccess({ id: 'report-1', title: 'Example report' } as SignalReport)
+        expect(logic.values.breadcrumbs).toEqual(inboxBreadcrumbs)
+        logic.actions.loadSelectedReportSuccess({ id: 'report-2', title: 'Another report' } as SignalReport)
+        expect(logic.values.breadcrumbs.at(-1)?.name).toBe('Another report')
+
+        logic.actions.setSelectedReportId(null)
+        expect(logic.values.breadcrumbs).toEqual(inboxBreadcrumbs)
+        logic.actions.loadSelectedReportSuccess({ id: 'report-2', title: 'Another report' } as SignalReport)
+        expect(logic.values.breadcrumbs).toEqual(inboxBreadcrumbs)
     })
 
     it.each([null, 'report', 'scout'] as const)('opens sources from %s without selecting a report', (surface) => {
@@ -227,6 +331,94 @@ describe('inboxSceneLogic routing', () => {
             router.actions.push(urls.inboxScout('signals-scout-web-vitals'), { tab })
             expect(logic.values.selectedScoutSkillName).toBe('signals-scout-web-vitals')
             expect(logic.values.scoutDetailTab).toBe(tab)
+        })
+
+        it('reports the open scout as a recent once its config loads, so the scout can be pinned', () => {
+            mountLogic()
+            router.actions.push(urls.inboxScout('signals-scout-web-vitals'))
+            expect(logic.values.todayRecent).toBeNull()
+
+            const config = { id: 'config-1', skill_name: 'signals-scout-web-vitals' } as SignalScoutConfigApi
+            scoutFleetLogic.actions.loadScoutConfigsSuccess([config])
+            expect(logic.values.todayRecent).toEqual({
+                type: 'scout',
+                name: scoutDisplayName(config),
+                href: urls.inboxScout('signals-scout-web-vitals'),
+            })
+        })
+
+        it.each([
+            { navigation: 'the Automate pane', railNav: true, dataArea: true, root: 'Scouts', namesScout: true },
+            {
+                navigation: 'the new navigation',
+                railNav: true,
+                dataArea: false,
+                root: 'Self-driving inbox',
+                namesScout: true,
+            },
+            {
+                navigation: 'the old navigation',
+                railNav: false,
+                dataArea: false,
+                root: 'Self-driving inbox',
+                namesScout: false,
+            },
+        ])('names a scout page in breadcrumbs under $navigation', ({ railNav, dataArea, root, namesScout }) => {
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.TODAY_RAIL_NAV]: railNav,
+                [FEATURE_FLAGS.DATA_AREA]: dataArea,
+            })
+            mountLogic()
+            router.actions.push(urls.inboxScout('signals-scout-web-vitals'))
+            const config = { id: 'config-1', skill_name: 'signals-scout-web-vitals' } as SignalScoutConfigApi
+            scoutFleetLogic.actions.loadScoutConfigsSuccess([config])
+            expect(logic.values.breadcrumbs.map((crumb) => crumb.name)).toEqual(
+                namesScout ? [root, scoutDisplayName(config)] : [root]
+            )
+        })
+
+        it.each([
+            { opened: 'from the Automate pane', firstPath: urls.workflows(), inAutomate: true },
+            { opened: 'as a tab of the inbox', firstPath: urls.inbox('reports'), inAutomate: false },
+        ])('drops the inbox tabs on Scouts only when opened $opened', ({ firstPath, inAutomate }) => {
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
+                [FEATURE_FLAGS.DATA_AREA]: true,
+            })
+            mountLogic()
+            router.actions.push(firstPath)
+            router.actions.push(urls.inbox('scouts'))
+            expect(logic.values.scoutsInAutomate).toBe(inAutomate)
+        })
+
+        it.each([
+            { opened: 'from the Home pane', pane: 'home', homePane: true },
+            { opened: 'from the Products pane', pane: 'products', homePane: false },
+        ] as const)('drops the inbox tabs only when opened $opened', ({ pane, homePane }) => {
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
+                [FEATURE_FLAGS.TODAY_HOME_PANE]: true,
+            })
+            mountLogic()
+            router.actions.push(urls.inbox('reports'))
+            todayShellLogic.actions.pickPane(pane)
+            expect(logic.values.todayHomePane).toBe(homePane)
+        })
+
+        it.each([
+            { opened: 'from the Automate pane', firstPath: urls.workflows(), tab: 'reports' },
+            { opened: 'as a tab of the inbox', firstPath: urls.inbox('reports'), tab: 'scouts' },
+        ])('opens $tab from the bare inbox URL after Scouts opened $opened', ({ firstPath, tab }) => {
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
+                [FEATURE_FLAGS.DATA_AREA]: true,
+            })
+            mountLogic()
+            router.actions.push(firstPath)
+            router.actions.push(urls.inbox('scouts'))
+            router.actions.push(urls.inbox())
+            expect(logic.values.activeTab).toBe(tab)
+            expect(logic.values.scoutsInAutomate).toBe(false)
         })
 
         it('leaves the tab on its default for a bare scout URL', () => {
@@ -356,7 +548,7 @@ describe('inboxSceneLogic routing', () => {
     })
 
     // A link PostHog wrote names its surface in `link_source`. The product filter keeps `source`. A tab that already saw the list can still
-    // open one, and the param leaves the address bar so a copied URL does not pass it on.
+    // open one, and the param leaves the address bar so a copied URL does not pass it on. `link_action` leaves it the same way.
     it.each([
         { name: 'no param', source: undefined, visitedList: false, method: 'deeplink', linkSource: null },
         { name: 'a known source', source: 'slack', visitedList: false, method: 'deeplink', linkSource: 'slack' },
@@ -376,17 +568,26 @@ describe('inboxSceneLogic routing', () => {
         },
         { name: 'a source after the list', source: 'mcp', visitedList: true, method: 'deeplink', linkSource: 'mcp' },
         { name: 'no param after the list', source: undefined, visitedList: true, method: 'click', linkSource: null },
+        {
+            name: 'the implement action',
+            source: 'slack',
+            linkAction: 'implement',
+            visitedList: false,
+            method: 'deeplink',
+            linkSource: 'slack',
+        },
     ])(
         'a report link with $name opens as $method with link source $linkSource',
-        async ({ source, visitedList, method, linkSource }) => {
+        async ({ source, linkAction, visitedList, method, linkSource }) => {
             mountLogic()
             if (visitedList) {
                 router.actions.push(urls.inbox('reports'))
             }
-            const url = combineUrl(
-                urls.inboxReport('reports', 'r1'),
-                source ? { link_source: source, source: 'github' } : { source: 'github' }
-            ).url
+            const url = combineUrl(urls.inboxReport('reports', 'r1'), {
+                source: 'github',
+                ...(source ? { link_source: source } : {}),
+                ...(linkAction ? { link_action: linkAction } : {}),
+            }).url
 
             let payload: { openMethod?: string; linkSource?: string | null } = {}
             await expectLogic(logic, () => router.actions.push(url)).toDispatchActions([
@@ -400,6 +601,7 @@ describe('inboxSceneLogic routing', () => {
             ])
             expect(payload).toMatchObject({ openMethod: method, linkSource })
             expect(router.values.searchParams).toEqual({ source: 'github' })
+            expect(logic.values.linkImplementReportId).toBe(linkAction ? 'r1' : null)
         }
     )
 
@@ -530,6 +732,74 @@ describe('inboxSceneLogic routing', () => {
         expect(inboxCalls[0][2]).toMatchObject({ send_instantly: true })
         expect(inboxCalls[1][2]).toEqual({ send_instantly: true })
         captureSpy.mockRestore()
+    })
+
+    // A report left open in a background tab, or opened and never scrolled, is not a read. The read
+    // fires during the open, so a tab close that drops the close event does not lose it.
+    it('sends `Inbox report read` once per open, after a scroll and enough visible time', () => {
+        const originalVisibilityState = document.visibilityState
+        const setTabVisibility = (state: 'visible' | 'hidden'): void => {
+            Object.defineProperty(document, 'visibilityState', { value: state, configurable: true })
+            document.dispatchEvent(new Event('visibilitychange'))
+        }
+        const eventsNamed = (name: string): Record<string, any>[] =>
+            captureSpy.mock.calls.filter(([event]) => event === name).map((call) => call[1] as Record<string, any>)
+        const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+        jest.useFakeTimers()
+        try {
+            mountLogic()
+            setTabVisibility('visible')
+            logic.actions.setSelectedReportId('r1')
+            logic.actions.loadSelectedReportSuccess({ id: 'r1', title: 'Crash on login' } as SignalReport)
+
+            jest.advanceTimersByTime(2000)
+            setTabVisibility('hidden')
+            jest.advanceTimersByTime(60_000)
+            setTabVisibility('visible')
+            jest.advanceTimersByTime(REPORT_READ_ACTIVE_MS)
+            expect(eventsNamed('Inbox report read')).toHaveLength(0)
+
+            logic.actions.reportDetailScrolled()
+            expect(eventsNamed('Inbox report read')).toEqual([
+                expect.objectContaining({
+                    report_id: 'r1',
+                    active_time_ms: REPORT_READ_ACTIVE_MS + 2000,
+                    time_since_open_ms: REPORT_READ_ACTIVE_MS + 62_000,
+                }),
+            ])
+
+            setTabVisibility('hidden')
+            setTabVisibility('visible')
+            logic.actions.reportDetailScrolled()
+            jest.advanceTimersByTime(30_000)
+            expect(eventsNamed('Inbox report read')).toHaveLength(1)
+
+            logic.actions.setSelectedReportId('r2')
+            logic.actions.loadSelectedReportSuccess({ id: 'r2', title: 'Checkout times out' } as SignalReport)
+            expect(eventsNamed('Inbox report closed')[0]).toMatchObject({
+                report_id: 'r1',
+                time_spent_ms: REPORT_READ_ACTIVE_MS + 92_000,
+                active_time_ms: REPORT_READ_ACTIVE_MS + 32_000,
+            })
+
+            logic.actions.reportDetailScrolled()
+            setTabVisibility('hidden')
+            jest.advanceTimersByTime(60_000)
+            setTabVisibility('visible')
+            jest.advanceTimersByTime(REPORT_READ_ACTIVE_MS - 1)
+            expect(eventsNamed('Inbox report read')).toHaveLength(1)
+
+            jest.advanceTimersByTime(1)
+            expect(eventsNamed('Inbox report read')[1]).toMatchObject({
+                report_id: 'r2',
+                active_time_ms: REPORT_READ_ACTIVE_MS,
+                time_since_open_ms: REPORT_READ_ACTIVE_MS + 60_000,
+            })
+        } finally {
+            jest.useRealTimers()
+            Object.defineProperty(document, 'visibilityState', { value: originalVisibilityState, configurable: true })
+            captureSpy.mockRestore()
+        }
     })
 
     it('stops the runs poll when opening another surface closes the panel', () => {

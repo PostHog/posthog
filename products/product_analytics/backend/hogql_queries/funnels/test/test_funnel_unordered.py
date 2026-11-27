@@ -32,7 +32,8 @@ from posthog.schema import (
 from posthog.constants import FunnelOrderType
 from posthog.test.test_journeys import journeys_for
 
-from products.event_definitions.backend.models.property_definition import PropertyDefinition
+from products.event_definitions.backend.facade.enums import PropertyDefinitionType, PropertyType
+from products.event_definitions.backend.facade.testing import create_property_definition
 from products.product_analytics.backend.hogql_queries.funnels import FunnelUDF
 from products.product_analytics.backend.hogql_queries.funnels.funnels_query_runner import FunnelsQueryRunner
 from products.product_analytics.backend.hogql_queries.funnels.test.breakdown_cases import (
@@ -143,26 +144,22 @@ class TestFunnelUnorderedStepsBreakdown(
             results[0],
             [
                 {
-                    "action_id": None,
                     "name": "Completed 1 step",
                     "custom_name": None,
                     "order": 0,
                     "people": [],
                     "count": 1,
-                    "type": "events",
                     "average_conversion_time": None,
                     "median_conversion_time": None,
                     "breakdown": ["Safari"],
                     "breakdown_value": ["Safari"],
                 },
                 {
-                    "action_id": None,
                     "name": "Completed 2 steps",
                     "custom_name": None,
                     "order": 1,
                     "people": [],
                     "count": 1,
-                    "type": "events",
                     "average_conversion_time": 3600,
                     "median_conversion_time": 3600,
                     "breakdown": ["Safari"],
@@ -176,26 +173,22 @@ class TestFunnelUnorderedStepsBreakdown(
             results[1],
             [
                 {
-                    "action_id": None,
                     "name": "Completed 1 step",
                     "custom_name": None,
                     "order": 0,
                     "people": [],
                     "count": 1,
-                    "type": "events",
                     "average_conversion_time": None,
                     "median_conversion_time": None,
                     "breakdown": ["Chrome"],
                     "breakdown_value": ["Chrome"],
                 },
                 {
-                    "action_id": None,
                     "name": "Completed 2 steps",
                     "custom_name": None,
                     "order": 1,
                     "people": [],
                     "count": 0,
-                    "type": "events",
                     "average_conversion_time": None,
                     "median_conversion_time": None,
                     "breakdown": ["Chrome"],
@@ -1460,11 +1453,11 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
             properties={"is_saved": True},
             team=self.team,
         )
-        PropertyDefinition.objects.get_or_create(
-            team=self.team,
-            type=PropertyDefinition.Type.EVENT,
+        create_property_definition(
+            team_id=self.team.id,
+            type=PropertyDefinitionType.EVENT,
             name="is_saved",
-            defaults={"property_type": "Boolean"},
+            property_type=PropertyType.Boolean,
         )
 
         query = unordered_funnels_query(

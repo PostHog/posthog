@@ -30,6 +30,34 @@ Product suites can supply `case_runner=` to `SandboxedEval` with the `SandboxedC
 
 Test cases should keep the default `SandboxedEvalCase.inherit_demo_data=True` to inherit Hedgebox data. Setting it to `False` is an explicit opt-in only for cases that intentionally need an empty isolated project, such as testing abstention with insufficient data. The setup hook must seed any data the case needs. The sparse scout case uses this option to add just four signups: inheriting the populated Hedgebox dataset would invalidate that test. Regression and control cases keep the default.
 
+## Repository selection evals
+
+Two suites measure repository selection on a synthetic `fernhill` catalog that each case installs in its own isolated project: repository names, descriptions, READMEs, tree paths, visibility, and routing rules come from [`products/tasks/evals/repo_selection/fixtures.py`](../../tasks/evals/repo_selection/fixtures.py).
+No case depends on a real team's connected repositories, and expected answers stay out of the agent's input.
+
+- `slack_app/eval_repo_selection_routing` runs a Slack mention through the production cascade, the needs-repo classifier, and the discovery agent. It scores the terminal stage and outcome, and the routed repository.
+- `tasks/eval_repo_selection` runs only the production `select_repository` on the Self-driving path, so classifier behavior cannot hide a difference between selector models. It scores accepted-set accuracy, correct abstention on cases with no plausible candidate, and completion.
+
+Selector errors, timeouts, and picks outside the candidates score zero.
+A trial that fails before the agent's first tool call, such as a gateway refusal at startup, is an infrastructure error, so the harness summary leaves it out of score averages.
+The report below counts every planned trial, and scores those trials as wrong.
+Compare selector models with per-arm settings, and set `EXPORT_EVAL_RESULTS=1` so each arm writes the per-trial results the report reads:
+
+```bash
+EXPORT_EVAL_RESULTS=1 hogli evals tasks/eval_repo_selection --trials 3 --max-sandboxes 4 \
+  --compare-model claude:claude-haiku-5-5 \
+  --compare-model codex:gpt-6-luna,reasoning_effort=medium \
+  --compare-model codex:gpt-6-luna,reasoning_effort=medium,service_tier=flex
+python -m products.tasks.evals.repo_selection.report <comparison-dir>
+```
+
+The report joins each trial with the eval gateway's ledger and request log. It lists accuracy, abstention, errors, latency, tokens, gateway-accounted cost, and the tier that served each call, so a Flex request that fell back to Standard is counted as Standard.
+The eval gateway declares a Baseten host when `AI_GATEWAY_BASETEN_API_KEY` is set, which open-weight arms such as DeepSeek need.
+
+The eval gateway posts every `$ai_generation` event to a local capture endpoint, and the run writes them to `logs/ai_gateway/<run>.generations.jsonl`, without prompt and completion bodies. The path prints as `AI GATEWAY GENERATIONS` and is saved in the run report. These events carry the requested and served service tier, Flex attempts, cache and reasoning tokens, and gateway cost, keyed by `task_run_id`.
+
+Repository-selection runs attribute their model calls to their production products: `signals_repo_selection` for the selector suite and `slack_app` for the routing suite. The gateway applies each product's model restrictions, so a model reserved for other products fails at agent startup and the trial counts as an error. The `slack_app` model pin covers only models in `products/tasks/backend/model_catalog.py`, so run the routing suite on a catalog model such as `claude-sonnet-5-5`.
+
 ## Running
 
 ```bash
@@ -80,11 +108,14 @@ python -m products.posthog_ai.eval_harness.harness --list
 | --------------------------------- | -------------------------------------------------------------------------------------------------------- |
 | `--eval <substr>`                 | Only run cases whose name contains the substring.                                                        |
 | `--provider {docker,modal}`       | Where sandboxes run. Default `docker`.                                                                   |
+| `--prewarm-teams [COUNT]`         | Fill the single-use Hedgebox reserve and exit. Defaults to 12 teams.                                     |
+| `--team-setup-concurrency N`      | Limit concurrent team clones and case seeders for this run.                                              |
 | `--max-sandboxes N`               | Cap concurrently live sandboxes across all suites.                                                       |
 | `--agent-model <model>`           | Model the sandboxed agent runs against, pinned for stable cross-run comparison.                          |
 | `--agent-runtime {claude,codex}`  | Agent runtime serving the model. Default `claude`.                                                       |
 | `--skill-delivery {bundled,exec}` | Skill delivery path. Default `bundled`; `exec` removes native sandbox skills.                            |
 | `--reasoning-effort <effort>`     | Agent reasoning effort; valid values depend on runtime+model.                                            |
+| `--service-tier <tier>`           | OpenAI service tier for codex runs (`default`, `flex`, `priority`). The claude runtime ignores it.       |
 | `--keep-sandbox-containers`       | Skip the end-of-run Docker sweep, to inspect a leftover container. Docker only.                          |
 | `--rebuild-sandbox-image`         | Force a rebuild of the `posthog-sandbox-base` image before the run. Docker only.                         |
 | `--create-db`                     | Rebuild the eval test database instead of reusing it.                                                    |
@@ -97,7 +128,7 @@ python -m products.posthog_ai.eval_harness.harness --list
 | `--fail-under <fraction>`         | Exit nonzero when the mean score across all experiments falls below this (0-1).                          |
 | `--list`                          | Print the discovered suite ids (with their kinds) and exit.                                              |
 
-Sandbox-only flags (`--provider`, `--max-sandboxes`, `--agent-runtime`, `--skill-delivery`, `--reasoning-effort`, `--keep-sandbox-containers`, `--rebuild-sandbox-image`) are rejected in preflight when no selected suite is sandboxed, instead of being silently ignored.
+Sandbox-only flags (`--provider`, `--team-setup-concurrency`, `--max-sandboxes`, `--agent-runtime`, `--skill-delivery`, `--reasoning-effort`, `--service-tier`, `--keep-sandbox-containers`, `--rebuild-sandbox-image`) are rejected in preflight when no selected suite is sandboxed, instead of being silently ignored.
 
 The run exits with status 1 if a suite crashes or a case has an infrastructure error, even without `--fail-under`.
 Infrastructure errors remain separate from score averages.
@@ -196,6 +227,19 @@ hogli evals eval_skill_distribution --skill-delivery exec --agent-runtime claude
 Both runs use the same prompts and experiment name.
 The experiment metadata records `skill_delivery`; compare the shared `expected_skill_loaded` and `skill_loaded_before_tool` scores rather than the aggregate mean, because the exec arm also reports search and discovery diagnostics.
 
+### PostHog AI surface
+
+`--surface app` runs every case that sets no `interaction_origin` as PostHog AI in the app, with the in-app system prompt.
+`--surface mcp`, the default, keeps the skill-delivery default.
+The app surface needs bundled skill delivery, because the app does not get exec skills, so the CLI rejects `--surface app --skill-delivery exec`:
+
+```bash
+hogli evals eval_governed_metrics --surface app --skill-delivery bundled
+hogli evals eval_governed_metrics --surface mcp --skill-delivery exec
+```
+
+The experiment metadata records `eval_surface`, so both runs can share one experiment name.
+
 ### Codex runtime
 
 `--agent-runtime codex` runs the same agent-server with OpenAI's Codex harness instead of Claude, defaulting the model to `gpt-6.1-sol`.
@@ -219,6 +263,7 @@ Comparisons use plain text output so each model can finish without waiting for t
 Ctrl-C stops the comparison after the current child finishes cleanup.
 
 Use repeated `--compare-model claude:MODEL` and `--compare-model codex:MODEL` options to replace the default pair.
+An arm can add its own settings after commas, such as `--compare-model codex:gpt-6-luna,reasoning_effort=medium,service_tier=flex`. Per-arm settings override `--reasoning-effort` and `--service-tier`, so one comparison can hold the same model on Standard and Flex as separate arms. The arm label, run report, and experiment metadata record both settings.
 At least two distinct runtime/model pairs and one suite selector are required. Only sandboxed suites are supported;
 one-shot suites select their models internally. Do not combine comparison options with `--agent-model` or `--agent-runtime`.
 
@@ -293,8 +338,7 @@ Modal prerequisites, all checked by preflight before anything boots:
 - Modal credentials: `MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET`, or a `~/.modal.toml` from `modal token new`.
 - `SANDBOX_JWT_PRIVATE_KEY` in the environment. The dev key ships in `.env.example`; the harness auto-loads it from `.env`.
 
-Sandboxes are unbounded by default on modal, meaning every case can hold one at once.
-`--max-sandboxes N` is the cost knob.
+Modal defaults to twelve concurrent sandboxes on Coder and is unbounded elsewhere. Use `--max-sandboxes N` to set a run-specific cap.
 
 Each case waits for its workflow to terminate the sandbox, then runs a tag-scoped Modal sweep as a safety net.
 When the whole run ends, the harness sweeps the Modal app again for its own leftover sandboxes, so a crashed or interrupted run doesn't leave sandboxes billing until their TTL.
@@ -325,8 +369,12 @@ Every selected suite runs concurrently on one event loop, and a global semaphore
 Selecting more suites therefore increases throughput without increasing peak load.
 
 A separate semaphore covers the full per-case team setup, including the demo-data clone and optional setup hook.
-It allows one setup at a time on ordinary local machines and four when either `CODER` or `CI` is set.
+It defaults to one setup on ordinary local machines, two on Coder, and four on other CI machines. Set `--team-setup-concurrency N` for a different devbox capacity.
+
+Team setup runs while agents execute. Up to four teams can be preparing or waiting for a sandbox at a time (more when the setup worker count exceeds four). Before a series of runs, use `hogli evals --prewarm-teams` to prepare 12 base teams, or specify a count. Repeating the command tops up the reserve. Each sandboxed case that inherits demo data claims one team from the current master, then runs its own seeder. When the reserve runs out, cloning continues on demand.
 These phases can issue large ClickHouse copies or direct inserts, so the independent limit protects ClickHouse from RAM exhaustion even when Modal sandbox capacity is unbounded while letting managed environments prepare cases faster.
+On a single local ClickHouse shard, the harness copies the stored event properties and session columns along with the events.
+New master fixtures record their simulation time. Case teams use that clock and copy complete daily experiment results when the metric settings match. An older master or a missing or incompatible timeseries uses the usual backfill. Copied chart points omit the source team’s diagnostic SQL.
 When object storage is enabled, setup also validates the master warehouse and clones team-scoped warehouse metadata for each case while reusing the master's immutable CSV files.
 When a setup completes, its slot becomes available to the next case while the prepared case runs its agent.
 
@@ -444,7 +492,12 @@ The final terminal line is the unlabeled absolute path, with no output after it,
 The transcript itself ends with the same path, and `logs/harness/latest.log` points to the newest transcript.
 Suite listing (`--list`) and argument errors do not create transcripts.
 
-Each trial writes separate local files: `<case>.trial-<id>.jsonl`, `<case>.trial-<id>.artifacts.json`, and `<case>.trial-<id>.summary.txt`.
+Each trial writes separate local files: `<case>.trial-<id>.jsonl`, `<case>.trial-<id>.artifacts.json`, `<case>.trial-<id>.summary.txt`, and `<case>.trial-<id>.toolchain.json`.
+The tool chain file lists every tool call in call order, with its turn, MCP server, input and output digests, timestamps, and duration.
+The turn is `null` when the runner cannot split a multi-turn log into turns.
+The case metadata carries a chain summary under `tool_chain`: call counts, distinct tools, servers, errors, and the sequence of the first successful answer query.
+Discovery calls are catalog and schema lookups. Tool lookups, such as `ToolSearch` or a bare `exec` `tools` command, count as neither discovery nor answer.
+Scorers and judges read the same chain through `products.posthog_ai.eval_harness.tool_chain`.
 The harness shortens long case names in filenames to stay within 255 bytes. It keeps the complete trial ID and file extension.
 The summary includes the trial ID, the agent trace ID when available, phase durations in seconds, and the scores for that trial.
 Case names and `--eval` filters stay the same.

@@ -1,5 +1,6 @@
 """Imports automations from other messaging tools as draft workflows, and reads back what each import left out."""
 
+import json
 from typing import Any, cast
 from uuid import UUID
 
@@ -10,20 +11,26 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.cdp_permissions import CDPPropertyAccessPermission
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.models import User
-from posthog.permissions import PostHogFeatureFlagPermission
 
 from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.workflows.backend.facade.contracts import ImportOptions, WorkflowImportRecord
-from products.workflows.backend.facade.enums import WorkflowImportNoteLevel, WorkflowImportSource, WorkflowImportStatus
+from products.workflows.backend.facade.enums import (
+    WorkflowImportNoteLevel,
+    WorkflowImportRequestSource,
+    WorkflowImportSegmentCohortStatus,
+    WorkflowImportStatus,
+)
 from products.workflows.backend.facade.workflow_imports import import_for_workflow
 from products.workflows.backend.presentation.views.workflow_import_drafts import import_campaigns
 
 MAX_CAMPAIGNS_PER_IMPORT = 50
 MAX_SOURCE_ID_LENGTH = 200
+MAX_SEGMENT_CONDITIONS_BYTES = 100_000
 
 
 class CustomerioCampaignSerializer(serializers.Serializer):
@@ -70,14 +77,31 @@ class CustomerioSenderIdentitySerializer(serializers.Serializer):
 
 
 class CustomerioSegmentSerializer(serializers.Serializer):
-    id = serializers.CharField(help_text="The segment's id.")
+    id = serializers.CharField(max_length=MAX_SOURCE_ID_LENGTH, help_text="The segment's id.")
     name = serializers.CharField(allow_blank=True, help_text="The segment's name.")
     type = serializers.CharField(help_text="The segment's type: `dynamic`, or `static` for a hand-made list.")
+    conditions = serializers.JSONField(
+        required=False,
+        help_text=(
+            "The segment's rules: the `conditions` object from `GET /v1/environments/{environment_id}/segments/"
+            "{segment_id}`. Never its members. With rules, a real import turns a dynamic segment the automations "
+            "check into a realtime cohort when every rule has an exact cohort condition, and uses that cohort."
+        ),
+    )
+
+    def validate_conditions(self, value: Any) -> Any:
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Pass the segment's `conditions` object.")
+        if len(json.dumps(value)) > MAX_SEGMENT_CONDITIONS_BYTES:
+            raise serializers.ValidationError(
+                f"A segment's conditions can be at most {MAX_SEGMENT_CONDITIONS_BYTES} bytes."
+            )
+        return value
 
 
 class WorkflowImportRequestSerializer(serializers.Serializer):
     source = serializers.ChoiceField(  # type: ignore[assignment]  # field named `source` shadows DRF Field.source
-        choices=WorkflowImportSource.choices,
+        choices=WorkflowImportRequestSource.choices,
         help_text="The tool the automations come from.",
     )
     campaigns = CustomerioCampaignSerializer(
@@ -88,7 +112,8 @@ class WorkflowImportRequestSerializer(serializers.Serializer):
         child=serializers.CharField(allow_blank=True),
         required=False,
         default=dict,
-        help_text='Customer.io snippet name to its content, inlined where a message uses `{% snippet "name" %}`.',
+        help_text="Customer.io snippet name to its content, inlined where a message uses `{{ snippets.name }}`. "
+        "When PostHog reads the message content with a stored Customer.io App API key, it reads the snippets too.",
     )
     segment_cohorts = serializers.DictField(
         child=serializers.IntegerField(),
@@ -130,8 +155,9 @@ class WorkflowImportRequestSerializer(serializers.Serializer):
         required=False,
         default=list,
         help_text=(
-            "Customer.io segment ids, names and types, without members, so the notes can name each segment and "
-            "flag static ones."
+            "Customer.io segments, without members: ids, names and types, so the notes can name each segment and "
+            "flag static ones, and the rules of each segment the automations check, so the import can turn it into "
+            "a realtime cohort."
         ),
     )
     dry_run = serializers.BooleanField(
@@ -173,10 +199,32 @@ class WorkflowImportResultSerializer(serializers.Serializer):
     )
 
 
+class WorkflowImportSegmentCohortSerializer(serializers.Serializer):
+    segment_id = serializers.CharField(help_text="The Customer.io segment's id.")
+    segment_name = serializers.CharField(allow_blank=True, help_text="The segment's name.")
+    status = serializers.ChoiceField(
+        choices=WorkflowImportSegmentCohortStatus.choices,
+        help_text=(
+            "`created`: the import made a realtime cohort from the segment's rules. `reused`: an earlier import "
+            "made it. `would_create`: a real import makes one, in a preview. `not_converted`: no cohort is used, "
+            "see `reason`."
+        ),
+    )
+    cohort_id = serializers.IntegerField(allow_null=True, help_text="The cohort's id, when there is one.")
+    reason = serializers.CharField(allow_null=True, help_text="Why the segment was not turned into a cohort.")
+
+
 class WorkflowImportResponseSerializer(serializers.Serializer):
     results = WorkflowImportResultSerializer(many=True, help_text="One result per automation, in request order.")
     content_fetched = serializers.BooleanField(
         help_text="True when PostHog read message content from Customer.io with the project's stored App API key."
+    )
+    segment_cohorts = WorkflowImportSegmentCohortSerializer(
+        many=True,
+        help_text=(
+            "One entry per dynamic segment the automations check that was passed with its rules and had no cohort "
+            "in segment_cohorts."
+        ),
     )
 
 
@@ -191,12 +239,11 @@ class WorkflowImportRecordSerializer(serializers.Serializer):
 
 
 class WorkflowImportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    permission_classes = [CDPPropertyAccessPermission]
+
     scope_object = "hog_flow"
     serializer_class = WorkflowImportRequestSerializer
     scope_object_read_actions = ["for_workflow"]
-    # Only importing is gated: the editor reads `for_workflow` on every workflow, flag or not.
-    posthog_feature_flag = {"workflows-customerio-import": ["create"]}
-    permission_classes = [PostHogFeatureFlagPermission]
 
     @validated_request(
         WorkflowImportRequestSerializer,
@@ -239,12 +286,15 @@ class WorkflowImportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 "statuses": [result["status"] for result in results],
                 "note_count": sum(len(result["notes"]) for result in results),
                 "content_fetched": run.content_fetched,
+                "segment_cohort_statuses": [item["status"] for item in run.segment_cohorts],
             },
             team=self.team,
             request=request,
         )
         return Response(
-            WorkflowImportResponseSerializer({"results": results, "content_fetched": run.content_fetched}).data
+            WorkflowImportResponseSerializer(
+                {"results": results, "content_fetched": run.content_fetched, "segment_cohorts": run.segment_cohorts}
+            ).data
         )
 
     @extend_schema(

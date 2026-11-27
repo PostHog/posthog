@@ -14,9 +14,9 @@ import {
 } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { CUSTOM_OPTION_KEY } from 'lib/utils/dateFilters'
 import { getExperimentVariants } from 'scenes/experiments/utils'
 import { urls } from 'scenes/urls'
 

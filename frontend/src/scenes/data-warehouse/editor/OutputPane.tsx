@@ -32,20 +32,20 @@ import { LemonBanner, LemonButton, LemonDivider, LemonMenu, LemonModal, LemonTab
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { JSONViewer } from 'lib/components/JSONViewer'
-import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { MCPUseCaseCard } from 'lib/components/MCPHint/MCPUseCaseCard'
-import { Resizer } from 'lib/components/Resizer/Resizer'
-import { type ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { TZLabel } from 'lib/components/TZLabel'
 import { PART_OF_WHOLE_DISPLAY_TYPES } from 'lib/constants'
 import { useCellCopyContextMenu } from 'lib/hooks/useCellCopyContextMenu'
 import { IconTableChart } from 'lib/lemon-ui/icons'
+import { KeyboardShortcut } from 'lib/lemon-ui/KeyboardShortcut/KeyboardShortcut'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
+import { Resizer } from 'lib/lemon-ui/Resizer/Resizer'
+import { type ResizerLogicProps, resizerLogic } from 'lib/lemon-ui/Resizer/resizerLogic'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { tryJsonParse } from 'lib/utils/json'
-import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
+import { InsightErrorState, InsightValidationError, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -71,6 +71,7 @@ import { DataTableVisualizationProps } from '~/queries/nodes/DataVisualization/D
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { displayLogic } from '~/queries/nodes/DataVisualization/displayLogic'
 import { renderHogQLX } from '~/queries/nodes/HogQLX/render'
+import { extractValidationError, extractValidationErrorCode } from '~/queries/nodes/InsightViz/utils'
 import {
     type AccessControlFilterWarning,
     type DataTableNode,
@@ -98,7 +99,6 @@ import {
 } from '../../../queries/nodes/DataTable/clipboardUtils'
 import { EditorQueryScanBanner } from './components/EditorQueryScanBanner'
 import { FixErrorButton } from './components/FixErrorButton'
-import { fixSQLErrorsLogic } from './fixSQLErrorsLogic'
 import { QueryIndexUsageBar } from './output-pane-tabs/QueryIndexUsageBar'
 import { OutputTab, outputPaneLogic } from './outputPaneLogic'
 import { sqlEditorLogic } from './sqlEditorLogic'
@@ -399,7 +399,11 @@ function SplitOutputToggle({ splitView, onClick }: SplitOutputToggleProps): JSX.
             size="small"
             icon={splitView ? <IconScreen /> : <IconColumns />}
             onClick={onClick}
-            tooltip={splitView ? 'Show one output at a time' : 'Show results and visualization side by side'}
+            tooltip={
+                splitView
+                    ? 'Exit split view and show only the results'
+                    : 'Split view: show the results and the visualization side by side'
+            }
             data-attr="sql-editor-output-split-toggle"
         />
     )
@@ -635,9 +639,9 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
         metadata,
         metadataLoading,
         indexReportStale,
+        fixErrorsLoading: fixWithAILoading,
     } = useValues(sqlEditorLogic)
     const { setSourceQuery, applyIndexQuickfix, fixIndexUsageWithAI } = useActions(sqlEditorLogic)
-    const { responseLoading: fixWithAILoading } = useValues(fixSQLErrorsLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const {
         response: dataNodeResponse,
@@ -653,7 +657,7 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
         visualizationProps: visualizationLogic.props,
         tabId: tabId || '',
     })
-    const { choosingChart, statusMessage } = useValues(chartRecommendationLogic)
+    const { choosingChart } = useValues(chartRecommendationLogic)
     const { skipRecommendation } = useActions(chartRecommendationLogic)
 
     const response = dataNodeResponse as HogQLQueryResponse | undefined
@@ -695,14 +699,7 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
                 width: 30,
                 renderCell: ({ row }: { row: any }) => (
                     <div className="hover-actions-cell flex justify-center items-center">
-                        <LemonButton
-                            size="xsmall"
-                            icon={<IconExpand45 />}
-                            onClick={(e) => {
-                                e.stopPropagation()
-                                setSelectedRow(row)
-                            }}
-                        />
+                        <LemonButton size="xsmall" icon={<IconExpand45 />} onClick={() => setSelectedRow(row)} />
                     </div>
                 ),
             },
@@ -997,13 +994,8 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
                 outputContent
             )}
             <div className="flex flex-wrap justify-between gap-x-4 px-2 border-t">
-                <div className="flex flex-wrap items-center gap-x-4">
+                <div className="flex min-h-4 flex-wrap items-center gap-x-4">
                     {response && !responseError ? <LoadPreviewText localResponse={response} /> : null}
-                    {statusMessage ? (
-                        <span className="text-xs text-muted" role="status" data-attr="sql-editor-chart-status">
-                            {statusMessage}
-                        </span>
-                    ) : null}
                 </div>
                 <div className="flex items-center gap-4">
                     <ElapsedTime />
@@ -1213,28 +1205,38 @@ const ErrorState = ({
     response,
     showQueryScan,
 }: any): JSX.Element | null => {
+    const { responseErrorObject } = useValues(dataNodeLogic)
+    const validationError = !queryCancelled && extractValidationError(responseErrorObject)
     const error = queryCancelled
         ? 'The query was cancelled'
         : response && 'error' in response && !!response.error
           ? response.error
           : responseError
+    const fixWithAI = <FixErrorButton contentOverride="Fix error with AI" type="primary" source="query-error" />
 
     return (
         <div className={clsx('flex-1 absolute top-0 left-0 right-0 bottom-0 overflow-auto')}>
             <div className="flex min-h-full flex-col justify-center">
-                <InsightErrorState
-                    query={sourceQuery}
-                    excludeDetail
-                    title={
-                        <pre className="text-xs bg-danger-highlight p-2 rounded overflow-auto max-h-40 max-w-[80%] mx-auto text-left whitespace-pre-wrap break-words">
-                            {error}
-                        </pre>
-                    }
-                    excludeActions={queryCancelled} // Don't display fix/debugger buttons if the query was cancelled
-                    fixWithAIComponent={
-                        <FixErrorButton contentOverride="Fix error with AI" type="primary" source="query-error" />
-                    }
-                />
+                {validationError ? (
+                    <InsightValidationError
+                        query={sourceQuery}
+                        detail={validationError}
+                        validationErrorCode={extractValidationErrorCode(responseErrorObject)}
+                        fixWithAIComponent={fixWithAI}
+                    />
+                ) : (
+                    <InsightErrorState
+                        query={sourceQuery}
+                        excludeDetail
+                        title={
+                            <pre className="text-xs bg-danger-highlight p-2 rounded overflow-auto max-h-40 max-w-[80%] mx-auto text-left whitespace-pre-wrap break-words">
+                                {error}
+                            </pre>
+                        }
+                        excludeActions={queryCancelled}
+                        fixWithAIComponent={fixWithAI}
+                    />
+                )}
                 {showQueryScan && <EditorQueryScanBanner />}
             </div>
         </div>
@@ -1292,6 +1294,7 @@ const Content = ({
                 closeCopyMenu() // Not a copyable data cell — close any open menu and fall back to the native one
                 return
             }
+            args.selectCell()
             event.preventGridDefault()
             event.preventDefault()
             openCopyMenu(event.currentTarget, text)

@@ -47,6 +47,16 @@ def _clear_session_cache():
     cache.clear()
 
 
+@pytest.fixture(autouse=True)
+def _no_sandbox_session_bookkeeping():
+    """The mocked runs here have no sandbox session rows, so the claim and activity stamps are stubbed."""
+    with (
+        patch("products.tasks.backend.logic.services.sandbox_usage.claim_task_run_sandbox_sessions"),
+        patch("products.tasks.backend.logic.services.sandbox_usage.record_task_run_user_activity"),
+    ):
+        yield
+
+
 def _run_activity(activity_input: SendFollowupToSandboxInput) -> str | None:
     """The activity opens `HeartbeaterSync`, which needs a Temporal activity context."""
     return ActivityEnvironment().run(send_followup_to_sandbox, activity_input)
@@ -66,10 +76,13 @@ def _make_task_run_mock(team_id: int = 7, created_by_id: int | None = 42, state:
     task.created_by_id = created_by_id
     task.team_id = team_id
     task.internal = False
+    task.stored_profile = None
     task.origin_product = "user_created"
+    task.runtime = "acp"
     task.mcp_builtin_agent_key = None
     task.mcp_credential_owner_id = None
     task.mcp_gateway_server_allowlist = None
+    task.repository_integration_id = None
     if created_by_id is not None:
         task.created_by = MagicMock(id=created_by_id, distinct_id=f"user-{created_by_id}")
     else:
@@ -84,6 +97,7 @@ def _make_task_run_mock(team_id: int = 7, created_by_id: int | None = 42, state:
     # and leak into kwargs passed to `get_sandbox_ph_mcp_configs`.
     task_run.state = state
     task_run.imported_mcp_servers = None
+    task_run.get_sandbox_environment.return_value = None
     return task_run
 
 
@@ -130,6 +144,7 @@ class TestRefreshSandboxMcp:
             task_id="task-1",
             origin_product="support_reply",
             exclude_tools=["docs-search"],
+            bundled_skills=True,
         )
         mock_user_configs.assert_called_once_with(
             token="fresh-token",
@@ -143,6 +158,7 @@ class TestRefreshSandboxMcp:
             task_agent_key="support",
             credential_owner_id=99,
             allowed_gateway_server_ids=["srv-9"],
+            profile=None,
         )
         mock_send_refresh.assert_called_once()
         _, kwargs = mock_send_refresh.call_args
@@ -262,6 +278,7 @@ class TestRefreshSandboxMcp:
             task_id="task-1",
             origin_product="user_created",
             exclude_tools=[],
+            bundled_skills=True,
         )
 
     def test_transition_refresh_failure_reports_unsafe(
@@ -443,6 +460,11 @@ class TestSandboxGithubIdentityGate:
     their token when they have access, otherwise a logout so no previous actor's
     identity survives."""
 
+    @pytest.fixture(autouse=True)
+    def _stub_stale_credential_scrub(self):
+        with patch(f"{_GH_MODULE}.clear_github_env_from_gitlab_sandbox", return_value=True):
+            yield
+
     def test_same_actor_is_re_established_not_skipped(
         self, mock_authorship, mock_resolve, mock_get_token, mock_apply, mock_clear, mock_upgrade
     ):
@@ -457,6 +479,40 @@ class TestSandboxGithubIdentityGate:
         assert _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None) is None
         mock_apply.assert_called_once()
         assert mock_apply.call_args.args[2] == "ghu_token"
+        mock_clear.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "cleared, expected",
+        [(True, None), (False, SandboxRebindFailure.LOGOUT_UNCONFIRMED)],
+        ids=["cleared", "clear_unconfirmed"],
+    )
+    @pytest.mark.parametrize("state", [None, {"github_read_access": True}, {"github_token_scope": "push"}])
+    def test_gitlab_task_clears_github_credentials_left_from_github(
+        self,
+        mock_authorship,
+        mock_resolve,
+        mock_get_token,
+        mock_apply,
+        mock_clear,
+        mock_upgrade,
+        cleared,
+        expected,
+        state,
+    ):
+        # A task that moved from GitHub to GitLab while its sandbox ran can still hold the previous
+        # actor's GitHub token, so the GitLab turn clears it and fails closed when it can't.
+        mock_resolve.return_value = _gate_lookup()
+        mock_get_token.return_value = "ghu_token"
+        task_run = _make_task_run_mock()
+        task_run.task.repository_integration_id = 5
+
+        with patch(f"{_GH_MODULE}.clear_github_env_from_gitlab_sandbox", return_value=cleared) as clear_env:
+            assert _refresh_sandbox_github(task_run, MagicMock(id=42), state) == expected
+
+        clear_env.assert_called_once()
+        mock_upgrade.assert_not_called()
+        mock_get_token.assert_not_called()
+        mock_apply.assert_not_called()
         mock_clear.assert_not_called()
 
     def test_revoked_connection_logs_the_sandbox_out_on_the_same_actor(
@@ -527,18 +583,27 @@ class TestSandboxGithubIdentityGate:
         mock_apply.assert_called_once()
         assert mock_apply.call_args.args[2] == "ghu_reconnected"
 
-    def test_bot_authorship_skips(
-        self, mock_authorship, mock_resolve, mock_get_token, mock_apply, mock_clear, mock_upgrade
+    @pytest.mark.parametrize(
+        "authorship,state",
+        [
+            (PrAuthorshipMode.BOT, None),
+            (PrAuthorshipMode.USER, {"github_read_access": True}),
+            (PrAuthorshipMode.BOT, {"github_read_access": True}),
+            (PrAuthorshipMode.USER, {"github_token_scope": "push"}),
+        ],
+    )
+    def test_shared_installation_credentials_skip_actor_rebinding(
+        self, mock_authorship, mock_resolve, mock_get_token, mock_apply, mock_clear, mock_upgrade, authorship, state
     ):
-        # BOT runs share a single installation token, so every actor is already
-        # the same GitHub identity — nothing to rebind.
-        mock_authorship.return_value = PrAuthorshipMode.BOT
+        mock_authorship.return_value = authorship
         mark_sandbox_github_identity(_GATE_SANDBOX_ID, 99)
 
-        assert _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None) is None
+        assert _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), state) is None
         mock_get_token.assert_not_called()
         mock_apply.assert_not_called()
         mock_clear.assert_not_called()
+        if state:
+            mock_upgrade.assert_not_called()
 
     def test_transition_with_access_rebinds(
         self, mock_authorship, mock_resolve, mock_get_token, mock_apply, mock_clear, mock_upgrade
@@ -886,13 +951,50 @@ class TestSendFollowupActivityRefreshOrdering:
         )
         assert order == ["store_skills", "mcp"]
 
-    def test_non_slack_delivery_does_not_stamp(self, _patches):
+    def test_failed_slack_actor_stamp_prevents_delivery(self, _patches):
+        _patches["user_msg"].return_value = CommandResult(success=True, status_code=200)
+        _patches["task_run"].state = {"interaction_origin": "slack", "slack_actor_user_id": 42}
+
+        def update_state(_run_id, *, updates):
+            if "slack_actor_user_id" in updates:
+                raise RuntimeError("database unavailable")
+
+        _patches["task_run_cls"].update_state_atomic.side_effect = update_state
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_task_run_credential_user",
+            return_value=MagicMock(id=99),
+        ):
+            with pytest.raises(RuntimeError, match="database unavailable"):
+                _run_activity(
+                    SendFollowupToSandboxInput(
+                        run_id="run-1", message="hi", actor_user_id=99, context={"actor_slack_user_id": "U_BOB"}
+                    )
+                )
+
+        _patches["user_msg"].assert_not_called()
+        _patches["refresh_github"].assert_not_called()
+
+    @pytest.mark.parametrize("actor_user_id, locks", [(99, True), (42, False)])
+    def test_non_slack_delivery_stamps_only_the_memory_lock(self, _patches, actor_user_id, locks):
         _patches["user_msg"].return_value = CommandResult(success=True, status_code=200)
 
-        _run_activity(SendFollowupToSandboxInput(run_id="run-1", message="hi", actor_user_id=99))
+        _run_activity(SendFollowupToSandboxInput(run_id="run-1", message="hi", actor_user_id=actor_user_id))
 
-        _patches["task_run_cls"].update_state_atomic.assert_not_called()
+        if locks:
+            _patches["task_run_cls"].update_state_atomic.assert_called_once_with(
+                "run-1", updates={"agent_memory_locked": True}
+            )
+        else:
+            _patches["task_run_cls"].update_state_atomic.assert_not_called()
         _patches["refresh_store_skills"].assert_not_called()
+
+    def test_a_failed_lock_write_fails_the_delivery_before_the_message_is_sent(self, _patches):
+        _patches["task_run_cls"].update_state_atomic.side_effect = RuntimeError("database unavailable")
+
+        with pytest.raises(RuntimeError, match="database unavailable"):
+            _run_activity(SendFollowupToSandboxInput(run_id="run-1", message="hi", actor_user_id=99))
+
+        _patches["user_msg"].assert_not_called()
 
     def test_default_scope_is_read_only(self, _patches):
         _patches["user_msg"].return_value = CommandResult(success=True, status_code=200)

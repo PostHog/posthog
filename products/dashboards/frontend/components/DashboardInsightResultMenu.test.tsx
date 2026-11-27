@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom'
 
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { getContext } from 'kea'
 
 import api from 'lib/api'
 import { consumePersonsModalClick } from 'lib/components/ResultMenu/personsModalCapture'
@@ -8,11 +9,13 @@ import { openPersonsModal, OpenPersonsModalProps } from 'scenes/trends/persons-m
 
 import * as queryRunner from '~/queries/query'
 import { BIVisualizationNode } from '~/queries/schema/schema-business-intelligence'
-import { NodeKind, ActorsQueryResponse, HogQLQuery } from '~/queries/schema/schema-general'
+import { NodeKind, ActorsQueryResponse, DataVisualizationNode, HogQLQuery } from '~/queries/schema/schema-general'
 import { insightOnDashboard } from '~/scenes/dashboard/dashboardLogic.testHelpers'
 import { initKeaTests } from '~/test/init'
 import { BaseMathType, ChartDisplayType, GroupMathType } from '~/types'
 
+import { dashboardResultFilterLogic } from '../dashboardResultFilterLogic'
+import { readDashboardResultFilter } from '../dashboardResultFilters'
 import { DashboardInsightResultMenu } from './DashboardInsightResultMenu'
 
 const openedModal = jest.fn()
@@ -23,6 +26,10 @@ jest.mock('scenes/trends/persons-modal/PersonsModal', () => ({
         }
     },
 }))
+
+// Every dashboard tile renders the menu trigger, so a closed menu must not mount its result logic.
+const resultLogicMounted = (): boolean =>
+    Object.keys(getContext().mount.mounted).some((path) => path.includes('dashboardInsightResultMenuLogic'))
 
 afterEach(() => {
     cleanup()
@@ -39,6 +46,43 @@ beforeEach(() => {
 })
 
 describe('dashboard result menu', () => {
+    it('filters only through the explicit menu action and offers a removable new-tab link', () => {
+        const request: OpenPersonsModalProps = {
+            title: 'Chrome',
+            query: {
+                kind: NodeKind.InsightActorsQuery,
+                source: { kind: NodeKind.TrendsQuery, series: [{ kind: NodeKind.EventsNode, event: '$pageview' }] },
+                breakdown: 'Chrome',
+            },
+        }
+        const logic = dashboardResultFilterLogic({ dashboardId: 777 })
+        const unmount = logic.mount()
+        try {
+            render(
+                <DashboardInsightResultMenu insight={insightOnDashboard(1, [777])} dashboardId={777} tileId={1}>
+                    <button onClick={() => openPersonsModal(request)}>Browser result</button>
+                </DashboardInsightResultMenu>
+            )
+            fireEvent.contextMenu(screen.getByText('Browser result'))
+            expect(logic.values.selection).toBeNull()
+            const action = screen.getByText('Filter dashboard by this result')
+            const link = new URL(action.closest('a')!.href)
+            const selection = readDashboardResultFilter(new URLSearchParams(link.hash.slice(1)).get('insight_filter'))
+            expect(selection).toMatchObject({ dashboardId: 777, tileId: 1, label: 'Chrome' })
+            fireEvent.click(action, { ctrlKey: true })
+            expect(logic.values.selection).toBeNull()
+            fireEvent.click(action)
+            expect(logic.values.selection).toEqual(selection)
+            expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+            expect(openedModal).not.toHaveBeenCalled()
+            fireEvent.contextMenu(screen.getByText('Browser result'))
+            fireEvent.click(screen.getByText('Remove filter'))
+            expect(logic.values.selection).toBeNull()
+        } finally {
+            unmount()
+        }
+    })
+
     it('loads lifecycle people and SQL without requesting unsupported recordings', async () => {
         const request: OpenPersonsModalProps = {
             title: 'Resurrecting users',
@@ -59,15 +103,13 @@ describe('dashboard result menu', () => {
                 <button onClick={() => openPersonsModal(request)}>Lifecycle point</button>
             </DashboardInsightResultMenu>
         )
+        expect(resultLogicMounted()).toBe(false)
         fireEvent.contextMenu(screen.getByText('Lifecycle point'))
         await waitFor(() => expect(screen.getByText('Open in SQL editor').closest('a')).not.toBeNull())
+        expect(resultLogicMounted()).toBe(true)
         expect(screen.queryByText('View recordings')).not.toBeInTheDocument()
-        expect(queryRunner.performQuery).toHaveBeenCalledWith(
-            expect.objectContaining({ source: request.query, select: ['actor'] }),
-            expect.objectContaining({ signal: expect.any(AbortSignal) }),
-            undefined,
-            expect.any(String)
-        )
+        const sqlLink = new URL(screen.getByText('Open in SQL editor').closest('a')!.href)
+        expect(sqlLink.searchParams.get('open_query')).toBe("SELECT id FROM persons WHERE properties.country = 'US'")
         fireEvent.click(screen.getByText('View people'))
         expect(openedModal).toHaveBeenCalledWith(request)
     })
@@ -107,6 +149,24 @@ describe('dashboard result menu', () => {
             })
         }
         expect(queryRunner.performQuery).not.toHaveBeenCalled()
+    })
+
+    it('opens a SQL chart in the SQL editor with its chart display and its rows as a table', () => {
+        const query: DataVisualizationNode = {
+            kind: NodeKind.DataVisualizationNode,
+            source: { kind: NodeKind.HogQLQuery, query: 'SELECT day, count() FROM events GROUP BY day' },
+            display: ChartDisplayType.ActionsLineGraph,
+        }
+        render(
+            <DashboardInsightResultMenu insight={{ ...insightOnDashboard(1, [1]), query }}>
+                <div>SQL chart</div>
+            </DashboardInsightResultMenu>
+        )
+        fireEvent.contextMenu(screen.getByText('SQL chart'))
+        const openQuery = (label: string): unknown =>
+            JSON.parse(new URL(screen.getByText(label).closest('a')!.href).searchParams.get('open_query')!)
+        expect(openQuery('Open in SQL editor')).toEqual(query)
+        expect(openQuery('View underlying rows')).toEqual({ ...query, display: ChartDisplayType.ActionsTable })
     })
 
     it.each([undefined, 0] as const)(

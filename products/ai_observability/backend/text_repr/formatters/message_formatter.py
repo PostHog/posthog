@@ -32,7 +32,9 @@ from .constants import (
     SAMPLING_REDUCTION_FACTOR,
     SPECIAL_BLOCK_TYPES,
 )
-from .otel_parts import flatten_parts_message
+from .media_blocks import MediaMarker, parse_media_block
+from .otel_parts import MEDIA_PART_KEY, flatten_parts_message
+from .repeated_input import RepeatedInput, RepeatedInputHistory
 from .tool_formatter import format_tools
 
 
@@ -47,6 +49,8 @@ class FormatterOptions(TypedDict, total=False):
     include_line_numbers: bool  # Prefix each line with line number (default: False)
     max_length: int | None  # Max output length; randomly drop lines if exceeded (default: None)
     max_render_length: int  # Abort oversized renders before sampling or assembling the full transcript
+    media_marker: MediaMarker  # Render media blocks with this instead of dropping them (LLM judges with images)
+    repeated_input_history: RepeatedInputHistory  # Show input messages an earlier generation already sent once
 
 
 class ToolCall(TypedDict, total=False):
@@ -344,7 +348,7 @@ def _string_type(msg: dict[str, Any]) -> str | None:
     return msg_type if isinstance(msg_type, str) else None
 
 
-def safe_extract_text(content: Any) -> str:
+def safe_extract_text(content: Any, media_marker: MediaMarker | None = None) -> str:
     """
     Safely extract text from various content formats.
     Handles strings, dicts with 'text' key, arrays of content blocks, etc.
@@ -360,7 +364,9 @@ def safe_extract_text(content: Any) -> str:
             if "text" in content:
                 return str(content["text"])
             if "content" in content:
-                return safe_extract_text(content["content"])
+                return safe_extract_text(content["content"], media_marker)
+            if media_marker is not None and (media := parse_media_block(content)) is not None:
+                return media_marker(media)
             # Fallback to JSON representation
             return json.dumps(content)
 
@@ -371,6 +377,13 @@ def safe_extract_text(content: Any) -> str:
                     item_type = _string_type(item)
                     # Try both "text" and "content" keys (tool_result uses "content")
                     text_value = item.get("text") or item.get("content")
+                    if media_marker is not None:
+                        if (media := parse_media_block(item)) is not None:
+                            text_value = media_marker(media)
+                            item_type = None
+                        elif isinstance(text_value, list):
+                            # Tool results can hold image blocks.
+                            text_value = safe_extract_text(text_value, media_marker)
 
                     if text_value:
                         # Add spacing between all content blocks in the array
@@ -421,7 +434,7 @@ def _is_special_block(block: Any) -> bool:
     return False
 
 
-def _format_special_block(block: dict) -> str | None:
+def _format_special_block(block: dict, media_marker: MediaMarker | None = None) -> str | None:
     """
     Format special blocks (tool calls, tool_use, etc).
 
@@ -467,10 +480,10 @@ def _format_special_block(block: dict) -> str | None:
             return f"[Tool result: {tool_name}]"
 
     # Block not handled by this function
-    return safe_extract_text(block)
+    return safe_extract_text(block, media_marker)
 
 
-def extract_text_content(content: Any) -> str:
+def extract_text_content(content: Any, media_marker: MediaMarker | None = None) -> str:
     """
     Extract text content from various message content formats.
     Uses safe extraction with fallback for unparseable content.
@@ -484,7 +497,7 @@ def extract_text_content(content: Any) -> str:
             text_parts: list[str] = []
             for block in content:
                 if isinstance(block, dict):
-                    formatted = _format_special_block(block)
+                    formatted = _format_special_block(block, media_marker)
                     if formatted is not None and formatted:
                         text_parts.append(formatted)
                 # Handle non-dict items in list
@@ -495,10 +508,10 @@ def extract_text_content(content: Any) -> str:
                 return "\n\n".join(text_parts)
 
     # Use safe extraction for non-special content (handles type labels for text/reasoning/etc)
-    return safe_extract_text(content)
+    return safe_extract_text(content, media_marker)
 
 
-def extract_payload_text(payload: Any) -> str:
+def extract_payload_text(payload: Any, media_marker: MediaMarker | None = None) -> str:
     """Extract text from a tool payload, returning "" only when nothing was recorded.
 
     A falsey scalar such as `0` or `False` is a real result, so it must not collapse to "" the
@@ -513,7 +526,7 @@ def extract_payload_text(payload: Any) -> str:
         # `extract_text_content`'s repr fallback would render an empty container as a literal
         # "[]" / "{}", which reads as recorded output.
         return ""
-    return extract_text_content(payload)
+    return extract_text_content(payload, media_marker)
 
 
 def _is_responses_item(msg: dict[str, Any]) -> bool:
@@ -596,7 +609,8 @@ def _format_responses_item(msg: dict[str, Any], options: FormatterOptions | None
 
     if item_type in RESPONSES_TOOL_OUTPUT_TYPES:
         output = msg.get("output")
-        text = extract_payload_text(msg.get("content") if output is None else output)
+        media_marker = options.get("media_marker") if options else None
+        text = extract_payload_text(msg.get("content") if output is None else output, media_marker)
         if not text:
             return [MISSING_TOOL_OUTPUT_NOTE]
         lines, _ = truncate_content(text, options)
@@ -648,10 +662,14 @@ def _format_message_body(msg: dict[str, Any], options: FormatterOptions | None) 
 
     responses_lines = _format_responses_item(msg, options)
     content = msg.get("content", "")
-    if responses_lines is not None:
+    media_marker = options.get("media_marker") if options else None
+    media_part = msg.get(MEDIA_PART_KEY)
+    if media_marker is not None and isinstance(media_part, dict) and (media := parse_media_block(media_part)):
+        lines.append(media_marker(media))
+    elif responses_lines is not None:
         lines.extend(responses_lines)
     elif content:
-        text_content = extract_text_content(content)
+        text_content = extract_text_content(content, media_marker)
         if text_content:
             content_lines, _ = truncate_content(text_content, options)
             lines.extend(content_lines)
@@ -739,7 +757,9 @@ def has_message_content(messages: list[Any], *, is_output: bool = False) -> bool
     )
 
 
-def format_messages_array(messages: list[Any], options: FormatterOptions | None = None) -> list[str]:
+def format_messages_array(
+    messages: list[Any], options: FormatterOptions | None = None, repeated: RepeatedInput | None = None
+) -> list[str]:
     """
     Format an array of message objects without header.
 
@@ -749,6 +769,8 @@ def format_messages_array(messages: list[Any], options: FormatterOptions | None 
     Args:
         messages: List of message dictionaries with role, content, tool_calls
         options: Formatting options (truncation, etc.)
+        repeated: The leading entries of `messages` that an earlier generation's input starts with. They render
+            as one line that names that generation, and the remaining messages keep their numbers.
 
     Returns:
         List of formatted lines (no header, starts directly with messages)
@@ -756,7 +778,18 @@ def format_messages_array(messages: list[Any], options: FormatterOptions | None 
     lines = FormatterLines(options)
     needs_separator = False
 
-    for i, msg in enumerate(_flatten_parts_messages(messages)):
+    # Count without keeping the flattened messages, because flattening a parts message joins its text
+    # into a new string and the repeated messages can be the largest part of the trace.
+    repeated_prefix = repeated.messages if repeated else 0
+    repeated_count = sum(1 for _ in _flatten_parts_messages(messages[:repeated_prefix]))
+    if repeated and repeated_count:
+        numbers = "1" if repeated_count == 1 else f"1-{repeated_count}"
+        noun = "message" if repeated_count == 1 else "messages"
+        lines.append("")
+        lines.append(f"[{numbers}] Same as {noun} {numbers} of the input to [GEN {repeated.generation}] above")
+        needs_separator = True
+
+    for i, msg in enumerate(_flatten_parts_messages(messages[repeated_prefix:]), start=repeated_count):
         # Add separator between messages (but not after the last one)
         if needs_separator:
             lines.append("")
@@ -777,7 +810,9 @@ def format_messages_array(messages: list[Any], options: FormatterOptions | None 
     return lines
 
 
-def format_input_messages(ai_input: Any, options: FormatterOptions | None = None) -> list[str]:
+def format_input_messages(
+    ai_input: Any, options: FormatterOptions | None = None, repeated: RepeatedInput | None = None
+) -> list[str]:
     """Format input messages section."""
     lines: list[str] = []
 
@@ -796,7 +831,7 @@ def format_input_messages(ai_input: Any, options: FormatterOptions | None = None
 
     # Handle array of message objects
     if isinstance(ai_input, list):
-        lines.extend(format_messages_array(ai_input, options))
+        lines.extend(format_messages_array(ai_input, options, repeated))
         return lines
 
     # Unknown format - show raw with data preservation

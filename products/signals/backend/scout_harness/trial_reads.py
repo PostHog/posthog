@@ -31,6 +31,7 @@ class SavedScoutReads:
         skill_name: str | None = None,
         include_general: bool = True,
         include_expired: bool = False,
+        only_without_expiry: bool = False,
         date_from: datetime | None = None,
         date_to: datetime | None = None,
         limit: int = 20,
@@ -52,6 +53,8 @@ class SavedScoutReads:
                 continue
             if not include_expired and row.expires_at and datetime.fromisoformat(row.expires_at) <= now:
                 continue
+            if only_without_expiry and row.expires_at:
+                continue
             if text and text.casefold() not in row.content.casefold():
                 continue
             selected.append(
@@ -70,10 +73,13 @@ class SavedScoutReads:
         skill_name: str | None = None,
         skill_version: int | None = None,
         limit: int = 20,
+        exclude_skill_name: str | None = None,
     ) -> list[RunSummary]:
         selected = [row for row in live if row.skill_name != self.context.skill_name]
         for row in TypeAdapter(list[RunSummary]).validate_python(self.context.recent_runs):
             if skill_name is not None and row.skill_name != skill_name:
+                continue
+            if exclude_skill_name is not None and row.skill_name == exclude_skill_name:
                 continue
             if skill_version is not None and row.skill_version != skill_version:
                 continue

@@ -17,7 +17,10 @@ use crate::{
         cohort_cache_manager::CohortCacheManager, cohort_models::MembershipStampPolicy,
         membership::CohortMembershipProvider,
     },
-    flags::{flag_group_type_mapping::GroupTypeCacheManager, flag_models::FeatureFlagList},
+    flags::{
+        flag_group_type_mapping::GroupTypeCacheManager, flag_models::FeatureFlagList,
+        flag_request::KnownAbsentProperties,
+    },
     rayon_dispatcher::RayonDispatcher,
     router,
     utils::user_agent::UserAgentInfo,
@@ -67,6 +70,7 @@ pub struct RequestPropertyOverrides {
     pub group_properties: Option<HashMap<String, HashMap<String, Value>>>,
     pub groups: Option<HashMap<String, Value>>,
     pub hash_key: Option<String>,
+    pub known_absent: KnownAbsentProperties,
 }
 
 /// Represents all context required for evaluating a set of feature flags.
@@ -88,6 +92,7 @@ pub struct FeatureFlagEvaluationContext {
     pub group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
     pub groups: Option<HashMap<String, Value>>,
     pub hash_key_override: Option<String>,
+    pub known_absent_properties: KnownAbsentProperties,
     /// Contains explicitly requested flag keys and their dependencies. If empty, all flags will be evaluated.
     pub flag_keys: Option<Vec<String>>,
     /// When true, skip hash key override lookups for flags that don't need them
@@ -140,6 +145,8 @@ pub enum Library {
     PosthogRubyMcp,
     /// posthog-php SDK
     PosthogPhp,
+    /// Laravel has a separate identity for SDK-specific usage attribution.
+    PosthogLaravel,
     /// posthog-ruby SDK
     PosthogRuby,
     /// posthog-rails integration
@@ -170,6 +177,7 @@ pub enum Library {
     PosthogUnity,
     PosthogGodot,
     PosthogUnreal,
+    PosthogElectron,
     /// posthog-server SDK (deprecated: users are migrating to posthog-java)
     PosthogServer,
     /// Unknown or unrecognized SDK
@@ -194,6 +202,7 @@ impl Library {
             Library::PosthogGoMcp => "posthog-go-mcp",
             Library::PosthogRubyMcp => "posthog-ruby-mcp",
             Library::PosthogPhp => "posthog-php",
+            Library::PosthogLaravel => "posthog-laravel",
             Library::PosthogRuby => "posthog-ruby",
             Library::PosthogRails => "posthog-rails",
             Library::PosthogGo => "posthog-go",
@@ -210,6 +219,7 @@ impl Library {
             Library::PosthogUnity => "posthog-unity",
             Library::PosthogGodot => "posthog-godot",
             Library::PosthogUnreal => "posthog-unreal",
+            Library::PosthogElectron => "posthog-electron",
             Library::PosthogServer => "posthog-server",
             Library::Other => "other",
         }
@@ -230,6 +240,7 @@ impl Library {
         Library::PosthogGoMcp,
         Library::PosthogRubyMcp,
         Library::PosthogPhp,
+        Library::PosthogLaravel,
         Library::PosthogRuby,
         Library::PosthogRails,
         Library::PosthogGo,
@@ -246,6 +257,7 @@ impl Library {
         Library::PosthogUnity,
         Library::PosthogGodot,
         Library::PosthogUnreal,
+        Library::PosthogElectron,
         Library::PosthogServer,
     ];
 }
@@ -346,6 +358,7 @@ mod tests {
     #[case("posthog-python/2.5.0", Library::PosthogPython)]
     #[case("posthog-python-mcp/0.1.0", Library::PosthogPythonMcp)]
     #[case("posthog-php/3.0.0", Library::PosthogPhp)]
+    #[case("posthog-laravel/0.1.0", Library::PosthogLaravel)]
     #[case("posthog-ruby/2.3.0", Library::PosthogRuby)]
     #[case("posthog-ruby2.3.0", Library::PosthogRuby)]
     #[case("posthog-rails/3.18.0", Library::PosthogRails)]
@@ -369,6 +382,7 @@ mod tests {
     #[case("posthog-ruby-mcp/1.0.0", Library::PosthogRubyMcp)]
     #[case("posthog-godot/1.0.0", Library::PosthogGodot)]
     #[case("posthog-unreal/1.0.0", Library::PosthogUnreal)]
+    #[case("posthog-electron/0.1.0", Library::PosthogElectron)]
     #[case("posthog-unity/4.5.0", Library::PosthogUnity)]
     // Browser user-agents (detected as posthog-js)
     #[case("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36", Library::PosthogJs)]
@@ -445,6 +459,7 @@ mod tests {
     #[case(Library::PosthogPython, "posthog-python")]
     #[case(Library::PosthogPythonMcp, "posthog-python-mcp")]
     #[case(Library::PosthogPhp, "posthog-php")]
+    #[case(Library::PosthogLaravel, "posthog-laravel")]
     #[case(Library::PosthogRuby, "posthog-ruby")]
     #[case(Library::PosthogRails, "posthog-rails")]
     #[case(Library::PosthogGo, "posthog-go")]
@@ -463,6 +478,7 @@ mod tests {
     #[case(Library::PosthogRubyMcp, "posthog-ruby-mcp")]
     #[case(Library::PosthogGodot, "posthog-godot")]
     #[case(Library::PosthogUnreal, "posthog-unreal")]
+    #[case(Library::PosthogElectron, "posthog-electron")]
     #[case(Library::PosthogUnity, "posthog-unity")]
     #[case(Library::PosthogServer, "posthog-server")]
     #[case(Library::Other, "other")]
@@ -479,6 +495,7 @@ mod tests {
     #[case(Library::PosthogPython, "\"posthog-python\"")]
     #[case(Library::PosthogPythonMcp, "\"posthog-python-mcp\"")]
     #[case(Library::PosthogPhp, "\"posthog-php\"")]
+    #[case(Library::PosthogLaravel, "\"posthog-laravel\"")]
     #[case(Library::PosthogRuby, "\"posthog-ruby\"")]
     #[case(Library::PosthogRails, "\"posthog-rails\"")]
     #[case(Library::PosthogGo, "\"posthog-go\"")]
@@ -497,6 +514,7 @@ mod tests {
     #[case(Library::PosthogRubyMcp, "\"posthog-ruby-mcp\"")]
     #[case(Library::PosthogGodot, "\"posthog-godot\"")]
     #[case(Library::PosthogUnreal, "\"posthog-unreal\"")]
+    #[case(Library::PosthogElectron, "\"posthog-electron\"")]
     #[case(Library::PosthogUnity, "\"posthog-unity\"")]
     #[case(Library::PosthogServer, "\"posthog-server\"")]
     #[case(Library::Other, "\"other\"")]

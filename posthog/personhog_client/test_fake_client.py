@@ -208,6 +208,66 @@ class TestFakePersonHogClientCohorts:
         )
         assert len(resp.memberships) == 0
 
+    @parameterized.expand(
+        [
+            ("subset", [10, 11], 2, {12}),
+            ("skips_non_members_and_repeats", [10, 10, 99], 1, {11, 12}),
+            ("empty", [], 0, {10, 11, 12}),
+        ]
+    )
+    def test_delete_cohort_members_by_person_ids(self, _name, person_ids, expected_deleted, expected_remaining):
+        for cohort_id in (5, 6):
+            self.client.insert_cohort_members(
+                cohort_pb2.InsertCohortMembersRequest(cohort_id=cohort_id, person_ids=[10, 11, 12])
+            )
+
+        resp = self.client.delete_cohort_members_by_person_ids(
+            cohort_pb2.DeleteCohortMembersByPersonIdsRequest(cohort_id=5, person_ids=person_ids)
+        )
+
+        assert resp.deleted_count == expected_deleted
+        remaining = self.client.list_cohort_member_ids(cohort_pb2.ListCohortMemberIdsRequest(cohort_id=5))
+        assert set(remaining.person_ids) == expected_remaining
+        other = self.client.list_cohort_member_ids(cohort_pb2.ListCohortMemberIdsRequest(cohort_id=6))
+        assert set(other.person_ids) == {10, 11, 12}
+        memberships = self.client.check_cohort_membership(
+            cohort_pb2.CheckCohortMembershipRequest(person_id=10, cohort_ids=[5, 6])
+        )
+        expected_memberships = {5, 6} if 10 in expected_remaining else {6}
+        assert {m.cohort_id for m in memberships.memberships} == expected_memberships
+
+    @parameterized.expand(
+        [
+            (
+                "delete_distinct",
+                "delete_cohort_members_by_person_ids",
+                cohort_pb2.DeleteCohortMembersByPersonIdsRequest,
+                list(range(1, 10_002)),
+            ),
+            (
+                "delete_repeated",
+                "delete_cohort_members_by_person_ids",
+                cohort_pb2.DeleteCohortMembersByPersonIdsRequest,
+                [10] * 10_001,
+            ),
+            (
+                "insert_distinct",
+                "insert_cohort_members",
+                cohort_pb2.InsertCohortMembersRequest,
+                list(range(1, 10_002)),
+            ),
+            ("insert_repeated", "insert_cohort_members", cohort_pb2.InsertCohortMembersRequest, [10] * 10_001),
+        ]
+    )
+    def test_cohort_member_rpcs_reject_more_ids_than_the_service_accepts(
+        self, _name, method_name, request_cls, person_ids
+    ):
+        # The service refuses the request, so a fake that accepted it would pass tests production fails.
+        with pytest.raises(grpc.RpcError) as excinfo:
+            getattr(self.client, method_name)(request_cls(cohort_id=5, person_ids=person_ids))
+        assert excinfo.value.code() == grpc.StatusCode.INVALID_ARGUMENT
+        assert "Maximum 10000 person IDs per request" in (excinfo.value.details() or "")
+
 
 class TestCallTracking:
     def test_assert_called(self):
@@ -908,6 +968,7 @@ class TestFakePersonHogClientRepairWrites:
     def test_write_distinct_ids_applies_each_write_only_from_its_expected_state(self):
         insert = person_pb2.DISTINCT_ID_WRITE_ACTION_INSERT
         raise_ = person_pb2.DISTINCT_ID_WRITE_ACTION_RAISE
+        tombstone = person_pb2.DISTINCT_ID_WRITE_ACTION_TOMBSTONE
         applied = person_pb2.DISTINCT_ID_WRITE_OUTCOME_APPLIED
         failed = person_pb2.DISTINCT_ID_WRITE_OUTCOME_PRECONDITION_FAILED
         not_live = person_pb2.DISTINCT_ID_WRITE_OUTCOME_PERSON_NOT_LIVE
@@ -919,6 +980,7 @@ class TestFakePersonHogClientRepairWrites:
             ("live-did", raise_, self.LIVE, 3),
             ("other-did-2", raise_, self.LIVE, 3),
             ("dead-did-raise", raise_, self.TOMB, 3),
+            ("stray-did", tombstone, self.TOMB, 4),
         )
         assert [
             (
@@ -934,7 +996,18 @@ class TestFakePersonHogClientRepairWrites:
             ("live-did", applied, (1, 3, False)),
             ("other-did-2", failed, None),
             ("dead-did-raise", not_live, None),
+            ("stray-did", applied, (3, 4, True)),
         ]
+        (live_owner,) = self._write(("other-did", tombstone, self.OTHER, 4))
+        assert (live_owner.outcome, live_owner.row.version, live_owner.row.is_deleted) == (failed, 0, False)
+        (other_owner,) = self._write(("other-did", tombstone, self.TOMB, 4))
+        assert (other_owner.outcome, other_owner.row.is_deleted) == (failed, False)
+        (retried,) = self._write(("stray-did", tombstone, self.TOMB, 4))
+        assert (retried.outcome, retried.row.version, retried.row.is_deleted) == (
+            person_pb2.DISTINCT_ID_WRITE_OUTCOME_UNCHANGED,
+            4,
+            True,
+        )
 
     def test_rejects_the_whole_batch_before_any_write(self):
         with pytest.raises(ValueError, match="must not be negative"):

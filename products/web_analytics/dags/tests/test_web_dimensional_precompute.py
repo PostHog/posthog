@@ -6,32 +6,38 @@ from zoneinfo import ZoneInfo
 import pytest
 import time_machine
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 import dagster
 from parameterized import parameterized
+
+from posthog.schema import HogQLQueryModifiers, SessionTableVersion
 
 from posthog.models import Organization, Team
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
+from products.web_analytics.backend.hogql_queries.web_dimensional_precompute import (
+    DEFAULT_ROLLOUT_TEAM_IDS_BY_REGION,
+    SELECTED_TEAM_IDS_ENV_VAR,
+    dimensional_team_ids,
+    dimensional_ttl_schedule,
+)
 from products.web_analytics.dags.web_dimensional_precompute import (
     BOUNCES_TABLE,
-    DEFAULT_ROLLOUT_TEAM_IDS_BY_REGION,
     PRECOMPUTE_CHUNK_DAYS,
     PRECOMPUTE_WINDOW_DAYS,
-    SELECTED_TEAM_IDS_ENV_VAR,
     STATS_TABLE,
     DimensionalPrecomputeRun,
     TimeSpan,
     check_web_dimensional_precompute_coverage_op,
     chunk_ranges,
     ensure_web_dimensional_precompute_op,
-    get_selected_team_ids,
     precompute_window,
     summarize_coverage,
+    team_window,
     web_dimensional_precompute_job,
 )
 
@@ -54,13 +60,14 @@ def _ready_job(start: int, end: int, built_minutes_ago: int, ttl_minutes: int) -
         time_range_end=_day(end),
         query_hash="hash",
         status=PreaggregationJob.Status.READY,
+        created_at=built_at,
         computed_at=built_at,
         expires_at=built_at + timedelta(minutes=ttl_minutes),
     )
 
 
-_IS_CLOUD = "products.web_analytics.dags.web_dimensional_precompute.is_cloud"
-_CLOUD_DEPLOYMENT = "products.web_analytics.dags.web_dimensional_precompute.settings.CLOUD_DEPLOYMENT"
+_IS_CLOUD = "products.web_analytics.backend.hogql_queries.web_dimensional_precompute.is_cloud"
+_CLOUD_DEPLOYMENT = "products.web_analytics.backend.hogql_queries.web_dimensional_precompute.settings.CLOUD_DEPLOYMENT"
 
 # Patch chunking to a single chunk so call counts are deterministic in the op tests.
 _SINGLE_CHUNK = "products.web_analytics.dags.web_dimensional_precompute.PRECOMPUTE_CHUNK_DAYS"
@@ -107,6 +114,38 @@ class TestPrecomputeWindow:
         assert window.end == window.start + timedelta(days=PRECOMPUTE_WINDOW_DAYS)
 
 
+class TestTeamWindow(SimpleTestCase):
+    _WINDOW = TimeSpan(start=datetime(2026, 9, 1, tzinfo=UTC), end=datetime(2026, 11, 1, tzinfo=UTC))
+    _FLOOR = datetime(2026, 10, 1, tzinfo=UTC)
+
+    @parameterized.expand(
+        [
+            ("sessions_v2_keeps_the_window", SessionTableVersion.V2, "US", _WINDOW.start),
+            ("sessions_v3_starts_at_the_floor", SessionTableVersion.V3, "US", _FLOOR),
+            ("sessions_v3_without_a_backfill_is_empty", SessionTableVersion.V3, "EU", _WINDOW.end),
+        ]
+    )
+    def test_window_starts_at_the_sessions_coverage_floor(self, _name, session_table_version, region, expected_start):
+        with (
+            patch(
+                "products.web_analytics.dags.web_dimensional_precompute.dimensional_insert_modifiers",
+                return_value=HogQLQueryModifiers(sessionTableVersion=session_table_version),
+            ),
+            patch(
+                "products.web_analytics.backend.hogql_queries.web_dimensional_precompute.is_cloud", return_value=True
+            ),
+            patch.dict(
+                "products.web_analytics.backend.hogql_queries.web_dimensional_precompute.SESSIONS_V3_COVERAGE_START_BY_REGION",
+                {"US": self._FLOOR},
+                clear=True,
+            ),
+            override_settings(CLOUD_DEPLOYMENT=region),
+        ):
+            window = team_window(MagicMock(), self._WINDOW)
+
+        assert window == TimeSpan(start=expected_start, end=self._WINDOW.end)
+
+
 class TestSummarizeCoverage(SimpleTestCase):
     @parameterized.expand(
         [
@@ -134,10 +173,22 @@ class TestSummarizeCoverage(SimpleTestCase):
                 (date(2026, 10, 19),),
                 180 * 60,
             ),
+            (
+                "job_past_the_schedule_ttl_is_missing_despite_a_longer_stored_expiry",
+                [
+                    _ready_job(-3, -1, 100 * 24 * 60, 200 * 24 * 60),
+                    _ready_job(-1, 0, 600, 24 * 60),
+                    _ready_job(0, 1, 10, 60),
+                ],
+                (date(2026, 10, 16), date(2026, 10, 17)),
+                10 * 60,
+            ),
             ("no_jobs", [], (date(2026, 10, 16), date(2026, 10, 17), date(2026, 10, 18), date(2026, 10, 19)), None),
         ]
     )
     def test_reports_missing_days_and_today_lag(self, _name, jobs, expected_missing, expected_lag):
+        with time_machine.travel(_NOW, tick=False):
+            ttl_schedule = dimensional_ttl_schedule()
         coverage = summarize_coverage(
             team_id=1,
             table=STATS_TABLE,
@@ -145,6 +196,7 @@ class TestSummarizeCoverage(SimpleTestCase):
             window=TimeSpan(start=_day(-3), end=_day(1)),
             current_day=_NOW.date(),
             now=_NOW,
+            ttl_schedule=ttl_schedule,
         )
 
         assert coverage.missing_days == expected_missing
@@ -156,16 +208,16 @@ class TestSummarizeCoverage(SimpleTestCase):
 class TestGetSelectedTeamIds:
     def test_env_override_parses_comma_separated_ids(self):
         with patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: "2, 47074 ,55348"}):
-            assert get_selected_team_ids() == [2, 47074, 55348]
+            assert dimensional_team_ids() == [2, 47074, 55348]
 
     def test_env_override_skips_blank_and_invalid(self):
         with patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: " , abc, 2 ,"}):
-            assert get_selected_team_ids() == [2]
+            assert dimensional_team_ids() == [2]
 
     def test_env_set_empty_disables(self):
         # An explicit empty value disables the job even on cloud.
         with patch(_IS_CLOUD, return_value=True), patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: ""}):
-            assert get_selected_team_ids() == []
+            assert dimensional_team_ids() == []
 
     @parameterized.expand([("US",), ("EU",)])
     def test_unset_uses_region_default_on_cloud(self, region: str):
@@ -175,7 +227,7 @@ class TestGetSelectedTeamIds:
             patch.dict(os.environ, {}, clear=False),
         ):
             os.environ.pop(SELECTED_TEAM_IDS_ENV_VAR, None)
-            assert get_selected_team_ids() == DEFAULT_ROLLOUT_TEAM_IDS_BY_REGION[region]
+            assert dimensional_team_ids() == DEFAULT_ROLLOUT_TEAM_IDS_BY_REGION[region]
 
     def test_unset_unknown_region_is_empty(self):
         # A region without a default entry must not fall back to another region's list.
@@ -185,12 +237,12 @@ class TestGetSelectedTeamIds:
             patch.dict(os.environ, {}, clear=False),
         ):
             os.environ.pop(SELECTED_TEAM_IDS_ENV_VAR, None)
-            assert get_selected_team_ids() == []
+            assert dimensional_team_ids() == []
 
     def test_unset_is_empty_off_cloud(self):
         with patch(_IS_CLOUD, return_value=False), patch.dict(os.environ, {}, clear=False):
             os.environ.pop(SELECTED_TEAM_IDS_ENV_VAR, None)
-            assert get_selected_team_ids() == []
+            assert dimensional_team_ids() == []
 
 
 class TestEnsureWebDimensionalPrecomputeOp(APIBaseTest):
@@ -242,6 +294,17 @@ class TestEnsureWebDimensionalPrecomputeOp(APIBaseTest):
         # Chunking bounds each ensure call to <= chunk_days so no single INSERT
         # scans the whole window. Exercised here with a 7-day chunk for clarity.
         t1 = self._make_team("A")
+        calls: list[tuple[str, datetime]] = []
+
+        def record(table: str):
+            def ensure(_team: Team, start: datetime, _end: datetime) -> LazyComputationResult:
+                calls.append((table, start))
+                return _READY
+
+            return ensure
+
+        stats_mock.side_effect = record("stats")
+        bounces_mock.side_effect = record("bounces")
         with (
             time_machine.travel("2026-10-14T20:21:00Z", tick=False),
             patch(_SINGLE_CHUNK, 7),
@@ -250,6 +313,11 @@ class TestEnsureWebDimensionalPrecomputeOp(APIBaseTest):
             ensure_web_dimensional_precompute_op(dagster.build_op_context())
         chunks = [(s, e) for _t, s, e in (c.args for c in stats_mock.call_args_list)]
         assert len(chunks) > 1
+        # A read needs both tables for a day, so each chunk builds both before the next, newest first.
+        starts = [start for _table, start in calls[::2]]
+        assert [table for table, _start in calls] == ["stats", "bounces"] * len(chunks)
+        assert [start for _table, start in calls[1::2]] == starts
+        assert starts == sorted(starts, reverse=True)
         assert all((e - s).days <= 7 for s, e in chunks)
         # A chunk that straddles UTC midnight makes the framework merge two missing days into one
         # INSERT, so every boundary must sit on a UTC midnight even when the run starts mid-day.
@@ -297,7 +365,7 @@ class TestEnsureWebDimensionalPrecomputeOp(APIBaseTest):
 
     def test_job_has_owner_and_runtime_tags(self):
         tags = web_dimensional_precompute_job.tags
-        assert tags["owner"] == "team-web-analytics"
+        assert tags["owner"] == "team-analytics"
         assert "dagster/max_runtime" in tags
 
 
@@ -360,6 +428,21 @@ class TestCheckWebDimensionalPrecomputeCoverageOp(APIBaseTest):
 
         with time_machine.travel(_NOW, tick=False), pytest.raises(dagster.Failure, match=BOUNCES_TABLE):
             check_web_dimensional_precompute_coverage_op(dagster.build_op_context(), run)
+
+    def test_team_without_sessions_history_in_the_window_is_not_checked(self):
+        # The writer builds nothing for a sessions v3 team in a region the v3 backfill has not reached, so the
+        # check must not report its empty window as missing days on every run.
+        self.team.modifiers = {"sessionTableVersion": "v3"}
+        self.team.save()
+
+        with (
+            time_machine.travel(_NOW, tick=False),
+            patch(
+                "products.web_analytics.backend.hogql_queries.web_dimensional_precompute.is_cloud", return_value=True
+            ),
+            override_settings(CLOUD_DEPLOYMENT="EU"),
+        ):
+            check_web_dimensional_precompute_coverage_op(dagster.build_op_context(), self._run({}))
 
     @patch(_SINGLE_CHUNK, PRECOMPUTE_WINDOW_DAYS)
     def test_run_crossing_utc_midnight_checks_the_writers_day(self):

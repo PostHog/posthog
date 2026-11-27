@@ -1,26 +1,40 @@
 import json
+import time
+from collections.abc import Iterator
+from contextlib import contextmanager, nullcontext
 from datetime import timedelta
-from urllib.parse import quote
+from typing import Any
+from urllib.parse import quote, urlsplit
+from uuid import uuid4
 
 import time_machine
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import ANY, Mock, call, patch
 
-from django.core.cache import cache
-from django.test import SimpleTestCase
+from django.conf import settings
+from django.core.cache import cache, caches
+from django.test import SimpleTestCase, override_settings
 from django.utils.timezone import now
 
+from django_redis.cache import RedisCache
 from parameterized import parameterized
-from rest_framework import status
+from prometheus_client import REGISTRY
+from redis import Redis
+from rest_framework import exceptions, status
+from rest_framework.request import Request
+from rest_framework.test import APIRequestFactory
+from rest_framework.views import APIView
 
 from posthog import models, rate_limit
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
 from posthog.auth import ProjectSecretAPIKeyAuthentication
+from posthog.exceptions import exception_handler
 from posthog.models import Team
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.personal_api_key import PersonalAPIKey
-from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.models.project_secret_api_key import ProjectSecretAPIKey
+from posthog.models.utils import generate_random_token_personal, generate_random_token_secret, hash_key_value
 from posthog.rate_limit import (
     AIBurstRateThrottle,
     AIResearchBurstRateThrottle,
@@ -30,10 +44,17 @@ from posthog.rate_limit import (
     LLMPromptPublishBurstRateThrottle,
     get_route_from_path,
 )
+from posthog.test.lagging_redis_reader import lagging_reader_caches, unique_key_prefix
 
 from products.feature_flags.backend.api.feature_flag import (
     RemoteConfigProjectSecretApiKeyTeamThrottle,
     RemoteConfigThrottle,
+)
+from products.messaging.backend.presentation.views.message_templates import (
+    TransactionalEmailBurstThrottle,
+    TransactionalEmailSustainedThrottle,
+    TransactionalEmailTeamBurstThrottle,
+    TransactionalEmailTeamSustainedThrottle,
 )
 
 
@@ -912,10 +933,16 @@ class TestPersonalOrProjectSecretApiKeyRateThrottle(SimpleTestCase):
         auth.project_secret_api_key = Mock(id=key_id)
         return Mock(successful_authenticator=auth)
 
-    def test_psak_requests_do_not_bypass_throttle(self):
+    @parameterized.expand(
+        [
+            ("base", _PSAKThrottleForTest),
+            ("llm_prompt_fetch", rate_limit.LLMPromptFetchRateThrottle),
+        ]
+    )
+    def test_psak_requests_do_not_bypass_throttle(self, _name, throttle_class):
         # PSAK carries no personal API key; the throttle must not let it through the
         # personal_api_key_only gate that PersonalApiKeyRateThrottle uses.
-        throttle = _PSAKThrottleForTest()
+        throttle = throttle_class()
         request = self._psak_request()
         with patch.object(throttle, "_allow_request_internal", return_value=True) as spy:
             throttle.allow_request(request, Mock())
@@ -1048,6 +1075,242 @@ class TestProjectSecretApiKeyTeamRateThrottle(SimpleTestCase):
         self.assertIn("psak-team:7", _PSAKTeamThrottleForTest().get_cache_key(self._psak_request(team_id=7), Mock()))
 
 
+_SendThrottle = rate_limit.PersonalOrProjectSecretApiKeyRateThrottle | rate_limit.ProjectSecretApiKeyTeamRateThrottle
+
+
+class _TeamView(APIView):
+    def __init__(self, team_id: int, throttle_classes: list[type[_SendThrottle]] | None = None) -> None:
+        super().__init__()
+        self.team_id = team_id
+        self.throttle_classes = throttle_classes or []
+
+
+class TestReserveUnits(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.enterContext(override_instance_config("RATE_LIMIT_ENABLED", True))
+        cache.clear()
+        self._clear_policy_caches()
+        self.token = generate_random_token_secret()
+        ProjectSecretAPIKey.objects.create(
+            team=self.team,
+            label="batch sends",
+            secure_value=hash_key_value(self.token, mode="sha256"),
+            scopes=["transactional_email:write"],
+        )
+        self.view = _TeamView(self.team.pk)
+        self.cache_prefix = unique_key_prefix("test-reserve-units")
+
+    def tearDown(self) -> None:
+        cache.clear()
+        self._clear_policy_caches()
+        super().tearDown()
+
+    def _clear_policy_caches(self) -> None:
+        rate_limit.is_rate_limit_enabled.cache_clear()
+        rate_limit.get_team_allow_list.cache_clear()
+
+    def _request(self) -> Request:
+        http_request = APIRequestFactory().post(
+            "/api/messaging/send/email_batch/", headers={"authorization": f"Bearer {self.token}"}
+        )
+        return Request(http_request, authenticators=[ProjectSecretAPIKeyAuthentication()])
+
+    def _singles_allowed(self, throttle_class: type[_SendThrottle], count: int) -> list[bool]:
+        return [throttle_class().allow_request(self._request(), self.view) for _ in range(count)]
+
+    def _reserve(self, throttle_classes: list[type[_SendThrottle]], units: int) -> None:
+        rate_limit.reserve_units(
+            [throttle_class() for throttle_class in throttle_classes], self._request(), self.view, units
+        )
+
+    def _send(self, throttle_classes: list[type[_SendThrottle]], recipients: int) -> str | None:
+        request = self._request()
+        view = _TeamView(self.team.pk, throttle_classes)
+        try:
+            view.check_throttles(request)
+            rate_limit.reserve_units(
+                [throttle_class() for throttle_class in throttle_classes], request, view, recipients - 1
+            )
+        except exceptions.Throttled as refusal:
+            response = exception_handler(refusal, {"request": request})
+            assert response is not None
+            self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+            return response.headers["Retry-After"]
+        return None
+
+    @parameterized.expand([("per_key", _PSAKThrottleForTest), ("per_team", _PSAKTeamThrottleForTest)])
+    def test_units_and_single_requests_spend_one_budget(self, _name, throttle_class):
+        with patch.object(throttle_class, "rate", "5/minute"):
+            self._reserve([throttle_class], 3)
+            self.assertEqual(self._singles_allowed(throttle_class, 3), [True, True, False])
+            with self.assertRaises(exceptions.Throttled):
+                self._reserve([throttle_class], 1)
+
+    def test_a_refused_reservation_charges_none_of_the_throttles(self):
+        with (
+            patch.object(_PSAKTeamThrottleForTest, "rate", "4/minute"),
+            patch.object(_PSAKThrottleForTest, "rate", "5/minute"),
+        ):
+            self._singles_allowed(_PSAKThrottleForTest, 3)
+            with self.assertRaises(exceptions.Throttled):
+                self._reserve([_PSAKTeamThrottleForTest, _PSAKThrottleForTest], 3)
+
+            self.assertEqual(self._singles_allowed(_PSAKThrottleForTest, 3), [True, True, False])
+            self.assertEqual(self._singles_allowed(_PSAKTeamThrottleForTest, 5), [True, True, True, True, False])
+
+    @parameterized.expand(
+        [
+            ("the_refusing_scope_needs_room_for_the_retry_unit", "3/minute", "4/minute", [0, 20], 30, "50"),
+            ("an_admitting_scope_has_no_room_for_the_retry", "2/minute", "4/hour", [0, 100], 130, "3470"),
+        ]
+    )
+    def test_a_retry_at_the_advertised_wait_fits(self, _name, key_rate, team_rate, singles_at, batch_at, retry_after):
+        with (
+            patch.object(_PSAKThrottleForTest, "rate", key_rate),
+            patch.object(_PSAKTeamThrottleForTest, "rate", team_rate),
+            time_machine.travel("2026-01-01T00:00:00Z", tick=False) as clock,
+        ):
+            throttle_classes: list[type[_SendThrottle]] = [
+                _PSAKThrottleForTest,
+                _PSAKTeamThrottleForTest,
+            ]
+            elapsed = 0
+            for second in [*singles_at, batch_at]:
+                clock.shift(second - elapsed)
+                elapsed = second
+                outcome = self._send(throttle_classes, 2 if second == batch_at else 1)
+
+            self.assertEqual(outcome, retry_after)
+            clock.shift(int(retry_after))
+            self.assertIsNone(self._send(throttle_classes, 2))
+
+    def _lagging_reader_caches(self, *, shared_history_prefix: bool = False) -> dict[str, Any]:
+        return lagging_reader_caches(self.cache_prefix, shared_history_prefix=shared_history_prefix)
+
+    @parameterized.expand(
+        [
+            ("burst", TransactionalEmailBurstThrottle, False, "60"),
+            ("sustained", TransactionalEmailSustainedThrottle, False, "60"),
+            ("team_burst", TransactionalEmailTeamBurstThrottle, False, "60"),
+            ("team_sustained", TransactionalEmailTeamSustainedThrottle, False, "60"),
+            ("a_throttle_that_reads_the_replica", _PSAKThrottleForTest, True, None),
+        ]
+    )
+    def test_a_single_after_a_batch_counts_the_charges_a_lagging_reader_has_not_seen(
+        self, _name, throttle_class, shared_history_prefix, retry_after
+    ):
+        now = time.time()
+        with (
+            override_settings(CACHES=self._lagging_reader_caches(shared_history_prefix=shared_history_prefix)),
+            patch.object(throttle_class, "rate", "5/minute"),
+            patch.object(throttle_class, "timer", lambda _throttle: now),
+        ):
+            redis_cache = caches["default"]
+            assert isinstance(redis_cache, RedisCache)
+            key = throttle_class().get_cache_key(self._request(), self.view)
+            primary_client = redis_cache.client.get_client(write=True)
+            reader_client = redis_cache.client.get_client(write=False)
+            try:
+                self.assertIsNone(self._send([throttle_class], 1))
+                redis_cache.set(key, redis_cache.get(key, client=primary_client), 60, client=reader_client)
+                self.assertIsNone(self._send([throttle_class], 4))
+                outcome = self._send([throttle_class], 1)
+            finally:
+                for client in (primary_client, reader_client):
+                    redis_cache.delete(key, client=client)
+                caches["throttle_history"].delete(key)
+
+        self.assertEqual(outcome, retry_after)
+
+    def test_a_reservation_counts_the_units_a_lagging_reader_has_not_seen(self):
+        with (
+            override_settings(CACHES=self._lagging_reader_caches()),
+            patch.object(_PSAKThrottleForTest, "rate", "5/hour"),
+        ):
+            try:
+                self._reserve([_PSAKThrottleForTest], 3)
+                with self.assertRaises(exceptions.Throttled):
+                    self._reserve([_PSAKThrottleForTest], 3)
+            finally:
+                for alias in ("default", "throttle_history"):
+                    redis_cache = caches[alias]
+                    assert isinstance(redis_cache, RedisCache)
+                    redis_cache.delete_pattern("*")
+
+    def test_a_refusal_is_counted(self):
+        route = rate_limit.get_route_from_path("/api/messaging/send/email_batch/")
+        labels = {"team_id": str(self.team.pk), "scope": _PSAKThrottleForTest.scope, "path": route, "route": route}
+        before = REGISTRY.get_sample_value("rate_limit_exceeded_total", labels) or 0
+
+        with patch.object(_PSAKThrottleForTest, "rate", "3/minute"), self.assertRaises(exceptions.Throttled):
+            self._reserve([_PSAKThrottleForTest], 4)
+
+        self.assertEqual(REGISTRY.get_sample_value("rate_limit_exceeded_total", labels), before + 1)
+
+    @parameterized.expand(
+        [
+            ("rate_limiting_off", "RATE_LIMIT_ENABLED", False),
+            ("team_on_the_bypass_list", "RATE_LIMITING_ALLOW_LIST_TEAMS", "team"),
+        ]
+    )
+    def test_an_over_budget_reservation_passes_when_the_settings_say_not_to_refuse(self, _name, setting, value):
+        with override_instance_config(setting, str(self.team.pk) if value == "team" else value):
+            self._clear_policy_caches()
+            with patch.object(_PSAKThrottleForTest, "rate", "3/minute"):
+                self._reserve([_PSAKThrottleForTest], 4)
+
+        self._clear_policy_caches()
+        with patch.object(_PSAKThrottleForTest, "rate", "3/minute"):
+            self.assertEqual(self._singles_allowed(_PSAKThrottleForTest, 4), [True, True, True, False])
+
+    def _redis_cache(self, location: str) -> RedisCache:
+        return RedisCache(location, {"KEY_PREFIX": self.cache_prefix})
+
+    @contextmanager
+    def _redis_that_refuses_writes(self) -> Iterator[RedisCache]:
+        admin = Redis.from_url(settings.REDIS_URL)
+        user, password = unique_key_prefix("read-only"), uuid4().hex
+        admin.acl_setuser(user, enabled=True, passwords=[f"+{password}"], keys=["*"], categories=["+@all", "-@write"])
+        primary = urlsplit(settings.REDIS_URL)
+        credentials = f"{user}:{password}@{primary.hostname or 'localhost'}:{primary.port or 6379}"
+        try:
+            yield self._redis_cache(f"{primary.scheme}://{credentials}{primary.path}?{primary.query}")
+        finally:
+            admin.acl_deluser(user)
+            admin.close()
+
+    @parameterized.expand(
+        [
+            ("read_fails_open_over_budget", "unreachable", 2, [True, False]),
+            ("write_fails_without_refusing", "refuses_writes", 0, [True, True, True, False]),
+        ]
+    )
+    def test_a_reservation_passes_when_redis_fails(self, _name, failure, spent, singles_after):
+        shared = self._redis_cache(settings.REDIS_URL)
+        failing = (
+            nullcontext(RedisCache("redis://127.0.0.1:1/0", {}))
+            if failure == "unreachable"
+            else self._redis_that_refuses_writes()
+        )
+        with (
+            patch.object(_PSAKThrottleForTest, "rate", "3/minute"),
+            patch.object(_PSAKThrottleForTest, "cache", shared),
+        ):
+            try:
+                self._singles_allowed(_PSAKThrottleForTest, spent)
+                with (
+                    failing as failing_cache,
+                    patch.object(_PSAKThrottleForTest, "cache", failing_cache),
+                    patch.object(_PSAKThrottleForTest, "primary_cache", failing_cache),
+                ):
+                    self._reserve([_PSAKThrottleForTest], 2)
+
+                self.assertEqual(self._singles_allowed(_PSAKThrottleForTest, len(singles_after)), singles_after)
+            finally:
+                shared.delete_pattern("*")
+
+
 class TestWidgetTeamPollWriteThrottleSplit(SimpleTestCase):
     def setUp(self) -> None:
         cache.clear()
@@ -1056,10 +1319,38 @@ class TestWidgetTeamPollWriteThrottleSplit(SimpleTestCase):
         cache.clear()
 
     def test_exhausted_poll_bucket_does_not_block_write(self) -> None:
-        request = Mock(headers={"X-Conversations-Token": "widget-token"})
+        request = Mock(headers={"X-Conversations-Token": "widget-token"}, path="/api/conversations/v1/widget/tickets")
         view = Mock()
         with patch.object(rate_limit.WidgetTeamPollThrottle, "rate", "1/minute"):
             poll = rate_limit.WidgetTeamPollThrottle()
             self.assertTrue(poll.allow_request(request, view))
             self.assertFalse(poll.allow_request(request, view))
         self.assertTrue(rate_limit.WidgetTeamWriteThrottle().allow_request(request, view))
+
+    @parameterized.expand(
+        [
+            ("user_burst", rate_limit.WidgetUserBurstThrottle),
+            ("team_poll", rate_limit.WidgetTeamPollThrottle),
+        ]
+    )
+    def test_exhausted_bucket_is_counted_by_scope_and_team(
+        self, _name: str, throttle_class: type[rate_limit.WidgetUserBurstThrottle | rate_limit.WidgetTeamPollThrottle]
+    ) -> None:
+        path = "/api/conversations/v1/widget/tickets"
+        request = Mock(
+            headers={"X-Conversations-Token": "widget-token"},
+            auth=Mock(id=7),
+            path=path,
+            data={},
+            query_params={"widget_session_id": "session"},
+        )
+        route = rate_limit.get_route_from_path(path)
+        labels = {"team_id": "7", "scope": throttle_class.scope, "path": route, "route": route}
+        before = REGISTRY.get_sample_value("rate_limit_exceeded_total", labels) or 0
+
+        with patch.object(throttle_class, "rate", "1/minute"):
+            throttle = throttle_class()
+            self.assertTrue(throttle.allow_request(request, Mock()))
+            self.assertFalse(throttle.allow_request(request, Mock()))
+
+        self.assertEqual(REGISTRY.get_sample_value("rate_limit_exceeded_total", labels), before + 1)
