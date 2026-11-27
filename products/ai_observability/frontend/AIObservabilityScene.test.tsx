@@ -27,6 +27,7 @@ import {
     sessionCellsMocks,
     traceTurnsMocks,
 } from './redesign/sessions/testFixtures'
+import { TOOLS_URL, makeToolListPage } from './redesign/tools/testFixtures'
 import { traceDrawerLogic } from './redesign/trace/traceDrawerLogic'
 import { makeTraceListPage } from './redesign/traces/testFixtures'
 
@@ -135,6 +136,7 @@ describe('AIObservabilityScene', () => {
                 '/api/projects/:team_id/ai_observability/traces/': () => [200, makeTraceListPage([])],
                 '/api/projects/:team_id/ai_observability/sessions/': () => [200, makeSessionListPage([])],
                 '/api/projects/:team_id/ai_observability/errors/': () => [200, makeErrorListPage([])],
+                [TOOLS_URL]: () => [200, makeToolListPage([])],
             },
         })
     })
@@ -162,6 +164,7 @@ describe('AIObservabilityScene', () => {
                 'ai-observability-sessions-list',
             ],
             ['aiObservabilityErrors', 'diagnostics', 'ai-observability-scope-errors', 'errors-list'],
+            ['aiObservabilityTools', 'diagnostics', 'ai-observability-scope-tools', 'tools-list'],
         ])('wraps the body of %s in the frame', (sceneKey, tab, scope, body) => {
             const container = renderScene({ sceneKey })
 

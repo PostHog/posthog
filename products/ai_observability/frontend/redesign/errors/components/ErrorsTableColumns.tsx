@@ -1,14 +1,14 @@
 import { LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
-import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 
 import { AiObservabilityErrorsListOrder, type ErrorListItemApi } from '../../../generated/api.schemas'
 import { ChangeTag } from '../../diagnostics/components/ChangeTag'
-import { SortHeader } from '../../diagnostics/components/SortHeader'
+import { CountCell } from '../../diagnostics/components/CountCell'
+import { sortableColumn } from '../../diagnostics/components/sortableColumn'
 import { TrendSparkline } from '../../diagnostics/components/TrendSparkline'
+import { VolumeCell } from '../../diagnostics/components/VolumeCell'
 import type { CellLoads } from '../../shared/cellLoads'
 import { TraceCellValue } from '../../traces/components/TraceCellValue'
 import type { ErrorFirstSeen } from '../errorFirstSeenLogic'
@@ -29,14 +29,6 @@ export interface ErrorsTableColumnsOptions {
     'data-attr': string
 }
 
-function Count({ value }: { value: number }): JSX.Element {
-    return (
-        <span className="tabular-nums" translate="no">
-            {humanFriendlyNumber(value)}
-        </span>
-    )
-}
-
 export function errorsTableColumns({
     maxOccurrences,
     order,
@@ -46,20 +38,10 @@ export function errorsTableColumns({
     timezone,
     'data-attr': dataAttr,
 }: ErrorsTableColumnsOptions): LemonTableColumns<ErrorListItemApi> {
-    const sortable = (
-        label: string,
-        key: AiObservabilityErrorsListOrder
-    ): Pick<LemonTableColumn<ErrorListItemApi, undefined>, 'title' | 'key'> => ({
-        key,
-        title: (
-            <SortHeader
-                label={label}
-                active={order === key}
-                onSort={() => onOrder(key)}
-                // pinned: autocapture dashboards and tests select the sort headers by this value
-                data-attr={`${dataAttr}-order-${key}`}
-            />
-        ),
+    const sortable = sortableColumn<ErrorListItemApi, AiObservabilityErrorsListOrder>({
+        order,
+        onOrder,
+        'data-attr': dataAttr,
     })
 
     return [
@@ -71,19 +53,7 @@ export function errorsTableColumns({
         {
             ...sortable('Occurrences', AiObservabilityErrorsListOrder.Occurrences),
             align: 'right',
-            render: (_, { occurrences }) => (
-                <div className="flex flex-col items-end gap-1">
-                    <Count value={occurrences} />
-                    <div className="w-16">
-                        <LemonProgress
-                            percent={maxOccurrences > 0 ? (occurrences / maxOccurrences) * 100 : 0}
-                            bgColor="var(--color-border-primary)"
-                            strokeColor="var(--color-text-tertiary)"
-                            smoothing={false}
-                        />
-                    </div>
-                </div>
-            ),
+            render: (_, { occurrences }) => <VolumeCell value={occurrences} max={maxOccurrences} />,
         },
         {
             ...sortable('Change', AiObservabilityErrorsListOrder.Change),
@@ -108,12 +78,12 @@ export function errorsTableColumns({
         {
             ...sortable('Traces', AiObservabilityErrorsListOrder.Traces),
             align: 'right',
-            render: (_, { traces }) => <Count value={traces} />,
+            render: (_, { traces }) => <CountCell value={traces} />,
         },
         {
             ...sortable('Users', AiObservabilityErrorsListOrder.Users),
             align: 'right',
-            render: (_, { users }) => <Count value={users} />,
+            render: (_, { users }) => <CountCell value={users} />,
         },
         {
             title: 'Models',
