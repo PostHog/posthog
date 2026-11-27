@@ -23,6 +23,28 @@ const MOCK_MODEL_OPTIONS: ModelOption[] = [
 
 const DEFAULT_MODEL = 'gpt-6-luna'
 
+function useOpenRouterKeyMocks(byokModels: ModelOption[]): void {
+    useMocks({
+        get: {
+            '/api/environments/:team_id/llm_analytics/provider_keys/': {
+                results: [{ id: 'openrouter-key-1', provider: 'openrouter', state: 'ok' }],
+            },
+            '/api/llm_proxy/models/': ({ request }) => {
+                if (new URL(request.url).searchParams.get('provider_key_id') === 'openrouter-key-1') {
+                    return [200, byokModels]
+                }
+                return [200, MOCK_MODEL_OPTIONS]
+            },
+            '/api/projects/:team_id/llm_analytics/provider_keys/:key_id/models/': ({ params }) => {
+                if (params.key_id === 'openrouter-key-1') {
+                    return [200, byokModels]
+                }
+                return [200, MOCK_MODEL_OPTIONS]
+            },
+        },
+    })
+}
+
 describe('llmPlaygroundLogic', () => {
     let runLogic: ReturnType<typeof llmPlaygroundRunLogic.build>
 
@@ -219,25 +241,7 @@ describe('llmPlaygroundLogic', () => {
 
             runLogic.unmount()
 
-            useMocks({
-                get: {
-                    '/api/environments/:team_id/llm_analytics/provider_keys/': {
-                        results: [{ id: 'openrouter-key-1', provider: 'openrouter', state: 'ok' }],
-                    },
-                    '/api/llm_proxy/models/': ({ request }) => {
-                        if (new URL(request.url).searchParams.get('provider_key_id') === 'openrouter-key-1') {
-                            return [200, byokModels]
-                        }
-                        return [200, MOCK_MODEL_OPTIONS]
-                    },
-                    '/api/projects/:team_id/llm_analytics/provider_keys/:key_id/models/': ({ params }) => {
-                        if (params.key_id === 'openrouter-key-1') {
-                            return [200, byokModels]
-                        }
-                        return [200, MOCK_MODEL_OPTIONS]
-                    },
-                },
-            })
+            useOpenRouterKeyMocks(byokModels)
 
             const testRunLogic = llmPlaygroundRunLogic()
             testRunLogic.mount()
@@ -267,25 +271,7 @@ describe('llmPlaygroundLogic', () => {
 
             runLogic.unmount()
 
-            useMocks({
-                get: {
-                    '/api/environments/:team_id/llm_analytics/provider_keys/': {
-                        results: [{ id: 'openrouter-key-1', provider: 'openrouter', state: 'ok' }],
-                    },
-                    '/api/llm_proxy/models/': ({ request }) => {
-                        if (new URL(request.url).searchParams.get('provider_key_id') === 'openrouter-key-1') {
-                            return [200, byokModels]
-                        }
-                        return [200, MOCK_MODEL_OPTIONS]
-                    },
-                    '/api/projects/:team_id/llm_analytics/provider_keys/:key_id/models/': ({ params }) => {
-                        if (params.key_id === 'openrouter-key-1') {
-                            return [200, byokModels]
-                        }
-                        return [200, MOCK_MODEL_OPTIONS]
-                    },
-                },
-            })
+            useOpenRouterKeyMocks(byokModels)
 
             const testRunLogic = llmPlaygroundRunLogic()
             testRunLogic.mount()
@@ -316,25 +302,7 @@ describe('llmPlaygroundLogic', () => {
 
             runLogic.unmount()
 
-            useMocks({
-                get: {
-                    '/api/environments/:team_id/llm_analytics/provider_keys/': {
-                        results: [{ id: 'openrouter-key-1', provider: 'openrouter', state: 'ok' }],
-                    },
-                    '/api/llm_proxy/models/': ({ request }) => {
-                        if (new URL(request.url).searchParams.get('provider_key_id') === 'openrouter-key-1') {
-                            return [200, byokModels]
-                        }
-                        return [200, MOCK_MODEL_OPTIONS]
-                    },
-                    '/api/projects/:team_id/llm_analytics/provider_keys/:key_id/models/': ({ params }) => {
-                        if (params.key_id === 'openrouter-key-1') {
-                            return [200, byokModels]
-                        }
-                        return [200, MOCK_MODEL_OPTIONS]
-                    },
-                },
-            })
+            useOpenRouterKeyMocks(byokModels)
 
             const testRunLogic = llmPlaygroundRunLogic()
             testRunLogic.mount()
@@ -431,25 +399,7 @@ describe('llmPlaygroundLogic', () => {
 
             runLogic.unmount()
 
-            useMocks({
-                get: {
-                    '/api/environments/:team_id/llm_analytics/provider_keys/': {
-                        results: [{ id: 'openrouter-key-1', provider: 'openrouter', state: 'ok' }],
-                    },
-                    '/api/llm_proxy/models/': ({ request }) => {
-                        if (new URL(request.url).searchParams.get('provider_key_id') === 'openrouter-key-1') {
-                            return [200, byokModels]
-                        }
-                        return [200, MOCK_MODEL_OPTIONS]
-                    },
-                    '/api/projects/:team_id/llm_analytics/provider_keys/:key_id/models/': ({ params }) => {
-                        if (params.key_id === 'openrouter-key-1') {
-                            return [200, byokModels]
-                        }
-                        return [200, MOCK_MODEL_OPTIONS]
-                    },
-                },
-            })
+            useOpenRouterKeyMocks(byokModels)
 
             const testRunLogic = llmPlaygroundRunLogic()
             testRunLogic.mount()
