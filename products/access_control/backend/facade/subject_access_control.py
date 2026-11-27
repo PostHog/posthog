@@ -166,11 +166,7 @@ class SubjectAccessControl(UserAccessControl):
             for ac in self._get_access_controls(self._access_controls_filters_for_object(resource, target.object_id))
             if not self._is_subject_row(ac)
         ]
-        if self._is_most_specific_access_control_enabled:
-            return self._most_specific_object_access_from_rows(
-                resource, rows, fallback_parent_id=target.fallback_parent_id
-            )
-        return self._object_access_level_from_rows(resource, rows, fallback_parent_id=target.fallback_parent_id)
+        return self._object_access_from_rows(resource, rows, fallback_parent_id=target.fallback_parent_id)
 
     def inherited_access_for_resource(self, resource: APIScopeObject) -> Optional[ResolvedAccess]:
         """The access the subject would have to `resource` if their resource-wide override were
@@ -464,7 +460,7 @@ def get_project_scoped_visible_membership_ids(
     )
     if open_team_accessible:
         # An open team makes every non-candidate visible; a candidate is hidden only if every
-        # accessible team denies them (dead branch under max-wins, real under more-specific-wins).
+        # accessible team denies them.
         hidden = {
             membership_id
             for membership_id in candidate_ids
