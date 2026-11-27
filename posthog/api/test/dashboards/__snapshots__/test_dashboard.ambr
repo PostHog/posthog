@@ -12127,6 +12127,11 @@
          "posthog_roleexternalreference"."provider_role_id",
          "posthog_roleexternalreference"."provider_role_slug",
          "posthog_roleexternalreference"."provider_role_name",
+         "posthog_roleexternalreference"."sync_mode",
+         "posthog_roleexternalreference"."role_created_by_sync",
+         "posthog_roleexternalreference"."provider_member_logins",
+         "posthog_roleexternalreference"."orphaned_at",
+         "posthog_roleexternalreference"."last_synced_at",
          "posthog_roleexternalreference"."created_at",
          "posthog_roleexternalreference"."updated_at",
          "posthog_roleexternalreference"."created_by_id"
@@ -12603,6 +12608,11 @@
          "posthog_roleexternalreference"."provider_role_id",
          "posthog_roleexternalreference"."provider_role_slug",
          "posthog_roleexternalreference"."provider_role_name",
+         "posthog_roleexternalreference"."sync_mode",
+         "posthog_roleexternalreference"."role_created_by_sync",
+         "posthog_roleexternalreference"."provider_member_logins",
+         "posthog_roleexternalreference"."orphaned_at",
+         "posthog_roleexternalreference"."last_synced_at",
          "posthog_roleexternalreference"."created_at",
          "posthog_roleexternalreference"."updated_at",
          "posthog_roleexternalreference"."created_by_id"
