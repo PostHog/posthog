@@ -13285,6 +13285,8 @@ export interface SlackScoutChannelApi {
 export interface SlackScoutChannelSourceApi {
     /** Id of the Slack data warehouse source. */
     id: string
+    /** Name that tells the project's Slack sources apart: the source's table prefix, or the date it was connected when it has no prefix. */
+    label: string
     /** Channels the source syncs, ordered by name. */
     channels: SlackScoutChannelApi[]
 }
