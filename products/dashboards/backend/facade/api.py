@@ -81,7 +81,6 @@ from products.dashboards.backend.logic.template_instantiation import create_from
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.dashboards.backend.query_sharing_stream import DashboardQuerySharingCachedEvent
 from products.dashboards.backend.v2 import (
     board_stream as v2_board_stream,
     boards as v2_boards,
@@ -89,7 +88,6 @@ from products.dashboards.backend.v2 import (
     first_load as v2_first_load,
     query_batch as v2_query_batch,
 )
-from products.dashboards.backend.v2.cached_tiles import CachedTileStatus
 from products.dashboards.backend.v2.query_batch import MAX_QUERIES_PER_BATCH
 
 if TYPE_CHECKING:
@@ -1287,7 +1285,6 @@ def dashboard_template_non_portable_references(
 
 
 __all__ = [
-    "CachedTileStatus",
     "CannotAddToDashboard",
     "CannotRemoveFromDashboard",
     "DashboardInsightTile",
@@ -1396,7 +1393,7 @@ def read_cached_tiles(
     plan_tile: Callable[[int], "PlannedQuery | None"],
     serialize_tile: Callable[[int], dict[str, Any]],
     context: dict[str, Any],
-) -> list[dict[str, Any]]:
+) -> list[contracts.CachedTileResult]:
     """The `dashboard-v2` batched cached-tiles read. The caller looks the tiles up, checks access, and passes in
     how to plan and serialize one tile by ID."""
     return v2_cached_tiles.read_cached_tiles(
@@ -1411,8 +1408,10 @@ def read_cached_tiles(
     )
 
 
-def board_stream_cached_event(cached: list[dict[str, Any]], *, force: bool) -> DashboardQuerySharingCachedEvent:
-    """The first event of a `dashboard-v2` board stream, built from `read_cached_tiles` output."""
+def board_stream_cached_event(
+    cached: list[dict[str, Any]], *, force: bool
+) -> contracts.DashboardQuerySharingCachedEvent:
+    """The first event of a `dashboard-v2` board stream, built from `read_cached_tiles` results as JSON objects."""
     return v2_board_stream.cached_event(cached, force=force)
 
 
