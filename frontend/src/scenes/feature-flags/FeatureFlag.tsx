@@ -97,6 +97,7 @@ import { FeatureFlagStaleBanner } from 'products/feature_flags/frontend/FeatureF
 import { FeatureFlagRestoreVersionButton } from 'products/feature_flags/frontend/restoreVersion/FeatureFlagRestoreVersionButton'
 import { AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM, useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 import { MessageAudienceShown } from 'products/workflows/frontend/MessageAudience/MessageAudienceShown'
+import { MessageAudienceShownInScenePanel } from 'products/workflows/frontend/MessageAudience/MessageAudienceShownInScenePanel'
 
 import { featureFlagContextItems } from './featureFlagAiContext'
 import { openFeatureFlagArchiveDialog } from './featureFlagArchiveDialog'
@@ -526,7 +527,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                             </ButtonPrimitive>
                         )}
                         {canCreateFlagCohort && !broadcastDisabledReason && (
-                            <MessageAudienceShown source={FLAG_BROADCAST_SOURCE} destination="broadcast" />
+                            <MessageAudienceShownInScenePanel source={FLAG_BROADCAST_SOURCE} destination="broadcast" />
                         )}
                         {canCreateFlagCohort && (
                             <ButtonPrimitive

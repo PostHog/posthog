@@ -9,6 +9,7 @@ import {
     captureMessageAudienceShown,
     messageAudienceUrl,
 } from './messageAudience'
+import { rememberSavedWorkflowAttempt } from './messageAudienceAttempts'
 
 function audienceFrom(source: string): MessageAudience {
     return {
@@ -68,6 +69,16 @@ describe('message audience attempts', () => {
         const [clicked] = captured('message audience clicked')
         expect(clicked.attempt_id).toEqual(expect.any(String))
         expect(attemptInUrl('survey_respondents', 'broadcast')).toEqual(clicked.attempt_id)
+    })
+
+    it('keeps the attempt of a saved workflow when the page reloads', () => {
+        rememberSavedWorkflowAttempt('workflow-1', '0195f3a2-7c4e-7d10-9a6b-2f3c4d5e6f71')
+
+        jest.isolateModules(() => {
+            const { workflowEntryAttempt } = jest.requireActual('./messageAudienceAttempts')
+            expect(workflowEntryAttempt({ id: 'workflow-1' })).toEqual('0195f3a2-7c4e-7d10-9a6b-2f3c4d5e6f71')
+            expect(workflowEntryAttempt({ id: 'workflow-2' })).toBeUndefined()
+        })
     })
 
     it('opens the editor without an attempt from a spot that was never shown or clicked', () => {

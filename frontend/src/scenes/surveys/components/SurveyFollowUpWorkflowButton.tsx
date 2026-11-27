@@ -10,7 +10,7 @@ import {
     captureMessageAudienceClicked,
     messageAudienceAccessDisabledReason,
 } from 'products/workflows/frontend/MessageAudience/messageAudience'
-import { MessageAudienceShown } from 'products/workflows/frontend/MessageAudience/MessageAudienceShown'
+import { MessageAudienceShownInScenePanel } from 'products/workflows/frontend/MessageAudience/MessageAudienceShownInScenePanel'
 import { draftMessage } from 'products/workflows/frontend/MessageAudience/messageDrafts'
 import {
     type WorkflowTriggerConfig,
@@ -36,7 +36,7 @@ export function SurveyFollowUpWorkflowButton({ surveyId }: { surveyId: string })
     const accessDisabledReason = messageAudienceAccessDisabledReason()
     return (
         <>
-            {!accessDisabledReason && <MessageAudienceShown source={SOURCE} destination="workflow" />}
+            {!accessDisabledReason && <MessageAudienceShownInScenePanel source={SOURCE} destination="workflow" />}
             <ButtonPrimitive
                 menuItem
                 tooltip="Open a workflow that emails each person who responds to this survey"

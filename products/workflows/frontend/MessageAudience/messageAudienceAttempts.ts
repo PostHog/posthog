@@ -5,10 +5,12 @@ import type { MessageAudienceDestination } from './messageAudience'
 // pinned: URL search param the broadcast wizard and the workflow editor read the attempt from
 export const ATTEMPT_PREFILL_PARAM = 'attempt'
 
+// pinned: sessionStorage key, so renaming it drops the attempts of workflows saved earlier in the tab
+const SAVED_ATTEMPTS_STORAGE_KEY = 'message-audience-saved-attempts'
+
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 const shownAttempts = new Map<string, string>()
-const savedWorkflowAttempts = new Map<string, string>()
 
 function attemptKey(source: string, destination: MessageAudienceDestination): string {
     return `${destination}:${source}`
@@ -38,10 +40,29 @@ export function parseAttemptPrefill(raw: unknown): string | undefined {
     return typeof raw === 'string' && UUID_PATTERN.test(raw) ? raw : undefined
 }
 
+function readSavedAttempts(): Record<string, string> {
+    try {
+        const stored = JSON.parse(sessionStorage.getItem(SAVED_ATTEMPTS_STORAGE_KEY) || '{}')
+        return stored && typeof stored === 'object' && !Array.isArray(stored) ? stored : {}
+    } catch {
+        return {}
+    }
+}
+
 export function rememberSavedWorkflowAttempt(workflowId: string, attemptId: string): void {
-    savedWorkflowAttempts.set(workflowId, attemptId)
+    try {
+        sessionStorage.setItem(
+            SAVED_ATTEMPTS_STORAGE_KEY,
+            JSON.stringify({ ...readSavedAttempts(), [workflowId]: attemptId })
+        )
+    } catch {
+        return
+    }
 }
 
 export function workflowEntryAttempt(editor: { id?: string; entryAttemptId?: string }): string | undefined {
-    return editor.entryAttemptId ?? (editor.id ? savedWorkflowAttempts.get(editor.id) : undefined)
+    if (editor.entryAttemptId) {
+        return editor.entryAttemptId
+    }
+    return editor.id ? parseAttemptPrefill(readSavedAttempts()[editor.id]) : undefined
 }

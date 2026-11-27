@@ -1,6 +1,10 @@
+import '@testing-library/jest-dom'
+
+import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
-import { LemonDialog } from '@posthog/lemon-ui'
+import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
 import { PropertyFilterType, PropertyOperator } from '~/types'
@@ -121,20 +125,27 @@ describe('loadMessageAudienceWarnings', () => {
     })
 
     it.each([
-        { case: 'a sender problem', suspended: false, kinds: ['no_sender'], secondary: 'Set up email' },
+        {
+            case: 'a sender problem',
+            suspended: false,
+            kinds: ['no_sender'],
+            secondary: 'Set up email',
+            landsOn: urls.workflows('channels'),
+        },
         {
             case: 'only a suspension',
             suspended: true,
             senders: [verified],
             kinds: ['sending_suspended'],
             secondary: 'Cancel',
+            landsOn: '/start',
         },
     ])(
-        'reports the warnings it shows for $case, and offers $secondary',
-        async ({ suspended, senders = [], kinds, secondary }) => {
+        'reports the warnings it shows for $case, and $secondary takes the person to $landsOn',
+        async ({ suspended, senders = [], kinds, secondary, landsOn }) => {
             const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
-            const dialog = jest.spyOn(LemonDialog, 'open').mockImplementation(() => undefined)
             try {
+                router.actions.push('/start')
                 jest.mocked(hogFlowsEmailSendingSuspensionRetrieve).mockResolvedValue({
                     email_sending_suspended: suspended,
                 } as never)
@@ -158,10 +169,11 @@ describe('loadMessageAudienceWarnings', () => {
                         warnings: kinds,
                     },
                 })
-                expect(dialog.mock.calls[0][0].secondaryButton?.children).toEqual(secondary)
+                fireEvent.click(await screen.findByText(secondary))
+                await waitFor(() => expect(screen.queryByText('Before you send')).not.toBeInTheDocument())
+                expect(router.values.location.pathname.endsWith(landsOn)).toBe(true)
             } finally {
                 capture.mockRestore()
-                dialog.mockRestore()
             }
         }
     )

@@ -568,6 +568,7 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
                 captureMessageAudienceShown(EARLY_ACCESS_GA_SOURCE, 'broadcast')
             }
             lemonToast.success('Early access feature saved', {
+                toastId: offerBroadcast ? `early-access-ga-${_earlyAccessFeature.id}` : undefined,
                 button: offerBroadcast
                     ? {
                           label: 'Email opted-in users',

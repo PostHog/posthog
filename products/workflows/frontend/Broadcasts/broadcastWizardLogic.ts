@@ -65,7 +65,11 @@ import {
 } from '../MessageAudience/aiEmailDraft'
 import type { AiEmailDraftStatusProps } from '../MessageAudience/AiEmailDraftStatus'
 import { EmailBrand, applyEmailBrand, loadEmailBrand } from '../MessageAudience/emailBrand'
-import { ATTEMPT_PREFILL_PARAM, parseAttemptPrefill } from '../MessageAudience/messageAudienceAttempts'
+import {
+    ATTEMPT_PREFILL_PARAM,
+    parseAttemptPrefill,
+    rememberSavedWorkflowAttempt,
+} from '../MessageAudience/messageAudienceAttempts'
 import {
     EMAIL_PREFILL_PARAM,
     MessageDraft,
@@ -3083,6 +3087,9 @@ async function createDraft(projectId: string, values: broadcastWizardLogicType['
         ...(values.sourceRecord ? { source_record: values.sourceRecord } : {}),
         ...(values.entryAttemptId ? { entry_attempt_id: values.entryAttemptId } : {}),
     } as any)
+    if (values.entryAttemptId) {
+        rememberSavedWorkflowAttempt(created.id, values.entryAttemptId)
+    }
     // pinned: analytics event name
     posthog.capture('broadcast draft created', { broadcast_id: created.id, entry_source: values.entrySource })
     return created

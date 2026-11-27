@@ -217,14 +217,18 @@ describe('broadcastWizardLogic', () => {
     })
 
     it.each([
-        { link: 'the attempt of a shown spot', attempt: 'shown', sent: 'shown' },
-        { link: 'a malformed attempt', attempt: 'not-an-attempt', sent: undefined },
-    ])('stores $link on the first save only', async ({ attempt, sent }) => {
+        { link: 'the attempt of a shown spot', sends: 'that attempt', attempt: 'shown', sent: 'shown' },
+        { link: 'a malformed attempt', sends: 'no attempt', attempt: 'not-an-attempt', sent: undefined },
+    ])('opened from a link with $link, sends $sends on the first save only', async ({ attempt, sent }) => {
         captureMessageAudienceShown('cohort_saved', 'broadcast')
-        const shownAttempt = new URL(
+        const link = new URL(
             urlForNewBroadcastWithAudience({ properties: LOCAL_AUDIENCE, source: 'cohort_saved' }),
             'https://app.example.com'
-        ).searchParams.get('attempt')
+        )
+        const shownAttempt = link.searchParams.get('attempt')
+        if (attempt !== 'shown') {
+            link.searchParams.set('attempt', attempt)
+        }
         const savedBodies: Record<string, unknown>[] = []
         const recordBody = async (request: Request): Promise<void> => {
             savedBodies.push((await request.clone().json()) as Record<string, unknown>)
@@ -244,11 +248,7 @@ describe('broadcastWizardLogic', () => {
             },
         })
         logic.unmount()
-        router.actions.push('/broadcasts/new', {
-            audience: JSON.stringify(LOCAL_AUDIENCE),
-            source: 'cohort_saved',
-            attempt: attempt === 'shown' ? shownAttempt : attempt,
-        })
+        router.actions.push(link.pathname + link.search)
         logic = broadcastWizardLogic({ id: 'new' })
         logic.mount()
 

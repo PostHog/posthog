@@ -741,7 +741,8 @@ describe('hogFlowOutputMappingLogic', () => {
                         '/api/environments/:team_id/hog_flows/': async ({ request }) => {
                             const body = (await request.json()) as Record<string, unknown>
                             created.push(body)
-                            return [201, { ...body, id: WORKFLOW_ID, version: 1, status: 'draft' }]
+                            const { entry_attempt_id: _writeOnly, ...saved } = body
+                            return [201, { ...saved, id: WORKFLOW_ID, version: 1, status: 'draft' }]
                         },
                         '/api/environments/:team_id/hog_flows/:id/invocations': () => [
                             200,
