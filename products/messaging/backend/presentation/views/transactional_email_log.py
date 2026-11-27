@@ -389,7 +389,8 @@ class TransactionalEmailClickSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Why no session was found: `off_site` when the link goes outside the sending domain, "
         "`link_tagging_off` when the project doesn't tag email links, `link_unknown` when no click event recorded "
-        "the link, and `not_found` when no page view carried this send's run tag. Null when a session was found.",
+        "the link, `sensitive` when the email is marked sensitive and its links carry no run tag, and `not_found` when "
+        "no page view with this send's run tag could be tied to the click. Null when a session was found.",
     )
 
 

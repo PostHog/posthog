@@ -745,6 +745,12 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
                 [("billing", "/billing", 303), ("reopened", "/billing", 340)],
                 [(BILLING, "billing", None), (DOCS, None, "not_found")],
             ),
+            (
+                "a visit at the end of the window keeps its click",
+                [(300, BILLING), (7200, BILLING)],
+                [("late", "/billing", 2100)],
+                [(BILLING, "late", None), (BILLING, None, "not_found")],
+            ),
         ]
     )
     def test_matches_close_clicks_to_their_visits(self, _flag, _name, clicks, visits, expected):
@@ -796,10 +802,9 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
 
         assert self._clicks(message_id) == [(link, None, reason), (link, None, reason)]
 
-    @patch("products.messaging.backend.services.transactional_email_activity.MAX_OWN_EVENTS_PER_KIND", 2)
     def test_keeps_each_click_link_when_opens_fill_the_event_limit(self, _flag):
         message_id, queued_at = self._clicked_send()
-        for seconds in (61, 62, 63):
+        for seconds in range(61, 262):
             self._email_event("$workflows_email_opened", message_id, queued_at + timedelta(seconds=seconds))
         for seconds in (300, 900):
             self._email_event(

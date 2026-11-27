@@ -37,7 +37,7 @@ ACTIVITY_WINDOW_DAYS = 7
 ACTIVITY_BEFORE_LIMIT = 50
 ACTIVITY_AFTER_LIMIT = 100
 MAX_DISTINCT_IDS = 100
-MAX_OWN_EVENTS_PER_KIND = 100
+MAX_OWN_EVENTS_PER_KIND = 200
 MAX_LANDINGS = 100
 CLICK_EVENT = "$workflows_email_link_clicked"
 OWN_EVENTS = ("$workflows_email_sent", "$workflows_email_delivered", "$workflows_email_opened", CLICK_EVENT)
@@ -283,6 +283,7 @@ def _own_events(team: Team, user: User | None, detail: TransactionalEmailLogDeta
           AND timestamp >= {start} AND timestamp < {end}
         ORDER BY timestamp
         LIMIT {limit} BY event
+        LIMIT {total}
         """,
         team=team,
         user=user,
@@ -293,6 +294,7 @@ def _own_events(team: Team, user: User | None, detail: TransactionalEmailLogDeta
             "start": ast.Constant(value=queued_at - CLOCK_SKEW),
             "end": ast.Constant(value=queued_at + timedelta(days=EMAIL_STATUS_TTL_DAYS)),
             "limit": ast.Constant(value=MAX_OWN_EVENTS_PER_KIND),
+            "total": ast.Constant(value=MAX_OWN_EVENTS_PER_KIND * len(OWN_EVENTS)),
         },
         query_type="transactional_email_activity_own_events",
         workload=Workload.ONLINE,
@@ -406,7 +408,9 @@ def _in_click_windows(click_times: list[datetime]) -> ast.Expr:
                         right=ast.Constant(value=start),
                     ),
                     ast.CompareOperation(
-                        op=ast.CompareOperationOp.Lt, left=ast.Field(chain=["timestamp"]), right=ast.Constant(value=end)
+                        op=ast.CompareOperationOp.LtEq,
+                        left=ast.Field(chain=["timestamp"]),
+                        right=ast.Constant(value=end),
                     ),
                 ]
             )
