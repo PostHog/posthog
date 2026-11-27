@@ -47,7 +47,7 @@ def mock_email_messages(MockEmailMessage: MagicMock, path: str = "tasks/test/__e
     def _email_message_side_effect(**kwargs: Any) -> EmailMessage:
         email_message = EmailMessage(**kwargs)
 
-        def _send_side_effect(send_async: bool = True, *, retry: bool = True) -> None:
+        def _send_side_effect(send_async: bool = True) -> None:
             if not email_message.to:
                 raise ValueError("No recipients provided! Use EmailMessage.add_recipient() first!")
 

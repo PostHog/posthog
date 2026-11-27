@@ -250,9 +250,8 @@ A dropped notification queues no email, so a flags service error means the perso
 A notification or an email queue that raises leaves the recipient in place, and the next pass that makes a cohort of the team ready tries again.
 On that pass `create_notification` returns the notification it stored before, so the email is queued again.
 The notification's idempotency key and the email's campaign key both hold the cohort and the turn-on time, so one turn-on sends at most one notification and one email.
-The recipient is clear once the email is queued, so a failed send is retried only by the task itself.
-A transport error or an email the provider did not accept raises, and the task tries again up to 3 times, after 5, 10 and 20 seconds, then fails.
-An address the provider refuses as undeliverable is not retried.
+The recipient is clear once the email is queued, so the finalizer does not queue it again.
+The task hands the message to the shared send task in `posthog/email.py`, which retries a failed send on the transport's own schedule and skips an address the provider refuses as undeliverable.
 An email queued while a worker on the email queue runs a release without the task is discarded by that worker, and the recipient is already clear, so it is not sent.
 A recipient stays set, and nothing sends until another cohort of the team becomes ready, in these cases:
 

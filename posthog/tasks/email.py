@@ -1426,20 +1426,9 @@ def send_cohort_realtime_ready_email(
         },
     )
     message.add_user_recipient(user)
-    # Eager retries inside `send` end in a returned failure, which this task would finish as a success. Without them a
-    # transport error raises here, and an unaccepted email raises below, so the task's own retries run.
-    if message.send(send_async=False, retry=False):
-        logger.info("send_cohort_realtime_ready_email.undeliverable", cohort_id=cohort_id, campaign_key=campaign_key)
-        return
-    raise_if_delivery_rejected(campaign_key, user.email)
-
-    with ph_scoped_capture() as capture:
-        capture(
-            distinct_id=str(user.distinct_id),
-            event="cohort realtime ready email sent",
-            properties={"$update_person_last_seen_at": False, "cohort_id": cohort_id, "team_id": team_id},
-            groups=groups(team=team),
-        )
+    # The finalizer clears the recipient once this task is queued, so nothing queues it again. Hand the message to the
+    # shared send task, whose retries outlast a provider outage that this task's short retries would not.
+    message.send()
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
