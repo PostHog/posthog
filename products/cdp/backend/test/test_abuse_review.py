@@ -43,7 +43,7 @@ def model_message(text: str, *, stop_reason: str = "end_turn", **extra: Any) -> 
         "id": "msg_test",
         "type": "message",
         "role": "assistant",
-        "model": "claude-opus-5-5",
+        "model": "claude-opus-4-8",
         "content": [{"type": "thinking", "thinking": "", "signature": "sig"}, {"type": "text", "text": text}],
         "stop_reason": stop_reason,
         "stop_sequence": None,
@@ -339,7 +339,7 @@ class TestAbuseReviewJudge(AbuseClassificationTestCase):
             findings=tuple(PROBE_FINDINGS),
             suggested_action=SuggestedAction.DEACTIVATE_ORG,
             admin_reason=PROBE_REASON,
-            model="claude-opus-5-5",
+            model="claude-opus-4-8",
             latency_ms=result.latency_ms if isinstance(result, Review) else 0.0,
             input_tokens=4200,
             output_tokens=300,
@@ -349,7 +349,7 @@ class TestAbuseReviewJudge(AbuseClassificationTestCase):
         assert request.url.path == "/v1/messages"
         assert request.headers["X-PostHog-Privacy-Mode"] == "true"
         assert request.headers["X-PostHog-Billable"] == "false"
-        assert body["model"] == "claude-opus-5-5"
+        assert body["model"] == "claude-opus-4-8"
         assert body["output_config"]["format"]["schema"]["properties"]["verdict"]["enum"] == [
             "true_positive",
             "false_positive",
@@ -446,30 +446,26 @@ class TestAbuseReviewJudge(AbuseClassificationTestCase):
     def asked_models(self) -> list[str]:
         return [json.loads(request.content)["model"] for request in self.gateway.requests]
 
-    def test_a_refusal_is_retried_on_the_next_model(self) -> None:
-        refusal = model_message("", stop_reason="refusal", stop_details={"type": "refusal", "category": "cyber"})
-        answer = {**model_message(json.dumps(PROBE_VERDICT)), "model": "claude-opus-4-8"}
-        self.reply_in_turn(httpx.Response(200, json=refusal), httpx.Response(200, json=answer))
+    def test_an_invalid_answer_is_asked_again_once(self) -> None:
+        invalid = model_message(json.dumps({**PROBE_VERDICT, "findings": ["seen"] * 6}))
+        self.reply_in_turn(
+            httpx.Response(200, json=invalid), httpx.Response(200, json=model_message(json.dumps(PROBE_VERDICT)))
+        )
 
         result = self.review()
 
         assert isinstance(result, Review)
-        assert (result.verdict, result.model, result.refused_by, result.refusal_category) == (
-            Verdict.TRUE_POSITIVE,
-            "claude-opus-4-8",
-            "claude-opus-5-5",
-            "cyber",
-        )
-        assert self.asked_models() == ["claude-opus-5-5", "claude-opus-4-8"]
+        assert result.verdict is Verdict.TRUE_POSITIVE
+        assert self.asked_models() == ["claude-opus-4-8", "claude-opus-4-8"]
 
-    def test_a_refusal_from_every_model_keeps_its_category(self) -> None:
+    def test_a_refusal_keeps_its_category_and_is_not_asked_again(self) -> None:
         self.gateway.response = httpx.Response(
             200,
             json=model_message("", stop_reason="refusal", stop_details={"type": "refusal", "category": "cyber"}),
         )
 
         assert self.review() == ReviewFailure(reason=ReviewFailureReason.REFUSED, refusal_category="cyber")
-        assert self.asked_models() == ["claude-opus-5-5", "claude-opus-4-8"]
+        assert self.asked_models() == ["claude-opus-4-8"]
 
     def test_a_gateway_error_is_a_typed_failure(self) -> None:
         self.gateway.response = httpx.Response(400, json={"type": "error", "error": {"type": "invalid_request_error"}})

@@ -2,7 +2,6 @@
 with a verdict and a suggested action. It only suggests: nothing here acts on the answer."""
 
 import time
-from dataclasses import replace
 from enum import StrEnum
 from typing import Annotated
 
@@ -15,9 +14,9 @@ from posthog.llm.gateway_client import GatewayNotConfiguredError, build_anthropi
 
 from products.cdp.backend.abuse.case_file import CaseFile
 
-# Tried in order. Opus 5.5's cyber safeguards refuse case files that hold working attack code, which are the cases
-# this review exists for, and the gateway's server-side fallback does not rescue them. Opus 4.8 answers those.
-REVIEW_MODELS = ("claude-opus-5-5", "claude-opus-4-8")
+# Not Opus 5.5: its cyber safeguards refuse case files that hold working attack code, which are the cases this
+# review exists for, and the gateway's server-side fallback does not rescue them. Opus 4.8 answers them.
+REVIEW_MODEL = "claude-opus-4-8"
 AI_PRODUCT = "cdp_abuse_review"
 MAX_FINDINGS = 5
 MAX_FINDING_CHARS = 500
@@ -161,8 +160,6 @@ class Review:
     latency_ms: float
     input_tokens: int
     output_tokens: int
-    refused_by: str | None = None
-    refusal_category: str | None = None
 
 
 class ReviewFailureReason(StrEnum):
@@ -188,23 +185,18 @@ def review_case(case_file: CaseFile, *, team_id: int) -> Review | ReviewFailure:
     except GatewayNotConfiguredError:
         return ReviewFailure(reason=ReviewFailureReason.NOT_CONFIGURED)
     started = time.monotonic()
-    first_refusal: tuple[str, ReviewFailure] | None = None
     with client:
-        for model in REVIEW_MODELS:
-            result = _ask(client, model, case_file, started)
-            if not (isinstance(result, ReviewFailure) and result.reason is ReviewFailureReason.REFUSED):
-                break
-            first_refusal = first_refusal or (model, result)
-    if isinstance(result, Review) and first_refusal is not None:
-        refused_by, refusal = first_refusal
-        return replace(result, refused_by=refused_by, refusal_category=refusal.refusal_category)
+        result = _ask(client, case_file, started)
+        # A rare answer breaks a length or shape rule of the strict parse. A second answer usually passes.
+        if isinstance(result, ReviewFailure) and result.reason is ReviewFailureReason.INVALID_ANSWER:
+            result = _ask(client, case_file, started)
     return result
 
 
-def _ask(client: anthropic.Anthropic, model: str, case_file: CaseFile, started: float) -> Review | ReviewFailure:
+def _ask(client: anthropic.Anthropic, case_file: CaseFile, started: float) -> Review | ReviewFailure:
     try:
         response = client.with_options(max_retries=1, timeout=REQUEST_TIMEOUT_SECONDS).messages.create(
-            model=model,
+            model=REVIEW_MODEL,
             max_tokens=MAX_OUTPUT_TOKENS,
             system=SYSTEM_PROMPT,
             messages=[_case_message(case_file)],
