@@ -116,20 +116,18 @@ _HELD = Q(legacy_configuration_id__isnull=True) | Q(owner=PlatformAlertOwner.PLA
 def _readable(
     team_id: int,
     source_kinds: Sequence[str],
-    reader: PlatformAlertReader | None = None,
-    configuration_id: UUID | None = None,
+    where: Q,
+    reader: PlatformAlertReader | None,
 ) -> QuerySet[PlatformAlertConfiguration]:
-    """Configurations of the given kinds belonging to `team_id`, instances prefetched.
+    """Configurations of the given kinds belonging to `team_id` that match `where`, instances prefetched.
 
     The caller resolves which kinds it may read, because that depends on the caller's grants
     rather than on anything this product knows.
     """
     instances = PlatformAlert.objects.for_team(team_id, canonical=True).order_by("grouping_key")
     rows = PlatformAlertConfiguration.objects.for_team(team_id, canonical=True).filter(
-        source_kind__in=list(source_kinds)
+        where, source_kind__in=list(source_kinds)
     )
-    if configuration_id is not None:
-        rows = rows.filter(id=configuration_id)
     if reader is not None:
         rows = rows.filter(_viewable_objects(rows, team_id, source_kinds, reader))
     return rows.prefetch_related(Prefetch("alerts", queryset=instances)).order_by("-created_at", "-id")
@@ -147,11 +145,11 @@ def _viewable_objects(
         access = registered.object_access if registered is not None else None
         if access is None:
             continue
-        key = f"source_config__{access.source_config_key}"
-        watched = set(rows.filter(source_kind=source_kind).values_list(key, flat=True))
+        key = access.source_config_key
+        configs = rows.filter(source_kind=source_kind).values_list("source_config", flat=True)
+        watched = {config.get(key) for config in configs}
         allowed = access.viewable(team_id=team_id, object_ids=watched, reader=reader)
-        # nosemgrep: orm-field-injection -- source_config_key is a constant in the source spec registered in code, not user input
-        viewable &= ~Q(source_kind=source_kind) | Q(**{f"{key}__in": list(allowed)})
+        viewable &= ~Q(source_kind=source_kind) | (_source_config_in(key, allowed) if allowed else Q(pk__in=[]))
     return viewable
 
 
@@ -174,17 +172,20 @@ def list_configurations(
 
     The page is taken in the database rather than in the caller, so a team with many alerts
     costs one page rather than all of them. Slicing keeps the prefetch, which resolves over the
-    page's rows alone.
+    page's rows alone. With a `reader`, a kind whose source checks each alert's object asks the
+    source about the objects of every alert that matches the filters, not only the page's, so the
+    total counts only what the reader may view.
     """
-    readable = _readable(team_id, source_kinds, reader)
+    where = Q()
     if legacy_configuration_id is not None:
-        readable = readable.filter(legacy_configuration_id=legacy_configuration_id)
+        where &= Q(legacy_configuration_id=legacy_configuration_id)
     if configuration_ids is not None:
-        readable = readable.filter(id__in=list(configuration_ids))
+        where &= Q(id__in=list(configuration_ids))
     if created_by_uuid is not None:
-        readable = readable.filter(created_by__uuid=created_by_uuid)
+        where &= Q(created_by__uuid=created_by_uuid)
     if held_only:
-        readable = readable.filter(_HELD)
+        where &= _HELD
+    readable = _readable(team_id, source_kinds, where, reader)
     return PlatformAlertConfigurationPage(
         configurations=tuple(_configuration_view(row) for row in readable[offset : offset + limit]),
         total=readable.count(),
@@ -594,7 +595,7 @@ def get_configuration(
 
     With `lock`, the row stays locked until the caller's transaction ends, so a delete waits for it.
     """
-    rows = _readable(team_id, source_kinds, reader, configuration_id)
+    rows = _readable(team_id, source_kinds, Q(id=configuration_id), reader)
     if lock:
         rows = rows.select_for_update(no_key=True)
     row = rows.first()
