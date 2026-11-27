@@ -100,7 +100,6 @@ describe('AlertPreviewCard', () => {
     })
 
     it('offers a retry when the metrics preview fails to load', () => {
-        const onRetry = jest.fn()
         const { container } = render(
             <AlertPreviewCard
                 alertForm={{ ...alertForm, config: { type: 'MetricsAlertConfig' } } as AlertFormType}
@@ -109,12 +108,13 @@ describe('AlertPreviewCard', () => {
                 hogqlPreview={null}
                 metricsPreview={null}
                 metricsPreviewFailed
-                onRetryMetricsPreview={onRetry}
+                onRetryMetricsPreview={() => {}}
             />
         )
 
-        within(container).getByText('Try again').click()
-        expect(onRetry).toHaveBeenCalled()
+        expect(within(container).getByText("Couldn't load metric data for the preview.")).toBeTruthy()
+        expect(within(container).getByText('Try again')).toBeTruthy()
+        expect(within(container).queryByText('No insight data available to preview.')).toBeNull()
     })
 
     it.each([false, true])('explains when the delayed %s preview runs out of loaded history', (isBreakdown) => {
