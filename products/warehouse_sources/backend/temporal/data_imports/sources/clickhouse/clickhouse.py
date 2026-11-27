@@ -1634,12 +1634,13 @@ _UNSIGNED_TO_SIGNED_WIDER: dict[pa.DataType, pa.DataType] = {
 
 
 def _widen_unsigned_integers(table: pa.Table) -> pa.Table:
-    fields = [
-        field.with_type(_UNSIGNED_TO_SIGNED_WIDER[field.type]) if field.type in _UNSIGNED_TO_SIGNED_WIDER else field
-        for field in table.schema
-    ]
-    target = pa.schema(fields, metadata=table.schema.metadata)
-    return table if target.equals(table.schema) else table.cast(target)
+    source = table.schema
+    target = source
+    for index, field in enumerate(source):
+        wider = _UNSIGNED_TO_SIGNED_WIDER.get(field.type)
+        if wider is not None:
+            target = target.set(index, field.with_type(wider))
+    return table if target is source else table.cast(target)
 
 
 def _native_column_to_arrow(
