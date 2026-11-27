@@ -63,8 +63,10 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.permissions import resource_for_ref
 from posthog.synthetic_user import SyntheticUser
 
+from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationTable,
@@ -73,7 +75,6 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
 from products.authorization.backend.facade import api as authorization
 from products.authorization.backend.facade.contracts import Subject
 from products.authorization.backend.facade.enums import Action
-from products.authorization.backend.presentation.resources import resource_for_object
 from products.experiments.backend.facade.contracts import TargetableExperiment
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.hogql_queries.base_query_utils import experiment_window, experiment_window_end
@@ -165,7 +166,16 @@ def validate_experiment_exposure_access(
     if experiment is None:
         return True
     if not authorization.check(
-        resource=resource_for_object(experiment), action=Action.VIEW, subject=Subject(user_id=user.pk)
+        resource=resource_for_ref(
+            ObjectAccessRef(
+                resource="experiment",
+                id=str(experiment.pk),
+                team_id=experiment.team_id,
+                created_by_id=experiment.created_by_id,
+            )
+        ),
+        action=Action.VIEW,
+        subject=Subject(user_id=user.pk),
     ):
         raise UserAccessControlError("experiment", "viewer", resource_id=str(experiment_id))
     return True

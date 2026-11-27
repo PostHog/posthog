@@ -47,17 +47,18 @@ from posthog.hogql_queries.utils.query_date_range import MAX_DATE_BUCKETS, Query
 from posthog.hogql_queries.utils.timestamp_utils import UNFILTERED_EARLIEST_TIMESTAMP_FLOOR
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.user import User
+from posthog.permissions import resource_for_ref
 from posthog.utils import ensure_utc, get_safe_cache, safe_cache_set
 
 from products.access_control.backend.facade.api import (
     get_restricted_properties_with_group_type_index_for_team,
     split_restricted_property_names,
 )
+from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
 from products.authorization.backend.facade import api as authorization
 from products.authorization.backend.facade.contracts import Subject
 from products.authorization.backend.facade.enums import Action
-from products.authorization.backend.presentation.resources import resource_for_object
 from products.experiments.backend.facade.contracts import (
     ExperimentHealth,
     ExperimentHealthCheckRule,
@@ -437,7 +438,14 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         if self._flag_history_access is None or self._flag_history_access[0] != self.user.pk:
             try:
                 readable = authorization.check(
-                    resource=resource_for_object(self.experiment.feature_flag, team=self.team),
+                    resource=resource_for_ref(
+                        ObjectAccessRef(
+                            resource="feature_flag",
+                            id=str(self.experiment.feature_flag.pk),
+                            team_id=self.team.pk,
+                            created_by_id=self.experiment.feature_flag.created_by_id,
+                        )
+                    ),
                     action=Action.VIEW,
                     subject=Subject(user_id=self.user.pk),
                 )

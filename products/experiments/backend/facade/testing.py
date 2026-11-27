@@ -19,11 +19,10 @@ from typing import Any
 
 from unittest.mock import MagicMock, patch
 
-from django.db.models import QuerySet
-
 from asgiref.sync import sync_to_async
 
 from products.experiments.backend import replay_linkage
+from products.experiments.backend.facade.contracts import ListAccess
 from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import ExposureQueryBuilder
 from products.experiments.backend.logic import access as experiment_access
 from products.experiments.backend.models.experiment import (
@@ -116,10 +115,10 @@ def hide_experiment_from_access_filter(experiment_id: int) -> Iterator[None]:
     """Patch the experiment access filter so that it drops this experiment, as for a viewer without access to it,
     and keeps every other experiment."""
 
-    def filter_queryset(queryset: QuerySet[Experiment], **_: Any) -> QuerySet[Experiment]:
-        return queryset.exclude(pk=experiment_id)
-
-    with patch.object(experiment_access, "filter_queryset", side_effect=filter_queryset):
+    hidden = ListAccess(
+        viewer_id=None, only_allowed=False, allowed_ids=frozenset(), blocked_ids=frozenset({str(experiment_id)})
+    )
+    with patch.object(experiment_access, "list_access", return_value=hidden):
         yield
 
 
