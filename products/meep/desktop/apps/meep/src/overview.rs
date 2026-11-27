@@ -216,7 +216,7 @@ impl Desktop {
                 )
             }
             Tab::Files => {
-                let n = self.file_entries(state).len();
+                let n = self.file_count(state);
                 (Glyph::FileText, n.to_string(), None)
             }
             Tab::Routines => {

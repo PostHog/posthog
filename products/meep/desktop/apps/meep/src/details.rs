@@ -15,7 +15,25 @@ pub(super) struct TopicChatContent {
     linked: std::sync::Arc<Vec<Vec<ChatTask>>>,
     receipts: std::sync::Arc<Vec<Vec<Receipt>>>,
     answering: Option<TaskId>,
+    has_running_tasks: bool,
+    has_task_cards: bool,
     pending_replies: Arc<HashSet<usize>>,
+}
+
+struct TopicChatViewport {
+    desktop: WeakEntity<Desktop>,
+    content: std::rc::Rc<TopicChatContent>,
+    request_row: Option<usize>,
+}
+
+impl Render for TopicChatViewport {
+    fn render(&mut self, w: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.desktop
+            .update(cx, |desktop, cx| {
+                desktop.virtual_topic_chat(&self.content, self.request_row.take(), w, cx)
+            })
+            .unwrap_or_else(|_| div())
+    }
 }
 
 #[derive(Default)]
@@ -406,11 +424,7 @@ impl Desktop {
         )
     }
 
-    fn tick_running_chat_tasks(&self, linked: &[Vec<ChatTask>], cx: &mut Context<Self>) {
-        let running = linked
-            .iter()
-            .flatten()
-            .any(|task| task.column == Column::InProgress);
+    fn tick_running_chat_tasks(&self, running: bool, cx: &mut Context<Self>) {
         if !running || self.chat_tick.replace(true) {
             return;
         }
@@ -3144,6 +3158,11 @@ impl Desktop {
                     .collect(),
             ),
             session: std::sync::Arc::new(session),
+            has_task_cards: linked.iter().any(|tasks| !tasks.is_empty()),
+            has_running_tasks: linked
+                .iter()
+                .flatten()
+                .any(|task| task.column == Column::InProgress),
             linked: std::sync::Arc::new(linked),
             receipts,
             answering,
@@ -3165,7 +3184,7 @@ impl Desktop {
         let session = content.session.clone();
         let linked = content.linked.clone();
         let answering = content.answering;
-        self.tick_running_chat_tasks(&linked, cx);
+        self.tick_running_chat_tasks(content.has_running_tasks, cx);
         let reduced = cx.reduce_motion();
         self.activity
             .update(cx, |a, cx| a.set_active(answering.is_some(), reduced, cx));
@@ -3247,8 +3266,31 @@ impl Desktop {
                 .child(starters)
         }
         let stream = if virtual_chat {
-            self.virtual_topic_chat(state, &content, request_row, w, cx)
-                .into_any_element()
+            let desktop = cx.weak_entity();
+            let viewport = w.use_keyed_state("topic-chat-viewport", cx, |_, _| TopicChatViewport {
+                desktop,
+                content: content.clone(),
+                request_row: None,
+            });
+            let changed = !std::rc::Rc::ptr_eq(&viewport.read(cx).content, &content);
+            if changed || request_row.is_some() {
+                viewport.update(cx, |view, cx| {
+                    view.content = content.clone();
+                    view.request_row = request_row;
+                    cx.notify();
+                });
+            }
+            if !content.has_task_cards
+                && content.answering.is_none()
+                && request_row.is_none()
+                && !gpui_kit::base::TextSelection::has_selection(w, cx)
+            {
+                viewport
+                    .cached(StyleRefinement::default().flex_1().min_h_0().w_full())
+                    .into_any_element()
+            } else {
+                viewport.into_any_element()
+            }
         } else {
             stream = stream.track_scroll(&self.content_scroll);
             if let Some(index) = request_row {
@@ -3385,7 +3427,6 @@ impl Desktop {
     }
     fn virtual_topic_chat(
         &self,
-        state: &TopicState,
         content: &TopicChatContent,
         request_row: Option<usize>,
         w: &mut Window,
@@ -3394,7 +3435,7 @@ impl Desktop {
         let session = content.session.clone();
         let linked = content.linked.clone();
         let receipts = content.receipts.clone();
-        let topic = state.topic.id;
+        let topic = content.topic;
         let selecting = gpui_kit::base::TextSelection::has_selection(w, cx);
         let count = if selecting { 1 } else { session.messages.len() };
         let pending_replies = content.pending_replies.clone();

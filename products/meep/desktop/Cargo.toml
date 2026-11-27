@@ -9,3 +9,10 @@ members = ["crates/*", "apps/*", "examples/desktop"]
 [profile.dev]
 debug = "line-tables-only"
 split-debuginfo = "packed"
+
+[profile.dev.package]
+gpui-base = { opt-level = 3 }
+gpui-component = { opt-level = 3 }
+gpui-pre = { opt-level = 3 }
+taffy = { opt-level = 3 }
+rquickjs-sys = { opt-level = 3 }

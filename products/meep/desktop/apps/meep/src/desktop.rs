@@ -304,6 +304,7 @@ pub(super) struct Desktop {
     pub draft: Entity<TextareaState>,
     pub composer: Entity<TextareaState>,
     pub error: Option<String>,
+    pub(super) rejection: Option<RejectedCommand>,
     pub expanded: HashSet<String>,
     pub activity: Entity<ActivityIndicator>,
     /// Spins in a sidebar row while that topic's or view's agent works.
@@ -311,6 +312,12 @@ pub(super) struct Desktop {
     /// The topic status card shown beside a hovered sidebar row.
     pub topic_card: super::topic_card::TopicCard,
     sync: tokio::task::JoinHandle<()>,
+}
+
+pub(super) struct RejectedCommand {
+    pub id: meep_topic::CommandId,
+    pub reason: String,
+    pub file_path: Option<String>,
 }
 
 impl Drop for Desktop {
@@ -374,6 +381,10 @@ impl Desktop {
                             Err(RecvError::Lagged(_)) => {
                                 s.reload();
                                 s.load_run(w, cx);
+                            }
+                            Ok(meep_client::Event::Rejected { .. }) => {
+                                s.reload_rejection();
+                                s.reload_attention();
                             }
                             _ => s.reload_attention(),
                         }
@@ -656,6 +667,7 @@ impl Desktop {
             draft,
             composer,
             error: None,
+            rejection: None,
             expanded: Default::default(),
             activity: cx.new(|_| ActivityIndicator::default()),
             sidebar_activity: cx.new(|_| ActivityIndicator::sidebar()),
@@ -703,7 +715,19 @@ impl Desktop {
     pub(super) fn client(&self) -> &Client {
         &self.backend.client
     }
+    pub(super) fn reload_rejection(&mut self) {
+        self.rejection = self.client().rejections().ok().and_then(|rows| {
+            let (id, reason) = rows.into_iter().next()?;
+            Some(RejectedCommand {
+                id,
+                reason,
+                file_path: self.client().rejected_file_path(id).ok().flatten(),
+            })
+        });
+    }
+
     pub(super) fn reload(&mut self) {
+        self.reload_rejection();
         // Archived topics stay in the sidebar's Archived group, where they can be restored.
         match self.client().topics().and_then(|mut v| {
             v.extend(self.client().archived_topics()?);
@@ -847,6 +871,7 @@ impl Desktop {
             match res {
                 Ok(i) => {
                     s.identity = Some(i);
+                    s.reload_rejection();
                     s.page = Page::Needs;
                 }
                 Err(e) => s.fail(e),

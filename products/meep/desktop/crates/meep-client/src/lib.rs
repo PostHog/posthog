@@ -501,6 +501,9 @@ impl Client {
         for row in statement.query_map([topic.to_string()], |row| row.get(0))? {
             names.insert(row?);
         }
+        if names.is_empty() {
+            return Ok(Vec::new());
+        }
         let deleted = replica::deleted_files(&db, topic)?;
         names.retain(|path| !deleted.contains_key(path));
         Ok(names.into_iter().collect())

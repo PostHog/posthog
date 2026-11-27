@@ -160,10 +160,25 @@ fn glyph_for(path: &str, entry: &Entry) -> Glyph {
 impl Desktop {
     /// Every file in the topic's tree and what it holds.
     pub(super) fn file_entries(&self, state: &TopicState) -> BTreeMap<String, Entry> {
-        let id = state.topic.id;
+        let mut out = self.topic_file_entries(state);
+        if let Some(Ok(artifacts)) = self.artifacts.get(&state.topic.id) {
+            place_artifacts(state, artifacts, &mut out);
+        }
+        out
+    }
+
+    pub(super) fn file_count(&self, state: &TopicState) -> usize {
+        let artifacts = self
+            .artifacts
+            .get(&state.topic.id)
+            .and_then(|result| result.as_ref().ok());
+        self.topic_file_entries(state).len() + artifacts.map_or(0, Vec::len)
+    }
+
+    fn topic_file_entries(&self, state: &TopicState) -> BTreeMap<String, Entry> {
         let mut out: BTreeMap<String, Entry> = self
             .client()
-            .cached_files(id)
+            .cached_files(state.topic.id)
             .unwrap_or_default()
             .into_iter()
             .map(|p| (p, Entry::File))
@@ -174,9 +189,6 @@ impl Desktop {
                     out.entry(p.clone()).or_insert(Entry::File);
                 }
             }
-        }
-        if let Some(Ok(artifacts)) = self.artifacts.get(&id) {
-            place_artifacts(state, artifacts, &mut out);
         }
         out
     }

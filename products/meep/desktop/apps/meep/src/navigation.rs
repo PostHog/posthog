@@ -431,6 +431,7 @@ impl Desktop {
             w,
             cx,
             |s, result, _, _| {
+                s.reload_rejection();
                 if let Err(error) = result {
                     s.fail(error);
                 }
@@ -2542,35 +2543,22 @@ impl Render for Desktop {
                 Page::Settings | Page::View(_) | Page::NewView => {}
             }
         }
-        let rejection = self
-            .identity
-            .as_ref()
-            .and_then(|_| self.client().rejections().ok())
-            .and_then(|r| r.into_iter().next());
-        let dismissed = self
-            .error
-            .is_none()
-            .then(|| rejection.as_ref().map(|r| r.0))
-            .flatten();
-        let recovery = dismissed.and_then(|id| {
-            self.client()
-                .rejected_file_path(id)
-                .ok()
-                .flatten()
-                .map(|path| (id, path))
-        });
+        let rejection = self.identity.as_ref().and(self.rejection.as_ref());
+        let dismissible = rejection.filter(|_| self.error.is_none());
+        let dismissed = dismissible.map(|r| r.id);
+        let recovery = dismissible.and_then(|r| r.file_path.clone().map(|path| (r.id, path)));
         // Failures float as one of View's toast cards in the pane's corner:
         // a plain sentence first, what to do next beside it.
         let toast_key = self
             .error
             .as_deref()
-            .or(rejection.as_ref().map(|r| r.1.as_str()))
+            .or(rejection.map(|r| r.reason.as_str()))
             .map(|e| e.len())
             .unwrap_or(0);
         let toast = self
             .error
             .clone()
-            .or_else(|| rejection.as_ref().map(|r| r.1.clone()))
+            .or_else(|| rejection.map(|r| r.reason.clone()))
             .map(|e| {
                 let (title, body) = match &recovery {
                     Some((_, path)) => (
@@ -2599,7 +2587,8 @@ impl Render for Desktop {
                             move |s, _, _| {
                                 s.error = dismissed
                                     .and_then(|id| s.client().dismiss_rejection(id).err())
-                                    .map(|e| e.to_string())
+                                    .map(|e| e.to_string());
+                                s.reload_rejection()
                             },
                         ));
                 }
@@ -2670,6 +2659,7 @@ impl Render for Desktop {
                                 s.error = dismissed
                                     .and_then(|id| s.client().dismiss_rejection(id).err())
                                     .map(|e| e.to_string());
+                                s.reload_rejection();
                                 cx.notify()
                             })),
                     )
@@ -2704,13 +2694,13 @@ impl Render for Desktop {
             .should_render()
             .then(|| overview_topic.or(self.overview_leaving))
             .flatten()
-            .and_then(|topic| self.states.iter().find(|s| s.topic.id == topic).cloned());
+            .and_then(|topic| self.states.iter().find(|s| s.topic.id == topic));
         let overview_pane = overview_state.map(|state| {
             side_pane(
                 "topic-overview-slot",
                 super::overview::WIDTH,
                 overview_presence.progress,
-                self.overview(&state, cx),
+                self.overview(state, cx),
             )
         });
         let sheet_open = self.sheet.clone().filter(|s| !matches!(s, Sheet::New));
