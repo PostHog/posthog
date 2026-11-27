@@ -1,6 +1,18 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
-import { Button, Skeleton, Tabs, TabsContent, TabsList, TabsTrigger, Text } from '@posthog/quill'
+import { IconInfo } from '@posthog/icons'
+import {
+    Button,
+    Skeleton,
+    Tabs,
+    TabsContent,
+    TabsList,
+    TabsTrigger,
+    Text,
+    Tooltip,
+    TooltipContent,
+    TooltipTrigger,
+} from '@posthog/quill'
 
 import { pluralize } from 'lib/utils/strings'
 
@@ -13,6 +25,8 @@ import {
     contentAutopilotSearchDetailLogic,
 } from './contentAutopilotSearchDetailLogic'
 import { ContentAutopilotSiteLabel } from './ContentAutopilotSiteLabel'
+
+const SHARE_GRID = 'grid list-none grid-cols-[minmax(0,1fr)_minmax(8rem,40%)] items-center gap-3'
 
 const TABS: { key: SearchDetailTab; label: string }[] = [
     { key: 'sites', label: 'Cited sites' },
@@ -69,22 +83,14 @@ const SearchDetail = ({
     const lookupWindow = { dateFrom: detail.window_from, dateTo: detail.window_to, branded }
     return (
         <div className="flex flex-col gap-2 px-3 py-2" data-attr="content-autopilot-search-detail">
-            <Text size="xs" variant="muted" className="m-0">
-                Ran in {pluralize(detail.answers, 'answer')} on {pluralize(detail.prompts, 'prompt')}.{' '}
-                {detail.target_rank
-                    ? `Your site is #${detail.target_rank} of ${pluralize(detail.domains_cited, 'cited site')}.`
-                    : 'Your site was not cited in these answers.'}
-            </Text>
-            {detail.keywords.length > 0 && (
-                <div className="flex flex-wrap items-center gap-1">
-                    <Text size="xs" variant="muted" className="m-0">
-                        Tracked keywords:
-                    </Text>
-                    {detail.keywords.map((keyword) => (
-                        <AiVisibilityTag key={keyword}>{keyword}</AiVisibilityTag>
-                    ))}
-                </div>
-            )}
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <Text size="xs" variant="muted" className="m-0">
+                    {pluralize(detail.answers, 'answer')} · {pluralize(detail.prompts, 'prompt')}
+                </Text>
+                {detail.keywords.map((keyword) => (
+                    <AiVisibilityTag key={keyword}>{keyword}</AiVisibilityTag>
+                ))}
+            </div>
             <Tabs value={tab} onValueChange={(value: SearchDetailTab) => setTab(value)}>
                 <TabsList variant="line">
                     {TABS.map(({ key, label }) => (
@@ -97,30 +103,24 @@ const SearchDetail = ({
                     {detail.domains.length === 0 ? (
                         <EmptyLine>No answer that ran this search cited a site.</EmptyLine>
                     ) : (
-                        <>
-                            <ul className="m-0 flex flex-col gap-1 p-0">
-                                {detail.domains.map((domain) => (
-                                    <ShareRow
-                                        key={domain.domain}
-                                        share={domain.share_of_answers}
-                                        tooltip={`Cited in ${pluralize(domain.answers, 'answer')} of ${detail.answers}`}
-                                    >
-                                        <ContentAutopilotSiteLabel domain={domain.domain} isTarget={domain.is_target}>
-                                            <ContentAutopilotCitationsLink
-                                                lookup={{ kind: 'domain', value: domain.domain, ...lookupWindow }}
-                                                source="overview-search-detail-sites"
-                                            >
-                                                {domain.domain}
-                                            </ContentAutopilotCitationsLink>
-                                        </ContentAutopilotSiteLabel>
-                                    </ShareRow>
-                                ))}
-                            </ul>
-                            <Text size="xs" variant="muted" className="m-0 mt-2">
-                                Share of the answers that ran this search and cited the site. Answers usually run
-                                several searches, so a site can come from another search in the same answer.
-                            </Text>
-                        </>
+                        <ul className="m-0 flex flex-col gap-1 p-0">
+                            <ShareHeader
+                                label="Site"
+                                tooltip="Share of the answers that ran this search and cited the site. Answers usually run several searches, so the site can come from another search in the same answer."
+                            />
+                            {detail.domains.map((domain) => (
+                                <ShareRow key={domain.domain} share={domain.share_of_answers}>
+                                    <ContentAutopilotSiteLabel domain={domain.domain} isTarget={domain.is_target}>
+                                        <ContentAutopilotCitationsLink
+                                            lookup={{ kind: 'domain', value: domain.domain, ...lookupWindow }}
+                                            source="overview-search-detail-sites"
+                                        >
+                                            {domain.domain}
+                                        </ContentAutopilotCitationsLink>
+                                    </ContentAutopilotSiteLabel>
+                                </ShareRow>
+                            ))}
+                        </ul>
                     )}
                 </TabsContent>
                 <TabsContent value="searches">
@@ -128,12 +128,12 @@ const SearchDetail = ({
                         <EmptyLine>The answers that ran this search ran no other search.</EmptyLine>
                     ) : (
                         <ul className="m-0 flex flex-col gap-1 p-0">
+                            <ShareHeader
+                                label="Search"
+                                tooltip="Share of the answers that ran this search and also ran the other one."
+                            />
                             {detail.related_searches.map((related) => (
-                                <ShareRow
-                                    key={related.query}
-                                    share={related.share_of_answers}
-                                    tooltip={`Ran together in ${pluralize(related.answers, 'answer')} of ${detail.answers}`}
-                                >
+                                <ShareRow key={related.query} share={related.share_of_answers}>
                                     <ContentAutopilotCitationsLink
                                         lookup={{ kind: 'search', value: related.query, ...lookupWindow }}
                                         source="overview-search-detail-searches"
@@ -147,11 +147,6 @@ const SearchDetail = ({
                     )}
                 </TabsContent>
                 <TabsContent value="prompts">
-                    <Text size="xs" variant="muted" className="m-0 mb-1">
-                        {detail.prompts > detail.top_prompts.length
-                            ? `Top ${detail.top_prompts.length} of ${pluralize(detail.prompts, 'prompt')} that ran this search`
-                            : 'Prompts that ran this search'}
-                    </Text>
                     <ul className="m-0 flex flex-col gap-1 p-0">
                         {detail.top_prompts.map((prompt) => (
                             <li key={prompt.id} className="list-none">
@@ -174,18 +169,25 @@ const SearchDetail = ({
     )
 }
 
-const ShareRow = ({
-    share,
-    tooltip,
-    children,
-}: {
-    share: number
-    tooltip: string
-    children: React.ReactNode
-}): JSX.Element => (
-    <li className="grid list-none grid-cols-[minmax(0,1fr)_minmax(8rem,40%)] items-center gap-3">
+const ShareHeader = ({ label, tooltip }: { label: string; tooltip: string }): JSX.Element => (
+    <li className={`${SHARE_GRID} text-xs text-muted-foreground`}>
+        <span>{label}</span>
+        <span className="inline-flex items-center gap-1">
+            Share of answers
+            <Tooltip>
+                <TooltipTrigger delay={0} render={<span aria-label={tooltip} />}>
+                    <IconInfo />
+                </TooltipTrigger>
+                <TooltipContent className="max-w-80">{tooltip}</TooltipContent>
+            </Tooltip>
+        </span>
+    </li>
+)
+
+const ShareRow = ({ share, children }: { share: number; children: React.ReactNode }): JSX.Element => (
+    <li className={SHARE_GRID}>
         <span className="flex min-w-0">{children}</span>
-        <ContentAutopilotRateBar rate={share} tooltip={tooltip} />
+        <ContentAutopilotRateBar rate={share} />
     </li>
 )
 
