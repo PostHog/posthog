@@ -29,6 +29,8 @@ export function resolveContextWikiPath(
 }
 
 // The directories that hold content pages, as the server's wiki linter defines them.
+// Customers name other project subdirectories, so those names must not leave the sandbox as kinds.
+const PROJECT_PAGE_KINDS = new Set(["spaces", "slack-channels"]);
 const CONTENT_PAGE_DIRECTORIES = new Set([
   "org",
   "areas",
@@ -67,7 +69,9 @@ export function contextWikiPageKind(relativePath: string): string | undefined {
     return undefined;
   }
   if (parts[0] !== "projects") return parts[0];
-  return parts.length >= 4 ? parts[2] : "project";
+  return parts.length >= 4 && PROJECT_PAGE_KINDS.has(parts[2])
+    ? parts[2]
+    : "project";
 }
 
 /**

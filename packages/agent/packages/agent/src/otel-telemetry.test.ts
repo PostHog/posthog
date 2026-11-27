@@ -811,6 +811,13 @@ describe("OtelRunTelemetry", () => {
               'call task-context-wiki-page-retrieve {"path": "projects/2/slack-channels/C0123ABCD.md"}',
           },
         });
+        tool("project-folder", "other", "completed", [], [], {
+          _meta: { claudeCode: { toolName: "mcp__posthog__exec" } },
+          rawInput: {
+            command:
+              'call task-context-wiki-page-retrieve {"path": "projects/2/customer-merger/plan.md"}',
+          },
+        });
         await telemetry.shutdown();
 
         const byId = (id: string) =>
@@ -834,6 +841,10 @@ describe("OtelRunTelemetry", () => {
           context_wiki_page_reads: 1,
           context_wiki_page_kinds: "slack-channels",
         });
+        expect(byId("project-folder")).toMatchObject({
+          context_wiki_page_reads: 1,
+          context_wiki_page_kinds: "project",
+        });
         const surface = JSON.stringify(
           exportedSpans().map((span) => span.attributes),
         );
@@ -841,6 +852,7 @@ describe("OtelRunTelemetry", () => {
         expect(surface).not.toContain("growth");
         expect(surface).not.toContain("pricing");
         expect(surface).not.toContain("C0123ABCD");
+        expect(surface).not.toContain("customer-merger");
       } finally {
         rmSync(wiki, { recursive: true, force: true });
       }
