@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import http from "node:http";
+import { taskModelsUrl } from "@posthog/agent/gateway-models";
 import {
   ROOT_LOGGER,
   type RootLogger,
@@ -32,13 +33,14 @@ import {
 
 export { MAX_BODY_BYTES, PROXY_TIMEOUTS } from "./proxy-http";
 
-interface LegacyTarget {
-  kind: "legacy";
-  gatewayUrl: string;
+/** Forwards to a fixed upstream (the PostHog API host) under the user's credential. */
+interface ForwardTarget {
+  kind: "forward";
+  upstreamUrl: string;
   headers: Record<string, string>;
 }
 
-type ProxyTarget = LegacyTarget | SessionTarget;
+type ProxyTarget = ForwardTarget | SessionTarget;
 
 @injectable()
 export class AuthProxyService {
@@ -67,18 +69,21 @@ export class AuthProxyService {
       log: this.log,
       fetchImpl: fetchImpl ?? ((url, init) => fetch(url, init)),
       source: () => this.requireSource(),
-      forwardLegacy: (url, options, res, abort) =>
-        this.forwardRequest(url, options, res, abort),
+      listTaskModels: async (projectId, signal) =>
+        this.auth.authenticatedFetch(
+          taskModelsUrl(await this.auth.apiHost(), projectId),
+          { signal, redirect: "manual" },
+        ),
     });
   }
 
   async start(
-    gatewayUrl: string,
+    upstreamUrl: string,
     headers: Record<string, string> = {},
   ): Promise<string> {
-    return this.register(["legacy", gatewayUrl], {
-      kind: "legacy",
-      gatewayUrl,
+    return this.register(["forward", upstreamUrl], {
+      kind: "forward",
+      upstreamUrl,
       headers: { ...headers },
     });
   }
@@ -89,14 +94,12 @@ export class AuthProxyService {
    */
   async startGatewaySession(input: {
     projectId: number;
-    legacyGatewayUrl: string;
     headers?: Record<string, string>;
   }): Promise<string> {
     this.requireSource();
-    return this.register(["session", input.projectId, input.legacyGatewayUrl], {
+    return this.register(["session", input.projectId], {
       kind: "session",
       projectId: input.projectId,
-      legacyGatewayUrl: input.legacyGatewayUrl,
       headers: { ...(input.headers ?? {}) },
     });
   }
@@ -205,9 +208,9 @@ export class AuthProxyService {
       return;
     }
 
-    const base = target.gatewayUrl.endsWith("/")
-      ? target.gatewayUrl
-      : `${target.gatewayUrl}/`;
+    const base = target.upstreamUrl.endsWith("/")
+      ? target.upstreamUrl
+      : `${target.upstreamUrl}/`;
     const targetPath = `${match?.[2] ?? "/"}${incomingUrl.search}`;
     const targetUrl = new URL(targetPath.replace(/^\//, ""), base);
 

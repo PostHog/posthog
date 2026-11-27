@@ -21,6 +21,7 @@ from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.workload import Workload
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.dataclasses import frozen
+from posthog.egress.github.limiter import github_installation_pace_seconds
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
 from posthog.event_usage import groups
@@ -61,11 +62,13 @@ from products.signals.backend.inbox_push_notifications import notify_pull_reques
 from products.signals.backend.inbox_summary import github_datetime, sync_pull_request_participants
 from products.signals.backend.models import (
     SignalReport,
+    SignalReportArtefact,
     SignalReportPullRequest,
     SignalReportRefund,
     SignalReportTrackerIssue,
     SignalRepositoryAreaActivity,
     SignalScoutEmission,
+    SignalScoutMessageDelivery,
     SignalScoutRun,
     SignalScratchpad,
     SignalScratchpadRevision,
@@ -74,6 +77,7 @@ from products.signals.backend.personal_ranking_tasks import build_personal_inbox
 from products.signals.backend.pr_origin import write_origin_section
 from products.signals.backend.pull_request_body import BodyEditOutcome
 from products.signals.backend.pull_request_label import apply_pull_request_label
+from products.signals.backend.pull_request_merger import PullRequestMerger
 from products.signals.backend.pull_requests import update_pull_request_review_decision, update_pull_request_state
 from products.signals.backend.rated_usage_tasks import (
     enqueue_signals_rated_usage as enqueue_signals_rated_usage,
@@ -105,7 +109,9 @@ from products.signals.backend.scout_harness.slack_delivery import (
     _slack_integration_for_project,
     clear_latest_scout_report_delivery,
     mark_latest_scout_report_delivery,
+    mark_scout_message_delivery_failed,
     post_scout_emission_to_slack,
+    post_scout_message_to_slack,
     post_scout_report_to_slack,
     slack_api_error_code,
 )
@@ -212,7 +218,78 @@ def refresh_linked_pull_request_state(self: Task, team_id: int, pr_url: str) -> 
         number=details.number,
         state=details.state,
         merged_at=details.merged_at,
+        merged_by=details.merged_by,
     )
+
+
+def _load_repo_sync_progress(progress_key: str) -> tuple[int, list[dict]]:
+    progress = cache.get(progress_key)
+    if isinstance(progress, tuple) and len(progress) == 2:
+        return progress
+    return 1, []
+
+
+def _fetch_signals_repositories_paced(
+    github: GitHubIntegration, progress_key: str, lease_key: str, lease_token: str
+) -> list[dict]:
+    page, accumulated = _load_repo_sync_progress(progress_key)
+    while True:
+        github._wait_for_budget()
+        cache.set(lease_key, lease_token, timeout=300)
+        try:
+            repos, has_more = github.list_repositories(page=page, per_page=100, priority=Priority.BATCH)
+        except (GitHubEgressBudgetExhausted, GitHubRateLimitError):
+            if accumulated:
+                cache.set(progress_key, (page, accumulated), timeout=3600)
+            raise
+        accumulated.extend(repos)
+        if not has_more or not repos:
+            cache.delete(progress_key)
+            return accumulated
+        page += 1
+
+
+def _sync_signals_repository_cache_paced(github: GitHubIntegration, integration_id: int) -> None:
+    lease_key = f"signals:github-repo-sync-lease:{integration_id}"
+    lease_token = f"{time.monotonic_ns()}"
+    if not cache.add(lease_key, lease_token, timeout=300):
+        return
+    try:
+        if not github.repository_cache_is_stale():
+            return
+        cached_repositories = github._get_stored_repository_list()
+        accumulated = _fetch_signals_repositories_paced(
+            github, f"signals:github-repo-sync-progress:{integration_id}", lease_key, lease_token
+        )
+        github._store_repository_cache(accumulated if accumulated != cached_repositories else None, timezone.now())
+    finally:
+        if cache.get(lease_key) == lease_token:
+            cache.delete(lease_key)
+
+
+@shared_task(
+    bind=True,
+    ignore_result=True,
+    queue=CeleryQueue.LONG_RUNNING.value,
+    autoretry_for=(GitHubIntegrationError, OperationalError),
+    retry_backoff=True,
+    max_retries=5,
+)
+@with_team_scope()
+def refresh_signals_github_repository_cache(self: Task, team_id: int, integration_id: int) -> None:
+    from posthog.integrations import IntegrationManager  # noqa: PLC0415
+
+    integration = IntegrationManager.github.oauth.get_many(team_id, [integration_id]).get(integration_id)
+    if integration is None:
+        return
+    github = GitHubIntegration(integration, source="signals_pr_browser", priority=Priority.BATCH)
+    try:
+        _sync_signals_repository_cache_paced(github, integration_id)
+    except GitHubRateLimitError as error:
+        raise self.retry(exc=error, countdown=max(error.retry_after or 0, 60))
+    except GitHubEgressBudgetExhausted as error:
+        delay = github_installation_pace_seconds(error.scope, priority=Priority.BATCH) if error.scope else 0
+        raise self.retry(exc=error, countdown=max(int(delay), 60))
 
 
 @shared_task(
@@ -302,7 +379,12 @@ def refresh_pull_request_review_decision(team_id: int, repository: str, pr_numbe
         if not details.get("success") or details.get("merged") is not True or merged_at is None:
             raise GitHubIntegrationError("Could not verify the pull request merge time")
         update_pull_request_state(
-            team_id=team_id, repository=pr.repository, number=pr.number, state="merged", merged_at=merged_at
+            team_id=team_id,
+            repository=pr.repository,
+            number=pr.number,
+            state="merged",
+            merged_at=merged_at,
+            merged_by=PullRequestMerger.from_github(details.get("merged_by")),
         )
     snapshot = github.get_pull_request_snapshot(pr.url)
     if not snapshot.get("success"):
@@ -466,13 +548,21 @@ def link_report_tracker_issues(self, team_id: int, task_id: str, pr_url: str) ->
     Both edits share this task so they run in sequence. Two tasks would race on the same body and
     keep failing each other's changed-body check.
     """
-    report_ids = (
-        SignalReport.objects.filter(team_id=team_id)
-        .filter(SignalReport.reports_for_task_filter(task_id))
-        .values_list("id", flat=True)
-    )
+    report_ids = SignalReport.pr_target_report_ids_for_tasks(team_id, [task_id])
+    # A task with several reports attaches its PR to the reports it fixes explicitly.
+    if (parsed := GitHubIntegration.parse_pull_request_url(pr_url)) is not None:
+        report_ids.update(
+            str(report_id)
+            for report_id in SignalReportArtefact.objects.filter(
+                team_id=team_id,
+                type=SignalReportArtefact.ArtefactType.PULL_REQUEST,
+                task_id=task_id,
+                pull_request__repository__iexact=parsed.repository,
+                pull_request__number=parsed.number,
+            ).values_list("report_id", flat=True)
+        )
     retry_needed = False
-    for report_id in report_ids:
+    for report_id in sorted(report_ids):
         origin = write_origin_section(team_id=team_id, report_id=str(report_id), task_id=task_id, pr_url=pr_url)
         retry_needed = retry_needed or origin == BodyEditOutcome.FAILED
         linked = link_pull_request_to_tracker_issue(team_id=team_id, report_id=str(report_id), pr_url=pr_url)
@@ -752,10 +842,29 @@ def deliver_scout_slack_output(
                 edit_note=edit_note,
                 thread_reports=thread_reports,
             )
+        elif output_type == "message":
+            delivery = (
+                SignalScoutMessageDelivery.all_teams.select_related(
+                    "message__run__team", "message__run__scout_config", "message__report"
+                )
+                .filter(id=output_id, team_id=team_id, message__run_id=run_id)
+                .first()
+            )
+            if delivery is None:
+                logger.warning("signals_scout.slack_delivery_output_missing", **context)
+                return
+            post_scout_message_to_slack(
+                delivery,
+                delivery_id=delivery_id,
+                integration_id=integration_id,
+                channel=channel,
+            )
         else:
             logger.warning("signals_scout.slack_delivery_output_type_invalid", **context)
             return
     except ScoutSlackPermanentDeliveryError as exc:
+        if output_type == "message":
+            mark_scout_message_delivery_failed(team_id=team_id, delivery_id=output_id, error_code=exc.error_code)
         capture_exception(exc, {**context, "error_code": exc.error_code})
         logger.warning(
             "signals_scout.slack_delivery_permanent_failure",
@@ -775,6 +884,12 @@ def deliver_scout_slack_output(
             )
             raise self.retry(exc=exc, countdown=countdown)
 
+        if output_type == "message":
+            mark_scout_message_delivery_failed(
+                team_id=team_id,
+                delivery_id=output_id,
+                error_code=(slack_api_error_code(exc) if isinstance(exc, SlackApiError) else None) or "exhausted",
+            )
         capture_exception(
             exc,
             {

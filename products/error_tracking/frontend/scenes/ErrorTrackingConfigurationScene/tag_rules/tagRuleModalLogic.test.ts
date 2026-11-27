@@ -30,6 +30,7 @@ const persistedRule: ErrorTrackingTagRule = {
     key: 'rule_0123',
     label: 'Firefox',
     description: 'Errors from Firefox.',
+    color: 'teal',
     filters: { type: FilterLogicalOperator.And, values: [browserFilter] },
     order_key: 0,
     disabled_data: { message: 'The rule failed.' },
@@ -53,7 +54,7 @@ describe('tagRuleModalLogic', () => {
                 '/api/projects/:team_id/error_tracking/issues/tag_definitions/': () => ({
                     results: rules
                         .filter((rule) => !rule.disabled_data)
-                        .map(({ key, label, description }) => ({ key, label, description })),
+                        .map(({ key, label, description, color }) => ({ key, label, description, color })),
                 }),
             },
             post: {
@@ -89,6 +90,7 @@ describe('tagRuleModalLogic', () => {
             {
                 label: 'Firefox users',
                 description: '',
+                color: 'orange',
                 filters: { type: FilterLogicalOperator.And, values: [browserFilter] },
                 order_key: persistedRule.order_key + 1,
             },
@@ -98,7 +100,12 @@ describe('tagRuleModalLogic', () => {
             persistedRule,
             'PUT',
             `${TAG_RULES_PATH}${persistedRule.id}/`,
-            { label: 'Firefox users', description: persistedRule.description, filters: persistedRule.filters },
+            {
+                label: 'Firefox users',
+                description: persistedRule.description,
+                color: persistedRule.color,
+                filters: persistedRule.filters,
+            },
         ],
     ])('%s and reloads the list', async (_, rule, method, path, body) => {
         const logic = tagRuleModalLogic()
@@ -114,6 +121,7 @@ describe('tagRuleModalLogic', () => {
                 ...logic.values.rule,
                 filters: { type: FilterLogicalOperator.And, values: [browserFilter] },
             })
+            logic.actions.updateColor('orange')
         }
         logic.actions.updateLabel('Firefox users')
         await expectLogic(logic, () => logic.actions.saveRule()).toFinishAllListeners()
@@ -147,7 +155,12 @@ describe('tagRuleModalLogic', () => {
             {
                 method: 'PUT',
                 path: `${TAG_RULES_PATH}${persistedRule.id}/`,
-                body: { label: persistedRule.label, description: persistedRule.description, filters },
+                body: {
+                    label: persistedRule.label,
+                    description: persistedRule.description,
+                    color: persistedRule.color,
+                    filters,
+                },
             },
         ])
         dialog.mockRestore()
@@ -196,13 +209,13 @@ describe('tagRuleModalLogic', () => {
             await expectLogic(issueTagDefinitionsLogic, () => {
                 issueTagDefinitionsLogic.mount()
             }).toFinishAllListeners()
-            options.actions.setIssueTag({ key: enabledRule.key, applied: true })
+            options.actions.setIssueTagState(enabledRule.key, 'has')
 
             const logic = tagRuleModalLogic()
             logic.mount()
             const list = rulesLogic({ ruleType: ErrorTrackingRuleType.Tag })
             await expectLogic(list, () => list.actions.loadRules()).toFinishAllListeners()
-            expect(options.values.issueTag).toEqual({ key: enabledRule.key, applied: true })
+            expect(options.values.issueTags).toEqual({ has: [enabledRule.key], hasNot: [] })
 
             if (deletedFrom === 'the rule modal') {
                 logic.actions.openModal(enabledRule)
@@ -213,7 +226,7 @@ describe('tagRuleModalLogic', () => {
                 await expectLogic(list, () => list.actions.deleteSelectedRules()).toFinishAllListeners()
             }
 
-            expect(options.values.issueTag).toBeNull()
+            expect(options.values.issueTags).toBeNull()
         }
     )
 
@@ -239,7 +252,7 @@ describe('tagRuleModalLogic', () => {
         await expectLogic(issueTagDefinitionsLogic, () => {
             issueTagDefinitionsLogic.mount()
         }).toFinishAllListeners()
-        options.actions.setIssueTag({ key: deletedRule.key, applied: true })
+        options.actions.setIssueTagState(deletedRule.key, 'has')
         tagRuleModalLogic.mount()
         const list = rulesLogic({ ruleType: ErrorTrackingRuleType.Tag })
         await expectLogic(list, () => list.actions.loadRules()).toFinishAllListeners()
@@ -249,7 +262,7 @@ describe('tagRuleModalLogic', () => {
         await expectLogic(list, () => list.actions.deleteSelectedRules()).toFinishAllListeners()
 
         expect(list.values.rules.map((rule) => rule.id)).toEqual([failingRule.id])
-        expect(options.values.issueTag).toBeNull()
+        expect(options.values.issueTags).toBeNull()
     })
 
     // Cancel clears the selection while the deletes run. Reading the selection after them treats every delete as failed.

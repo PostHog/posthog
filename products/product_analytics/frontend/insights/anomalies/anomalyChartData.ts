@@ -10,11 +10,15 @@ export interface AnomalyChartWindow {
     dateTo: string
 }
 
+export type AnomalyVerdict = Pick<AnomalySeriesPointApi, 'anomaly_kind'> & { anomaly_reason: string }
+
 export interface AnomalyChartData {
     // ISO bucket starts, oldest first, one per checked bucket of the chart.
     labels: string[]
     // NaN where the bucket has no scored value.
     values: number[]
+    // The AI judge's verdict on a flagged bucket, or null where it gave no reason.
+    verdicts: (AnomalyVerdict | null)[]
     // Flagged buckets in the flag window, which put the series in the list.
     flaggedIndices: number[]
     // Flagged buckets before the flag window.
@@ -104,6 +108,7 @@ export function anomalyChartData(
     const flagFrom = dayjs(window.flagFrom)
     const labels = grid.map((bucket) => bucket.format())
     const values = grid.map(() => NaN)
+    const verdicts = grid.map((): AnomalyVerdict | null => null)
     const flaggedIndices: number[] = []
     const earlierFlaggedIndices: number[] = []
     pointSlots(grid, points).forEach((slot, index) => {
@@ -115,6 +120,9 @@ export function anomalyChartData(
         values[slot] = point.value ?? NaN
         if (!point.flag || point.value == null) {
             return
+        }
+        if (point.anomaly_reason) {
+            verdicts[slot] = { anomaly_kind: point.anomaly_kind, anomaly_reason: point.anomaly_reason }
         }
         if (dayjs(point.bucket_start).isBefore(flagFrom)) {
             earlierFlaggedIndices.push(slot)
@@ -129,6 +137,7 @@ export function anomalyChartData(
     return {
         labels,
         values,
+        verdicts,
         flaggedIndices,
         earlierFlaggedIndices,
         flagWindowStartIndex: flagWindowStartIndex === -1 ? null : flagWindowStartIndex,
@@ -136,20 +145,22 @@ export function anomalyChartData(
     }
 }
 
+const AXIS_LABEL_FORMATS: Record<ChartSeries['interval'], string> = {
+    hour: 'MMM D, HH:mm',
+    day: 'MMM D',
+    week: 'MMM D',
+    month: 'MMM YYYY',
+}
+
 /**
- * Daily ticks label each Monday only. The default axis drops labels that overlap from left to right, so which days
- * keep a label changed with the chart width and the first bucket. A fixed weekday gives every daily row the same
- * ticks, and a week apart is the weekly pattern a daily chart shows.
+ * Labels only the first and the last bucket. The rows are short, so more labels crowd the plot, and the tooltip
+ * shows the date of each point.
  */
 export function anomalyAxisTickFormatter(
     interval: ChartSeries['interval'],
-    timezone: string
-): ((label: string) => string | null) | undefined {
-    if (interval !== 'day') {
-        return undefined
-    }
-    return (label) => {
-        const date = dayjs(label).tz(timezone)
-        return date.day() === 1 ? date.format('MMM D') : null
-    }
+    timezone: string,
+    labelCount: number
+): (label: string, index: number) => string | null {
+    return (label, index) =>
+        index === 0 || index === labelCount - 1 ? dayjs(label).tz(timezone).format(AXIS_LABEL_FORMATS[interval]) : null
 }

@@ -26,15 +26,18 @@ export type SendClock = { now(): number; wait(ms: number, signal: AbortSignal): 
 
 export type OfferContext = {
     emit: Emit
-    cdpApi?: { url: string; jwt: Pick<ScopedServiceJwt, 'mint'>; clock?: SendClock }
+    cdpApi?: { nextUrl: () => string; jwt: Pick<ScopedServiceJwt, 'mint'>; clock?: SendClock }
     sesFeedback?: SesFeedback
 }
+
+export type UnitLoad = { claims: { hogflow: number; email: number }; newJobs: number }
 
 export type TrafficKind = Omit<TrafficDefinition, 'profile'> & {
     profile: typeof Shape
     intake: JournalEntry['kind']
     deliveries: string[]
     needsLocal?: true
+    unitLoad?(parks: number): UnitLoad
     flow(teamId: number, emailIntegrationId: number, parks: number): Promise<HogFlow>
     offer(unit: Unit, context: OfferContext, signal: AbortSignal): Promise<JournalEntry['answer']>
     followUp?: {
@@ -175,6 +178,7 @@ export const eventEmail: TrafficKind = {
     profile: Shape,
     intake: 'event',
     deliveries: [EMAIL_ACTION],
+    unitLoad: (parks) => ({ claims: { hogflow: 1 + parks, email: 1 }, newJobs: 1 }),
     flow: async (teamId, emailIntegrationId, parks) =>
         parkedFlow(teamId, {
             name: 'Scenario event email',
@@ -192,6 +196,7 @@ export const eventWebhook: TrafficKind = {
     profile: Shape,
     intake: 'event',
     deliveries: [WEBHOOK_ACTION],
+    unitLoad: (parks) => ({ claims: { hogflow: 1 + parks, email: 0 }, newJobs: 1 }),
     flow: async (teamId, _emailIntegrationId, parks) =>
         parkedFlow(teamId, {
             name: 'Scenario event webhook',
@@ -210,6 +215,7 @@ export const transactionalEmail: TrafficKind = {
     intake: 'transactional',
     deliveries: [EMAIL_ACTION],
     needsLocal: true,
+    unitLoad: (parks) => ({ claims: { hogflow: 0, email: 1 + parks }, newJobs: 1 }),
     flow: async (teamId, emailIntegrationId, parks) =>
         parkedFlow(teamId, {
             name: 'Scenario transactional email',
@@ -291,7 +297,7 @@ async function postTransactional(
 ): Promise<IntakeAnswer> {
     try {
         const response = await internalFetch(
-            `${cdpApi.url}/api/projects/${unit.teamId}/hog_flows/${unit.flowId}/transactional_email`,
+            `${cdpApi.nextUrl()}/api/projects/${unit.teamId}/hog_flows/${unit.flowId}/transactional_email`,
             {
                 method: 'POST',
                 headers: {

@@ -1,0 +1,28 @@
+{
+    "version": 2,
+    "title": "Stored at schema 2",
+    "description": "A board as the first storage release saved it. Never edit this file: add a new fixture per schema version.",
+    "time": { "from": "-7d", "to": "now" },
+    "tags": ["web"],
+    "folder": "Team/Growth",
+    "panels": {
+        "shared-count": { "type": "chart", "title": "Shared", "config": { "query": { "language": "hogql", "query": "select count() from events" }, "viz": { "type": "stat" } } }
+    },
+    "tabs": [
+        {
+            "id": "overview",
+            "title": "Overview",
+            "tiles": [
+                { "id": "t-stat", "place": { "x": 0, "y": 0, "w": 6, "h": 8 }, "panel": { "type": "chart", "title": "Events", "config": { "query": { "language": "hogql", "query": "select count() from events" }, "viz": { "type": "stat" } } } },
+                { "id": "t-shared", "place": { "x": 6, "y": 0, "w": 6, "h": 8 }, "panel": { "ref": "shared-count" } },
+                {
+                    "id": "s-more",
+                    "place": { "x": 0, "y": 8, "w": 24, "h": 3 },
+                    "panel": { "type": "section", "title": "More", "collapsed": true, "tiles": [ { "id": "t-text", "place": { "x": 0, "y": 0, "w": 24, "h": 4 }, "panel": { "type": "markdown", "config": { "text": "Hello" } } } ] }
+                }
+            ]
+        },
+        { "id": "docs", "title": "Docs", "href": "https://posthog.com/docs" }
+    ],
+    "aFieldFromANewerClient": { "kept": true }
+}

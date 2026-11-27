@@ -15,6 +15,7 @@ import { initKeaTests } from '~/test/init'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { aiObservabilitySharedLogic, buildApplyUrlStatePayload } from './aiObservabilitySharedLogic'
+import { shellScopeLogic } from './redesign/shell/shellScopeLogic'
 import { hasRecentAIEvents } from './utils/aiEvents'
 
 jest.mock('lib/api')
@@ -117,6 +118,7 @@ describe('aiObservabilitySharedLogic', () => {
     describe('test-account default and the URL', () => {
         beforeEach(() => {
             jest.clearAllMocks()
+            localStorage.clear()
             mockHasRecentAIEvents.mockResolvedValue(false)
             initKeaTests(true, { ...MOCK_DEFAULT_TEAM, test_account_filters_default_checked: true })
         })
@@ -147,8 +149,8 @@ describe('aiObservabilitySharedLogic', () => {
         })
     })
 
-    // The traces list reads and writes its own filters and dates there.
-    describe('the traces path with the navigation flag on', () => {
+    // The traces and sessions lists read and write their own filters and dates there.
+    describe('the redesigned list paths with the navigation flag on', () => {
         const NAV = FEATURE_FLAGS.AI_OBSERVABILITY_NAV_REDESIGN
 
         function mountWithFlags(flags: string[]): ReturnType<typeof aiObservabilitySharedLogic.build> {
@@ -160,6 +162,8 @@ describe('aiObservabilitySharedLogic', () => {
         }
 
         beforeEach(() => {
+            // A choice that differs from the project's default is remembered in local storage across tests.
+            localStorage.clear()
             jest.clearAllMocks()
             mockHasRecentAIEvents.mockResolvedValue(false)
             initKeaTests(true, { ...MOCK_DEFAULT_TEAM, test_account_filters_default_checked: true })
@@ -168,10 +172,24 @@ describe('aiObservabilitySharedLogic', () => {
         it.each([
             ['leaves its range alone on the traces path with the flag on', [NAV], urls.aiObservabilityTraces(), false],
             ['follows the traces path with the flag off', [], urls.aiObservabilityTraces(), true],
-            ['follows the sessions path with the flag on', [NAV], urls.aiObservabilitySessions(), true],
+            [
+                'leaves its range alone on the sessions path with the flag on',
+                [NAV],
+                urls.aiObservabilitySessions(),
+                false,
+            ],
+            [
+                'leaves its range alone on a session page with the flag on',
+                [NAV],
+                urls.aiObservabilitySession('abc'),
+                false,
+            ],
+            ['follows the sessions path with the flag off', [], urls.aiObservabilitySessions(), true],
+            ['follows the errors path with the flag on', [NAV], urls.aiObservabilityErrors(), true],
         ])('%s', async (_name, flags, path, follows) => {
             const logic = mountWithFlags(flags)
             const { dateFrom } = logic.values.dateFilter
+            expect(dateFrom).not.toBe('-30d')
 
             router.actions.push(path, { date_from: '-30d' })
             await expectLogic(logic).toFinishAllListeners()
@@ -179,25 +197,72 @@ describe('aiObservabilitySharedLogic', () => {
             expect(logic.values.dateFilter.dateFrom).toBe(follows ? '-30d' : dateFrom)
         })
 
+        it.each([
+            ['the nav flag is on', [NAV], false],
+            ['the flag is off', [], true],
+        ])('follows the dashboard path when %s', async (_name, flags, follows) => {
+            const logic = mountWithFlags(flags)
+            const { dateFrom } = logic.values.dashboardDateFilter
+
+            router.actions.push(urls.aiObservabilityDashboard(), { date_from: '-30d' })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.dashboardDateFilter.dateFrom).toBe(follows ? '-30d' : dateFrom)
+        })
+
+        it('does not rewrite the URL on the dashboard path when the nav flag is on', async () => {
+            router.actions.push(urls.aiObservabilityDashboard(), { date_from: '-24h' })
+            const logic = mountWithFlags([NAV])
+
+            logic.actions.setDashboardDates('-30d', null)
+            logic.actions.setShouldFilterTestAccounts(true)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(router.values.searchParams).toEqual({ date_from: '-24h' })
+        })
+
         it('keeps an explicit test account choice of false when it syncs the range on another path', async () => {
             const logic = mountWithFlags([NAV])
 
-            router.actions.push(`${urls.aiObservabilitySessions()}?date_from=-30d&filter_test_accounts=false`)
+            router.actions.push(`${urls.aiObservabilityErrors()}?date_from=-30d&filter_test_accounts=false`)
             await expectLogic(logic).toFinishAllListeners()
 
             expect(logic.values.shouldFilterTestAccounts).toBe(false)
             expect(router.values.location.search).toContain('filter_test_accounts=false')
         })
 
-        it('writes nothing to the traces URL', async () => {
-            router.actions.push(urls.aiObservabilityTraces(), { view: 'errors' })
+        it('hands a test account choice of false made on the errors path to the shell', async () => {
+            router.actions.push(urls.aiObservabilityTraces())
+            shellScopeLogic.mount()
+            shellScopeLogic.actions.setFilterTestAccounts(true)
+            const logic = mountWithFlags([NAV])
+            router.actions.push(urls.aiObservabilityErrors(), router.values.searchParams)
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.shouldFilterTestAccounts).toBe(true)
+
+            logic.actions.setShouldFilterTestAccounts(false)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(shellScopeLogic.values.filterTestAccounts).toBe(false)
+        })
+
+        it.each([
+            ['the traces list', urls.aiObservabilityTraces(), { view: 'errors' }],
+            [
+                'the sessions list',
+                urls.aiObservabilitySessions(),
+                { session: 'abc', timestamp: '2026-09-01T10:00:00Z' },
+            ],
+            ['a session page', urls.aiObservabilitySession('abc'), { timestamp: '2026-09-01T10:00:00Z', trace: 't1' }],
+        ])('does not rewrite the URL of %s', async (_name, path, params) => {
+            router.actions.push(path, params)
             const logic = mountWithFlags([NAV])
 
             logic.actions.setDates('-30d', null)
             logic.actions.setSearchQuery('refund')
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(router.values.searchParams).toEqual({ view: 'errors' })
+            expect(router.values.searchParams).toEqual(params)
         })
 
         it("applies the project's test account default on the next path after entering traces first", async () => {
@@ -206,16 +271,19 @@ describe('aiObservabilitySharedLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.shouldFilterTestAccounts).toBe(false)
 
-            router.actions.push(urls.aiObservabilitySessions())
+            router.actions.push(urls.aiObservabilityErrors())
             await expectLogic(logic).toFinishAllListeners()
 
             expect(logic.values.shouldFilterTestAccounts).toBe(true)
             expect(router.values.searchParams.filter_test_accounts).toBe(true)
         })
 
-        it('still marks the cost tracking setup task done', async () => {
+        it.each([
+            ['traces', urls.aiObservabilityTraces()],
+            ['dashboard', urls.aiObservabilityDashboard()],
+        ])('still marks the cost tracking setup task done on the %s path', async (_name, path) => {
             globalSetupLogic.mount()
-            router.actions.push(urls.aiObservabilityTraces())
+            router.actions.push(path)
 
             await expectLogic(globalSetupLogic, () => {
                 mountWithFlags([NAV])

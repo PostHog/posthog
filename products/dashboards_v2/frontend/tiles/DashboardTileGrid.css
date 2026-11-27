@@ -1,0 +1,6 @@
+/* Fills the grid cell, which the grid positions absolutely, so the cell can be watched for coming into view. */
+.DashboardTileGrid__sentinel {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+}

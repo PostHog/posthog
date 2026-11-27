@@ -414,32 +414,6 @@ pub struct RemoteWriteQueryParams {
     token: Option<String>,
 }
 
-/// Resolve the project token from (in order) the URL path, the Authorization
-/// header (Bearer or bare), or the `token` query param — matching the
-/// flexibility remote-write senders actually have.
-fn extract_token(
-    path_token: Option<String>,
-    headers: &HeaderMap,
-    query_token: Option<&str>,
-) -> Option<String> {
-    if let Some(token) = path_token {
-        if !token.is_empty() {
-            return Some(token);
-        }
-    }
-    if let Some(auth) = headers.get("authorization").and_then(|v| v.to_str().ok()) {
-        let token = auth
-            .strip_prefix("Bearer ")
-            .or_else(|| auth.strip_prefix("bearer "))
-            .unwrap_or(auth)
-            .trim();
-        if !token.is_empty() {
-            return Some(token.to_string());
-        }
-    }
-    query_token.filter(|t| !t.is_empty()).map(str::to_string)
-}
-
 /// Prometheus remote-write v1 ingestion endpoint. Also accepts the
 /// VictoriaMetrics remote-write protocol (same protobuf, zstd body).
 ///
@@ -468,26 +442,14 @@ pub async fn export_prometheus_remote_write_http(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<StatusCode, (StatusCode, Json<serde_json::Value>)> {
-    let token = match extract_token(
-        path_token.map(|Path(t)| t),
+    let token = service.authorizer.authorize_from_path_header_or_query(
+        path_token.as_ref().map(|Path(token)| token.as_str()),
         &headers,
         query_params.token.as_deref(),
-    ) {
-        Some(token) => token,
-        None => {
-            error!("No token provided");
-            return Err((
-                StatusCode::UNAUTHORIZED,
-                Json(json!({"error": "No token provided"})),
-            ));
-        }
-    };
+        Signal::Metrics,
+    )?;
 
-    service
-        .authorizer
-        .authorize_token(&token, Signal::Metrics)?;
-
-    tracing::Span::current().record("token", &token);
+    tracing::Span::current().record("token", token);
 
     let encoding = RemoteWriteEncoding::from_headers(&headers);
     counter!(
@@ -529,13 +491,7 @@ pub async fn export_prometheus_remote_write_http(
 
     if let Err(e) = service
         .sink
-        .write_metrics(
-            &token,
-            rows,
-            uncompressed_bytes,
-            None,
-            timestamps_overridden,
-        )
+        .write_metrics(token, rows, uncompressed_bytes, None, timestamps_overridden)
         .await
     {
         error!("Failed to send remote-write metrics to Kafka: {e}");

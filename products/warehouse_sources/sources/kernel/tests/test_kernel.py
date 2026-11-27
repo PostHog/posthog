@@ -184,6 +184,32 @@ class TestGetRows:
                 id="telemetry_skips_finished_sessions_and_resumes_the_saved_one",
             ),
             pytest.param(
+                "auth_connection_events",
+                KernelResumeConfig(parent_id="c2", parent_offset=100),
+                {
+                    "/auth/connections": [_response([{"id": "c3"}, {"id": "c1"}, {"id": "c2"}], has_more=False)],
+                    "/auth/connections/c2/timeline": [
+                        _response([{"id": "e2", "type": "login"}], has_more=False, next_offset=0)
+                    ],
+                    "/auth/connections/c3/timeline": [_response([{"id": "e3", "type": "login"}], has_more=False)],
+                },
+                ["/auth/connections", "/auth/connections/c2/timeline", "/auth/connections/c3/timeline"],
+                ["0", "100", "0"],
+                "id",
+                ["e2", "e3"],
+                id="fan_out_skips_finished_parents_and_resumes_the_saved_one",
+            ),
+            pytest.param(
+                "browser_replays",
+                KernelResumeConfig(completed=True),
+                {},
+                [],
+                [],
+                "replay_id",
+                [],
+                id="fan_out_after_its_last_page_reads_nothing",
+            ),
+            pytest.param(
                 "deployments",
                 KernelResumeConfig(completed=True),
                 {},
@@ -333,6 +359,97 @@ class TestBrowserTelemetryEvents:
 
         assert result.raised is None
         assert [(row["browser_session_id"], row["seq"]) for row in result.rows] == [("b2", 7)]
+
+
+class TestFanOutEndpoints:
+    def test_browser_replays_fan_out_over_every_browser(self) -> None:
+        replay = {
+            "replay_id": "r1",
+            "started_at": "2026-05-01T10:00:00Z",
+            "finished_at": "2026-05-01T10:05:00Z",
+            "replay_view_url": "https://api.example.com/browser/replays?jwt=fake-token&replay_id=r1",
+        }
+        result = _driver().run(
+            "browser_replays",
+            route(
+                {
+                    "/browsers": [
+                        _response(
+                            [{"session_id": "b2"}, {"session_id": "gone"}, {"session_id": "b1"}, {"name": "no-id"}],
+                            has_more=False,
+                        )
+                    ],
+                    "/browsers/b1/replays": [_response([replay])],
+                    "/browsers/b2/replays": [_response([])],
+                    "/browsers/gone/replays": [_response({"code": "not_found"}, status_code=404)],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        # The view URL carries a JWT, and the session id makes the replay key unique table-wide.
+        assert result.rows == [
+            {
+                "replay_id": "r1",
+                "started_at": "2026-05-01T10:00:00Z",
+                "finished_at": "2026-05-01T10:05:00Z",
+                "browser_session_id": "b1",
+            }
+        ]
+        assert result.requests[0].param("status") == "all"
+        assert result.paths[1:] == ["/browsers/b1/replays", "/browsers/b2/replays", "/browsers/gone/replays"]
+        # The replays endpoint is not paginated.
+        assert all(request.param("offset") is None for request in result.requests[1:])
+
+    @pytest.mark.parametrize(
+        "has_more, next_offset, expected_offsets",
+        [
+            pytest.param(True, 100, ["0", "100"], id="follows_next_offset"),
+            pytest.param(True, 0, ["0"], id="stops_when_offset_cannot_advance"),
+            pytest.param(False, 0, ["0"], id="stops_on_last_page"),
+        ],
+    )
+    def test_auth_connection_events_page_each_connection(
+        self, has_more: bool, next_offset: int, expected_offsets: list[str]
+    ) -> None:
+        result = _driver().run(
+            "auth_connection_events",
+            route(
+                {
+                    "/auth/connections": [_response([{"id": "c1", "live_view_url": "https://x"}], has_more=False)],
+                    "/auth/connections/c1/timeline": [
+                        _response(
+                            [{"id": "e2", "type": "health_check", "timestamp": "2026-05-02T00:00:00Z"}],
+                            has_more=has_more,
+                            next_offset=next_offset,
+                        ),
+                        _response([{"id": "e1", "type": "login", "timestamp": "2026-05-01T00:00:00Z"}], has_more=False),
+                    ],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        timeline_requests = [r for r in result.requests if r.path == "/auth/connections/c1/timeline"]
+        assert [r.param("offset") for r in timeline_requests] == expected_offsets
+        assert all(row["auth_connection_id"] == "c1" for row in result.rows)
+        assert [row["id"] for row in result.rows] == ["e2", "e1"][: len(expected_offsets)]
+
+    def test_auth_connections_drop_token_bearing_urls(self) -> None:
+        connection = {
+            "id": "c1",
+            "domain": "example.com",
+            "status": "AUTHENTICATED",
+            "hosted_url": "https://auth.example.com/login?code=fake-code",
+            "live_view_url": "https://live.example.com/?jwt=fake-token",
+            "browser_session_id": "b1",
+        }
+        result = _driver().run("auth_connections", [_response([connection], has_more=False)])
+
+        assert result.raised is None
+        assert result.rows == [
+            {"id": "c1", "domain": "example.com", "status": "AUTHENTICATED", "browser_session_id": "b1"}
+        ]
 
 
 class TestKernelSourceResponse:

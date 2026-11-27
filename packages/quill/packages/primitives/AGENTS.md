@@ -95,18 +95,22 @@ Every menu-like list marks its active row the same way: the row that keyboard in
 | Dialog      | Modal, blocking flow — focused forms, multi-step content. `size="wide"`/`"full"` for big content                                        |
 | AlertDialog | Confirmation that must be resolved — destructive/irreversible actions. Backdrop clicks never dismiss, no X button, `role="alertdialog"` |
 | Drawer      | Mobile-first slide-up sheet; touch contexts                                                                                             |
+| Credenza    | A Dialog on a wide viewport and a bottom Drawer on a phone, from one set of parts. Lives in `@posthog/quill-components`                 |
 | Popover     | Non-modal panel anchored to a trigger, with interactive content (filters, pickers)                                                      |
 | Tooltip     | Hover-only text hint; never interactive content, never essential information                                                            |
 | Toast       | Async outcome notification (`toast.success({ title })`) — fire and forget                                                               |
 
+Toast vs Callout: a toast reports an outcome and goes away; a Callout stays in the layout next to the content it is about.
+
 ### Status and labels
 
-| Component | Use when                                                                   |
-| --------- | -------------------------------------------------------------------------- |
-| Badge     | Semantic status text — variants info/warning/success/completed/destructive |
-| Chip      | Removable token (selected tags, active filters) — pair with ChipClose      |
-| Dot       | Tiny presence/status indicator next to text; `pulse` for live state        |
-| Kbd       | Keyboard shortcut display, with KbdGroup for combos                        |
+| Component | Use when                                                                                                     |
+| --------- | ------------------------------------------------------------------------------------------------------------ |
+| Badge     | Semantic status text — variants info/warning/success/completed/destructive                                   |
+| Callout   | Static inline message on the page (warning above a form, error after a failed load) — replaces `LemonBanner` |
+| Chip      | Removable token (selected tags, active filters) — pair with ChipClose                                        |
+| Dot       | Tiny presence/status indicator next to text; `pulse` for live state                                          |
+| Kbd       | Keyboard shortcut display, with KbdGroup for combos                                                          |
 
 ### Form controls
 
@@ -158,7 +162,7 @@ Don't hand-roll `<p className="text-xs text-muted-foreground">` when `<Text size
 | ------------ | --------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Button       | default, primary, secondary, outline, destructive, destructive-outline, link, link-foreground, link-muted | default, xs, sm, lg, icon, icon-xs, icon-sm, icon-lg, row, inline | `loading` overlays a centered spinner and disables the button (width stays stable). `row` is the full-width, regular-weight list row that menu, combobox and autocomplete items render. `inline` is a link inside a sentence: no height or padding, and it inherits the sentence's font size and line height. `tooltip` adds a hover and focus tooltip. `indicator="default"` puts a dot on the top-right corner for something waiting behind the button (`"warning"` or `"destructive"` for a problem); say what it means in the `aria-label`, and set `--quill-button-indicator-ring` when the button sits off the app background. `disabledReason` disables the button and shows the reason in that tooltip. A `render` that carries a link destination (`to`, `href`) or is a non-button element turns off `nativeButton` by itself; a disabled button drops that destination. |
 | Badge        | default, info, destructive, warning, success, completed                                                   | —                                                                 | Semantic status                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| Toggle       | default, outline                                                                                          | default, sm, lg, icon                                             | `ToggleGroupItem` takes `disabledReason`, which disables the item and shows the reason in a tooltip on hover. Arrow keys in a `ToggleGroup` skip disabled items, so the reason is hover-only.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| Toggle       | default, outline                                                                                          | default, sm, lg, icon                                             | The selected `ToggleGroupItem` sits on a brand-color (`--primary`) shelf, so a column of groups shows which item is on at a glance. `ToggleGroupItem` takes `disabledReason`, which disables the item and shows the reason in a tooltip on hover. Arrow keys in a `ToggleGroup` skip disabled items, so the reason is hover-only.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | Chip         | outline                                                                                                   | sm                                                                | Use with ChipClose                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | Separator    | —                                                                                                         | —                                                                 | orientation: horizontal/vertical                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | Spinner      | —                                                                                                         | —                                                                 | SVG, accepts svg props                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
@@ -432,6 +436,26 @@ Attached panel outside the popup: pass `popupSibling` on `SelectContent` — ren
 
 A Combobox in a `DropdownMenuSubContent` takes `inline` and no `ComboboxContent`: the submenu is its popup, and its items keep the check mark's gutter. `ComboboxItem` takes `tooltip` and `disabledReason` like the menu items. Never hand-wrap a disabled `ComboboxItem` in a Tooltip. Pass `action` on a row that runs an action instead of picking a value, such as "New project": it is never selected, so it drops the check mark's gutter. The selection check in `Combobox` and `Select` takes lucide's stroke of 2. An app whose row icons draw thinner lines sets `--quill-indicator-stroke-width` to match them.
 
+A button that opens the popup, with `ComboboxInput` inside `ComboboxContent`: render the button through `ComboboxTrigger` and anchor the popup to it. Never open the popup from the button's `onClick`, because the Combobox then does not know the button is its trigger: the button gets no `aria-expanded` and does not stay pressed while the popup is open. `ComboboxTrigger` appends the chevron, so never add `SelectTriggerIcon` to the button. Pass `showChevron={false}` only for a button that shows no chevron, such as an "Add" button.
+
+```tsx
+<Combobox items={items} open={open} onOpenChange={setOpen}>
+  <ComboboxTrigger ref={triggerRef} render={<Button variant="outline" />}>
+    {value ?? 'Select framework'}
+  </ComboboxTrigger>
+  <ComboboxContent anchor={triggerRef}>
+    <ComboboxInput placeholder="Search..." showTrigger={false} />
+    <ComboboxList>
+      {(item: string) => (
+        <ComboboxItem key={item} value={item}>
+          {item}
+        </ComboboxItem>
+      )}
+    </ComboboxList>
+  </ComboboxContent>
+</Combobox>
+```
+
 Something attached to the popup's edge, such as a resize handle: pass `popupSibling` on `ComboboxContent`, as on `SelectContent`. It renders in the positioner beside the popup, outside the popup's overflow, so it can sit across the edge. Position it absolute so it never resizes the popup.
 
 A `ComboboxItem` takes `description` for a muted second line, laid out like a described `DropdownMenuItem`. A highlighted Combobox or Autocomplete item paints its content in the foreground color. Put `data-keep-color` on a child that must keep its own color, such as a colored product icon.
@@ -473,7 +497,7 @@ The typed text is the value; items are suggestions. Pass `items` to the root and
 </Autocomplete>
 ```
 
-Grouped items: pass `items={[{ label, items }]}` shapes, render `AutocompleteGroup items={group.items}` > `AutocompleteLabel` + `AutocompleteCollection` inside `AutocompleteList`. To anchor the popup to an external trigger, pass `anchor={triggerRef}` to `AutocompleteContent`.
+Grouped items: pass `items={[{ label, items }]}` shapes, render `AutocompleteGroup items={group.items}` > `AutocompleteLabel` + `AutocompleteCollection` inside `AutocompleteList`. To open the popup from a button, render the button through `AutocompleteTrigger` (`render={<Button />}`) and pass its ref as `anchor` to `AutocompleteContent`, as with Combobox.
 
 ### Dialog
 
@@ -534,14 +558,17 @@ Same shell as Dialog (shared `quill-dialog__*` styles) but `role="alertdialog"`,
       <DrawerTitle>Title</DrawerTitle>
       <DrawerDescription>Description</DrawerDescription>
     </DrawerHeader>
-    {/* content */}
+    <DrawerBody>{/* content */}</DrawerBody>
     <DrawerFooter>
-      <Button>Submit</Button>
       <DrawerClose render={<Button variant="outline" />}>Cancel</DrawerClose>
+      <Button variant="primary">Submit</Button>
     </DrawerFooter>
   </DrawerContent>
 </Drawer>
 ```
+
+`DrawerBody` works like `DialogBody`: a `ScrollArea` that takes the height the header and footer leave, with `viewportClassName` and `render`.
+`DrawerFooter` stacks its buttons in reverse, so write Cancel first and the main action last, as in a `DialogFooter`. The main action shows on top.
 
 ### Dropdown Menu
 
@@ -844,7 +871,42 @@ For tooltips on the tiles, use one shared tooltip (see Tooltip) so it slides bet
 Item variants: default, outline, muted, menuItem
 Item sizes: default, sm, xs
 `<ItemGroup>` spaces items with a gap by default; pass `combined` to merge them into one flush list (no gap, squared interior corners, collapsed shared borders, rounded outer corners — like CardGroup)
-Item tones (the `tone` prop — named `tone`, not `color`, to avoid colliding with the DOM `color` attribute when Base UI render props are spread onto ItemCheckbox/ItemRadio): default, info, success, warning, completed, destructive — a semantic tint orthogonal to `variant`, for callouts such as a warning or an incident notice (e.g. `<Item variant="outline" tone="warning">`)
+Item tones (the `tone` prop — named `tone`, not `color`, to avoid colliding with the DOM `color` attribute when Base UI render props are spread onto ItemCheckbox/ItemRadio): default, info, success, warning, completed, destructive — a semantic tint orthogonal to `variant`, for tinted rows such as a status list. For an inline message (a warning or an incident notice), use `Callout`, which is built on it
+
+### Callout
+
+A static, inline message that stays in the layout — the quill replacement for `LemonBanner`. `Callout` is an outline `Item` with a `tone`, so it shares Item's tint, tone border and spacing. Use Callout instead of a hand-built `<Item variant="outline" tone>` for a message.
+
+```tsx
+<Callout tone="warning">
+  <CalloutIcon />
+  <CalloutContent>
+    <CalloutTitle>Your event volume is close to the billing limit</CalloutTitle>
+    <CalloutDescription>New events stop when the project reaches the limit.</CalloutDescription>
+  </CalloutContent>
+  <CalloutActions>
+    <Button variant="outline">Increase limit</Button>
+  </CalloutActions>
+  <CalloutClose onClick={dismiss} />
+</Callout>
+```
+
+Callout tones: default, info, success, warning, destructive. The default tone uses a muted surface. Callout has one size and takes no `size` prop.
+`CalloutIcon` renders the tone's default lucide icon when it has no children; pass an icon as children to replace it, or leave `CalloutIcon` out for no icon.
+`CalloutTitle` is optional. `CalloutDescription` is a `div`, so it can hold links, inline code or a list; it does not clamp and uses the foreground color.
+The icon and the close button line up with the first line of text. With `CalloutActions`, the first row is as tall as a button, so they center on that row.
+`CalloutClose` is the dismiss X and stays in the top-right corner. The caller owns the dismissed state and any persistence, such as a localStorage key.
+When the text would get narrower than 16rem, `CalloutActions` wrap to a row under the text. The tab order stays the text, the actions, then the close button. The callout needs no width: in a `w-fit` or other shrink-to-fit parent it sizes to its content.
+For a router link action, pass the app's link through `render`: `<Button variant="outline" render={<Link to={url} />}>`.
+Callout sets no live-region role. Pass `role="alert"` (urgent) or `role="status"` (polite) only when the callout appears after a user action and screen readers must announce it.
+Accessibility:
+
+- A hidden prefix names the tone for screen readers ("Warning: …"), because the tint and icon are visual only. Override it with `toneLabel` (rendered as given, so include the separator), or pass `toneLabel={null}` when the text already names it. The default tone has none.
+- Give `CalloutClose` an `aria-label` that names the callout ("Dismiss retention warning") when a page can show more than one.
+- On dismiss, move focus to a sensible nearby element. Otherwise focus falls back to the page body.
+- Keep the DOM order `CalloutIcon`, `CalloutContent`, `CalloutActions`, `CalloutClose`. It is the reading and tab order, and the layout depends on it.
+
+`LemonBanner` map: `type` info/warning/success → same `tone`, error → `destructive`, ai → `info` with a sparkles icon in `CalloutIcon`; children → `CalloutDescription`; `action` → `Button variant="outline"` in `CalloutActions`; `onClose` / `dismissKey` → `CalloutClose` + caller state; `icon` → `CalloutIcon` children; `hideIcon` → leave out `CalloutIcon`.
 
 ### Avatar
 
@@ -1428,6 +1490,8 @@ Each container's CSS handles `flex-shrink: 0` and the per-context size via `svg:
 | Button                                | 1rem (size-4)       |
 | Menu items (Dropdown/Context/Menubar) | 0.875rem (size-3.5) |
 | TabsTrigger                           | 0.75rem (size-3)    |
+
+Whether a labelled Button or menu item takes a leading icon, a trailing icon or neither is a fixed decision order, shown in the `Examples/Icon rules` story: reveals options or navigates → trailing icon; familiar symbol → leading icon; one of a group of actions → leading icon on every action in the group; otherwise no icon. The trailing `…` is a separate check: an action that needs more input before it runs ends with `…`, with or without a leading icon. A trailing icon and `…` never go together, and a confirm-only destructive action takes no `…`.
 
 **Don't add `size-*` classes to icons inside primitives.** The `:not([class*='size-'])` guard means an explicit `size-*` class is treated as a deliberate override and the component's sizing steps aside — so reserve it for the rare case where you genuinely need a different size. Color also inherits (`currentColor`), so don't set icon colors either; variants tint their icons themselves.
 

@@ -122,9 +122,9 @@ What each report status means (in roughly the order a triage agent should care a
 - `closed` — Monitoring could not show that the fix worked.
   A linked follow-up report researches why
 
-By default `inbox-reports-list` excludes `suppressed` reports and orders results by
-`-is_suggested_reviewer,status,-updated_at` — the user's own suggested reports first, then by
-status, then most recently updated. Refer to the tool's input schema for filter mechanics.
+By default `inbox-reports-list` excludes `suppressed` reports and returns 10 reports in the `recommended` order: the user's stored personal ranking first, then priority order.
+Pass `limit` for a longer page, and `sort` or `ordering` for another order.
+Refer to the tool's input schema for filter mechanics.
 
 To find the reports about a topic, such as before filing one, use `inbox-reports-search`.
 It ranks reports by relevance across every status, and matches a report that describes the topic in other words.
@@ -294,7 +294,7 @@ claimed. Add `"unclaimed": true` when the user is asking what is free to pick up
 
 For each report, the response includes:
 
-- `id`, `title`, `summary`
+- `id`, `title`, `summary_lead` (the opening of the summary; `inbox-reports-retrieve` returns all of it)
 - `status`, `priority`, `actionability` (note: `null` for reports still in `pending_input` /
   `candidate` — judgment hasn't run yet)
 - `signal_count`, `total_weight` — how much underlying evidence drove the report
@@ -472,8 +472,7 @@ inbox-reports-list
   in the Inbox in the PostHog web app to start receiving signals; sources-but-no-reports
   means signals are flowing but nothing has clustered yet
 - **Always surface `_posthogUrl`** so the user can click through to the report
-- The default ordering already prioritizes the user's suggested reports — don't reorder unless
-  asked
+- The default `recommended` order already puts the user's stored personal ranking first — don't reorder unless asked
 - `priority` and `actionability` are `null` for reports still in `pending_input` or `candidate`
   status; this is expected, not a bug — judgment hasn't run yet
 - `suppressed` reports are excluded by default. Pass `view: "dismissed"` for reports someone

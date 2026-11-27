@@ -76,7 +76,7 @@ import {
     PropertyType,
 } from '~/types'
 
-import { cohortsRealtimeCreate, cohortsUsedInRetrieve } from 'products/cohorts/frontend/generated/api'
+import { cohortsCreate, cohortsRealtimeCreate, cohortsUsedInRetrieve } from 'products/cohorts/frontend/generated/api'
 import type {
     CohortApi,
     CohortRealtimeReadinessApi,
@@ -86,6 +86,7 @@ import type { CohortRealtimeSwitchAction } from 'products/cohorts/frontend/realt
 import {
     READINESS_GRACE_POLLS,
     REALTIME_POLL_INTERVAL_MS,
+    canTurnOnRealtime,
     isBuildingHistory,
 } from 'products/cohorts/frontend/realtime/realtimeReadiness'
 import { personsLogic } from 'products/persons/frontend/logics/personsLogic'
@@ -145,7 +146,7 @@ export interface cohortEditLogicValues {
     creationPersonQuery: ActorsQuery
     csvMaxBytes: number
     csvUploadModalOpen: boolean
-    duplicatedCohort: CohortType | null
+    duplicatedCohort: CohortApi | CohortType | null
     duplicatedCohortLoading: boolean
     effectiveQuery: DataTableNode
     hasAddUsersMenu: boolean
@@ -210,12 +211,12 @@ export interface cohortEditLogicActions {
         errorObject?: any
     }
     duplicateCohortSuccess: (
-        duplicatedCohort: CohortType | null,
+        duplicatedCohort: CohortApi | CohortType | null,
         payload?: {
             asStatic: boolean
         }
     ) => {
-        duplicatedCohort: CohortType | null
+        duplicatedCohort: CohortApi | CohortType | null
         payload?: {
             asStatic: boolean
         }
@@ -932,7 +933,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             (cohort: CohortType, featureFlags: FeatureFlagsSet): CohortRealtimeSwitchAction | null => {
                 switch (cohort.realtime?.state) {
                     case 'off':
-                        return 'turn_on'
+                        return canTurnOnRealtime(cohort.realtime) ? 'turn_on' : null
                     case 'ready':
                     case 'building':
                     case 'rebuilding':
@@ -1232,10 +1233,10 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             },
         ],
         duplicatedCohort: [
-            null as CohortType | null,
+            null as CohortType | CohortApi | null,
             {
                 duplicateCohort: async ({ asStatic }: { asStatic: boolean }, breakpoint) => {
-                    let cohort: CohortType
+                    let cohort: CohortType | CohortApi
                     try {
                         await breakpoint(200)
                         if (asStatic) {
@@ -1244,8 +1245,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                                 kind: NodeKind.HogQLQuery,
                                 query: `SELECT person_id FROM ${sourceTable} WHERE cohort_id = ${values.cohort.id}`,
                             }
-                            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use cohortsCreate() from 'products/cohorts/frontend/generated/api' instead.
-                            cohort = await api.create('api/cohort', {
+                            cohort = await cohortsCreate(String(values.currentProjectId), {
                                 is_static: true,
                                 name: `${values.cohort.name} (static copy)`,
                                 query,

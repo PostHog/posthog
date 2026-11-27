@@ -10,11 +10,21 @@ the experiment's feature_flag object, not here.
 """
 
 from datetime import UTC, datetime
+from typing import get_args
 
 import pytest
 import time_machine
 
-from products.experiments.backend.facade.contracts import CreateExperimentInput, Experiment, FeatureFlag
+from posthog.schema_enums import MultipleVariantHandling
+
+from products.experiments.backend.facade.contracts import (
+    CreateExperimentInput,
+    Experiment,
+    ExperimentHealthMultipleVariantHandling,
+    ExperimentHealthStatsMethod,
+    FeatureFlag,
+)
+from products.experiments.backend.hogql_queries.utils import StatsMethod
 
 
 class TestContractImmutability:
@@ -144,3 +154,21 @@ class TestCreateExperimentInput:
 
         assert input_dto.parameters is not None
         assert "variant_notes" in input_dto.parameters
+
+
+class TestHealthEnumsMatchTheirSource:
+    @pytest.mark.parametrize(
+        ("health_enum", "source_values"),
+        [
+            pytest.param(ExperimentHealthStatsMethod, set(get_args(StatsMethod)), id="stats_method"),
+            pytest.param(
+                ExperimentHealthMultipleVariantHandling,
+                {handling.value for handling in MultipleVariantHandling},
+                id="multiple_variant_handling",
+            ),
+        ],
+    )
+    def test_health_enum_has_every_source_value(self, health_enum, source_values):
+        # The health loader converts each source value into the health enum, and a value without a member raises, which
+        # fails the whole health response.
+        assert {member.value for member in health_enum} == source_values

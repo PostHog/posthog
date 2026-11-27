@@ -301,7 +301,7 @@ posthog:llma-evaluation-create
 ```
 
 For `llm_judge`, swap `evaluation_config` to `{ "prompt": "…" }` and add
-`"model_configuration": { "provider": "openai", "model": "gpt-5-mini", "provider_key_id": null }`.
+`"model_configuration": { "provider": "openai", "model": "gpt-6-luna", "provider_key_id": null }`.
 Pin `provider_key_id` to the UUID of an `ok`-state key from `llma-provider-key-list` to run on one specific
 key; `null` runs on the team's active key. Either value saves a draft. Full field reference:
 [references/evaluation-payload.md](references/evaluation-payload.md).
@@ -330,6 +330,9 @@ spot-run for a judge with no usable key, per 2.3). For a numeric or categorical 
 category keys the saved eval will accept.
 Both tools currently use generation samples; for a trace target they can check shared source or prompt behavior,
 but they do not reproduce the complete settled trace. Review the first live trace results before increasing rollout.
+For an LLM judge on a trace target, check `$ai_evaluation_input_truncated` on those results: `true` means the trace
+did not fit the judge's budget (300,000 characters, or 150,000 when the judge model's context window rejects the
+longer transcript) and the judge saw shortened content, so a verdict or N/A on that run can come from the missing part. Move checks that need the full input to a Hog eval, which reads the complete trace.
 
 > **Watch out:** some orgs reuse a single `$ai_trace_id` across 100k+ events. Scoping by trace-ID prefix
 > can match far more than expected — verify volume with the SQL above before enabling.
@@ -345,7 +348,7 @@ posthog:llma-evaluation-update
 
 Each now runs on every new matching generation, or once per matching trace for a trace target. This isn't
 one-and-done: the user should be aware that they need to keep an eye on results and iterate if the outcome
-is not the expected one. To wire results into a Slack feed, see `feature-usage-feed`.
+is not the expected one.
 
 If the user asked to see results before anything goes live, show the test results for the whole set and ask
 once, in the same reply: "Enable these N now?" Enable the ones they approve right away, in this session. Don't

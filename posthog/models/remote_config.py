@@ -359,16 +359,7 @@ class RemoteConfig(UUIDTModel):
             config["surveys"] = False
 
         # MARK: Product tours
-        # Only query if the team has opted in (auto-set when a tour is created)
-        if team.product_tours_opt_in:
-            has_active_tours = ProductTour.objects.filter(
-                team=team,
-                archived=False,
-                start_date__isnull=False,
-            ).exists()
-            config["productTours"] = has_active_tours
-        else:
-            config["productTours"] = False
+        config["productTours"] = False
 
         # Required by posthog-js <= 1.207.1; without it those versions default to person_profiles="always".
         # posthog-js >= 1.207.2 always defaults to "identified_only" and no longer reads this field.

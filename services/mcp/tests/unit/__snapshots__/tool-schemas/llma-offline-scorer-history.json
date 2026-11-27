@@ -8,7 +8,7 @@
             "type": "string"
         },
         "breakdown": {
-            "description": "Split history by this property. Model uses each item's model, falling back to the experiment's model.\n\n* `model_version` - Model\n* `prompt_version` - Prompt version\n* `application_version` - Application version\n* `suite_key` - Suite\n* `run_source` - Run source",
+            "description": "Split history by this property. Model uses the run's model for experiment scores. For item scores it uses the item's model, falling back to the run's model.\n\n* `model_version` - Model\n* `prompt_version` - Prompt version\n* `application_version` - Application version\n* `suite_key` - Suite\n* `run_source` - Run source",
             "enum": ["model_version", "prompt_version", "application_version", "suite_key", "run_source"],
             "type": "string"
         },

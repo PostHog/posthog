@@ -2,6 +2,7 @@ import { IconUpload } from '@posthog/icons'
 
 const PROVIDER_LOGOS: Record<string, string> = {
     customerio: '/static/services/customerio.png',
+    mailchimp: '/static/services/mailchimp.png',
     mailgun: '/static/services/mailgun.png',
     postmark: '/static/services/postmark.png',
     resend: '/static/services/resend.png',

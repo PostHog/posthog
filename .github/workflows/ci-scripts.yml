@@ -42,9 +42,9 @@ on:
             - tools/change-prover/**
             - rust/bin/write-deploy-requirements
             - manage.py
-            # test_tach_map.py holds tach_map.py's pin to the locked tach version,
-            # and a routine dependency bump is what moves it.
-            - uv.lock
+            # test_hoglint_map.py holds hoglint_map.py's pin to the dev group's
+            # hoglint pin, and a hoglint bump is what moves it.
+            - pyproject.toml
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -85,6 +85,15 @@ jobs:
                       /rust/
                       /nodejs/
                       /packages/personhog-proto/
+                      /posthog/management/commands/migrate_clickhouse.py
+                      /posthog/clickhouse/client/migration_tools.py
+                      /posthog/clickhouse/cluster.py
+                      /posthog/clickhouse/materialized_columns.py
+                      /posthog/models/performance/sql.py
+                      /posthog/models/channel_type/sql.py
+                      /posthog/settings/dynamic_settings.py
+                      /ee/clickhouse/materialized_columns/columns.py
+                      /docker/clickhouse/
                       /.semgrep/
                       /frontend/bin/ci-report/
                       /products/README.md
@@ -96,7 +105,6 @@ jobs:
                       **/product.yaml
                       /pnpm-workspace.yaml
                       /uv.lock
-                      /tach.toml
                       /pyproject.toml
                       package.json
                   sparse-checkout-cone-mode: false

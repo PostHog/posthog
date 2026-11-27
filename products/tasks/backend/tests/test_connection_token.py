@@ -1,5 +1,6 @@
 import json
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from io import StringIO
 from pathlib import Path
@@ -8,6 +9,7 @@ from typing import cast
 
 import pytest
 import time_machine
+from unittest.mock import patch
 
 from django.core.management import call_command
 from django.test import SimpleTestCase, override_settings
@@ -15,7 +17,7 @@ from django.test import SimpleTestCase, override_settings
 import jwt
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives.asymmetric import ec, rsa
 from parameterized import parameterized
 
 from products.tasks.backend.logic.services.connection_token import (
@@ -27,7 +29,6 @@ from products.tasks.backend.logic.services.connection_token import (
     STREAM_READ_AUDIENCE,
     AgentEgressTokenPayload,
     _compute_kid,
-    _derive_public_key_pem,
     _encode_agent_egress_token,
     create_sandbox_connection_token,
     create_sandbox_event_ingest_token,
@@ -52,9 +53,27 @@ def _generate_private_key_pem() -> str:
     ).decode()
 
 
+def _public_key_for(private_key_pem: str) -> str:
+    private_key = serialization.load_pem_private_key(private_key_pem.encode(), password=None, backend=default_backend())
+    return (
+        private_key.public_key()
+        .public_bytes(encoding=serialization.Encoding.PEM, format=serialization.PublicFormat.SubjectPublicKeyInfo)
+        .decode()
+    )
+
+
 KEY_A = _generate_private_key_pem()
 KEY_B = _generate_private_key_pem()
-KID_A = _compute_kid(_derive_public_key_pem(KEY_A))
+KID_A = _compute_kid(_public_key_for(KEY_A))
+EC_PRIVATE_KEY = (
+    ec.generate_private_key(ec.SECP256R1())
+    .private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+    .decode()
+)
 
 
 def _fake_run(state: dict | None = None, origin_product: str = "user_created", *, is_terminal: bool = False) -> TaskRun:
@@ -89,9 +108,7 @@ class TestSandboxJwtRotation(SimpleTestCase):
         self.assertEqual(get_primary_sandbox_jwt_kid(), KID_A)
 
         token = create_sandbox_connection_token(_fake_run(), user_id=1, distinct_id="d")
-        decoded = jwt.decode(
-            token, _derive_public_key_pem(KEY_A), algorithms=["RS256"], audience=SANDBOX_CONNECTION_AUDIENCE
-        )
+        decoded = jwt.decode(token, _public_key_for(KEY_A), algorithms=["RS256"], audience=SANDBOX_CONNECTION_AUDIENCE)
         self.assertEqual(jwt.get_unverified_header(token)["kid"], KID_A)
         self.assertEqual(decoded["aud"], SANDBOX_CONNECTION_AUDIENCE)
 
@@ -104,10 +121,10 @@ class TestSandboxJwtRotation(SimpleTestCase):
 
         self.assertEqual(jwt.get_unverified_header(token)["kid"], KID_A)
         # Verifies against the old (KEY_A) public key the sandbox still holds...
-        jwt.decode(token, _derive_public_key_pem(KEY_A), algorithms=["RS256"], audience=SANDBOX_CONNECTION_AUDIENCE)
+        jwt.decode(token, _public_key_for(KEY_A), algorithms=["RS256"], audience=SANDBOX_CONNECTION_AUDIENCE)
         # ...and is rejected by the new primary key.
         with self.assertRaises(jwt.InvalidSignatureError):
-            jwt.decode(token, _derive_public_key_pem(KEY_B), algorithms=["RS256"], audience=SANDBOX_CONNECTION_AUDIENCE)
+            jwt.decode(token, _public_key_for(KEY_B), algorithms=["RS256"], audience=SANDBOX_CONNECTION_AUDIENCE)
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=KEY_A, SANDBOX_JWT_PRIVATE_KEY_SECONDARY=None)
     def test_fallback_to_primary_when_no_kid_stored(self) -> None:
@@ -279,14 +296,14 @@ class TestSandboxJwtRotation(SimpleTestCase):
         payload = validate_sandbox_event_ingest_token(token)
         self.assertEqual(payload.team_id, 1)
         self.assertEqual(get_primary_sandbox_jwt_kid(), KID_A)
-        self.assertEqual(get_sandbox_jwt_public_key(), _derive_public_key_pem(KEY_A))
+        self.assertEqual(get_sandbox_jwt_public_key(), _public_key_for(KEY_A))
 
     @parameterized.expand(
         [
             ("derived", KEY_A, None, None),
-            ("explicit_primary", KEY_A, _derive_public_key_pem(KEY_B), None),
-            ("public_overlap", None, _derive_public_key_pem(KEY_A), None),
-            ("explicit_secondary", None, None, _derive_public_key_pem(KEY_A).replace("\n", "\\n")),
+            ("explicit_primary", KEY_A, _public_key_for(KEY_B), None),
+            ("public_overlap", None, _public_key_for(KEY_A), None),
+            ("explicit_secondary", None, None, _public_key_for(KEY_A).replace("\n", "\\n")),
         ]
     )
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=KEY_B)
@@ -304,8 +321,8 @@ class TestSandboxJwtRotation(SimpleTestCase):
         self.assertEqual(
             json.loads(output.getvalue()),
             {
-                _compute_kid(_derive_public_key_pem(KEY_B)): _derive_public_key_pem(KEY_B),
-                KID_A: _derive_public_key_pem(KEY_A),
+                _compute_kid(_public_key_for(KEY_B)): _public_key_for(KEY_B),
+                KID_A: _public_key_for(KEY_A),
             },
         )
         self.assertNotIn("PRIVATE KEY", output.getvalue())
@@ -313,15 +330,15 @@ class TestSandboxJwtRotation(SimpleTestCase):
     @override_settings(
         SANDBOX_JWT_PRIVATE_KEY=None,
         SANDBOX_JWT_PRIVATE_KEY_SECONDARY=None,
-        SANDBOX_JWT_PUBLIC_KEY=_derive_public_key_pem(KEY_A).replace("\n", "\\n"),
-        SANDBOX_JWT_PUBLIC_KEY_SECONDARY=_derive_public_key_pem(KEY_B),
+        SANDBOX_JWT_PUBLIC_KEY=_public_key_for(KEY_A).replace("\n", "\\n"),
+        SANDBOX_JWT_PUBLIC_KEY_SECONDARY=_public_key_for(KEY_B),
     )
     def test_public_key_bundle_needs_no_private_key(self) -> None:
         self.assertEqual(
             get_sandbox_jwt_public_key_bundle(),
             {
-                KID_A: _derive_public_key_pem(KEY_A),
-                _compute_kid(_derive_public_key_pem(KEY_B)): _derive_public_key_pem(KEY_B),
+                KID_A: _public_key_for(KEY_A),
+                _compute_kid(_public_key_for(KEY_B)): _public_key_for(KEY_B),
             },
         )
 
@@ -336,6 +353,12 @@ class TestSandboxJwtRotation(SimpleTestCase):
         with override_settings(SANDBOX_JWT_PUBLIC_KEY=public_key), self.assertRaises(ValueError):
             call_command("export_sandbox_jwt_public_keys", stdout=output)
         self.assertEqual(output.getvalue(), "")
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=EC_PRIVATE_KEY, SANDBOX_JWT_PRIVATE_KEY_SECONDARY=None)
+    def test_signing_key_rejects_non_rsa_private_key(self) -> None:
+        reset_sandbox_jwt_key_cache()
+        with self.assertRaisesRegex(ValueError, "must be RSA"):
+            get_primary_sandbox_jwt_kid()
 
     @override_settings(
         SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY,
@@ -383,7 +406,7 @@ class TestSandboxJwtRotation(SimpleTestCase):
 
         claims = jwt.decode(
             token,
-            _derive_public_key_pem(KEY_A),
+            _public_key_for(KEY_A),
             algorithms=["RS256"],
             audience=AGENT_EGRESS_AUDIENCE,
             issuer=AGENT_EGRESS_ISSUER,
@@ -396,6 +419,40 @@ class TestSandboxJwtRotation(SimpleTestCase):
             reset_sandbox_jwt_key_cache()
             with self.assertRaisesRegex(ValueError, "signing key is unavailable"):
                 _encode_agent_egress_token(run, payload)
+
+    @parameterized.expand(
+        [
+            (
+                "connection",
+                lambda run: create_sandbox_connection_token(run, user_id=1, distinct_id="d"),
+                SANDBOX_CONNECTION_AUDIENCE,
+            ),
+            ("event_ingest", create_sandbox_event_ingest_token, SANDBOX_EVENT_INGEST_AUDIENCE),
+            ("stream_read", create_stream_read_token, STREAM_READ_AUDIENCE),
+            (
+                "agent_egress",
+                lambda run: _encode_agent_egress_token(
+                    run,
+                    AgentEgressTokenPayload(
+                        actor_id=7, actor_epoch=1, execution_id=uuid.uuid4(), relay_key_sha256="r" * 43
+                    ),
+                ),
+                AGENT_EGRESS_AUDIENCE,
+            ),
+        ]
+    )
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=KEY_B, SANDBOX_JWT_PRIVATE_KEY_SECONDARY=KEY_A)
+    def test_minting_signs_without_reparsing_the_private_key_pem(
+        self, _name: str, mint: Callable[[TaskRun], str], audience: str
+    ) -> None:
+        reset_sandbox_jwt_key_cache()
+        get_primary_sandbox_jwt_kid()
+
+        with patch("jwt.algorithms.load_pem_private_key", side_effect=RuntimeError("private key PEM was re-parsed")):
+            token = mint(_fake_run({SANDBOX_JWT_STATE_KID_KEY: KID_A}))
+
+        claims = jwt.decode(token, _public_key_for(KEY_A), algorithms=["RS256"], audience=audience)
+        self.assertEqual(claims["aud"], audience)
 
     @parameterized.expand([(None,), ("",), ("removed",), (["invalid"],)])
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=KEY_A, SANDBOX_JWT_PRIVATE_KEY_SECONDARY=None)
@@ -463,15 +520,6 @@ def test_event_ingest_token_is_not_accepted_for_stream_read():
 
     with pytest.raises(jwt.InvalidAudienceError):
         validate_stream_read_token(token)
-
-
-def _public_key_for(private_key_pem: str) -> str:
-    private_key = serialization.load_pem_private_key(private_key_pem.encode(), password=None, backend=default_backend())
-    return (
-        private_key.public_key()
-        .public_bytes(encoding=serialization.Encoding.PEM, format=serialization.PublicFormat.SubjectPublicKeyInfo)
-        .decode()
-    )
 
 
 def test_stream_read_token_validates_with_public_key_only():

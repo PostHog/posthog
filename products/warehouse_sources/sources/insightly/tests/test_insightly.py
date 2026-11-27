@@ -72,18 +72,59 @@ class TestPagination:
         assert result.params("updated_after_utc") == ["2020-01-01T00:00:00Z"] * 2
         assert result.params("skip") == ["0", "500"]
 
-    def test_full_refresh_endpoint_never_filters(self) -> None:
-        # Users is full-refresh only; even with an incremental value it must not send updated_after_utc.
+    @pytest.mark.parametrize(
+        "endpoint, row",
+        [
+            ("Users", {"USER_ID": 1}),
+            ("OpportunityCategories", {"CATEGORY_ID": 1}),
+            ("ProjectCategories", {"CATEGORY_ID": 2}),
+            ("TaskCategories", {"CATEGORY_ID": 3}),
+            ("Teams", {"TEAM_ID": 4}),
+            ("TeamMembers", {"PERMISSION_ID": 5}),
+            ("MarketingVisits", {"VISIT_ID": 6}),
+        ],
+    )
+    def test_full_refresh_endpoint_never_filters(self, endpoint: str, row: dict) -> None:
+        # Full-refresh endpoints must not send updated_after_utc, even when the job has an incremental value.
         result = _driver().run(
-            "Users",
-            [ScriptedResponse(json=[{"USER_ID": 1}])],
+            endpoint,
+            [ScriptedResponse(json=[row])],
             should_use_incremental_field=True,
             db_incremental_field_last_value=datetime(2020, 1, 1, tzinfo=UTC),
         )
 
         assert result.raised is None
-        assert result.rows == [{"USER_ID": 1}]
+        assert result.rows == [row]
+        assert result.paths == [f"/v3.1/{endpoint}"]
         assert result.params("updated_after_utc") == [None]
+
+    @pytest.mark.parametrize(
+        "endpoint, should_use_incremental, expected_path, expected_filter",
+        [
+            ("Milestones", True, "/v3.1/Milestones/Search", "2020-01-01T00:00:00Z"),
+            ("Milestones", False, "/v3.1/Milestones", None),
+            ("Prospect", True, "/v3.1/Prospect/Search", "2020-01-01T00:00:00Z"),
+            ("Prospect", False, "/v3.1/Prospect", None),
+        ],
+    )
+    def test_search_endpoint_used_only_for_incremental_sync(
+        self,
+        endpoint: str,
+        should_use_incremental: bool,
+        expected_path: str,
+        expected_filter: str | None,
+    ) -> None:
+        # The plain list endpoints take no updated_after_utc; only their /Search variants filter.
+        result = _driver().run(
+            endpoint,
+            [ScriptedResponse(json=[])],
+            should_use_incremental_field=should_use_incremental,
+            db_incremental_field_last_value=datetime(2020, 1, 1, tzinfo=UTC),
+        )
+
+        assert result.raised is None
+        assert result.paths == [expected_path]
+        assert result.params("updated_after_utc") == [expected_filter]
 
     def test_lead_statuses_include_the_converted_status(self) -> None:
         result = _driver().run("LeadStatuses", [ScriptedResponse(json=[{"LEAD_STATUS_ID": 1}])])
@@ -126,6 +167,12 @@ class TestInsightlySourceResponse:
             ("Opportunities", ["OPPORTUNITY_ID"], ["DATE_CREATED_UTC"], "datetime"),
             ("Users", ["USER_ID"], ["DATE_CREATED_UTC"], "datetime"),
             ("Pipelines", ["PIPELINE_ID"], None, None),
+            ("Milestones", ["MILESTONE_ID"], ["DATE_CREATED_UTC"], "datetime"),
+            ("TaskCategories", ["CATEGORY_ID"], None, None),
+            ("Teams", ["TEAM_ID"], ["DATE_CREATED_UTC"], "datetime"),
+            ("TeamMembers", ["PERMISSION_ID"], None, None),
+            ("Prospect", ["PROSPECT_ID"], ["DATE_CREATED_UTC"], "datetime"),
+            ("MarketingVisits", ["VISIT_ID"], ["FIRST_PAGE_VIEW_DATE_UTC"], "datetime"),
             (
                 "OpportunityStateHistory",
                 ["OPPORTUNITY_ID", "DATE_CHANGED_UTC", "FOR_OPPORTUNITY_STATE"],

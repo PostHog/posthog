@@ -12,7 +12,8 @@
         outline: none;
 
         > * + *,
-        .email-canvas-column > * + * {
+        .email-canvas-column > * + *,
+        .email-canvas-section > * + * {
             margin-top: 0;
         }
 
@@ -179,6 +180,11 @@
         @container email-canvas (max-width: 380px) {
             flex-direction: column;
         }
+    }
+
+    .email-canvas-section:hover {
+        outline: 1px dashed rgb(128 128 128 / 50%);
+        outline-offset: -1px;
     }
 
     // An overlay rather than an outline, because a positioned image or the next section would paint over an outline.
@@ -374,6 +380,9 @@
     padding-right: var(--email-editor-gutter);
     padding-left: var(--email-editor-gutter);
     container: email-editor / inline-size;
+
+    // A frame's height follows the canvas width, so a scrollbar that comes and goes would resize it without end.
+    scrollbar-gutter: stable;
 
     // Below this the email can't be centered with a gutter each side, and only the left one is needed.
     @media (max-width: 1100px) {

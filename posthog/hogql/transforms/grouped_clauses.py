@@ -10,7 +10,9 @@ from posthog.hogql.base import AST
 from posthog.hogql.database.models import StringJSONDatabaseField
 from posthog.hogql.database.schema.events import EVENTS_TABLE_TYPES
 from posthog.hogql.errors import QueryError
+from posthog.hogql.functions.clickhouse.json import JSON_KEY_PATH_FUNCTIONS
 from posthog.hogql.functions.mapping import find_hogql_aggregation
+from posthog.hogql.transforms.property_types import key_json_document_read
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.clickhouse.events_json import NULL_KEYS_COLUMNS
@@ -46,12 +48,43 @@ def visit_after_grouping(node: ast.SelectQuery, visit: Callable[[Any], Any]) -> 
     return rebuilt
 
 
+_TEXT_EXTRACTIONS = frozenset({"JSONExtractString", "JSONExtractInt", "JSONExtractUInt", "JSONExtractFloat"})
+
+
+def needs_stored_json(node: ast.Call) -> bool:
+    """Whether `node` is a JSON function over one property whose result the property's text cannot give.
+
+    For `f(properties, 'key', ...)` on the native events table, the property pass gives `f` the `key_json_document`
+    of the key and marks the key read `as_json`, on the field's type before lowering and on the `PropertyAccess`
+    after it. A hand-written `toJSONString(properties.key)` has no mark. After grouping, a pass reads a key as its
+    text, so that an expression stays a function of a `properties.key` grouping key. The text does not record whether
+    the value was a string, a number, a Bool, an array or an object, and serializing it quotes all of them. Only the
+    extraction of the key as text or as a number returns the same result from that text.
+
+    A function that needs more cannot be a function of the text key. It is valid only inside a grouping key of its
+    own, where ClickHouse matches the whole expression, so a pass compiles it as it does before grouping. The legacy
+    table rejects such a function outside a grouping key too, because it reads the `properties` column.
+    """
+    if node.name not in JSON_KEY_PATH_FUNCTIONS or not node.args:
+        return False
+    match node.name, node.args:
+        case name, [_] if name in _TEXT_EXTRACTIONS:
+            return False
+        case "JSONExtract", [_, ast.Constant(value="String" | "Nullable(String)")]:
+            return False
+    match key_json_document_read(node.args[0]):
+        case ast.PropertyAccess(as_json=True) | ast.Field(type=ast.PropertyType(as_json=True)):
+            return True
+    return False
+
+
 class GroupedClauseTracker:
     """Tracks whether the expression under visit sees the grouped rows.
 
     An expression in a grouped clause has to stay a function of the group keys, so a pass with this tracker skips the
     rewrites that would read a source column there. An aggregate's arguments see the source rows whatever clause the
-    aggregate is in, and a nested query starts its own split.
+    aggregate is in, and a nested query starts its own split. A JSON function that `needs_stored_json` is compiled as
+    before grouping.
     """
 
     _in_grouped_clause: bool = False

@@ -397,6 +397,25 @@ _PERSONS_JOIN_INSIGHT = _Copy(
 )
 
 
+_STRUCTURAL_COPY: dict[QueryScanFindingKind, _Copy] = {
+    QueryScanFindingKind.REPEATED_CTE_EXPANSION: _Copy(
+        lead="{subject} references the same non-materialized CTE more than once. Repeated expansion may repeat its reads or calculations.",
+        advice="The query structure alone does not show how much work ClickHouse shares.",
+        fix="This is informational. Do not automatically edit the query for this finding.",
+    ),
+    QueryScanFindingKind.CROSS_JOIN_EQUALITY: _Copy(
+        lead="{subject} uses a CROSS JOIN with an equality filter between its sources. This may process candidate pairs before filtering.",
+        advice="Check the execution plan to see whether ClickHouse turns it into a keyed join.",
+        fix="This is informational. Do not automatically edit the query for this finding.",
+    ),
+    QueryScanFindingKind.DATE_ARRAYS_BEFORE_BREAKDOWN_LIMIT: _Copy(
+        lead="{subject} builds date arrays while ranking breakdowns. This may allocate arrays for breakdowns later combined or excluded.",
+        advice="The query structure does not show how many breakdowns or intervals it processes.",
+        fix="This is informational. Do not automatically edit the query for this finding.",
+    ),
+}
+
+
 def _by_cause(table: dict[FindingCause, _Copy], cause: FindingCause | None, default: _Copy) -> _Copy:
     return default if cause is None else table.get(cause, default)
 
@@ -409,6 +428,8 @@ def _copy_for(
     by_design: bool,
     fix_location: QueryScanFixLocation,
 ) -> _Copy:
+    if kind in _STRUCTURAL_COPY:
+        return _STRUCTURAL_COPY[kind]
     if kind == QueryScanFindingKind.NO_EVENT_FILTER:
         if by_design:
             return _ALL_EVENTS_SQL if is_sql else _ALL_EVENTS_INSIGHT

@@ -1687,6 +1687,12 @@ class TestPersistReplyActivity:
                 {"widget": {"account_billing": "bot_reply"}},
                 True,
             ),
+            (
+                "forwarded_email_stays_private_even_if_set_to_bot_reply",
+                {"allow_bot_reply": True, "channel_source": "email", "ticket_type": "how_to", "forwarded": True},
+                {"email": {"how_to": "bot_reply"}},
+                True,
+            ),
         ]
     )
     @pytest.mark.django_db
@@ -1704,6 +1710,7 @@ class TestPersistReplyActivity:
             widget_session_id="aabbccdd-0000-0000-0000-000000000001",
             distinct_id="test-user",
             channel_source=call_kwargs["channel_source"],
+            anonymous_traits={"email_forwarded": True} if call_kwargs.get("forwarded") else {},
         )
 
         output = _persist_reply_sync(
@@ -1976,6 +1983,26 @@ class TestClarifyActivity:
         ticket.refresh_from_db()
         assert ticket.status == Status.PENDING
         assert ticket.ai_triage["status"] == "awaiting_clarification"
+
+    def test_a_later_run_posts_its_own_question(self):
+        from posthog.models.comment import Comment
+
+        ticket = self._ticket()
+        for run_id, question in (("run-1", "Which SDK are you using?"), ("run-2", "Which version?")):
+            _clarify_sync(
+                ClarifyInput(
+                    team_id=ticket.team_id,
+                    ticket_id=str(ticket.id),
+                    ticket_type="how_to",
+                    clarifying_questions=[question],
+                    run_id=run_id,
+                )
+            )
+
+        run_ids = Comment.objects.filter(team_id=ticket.team_id, item_id=str(ticket.id)).values_list(
+            "item_context__run_id", flat=True
+        )
+        assert sorted(run_ids) == ["run-1", "run-2"]
 
     def test_retry_after_private_note_does_not_duplicate(self):
         from posthog.models.comment import Comment
@@ -3672,6 +3699,7 @@ class TestRecordTriageSync:
                 "workflow_id": "wf-1",
                 "run_id": "run-2",
                 "status": "done",
+                "trigger": "customer_reply",
                 "result": "persisted",
                 "ticket_type": "how_to",
                 "attempts": 1,
@@ -3699,6 +3727,7 @@ class TestRecordTriageSync:
             "run_id": "run-2",
             "ai_triage_result": "persisted",
             "ai_triage_status": "done",
+            "trigger": "customer_reply",
             "published": True,
             "threat_type": None,
             "ticket_type": "how_to",

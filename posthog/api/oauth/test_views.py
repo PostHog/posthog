@@ -1,5 +1,6 @@
 import os
 import json
+import time
 import base64
 import hashlib
 import importlib
@@ -14,6 +15,7 @@ from posthog.test.base import APIBaseTest, FuzzyInt
 from unittest.mock import MagicMock, patch
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import OperationalError
 from django.http import HttpResponse
 from django.test import SimpleTestCase, override_settings
@@ -53,7 +55,7 @@ from posthog.models.organization_ip_restrictions import OrganizationIPRestrictio
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.scopes.ceilings import MIN_SCOPES_BEFORE_TRUNCATION
-from posthog.scopes.exposure import ALL_SCOPES
+from posthog.scopes.exposure import ALL_SCOPES, UNPRIVILEGED_SCOPES
 from posthog.scopes.oauth import ALWAYS_ALLOWED_SCOPES, EMA_ISSUER_MANAGE_SCOPE, OAUTH_SCOPES_SUPPORTED
 from posthog.settings.utils import generate_rsa_private_key_pem
 from posthog.utils import absolute_uri
@@ -262,6 +264,30 @@ class TestOAuthAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.cookies[PENDING_OAUTH_CONNECTION_COOKIE]["max-age"], 0)
+
+    @parameterized.expand(
+        [
+            ("stale_session_allows", "stale", True, status.HTTP_403_FORBIDDEN),
+            ("step_up_session_allows", "step_up", True, status.HTTP_403_FORBIDDEN),
+            ("stale_session_declines", "stale", False, status.HTTP_200_OK),
+        ]
+    )
+    def test_consent_needs_a_recent_sign_in_only_to_allow(self, _name, session_state, allow, expected_status):
+        if session_state == "step_up":
+            session = self.client.session
+            session[settings.SESSION_STEP_UP_REQUIRED_KEY] = True
+            session.save()
+        age = settings.SESSION_SENSITIVE_ACTIONS_AGE + 10 if session_state == "stale" else 0
+
+        with time_machine.travel(timezone.now() + timedelta(seconds=age), tick=False):
+            response = self.client.post(
+                "/oauth/authorize/", {**self.base_authorization_post_body, "allow": allow}, format="json"
+            )
+
+        self.assertEqual(response.status_code, expected_status, response.json())
+        if expected_status == status.HTTP_403_FORBIDDEN:
+            self.assertEqual(response.json()["code"], "sensitive_action_required_reauth")
+            self.assertFalse(OAuthGrant.objects.filter(application=self.confidential_application).exists())
 
     def test_authorize_successful_with_required_params(self):
         response = self.client.get(self.base_authorization_url)
@@ -2487,6 +2513,24 @@ class TestOAuthAPI(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("dcr_empty_ceiling", "is_dcr_client", [], "*", set(UNPRIVILEGED_SCOPES)),
+            ("cimd_empty_ceiling", "is_cimd_client", [], "*", set(UNPRIVILEGED_SCOPES)),
+            ("dcr_seeded_ceiling", "is_dcr_client", ["experiment:read"], "* openid", {"experiment:read", "openid"}),
+        ]
+    )
+    def test_refresh_resolves_wildcard_token_of_self_registered_client(
+        self, _name, registration_field, ceiling, token_scope, expected
+    ):
+        setattr(self.confidential_application, registration_field, True)
+        self.confidential_application.scopes = ceiling
+        self.confidential_application.save()
+
+        refresh_token = self._create_refreshable_token_pair(token_scope)
+
+        self.assertEqual(self._refresh_and_get_scopes(refresh_token), expected)
+
+    @parameterized.expand(
+        [
             ("oidc_only_survives_nonoverlapping_ceiling", "openid", ["experiment:read"], {"openid"}),
             ("oidc_survives_while_resource_scope_drops", "openid insight:read", ["experiment:read"], {"openid"}),
         ]
@@ -4077,15 +4121,31 @@ class TestOAuthAPI(APIBaseTest):
         self.assertIn("metrics:read", wildcard_reads)
         self.assertFalse(any(scope.endswith(":write") for scope in wildcard_reads))
 
-    def test_authorize_wildcard_accepted_when_app_ceiling_empty(self):
-        # Existing clients (the PostHog Desktop CLI today) still send scope=*
-        # against apps that have no explicit ceiling. Until wildcard retirement
-        # (#60342) lands, those broad-default apps keep accepting it.
+    @parameterized.expand(
+        [
+            # Existing clients (the PostHog Desktop CLI today) still send scope=*
+            # against apps that have no explicit ceiling. Until wildcard retirement
+            # (#60342) lands, those broad-default apps keep accepting it.
+            ("manual", None, {"*"}),
+            ("dcr", "is_dcr_client", set(UNPRIVILEGED_SCOPES)),
+            ("cimd", "is_cimd_client", set(UNPRIVILEGED_SCOPES)),
+        ]
+    )
+    def test_authorize_wildcard_under_empty_app_ceiling(self, _name, registration_field, expected_scopes):
+        if registration_field:
+            setattr(self.confidential_application, registration_field, True)
+            self.confidential_application.save()
+
         response = self._authorize_post("*")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         redirect_to = response.json()["redirect_to"]
         self.assertNotIn("error=invalid_scope", redirect_to)
-        self.assertIn("code=", redirect_to)
+        code = parse_qs(urlparse(redirect_to).query)["code"][0]
+
+        token_response = self.post("/oauth/token/", {**self.base_token_body, "code": code})
+
+        self.assertEqual(token_response.status_code, status.HTTP_200_OK, token_response.content)
+        self.assertEqual(set(token_response.json()["scope"].split()), expected_scopes)
 
     # --- Required vs. optional scopes (OAuthApplication.optional_scopes) ---
 
@@ -4123,6 +4183,45 @@ class TestOAuthAPI(APIBaseTest):
         body = response.json()
         self.assertEqual(body["error"], "invalid_scope")
         self.assertIn("experiment:read", body["error_description"])
+
+    @parameterized.expand([("first_party",), ("auto_approval",)])
+    @time_machine.travel("2026-01-01 00:00:00", tick=False)
+    def test_skipped_consent_waits_for_a_recent_sign_in_then_completes_on_reload(self, grant_path):
+        self.client.force_login(self.user)
+        url = f"{self.base_authorization_url}&state=request-state-123"
+        if grant_path == "first_party":
+            self.confidential_application.is_first_party = True
+            self.confidential_application.save()
+        else:
+            self._set_scope_split(["experiment:read"], [])
+            OAuthAccessToken.objects.create(
+                application=self.confidential_application,
+                user=self.user,
+                token="at_auto_approval_stale_session",
+                expires=timezone.now() + timedelta(days=1),
+                scope="experiment:read",
+                scoped_teams=[self.team.id],
+                scoped_organizations=None,
+            )
+            url += "&scope=experiment:read&approval_prompt=auto"
+
+        with time_machine.travel(
+            timezone.now() + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10), tick=False
+        ):
+            stale_response = self.client.get(url)
+
+            session = self.client.session
+            session[settings.SESSION_LAST_REAUTH_AT_KEY] = time.time()
+            session.save()
+            reloaded_response = self.client.get(url)
+
+        self.assertEqual(stale_response.status_code, status.HTTP_200_OK)
+        self.assertIs(stale_response.context["posthog_app_context"]["oauth_reauthentication_required"], True)
+
+        self.assertEqual(reloaded_response.status_code, status.HTTP_302_FOUND)
+        query = parse_qs(urlparse(reloaded_response["Location"]).query)
+        self.assertEqual(query["state"], ["request-state-123"])
+        self.assertEqual(OAuthGrant.objects.get(code=query["code"][0]).code_challenge, self.code_challenge)
 
     @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_auto_approval_skipped_when_request_omits_required_scope(self):
@@ -5354,6 +5453,69 @@ class TestOAuthAPI(APIBaseTest):
             OAuthRefreshToken.objects.filter(application=self.public_application, revoked__isnull=True).exists()
         )
 
+    @parameterized.expand([("narrowed_to_one_team", True), ("emptied", False)])
+    @time_machine.travel("2026-01-01 00:00:00", tick=False)
+    def test_dcr_non_rotating_refresh_reads_teams_changed_while_waiting_for_the_lock(
+        self, _name: str, keeps_a_team: bool
+    ):
+        # The request reads the refresh token in autocommit, then a resource removal narrows its
+        # teams while the request waits for the connection lock. Narrowing the row from inside the
+        # lock call stands in for that commit. The new access token must carry the narrowed teams.
+        self.public_application.is_dcr_client = True
+        self.public_application.save()
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+
+        response = self.client.post(
+            "/oauth/authorize/",
+            {
+                "client_id": self.public_application.client_id,
+                "redirect_uri": "https://example.com/callback",
+                "response_type": "code",
+                "code_challenge": self.code_challenge,
+                "code_challenge_method": "S256",
+                "allow": True,
+                "access_level": OAuthApplicationAccessLevel.ALL.value,
+                "scoped_organizations": [],
+                "scoped_teams": [],
+                "scope": "openid",
+            },
+        )
+        code = response.json()["redirect_to"].split("code=")[1].split("&")[0]
+        refresh_token = self.post(
+            "/oauth/token/",
+            {
+                "grant_type": "authorization_code",
+                "code": code,
+                "client_id": self.public_application.client_id,
+                "redirect_uri": "https://example.com/callback",
+                "code_verifier": self.code_verifier,
+            },
+        ).json()["refresh_token"]
+        OAuthRefreshToken.objects.filter(token=refresh_token).update(scoped_teams=[self.team.id, other_team.id])
+
+        remaining_teams = [other_team.id] if keeps_a_team else []
+
+        def remove_the_team(**kwargs: object) -> None:
+            OAuthRefreshToken.objects.filter(token=refresh_token).update(scoped_teams=remaining_teams)
+
+        with patch("posthog.api.oauth.views.lock_oauth_connection", side_effect=remove_the_team):
+            refresh_response = self.post(
+                "/oauth/token/",
+                {
+                    "grant_type": "refresh_token",
+                    "refresh_token": refresh_token,
+                    "client_id": self.public_application.client_id,
+                },
+            )
+
+        if keeps_a_team:
+            self.assertEqual(refresh_response.status_code, status.HTTP_200_OK)
+            new_access_token = OAuthAccessToken.objects.get(token=refresh_response.json()["access_token"])
+            self.assertEqual(new_access_token.scoped_teams, [other_team.id])
+        else:
+            self.assertEqual(refresh_response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(refresh_response.json()["error"], "invalid_grant")
+
     @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_non_dcr_client_refresh_token_is_rotated(self):
         self.public_application.is_dcr_client = False
@@ -6086,6 +6248,124 @@ class TestLocalhostLoopbackRedirectUri(APIBaseTest):
         )
         response = self.client.get(auth_url)
         self.assertNotEqual(response.status_code, status.HTTP_200_OK)
+
+
+@override_settings(OAUTH_PROXY_CALLBACK_URLS=["https://proxy.example/oauth/callback/"])
+class TestOAuthProxyClientCallbackRedirectUri(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "own_client_route",
+                "https://proxy.example/oauth/callback/",
+                "https://proxy.example/oauth/callback/app_a/",
+                True,
+            ),
+            ("shared_route", "https://proxy.example/oauth/callback/", "https://proxy.example/oauth/callback/", True),
+            (
+                "other_client_route",
+                "https://proxy.example/oauth/callback/",
+                "https://proxy.example/oauth/callback/app_b/",
+                False,
+            ),
+            (
+                "shared_route_not_registered",
+                "https://app.example/cb",
+                "https://proxy.example/oauth/callback/app_a/",
+                False,
+            ),
+            (
+                "other_client_route_registered_explicitly",
+                "https://proxy.example/oauth/callback/ https://proxy.example/oauth/callback/app_b/",
+                "https://proxy.example/oauth/callback/app_b/",
+                False,
+            ),
+            (
+                "shared_route_with_extra_query",
+                "https://proxy.example/oauth/callback/",
+                "https://proxy.example/oauth/callback/?client=app_a",
+                False,
+            ),
+            (
+                "callback_of_unlisted_host",
+                "https://other.example/oauth/callback/",
+                "https://other.example/oauth/callback/app_a/",
+                False,
+            ),
+            (
+                "other_client_route_registered_with_default_port",
+                "https://proxy.example:443/oauth/callback/app_b/",
+                "https://proxy.example:443/oauth/callback/app_b/",
+                False,
+            ),
+            (
+                "other_client_route_registered_with_encoded_host",
+                "https://proxy%2Eexample/oauth/callback/app_b/",
+                "https://proxy%2Eexample/oauth/callback/app_b/",
+                False,
+            ),
+            (
+                "other_client_route_registered_with_ideographic_dot",
+                "https://proxy\u3002example/oauth/callback/app_b/",
+                "https://proxy\u3002example/oauth/callback/app_b/",
+                False,
+            ),
+            (
+                "shared_route_with_userinfo_and_query",
+                "https://proxy.example/oauth/callback/",
+                "https://x@proxy.example/oauth/callback/?client=app_b",
+                False,
+            ),
+            (
+                "shared_route_with_path_param",
+                "https://proxy.example/oauth/callback/",
+                "https://x@proxy.example/oauth/callback/;app_b",
+                False,
+            ),
+            (
+                "own_client_route_of_a_client_id_with_dot_segments",
+                "https://proxy.example/oauth/callback/",
+                "https://proxy.example/oauth/callback/https://attacker.example/t/../../../../app_b/",
+                False,
+                "https://attacker.example/t/../../../../app_b",
+            ),
+        ]
+    )
+    def test_proxy_callback_is_bound_to_the_requesting_client(
+        self, _name: str, registered: str, requested: str, allowed: bool, client_id: str = "app_a"
+    ) -> None:
+        app = OAuthApplication(client_id=client_id, redirect_uris=registered)
+
+        result = OAuthValidator().validate_redirect_uri(client_id, requested, SimpleNamespace(client=app))
+
+        assert result is allowed
+
+    @parameterized.expand(
+        [
+            ("shared_route", "https://proxy.example/oauth/callback/", True),
+            ("unrelated_host", "https://app.example/oauth/callback/app_b/", True),
+            ("client_route", "https://proxy.example/oauth/callback/app_b/", False),
+            ("client_route_other_case", "HTTPS://PROXY.EXAMPLE/oauth/callback/app_b/", False),
+            ("client_route_with_default_port", "https://proxy.example:443/oauth/callback/app_b/", False),
+            ("client_route_with_dot_segment", "https://proxy.example/oauth/x/../callback/app_b/", False),
+            ("other_path_on_proxy_host", "https://proxy.example/somewhere/", False),
+        ]
+    )
+    def test_only_the_shared_proxy_callback_can_be_registered(self, _name: str, redirect_uri: str, valid: bool) -> None:
+        app = OAuthApplication(
+            client_id="app_a",
+            redirect_uris=redirect_uri,
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            algorithm="RS256",
+        )
+
+        try:
+            app.clean()
+            error = None
+        except ValidationError as e:
+            error = str(e)
+
+        assert error is None if valid else "reserved for the PostHog OAuth proxy" in str(error)
 
 
 class TestOAuthAuthorizationServerMetadata(APIBaseTest):

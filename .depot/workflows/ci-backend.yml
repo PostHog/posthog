@@ -140,8 +140,10 @@ env:
     # keeps the env lock, and the step's retry blocks on it. Ending uv before the step
     # timeout frees the lock. Keep this under the 5-minute timeout-minutes of every step that uses it.
     PY_DEPS_SYNC_TIMEOUT: 270s
+    TEST_RUN_TIMEOUT: 1020s
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
     COMPOSE_PROJECT_NAME: posthog
+    TEMPORAL_VERSION_CHECK_DISABLED: 1
     WAIT_FOR_DOCKER_REGISTRY_MIRROR: ${{ vars.DEPOT_PULL_THROUGH_REGISTRY }} mirror.gcr.io
     DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
     REDIS_URL: 'redis://localhost'
@@ -260,6 +262,7 @@ jobs:
             schema: ${{ steps.filter.outputs.schema || 'true' }}
             product_yamls: ${{ steps.filter.outputs.product_yamls || 'false' }}
             repo_invariants: ${{ steps.filter.outputs.repo_invariants || 'false' }}
+            hoglint: ${{ steps.filter.outputs.hoglint || 'false' }}
             sdk_manifests: ${{ steps.filter.outputs.sdk_manifests || 'true' }}
             product_yamls_files: ${{ steps.filter.outputs.product_yamls_files }}
             reused: ${{ steps.filter.outputs.reused }}
@@ -307,6 +310,7 @@ jobs:
                       timing_scripts
                       tasks_temporal
                       repo_invariants
+                      hoglint
                       sdk_manifests
                       product_yamls
                       openapi_types
@@ -359,6 +363,9 @@ jobs:
                         # widening or fixing the script doesn't trigger
                         # tests it controls.
                         - 'products/*/package.json'
+                        # Django reads this file at startup to route each product app to its database,
+                        # so a routing change reaches every test while no Python file changes.
+                        - products/db_routing.yaml
                         # Tests read these MCP manifests from disk. Each one is a turbo input of
                         # its reader (tasks directly, posthog_ai through feature_flags'
                         # backend:mcp-surface task). Add a manifest here only with that wiring.
@@ -380,12 +387,9 @@ jobs:
                         - pytest.ini
                         - conftest.py # Root conftest loads for every pytest run
                         - .test_quarantine.json # Un-quarantining must re-run the affected tests
-                        # turbo-discover reads the module graph for the dependent
-                        # cascade, and `tach check` validates it — a graph-only PR
-                        # must still dispatch both.
-                        - tach.toml
+                        # turbo-discover reads hoglint's import map for the dependent cascade, and
                         # repo-checks runs `hoglint compare`, which judges the policy, the ledger
-                        # and the exceptions, so a policy-only PR must still dispatch it.
+                        # and the exceptions, so a policy-only PR must still dispatch both.
                         - hoglint.toml
                         - hoglint.ledger
                         - hoglint.exceptions.toml
@@ -419,13 +423,12 @@ jobs:
                         # Transitional: branches that predate the move still carry the
                         # resolver at tools/owners.
                         - 'tools/owners/**'
-                        # product:lint --all checks these generated files against the tree,
-                        # so a baseline-only edit must run it too. The crossings baseline is
-                        # also what product:lint reads to let a wiring location leave a
-                        # product's turbo.json inputs, so both edits must run the checks.
-                        - products/isolation_baseline.txt
-                        - products/model_crossing_uses_baseline.txt
+                        # hoglint's Isolated level reads each product's contract-check
+                        # inputs, so an inputs-only edit must run `hoglint compare`. product:lint
+                        # --all checks the isolation baseline against those claims, so a
+                        # baseline-only edit must run it too.
                         - 'products/*/turbo.json'
+                        - products/isolation_baseline.txt
                         # Make sure we run if someone is explicitly changing the workflow
                         - .depot/workflows/ci-backend.yml
                         - .github/new-events-schema-targets.txt
@@ -489,6 +492,12 @@ jobs:
                         - pytest.ini
                         - conftest.py
                         - .test_quarantine.json
+                        # Every product's tests load these, but no product package owns them, so Turbo
+                        # marks no product affected and discovery would test nothing. Listing them
+                        # here sends them down the same path as a posthog/ edit.
+                        - products/__init__.py
+                        - products/conftest.py
+                        - products/db_routing.yaml
                         # Python reads only the generated products.json, and ci-frontend fails a
                         # manifest.tsx edit that leaves it stale, so manifest.tsx is not listed here.
                         - frontend/src/products.json
@@ -622,6 +631,12 @@ jobs:
                         # That check and the other hogli commands in repo-checks import modules from
                         # this tree, and the backend filter matches only the ones the test setup imports.
                         - 'tools/hogli-commands/**'
+                      hoglint:
+                        # hoglint reads every Python file under the repo root (hoglint.toml
+                        # `source_roots`), and the backend filter leaves some of them out, such as
+                        # bin/, rust/, nodejs/ and the root scripts. A change to any of them must
+                        # still run `hoglint compare` in repo-checks.
+                        - '**/*.py'
                       sdk_manifests:
                         # Everything the SDK major-version guard reads. Lockfiles are listed
                         # because a floor-only or `*` spec can move to a new major through
@@ -765,7 +780,7 @@ jobs:
             schema_migrations_key: ${{ steps.schema-key.outputs.migrations_key }}
             schema_base_sha: ${{ steps.schema-key.outputs.base_sha }}
             schema_base_timestamp: ${{ steps.schema-key.outputs.base_timestamp }}
-            schema_prefix_key: ${{ steps.schema-key.outputs.prefix_key }}
+            schema_ancestor_keys: ${{ steps.schema-key.outputs.ancestor_keys }}
             django_shards: ${{ steps.discover.outputs.django_shards }}
             # Which Django tests this PR runs. Empty mode = this run does not select.
             mode: ${{ steps.discover.outputs.mode }}
@@ -803,13 +818,14 @@ jobs:
 
             - name: Compute schema cache key from PR base
               id: schema-key
-              if: github.event_name == 'pull_request'
+              if: github.event_name == 'pull_request' || github.event_name == 'schedule'
               env:
                   PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
               run: |
                   # The event base is the exact master revision in the synthetic merge checkout.
                   # Use it directly so cache compatibility does not depend on parent ordering.
-                  BASE_SHA="$PR_BASE_SHA"
+                  # A scheduled run checks out master itself, so its base is HEAD.
+                  BASE_SHA="${PR_BASE_SHA:-$(git rev-parse HEAD)}"
                   if [ -z "$BASE_SHA" ] || ! git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
                       echo "key=" >> $GITHUB_OUTPUT
                       echo "migrations_key=" >> $GITHUB_OUTPUT
@@ -834,16 +850,21 @@ jobs:
                   fi
                   # Exact base-revision key, kept as the fallback restore key below.
                   echo "key=posthog-schema-master-${BASE_SHA}" >> $GITHUB_OUTPUT
-                  # Last-resort restore prefix: matches the newest saved dump of any
-                  # migration set, for the window where both exact keys miss. Gated on
-                  # checkout age (a day) because a re-run of an old run keeps its original
-                  # commit: a stale checkout can lack migrations the newest dump records,
-                  # and the migrate top-ups only apply forward, so they cannot repair a
-                  # dump that is newer than the code.
-                  HEAD_AGE_SECONDS=$(( $(date +%s) - $(git show -s --format=%ct HEAD) ))
-                  if [ "$HEAD_AGE_SECONDS" -lt 86400 ]; then
-                      echo "prefix_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-" >> $GITHUB_OUTPUT
-                  fi
+                  # Last-resort restore keys: the migration sets of the base's first-parent
+                  # ancestors, newest first, for the window before master saves the base's own
+                  # dump and for stacked bases that master never dumps. The migrate top-ups
+                  # only apply forward, so a fallback must never be newer than the base. The
+                  # newest dump of any migration set often is, because a stacked or older
+                  # base trails master. actions/cache accepts at most 10 keys, and the restore
+                  # steps already use 2 of them.
+                  ANCESTOR_KEYS=$(python3 .github/scripts/master_schema_cache.py --repository . \
+                      --epoch "$SCHEMA_CACHE_EPOCH" ancestor-keys --revision "$BASE_SHA" --limit 7) \
+                      || { echo "::notice::could not list ancestor schema keys, so only the exact keys are restored"; ANCESTOR_KEYS=""; }
+                  {
+                      echo "ancestor_keys<<SCHEMA_ANCESTOR_KEYS"
+                      echo "$ANCESTOR_KEYS"
+                      echo "SCHEMA_ANCESTOR_KEYS"
+                  } >> $GITHUB_OUTPUT
                   # Shared key: hash base schema inputs, not PR head, so PR migrations still
                   # apply as the pytest delta. uv.lock covers third-party migration changes; the
                   # postgres image is folded in so a server-version bump invalidates the key.
@@ -909,8 +930,8 @@ jobs:
               run: node .github/scripts/backend-full-run-state.js >> "$GITHUB_OUTPUT"
             - name: Install turbo
               uses: ./.depot/actions/setup-turbo
-            # turbo-discover.js runs .github/scripts/tach_map.py under `uv run
-            # --no-project` for the dependent cascade; the script pins tach, so no
+            # turbo-discover.js runs .github/scripts/hoglint_map.py under `uv run
+            # --no-project` for the dependent cascade; the script pins hoglint, so no
             # Python project sync is needed. A missing uv widens the cascade to
             # every product rather than failing the job.
             - uses: ./.depot/actions/setup-uv
@@ -1095,9 +1116,11 @@ jobs:
               with:
                   path: schema.sql.gz
                   key: ${{ needs.turbo-discover.outputs.schema_migrations_key || needs.turbo-discover.outputs.schema_cache_key || format('posthog-schema-run-{0}', github.run_id) }}
+                  # An older migration set also skips the build, because product shards wait for
+                  # this job and pytest migrates an older dump forward in seconds.
                   restore-keys: |
                       ${{ needs.turbo-discover.outputs.schema_cache_key }}
-                      ${{ needs.turbo-discover.outputs.schema_prefix_key }}
+                      ${{ needs.turbo-discover.outputs.schema_ancestor_keys }}
                   lookup-only: true
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               if: steps.schema-cache.outputs.cache-matched-key == ''
@@ -1225,7 +1248,7 @@ jobs:
         if: >-
             !cancelled() && (github.event.pull_request.draft != true || startsWith(github.head_ref, 'trunk-merge/') || contains(github.event.pull_request.labels.*.name, 'run-ci-backend')) && needs.turbo-discover.result == 'success' && needs.build-product-test-matrix.result == 'success' && needs.build-product-test-matrix.outputs.include != '[]' && needs.build-product-test-matrix.outputs.include != ''
         runs-on: depot-ubuntu-24.04
-        timeout-minutes: 40
+        timeout-minutes: 45
         name: Product tests (${{ matrix.group }}, events schema ${{ matrix.new-events-schema && 'json' || 'legacy' }})
         strategy:
             fail-fast: false
@@ -1318,26 +1341,26 @@ jobs:
                   echo "::endgroup::"
                   exit "$status"
             - name: Restore schema cache from master
-              if: ${{ github.event_name == 'pull_request' }}
+              if: ${{ github.event_name == 'pull_request' || github.event_name == 'schedule' }}
               timeout-minutes: 4
               continue-on-error: true
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: schema.sql.gz
-                  # Prefer the shared content key; fall back to the exact PR-base SHA key,
-                  # then to the newest dump of any migration set. Right after a migration
-                  # lands on master both exact keys miss until ci-backend re-dumps, and a
-                  # from-scratch migrate costs ~17 minutes per shard; pytest's keepdb
-                  # migrate tops a slightly stale dump up in seconds instead.
+                  # Prefer the shared content key; fall back to the exact base SHA key,
+                  # then to the dumps of older migration sets in the base's history. Right
+                  # after a migration lands on master both exact keys miss until ci-backend
+                  # re-dumps, and pytest's keepdb migrate tops an older dump up in seconds,
+                  # far faster than a from-scratch migrate.
                   key: ${{ needs.turbo-discover.outputs.schema_migrations_key || needs.turbo-discover.outputs.schema_cache_key || format('posthog-schema-run-{0}', github.run_id) }}
                   restore-keys: |
                       ${{ needs.turbo-discover.outputs.schema_cache_key }}
-                      ${{ needs.turbo-discover.outputs.schema_prefix_key }}
+                      ${{ needs.turbo-discover.outputs.schema_ancestor_keys }}
             - name: Prime test_posthog from cached schema
               # Treat cache problems as misses; the migrate step below rebuilds the DB
               # whenever this one reports restored=false.
               id: prime-schema
-              if: ${{ github.event_name == 'pull_request' }}
+              if: ${{ github.event_name == 'pull_request' || github.event_name == 'schedule' }}
               run: |
                   echo "restored=false" >> "$GITHUB_OUTPUT"
                   if [ ! -f schema.sql.gz ]; then
@@ -1352,13 +1375,13 @@ jobs:
                       echo "::warning::Schema restore failed (stale/incompatible cached dump?); the migrate step will build test_posthog"
                   fi
             - name: Migrate test_posthog from scratch
-              # Any run without a restored schema cache (master, dispatches, PR cache
-              # misses) replays the full migration chain here, in a process that exits
+              # Any run without a restored schema cache (dispatches, cache misses)
+              # replays the full migration chain here, in a process that exits
               # before tests: the executor's memory high-water stays resident in
               # whichever process runs it, and pytest must not carry it through the
               # test phase. pytest --reuse-db adopts the DB like the PR prime above;
               # any failure falls back to the in-pytest migrate.
-              if: ${{ github.event_name != 'pull_request' || steps.prime-schema.outputs.restored != 'true' }}
+              if: ${{ steps.prime-schema.outputs.restored != 'true' }}
               env:
                   DATABASE_URL: postgres://posthog:posthog@localhost:5432/test_posthog
               run: |
@@ -1430,9 +1453,13 @@ jobs:
               shell: bash
               run: echo "::warning::Sharding-plan snapshot unavailable, this re-run reshards from the floating timing cache and may not re-execute tests that failed in earlier attempts"
 
+            - name: Restore Temporal test servers
+              uses: ./.depot/actions/temporal-test-servers
+
             - name: Run product tests
               continue-on-error: true
               id: run-product-tests
+              timeout-minutes: 20
               # --force: discover already decided this product needs testing, skip turbo cache
               # --log-order=stream: stream pytest output live instead of buffering until completion
               # legs: one turbo invocation per entry, each with its own pytest-split flags
@@ -1444,6 +1471,7 @@ jobs:
                   LEGACY_FILTERS: ${{ matrix.filters }}
                   LEGACY_PYTEST_ARGS: ${{ matrix.pytest_args }}
                   CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: ${{ matrix.new-events-schema && 'true' || 'false' }}
+                  BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE: ${{ matrix.new-events-schema && '100' || '0' }}
                   # Person-on-events v2 reads are the production default for every project
                   # created since 2024-06-14, so product tests run with the mode on, as the
                   # Core Django rows do. Without it a product query runner is only ever
@@ -1502,21 +1530,35 @@ jobs:
                       echo "::error::No test legs in this matrix entry; refusing to pass without running tests"
                       exit 1
                   fi
+                  deadline=$((SECONDS + ${TEST_RUN_TIMEOUT%s}))
                   for ((leg_index = 0; leg_index < leg_count; leg_index++)); do
                       leg_filters=$(jq -r ".[$leg_index].filters" <<< "$PRODUCT_LEGS")
                       leg_args=$(jq -r ".[$leg_index].pytest_args" <<< "$PRODUCT_LEGS")
+                      remaining=$((deadline - SECONDS))
+                      if [ "$remaining" -le 0 ]; then
+                          echo "::error::The product tests ran longer than $TEST_RUN_TIMEOUT, so the remaining legs did not run"
+                          overall=124
+                          break
+                      fi
                       echo "::group::turbo backend:test $leg_filters $leg_args"
                       # Word splitting is intended here: both variables carry several flags.
                       # shellcheck disable=SC2086
-                      turbo run backend:test $leg_filters --concurrency=1 --output-logs=full --force --log-order=stream $leg_args
+                      timeout --signal=INT --kill-after=30s "${remaining}s" turbo run backend:test $leg_filters --concurrency=1 --output-logs=full --force --log-order=stream $leg_args
                       exit_code=$?
                       echo "::endgroup::"
-                      if [ $exit_code -eq 5 ]; then
+                      if [ $exit_code -eq 124 ] || { [ $exit_code -eq 137 ] && [ "$SECONDS" -ge "$deadline" ]; }; then
+                          echo "::error::The product tests ran longer than $TEST_RUN_TIMEOUT and were stopped"
+                          overall=124
+                          break
+                      elif [ $exit_code -eq 5 ]; then
                           echo "No tests collected for this leg, this is expected when splitting tests"
                       elif [ $exit_code -ne 0 ]; then
                           overall=$exit_code
                       fi
                   done
+                  if [ "$overall" -eq 124 ]; then
+                      echo "timed_out=true" >> "$GITHUB_OUTPUT"
+                  fi
                   set -e
                   exit $overall
 
@@ -1566,6 +1608,7 @@ jobs:
               timeout-minutes: 15
               env:
                   CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: ${{ matrix.new-events-schema && 'true' || 'false' }}
+                  BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE: ${{ matrix.new-events-schema && '100' || '0' }}
                   PERSON_ON_EVENTS_V2_ENABLED: 'true'
                   MODAL_TOKEN_ID: ${{ needs.changes.outputs.tasks_temporal == 'true' && secrets.MODAL_TOKEN_ID || '' }}
                   MODAL_TOKEN_SECRET: ${{ needs.changes.outputs.tasks_temporal == 'true' && secrets.MODAL_TOKEN_SECRET || '' }}
@@ -1625,9 +1668,10 @@ jobs:
 
             # Verdict: red a real failure the gate didn't clear as a quarantined flake, or a masked failure
             # that the rerun did not clear. != 'success' also covers a skipped gate and a rerun that timed out.
+            # A test run stopped at TEST_RUN_TIMEOUT always reds the shard, because the rerun covers only failed tests and not the ones that never ran.
             - name: Fail on test failure
               id: test_verdict
-              if: ${{ !cancelled() && (steps.prepare_product_junit.outcome == 'failure' || (steps.run-product-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate.outcome != 'success' || steps.quarantine_rerun.outcome != 'success'))) }}
+              if: ${{ !cancelled() && (steps.prepare_product_junit.outcome == 'failure' || steps.run-product-tests.outputs.timed_out == 'true' || (steps.run-product-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate.outcome != 'success' || steps.quarantine_rerun.outcome != 'success'))) }}
               shell: bash
               run: exit 1
 
@@ -1751,8 +1795,9 @@ jobs:
     repo-checks:
         needs: [changes]
         # product_yamls: ownership-only PRs still need the owners.yaml lint below.
-        if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.product_yamls == 'true' || needs.changes.outputs.repo_invariants == 'true') && github.event_name != 'schedule'
-        # Room for the shadow hoglint step's own 5-minute cap on top of the other checks.
+        # hoglint: Python the backend filter leaves out still needs `hoglint compare`.
+        if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.product_yamls == 'true' || needs.changes.outputs.repo_invariants == 'true' || needs.changes.outputs.hoglint == 'true') && github.event_name != 'schedule'
+        # Room for the hoglint step's own 5-minute cap and the scaffold check on top of the other checks.
         timeout-minutes: 15
         outputs:
             deterministic_failure: ${{ steps.deterministic-failure.outputs.deterministic_failure || 'false' }}
@@ -1798,9 +1843,8 @@ jobs:
                   REPO: ${{ github.repository }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
               run: .github/scripts/list-removed-renamed-paths.sh > "$RUNNER_TEMP/deleted-migration-paths.txt"
-            # Above the boundary for the same reason. product:lint compares the crossings ledger,
-            # and `hoglint compare` the boundaries, with the merge commit's first parent, so the
-            # clone needs one more level of history.
+            # Above the boundary for the same reason. `hoglint compare` judges the boundaries
+            # against the merge commit's first parent, so the clone needs one more level of history.
             - name: Fetch the pull request base
               if: github.event_name == 'pull_request'
               run: |
@@ -1816,36 +1860,61 @@ jobs:
             - name: Check deleted migrations
               if: steps.fetch-deleted-migrations.outcome == 'success'
               run: ./bin/hogli lint:migration-deletions < "$RUNNER_TEMP/deleted-migration-paths.txt"
-            # hoglint runs in shadow, so the step always exits 0: it can never fail the job or flag
-            # a deterministic failure. A finding on a line the pull request adds or edits becomes
-            # an annotation. The step summary shows compare's own new findings and lists the other
-            # rows. The full view (`--all`) lists every row, which the default view can cut short.
-            # It runs before the scaffold, which edits tracked files that compare would read as part
-            # of the change.
-            - name: Check boundaries (hoglint, shadow)
-              env:
-                  HOGLINT_SHADOW_UNTIL: Tuesday, Nov 24
+            # The required boundary check. A pull request is judged against its base: old debt
+            # passes, and a new finding, a stale or new ledger line, a new unknown or a failed level
+            # claim fails the job. A crossing (public-surface, model-crossings, get-model) only
+            # reports. A finding on a line the pull request adds or edits becomes an annotation, and
+            # the step summary splits the rows that block from the rows that only report. The full
+            # view (`--all`) lists every row, which the default view can cut short. The script only
+            # reports; hoglint's exit decides the step. It runs before the scaffold, which edits
+            # tracked files that compare would read as part of the change. Exit 1 (violations) and 2
+            # (a blocking incomplete result or a config error) come from the tree, so they are a
+            # deterministic failure. Exit 2 with a line about "the base engine" is not: compare
+            # could not install, start or ask the engine the base pins, which a retry can fix. That
+            # case and any other status (3: hoglint could not run, 124 or 137: the timeout) set
+            # `transient`, so the job fails without cancelling the rest of the run.
+            - name: Check boundaries (hoglint)
+              id: hoglint
               run: |
                   output="$RUNNER_TEMP/hoglint.txt"
                   errors="$RUNNER_TEMP/hoglint-stderr.txt"
                   status=0
                   if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
                       timeout --kill-after=10s 5m hoglint compare --base HEAD^1 --all > "$output" 2> "$errors" || status=$?
-                      python .github/scripts/hoglint_shadow.py "$output" --stderr "$errors" --status "$status" --until "$HOGLINT_SHADOW_UNTIL" --base HEAD^1 || true
+                      python .github/scripts/hoglint_shadow.py "$output" --stderr "$errors" --status "$status" --base HEAD^1 || true
                   else
                       timeout --kill-after=10s 5m hoglint check --all > "$output" 2> "$errors" || status=$?
-                      python .github/scripts/hoglint_shadow.py "$output" --stderr "$errors" --status "$status" --until "$HOGLINT_SHADOW_UNTIL" || true
+                      python .github/scripts/hoglint_shadow.py "$output" --stderr "$errors" --status "$status" || true
                   fi
+                  transient=false
+                  case "$status" in
+                      0 | 1) ;;
+                      2) if grep -qs "the base engine" "$output" "$errors"; then transient=true; fi ;;
+                      *) transient=true ;;
+                  esac
+                  if [ "$transient" = true ]; then echo "transient=true" >> "$GITHUB_OUTPUT"; fi
+                  exit "$status"
             - name: Bootstrap scaffold product
               run: ./bin/hogli product:bootstrap spline_reticulator --non-interactive
+            # A bootstrapped product must pass hoglint from its first commit, its Isolated level
+            # included. Bootstrap writes the product's level line into this job's copy of the
+            # ledger, so a plain check also proves that bootstrap leaves the ledger complete.
+            - name: Check the scaffold product (hoglint)
+              id: hoglint-scaffold
+              run: |
+                  status=0
+                  hoglint check || status=$?
+                  case "$status" in
+                      0 | 1 | 2) ;;
+                      *) echo "transient=true" >> "$GITHUB_OUTPUT" ;;
+                  esac
+                  exit "$status"
             # Distributed owners.yaml tree: schema, product.yaml/owners.yaml
             # conflicts, dead rule globs, coverage (warn-only). No --live, so no
             # secrets — fork PRs get validated too (the --live slug check runs in
             # the fork-gated validate-product-yamls job instead).
             - parallel:
                   - name: Lint product structure
-                    env:
-                        CROSSINGS_LEDGER_BASE: ${{ github.event_name == 'pull_request' && 'HEAD^1' || '' }}
                     run: ./bin/hogli product:lint --all
                   - name: Lint owners.yaml files
                     run: ./bin/hogli owners:lint
@@ -1857,18 +1926,6 @@ jobs:
                     run: python .github/scripts/check-dwh-source-agnostic.py
                   - name: Check operator parity
                     run: python .github/scripts/check-operator-parity.py
-                  - name: Check module boundaries (tach)
-                    # Two passes: tests are in the interface graph but not the dependency graph.
-                    # A branch that predates the command still excludes tests in tach.toml, so
-                    # the old single pass is the right check there.
-                    run: |
-                        if ./bin/hogli lint:tach --help >/dev/null 2>&1; then
-                            ./bin/hogli lint:tach
-                        else
-                            tach check --dependencies --interfaces
-                        fi
-                  - name: Check product facade enforcement (import-linter)
-                    run: lint-imports
                   # These guards take the whole repo as input (import graph after
                   # django.setup(), signal registries, repo-wide AST scans), so diff-based
                   # test selection can't pick them and the Django matrix skips them on
@@ -1901,9 +1958,10 @@ jobs:
               run: python .github/scripts/check-new-events-schema-targets.py --against HEAD^1 --committed
             # Deterministic = a static check above failed after setup completed.
             # A retry can't fix it, so this signals the cancellation gate to stop the run.
+            # A hoglint step that could not finish says so with `transient`, and is not one.
             - name: Flag deterministic failure
               id: deterministic-failure
-              if: failure() && steps.setup-complete.outcome == 'success'
+              if: failure() && steps.setup-complete.outcome == 'success' && steps.hoglint.outputs.transient != 'true' && steps.hoglint-scaffold.outputs.transient != 'true'
               run: echo "deterministic_failure=true" >> "$GITHUB_OUTPUT"
 
     cancel-backend-on-repo-check-failure:
@@ -3714,26 +3772,26 @@ jobs:
                   echo "::endgroup::"
                   exit "$status"
             - name: Restore schema cache from master
-              if: ${{ github.event_name == 'pull_request' }}
+              if: ${{ github.event_name == 'pull_request' || github.event_name == 'schedule' }}
               timeout-minutes: 4
               continue-on-error: true
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: schema.sql.gz
-                  # Prefer the shared content key; fall back to the exact PR-base SHA key,
-                  # then to the newest dump of any migration set. Right after a migration
-                  # lands on master both exact keys miss until ci-backend re-dumps, and a
-                  # from-scratch migrate costs ~17 minutes per shard; pytest's keepdb
-                  # migrate tops a slightly stale dump up in seconds instead.
+                  # Prefer the shared content key; fall back to the exact base SHA key,
+                  # then to the dumps of older migration sets in the base's history. Right
+                  # after a migration lands on master both exact keys miss until ci-backend
+                  # re-dumps, and pytest's keepdb migrate tops an older dump up in seconds,
+                  # far faster than a from-scratch migrate.
                   key: ${{ needs.turbo-discover.outputs.schema_migrations_key || needs.turbo-discover.outputs.schema_cache_key || format('posthog-schema-run-{0}', github.run_id) }}
                   restore-keys: |
                       ${{ needs.turbo-discover.outputs.schema_cache_key }}
-                      ${{ needs.turbo-discover.outputs.schema_prefix_key }}
+                      ${{ needs.turbo-discover.outputs.schema_ancestor_keys }}
             - name: Prime test_posthog from cached schema
               # Treat cache problems as misses; the migrate step below rebuilds the DB
               # whenever this one reports restored=false.
               id: prime-schema
-              if: ${{ github.event_name == 'pull_request' }}
+              if: ${{ github.event_name == 'pull_request' || github.event_name == 'schedule' }}
               run: |
                   echo "restored=false" >> "$GITHUB_OUTPUT"
                   if [ ! -f schema.sql.gz ]; then
@@ -3748,13 +3806,13 @@ jobs:
                       echo "::warning::Schema restore failed (stale/incompatible cached dump?); the migrate step will build test_posthog"
                   fi
             - name: Migrate test_posthog from scratch
-              # Any run without a restored schema cache (master, dispatches, PR cache
-              # misses) replays the full migration chain here, in a process that exits
+              # Any run without a restored schema cache (dispatches, cache misses)
+              # replays the full migration chain here, in a process that exits
               # before tests: the executor's memory high-water stays resident in
               # whichever process runs it, and pytest must not carry it through the
               # test phase. pytest --reuse-db adopts the DB like the PR prime above;
               # any failure falls back to the in-pytest migrate.
-              if: ${{ github.event_name != 'pull_request' || steps.prime-schema.outputs.restored != 'true' }}
+              if: ${{ steps.prime-schema.outputs.restored != 'true' }}
               env:
                   DATABASE_URL: postgres://posthog:posthog@localhost:5432/test_posthog
               run: |
@@ -3807,6 +3865,9 @@ jobs:
                   key: posthog-segment-durations-${{ github.run_id }}
                   restore-keys: |
                       posthog-segment-durations-
+            - name: Restore Temporal test servers
+              id: temporal-test-servers
+              uses: ./.depot/actions/temporal-test-servers
             # Tests
             - name: Set snapshot update flags
               if: ${{ needs.changes.outputs.backend == 'true' && (needs.detect-snapshot-mode.outputs.mode == 'update' || matrix.person-on-events) }}
@@ -3878,6 +3939,7 @@ jobs:
             - name: Run Core tests
               continue-on-error: true
               id: run-core-tests
+              timeout-minutes: 20
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' }}
               env:
                   # Person-on-events v2 reads are the production default for every
@@ -3892,6 +3954,7 @@ jobs:
                   # flip from one that predates it.
                   PERSON_ON_EVENTS_V2_ENABLED: ${{ !matrix.person-on-events && !matrix.compat && 'true' || 'false' }}
                   CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: ${{ matrix.new-events-schema && 'true' || 'false' }}
+                  BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE: ${{ matrix.new-events-schema && '100' || '0' }}
                   MODE: ${{ needs.turbo-discover.outputs.mode }}
                   CORE_FILES: ${{ fromJSON(needs.turbo-discover.outputs.selection || '{}').core_files }}
                   POE_FILES: ${{ fromJSON(needs.turbo-discover.outputs.selection || '{}').poe_files }}
@@ -3988,7 +4051,7 @@ jobs:
                       fi
                       # No --store-durations, because the timing data describes legacy-table runs only.
                       # shellcheck disable=SC2086
-                      pytest -v --tb=short --reuse-db -o junit_duration_report=call "${json_targets[@]}" -m "not async_migrations" \
+                      timeout --signal=INT --kill-after=30s "$TEST_RUN_TIMEOUT" pytest -v --tb=short --reuse-db -o junit_duration_report=call "${json_targets[@]}" -m "not async_migrations" \
                           "${JSON_SPLIT[@]}" \
                           "${RETRY_ARGS[@]}" -r fEsxXR \
                           --junitxml=junit-core.xml \
@@ -4011,7 +4074,7 @@ jobs:
                                           --splitting-algorithm="$SPLITTING_ALGORITHM" "${SPLIT_GRANULARITY[@]}")
                       fi
                       # shellcheck disable=SC2086
-                      pytest -v --tb=short --reuse-db -o junit_duration_report=call $targets -m "not async_migrations" \
+                      timeout --signal=INT --kill-after=30s "$TEST_RUN_TIMEOUT" pytest -v --tb=short --reuse-db -o junit_duration_report=call $targets -m "not async_migrations" \
                           "${SELECTED_SPLIT[@]}" \
                           "${RETRY_ARGS[@]}" -r fEsxXR \
                           --junitxml=junit-core.xml \
@@ -4027,7 +4090,7 @@ jobs:
                         full_ignores+=(--ignore=posthog/hogql_queries --ignore=posthog/hogql)
                     fi
                     # shellcheck disable=SC2086
-                    pytest -v --tb=short --reuse-db -o junit_duration_report=call $full_targets -m "not async_migrations" \
+                    timeout --signal=INT --kill-after=30s "$TEST_RUN_TIMEOUT" pytest -v --tb=short --reuse-db -o junit_duration_report=call $full_targets -m "not async_migrations" \
                         --ignore=posthog/temporal \
                         --ignore=posthog/dags \
                         --ignore=common/hogvm/python/test \
@@ -4045,7 +4108,11 @@ jobs:
                   fi
                   exit_code=$?
                   set -e
-                  if [ $exit_code -eq 5 ]; then
+                  if [ $exit_code -eq 124 ] || { [ $exit_code -eq 137 ] && [ "$SECONDS" -ge "${TEST_RUN_TIMEOUT%s}" ]; }; then
+                      echo "::error::The tests ran longer than $TEST_RUN_TIMEOUT and were stopped"
+                      echo "timed_out=true" >> "$GITHUB_OUTPUT"
+                      exit 124
+                  elif [ $exit_code -eq 5 ]; then
                       echo "No tests collected for this shard, this is expected when splitting tests"
                       exit 0
                   else
@@ -4077,6 +4144,7 @@ jobs:
             - name: Run Temporal tests
               continue-on-error: true
               id: run-temporal-tests
+              timeout-minutes: 20
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Temporal' }}
               shell: 'signal-fanout bash --noprofile --norc -eo pipefail {0}'
               env:
@@ -4084,6 +4152,7 @@ jobs:
                   MODAL_TOKEN_ID: ${{ needs.changes.outputs.tasks_temporal == 'true' && secrets.MODAL_TOKEN_ID || '' }}
                   MODAL_TOKEN_SECRET: ${{ needs.changes.outputs.tasks_temporal == 'true' && secrets.MODAL_TOKEN_SECRET || '' }}
                   CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: ${{ matrix.new-events-schema && 'true' || 'false' }}
+                  BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE: ${{ matrix.new-events-schema && '100' || '0' }}
                   MODE: ${{ needs.turbo-discover.outputs.mode }}
                   TEMPORAL_FILES: ${{ fromJSON(needs.turbo-discover.outputs.selection || '{}').temporal_files }}
               run: |
@@ -4118,16 +4187,16 @@ jobs:
                                           --splitting-algorithm="$SPLITTING_ALGORITHM" "${SPLIT_GRANULARITY[@]}")
                       fi
                       # shellcheck disable=SC2086
-                      pytest -v --tb=short --reuse-db -o junit_duration_report=call $TEMPORAL_FILES -m "not async_migrations" \
+                      timeout --signal=INT --kill-after=30s "$TEST_RUN_TIMEOUT" pytest -v --tb=short --reuse-db -o junit_duration_report=call $TEMPORAL_FILES -m "not async_migrations" \
                           "${SELECTED_SPLIT[@]}" \
                           "${RETRY_ARGS[@]}" -r fEsxXR \
                           --junitxml=junit-temporal.xml \
                           $PYTEST_ARGS
                   else
-                      # No per-test pytest --timeout; rely on the job-level timeout-minutes as the single
+                      # No per-test pytest --timeout; rely on TEST_RUN_TIMEOUT as the single
                       # safety net. The per-test timeout also terminates the whole process, so it adds
-                      # no protection beyond the job timeout.
-                      pytest -v --tb=short --reuse-db -o junit_duration_report=call posthog/temporal products/signals/backend/emission -m "not async_migrations" \
+                      # no protection beyond that bound.
+                      timeout --signal=INT --kill-after=30s "$TEST_RUN_TIMEOUT" pytest -v --tb=short --reuse-db -o junit_duration_report=call posthog/temporal products/signals/backend/emission -m "not async_migrations" \
                           --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                           --durations=100 --durations-min=1.0 --store-durations \
                           --pytest-durations=100 \
@@ -4139,13 +4208,53 @@ jobs:
                   fi
                   exit_code=$?
                   set -e
-                  if [ $exit_code -eq 5 ]; then
+                  if [ $exit_code -eq 124 ] || { [ $exit_code -eq 137 ] && [ "$SECONDS" -ge "${TEST_RUN_TIMEOUT%s}" ]; }; then
+                      echo "::error::The tests ran longer than $TEST_RUN_TIMEOUT and were stopped"
+                      echo "timed_out=true" >> "$GITHUB_OUTPUT"
+                      exit 124
+                  elif [ $exit_code -eq 5 ]; then
                       echo "No tests collected for this shard, this is expected when splitting tests"
                       exit 0
                   else
                       exit $exit_code
                   fi
             # Post tests
+            - name: Collect Temporal test servers for the cache
+              id: collect-temporal-test-servers
+              if: ${{ !cancelled() && steps.temporal-test-servers.outputs.key != '' && steps.temporal-test-servers.outputs.cache-hit != 'true' && env.IS_MASTER == 'true' }}
+              continue-on-error: true
+              shell: bash
+              env:
+                  CACHE_DIR: ${{ steps.temporal-test-servers.outputs.dir }}
+                  CHECKSUMS: ${{ steps.temporal-test-servers.outputs.checksums }}
+              run: |
+                  # The file names follow sdk-core's naming for a default-version download. Both must be
+                  # present, because a cache entry saved with one binary would serve every later job without the other.
+                  mkdir -p "$CACHE_DIR"
+                  while read -r _ binary; do
+                      for temp_dir in "${TMPDIR:-/tmp}" /tmp; do
+                          if [ -f "$temp_dir/$binary" ] && [ ! -L "$temp_dir/$binary" ]; then
+                              cp "$temp_dir/$binary" "$CACHE_DIR/"
+                              break
+                          fi
+                      done
+                      if [ ! -f "$CACHE_DIR/$binary" ]; then
+                          echo "::warning::$binary was not found in the temp directory, so the Temporal test server cache was not saved"
+                          exit 0
+                      fi
+                  done < "$CHECKSUMS"
+                  if ! (cd "$CACHE_DIR" && sha256sum --check --strict "$CHECKSUMS"); then
+                      echo "::warning::The downloaded Temporal test servers do not match their pinned digests, so the cache was not saved. Update the digests in the temporal-test-servers action."
+                      exit 0
+                  fi
+                  echo "complete=true" >> "$GITHUB_OUTPUT"
+            - name: Save Temporal test servers to cache
+              if: ${{ !cancelled() && steps.collect-temporal-test-servers.outputs.complete == 'true' }}
+              continue-on-error: true
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ~/.cache/temporal-test-servers
+                  key: ${{ steps.temporal-test-servers.outputs.key }}
             - name: Show docker compose logs on failure
               if: failure() && (needs.changes.outputs.backend == 'true' && steps.run-core-tests.outcome != 'failure' && steps.run-temporal-tests.outcome != 'failure')
               shell: bash
@@ -4317,6 +4426,7 @@ jobs:
               env:
                   SEGMENT: ${{ matrix.segment }}
                   CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: ${{ matrix.new-events-schema && 'true' || 'false' }}
+                  BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE: ${{ matrix.new-events-schema && '100' || '0' }}
                   CORE_PERSON_ON_EVENTS_V2_ENABLED: ${{ !matrix.person-on-events && !matrix.compat && 'true' || 'false' }}
                   TEMPORAL_MODAL_TOKEN_ID: ${{ matrix.segment == 'Temporal' && needs.changes.outputs.tasks_temporal == 'true' && secrets.MODAL_TOKEN_ID || '' }}
                   TEMPORAL_MODAL_TOKEN_SECRET: ${{ matrix.segment == 'Temporal' && needs.changes.outputs.tasks_temporal == 'true' && secrets.MODAL_TOKEN_SECRET || '' }}
@@ -4368,9 +4478,10 @@ jobs:
 
             # Verdict: red a real failure the gate didn't clear as a quarantined flake, or a masked failure
             # that the rerun did not clear. != 'success' also covers a skipped gate and a rerun that timed out.
+            # A test run stopped at TEST_RUN_TIMEOUT always reds the shard, because the rerun covers only failed tests and not the ones that never ran.
             - name: Fail on test failure
               id: test_verdict
-              if: ${{ !cancelled() && ((steps.run-core-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate_core.outcome != 'success' || steps.quarantine_rerun.outcome != 'success')) || (steps.run-temporal-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate_temporal.outcome != 'success' || steps.quarantine_rerun.outcome != 'success'))) }}
+              if: ${{ !cancelled() && (steps.run-core-tests.outputs.timed_out == 'true' || steps.run-temporal-tests.outputs.timed_out == 'true' || (steps.run-core-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate_core.outcome != 'success' || steps.quarantine_rerun.outcome != 'success')) || (steps.run-temporal-tests.outcome == 'failure' && (vars.TRUNK_QUARANTINE_ENABLED != 'true' || steps.quarantine_gate_temporal.outcome != 'success' || steps.quarantine_rerun.outcome != 'success'))) }}
               shell: bash
               run: exit 1
 

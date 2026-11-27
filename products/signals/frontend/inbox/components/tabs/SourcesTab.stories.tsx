@@ -132,6 +132,7 @@ const LINEAR_FILTER_CATALOG: SourceFilterCatalogApi = {
         },
     ],
     starter_expressions: ['assignee_id IS NULL'],
+    preview_supported: true,
 }
 
 /** Ten scanners, so the roster's per-scanner list renders on and off rows, the filter, and the cap. */

@@ -6,6 +6,7 @@ import { urls } from 'scenes/urls'
 
 import { CurrencyCode } from '~/queries/schema/schema-general'
 
+import { marketingSourceConnectUrl } from '../components/marketingSourceConnectUrl'
 import { ChangeValueCell } from '../dashboard/tables/ChangeValueCell'
 import { SEARCH_PLATFORM_LABELS } from './searchPerformance'
 import { searchPerformanceLogic } from './searchPerformanceLogic'
@@ -106,12 +107,10 @@ export function SearchPerformanceDetail(): JSX.Element {
                     {!hasSearchConsole && (
                         <LemonButton
                             type="primary"
-                            to={urls.dataWarehouseSourceNew(
+                            to={marketingSourceConnectUrl(
                                 'GoogleSearchConsole',
-                                `${urls.marketingAnalyticsApp()}?tab=search-performance`,
-                                'Marketing analytics',
-                                undefined,
-                                'marketing_analytics_search_detail'
+                                'marketing_analytics_search_detail',
+                                `${urls.marketingAnalyticsApp()}?tab=search-performance`
                             )}
                         >
                             Connect Google Search Console

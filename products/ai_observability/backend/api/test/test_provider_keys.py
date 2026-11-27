@@ -10,7 +10,7 @@ from django.utils import timezone
 
 import httpx
 from parameterized import parameterized
-from rest_framework import serializers, status
+from rest_framework import status
 
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Project, Team, User
@@ -19,20 +19,17 @@ from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 from products.access_control.backend.models.access_control import AccessControl
 from products.ai_observability.backend.api.provider_keys import LLMProviderKeySerializer
 from products.ai_observability.backend.api.proxy import LLMProxyCompletionSerializer, models_cache_key
-from products.ai_observability.backend.api.taggers import TaggerModelConfigurationWriteSerializer
 from products.ai_observability.backend.llm.client import Client
 from products.ai_observability.backend.llm.providers.azure_openai import DEFAULT_API_VERSION
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 from products.ai_observability.backend.models.evaluations import Evaluation, EvaluationStatus
 from products.ai_observability.backend.models.model_configuration import LLMModelConfiguration
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
-from products.ai_observability.backend.models.taggers import Tagger
 
 
 class TestProviderKeySerializer(SimpleTestCase):
-    @parameterized.expand([(LLMProxyCompletionSerializer,), (TaggerModelConfigurationWriteSerializer,)])
-    def test_system_one_is_not_a_completion_provider(self, serializer_class: type[serializers.Serializer]) -> None:
-        serializer = serializer_class(
+    def test_system_one_is_not_a_completion_provider(self) -> None:
+        serializer = LLMProxyCompletionSerializer(
             data={
                 "provider": "system_one",
                 "model": "example-judge-v1",
@@ -1255,47 +1252,6 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIsNone(cache.get(cache_key))
-
-    def test_destroy_reloads_tagger_model_config_dependents(self):
-        key = LLMProviderKey.objects.create(
-            team=self.team,
-            provider="openai",
-            name="My Key",
-            state=LLMProviderKey.State.OK,
-            encrypted_config={"api_key": "sk-test-key"},
-            created_by=self.user,
-        )
-        model_config = LLMModelConfiguration.objects.create(
-            team=self.team,
-            provider="openai",
-            model="gpt-5-mini",
-            provider_key=key,
-        )
-        tagger = Tagger.objects.create(
-            team=self.team,
-            name="Test tagger",
-            enabled=True,
-            tagger_config={
-                "prompt": "Tag this generation",
-                "tags": [{"name": "billing"}],
-                "min_tags": 0,
-                "max_tags": 1,
-            },
-            model_configuration=model_config,
-            created_by=self.user,
-            conditions=[{"id": "cond-1", "rollout_percentage": 100, "properties": []}],
-        )
-
-        with (
-            patch("products.ai_observability.backend.api.provider_keys.reload_evaluations_on_workers") as mock_evals,
-            patch("products.ai_observability.backend.api.provider_keys.reload_taggers_on_workers") as mock_taggers,
-            self.captureOnCommitCallbacks(execute=True),
-        ):
-            response = self.client.delete(f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{key.id}/")
-
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        mock_evals.assert_not_called()
-        mock_taggers.assert_called_once_with(team_id=self.team.id, tagger_ids=[str(tagger.id)])
 
     def test_keys_ordered_by_created_at_descending(self):
         key1 = LLMProviderKey.objects.create(

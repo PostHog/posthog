@@ -20,7 +20,7 @@ def generate_task_title(description: str) -> str:
     # Deferred: the llm client pulls google.genai (Gemini SDK), and this module is reachable from a
     # tasks serializer that the file-system registrations import at AppConfig.ready() — a module-level
     # import here would drag the SDK onto the django.setup() path that every process pays for.
-    from posthog.llm.gateway_client import build_ai_gateway_anthropic_client  # noqa: PLC0415
+    from posthog.llm.gateway_client import build_anthropic_client  # noqa: PLC0415
 
     if not description or not description.strip():
         return "Untitled Task"
@@ -63,7 +63,7 @@ Examples:
 </description>
 
 Output the title now:"""
-        client = build_ai_gateway_anthropic_client(ai_product=TITLE_AI_PRODUCT, distinct_id=TITLE_DISTINCT_ID)
+        client = build_anthropic_client(ai_product=TITLE_AI_PRODUCT, distinct_id=TITLE_DISTINCT_ID)
         with client.with_options(
             timeout=TITLE_GATEWAY_TIMEOUT_SECONDS, max_retries=TITLE_GATEWAY_MAX_RETRIES
         ) as gateway:

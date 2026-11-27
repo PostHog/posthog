@@ -1,6 +1,6 @@
-"""The cut step's one model call, through the ai-gateway with a short-lived token minted for it.
+"""The cut step's model calls, each through the ai-gateway with a short-lived token minted for it.
 
-Any failure answers None, which makes `decide_cuts` keep every owner. Routing must never wait on or
+Any failure answers None, which makes `decide_cuts` keep the owners of that call. Routing must never wait on or
 fail over a missing gateway, a missing connecting user, a refused mint or an API error.
 """
 
@@ -21,7 +21,6 @@ from products.stamphog.backend.logic.gateway_tokens import (
     STAMPHOG_AI_PRODUCT,
     active_user,
     gateway_root,
-    is_legacy_stamphog_route,
     mint_scoped_token,
     revoke_scoped_token,
 )
@@ -33,7 +32,7 @@ logger = structlog.get_logger(__name__)
 # They bound what a leaked token can spend, so do not widen them without a cost reason.
 ROUTING_TOKEN_CAP_USD = "0.25"
 ROUTING_TOKEN_TTL_SECONDS = 300
-# A timeout keeps every owner, so this only bounds how long the author waits for the review requests.
+# A timeout keeps the owners of the call, so this only bounds how long the author waits for the review requests.
 # It sits above the slowest call of the offline evaluation.
 _CALL_TIMEOUT_SECONDS = 30
 _MAX_OUTPUT_TOKENS = 16_000
@@ -78,8 +77,8 @@ def _create_with_effort_fallback(
 class GatewayCutModel:
     """A `CutModelCall` for one routing run.
 
-    After the call, `sent_request` says whether a request reached the gateway, and `usage` holds
-    the token counts of an answer.
+    After the calls, `sent_request` says whether a request reached the gateway, and `usage` holds
+    the token counts of all answers added together.
     """
 
     def __init__(self, *, team_id: int, connected_by_user_id: int | None, attribution: Mapping[str, object]) -> None:
@@ -89,11 +88,20 @@ class GatewayCutModel:
         self.sent_request = False
         self.usage: CutUsage | None = None
 
+    def _add_usage(self, input_tokens: int, output_tokens: int) -> None:
+        if self.usage is None:
+            self.usage = CutUsage(input_tokens=input_tokens, output_tokens=output_tokens)
+            return
+        self.usage = CutUsage(
+            input_tokens=self.usage.input_tokens + input_tokens,
+            output_tokens=self.usage.output_tokens + output_tokens,
+        )
+
     def __call__(
         self, system_prompt: str, user_prompt: str, schema: Mapping[str, object]
     ) -> Mapping[str, object] | None:
         gateway = resolve_ai_gateway_config()
-        if gateway is None or is_legacy_stamphog_route(gateway.url):
+        if gateway is None:
             logger.info("stamphog_reviewer_routing_no_gateway", team_id=self._team_id)
             return None
         user = active_user(self._connected_by_user_id)
@@ -142,7 +150,7 @@ class GatewayCutModel:
             return None
         finally:
             client.close()
-        self.usage = CutUsage(input_tokens=response.usage.input_tokens, output_tokens=response.usage.output_tokens)
+        self._add_usage(response.usage.input_tokens, response.usage.output_tokens)
         if response.stop_reason != "end_turn":
             logger.info("stamphog_reviewer_routing_no_answer", stop_reason=response.stop_reason)
             return None

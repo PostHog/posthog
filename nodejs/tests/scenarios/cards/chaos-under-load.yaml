@@ -1,0 +1,79 @@
+id: chaos-under-load
+version: 1
+clock: real
+profile: synthetic
+seed: 9
+setup:
+    teams: 8
+drive:
+    for: 7m
+    warmUp: 4m
+    traffic:
+        - name: event_email
+        - name: event_webhook
+        - name: transactional_email
+valves:
+    - valve: ses.ambiguous
+      target: ses
+      dose:
+          accepted: true
+          share: 0.5
+      at: 280s
+      for: 8s
+    - valve: ses.ambiguous
+      target: ses
+      dose:
+          accepted: false
+          share: 0.5
+      at: 295s
+      for: 8s
+    - valve: dest.ambiguous
+      target: hooks.example.com
+      dose:
+          accepted: true
+          share: 0.5
+      at: 310s
+      for: 8s
+    - valve: dest.ambiguous
+      target: hooks.example.com
+      dose:
+          accepted: false
+          share: 0.5
+      at: 325s
+      for: 8s
+    - valve: pg.enqueue_refused
+      target: cyclotron
+      dose:
+          count: 1
+      at: 345s
+      for: 8s
+    - valve: pg.commit_reply_lost
+      target: cyclotron
+      dose:
+          count: 1
+      at: 365s
+      for: 10s
+    - valve: role.kill
+      target: cdp-cyclotron-worker-email
+      dose: {}
+      at: 390s
+      when:
+          name: edge_accepted
+          params:
+              channel: ses
+      for: 1s
+convergeWithin: 8m
+invariants:
+    - name: at_least_once
+    - name: duplicate_sends
+    - name: refused_at_intake
+    - name: no_loss
+gates:
+    duplicate_sends: 0
+    refused_at_intake: 0
+measure:
+    - name: role_cpu_seconds
+    - name: role_rss_max_bytes
+    - name: delivery_latency_ms
+    - name: counter_drift
+pair: true

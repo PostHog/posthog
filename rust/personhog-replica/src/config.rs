@@ -69,6 +69,12 @@ pub struct Config {
     #[envconfig(default = "2")]
     pub bulk_max_concurrent_chunks: usize,
 
+    /// Chunks that one DeletePersonsBatchForTeam request runs at once, capped
+    /// at bulk_max_pg_connections. A deleted team's rows are seldom cached, so
+    /// every chunk in flight adds storage reads on the persons writer.
+    #[envconfig(default = "3")]
+    pub team_delete_max_concurrent_chunks: usize,
+
     /// Most dependent rows (distinct ids, hash key overrides, cohort
     /// memberships) one DeleteTombstonedPersons call may delete; the request's
     /// max_rows is clamped to it. The bulk pool statement timeout is 30 s and the
