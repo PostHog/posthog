@@ -251,7 +251,11 @@ describe('adventCalendarLogic', () => {
         }
     )
 
-    it('keeps a ticket the server confirms after the calendar closed', async () => {
+    it.each<[string, boolean, string | undefined, number]>([
+        ['the calendar closes before the reply', true, undefined, 1],
+        ['the page reloads before the reply, and the server has it on its day', false, undefined, 1],
+        ['the page reloads before the reply, and the server has it on another day', false, '2026-12-04T09:00:00Z', 0],
+    ])('settles the ticket of a door opened on its day when %s', async (_, isReplied, openedAt, tickets) => {
         let reply: () => void = () => {}
         useMocks(calendarApi({ openHeld: new Promise((resolve) => (reply = resolve)) }).mocks)
         logic.actions.activateDoor('door-1')
@@ -261,14 +265,15 @@ describe('adventCalendarLogic', () => {
         logic.actions.activateDoor('door-3-upper')
         logic.unmount()
 
-        reply()
-        await waitFor(() =>
-            expect(JSON.parse(window.localStorage.getItem(TICKETS_KEY) ?? '{}')).toEqual({ [UUID]: [3] })
-        )
+        if (isReplied) {
+            reply()
+        } else {
+            useMocks(calendarApi({ openedAt: openedAt ? () => openedAt : undefined }).mocks)
+        }
         logic = adventCalendarLogic()
         logic.mount()
 
-        expect(logic.values.tickets).toBe(1)
+        await waitFor(() => expect(logic.values.tickets).toBe(tickets))
     })
 
     it('earns a ticket for every door a preview opens, and saves none of them', async () => {

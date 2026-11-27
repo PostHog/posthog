@@ -47,6 +47,7 @@ export function cleanProgressByUser(value: unknown): Record<string, AdventProgre
 }
 
 export const TICKETS_STORAGE_KEY = 'workflows-advent-calendar-tickets'
+export const PENDING_TICKETS_STORAGE_KEY = 'workflows-advent-calendar-pending-tickets'
 
 export function storedTicketsByUser(): unknown {
     try {
@@ -62,13 +63,4 @@ export function cleanTicketsByUser(value: unknown): Record<string, number[]> {
             Array.isArray(days) ? [[uuid, [...new Set(days.filter(isAdventDay))].sort((x, y) => x - y)]] : []
         )
     )
-}
-
-export function storeConfirmedTicket(userUuid: string, day: number): void {
-    const tickets = cleanTicketsByUser(storedTicketsByUser())
-    const days = tickets[userUuid] ?? []
-    if (!days.includes(day)) {
-        const confirmed = { ...tickets, [userUuid]: [...days, day].sort((x, y) => x - y) }
-        window.localStorage.setItem(TICKETS_STORAGE_KEY, JSON.stringify(confirmed))
-    }
 }
