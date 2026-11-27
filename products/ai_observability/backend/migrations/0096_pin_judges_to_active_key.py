@@ -9,9 +9,6 @@ def pin_judges_to_active_key(apps, schema_editor):
     A judge resolves to the active key when it has no model configuration, or when its configuration
     has no key and the same provider as the active key. Judges that cannot resolve today stay as they are.
     """
-    # A judge with no model configuration runs on the provider's current default, so it gets pinned to that model.
-    from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER
-
     EvaluationConfig = apps.get_model("ai_observability", "EvaluationConfig")
     Evaluation = apps.get_model("ai_observability", "Evaluation")
     LLMModelConfiguration = apps.get_model("ai_observability", "LLMModelConfiguration")
@@ -34,6 +31,10 @@ def pin_judges_to_active_key(apps, schema_editor):
             provider_key__isnull=True,
             evaluations__in=judges,
         ).update(provider_key=key)
+
+        # A judge with no model configuration runs on the provider's current default, so it gets pinned to that
+        # model. Imported here so a fresh database, which has no configs, never loads app code.
+        from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER
 
         model = DEFAULT_MODEL_BY_PROVIDER.get(key.provider)
         if model is None:

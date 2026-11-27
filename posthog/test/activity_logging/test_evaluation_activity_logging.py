@@ -4,7 +4,6 @@ from rest_framework import status
 
 from posthog.test.activity_log_utils import ActivityLogTestHelper
 
-from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 from products.ai_observability.backend.models.evaluations import Evaluation
 from products.ai_observability.backend.models.model_configuration import LLMModelConfiguration
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
@@ -32,20 +31,16 @@ def _create_evaluation_payload(**overrides: Any) -> dict[str, Any]:
     return payload
 
 
-# The create payloads are keyless llm_judge with enabled=True, which only validates when the
-# team's active provider key covers them.
 class TestEvaluationActivityLogging(ActivityLogTestHelper):
     def setUp(self) -> None:
         super().setUp()
-        active_key = self._create_provider_key(name="Active key")
-        EvaluationConfig.objects.create(team=self.team, active_provider_key=active_key)
+        # An enabled llm_judge needs a pinned key.
+        self.judge_key = self._create_provider_key(name="Judge key")
 
     def _create_evaluation(self, **overrides: Any) -> dict[str, Any]:
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/evaluations/",
-            _create_evaluation_payload(**overrides),
-            format="json",
-        )
+        payload = _create_evaluation_payload(**overrides)
+        payload["model_configuration"]["provider_key_id"] = str(self.judge_key.id)
+        response = self.client.post(f"/api/environments/{self.team.id}/evaluations/", payload, format="json")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         return response.json()
 
@@ -165,7 +160,13 @@ class TestEvaluationActivityLogging(ActivityLogTestHelper):
 
         self._update_evaluation(
             evaluation["id"],
-            {"model_configuration": {"provider": "openai", "model": "gpt-5", "provider_key_id": None}},
+            {
+                "model_configuration": {
+                    "provider": "openai",
+                    "model": "gpt-5",
+                    "provider_key_id": str(self.judge_key.id),
+                }
+            },
         )
 
         new_config_id = Evaluation.objects.get(id=evaluation["id"]).model_configuration_id
