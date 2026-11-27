@@ -6,7 +6,7 @@ from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 
-from products.slack_app.backend.models import SlackSettings
+from products.slack_app.backend.models import SlackSettings, UntaggedFollowupMode
 
 
 class TestSlackSettings:
@@ -131,11 +131,13 @@ class TestSlackSettings:
 
     # --- cascade behavior ------------------------------------------------------
 
-    def test_cascade_when_integration_deleted(self):
+    def test_integration_delete_keeps_the_row_and_clears_its_default(self):
         row = SlackSettings.objects.create(
             default_integration=self.integration_a,
             slack_workspace_id="T_WS",
             slack_user_id="U001",
+            untagged_question_mode=UntaggedFollowupMode.NEVER,
         )
         self.integration_a.delete()
-        assert not SlackSettings.objects.filter(pk=row.pk).exists()
+        row.refresh_from_db()
+        assert (row.default_integration_id, row.untagged_question_mode) == (None, UntaggedFollowupMode.NEVER)

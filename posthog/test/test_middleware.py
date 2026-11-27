@@ -40,6 +40,7 @@ from structlog.testing import capture_logs
 from posthog.api.current_alias_usage import (
     CURRENT_ALIAS_USED_EVENT,
     FLAT_ROUTE_USED_EVENT,
+    REQUEST_SCOPE_SHADOW_METRIC,
     TOKEN_ON_PROJECT_PATH_USED_EVENT,
     CurrentAliasScope,
     current_alias_scope,
@@ -54,6 +55,7 @@ from posthog.middleware import (
     ActivityLoggingMiddleware,
     Fix204Middleware,
     ManagedProxyClientIPMiddleware,
+    MissingStaticFileMiddleware,
     SignedClientIPOutcome,
     UnversionedStaticPathMiddleware,
     per_request_logging_context_middleware,
@@ -67,7 +69,7 @@ from posthog.models.organization_invite import InviteExpiredException, Organizat
 from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
-from posthog.models.user import User
+from posthog.models.user import User, UserType
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.run_mode import derive_run_mode
 from posthog.settings import SITE_URL, base_variables
@@ -814,6 +816,39 @@ class TestFix204Middleware(SimpleTestCase):
 
         assert response.content == b""
         assert "Content-Length" not in response.headers
+
+
+class TestMissingStaticFileMiddleware(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("source_map", "/static/chunk-NOTBUILT.js.map"),
+            ("nested_file", "/static/icons/missing.png"),
+        ]
+    )
+    def test_a_static_file_that_does_not_exist_is_a_404_without_a_database_query(self, _name: str, path: str) -> None:
+        # SimpleTestCase refuses database access. A signed-in browser sends a session cookie, so the
+        # request carries one to prove that nothing loads the session or its user.
+        self.client.cookies[settings.SESSION_COOKIE_NAME] = "a-session-key"
+
+        response = self.client.get(path)
+
+        assert response.status_code == 404
+        assert response.headers["Content-Security-Policy"] == "default-src 'none'"
+        assert response.headers["X-Frame-Options"] == "SAMEORIGIN"
+
+    @parameterized.expand(
+        [
+            ("static_inside_another_path", "/api/static/chunk.js"),
+            ("prefix_without_the_slash", "/staticfiles/chunk.js"),
+            ("app_route", "/insights"),
+        ]
+    )
+    def test_a_path_outside_static_reaches_the_rest_of_the_app(self, _name: str, path: str) -> None:
+        reached = HttpResponse()
+
+        response = MissingStaticFileMiddleware(lambda request: reached)(RequestFactory().get(path))
+
+        assert response is reached
 
 
 class TestUnversionedStaticPathMiddleware(SimpleTestCase):
@@ -1615,21 +1650,43 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
         self.login_as_other_user()
         assert self.client.get("/api/users/@me/").json()["is_impersonated_read_only"] is False
 
-    def test_rejected_reimpersonation_preserves_read_only_and_reason(self):
-        self.login_as_other_user_read_only()
-        assert self.client.get("/api/users/@me/").json()["is_impersonated_read_only"] is True
+    @parameterized.expand(
+        [
+            ("html_read_only", True, False, ""),
+            ("json_read_only", True, True, ""),
+            ("json_read_write", False, True, ""),
+            ("json_opted_out", False, True, "Retry with read-only access"),
+        ]
+    )
+    def test_rejected_reimpersonation_preserves_mode_and_reason(self, _name, read_only, json_response, reason):
+        if read_only:
+            self.login_as_other_user_read_only()
+        else:
+            self.login_as_other_user()
 
-        # An empty reason is rejected by loginas without changing the session (it redirects back to
-        # the referer). The rejected attempt must not clear the active read-only flag or its reason.
-        self.client.post(
+        if reason:
+            self.other_user.allow_impersonation = False
+            self.other_user.save(update_fields=["allow_impersonation"])
+
+        response = self.client.post(
             reverse("loginas-user-login", kwargs={"user_id": self.other_user.id}),
-            data={"read_only": "false", "reason": ""},
+            data={"read_only": "false" if read_only else "true", "reason": reason},
+            HTTP_ACCEPT="application/json" if json_response else "text/html",
             HTTP_REFERER="/some/page",
         )
 
+        if json_response:
+            assert response.status_code == 403
+            assert response.json() == {"success": False}
+        else:
+            assert response.status_code == 302
+            assert response.headers["Location"] == "/some/page"
+
         user = self.client.get("/api/users/@me/").json()
-        assert user["is_impersonated_read_only"] is True
-        assert user["is_impersonated_reason"] == "Test read-only impersonation"
+        assert user["id"] == self.other_user.id
+        assert user["is_impersonated"] is True
+        assert user["is_impersonated_read_only"] is read_only
+        assert user["is_impersonated_reason"] == ("Test read-only impersonation" if read_only else "Test impersonation")
 
     @parameterized.expand(
         [
@@ -1765,10 +1822,14 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
             self.user.id,
         )
 
-    def test_impersonation_blocked_when_user_disallows(self):
-        """Verify regular impersonation fails when target user has allow_impersonation=False."""
-        self.other_user.allow_impersonation = False
-        self.other_user.save()
+    @parameterized.expand(
+        [
+            ("user_disallows", {"allow_impersonation": False}),
+            ("service_account", {"type": UserType.SERVICE_ACCOUNT}),
+        ]
+    )
+    def test_impersonation_blocked(self, _name: str, target_fields: dict[str, Any]) -> None:
+        User.objects.filter(pk=self.other_user.pk).update(**target_fields)
 
         self.login_as_other_user()
 
@@ -1957,6 +2018,7 @@ class TestAdminImpersonationMiddleware(APIBaseTest):
         [
             ("loses_staff", {"is_staff": False}),
             ("deactivated", {"is_active": False}),
+            ("not_human", {"type": UserType.SERVICE_ACCOUNT}),
         ]
     )
     def test_admin_blocked_when_original_user_cannot_swap(self, _name, user_attrs):
@@ -2269,13 +2331,25 @@ class TestImpersonationLoginReasonRequired(APIBaseTest):
         # Should still be logged in as original staff user (impersonation rejected)
         assert self.client.get("/api/users/@me/").json()["email"] == self.user.email
 
-    def test_impersonation_succeeds_with_reason(self):
+    @parameterized.expand([("html", False), ("json", True)])
+    def test_impersonation_succeeds_with_reason(self, _name, json_response):
         """Verify impersonation succeeds when a reason is provided."""
-        self.client.post(
+        self.client = cast(Any, DjangoClient(enforce_csrf_checks=True))
+        self.client.force_login(self.user)
+        csrf_token = "a" * 32
+        self.client.cookies[settings.CSRF_COOKIE_NAME] = csrf_token
+
+        response = self.client.post(
             reverse("loginas-user-login", kwargs={"user_id": self.other_user.id}),
             data={"read_only": "true", "reason": "Investigating support ticket #1234"},
-            follow=True,
+            HTTP_ACCEPT="application/json" if json_response else "text/html",
+            HTTP_X_CSRFTOKEN=csrf_token,
         )
+        assert response.status_code == (200 if json_response else 302)
+        if json_response:
+            assert response.json() == {"success": True}
+        assert response.cookies[settings.CSRF_COOKIE_NAME].value != csrf_token
+        assert "Cookie" in response.headers["Vary"]
 
         # Should now be logged in as other user
         assert self.client.get("/api/users/@me/").json()["email"] == "other-user@posthog.com"
@@ -3552,8 +3626,16 @@ def _insight_detail(request: HttpRequest, project_id: int, pk: int) -> HttpRespo
     return HttpResponse()
 
 
+def _dashboard_detail(request: HttpRequest, project_id: int, pk: int) -> HttpResponse:
+    request._pg_queries_labels = {"dashboard_v2": "true", "omit_results": "true", "sql_tiles": "21-50"}  # type: ignore[attr-defined]
+    return HttpResponse()
+
+
 class _PgQueryCountRoutes:
-    urlpatterns = [path("api/projects/<int:project_id>/insights/<int:pk>/", _insight_detail, name="insight-detail")]
+    urlpatterns = [
+        path("api/projects/<int:project_id>/insights/<int:pk>/", _insight_detail, name="insight-detail"),
+        path("api/projects/<int:project_id>/dashboards/<int:pk>/", _dashboard_detail, name="project_dashboards-detail"),
+    ]
 
 
 @override_settings(ROOT_URLCONF=_PgQueryCountRoutes, MIDDLEWARE=["posthog.middleware.QueryTimeCountingMiddleware"])
@@ -3580,6 +3662,25 @@ class TestQueryTimeCountingMiddlewarePgQueryMetric(SimpleTestCase):
             0,
             unit="{query}",
             attributes={"route": "insight-detail", "method": expected_method_label, "status_class": "2xx"},
+        )
+
+    def test_adds_labels_a_view_stashed_on_the_request(self) -> None:
+        client = MagicMock()
+        with patch("posthog.middleware.posthoganalytics.default_client", client):
+            self.client.get("/api/projects/2/dashboards/7/")
+
+        client.metrics.histogram.assert_called_once_with(
+            "api.request.pg_queries",
+            0,
+            unit="{query}",
+            attributes={
+                "route": "project_dashboards-detail",
+                "method": "GET",
+                "status_class": "2xx",
+                "dashboard_v2": "true",
+                "omit_results": "true",
+                "sql_tiles": "21-50",
+            },
         )
 
     @parameterized.expand([("unresolved_api_path", "/api/unknown/"), ("non_api_path", "/insights/7/")])
@@ -3952,6 +4053,80 @@ class TestCurrentAliasUsage(APIBaseTest):
         assert [(event["properties"]["token_matches_path"], event["properties"]["team_id"]) for event in events] == [
             (matches, teams[team].id) for matches, team in expected
         ]
+
+    @parameterized.expand(
+        [
+            ("path_id", "session", "/api/projects/{project_id}/feature_flags/", None, ("project", "path", "same")),
+            (
+                "alias_follows_the_user",
+                "session",
+                "/api/projects/@current/feature_flags/",
+                None,
+                ("project", "", "unplaced"),
+            ),
+            (
+                "path_and_token_disagree",
+                "key",
+                "/api/projects/{project_id}/feature_flags/",
+                "other",
+                ("project", "path", "different"),
+            ),
+            (
+                "token_on_a_view_that_refuses_it",
+                "key",
+                "/api/projects/@current/feature_flags/",
+                "own",
+                ("project", "", "unplaced"),
+            ),
+            (
+                "token_on_prompt_views",
+                "key",
+                "/api/environments/@current/llm_prompts/",
+                "own",
+                ("team", "token", "same"),
+            ),
+            (
+                "organization_alias",
+                "session",
+                "/api/organizations/@current/members/",
+                None,
+                ("organization", "", "unplaced"),
+            ),
+            ("flat_route", "session", "/api/feature_flag/", None, ("project", "", "unplaced")),
+        ]
+    )
+    def test_records_where_the_request_names_its_scope(
+        self, _name: str, caller: str, url: str, token: str | None, expected: tuple[str, str, str]
+    ) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="Other project")
+        headers: dict[str, str] = {}
+        if caller == "key":
+            key = generate_random_token_personal()
+            PersonalAPIKey.objects.create(user=self.user, secure_value=hash_key_value(key), scopes=["*"])
+            self.client.logout()
+            headers["Authorization"] = f"Bearer {key}"
+        query = {"token": {"own": self.team, "other": other_team}[token].api_token} if token else {}
+        client = MagicMock()
+
+        with patch("posthog.api.current_alias_usage.posthoganalytics.default_client", client):
+            self.client.get(url.format(project_id=self.team.project_id), query, headers=headers)
+
+        shadows = [
+            call.kwargs["attributes"]
+            for call in client.metrics.count.call_args_list
+            if call.args[0] == REQUEST_SCOPE_SHADOW_METRIC
+        ]
+        assert [(shadow["level"], shadow["source"], shadow["outcome"]) for shadow in shadows] == [expected]
+
+    def test_a_refused_request_leaves_the_selected_project_unset(self) -> None:
+        self.user.current_team = None
+        self.user.save(update_fields=["current_team"])
+
+        response = self.client.get("/api/feature_flag/")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        self.user.refresh_from_db()
+        assert self.user.current_team_id is None
 
     def test_recording_failure_does_not_fail_the_request(self) -> None:
         token = generate_random_token_personal()

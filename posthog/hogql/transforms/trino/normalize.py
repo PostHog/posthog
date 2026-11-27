@@ -564,6 +564,58 @@ class TrinoSelectAliasLowerer(CloningVisitor):
             return True
 
 
+class _RepeatedInlineAliasHider(TraversingVisitor):
+    """Hide every inline alias after the first that defines the same name in one SELECT.
+
+    The resolver refuses to redefine a name in a scope, so a repeat here is a copy that a lowering made of the same
+    expression, such as the LIMIT BY window's copy of a projection. TrinoSelectAliasLowerer has already expanded the
+    references to these names, and the next resolver pass needs each name defined once.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.defined: set[str] = set()
+        self.projections: set[int] = set()
+
+    def visit(self, node: ast.AST | None) -> None:
+        if isinstance(node, ast.Type):
+            return
+        super().visit(node)
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        outer = self.defined, self.projections
+        self.defined = set()
+        self.projections = {id(expr) for expr in node.select if isinstance(expr, ast.Alias)}
+        try:
+            super().visit_select_query(node)
+        finally:
+            self.defined, self.projections = outer
+
+    def visit_lambda(self, node: ast.Lambda) -> None:
+        outer = self.defined
+        self.defined = set()
+        try:
+            super().visit_lambda(node)
+        finally:
+            self.defined = outer
+
+    def visit_alias(self, node: ast.Alias) -> None:
+        if not node.hidden and id(node) not in self.projections:
+            if node.alias in self.defined:
+                node.hidden = True
+            else:
+                self.defined.add(node.alias)
+        super().visit_alias(node)
+
+
+def _named_projections(projections: list[ast.Expr]) -> dict[str, ast.Alias]:
+    named: dict[str, ast.Alias] = {}
+    for projection in reversed(projections):
+        if isinstance(projection, ast.Alias) and (projection.alias not in named or not projection.hidden):
+            named[projection.alias] = projection
+    return named
+
+
 class TrinoPhysicalProjectionAliasLowerer(CloningVisitor):
     def __init__(self, context: HogQLContext) -> None:
         super().__init__(clear_types=False)
@@ -571,8 +623,11 @@ class TrinoPhysicalProjectionAliasLowerer(CloningVisitor):
 
     def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
         lowered = super().visit_select_query(node)
+        named_projections = _named_projections(lowered.select)
         for projection in lowered.select:
             if not isinstance(projection, ast.Alias) or not projection.hidden:
+                continue
+            if named_projections[projection.alias] is not projection:
                 continue
             expression = projection.expr
             while isinstance(expression, ast.Alias) and expression.hidden:
@@ -1326,8 +1381,9 @@ def normalize_trino_ast(node: ast.AST, context: HogQLContext, *, physical_names:
     lowered = TrinoSemanticCallLowerer().visit(lowered)
     lowered = TrinoAsOfJoinLowerer().visit(lowered)
     lowered = lower_trino_any_joins(lowered, physical_names=physical_names)
-    lowered = lower_trino_query_wrappers(lowered)
+    lowered = lower_trino_query_wrappers(lowered, budget)
     lowered = TrinoSelectAliasLowerer(context, budget).visit(lowered)
+    _RepeatedInlineAliasHider().visit(lowered)
     lowered = TrinoPhysicalProjectionAliasLowerer(context).visit(lowered)
     lowered = TrinoDuplicateOutputNameLowerer().visit(lowered)
     TrinoNormalizer(context).visit(lowered)

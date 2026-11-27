@@ -67,7 +67,18 @@ class ScoringLimits:
 def _zscore(window: int) -> dict[str, Any]:
     # diffs_n is set explicitly: when preprocessing is given without it, the detector scores raw values,
     # and on sparse series raw values score almost every non-zero bucket near 1.0.
-    return {"type": "zscore", "threshold": 0.95, "window": window, "preprocessing": {"diffs_n": 1, "smooth_n": 3}}
+    # The quantile score is the share of training buckets that are less unusual than the bucket. With `window`
+    # training buckets, the highest threshold that the normalizer accepts is (window - 1) / window, and it flags
+    # only a bucket above every training bucket, about 1 in window + 1 buckets of a stable series. A tie with the
+    # largest training bucket does not flag. The same expression gives the score of that tie, so float error
+    # cannot put the tie above the threshold.
+    return {
+        "type": "zscore",
+        "threshold": (window - 1) / window,
+        "window": window,
+        "preprocessing": {"diffs_n": 1, "smooth_n": 3},
+        "normalizer": "quantile",
+    }
 
 
 def _zscore_and_judge(window: int) -> dict[str, Any]:
@@ -107,8 +118,14 @@ MAX_LIMITS = ScoringLimits(max_breakdown_values=25, max_series=50, max_backfill_
 class AIJudgeConfig:
     """Which projects score with `default-v2`, and the caps on its model calls. The `ai_judge` object of the payload."""
 
-    # Every other project scores with `default-v1`.
+    # A project scores with `default-v2` when it is in `team_ids`, or when its organization is inside
+    # `organization_percentage`. Every other project scores with `default-v1`.
     team_ids: tuple[int, ...] = ()
+    # Uses the rollout buckets of `self_driving_organization_percentage`, so a higher percentage keeps the
+    # organizations of a lower one. At or below the scoring percentage, it picks only organizations that are scored.
+    organization_percentage: float = 0.0
+    # These projects keep `default-v1`, even when `team_ids` or the percentage picks `default-v2`.
+    skip_team_ids: tuple[int, ...] = ()
     # A train step that backfills many buckets asks about its newest flagged buckets first.
     max_checks_per_insight_per_run: int = 3
     max_checks_per_project_per_day: int = 50
@@ -121,7 +138,18 @@ MAX_AI_CHECKS_PER_PROJECT_PER_DAY = 1000
 
 def resolve_profile(team: "Team", insight: "Insight", ai_judge: AIJudgeConfig = NO_AI_JUDGE) -> ScoringProfile:
     """The one place that picks scoring settings for an insight, so project and per-metric overrides only change this."""
-    return AI_JUDGE_PROFILE if team.id in ai_judge.team_ids else DEFAULT_PROFILE
+    return AI_JUDGE_PROFILE if judges_team(ai_judge, team) else DEFAULT_PROFILE
+
+
+def judges_team(ai_judge: AIJudgeConfig, team: "Team") -> bool:
+    """Whether the project scores with `default-v2`. The skip list wins over the list and the percentage."""
+    if team.id in ai_judge.skip_team_ids:
+        return False
+    if team.id in ai_judge.team_ids:
+        return True
+    return ai_judge.organization_percentage > 0 and _in_percentage(
+        ai_judge.organization_percentage, team.organization_id
+    )
 
 
 class ScoringRun(StrEnum):
@@ -334,6 +362,10 @@ def parse_ai_judge(payload: Any) -> AIJudgeConfig:
         return NO_AI_JUDGE
     return AIJudgeConfig(
         team_ids=_team_ids(payload.get("team_ids")),
+        organization_percentage=_percentage(
+            payload.get("organization_percentage"), NO_AI_JUDGE.organization_percentage
+        ),
+        skip_team_ids=_team_ids(payload.get("skip_team_ids")),
         max_checks_per_insight_per_run=min(
             _positive_int(payload.get("max_checks_per_insight_per_run"), NO_AI_JUDGE.max_checks_per_insight_per_run),
             MAX_AI_CHECKS_PER_INSIGHT_PER_RUN,
@@ -445,9 +477,12 @@ def organization_rollout_bucket(organization_id: "uuid.UUID | str") -> int:
     return int.from_bytes(digest[:8], "big") % _ROLLOUT_BUCKETS
 
 
+def _in_percentage(percentage: float, organization_id: "uuid.UUID | str") -> bool:
+    return organization_rollout_bucket(organization_id) < percentage * _ROLLOUT_BUCKETS / 100
+
+
 def in_rollout(config: AnomalyScoringConfig, organization_id: "uuid.UUID | str") -> bool:
-    threshold = config.self_driving_organization_percentage * _ROLLOUT_BUCKETS / 100
-    return organization_rollout_bucket(organization_id) < threshold
+    return _in_percentage(config.self_driving_organization_percentage, organization_id)
 
 
 def enrolls_team(config: AnomalyScoringConfig, team: "Team") -> bool:

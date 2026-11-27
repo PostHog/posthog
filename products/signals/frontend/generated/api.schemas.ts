@@ -470,6 +470,25 @@ export const AnomalyIntervalEnumApi = {
 } as const
 
 /**
+ * * `spike` - Spike
+ * * `drop` - Drop
+ * * `flatline` - Flatline
+ * * `trend_break` - Trend break
+ * * `level_shift` - Level shift
+ * * `pattern_change` - Pattern change
+ */
+export type AnomalyJudgeKindEnumApi = (typeof AnomalyJudgeKindEnumApi)[keyof typeof AnomalyJudgeKindEnumApi]
+
+export const AnomalyJudgeKindEnumApi = {
+    Spike: 'spike',
+    Drop: 'drop',
+    Flatline: 'flatline',
+    TrendBreak: 'trend_break',
+    LevelShift: 'level_shift',
+    PatternChange: 'pattern_change',
+} as const
+
+/**
  * Detector-specific values for the bucket. The keys depend on the detector.
  * @nullable
  */
@@ -505,6 +524,20 @@ export interface AnomalyBucketApi {
      * @nullable
      */
     details: AnomalyBucketApiDetails
+    /** The kind of anomaly the AI judge saw in a flagged bucket. Null when the bucket is not flagged, when the judge was not asked or gave no verdict, or when it named no kind.
+     *
+     * * `spike` - Spike
+     * * `drop` - Drop
+     * * `flatline` - Flatline
+     * * `trend_break` - Trend break
+     * * `level_shift` - Level shift
+     * * `pattern_change` - Pattern change */
+    anomaly_kind: AnomalyJudgeKindEnumApi | null
+    /**
+     * Why the AI judge confirmed the flag, in its own words. It is model output, so show it as plain text. Null when the bucket is not flagged, or when the judge was not asked or gave no verdict.
+     * @nullable
+     */
+    anomaly_reason: string | null
 }
 
 export interface AnomalyInsightSeriesApi {
@@ -643,6 +676,20 @@ export interface AnomalySeriesPointApi {
     value: number | null
     /** Whether the detector flagged the bucket. */
     flag: boolean
+    /** The kind of anomaly the AI judge saw in a flagged bucket. Null when the bucket is not flagged, when the judge was not asked or gave no verdict, or when it named no kind.
+     *
+     * * `spike` - Spike
+     * * `drop` - Drop
+     * * `flatline` - Flatline
+     * * `trend_break` - Trend break
+     * * `level_shift` - Level shift
+     * * `pattern_change` - Pattern change */
+    anomaly_kind: AnomalyJudgeKindEnumApi | null
+    /**
+     * Why the AI judge confirmed the flag, in its own words. It is model output, so show it as plain text. Null when the bucket is not flagged, or when the judge was not asked or gave no verdict.
+     * @nullable
+     */
+    anomaly_reason: string | null
 }
 
 export interface AnomalySeriesPointsApi {
@@ -719,6 +766,20 @@ export interface AnomalyFlaggedPointApi {
      * @nullable
      */
     score: number | null
+    /** The kind of anomaly the AI judge saw in a flagged bucket. Null when the bucket is not flagged, when the judge was not asked or gave no verdict, or when it named no kind.
+     *
+     * * `spike` - Spike
+     * * `drop` - Drop
+     * * `flatline` - Flatline
+     * * `trend_break` - Trend break
+     * * `level_shift` - Level shift
+     * * `pattern_change` - Pattern change */
+    anomaly_kind: AnomalyJudgeKindEnumApi | null
+    /**
+     * Why the AI judge confirmed the flag, in its own words. It is model output, so show it as plain text. Null when the bucket is not flagged, or when the judge was not asked or gave no verdict.
+     * @nullable
+     */
+    anomaly_reason: string | null
 }
 
 export interface AnomalyDashboardApi {
@@ -1159,6 +1220,71 @@ export interface InboxSummaryApi {
     people: InboxSummaryPersonApi[] | null
 }
 
+export interface MonitorPRRequestApi {
+    /**
+     * GitHub pull request URL for a branch in a repository connected to this project's GitHub integration. Open, draft, and merged PRs within the last 90 days are supported.
+     * @maxLength 500
+     */
+    pr_url: string
+    /**
+     * Optional team-visible steering context about what to monitor, such as a conversion step, error rate, or affected audience. Omit when the research agent should identify the key metric from the pull request and project data.
+     * @maxLength 4000
+     */
+    note?: string
+}
+
+/**
+ * * `potential` - Potential
+ * * `candidate` - Candidate
+ * * `in_progress` - In Progress
+ * * `pending_input` - Pending Input
+ * * `ready` - Ready
+ * * `monitoring` - Monitoring
+ * * `resolved` - Resolved
+ * * `closed` - Closed
+ * * `failed` - Failed
+ * * `deleted` - Deleted
+ * * `suppressed` - Suppressed
+ */
+export type SignalReportStatusEnumApi = (typeof SignalReportStatusEnumApi)[keyof typeof SignalReportStatusEnumApi]
+
+export const SignalReportStatusEnumApi = {
+    Potential: 'potential',
+    Candidate: 'candidate',
+    InProgress: 'in_progress',
+    PendingInput: 'pending_input',
+    Ready: 'ready',
+    Monitoring: 'monitoring',
+    Resolved: 'resolved',
+    Closed: 'closed',
+    Failed: 'failed',
+    Deleted: 'deleted',
+    Suppressed: 'suppressed',
+} as const
+
+export interface MonitorPRResponseApi {
+    /** The report assigned to the person who requested monitoring. */
+    report_id: string
+    /** Open the report to follow research and monitoring. */
+    report_url: string
+    /** Current report status. Research runs asynchronously; monitoring starts after research and PR merge.
+     *
+     * * `potential` - Potential
+     * * `candidate` - Candidate
+     * * `in_progress` - In Progress
+     * * `pending_input` - Pending Input
+     * * `ready` - Ready
+     * * `monitoring` - Monitoring
+     * * `resolved` - Resolved
+     * * `closed` - Closed
+     * * `failed` - Failed
+     * * `deleted` - Deleted
+     * * `suppressed` - Suppressed */
+    status: SignalReportStatusEnumApi
+    /** True when this person already requested monitoring for this PR in this project. */
+    idempotent_replay: boolean
+}
+
 export interface FirstReportStateApi {
     /** Scout run ID for inspecting the investigation through the scout API. */
     scout_run_id?: string
@@ -1283,6 +1409,7 @@ export const InboxOnboardingSetupModeEnumApi = {
  * * `endpoints` - Endpoints
  * * `replay_vision` - Replay Vision
  * * `analytics` - Product analytics
+ * * `slack` - Slack
  * * `freshdesk` - Freshdesk
  * * `freshservice` - Freshservice
  * * `front` - Front
@@ -1445,6 +1572,7 @@ export const SignalSourceProductEnumApi = {
     Endpoints: 'endpoints',
     ReplayVision: 'replay_vision',
     Analytics: 'analytics',
+    Slack: 'slack',
     Freshdesk: 'freshdesk',
     Freshservice: 'freshservice',
     Front: 'front',
@@ -1658,6 +1786,7 @@ export interface InboxOnboardingSourceApi {
      * * `endpoints` - Endpoints
      * * `replay_vision` - Replay Vision
      * * `analytics` - Product analytics
+     * * `slack` - Slack
      * * `freshdesk` - Freshdesk
      * * `freshservice` - Freshservice
      * * `front` - Front
@@ -2008,6 +2137,82 @@ export interface PauseResponseApi {
 }
 
 /**
+ * * `open` - Open
+ * * `closed` - Closed
+ * * `merged` - Merged
+ */
+export type PRStateEnumApi = (typeof PRStateEnumApi)[keyof typeof PRStateEnumApi]
+
+export const PRStateEnumApi = {
+    Open: 'open',
+    Closed: 'closed',
+    Merged: 'merged',
+} as const
+
+export interface PRBrowserReportApi {
+    /** Monitoring report assigned to the caller. */
+    id: string
+    /** Current report status, including research and waiting for merge.
+     *
+     * * `potential` - Potential
+     * * `candidate` - Candidate
+     * * `in_progress` - In Progress
+     * * `pending_input` - Pending Input
+     * * `ready` - Ready
+     * * `monitoring` - Monitoring
+     * * `resolved` - Resolved
+     * * `closed` - Closed
+     * * `failed` - Failed
+     * * `deleted` - Deleted
+     * * `suppressed` - Suppressed */
+    status: SignalReportStatusEnumApi
+}
+
+export interface PRBrowserItemApi {
+    /** GitHub URL. */
+    url: string
+    /** Repository registered with this project, in owner/name format. */
+    repository: string
+    /** GitHub pull request number. */
+    number: number
+    /** Pull request title. */
+    title: string
+    /** Current GitHub pull request state.
+     *
+     * * `open` - Open
+     * * `closed` - Closed
+     * * `merged` - Merged */
+    state: PRStateEnumApi
+    /** Whether this is a draft pull request. */
+    draft: boolean
+    /** GitHub login of the author. */
+    author: string
+    /** When the PR was opened. */
+    created_at: string
+    /** When GitHub last updated the PR. */
+    updated_at: string
+    /** The caller’s monitoring report, or null when not requested. */
+    report: PRBrowserReportApi | null
+    /**
+     * Why monitoring or retrying is unavailable for this pull request, or null when eligible.
+     * @nullable
+     */
+    monitoring_disabled_reason?: string | null
+}
+
+export interface PRBrowserPageApi {
+    /** Recent authored pull requests ordered by creation time, newest first. */
+    results: PRBrowserItemApi[]
+    /**
+     * The caller’s connected GitHub identity, or null if not connected.
+     * @nullable
+     */
+    github_login: string | null
+    /** Whether the project has a GitHub installation. */
+    has_integration: boolean
+}
+
+/**
  * Your own stored personal ranking, for every sort and also with scope=teammate. Read on the first page only. Null on later pages and when personal ranking is off for you.
  * @nullable
  */
@@ -2065,35 +2270,6 @@ export interface ReviewerControlResponseApi {
     /** Whether this report uses saved reviewer corrections. */
     enabled: boolean
 }
-
-/**
- * * `potential` - Potential
- * * `candidate` - Candidate
- * * `in_progress` - In Progress
- * * `pending_input` - Pending Input
- * * `ready` - Ready
- * * `monitoring` - Monitoring
- * * `resolved` - Resolved
- * * `closed` - Closed
- * * `failed` - Failed
- * * `deleted` - Deleted
- * * `suppressed` - Suppressed
- */
-export type SignalReportStatusEnumApi = (typeof SignalReportStatusEnumApi)[keyof typeof SignalReportStatusEnumApi]
-
-export const SignalReportStatusEnumApi = {
-    Potential: 'potential',
-    Candidate: 'candidate',
-    InProgress: 'in_progress',
-    PendingInput: 'pending_input',
-    Ready: 'ready',
-    Monitoring: 'monitoring',
-    Resolved: 'resolved',
-    Closed: 'closed',
-    Failed: 'failed',
-    Deleted: 'deleted',
-    Suppressed: 'suppressed',
-} as const
 
 /**
  * * `claude` - Claude
@@ -3892,19 +4068,19 @@ export interface ReportQualityHintApi {
 
 export interface EmitReportResponseApi {
     /**
-     * The authored report's id (null only when a preflight gate skipped the call). Returned even when suppressed, so you can edit/dedup against it.
+     * The authored report's id (null only when a preflight gate skipped the call). Returned even when suppressed, so you can edit/dedup against it. With `source_issue_already_reported`, the id of the open report that already names the issue: edit that report.
      * @nullable
      */
     report_id: string | null
     /**
-     * Birth status: `ready` | `pending_input` | `suppressed`, or null when gate-skipped.
+     * Birth status: `ready` | `pending_input` | `suppressed`, or null when gate-skipped. With `source_issue_already_reported`, the current status of the open report.
      * @nullable
      */
     report_status: string | null
     /** True when the report actually surfaced in the inbox (READY or PENDING_INPUT). */
     emitted: boolean
     /**
-     * `scout_config_missing` | `scout_emit_disabled` | `ai_processing_not_approved` | `source_disabled` | null when not gate-skipped.
+     * `scout_config_missing` | `scout_emit_disabled` | `ai_processing_not_approved` | `source_disabled` | `source_issue_already_reported` | null when a report was authored. `source_issue_already_reported` means an open report already names one of your `source_issues`, so no report was created: add your findings to the report in `report_id` with edit-report.
      * @nullable
      */
     skipped_reason: string | null
@@ -5071,6 +5247,7 @@ export interface SignalReportLeaveReviewersApi {
  * * `health_checks` - health_checks
  * * `replay_vision` - replay_vision
  * * `analytics` - analytics
+ * * `slack` - slack
  * * `freshdesk` - freshdesk
  * * `freshservice` - freshservice
  * * `front` - front
@@ -5233,6 +5410,7 @@ export const SignalSourceProductApi = {
     HealthChecks: 'health_checks',
     ReplayVision: 'replay_vision',
     Analytics: 'analytics',
+    Slack: 'slack',
     Freshdesk: 'freshdesk',
     Freshservice: 'freshservice',
     Front: 'front',
@@ -7154,6 +7332,7 @@ export interface SignalNodeApi {
      * * `health_checks` - health_checks
      * * `replay_vision` - replay_vision
      * * `analytics` - analytics
+     * * `slack` - slack
      * * `freshdesk` - freshdesk
      * * `freshservice` - freshservice
      * * `front` - front
@@ -9767,8 +9946,9 @@ export const RunStatusEnumApi = {
 
 /**
  * Full `SignalScoutRun` projection used by `get-run`. Same shape as the summary
- * today; kept distinct so future detail-only extensions (linked Signal rows,
- * LLMA token-cost join) can land here without bloating the list response.
+ * minus `summary_lead`, which only shortens a list row; kept distinct so future detail-only
+ * extensions (linked Signal rows, LLMA token-cost join) can land here without bloating the
+ * list response.
  */
 export interface SignalScoutRunDetailApi {
     /**
@@ -10453,8 +10633,18 @@ export interface ScratchpadRevivedExpiryApi {
 export interface ScratchpadEntryApi {
     /** Agent-chosen semantic key, unique per team. */
     key: string
-    /** Prose content for prompt injection. Blank when the search projected it out (`keys_only=true`); truncated to a preview when `content_max_chars` was set. */
+    /** Prose content for prompt injection. Blank when the search projected it out (`keys_only=true`); truncated to a preview when `content_max_chars` was set, and starting at `content_offset` when one was passed. */
     content: string
+    /**
+     * Length of the whole entry body in characters, on a search that returns bodies. Null otherwise.
+     * @nullable
+     */
+    content_total_length?: number | null
+    /**
+     * Where the rest of the body starts, in characters, when `content` stops before its end. Pass it as `content_offset` with the same `key` to read on. Null when `content` reaches the end of the body.
+     * @nullable
+     */
+    content_next_offset?: number | null
     /**
      * ISO-8601 creation timestamp.
      * @nullable
@@ -12010,6 +12200,8 @@ export interface SignalScoutRunSummaryApi {
     task_url?: string | null
     /** One-paragraph close-out the scout wrote at end-of-run. Empty string for runs that errored before close-out. The dedupe key for non-emitting runs. */
     summary: string
+    /** The start of `summary` on one line, at most 600 characters, ending in `…` when the summary is longer. Read the whole summary with the run detail. */
+    readonly summary_lead: string
     /**
      * Full `error_message` from the linked TaskRun, surfaced only for failed/cancelled runs (null otherwise, including on success). Use `failure_reason` for a concise scan-friendly summary.
      * @nullable
@@ -12891,6 +13083,67 @@ export interface ScoutSuggestionRefreshApi {
     workflow_id: string
 }
 
+export interface SlackChannelScoutCreateApi {
+    /**
+     * Name shown wherever people identify this scout. The scout's skill name is generated from it.
+     * @maxLength 200
+     */
+    display_name: string
+    /** Id of the Slack data warehouse source to read. */
+    source_id: string
+    /**
+     * Ids of the channels to read, at most 20. Every channel must already have synced its message table.
+     * @minItems 1
+     * @maxItems 20
+     * @items.maxLength 64
+     */
+    channel_ids: string[]
+    /**
+     * What the scout looks for in the messages, in plain words. Blank uses a default focus on bug reports, repeated requests, and complaints.
+     * @maxLength 4000
+     */
+    steer?: string
+    /**
+     * Optional five-field cron expression evaluated in the project timezone, e.g. '0 9 * * 1-5'. Occurrences must be at least 30 minutes apart. Omit for the daily default.
+     * @maxLength 100
+     * @nullable
+     */
+    run_cron_schedule?: string | null
+    /** Whether the scout files reports in the inbox. False is a dry run: it runs and logs only. */
+    emit?: boolean
+}
+
+export interface SlackChannelScoutCreateResponseApi {
+    /** True when this request created the scout. */
+    created: boolean
+    /** The new scout's skill name, its permanent identifier. Its config records the Slack source as owner. */
+    skill_name: string
+}
+
+export interface SlackScoutChannelApi {
+    /** The Slack channel id, which is also the name of its warehouse schema. */
+    id: string
+    /** The channel name, without the leading #. */
+    name: string
+    /**
+     * HogQL name of the channel's message table. Null until the channel's first sync writes the table.
+     * @nullable
+     */
+    table_name: string | null
+}
+
+export interface SlackScoutChannelSourceApi {
+    /** Id of the Slack data warehouse source. */
+    id: string
+    /** Channels the source syncs, ordered by name. */
+    channels: SlackScoutChannelApi[]
+}
+
+export interface SlackScoutChannelSourcesApi {
+    /** The project's Slack data warehouse sources. Empty when the project has not connected Slack. */
+    sources: SlackScoutChannelSourceApi[]
+}
+
 export type SignalSourceSyncStatusEnumApi =
     (typeof SignalSourceSyncStatusEnumApi)[keyof typeof SignalSourceSyncStatusEnumApi]
 
@@ -13135,6 +13388,8 @@ export interface SourceFilterCatalogApi {
     filter_fields: SourceFilterCatalogFieldApi[]
     /** Example expressions that are valid for this source. */
     starter_expressions: string[]
+    /** True when `inbox-source-filter-preview` can show this source's recent records. When false, a filter can still be saved, but the preview returns an error. */
+    preview_supported: boolean
 }
 
 export interface SourceFilterCatalogListApi {
@@ -13144,12 +13399,12 @@ export interface SourceFilterCatalogListApi {
 
 export interface SourceFilterPreviewRequestApi {
     /**
-     * Source product of the filter to preview, as listed by `inbox-source-filter-catalogs-list`.
+     * Source product of the filter, as listed by `inbox-source-filter-catalogs-list`.
      * @maxLength 100
      */
     source_product: string
     /**
-     * Source type of the filter to preview, as listed by `inbox-source-filter-catalogs-list`.
+     * Source type of the filter, as listed by `inbox-source-filter-catalogs-list`.
      * @maxLength 100
      */
     source_type: string
@@ -13158,6 +13413,13 @@ export interface SourceFilterPreviewRequestApi {
      * @maxLength 16384
      */
     expression: string
+    /**
+     * The source's record allowlist as it would be saved, to preview it before saving. For Linear issues, these are the Linear team ids saved in `config.linear_team_ids`. Omit it or pass null to use the saved allowlist, pass an empty list to read every team, or pass a list of non-empty ids (at most 100) to read only those. Sources without an allowlist ignore it.
+     * @maxItems 100
+     * @nullable
+     * @items.maxLength 255
+     */
+    scope_ids?: string[] | null
 }
 
 /**
@@ -13214,9 +13476,29 @@ export interface SourceFilterPreviewRecordApi {
     malformed: boolean
     /** Each catalog field's value for this record. A malformed value reads as null, or an empty array. */
     field_values: SourceFilterPreviewRecordApiFieldValues
+    /**
+     * For an excluded record, the conditions of the expression that the record does not pass, as written in the expression and in expression order. The conditions are the operands of a top-level AND, or the whole expression when it is one condition. A condition that reads a malformed value fails. Null for records that pass, and for every record when the expression's top level is OR or the expression has more than 8 conditions.
+     * @nullable
+     */
+    failed_conditions: string[] | null
 }
 
 export interface SourceFilterPreviewResponseApi {
+    /**
+     * Machine-readable reason the expression is invalid, for example `syntax`, `unknown_field`, `type`, `boolean_required` or `expression_limit`. Null when the expression is valid.
+     * @nullable
+     */
+    error_code: string | null
+    /**
+     * 0-based character offset in `expression` where the invalid part starts. Null when the expression is valid, or when the error has no position, for example an expression that is too long.
+     * @nullable
+     */
+    error_start: number | null
+    /**
+     * 0-based character offset in `expression` just after the invalid part, so the part is `expression[error_start:error_end]`. Equal to `error_start` when the error is at one point, for example an expression that ends too early. Null when `error_start` is null.
+     * @nullable
+     */
+    error_end: number | null
     /** `ok` when the counts and records are filled in. `invalid_expression` when the expression cannot be saved. `not_connected` when the project has no syncing import for the source. `not_synced` when the import has not finished a first sync. `access_denied` when you cannot read the source's warehouse table. `incompatible_table` when the table does not have the columns the filter fields read. `query_failed` when the preview query did not run.
      *
      * * `ok` - ok
@@ -13236,7 +13518,7 @@ export interface SourceFilterPreviewResponseApi {
     catalog_version: number
     /** The preview reads records created in this many past days. */
     lookback_days: number
-    /** Records in the window that emission would read before the filter. 0 unless `status` is `ok`. */
+    /** Records in the window that emission would read before the filter. Leaves out records that never become signals, such as Linear issues without a description. 0 unless `status` is `ok`. */
     total_count: number
     /** Records in the window that pass the filter. */
     passing_count: number
@@ -13248,6 +13530,58 @@ export interface SourceFilterPreviewResponseApi {
     passing: SourceFilterPreviewRecordApi[]
     /** The newest records that the filter excludes, at most 10. */
     excluded: SourceFilterPreviewRecordApi[]
+}
+
+export interface SourceFilterExpressionRequestApi {
+    /**
+     * Source product of the filter, as listed by `inbox-source-filter-catalogs-list`.
+     * @maxLength 100
+     */
+    source_product: string
+    /**
+     * Source type of the filter, as listed by `inbox-source-filter-catalogs-list`.
+     * @maxLength 100
+     */
+    source_type: string
+    /**
+     * Filter expression to try, as it would be saved in `config.hogql_filter`: a boolean expression over the fields `inbox-source-filter-catalogs-list` returns, for example `project_name = 'Core' AND assignee_id IS NULL`. An empty expression lets every record through.
+     * @maxLength 16384
+     */
+    expression: string
+    /**
+     * The source's record allowlist as it would be saved, to preview it before saving. For Linear issues, these are the Linear team ids saved in `config.linear_team_ids`. Omit it or pass null to use the saved allowlist, pass an empty list to read every team, or pass a list of non-empty ids (at most 100) to read only those. Sources without an allowlist ignore it.
+     * @maxItems 100
+     * @nullable
+     * @items.maxLength 255
+     */
+    scope_ids?: string[] | null
+}
+
+export interface SourceFilterValidateResponseApi {
+    /**
+     * Machine-readable reason the expression is invalid, for example `syntax`, `unknown_field`, `type`, `boolean_required` or `expression_limit`. Null when the expression is valid.
+     * @nullable
+     */
+    error_code: string | null
+    /**
+     * 0-based character offset in `expression` where the invalid part starts. Null when the expression is valid, or when the error has no position, for example an expression that is too long.
+     * @nullable
+     */
+    error_start: number | null
+    /**
+     * 0-based character offset in `expression` just after the invalid part, so the part is `expression[error_start:error_end]`. Equal to `error_start` when the error is at one point, for example an expression that ends too early. Null when `error_start` is null.
+     * @nullable
+     */
+    error_end: number | null
+    /** True when the expression can be saved as the source's filter. */
+    valid: boolean
+    /** Catalog version the expression was checked against. */
+    catalog_version: number
+    /**
+     * Why the expression is invalid, as a message for people. Null when it is valid.
+     * @nullable
+     */
+    error: string | null
 }
 
 export interface SourceSpendApi {
@@ -14141,6 +14475,10 @@ export type SignalsReportArtefactsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Comma-separated artefact types to return, for example `signal_finding,note`. Omit it to return every type. `signal_finding` holds the evidence behind the report, `note` holds free-form notes such as the `## Verification plan`, and `task_run` records research and implementation runs. Values match the `type` of the returned artefacts. `count` and pagination cover only the matching artefacts. An unknown type returns 400 with the accepted values.
+     */
+    type?: string
 }
 
 export type SignalsReportChecksListParams = {
@@ -14381,6 +14719,11 @@ export type SignalsScoutConfigListParams = {
      */
     search?: string
     /**
+     * Returns only the scouts another product stood up for one of its own objects, e.g. `slack` for Slack channel scouts or `replay_vision` for Replay Vision scanner scouts. Omit for the whole fleet.
+     * @minLength 1
+     */
+    source_product?: string
+    /**
      * Comma-separated tags, e.g. `revenue,on-call`. Returns the scouts carrying at least one of them. Values are normalized the same way stored tags are, so `On Call` matches `on-call`. Omit for the whole fleet.
      * @minLength 1
      */
@@ -14572,6 +14915,11 @@ export type SignalsScoutRunsListParams = {
      */
     emitted?: boolean | null
     /**
+     * Leave out the runs of this scout skill (e.g. your own `skill_name`), before `limit` applies. Use it on a fleet-wide `text` search, so your own runs don't fill the page.
+     * @minLength 1
+     */
+    exclude_skill_name?: string
+    /**
      * Max rows to return (default 20, hard cap 100).
      * @minimum 1
      * @maximum 100
@@ -14666,6 +15014,12 @@ export type SignalsScoutScratchpadSearchParams = {
      * @minimum 0
      */
     content_max_chars?: number
+    /**
+     * Start each entry's `content` at this character. Use it with `key` to read a long entry in parts: pass the `content_next_offset` of the previous read. Combines with `content_max_chars`. Earlier versions from `include_revisions` are not paged.
+     * @minimum 0
+     * @maximum 50000
+     */
+    content_offset?: number
     /**
      * ISO-8601 inclusive lower bound on `updated_at`. Omit to skip the lower bound.
      */

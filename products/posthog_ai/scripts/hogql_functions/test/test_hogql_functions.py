@@ -7,7 +7,7 @@ def test_returns_sorted_list() -> None:
     result = hogql_functions()
     assert isinstance(result, list)
     assert len(result) > 100
-    assert result == sorted(result, key=str.lower)
+    assert result == sorted(result, key=lambda name: (name.lower(), name))
 
 
 def test_excludes_underscore_prefixed() -> None:

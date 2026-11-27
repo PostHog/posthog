@@ -1,22 +1,29 @@
 import hmac
 import json
+import time
+import uuid
 import hashlib
 
 from unittest.mock import MagicMock, patch
 
+from django.core.cache import caches
 from django.db import OperationalError
 from django.test import override_settings
 
 from parameterized import parameterized
 from requests import HTTPError, RequestException
 
+from posthog.ingress.dispatch.dedup import INGRESS_DEDUP_CACHE_ALIAS
 from posthog.ingress.dispatch.loading import reset_consumer_registry
+from posthog.ingress.vercel.provider import MILLISECONDS_PER_SECOND, VERCEL_DELIVERY_MAX_AGE_SECONDS
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_integration import OrganizationIntegration
 
-from ee.api.vercel.test.base import VercelTestBase
+from ee.api.vercel.test.base import VERCEL_TEST_ACCESS_TOKEN, VercelTestBase
+from ee.vercel.client import VERCEL_OAUTH_TOKEN_URL
 
 SECRET = "test_webhook_secret"
+STALE_MARGIN_SECONDS = 60
 
 
 def _forward_response(status_code: int) -> MagicMock:
@@ -26,13 +33,24 @@ def _forward_response(status_code: int) -> MagicMock:
     return response
 
 
-@override_settings(VERCEL_CLIENT_INTEGRATION_SECRET=SECRET)
+def _vercel_token_response() -> MagicMock:
+    token_response = MagicMock(status_code=200)
+    token_response.json.return_value = {
+        "access_token": VERCEL_TEST_ACCESS_TOKEN,
+        "token_type": "Bearer",
+        "expires_in": 3600,
+    }
+    return token_response
+
+
+@override_settings(VERCEL_CLIENT_INTEGRATION_ID="client_id", VERCEL_CLIENT_INTEGRATION_SECRET=SECRET)
 class TestVercelWebhooks(VercelTestBase):
     def setUp(self):
         super().setUp()
         self.url = "/webhooks/vercel"
         reset_consumer_registry()
         self.addCleanup(reset_consumer_registry)
+        caches[INGRESS_DEDUP_CACHE_ALIAS].clear()
 
         self.addCleanup(patch.stopall)
         # `pytest.ini` sets DEBUG, which makes `posthog/regions.py` rewrite both domains to
@@ -45,7 +63,8 @@ class TestVercelWebhooks(VercelTestBase):
         self.forward.return_value = _forward_response(202)
 
     def _post(self, payload: dict, signature: str | None = "sign"):
-        body = json.dumps(payload).encode("utf-8")
+        envelope = {"id": f"evt_{uuid.uuid4().hex}", "createdAt": int(time.time() * MILLISECONDS_PER_SECOND), **payload}
+        body = json.dumps(envelope).encode("utf-8")
         if signature == "sign":
             signature = hmac.new(SECRET.encode("utf-8"), body, hashlib.sha1).hexdigest()
         headers = {"x-vercel-signature": signature} if signature is not None else {}
@@ -176,12 +195,13 @@ class TestVercelWebhooks(VercelTestBase):
             "user_mappings": {"vercel_user_1": self.user.pk},
             "account": old_account,
         }
-        self.installation.sensitive_config = {"credentials": {"access_token": "test_token", "token_type": "Bearer"}}
         self.installation.save()
         new_owner = self._create_user("new-owner@example.com")
         both_mappings = {"vercel_user_1": self.user.pk, "vercel_user_2": new_owner.pk}
 
         def answer_while_sso_maps_another_user(session, method, url, **kwargs):
+            if url == VERCEL_OAUTH_TOKEN_URL:
+                return _vercel_token_response()
             OrganizationIntegration.objects.filter(pk=self.installation.pk).update(
                 config={**self.installation.config, "user_mappings": both_mappings}
             )
@@ -202,7 +222,7 @@ class TestVercelWebhooks(VercelTestBase):
         self.assertEqual(
             (method, url), ("GET", f"https://api.vercel.com/v1/installations/{self.installation_id}/account")
         )
-        self.assertEqual(session.headers["Authorization"], "Bearer test_token")
+        self.assertEqual(session.headers["Authorization"], f"Bearer {VERCEL_TEST_ACCESS_TOKEN}")
         expected_account: dict = {
             "url": "https://vercel.com/new-team/~/integrations/posthog/icfg_old",
             "name": "New team",
@@ -236,13 +256,18 @@ class TestVercelWebhooks(VercelTestBase):
     def test_a_transfer_whose_account_lookup_fails_is_not_receipted(self, vercel_request):
         vercel_response = MagicMock(status_code=500, text="upstream error")
         vercel_response.raise_for_status.side_effect = HTTPError(response=vercel_response)
-        vercel_request.return_value = vercel_response
+        vercel_request.side_effect = lambda method, url, **kwargs: (
+            _vercel_token_response() if url == VERCEL_OAUTH_TOKEN_URL else vercel_response
+        )
         config_before = dict(self.installation.config)
 
         response = self._post(self._transfer_payload(self.installation_id))
 
         self.assertEqual(response.status_code, 500)
-        vercel_request.assert_called_once()
+        self.assertEqual(
+            [call.args[1] for call in vercel_request.call_args_list],
+            [VERCEL_OAUTH_TOKEN_URL, f"https://api.vercel.com/v1/installations/{self.installation_id}/account"],
+        )
         self.installation.refresh_from_db()
         self.assertEqual(self.installation.config, config_before)
 
@@ -275,6 +300,35 @@ class TestVercelWebhooks(VercelTestBase):
             billing_provider="vercel",
         )
         self.forward.assert_not_called()
+
+    @patch("ee.api.vercel.webhook_events.BillingManager")
+    @patch("ee.api.vercel.webhook_events.License")
+    def test_a_second_copy_of_a_billed_delivery_is_receipted_without_billing_again(
+        self, license_model, billing_manager_class
+    ):
+        license_model.objects.first.return_value = MagicMock()
+        billing_manager = MagicMock()
+        billing_manager_class.return_value = billing_manager
+        payload = {**self._billing_payload(self.installation_id), "id": "evt_repeated"}
+
+        first = self._post(payload)
+        second = self._post(payload)
+
+        self.assertEqual((first.status_code, second.status_code), (202, 202))
+        billing_manager.handle_billing_provider_webhook.assert_called_once()
+
+    @patch("ee.api.vercel.webhook_events.BillingManager")
+    def test_a_delivery_older_than_dedup_covers_is_refused_before_billing(self, billing_manager):
+        stale_seconds = time.time() - VERCEL_DELIVERY_MAX_AGE_SECONDS - STALE_MARGIN_SECONDS
+        payload = {
+            **self._billing_payload(self.installation_id),
+            "createdAt": int(stale_seconds * MILLISECONDS_PER_SECOND),
+        }
+
+        response = self._post(payload)
+
+        self.assertEqual(response.status_code, 400)
+        billing_manager.assert_not_called()
 
     @patch("ee.api.vercel.webhook_events.BillingManager")
     def test_a_billing_event_the_other_region_holds_is_forwarded_and_not_billed_here(self, billing_manager):
@@ -362,11 +416,14 @@ class TestVercelWebhooks(VercelTestBase):
         license_model.objects.first.return_value = MagicMock()
         billing_manager = MagicMock()
         billing_manager_class.return_value = billing_manager
-        billing_manager.handle_billing_provider_webhook.side_effect = Exception("Billing service error")
+        billing_manager.handle_billing_provider_webhook.side_effect = [Exception("Billing service error"), None]
+        payload = {**self._billing_payload(self.installation_id), "id": "evt_retried"}
 
-        response = self._post(self._billing_payload(self.installation_id))
+        failed = self._post(payload)
+        retried = self._post(payload)
 
-        self.assertEqual(response.status_code, 500)
+        self.assertEqual((failed.status_code, retried.status_code), (500, 202))
+        self.assertEqual(billing_manager.handle_billing_provider_webhook.call_count, 2)
 
     @patch("ee.api.vercel.webhook_events.License")
     def test_a_missing_license_is_not_receipted(self, license_model):

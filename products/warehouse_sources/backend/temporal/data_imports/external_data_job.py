@@ -54,6 +54,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     update_should_sync,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.ssh_tunnel import SSH_GATEWAY_CLOSED_BEFORE_BANNER_ERROR
 from products.warehouse_sources.backend.self_managed_access import ADOPTION_ACCESS_ERROR
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
     EmitSignalsActivityInputs,
@@ -65,6 +66,7 @@ from products.warehouse_sources.backend.temporal.data_imports.metrics import (
     get_data_import_finished_metric,
     get_fast_returned_run_metric,
     get_import_handoffs_per_run_metric,
+    get_organization_deactivated_skipped_metric,
     get_retry_budget_reduced_metric,
     get_run_deferred_metric,
     get_v3_lock_skipped_metric,
@@ -90,6 +92,7 @@ from products.warehouse_sources.backend.temporal.data_imports.post_import_job im
     build_post_import_workflow_id,
 )
 from products.warehouse_sources.backend.temporal.data_imports.retry_limits import (
+    GIVE_UP_AFTER_FAILED_RUNS,
     MAX_RESUMABLE_SOURCE_RETRIES_PRODUCTION,
     import_retry_budget,
 )
@@ -313,6 +316,24 @@ TRANSIENT_SSH_TUNNEL_CONNECT_DROPPED_MESSAGE = (
     "port set for the tunnel; the next sync runs on schedule."
 )
 
+# The SSH server refused a share of the connections that the tables of one source opened at the
+# same time. The schema stays enabled, so the copy names the server setting that sets the limit.
+TRANSIENT_SSH_GATEWAY_BUSY_MESSAGE = (
+    "Your SSH server closed PostHog's connection before the SSH handshake. SSH servers do this when "
+    "too many new connections arrive at the same time, and PostHog opens one for each table it "
+    "syncs. This sync is still enabled and will run again on its next schedule. If this keeps "
+    "happening, raise MaxStartups in the SSH server's sshd_config, and check that the server allows "
+    "PostHog's IP addresses."
+)
+
+# Shown once the server closed before its banner on every run of a full failure streak. A busy server
+# refuses only part of a burst, so that many in a row points at a wrong port or a blocked address.
+SSH_GATEWAY_KEPT_CLOSING_MESSAGE = (
+    "Your SSH server closed PostHog's connection before the SSH handshake on several syncs in a row. "
+    "Check that the SSH host and port point to an SSH server, not the database port, and that the "
+    "server allows PostHog's IP addresses, then re-enable the sync."
+)
+
 TRANSIENT_POOLER_MESSAGE = (
     "Your database's connection pooler couldn't reach your database and refused the connection. "
     "Check that the database is running; the next sync runs on schedule."
@@ -408,6 +429,7 @@ Transient_Error_Messages: dict[str, str] = {
     # one request the vendor mishandles every time, which is not an outage that clears on its own.
     # The host policy's own lookup never answered. Every SQL source reaches it through the shared
     # tunnel layer, so it is mapped here rather than per source.
+    SSH_GATEWAY_CLOSED_BEFORE_BANNER_ERROR: TRANSIENT_SSH_GATEWAY_BUSY_MESSAGE,
     TEMPORARY_HOST_RESOLUTION_PREFIX: (
         "PostHog couldn't resolve your source's host: the lookup kept failing without an answer. "
         "Check that the host name is correct and that its DNS records are answering; the next sync "
@@ -548,6 +570,24 @@ def _transient_error_message(internal_error: str) -> str | None:
             return TRANSIENT_SSH_TUNNEL_CONNECT_DROPPED_MESSAGE
         return TRANSIENT_CONNECT_DROPPED_MESSAGE
     return message
+
+
+def _ssh_gateway_kept_closing(schema_id: str, team_id: int, job_id: str) -> bool:
+    """Whether the runs before this one also ended with the server closing before its banner.
+
+    The close is retryable because a busy server refuses only part of a burst. A wrong port or a
+    server that blocks PostHog closes on every run, so a full failure streak of it disables the schema.
+    """
+    earlier_runs = GIVE_UP_AFTER_FAILED_RUNS - 1
+    earlier_errors = list(
+        ExternalDataJob.objects.filter(schema_id=schema_id, team_id=team_id)
+        .exclude(id=job_id)
+        .order_by("-created_at")
+        .values_list("latest_error", flat=True)[:earlier_runs]
+    )
+    return len(earlier_errors) == earlier_runs and all(
+        error == TRANSIENT_SSH_GATEWAY_BUSY_MESSAGE for error in earlier_errors
+    )
 
 
 def _fail_stale_running_schema(
@@ -703,6 +743,14 @@ async def _update_job_status(inputs: UpdateExternalDataJobStatusInputs, logger: 
         has_non_retryable_error = not platform_failure and error_message_matches(
             internal_error_normalized, non_retryable_errors.keys()
         )
+        if (
+            not has_non_retryable_error
+            and not platform_failure
+            and error_message_matches(internal_error_normalized, [SSH_GATEWAY_CLOSED_BEFORE_BANNER_ERROR])
+            and await database_sync_to_async_pool(_ssh_gateway_kept_closing)(inputs.schema_id, inputs.team_id, job_id)
+        ):
+            has_non_retryable_error = True
+            inputs.latest_error = SSH_GATEWAY_KEPT_CLOSING_MESSAGE
 
         if has_non_retryable_error:
             friendly_error = _non_retryable_error_message(non_retryable_errors, internal_error_normalized)
@@ -912,6 +960,16 @@ def _started_by_own_schedule(search_attributes: SearchAttributes, schema_id: uui
     return any(str(value) == str(schema_id) for value in scheduled_by)
 
 
+def _reads_complete_table(
+    *, incremental_or_append: bool, scheduled_full_refresh: bool, reset_pipeline: bool, is_resumable_source: bool
+) -> bool:
+    """Whether this run staged the whole table. Incremental and append runs stage only changed rows,
+    and a resumable source can pick a run up part way through."""
+    if is_resumable_source:
+        return False
+    return not incremental_or_append or scheduled_full_refresh or bool(reset_pipeline)
+
+
 # TODO: update retry policies
 #
 # DETERMINISM: adding, removing, or reordering activities / child-workflow starts in `run` breaks
@@ -1089,12 +1147,32 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                     extra={"schema_id": str(inputs.external_data_schema_id)},
                 )
 
-            if lock_result is not None and lock_result.deferred:
+            # Emits no command and returns where the lock-miss branch below returns, because the
+            # activity also reports acquired=False. A history that predates the field replays the same way.
+            if lock_result is not None and lock_result.organization_deactivated:
                 workflow.logger.info(
-                    "Run deferred because this sync keeps failing",
+                    "Run skipped because the organization is deactivated",
                     extra={"schema_id": str(inputs.external_data_schema_id)},
                 )
-                get_run_deferred_metric().add(1)
+                get_organization_deactivated_skipped_metric().add(1)
+                return
+
+            if lock_result is not None and lock_result.deferred:
+                # Logs and metrics only, so the command sequence is the same for every reason.
+                if lock_result.stood_down_reason:
+                    workflow.logger.info(
+                        "Run stood down before the lock",
+                        extra={
+                            "schema_id": str(inputs.external_data_schema_id),
+                            "reason": lock_result.stood_down_reason,
+                        },
+                    )
+                else:
+                    workflow.logger.info(
+                        "Run deferred because this sync keeps failing",
+                        extra={"schema_id": str(inputs.external_data_schema_id)},
+                    )
+                    get_run_deferred_metric().add(1)
                 return
 
             if lock_result is None or not lock_result.acquired:
@@ -1399,6 +1477,12 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                     source_type=source_type,
                     schema_name=schema_name,
                     last_synced_at=last_synced_at,
+                    complete_table_read=_reads_complete_table(
+                        incremental_or_append=incremental_or_append,
+                        scheduled_full_refresh=scheduled_full_refresh,
+                        reset_pipeline=bool(inputs.reset_pipeline),
+                        is_resumable_source=is_resumable_source,
+                    ),
                 )
                 # Keyed per job (not per schema): each sync stages its changed rows under a job-scoped
                 # S3 prefix that only its own child consumes. A per-schema id would coalesce a

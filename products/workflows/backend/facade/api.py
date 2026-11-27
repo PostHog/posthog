@@ -228,6 +228,18 @@ def get_workflow_vision_scan_daily_limits(*, team_id: int) -> WorkflowVisionScan
     )
 
 
+def is_email_workflow_run_link_tag_enabled(*, team_id: int) -> bool:
+    # `Team.workflows_config` creates the settings row when it is missing, so a read-only caller uses this instead.
+    enabled = (
+        TeamWorkflowsConfig.objects.filter(team_id=team_id)
+        .values_list("email_workflow_run_link_tag_enabled", flat=True)
+        .first()
+    )
+    if enabled is None:
+        return TeamWorkflowsConfig._meta.get_field("email_workflow_run_link_tag_enabled").default
+    return enabled
+
+
 def accept_github_event(delivery: WebhookDelivery) -> None:
     """The inbound GitHub App webhook enters workflows here, so its consumer needs no internal import."""
     # Deferred to keep the Kafka producer off the facade import path.

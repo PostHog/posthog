@@ -281,10 +281,11 @@ def close_search_source(
     should_use_incremental_field: bool = False,
     incremental_field: Optional[str] = None,
 ) -> SourceResponse:
-    """Read Leads or Contacts through Close's Advanced Filtering API.
+    """Read a table through Close's Advanced Filtering API.
 
-    Their list endpoints take no date filter, so offset pagination is the only option there and
-    Close's `_skip` cap silently truncates large tables. See search.py for the paging strategy.
+    The list endpoints of these tables take no date filter (Leads, Contacts), so Close's `_skip`
+    cap silently truncates large tables, or need a parent id (SequenceSubscriptions,
+    CustomObjects). See search.py for the paging strategy.
     """
     config = CLOSE_ENDPOINTS[endpoint]
     object_type = config.search_object_type
@@ -311,7 +312,7 @@ def close_search_source(
         session = _make_session(api_key, retry=CLOSE_RETRY)
         # One `custom` selector pulls every custom field, so the field list stays bounded no
         # matter how many an org has. See ALL_CUSTOM_FIELDS_SELECTOR.
-        fields = [*config.search_fields, ALL_CUSTOM_FIELDS_SELECTOR]
+        fields = [*config.search_fields, *([ALL_CUSTOM_FIELDS_SELECTOR] if config.search_custom_fields else [])]
         yield from iter_search_rows(
             session=session,
             base_url=CLOSE_BASE_URL,

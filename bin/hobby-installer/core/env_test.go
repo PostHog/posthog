@@ -1,6 +1,7 @@
 package core
 
 import (
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -13,6 +14,7 @@ func TestDedicatedSecretsAreGeneratedAndKept(t *testing.T) {
 		"RECORDING_API_JWT_SECRET",
 		"OBJECT_STORAGE_ACCESS_KEY_ID",
 		"OBJECT_STORAGE_SECRET_ACCESS_KEY",
+		"CDP_SEALED_STATE_KEYS",
 	} {
 		cases := []struct {
 			name      string
@@ -55,6 +57,10 @@ func TestDedicatedSecretsAreGeneratedAndKept(t *testing.T) {
 				}
 				if value == "" || value == ReadEnvValue("POSTHOG_SECRET") {
 					t.Fatalf("%s = %q, want a value of its own", key, value)
+				}
+				// The node service builds a Fernet key from it, which takes exactly 32 characters.
+				if key == "CDP_SEALED_STATE_KEYS" && tc.wantValue == "" && len(value) != 32 {
+					t.Fatalf("%s = %q, want 32 characters", key, value)
 				}
 			})
 		}
@@ -205,6 +211,49 @@ func TestUpdateEnvForUpgradeCaddyKeys(t *testing.T) {
 				if strings.Contains(got, nw) {
 					t.Errorf("expected .env not to contain %q, got:\n%s", nw, got)
 				}
+			}
+		})
+	}
+}
+
+func TestBatchExportsStayOnUnlessTheInstallHasNone(t *testing.T) {
+	cases := []struct {
+		name  string
+		count string
+		err   error
+		want  bool
+	}{
+		{"no batch exports", "0\n", nil, false},
+		{"some batch exports", "3\n", nil, true},
+		{"database not reachable", "", errors.New("exit status 1"), true},
+		{"unreadable output", "", nil, true},
+	}
+	for _, c := range cases {
+		if got := keepBatchExportsEnabled(c.count, c.err); got != c.want {
+			t.Errorf("%s: keepBatchExportsEnabled(%q, %v) = %v, want %v", c.name, c.count, c.err, got, c.want)
+		}
+	}
+}
+
+func TestEnvHasKeyCountsAnEmptyValueAsSet(t *testing.T) {
+	cases := []struct {
+		name string
+		env  string
+		want bool
+	}{
+		{"absent", "DOMAIN=example.com\n", false},
+		{"commented out", "#BATCH_EXPORTS_ENABLED=true\n", false},
+		{"empty value", "BATCH_EXPORTS_ENABLED=\n", true},
+		{"set value", "BATCH_EXPORTS_ENABLED=false\n", true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Chdir(t.TempDir())
+			if err := os.WriteFile(".env", []byte(c.env), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if got := envHasKey("BATCH_EXPORTS_ENABLED"); got != c.want {
+				t.Errorf("envHasKey = %v, want %v", got, c.want)
 			}
 		})
 	}

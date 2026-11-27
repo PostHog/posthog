@@ -7,6 +7,9 @@ channels, and reads those few threads in full right before the writer sees them.
 """
 
 import re
+import time
+import heapq
+import itertools
 from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, replace
@@ -22,10 +25,10 @@ from slack_sdk.errors import SlackApiError, SlackClientError
 
 from posthog.dataclasses import frozen
 from posthog.llm.managed_decision_model import DEFAULT_DECISION_MODEL
-from posthog.llm.system_one import NoulAnswer, NoulQuestion
-from posthog.llm.system_one_client import GATEWAY_MAX_QUESTIONS, build_system_one_client
+from posthog.llm.system_one import NoulAnswer, NoulQuestion, SystemOneRequestFailed
+from posthog.llm.system_one_client import build_system_one_client
 from posthog.models.integration import SlackIntegration
-from posthog.token_bucket import BucketDecision, Budget, consume
+from posthog.token_bucket import BucketDecision, Budget, consume, refund
 
 from products.slack_app.backend.feature_flags import is_slack_app_daily_summary_enabled
 from products.slack_app.backend.services.slack_messages import mentions_slack_user, thread_permalink
@@ -43,8 +46,14 @@ PRIVATE_CHANNEL_SCOPES = frozenset({"groups:read", "groups:history"})
 INDEX_LOOKBACK = timedelta(days=3)
 CHANNELS_PER_WORKSPACE = 100
 ROOTS_PER_CHANNEL = 50
+# The newest roots across the workspace, so the build and the cached index stay small.
+ROOTS_PER_WORKSPACE = 1000
 # Jev scores the newest roots across the workspace. Older ones stay in the index for the threads a person is in.
-ROOTS_SCORED_PER_WORKSPACE = 400
+ROOTS_SCORED_PER_WORKSPACE = 200
+# The gateway reads the whole state once for each question, so a request grows with the square of its batch.
+RANK_BATCH_SIZE = 8
+# Inside the index activity's five-minute timeout.
+RANK_DEADLINE_SECONDS = 150
 # Rebuilt in each hour that has runs, so a run late in the day reads the threads from earlier that day.
 INDEX_TTL_SECONDS = 2 * 3600
 BUILD_LOCK_SECONDS = 300
@@ -287,18 +296,32 @@ def build_workspace_index(integration: WorkspaceIntegration) -> int:
 def _build(integration: WorkspaceIntegration, slack: SlackIntegration, key: str) -> int:
     client = slack.client
     channels = _member_channels(client, types=_channel_types(slack), limit=CHANNELS_PER_WORKSPACE)
-    decision = consume(
-        f"slack_app:daily_summary:history:{integration.integration_id}", HISTORY_BUDGET, cost=len(channels)
-    )
+    bucket = f"slack_app:daily_summary:history:{integration.integration_id}"
+    decision = consume(bucket, HISTORY_BUDGET, cost=len(channels)) if channels else None
     if isinstance(decision, BucketDecision) and not decision.allowed:
         raise DailySummaryIndexNotReady
     oldest = (timezone.now() - INDEX_LOOKBACK).timestamp()
-    roots: list[RootRef] = []
-    texts: list[str] = []
-    for channel_id in channels:
-        for message in _channel_roots(client, channel_id, oldest=oldest):
-            roots.append(_root_ref(channel_id, message))
-            texts.append(str(message.get("text") or "")[:ROOT_CHARS])
+    # The counter breaks ties: two roots can move in the same second, and roots do not compare.
+    newest: list[tuple[float, int, RootRef, str]] = []
+    order = itertools.count()
+    read = 0
+    try:
+        for channel_id in channels:
+            for message in _channel_roots(client, channel_id, oldest=oldest):
+                root = _root_ref(channel_id, message)
+                entry = (root.moved_at, next(order), root, str(message.get("text") or "")[:ROOT_CHARS])
+                if len(newest) < ROOTS_PER_WORKSPACE:
+                    heapq.heappush(newest, entry)
+                else:
+                    heapq.heappushpop(newest, entry)
+            read += 1
+    except DailySummaryIndexNotReady:
+        # The channels this build never read go back, so its retry is not refused for a budget it did not use.
+        if len(channels) > read:
+            refund(bucket, HISTORY_BUDGET, len(channels) - read)
+        raise
+    roots = [root for _, _, root, _ in newest]
+    texts = [text for _, _, _, text in newest]
     # A root nobody replied to, that names nobody and that Jev passed over can never be picked, so it is not kept.
     kept = [
         root
@@ -372,7 +395,9 @@ def _root_ref(channel_id: str, message: dict[str, Any]) -> RootRef:
 
 
 def score_roots(team_id: int, roots: list[RootRef], texts: list[str]) -> list[RootRef]:
-    """The roots with Jev's probability that a teammate who missed the day wants to know. Only the newest are scored."""
+    """The roots with Jev's probability that a teammate who missed the day wants to know. Only the newest are scored,
+    in small batches. A batch Jev refuses, or one past the deadline, leaves its roots at zero instead of failing the
+    index, because a root with replies or mentions still counts without a score."""
     if not roots:
         return []
     newest = sorted(range(len(roots)), key=lambda index: roots[index].moved_at, reverse=True)[
@@ -387,27 +412,40 @@ def score_roots(team_id: int, roots: list[RootRef], texts: list[str]) -> list[Ro
         privacy_mode=True,
     )
     scores = [0.0] * len(roots)
-    for start in range(0, len(newest), GATEWAY_MAX_QUESTIONS):
-        keys = {f"r{index}": index for index in newest[start : start + GATEWAY_MAX_QUESTIONS]}
-        result = client.decide(
-            state={
-                "roots": {
-                    key: {"text": texts[index], "replies": roots[index].reply_count} for key, index in keys.items()
-                }
-            },
-            questions={
-                key: NoulQuestion(
-                    instructions=f"{RANK_INSTRUCTIONS} This question names `roots.{key}`.",
-                    criteria_true=RANK_TRUE,
-                    criteria_false=RANK_FALSE,
-                )
-                for key in keys
-            },
-        )
+    deadline = time.monotonic() + RANK_DEADLINE_SECONDS
+    failed = skipped = 0
+    for start in range(0, len(newest), RANK_BATCH_SIZE):
+        batch = newest[start : start + RANK_BATCH_SIZE]
+        if time.monotonic() >= deadline:
+            skipped += len(batch)
+            continue
+        keys = {f"r{index}": index for index in batch}
+        try:
+            result = client.decide(
+                state={
+                    "roots": {
+                        key: {"text": texts[index], "replies": roots[index].reply_count} for key, index in keys.items()
+                    }
+                },
+                questions={
+                    key: NoulQuestion(
+                        instructions=f"{RANK_INSTRUCTIONS} This question names `roots.{key}`.",
+                        criteria_true=RANK_TRUE,
+                        criteria_false=RANK_FALSE,
+                    )
+                    for key in keys
+                },
+            )
+        except SystemOneRequestFailed as error:
+            failed += len(batch)
+            logger.warning("slack_app_daily_summary_rank_failed", status_code=error.status_code, roots=len(batch))
+            continue
         for key, index in keys.items():
             answer = result.answers.get(key)
             if isinstance(answer, NoulAnswer):
                 scores[index] = answer.probability
+    if failed or skipped:
+        logger.warning("slack_app_daily_summary_rank_incomplete", failed=failed, skipped=skipped, scored=len(newest))
     return [replace(root, score=score) for root, score in zip(roots, scores)]
 
 

@@ -1,8 +1,10 @@
 import { useActions, useValues } from 'kea'
 
+import { IconPlus } from '@posthog/icons'
 import {
     LemonButton,
     LemonCheckbox,
+    LemonColorGlyph,
     LemonInput,
     LemonSegmentedButton,
     LemonSelect,
@@ -11,7 +13,7 @@ import {
     LemonTag,
 } from '@posthog/lemon-ui'
 
-import type { AccountContextFact, FactConfidence } from './accountContextData'
+import { type AccountContextFact, type FactConfidence, topicColor } from './accountContextData'
 import { AccountContextDate } from './AccountContextDate'
 import { accountContextLogic, type AccountContextLogicProps } from './accountContextLogic'
 import { CONTEXT_WRITE_DISABLED_REASON } from './constants'
@@ -45,6 +47,7 @@ export function AccountContextFacts({
         authorFilter,
         sourceFilter,
         recheckOnly,
+        recheckCount,
     } = useValues(logic)
     const { setFactConfidence, setFactSearch, setTopicFilter, setAuthorFilter, setSourceFilter, setRecheckOnly } =
         useActions(logic)
@@ -78,7 +81,9 @@ export function AccountContextFacts({
             render: (_, fact) => (
                 <div className="flex flex-wrap gap-1">
                     {shownTopics(fact.topics, topicFilter).map((topic) => (
-                        <LemonTag key={topic}>{topic}</LemonTag>
+                        <LemonTag key={topic} icon={<LemonColorGlyph colorToken={topicColor(topic)} size="small" />}>
+                            {topic}
+                        </LemonTag>
                     ))}
                 </div>
             ),
@@ -131,7 +136,7 @@ export function AccountContextFacts({
     ]
 
     return (
-        <section className="flex flex-col gap-2">
+        <section className="flex flex-col gap-2" data-attr="account-context-facts">
             <h4 className="mb-0">Facts</h4>
             <div className="flex flex-wrap items-center gap-2">
                 <LemonSegmentedButton<FactConfidence>
@@ -178,9 +183,19 @@ export function AccountContextFacts({
                 <LemonCheckbox
                     checked={recheckOnly}
                     onChange={setRecheckOnly}
-                    label="Needs a recheck"
+                    label={`Needs a recheck (${recheckCount})`}
                     data-attr="account-context-recheck-filter"
                 />
+                <LemonButton
+                    type="primary"
+                    size="small"
+                    icon={<IconPlus />}
+                    className="ml-auto"
+                    disabledReason={CONTEXT_WRITE_DISABLED_REASON}
+                    data-attr="account-context-add-fact"
+                >
+                    Add fact
+                </LemonButton>
             </div>
             <LemonTable<AccountContextFact>
                 size="small"

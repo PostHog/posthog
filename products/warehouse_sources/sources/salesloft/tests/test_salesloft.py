@@ -63,19 +63,29 @@ class TestBuildParams:
 
 class TestIncrementalRequestShaping:
     @pytest.mark.parametrize(
-        "endpoint, expected_sort_by",
+        "endpoint, expected_sort_by, expected_direction, expected_sort_mode",
         [
             # Their default sort keys (due_date, occurred_at) would break the ascending watermark.
-            ("tasks", "updated_at"),
-            ("activity_histories", "updated_at"),
-            ("opportunities", "updated_at"),
+            ("tasks", "updated_at", "ASC", "asc"),
+            ("activity_histories", "updated_at", "ASC", "asc"),
+            ("opportunities", "updated_at", "ASC", "asc"),
             # Endpoints whose default sort key is already updated_at send no sort_by.
-            ("people", None),
-            ("opportunity_stages", None),
-            ("opportunity_people", None),
+            ("people", None, "ASC", "asc"),
+            ("opportunity_stages", None, "ASC", "asc"),
+            ("opportunity_people", None, "ASC", "asc"),
+            # Conversation intelligence defaults to created_at and documents a lowercase direction.
+            ("conversations", "updated_at", "asc", "asc"),
+            # No sort_direction param exists, so the order is unknown and must not be claimed.
+            ("transcriptions", "updated_at", None, None),
         ],
     )
-    def test_incremental_run_sorts_and_filters_on_updated_at(self, endpoint: str, expected_sort_by: str | None) -> None:
+    def test_incremental_run_sorts_and_filters_on_updated_at(
+        self,
+        endpoint: str,
+        expected_sort_by: str | None,
+        expected_direction: str | None,
+        expected_sort_mode: str | None,
+    ) -> None:
         result = _driver().run(
             endpoint,
             [_response([{"id": 1}], next_page=None)],
@@ -86,8 +96,10 @@ class TestIncrementalRequestShaping:
 
         assert result.raised is None
         assert result.requests[0].param("sort_by") == expected_sort_by
-        assert result.requests[0].param("sort_direction") == "ASC"
+        assert result.requests[0].param("sort_direction") == expected_direction
         assert result.requests[0].param("updated_at[gte]") == "2026-03-04T02:58:14.000Z"
+        assert result.response is not None
+        assert result.response.sort_mode == expected_sort_mode
 
 
 def _stats(sent: int) -> ScriptedResponse:

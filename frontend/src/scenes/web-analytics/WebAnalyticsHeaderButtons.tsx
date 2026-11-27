@@ -18,11 +18,15 @@ import { teamLogic } from 'scenes/teamLogic'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 import { WebAnalyticsMenu } from 'scenes/web-analytics/WebAnalyticsMenu'
 
+import { ContentAutopilotSceneActions } from 'products/web_analytics/frontend/contentAutopilot/ContentAutopilotSceneActions'
+
+import { ProductTab } from './common'
+
 export function WebAnalyticsHeaderButtons(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { currentTeam } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
-    const { shouldFilterTestAccounts } = useValues(webAnalyticsLogic)
+    const { productTab, shouldFilterTestAccounts } = useValues(webAnalyticsLogic)
     const { setShouldFilterTestAccounts } = useActions(webAnalyticsLogic)
     const [showPopover, setShowPopover] = useState(false)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
@@ -33,6 +37,16 @@ export function WebAnalyticsHeaderButtons(): JSX.Element {
         featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2] || featureFlags[FEATURE_FLAGS.CONDENSED_FILTER_BAR]
     const showShareButton =
         !featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2] && !featureFlags[FEATURE_FLAGS.CONDENSED_FILTER_BAR]
+
+    // AI visibility reads answer engines, not events, so the event controls don't apply to it.
+    if (productTab === ProductTab.CONTENT_AUTOPILOT) {
+        return (
+            <div className="flex flex-wrap items-center justify-end gap-2">
+                <ContentAutopilotSceneActions />
+                <WebAnalyticsMenu />
+            </div>
+        )
+    }
 
     const handleShare = (): void => {
         void copyToClipboard(window.location.href, 'link')

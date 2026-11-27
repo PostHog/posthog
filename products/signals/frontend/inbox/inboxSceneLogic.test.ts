@@ -13,6 +13,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
+import { todayShellLogic } from '~/layout/today/todayShellLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -53,6 +54,7 @@ function scoutRun(overrides: Partial<SignalScoutRunSummary> = {}): SignalScoutRu
         completed_at: null,
         task_id: 'task-scout',
         summary: '',
+        summary_lead: '',
         emitted_count: 0,
         emitted_finding_ids: [],
         emitted_report_ids: [],
@@ -373,6 +375,50 @@ describe('inboxSceneLogic routing', () => {
             expect(logic.values.breadcrumbs.map((crumb) => crumb.name)).toEqual(
                 namesScout ? [root, scoutDisplayName(config)] : [root]
             )
+        })
+
+        it.each([
+            { opened: 'from the Automate pane', firstPath: urls.workflows(), inAutomate: true },
+            { opened: 'as a tab of the inbox', firstPath: urls.inbox('reports'), inAutomate: false },
+        ])('drops the inbox tabs on Scouts only when opened $opened', ({ firstPath, inAutomate }) => {
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
+                [FEATURE_FLAGS.DATA_AREA]: true,
+            })
+            mountLogic()
+            router.actions.push(firstPath)
+            router.actions.push(urls.inbox('scouts'))
+            expect(logic.values.scoutsInAutomate).toBe(inAutomate)
+        })
+
+        it.each([
+            { opened: 'from the Home pane', pane: 'home', homePane: true },
+            { opened: 'from the Products pane', pane: 'products', homePane: false },
+        ] as const)('drops the inbox tabs only when opened $opened', ({ pane, homePane }) => {
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
+                [FEATURE_FLAGS.TODAY_HOME_PANE]: true,
+            })
+            mountLogic()
+            router.actions.push(urls.inbox('reports'))
+            todayShellLogic.actions.pickPane(pane)
+            expect(logic.values.todayHomePane).toBe(homePane)
+        })
+
+        it.each([
+            { opened: 'from the Automate pane', firstPath: urls.workflows(), tab: 'reports' },
+            { opened: 'as a tab of the inbox', firstPath: urls.inbox('reports'), tab: 'scouts' },
+        ])('opens $tab from the bare inbox URL after Scouts opened $opened', ({ firstPath, tab }) => {
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
+                [FEATURE_FLAGS.DATA_AREA]: true,
+            })
+            mountLogic()
+            router.actions.push(firstPath)
+            router.actions.push(urls.inbox('scouts'))
+            router.actions.push(urls.inbox())
+            expect(logic.values.activeTab).toBe(tab)
+            expect(logic.values.scoutsInAutomate).toBe(false)
         })
 
         it('leaves the tab on its default for a bare scout URL', () => {

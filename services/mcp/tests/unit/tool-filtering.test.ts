@@ -28,6 +28,20 @@ const collectAlwaysAvailableToolNames = (): string[] =>
         .map(([name]) => name)
 
 describe('Tool Filtering - Features', () => {
+    it.each([false, true, undefined])('email sender tools require the email from code rollout: %s', async (enabled) => {
+        const tools = await getToolsFromContext(createMockContext(['integration:write']), {
+            featureFlags: { 'workflows-email-from-code': enabled },
+        })
+        const names = tools.map((tool) => tool.name)
+        for (const tool of [
+            'integrations-email-partial-update',
+            'integrations-domain-connect-check-retrieve',
+            'integrations-domain-connect-apply-url-create',
+        ]) {
+            expect(names.includes(tool)).toBe(enabled === true)
+        }
+        expect(names).toContain('integrations-list')
+    })
     it.each([
         { scopes: ['llm_analytics:read'], enabled: true, visible: true },
         { scopes: ['offline_evaluation_ingestion:write'], enabled: true, visible: false },
@@ -1136,6 +1150,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'workflows-email-activity',
             'scout-trials',
             'scout-scratchpad-discard-mcp',
+            'scout-config-retrieve-mcp',
             'signals-report-monitoring',
             'inbox-report-actions-mcp',
             'inbox-reports-create-mcp',
@@ -1210,16 +1225,17 @@ describe('Tool Filtering - Feature Flags', () => {
                 'autoresearch',
                 'marketing-analytics-setup-plan-mcp',
                 'subscription-source-summaries',
-                'aeo-citation-tracking',
+                'web-analytics-content-autopilot',
                 'self-driving-usage-display',
                 'logs-agent-tools',
                 'release-objects',
+                'signals-monitor-pr',
             ])
         )
         expect(flags).toContain('ai-observability-composite-validation')
         expect(allFlags).not.toContain('dashboard-widgets')
         expect(allFlags).not.toContain('self-driving-usage-mcp')
-        expect(flags).toHaveLength(38)
+        expect(flags).toHaveLength(39)
     })
 
     it('keeps human and task context wiki tools on separate scopes', () => {

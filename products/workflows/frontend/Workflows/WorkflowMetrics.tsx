@@ -95,6 +95,8 @@ export interface WorkflowMetricsProps extends WorkflowLogicProps {
      */
     onEmailMetricClick?: (metric: EmailMetricName, range: { dateFrom: string; dateTo: string }) => void
     onShowInvocations?: (searchParams: Record<string, string>) => void
+    /** Shows email outcomes instead of run counts, since a transactional email is a single send. */
+    transactional?: boolean
 }
 
 function WorkflowRunMetrics(props: WorkflowMetricsProps): JSX.Element {
@@ -255,6 +257,7 @@ function WorkflowRunMetrics(props: WorkflowMetricsProps): JSX.Element {
                     defaultRange={{ dateFrom: params.dateFrom, dateTo: params.dateTo, interval: params.interval }}
                     onSelectAction={outsideEditor ? undefined : (actionId) => selectMetricsAction(actionId)}
                     onMetricClick={drillIntoEmailMetric}
+                    transactional={props.transactional}
                 />
             ) : selectedAction?.type === 'function_email' ? (
                 <EmailMetricsSummary logicKey={logicKey} onMetricClick={drillIntoEmailMetric} />

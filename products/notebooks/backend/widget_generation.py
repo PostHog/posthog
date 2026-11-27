@@ -423,7 +423,6 @@ def review_widget_source(
     is_cancelled: Callable[[], bool] = lambda: False,
 ) -> WidgetSecurityReview:
     resolved_client = client or build_anthropic_client(
-        "posthog_ai",
         ai_product="posthog_ai",
         trace_id=trace_id,
         properties={"source_product": "notebook_widget_security_review"},
@@ -527,7 +526,6 @@ def generate_widget_source(
         raise WidgetSourceGenerationError("The selected widget model is not supported.")
 
     resolved_client = client or build_anthropic_client(
-        "posthog_ai",
         ai_product="posthog_ai",
         trace_id=trace_id,
         properties={"source_product": "notebook_widget"},

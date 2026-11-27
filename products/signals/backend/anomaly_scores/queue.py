@@ -65,7 +65,7 @@ from products.product_analytics.backend.facade.api import (
     insights_including_soft_deleted_for_team,
     saved_trends_insights,
 )
-from products.signals.backend.anomaly_scores.config import AnomalyScoringConfig, ScoringRun, in_rollout
+from products.signals.backend.anomaly_scores.config import AnomalyScoringConfig, ScoringRun, in_rollout, judges_team
 from products.signals.backend.anomaly_scores.scoring import bucket_end
 from products.signals.backend.anomaly_scores.selection import (
     Candidate,
@@ -261,6 +261,8 @@ class Selection:
     # Eligible teams, and their organizations.
     enrolled_teams: int = 0
     enrolled_organizations: int = 0
+    # Eligible teams that score with `default-v2`.
+    ai_judge_teams: int = 0
     # Insights in a cooldown after two or more consecutive too-expensive visits.
     long_cooldown: int = 0
     # Insights in a cooldown after a train pick with no series.
@@ -1103,6 +1105,7 @@ def select_insights(
         teams_skipped=len(teams_with_insights) - len(loaded_teams),
         enrolled_teams=len(teams),
         enrolled_organizations=len({team.organization_id for team in teams.values()}),
+        ai_judge_teams=sum(judges_team(config.ai_judge, team) for team in teams.values()),
         long_cooldown=sum(too_expensive.get(insight_id, 0) > 1 for insight_id in cooling),
         empty_backoff=sum(insight_id in empty_train for insight_id in cooling),
         due_insights=None if due_list is None else len(due_list.insights),

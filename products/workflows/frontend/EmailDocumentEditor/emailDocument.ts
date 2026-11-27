@@ -2,6 +2,12 @@ import type { JSONContent } from '@tiptap/core'
 
 export const EMAIL_DOCUMENT_VERSION = 1
 
+/**
+ * Written only for a document with a section. An editor from before sections can't read one and would open an empty
+ * email. It ignores this version and opens the stored html instead.
+ */
+export const EMAIL_DOCUMENT_SECTION_VERSION = 2
+
 /** pinned: stored in saved designs, renaming orphans every document saved under the old key */
 export const EMAIL_DOCUMENT_DESIGN_KEY = 'emailDocument'
 
@@ -165,14 +171,38 @@ export const EMAIL_FONTS: { label: string; value: string; url?: string }[] = [
         url: `${GOOGLE_FONTS}Playfair+Display:wght@400;700`,
     },
     { label: 'Roboto', value: 'Roboto, Helvetica, Arial, sans-serif', url: `${GOOGLE_FONTS}Roboto:wght@400;500;700` },
+    {
+        label: 'Ubuntu',
+        // The value and url the old editor stores, so a converted email and a new pick share one option and one stylesheet.
+        value: "'Ubuntu',Tahoma,Verdana,Segoe,sans-serif",
+        url: 'https://fonts.googleapis.com/css?family=Ubuntu:300,400,500,700',
+    },
 ]
 
-/** The font list, plus the font this email already uses when it came from somewhere else. */
+function sameFont(a: string, b: string): boolean {
+    const normalize = (value: string): string => value.replace(/['"\s]/g, '').toLowerCase()
+    return normalize(a) === normalize(b)
+}
+
+/** The stylesheet the font loads from, if it is a web font from the list. */
+export function fontUrlFor(value: string | null): string | undefined {
+    return value ? EMAIL_FONTS.find((font) => sameFont(font.value, value))?.url : undefined
+}
+
+/**
+ * The font list, plus the font this email already uses when it came from somewhere else.
+ * A listed font the email writes differently keeps the email's own value, so it stays selected and isn't listed twice.
+ */
 export function fontOptions(current: string | undefined): { label: string; value: string }[] {
-    return !current || EMAIL_FONTS.some((font) => font.value === current)
-        ? EMAIL_FONTS
+    if (!current) {
+        return EMAIL_FONTS
+    }
+    return EMAIL_FONTS.some((font) => sameFont(font.value, current))
+        ? EMAIL_FONTS.map((font) => (sameFont(font.value, current) ? { ...font, value: current } : font))
         : [{ label: current.split(',')[0].replace(/['"]/g, ''), value: current }, ...EMAIL_FONTS]
 }
+
+export const SECTION_PADDING: EmailSides = { top: 24, right: 24, bottom: 24, left: 24 }
 
 export const DEFAULT_EMAIL_PAGE_STYLE: EmailPageStyle = {
     backgroundColor: '#ffffff',
@@ -315,6 +345,10 @@ export function isEmailDocEmpty(doc: JSONContent): boolean {
     return (doc.content ?? []).every(isEmptyParagraph)
 }
 
+export function hasSection(node: JSONContent): boolean {
+    return node.type === 'emailSection' || (node.content ?? []).some(hasSection)
+}
+
 /** Every web font stylesheet the email needs, on the page or on a block. */
 export function emailFontUrls(doc: JSONContent): string[] {
     const urls = new Set<string>()
@@ -358,11 +392,16 @@ export function emailDocumentFromValue(value: { html?: string | null; design?: D
     stale: boolean
 } {
     const candidate = value?.design?.[EMAIL_DOCUMENT_DESIGN_KEY]
-    if (!candidate || typeof candidate !== 'object' || candidate.version !== EMAIL_DOCUMENT_VERSION || !candidate.doc) {
+    if (
+        !candidate ||
+        typeof candidate !== 'object' ||
+        ![EMAIL_DOCUMENT_VERSION, EMAIL_DOCUMENT_SECTION_VERSION].includes(candidate.version) ||
+        !candidate.doc
+    ) {
         return { document: null, stale: false }
     }
     const savedHtml = typeof candidate.html === 'string' ? candidate.html : wrappedHtmlOf(value?.design)
-    // Writing in the plain text tab clears the html. The document stays, as the old editor's design does.
+    // Writing in the old editor's plain text tab clears the html. The document stays, as that editor's design does.
     if (value?.html && savedHtml !== value.html) {
         return { document: null, stale: true }
     }

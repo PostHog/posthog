@@ -32,18 +32,20 @@ def _load_primary_metric(experiment: Experiment, team_config: TeamExperimentsCon
     calculation_config = next(iter(build_primary_calculation_configs(experiment, team_config=team_config)), None)
     if calculation_config is None:
         return None
-    is_funnel = calculation_config.definition.get("metric_type") == "funnel"
-    response = MetricResultStore(experiment_id=experiment.id).current_response(calculation_config)
+    metric_type = calculation_config.definition.get("metric_type")
+    store = MetricResultStore(experiment_id=experiment.id)
+    response = store.current_response(calculation_config)
     return PrimaryMetric(
         name=calculation_metric_name(experiment, calculation_config),
-        is_funnel=is_funnel,
+        is_funnel=metric_type == "funnel",
         target=running_time_target(
             experiment, team_config=team_config, calculation_config=calculation_config, response=response
         ),
-        result=MetricResultStats.from_response(response, is_quantile=False)
-        if is_funnel and response is not None
+        result=MetricResultStats.from_response(response, is_quantile=metric_type == "quantile")
+        if response is not None
         else None,
         exposures=_exposures(response),
+        significance=store.significance_history(calculation_config) if response is not None else None,
     )
 
 

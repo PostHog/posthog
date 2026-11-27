@@ -1,10 +1,9 @@
 interface PaginatedEnvelope {
     results: unknown[]
     next: string
-    count?: number
+    count?: unknown
+    count_is_capped?: unknown
 }
-
-const ENVELOPE_KEYS = ['results', 'next', 'count', 'previous']
 
 // Other parameters in `next`, such as `search`, repeat arguments the agent already sent.
 const PAGING_PARAMS = ['cursor', 'offset', 'limit', 'page']
@@ -14,12 +13,13 @@ function findPaginatedEnvelope(data: unknown): PaginatedEnvelope | null {
         return null
     }
     const record = data as Record<string, unknown>
-    if (!Array.isArray(record.results) || typeof record.next !== 'string' || !('previous' in record)) {
-        return null
-    }
-    // Wrappers such as `withPostHogUrl` and `withAgentNote` add `_`-prefixed keys next to the envelope.
-    const hasOtherKeys = Object.keys(record).some((key) => !ENVELOPE_KEYS.includes(key) && !key.startsWith('_'))
-    if (hasOtherKeys) {
+    // Unlike `unwrapPaginatedResponse` in response.ts, accept keys next to the envelope, such as `_posthogUrl` or the
+    // inbox list's `ranker`: unwrapping would drop them, but this hint only adds a footer.
+    if (
+        !Array.isArray(record.results) ||
+        typeof record.next !== 'string' ||
+        !(typeof record.previous === 'string' || record.previous === null)
+    ) {
         return null
     }
     return record as unknown as PaginatedEnvelope
@@ -27,6 +27,16 @@ function findPaginatedEnvelope(data: unknown): PaginatedEnvelope | null {
 
 function pluralizeResults(count: number): string {
     return count === 1 ? '1 result' : `${count} results`
+}
+
+function describeShownResults(envelope: PaginatedEnvelope): string {
+    const shown = envelope.results.length
+    if (typeof envelope.count !== 'number') {
+        return `Showing ${pluralizeResults(shown)}.`
+    }
+    const total =
+        envelope.count_is_capped === true ? `at least ${envelope.count} results` : pluralizeResults(envelope.count)
+    return `Showing ${shown} of ${total}.`
 }
 
 export function getNextPageHint(toolName: string, handlerResult: unknown): string | null {
@@ -47,9 +57,5 @@ export function getNextPageHint(toolName: string, handlerResult: unknown): strin
         return null
     }
 
-    const shown =
-        typeof envelope.count === 'number'
-            ? `Showing ${envelope.results.length} of ${pluralizeResults(envelope.count)}.`
-            : `Showing ${pluralizeResults(envelope.results.length)}.`
-    return `${shown} More results exist: call ${toolName} again with the same arguments and set ${pagingValues.join(' and ')} to get the next page.`
+    return `${describeShownResults(envelope)} More results exist: call ${toolName} again with the same arguments and set ${pagingValues.join(' and ')} to get the next page.`
 }

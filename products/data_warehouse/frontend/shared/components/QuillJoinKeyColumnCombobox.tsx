@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useRef } from 'react'
 
 import {
     Button,
@@ -8,7 +8,7 @@ import {
     ComboboxInput,
     ComboboxItem,
     ComboboxList,
-    SelectTriggerIcon,
+    ComboboxTrigger,
 } from '@posthog/quill'
 
 import { KeySelectOption } from '../logics/viewLinkLogic'
@@ -29,7 +29,6 @@ export function QuillJoinKeyColumnCombobox({
     'aria-label': ariaLabel,
 }: QuillJoinKeyColumnComboboxProps): JSX.Element {
     const triggerRef = useRef<HTMLButtonElement>(null)
-    const [open, setOpen] = useState(false)
 
     return (
         <Combobox<KeySelectOption>
@@ -39,26 +38,25 @@ export function QuillJoinKeyColumnCombobox({
                 if (next) {
                     onChange(next.value)
                 }
-                setOpen(false)
             }}
-            open={open}
-            onOpenChange={setOpen}
             itemToStringLabel={(option) => option.value}
             itemToStringValue={(option) => option.value}
             isItemEqualToValue={(item, selected) => item.value === selected.value}
         >
-            <Button
+            <ComboboxTrigger
                 ref={triggerRef}
-                variant="outline"
-                left
-                className="max-w-80"
-                onClick={() => setOpen(!open)}
-                disabledReason={disabledReason}
-                aria-label={ariaLabel}
+                render={
+                    <Button
+                        variant="outline"
+                        left
+                        className="max-w-80"
+                        disabledReason={disabledReason}
+                        aria-label={ariaLabel}
+                    />
+                }
             >
                 <span className="min-w-0 truncate">{value || 'Select a key'}</span>
-                <SelectTriggerIcon />
-            </Button>
+            </ComboboxTrigger>
             <ComboboxContent anchor={triggerRef} className="min-w-60">
                 <ComboboxInput placeholder="Search columns..." showTrigger={false} />
                 <ComboboxEmpty>No results</ComboboxEmpty>

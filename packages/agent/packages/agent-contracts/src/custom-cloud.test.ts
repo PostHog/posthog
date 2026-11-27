@@ -159,12 +159,9 @@ describe("isCredentialOriginAllowed", () => {
 
   it.each([
     ["https://us.posthog.com/api/users/@me/", "https://us.posthog.com"],
-    [
-      "https://gateway.us.posthog.com/posthog_code/v1/messages",
-      "https://us.posthog.com",
-    ],
+    ["https://ai-gateway.us.posthog.com/v1/messages", "https://us.posthog.com"],
     ["https://mcp.posthog.com/mcp", "https://eu.posthog.com"],
-    ["https://gateway.dev.posthog.dev/x", "https://app.dev.posthog.dev"],
+    ["https://ai-gateway.dev.posthog.dev/x", "https://app.dev.posthog.dev"],
     ["http://localhost:8787/mcp", "http://localhost:8010"],
     ["http://[::1]:8787/mcp", "http://localhost:8010"],
     ["http://localhost:8787/mcp", "http://[::1]:8010"],
@@ -188,7 +185,7 @@ describe("isCredentialOriginAllowed", () => {
     ["https://llm.acme.co.uk/", "https://posthog.acme.co.uk"],
     ["https://us.posthog.com/api", "https://posthog.example.com"],
     ["https://mcp.posthog.com/mcp", "https://app.dev.posthog.dev"],
-    ["https://gateway.dev.posthog.dev/x", "https://us.posthog.com"],
+    ["https://ai-gateway.dev.posthog.dev/x", "https://us.posthog.com"],
     ["http://[::1]:8787/mcp", "https://us.posthog.com"],
     ["https://mcp.posthog.com:8443/mcp", "https://us.posthog.com"],
     ["http://posthog.internal:8000/api/x", "http://posthog.internal:8000"],
@@ -229,7 +226,7 @@ describe("isCredentialOriginAllowed", () => {
     });
     expect(
       isCredentialOriginAllowed(
-        "https://llm.other-domain.io/posthog_code/v1/messages",
+        "https://llm.other-domain.io/v1/messages",
         "https://posthog.acme.internal",
       ),
     ).toBe(true);
@@ -253,7 +250,7 @@ describe("isCredentialOriginAllowed", () => {
     });
     expect(
       isCredentialOriginAllowed(
-        "https://llm.other-domain.io/posthog_code/v1/messages",
+        "https://llm.other-domain.io/v1/messages",
         "https://us.posthog.com",
       ),
     ).toBe(false);
@@ -289,8 +286,8 @@ describe("validateAiGatewayUrl", () => {
     "https://ai-gateway.us.posthog.com/v1",
     "https://ai-gateway.us.posthog.com?x=1",
     "https://user:pw@ai-gateway.us.posthog.com",
-    "http://localhost:3308",
-    "https://127.0.0.1:3308",
+    "http://localhost:8080",
+    "https://127.0.0.1:8080",
     "not a url",
   ])("rejects %s", (raw) => {
     expect(validateAiGatewayUrl(raw)).toBeNull();
@@ -298,12 +295,12 @@ describe("validateAiGatewayUrl", () => {
 
   it("accepts loopback only under the dev override", () => {
     expect(
-      validateAiGatewayUrl("http://localhost:3308", { allowLoopback: true }),
-    ).toBe("http://localhost:3308");
+      validateAiGatewayUrl("http://localhost:8080", { allowLoopback: true }),
+    ).toBe("http://localhost:8080");
     expect(
-      validateAiGatewayUrl("http://[::1]:3308", { allowLoopback: true }),
-    ).toBe("http://[::1]:3308");
-    expect(validateAiGatewayUrl("http://[::1]:3308")).toBeNull();
+      validateAiGatewayUrl("http://[::1]:8080", { allowLoopback: true }),
+    ).toBe("http://[::1]:8080");
+    expect(validateAiGatewayUrl("http://[::1]:8080")).toBeNull();
     expect(
       validateAiGatewayUrl("https://gateway.example", { allowLoopback: true }),
     ).toBeNull();

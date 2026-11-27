@@ -13,10 +13,13 @@ from posthog.cache_utils import cache_for
 from posthog.models.async_migration import is_async_migration_complete
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.person.team_delete_batch_slots import TeamDeletePersonsBatchSlots
+from posthog.models.utils import transaction_with_timeouts
 
 from products.ai_training.backend.facade.api import queue_training_deletion
 from products.dashboards.backend.facade.api import delete_widget_tiles_for_teams
-from products.event_definitions.backend.logic.event_property_purge import delete_event_properties_for_team
+from products.error_tracking.backend.facade import api as error_tracking_facade
+from products.event_definitions.backend.facade.api import delete_event_properties_for_team
+from products.event_definitions.backend.models import EventDefinition
 from products.ui_customization.backend.facade.api import delete_fragments_for_teams
 
 logger = structlog.get_logger(__name__)
@@ -25,6 +28,12 @@ logger = structlog.get_logger(__name__)
 # (personless distinct IDs, hash-key-overrides). Kept well below 10000 to bound
 # how much work a single DELETE holds locks for.
 TEAM_DELETE_BATCH_SIZE = 2000
+
+# A timed-out delete_team_records attempt keeps running in its worker thread, with its transaction open. These
+# limits make a retry fail fast instead of queueing behind that transaction, and stop any cascade or purge batch
+# statement from holding its locks for long. Both stay well below the activity's 10-minute start-to-close timeout.
+TEAM_RECORDS_LOCK_TIMEOUT_MS = 30_000
+TEAM_RECORDS_STATEMENT_TIMEOUT_MS = 120_000
 
 # The personhog router sends a request again after BACKEND_TIMEOUT_MS, so a persons batch must finish
 # within one attempt even when the replica runs few chunks at once on a slow persons writer.
@@ -102,7 +111,7 @@ def delete_bulky_postgres_data(team_ids: list[int]):
     _delete_persons_for_teams(team_ids)
 
 
-def _delete_misc_small_tables_for_teams(team_ids: list[int]) -> None:
+def _delete_misc_small_tables_for_teams(team_ids: list[int], should_stop: Callable[[], bool] | None = None) -> None:
     """Batch-delete the per-team tables that have no dedicated bulk path.
 
     These previously used a single unbatched DELETE each, which could hit a statement
@@ -137,6 +146,8 @@ def _delete_misc_small_tables_for_teams(team_ids: list[int]) -> None:
     # FeatureFlagHashKeyOverride references Person, so it must go before persons are deleted.
     _delete_hash_key_overrides_for_teams(team_ids)
     _delete_llm_evaluations_for_teams(team_ids)
+    _delete_event_definitions_for_teams(team_ids, should_stop=should_stop)
+    _delete_stack_frames_and_symbol_sets_for_teams(team_ids, should_stop=should_stop)
     _delete_retired_session_summaries_for_teams(team_ids)
     _delete_retired_loops_for_teams(team_ids)
     _delete_retired_warehouse_source_inputs_backups_for_teams(team_ids)
@@ -156,6 +167,47 @@ def _delete_llm_evaluations_for_teams(team_ids: list[int]) -> None:
     from products.ai_observability.backend.models.evaluations import Evaluation
 
     Evaluation.objects.filter(team_id__in=team_ids).delete()
+
+
+def _delete_event_definitions_for_teams(
+    team_ids: list[int], should_stop: Callable[[], bool] | None = None, batch_size: int = 10000
+) -> None:
+    """Delete the teams' event definitions in batches before the Team cascade reaches them.
+
+    The cascade loads every event definition of a team into memory at once, so a team with millions of them
+    runs the worker out of memory. A queryset delete per batch keeps memory bounded, and it still cascades to
+    the rows that reference each definition, such as EnterpriseEventDefinition.
+
+    Each batch resumes the (team_id, name) index walk at the last name it deleted, so no batch reads the index
+    entries of rows that earlier batches deleted. ``should_stop`` is checked before each batch.
+    """
+    for team_id in team_ids:
+        last_name = ""
+        while True:
+            if should_stop is not None and should_stop():
+                raise TeamPurgeStopped(f"The event definition purge of team {team_id} stopped before it finished")
+            with transaction_with_timeouts(TEAM_RECORDS_LOCK_TIMEOUT_MS, TEAM_RECORDS_STATEMENT_TIMEOUT_MS):
+                batch = list(
+                    EventDefinition.objects.filter(team_id=team_id, name__gte=last_name)
+                    .order_by("name")
+                    .values_list("id", "name")[:batch_size]
+                )
+                if batch:
+                    EventDefinition.objects.filter(id__in=[row[0] for row in batch]).delete()
+            if not batch:
+                break
+            if len(batch) < batch_size:
+                break
+            last_name = batch[-1][1]
+            time.sleep(0.1)
+
+
+def _delete_stack_frames_and_symbol_sets_for_teams(
+    team_ids: list[int], should_stop: Callable[[], bool] | None = None
+) -> None:
+    for team_id in team_ids:
+        if not error_tracking_facade.delete_stack_frames_and_symbol_sets_for_team(team_id, should_stop=should_stop):
+            raise TeamPurgeStopped(f"The stack frame purge of team {team_id} stopped before it finished")
 
 
 def _delete_retired_session_summaries_for_teams(team_ids: list[int], batch_size: int = 10000) -> None:
@@ -393,19 +445,23 @@ def _raw_delete_batch(queryset: Any, batch_size: int = 10000):
         time.sleep(0.1)
 
 
-def delete_team_records(team_ids: list[int]) -> None:
+def delete_team_records(team_ids: list[int], should_stop: Callable[[], bool] | None = None) -> None:
     """Delete the Team rows once their bulky child data has been removed.
 
     FOR UPDATE on the teams blocks concurrent FK-inserts to any child table during the
     cascade delete.
     """
-    from django.db import transaction
 
     from posthog.models.team import Team
 
     from products.workflows.backend.facade.batch_jobs import delete_batch_jobs_for_teams
 
-    with transaction.atomic():
+    # A workflow that passed the small-tables step before these purges existed retries only this step, so they run
+    # here too. Each purge finds nothing to delete once the small-tables step ran it.
+    _delete_stack_frames_and_symbol_sets_for_teams(team_ids, should_stop=should_stop)
+    _delete_event_definitions_for_teams(team_ids, should_stop=should_stop)
+
+    with transaction_with_timeouts(TEAM_RECORDS_LOCK_TIMEOUT_MS, TEAM_RECORDS_STATEMENT_TIMEOUT_MS):
         # nosemgrep: hot-parent-row-select-for-update -- Team deletion must block concurrent child inserts.
         teams = list(Team.objects.select_for_update().filter(id__in=team_ids))
         for team in teams:

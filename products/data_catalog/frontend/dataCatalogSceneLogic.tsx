@@ -27,12 +27,23 @@ export type DataCatalogTab =
 const CATALOG_TABS: DataCatalogTab[] = ['metrics', 'relationships', 'certifications']
 const SECTION_TABS: DataCatalogTab[] = ['overview', 'tables', 'lineage', 'metrics', 'relationships', 'data-quality']
 const FOLDED_INTO_TABLES: DataCatalogTab[] = ['certifications']
+const CLASSIC_HOME_FOR: Partial<Record<DataCatalogTab, DataCatalogTab>> = { suggestions: 'certifications' }
 
 export type DataCatalogLayout = 'classic' | 'restructured'
 
 export interface DataCatalogSectionView {
     section: DataCatalogTab
     layout: DataCatalogLayout
+}
+
+function tabForRequest(
+    requested: DataCatalogTab,
+    values: Pick<dataCatalogSceneLogicValues, 'availableTabs' | 'defaultTab' | 'restructureEnabled'>
+): DataCatalogTab {
+    if (values.availableTabs.includes(requested)) {
+        return requested
+    }
+    return (!values.restructureEnabled && CLASSIC_HOME_FOR[requested]) || values.defaultTab
 }
 
 function isNewSectionView(
@@ -165,8 +176,7 @@ export const dataCatalogSceneLogic = kea<dataCatalogSceneLogicType>([
         setFeatureFlags: () => {
             // On a cold load the flags can arrive after the URL, so check a usage link again once they do.
             const onCatalog = removeProjectIdIfPresent(router.values.location.pathname) === urls.dataCatalog()
-            const requested = router.values.searchParams.tab
-            const tab = values.availableTabs.includes(requested) ? requested : values.defaultTab
+            const tab = tabForRequest(router.values.searchParams.tab, values)
             if (!onCatalog) {
                 return
             }
@@ -180,7 +190,8 @@ export const dataCatalogSceneLogic = kea<dataCatalogSceneLogicType>([
     })),
     actionToUrl(({ values }) => ({
         setActiveTab: () => {
-            if ((router.values.searchParams.tab ?? values.defaultTab) !== values.activeTab) {
+            const requested: DataCatalogTab = router.values.searchParams.tab ?? values.defaultTab
+            if (requested !== values.activeTab && CLASSIC_HOME_FOR[requested] !== values.activeTab) {
                 return urls.dataCatalog(values.activeTab === values.defaultTab ? undefined : values.activeTab)
             }
         },
@@ -199,7 +210,7 @@ export const dataCatalogSceneLogic = kea<dataCatalogSceneLogicType>([
                 )
                 return
             }
-            const tab = values.availableTabs.includes(searchParams.tab) ? searchParams.tab : values.defaultTab
+            const tab = tabForRequest(searchParams.tab, values)
             if (tab !== values.activeTab) {
                 actions.setActiveTab(tab)
             }

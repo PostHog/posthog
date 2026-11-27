@@ -33,6 +33,11 @@ SIGNOZ_API_VERSION_V5 = "v5"
 
 QUERY_RANGE_PATH = "/api/v5/query_range"
 
+METER_STEP_SECONDS = 86400
+DAY_MS = METER_STEP_SECONDS * 1000
+# Meter data aggregates hourly, so a day can still change shortly after it ends.
+METER_REREAD_DAYS = 1
+
 HOST_NOT_ALLOWED_ERROR = "SigNoz host is not allowed"
 NON_JSON_RESPONSE_ERROR = "SigNoz host returned a non-JSON response"
 
@@ -243,6 +248,86 @@ def _raw_row_to_item(row: dict[str, Any]) -> dict[str, Any]:
     return item
 
 
+def _build_meter_query_body(
+    config: SigNozEndpointConfig, metric_name: str, *, window: SyncWindow[int]
+) -> dict[str, Any]:
+    return {
+        "start": window.start,
+        "end": window.end,
+        "requestType": "time_series",
+        "compositeQuery": {
+            "queries": [
+                {
+                    "type": "builder_query",
+                    "spec": {
+                        "name": "A",
+                        "signal": "metrics",
+                        "source": "meter",
+                        "stepInterval": METER_STEP_SECONDS,
+                        "aggregations": [
+                            {"metricName": metric_name, "timeAggregation": "increase", "spaceAggregation": "sum"}
+                        ],
+                        "groupBy": [{"name": name} for name in config.group_by],
+                    },
+                }
+            ]
+        },
+    }
+
+
+def _label_column(name: str) -> str:
+    return name.replace(".", "_")
+
+
+def _extract_meter_rows(response_json: Any, config: SigNozEndpointConfig, metric_name: str) -> list[dict[str, Any]]:
+    """Turn a v5 time_series response into one row per series and day.
+
+    Shape: ``{"data": {"type": "time_series", "data": {"results": [{"queryName": "A",
+    "aggregations": [{"series": [{"labels": [{"key": {"name": ...}, "value": ...}],
+    "values": [{"timestamp": ..., "value": ..., "partial": ...}]}]}]}]}}}``.
+    """
+    data = response_json.get("data") if isinstance(response_json, dict) else None
+    inner = data.get("data") if isinstance(data, dict) else None
+    results = inner.get("results") if isinstance(inner, dict) else None
+    if not isinstance(results, list):
+        return []
+
+    rows: list[dict[str, Any]] = []
+    for result in results:
+        aggregations = result.get("aggregations") if isinstance(result, dict) else None
+        for aggregation in aggregations if isinstance(aggregations, list) else []:
+            series_list = aggregation.get("series") if isinstance(aggregation, dict) else None
+            for series in series_list if isinstance(series_list, list) else []:
+                if not isinstance(series, dict):
+                    continue
+                labels = {
+                    label["key"]["name"]: label.get("value")
+                    for label in series.get("labels") or []
+                    if isinstance(label, dict) and isinstance(label.get("key"), dict) and "name" in label["key"]
+                }
+                # A missing label is stored as "" so the primary key never holds a null.
+                label_columns = {
+                    _label_column(name): "" if labels.get(name) is None else str(labels[name])
+                    for name in config.group_by
+                }
+                for point in series.get("values") or []:
+                    # A partial step is a day the window cuts off, so its value is incomplete.
+                    if not isinstance(point, dict) or point.get("partial") or point.get("value") is None:
+                        continue
+                    timestamp = point.get("timestamp")
+                    if not isinstance(timestamp, int | float):
+                        continue
+                    rows.append(
+                        {
+                            "metric_name": metric_name,
+                            "timestamp": datetime.fromtimestamp(timestamp / 1000, tz=UTC),
+                            **label_columns,
+                            "value": point["value"],
+                        }
+                    )
+    return rows
+
+
 def _extract_config_items(response_json: Any, config: SigNozEndpointConfig) -> list[dict[str, Any]]:
     """Pull records out of a management endpoint response (``{"status": ..., "data": ...}``)."""
     node = response_json.get("data") if isinstance(response_json, dict) else None
@@ -343,6 +428,58 @@ def _initial_window(
     return SyncWindow(start=start_ms, end=end_ms)
 
 
+def _meter_window(
+    config: SigNozEndpointConfig,
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+) -> SyncWindow[int]:
+    """Whole UTC days only: a window edge inside a day would return that day as a partial step."""
+    today_ms = int(datetime.now(UTC).timestamp() * 1000) // DAY_MS * DAY_MS
+    start_ms: int | None = None
+    if should_use_incremental_field and db_incremental_field_last_value is not None:
+        last_ms = _to_epoch_ms(db_incremental_field_last_value)
+        if last_ms is not None:
+            start_ms = last_ms // DAY_MS * DAY_MS - METER_REREAD_DAYS * DAY_MS
+    if start_ms is None:
+        start_ms = today_ms - (config.default_lookback_days or DEFAULT_LOOKBACK_DAYS) * DAY_MS
+    return SyncWindow(start=start_ms, end=today_ms)
+
+
+def _get_meter_rows(
+    base: str,
+    config: SigNozEndpointConfig,
+    fetch: Callable[..., Any],
+    resumable_source_manager: ResumableSourceManager[SigNozResumeConfig],
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+) -> Iterator[list[dict[str, Any]]]:
+    # The resume offset is the index of the next metric to query.
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    if resume is not None:
+        window: SyncWindow[int] = SyncWindow(start=resume.window_start_ms, end=resume.window_end_ms)
+        next_metric = resume.offset
+    else:
+        window = _meter_window(config, should_use_incremental_field, db_incremental_field_last_value)
+        next_metric = 0
+
+    if window.start >= window.end:
+        return
+
+    url = f"{base}{QUERY_RANGE_PATH}"
+    for index in range(next_metric, len(config.metric_names)):
+        metric_name = config.metric_names[index]
+        rows = _extract_meter_rows(
+            fetch(url, json_body=_build_meter_query_body(config, metric_name, window=window)), config, metric_name
+        )
+        resumable_source_manager.save_state(
+            SigNozResumeConfig(window_start_ms=window.start, window_end_ms=window.end, offset=index + 1)
+        )
+        if rows:
+            yield rows
+        else:
+            resumable_source_manager.safe_point()
+
+
 def get_rows(
     host: str,
     api_key: str,
@@ -411,6 +548,12 @@ def get_rows(
 
     if config.kind == "config":
         yield from _get_config_rows(base, config, fetch)
+        return
+
+    if config.kind == "meter":
+        yield from _get_meter_rows(
+            base, config, fetch, resumable_source_manager, should_use_incremental_field, db_incremental_field_last_value
+        )
         return
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
@@ -489,10 +632,10 @@ def signoz_source(
             db_incremental_field_last_value=db_incremental_field_last_value,
         ),
         primary_keys=list(config.primary_keys),
-        sort_mode="asc",
+        sort_mode=config.sort_mode,
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if config.partition_key else None,
-        partition_format="week" if config.partition_key else None,
+        partition_format=config.partition_format if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
     )

@@ -1,12 +1,11 @@
 import re
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from functools import cached_property, lru_cache
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast
 from uuid import UUID
 
 from django.core.exceptions import ImproperlyConfigured
-from django.db.models import Model
 from django.db.models.query import QuerySet
 
 import structlog
@@ -16,6 +15,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.routers import DefaultRouter
 from rest_framework.viewsets import GenericViewSet
 
+from posthog.api.request_scope import ScopeLevel, record_request_scope_shadow
 from posthog.api.scope_resolution import (
     CURRENT_ALIAS,
     is_flat_route,
@@ -56,6 +56,7 @@ from posthog.permissions import (
     TeamMemberAccessPermission,
     TwoFactorEnforcementPermission,
     VerifiedDomainEnforcementPermission,
+    filter_visible_project_objects,
     is_service_auth,
 )
 from posthog.products import is_product_module
@@ -64,11 +65,9 @@ from posthog.scopes.catalog import APIScopeObjectOrNotSupported
 from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.contracts import ObjectAccessRef
-from products.access_control.backend.facade.user_access_control import UserAccessControl, model_to_resource
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.authorization.backend.facade import api as authorization
-from products.authorization.backend.facade.contracts import Resource
-from products.authorization.backend.facade.enums import ResourceType
-from products.authorization.backend.presentation.querysets import can_filter_queryset, filter_queryset
+from products.authorization.backend.presentation.querysets import can_filter_queryset
 
 if TYPE_CHECKING:
     _GenericViewSet = GenericViewSet
@@ -252,6 +251,10 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
     # opened, which is why nothing else may authenticate.
     team_from_project_secret_api_key: bool = False
 
+    # Whether a project token in the request (`?token=`) may name the project when the path doesn't, as the LLM prompt
+    # SDKs rely on. The request scope resolver ignores tokens on every other view.
+    accepts_project_token: bool = False
+
     # Rewrite filter queries, so that for example foreign keys can be accessed
     # Example: {"team_id": "foo__team_id"} will make the viewset filtered by obj.foo.team_id instead of obj.team_id
     filter_rewrite_rules: dict[str, str] = {}
@@ -390,6 +393,9 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
                 record_token_on_project_path(
                     request, token_team=self._get_team_from_request, path_kwargs=self.parent_query_kwargs
                 )
+        # Only after the checks pass, because on a refused request reading the view's scope can reach User.team,
+        # which picks and saves a project for a user who has none selected.
+        self._record_request_scope_shadow(request)
         self._parse_path_parameters()
         self._team_scope_token = None
         if self._is_team_view or self._is_project_view:
@@ -425,6 +431,24 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
                 canonical_team_id = team_id
                 resolved_from_team_id = None
             self._team_scope_token = set_current_team_id(canonical_team_id, resolved_from_team_id=resolved_from_team_id)
+
+    def _record_request_scope_shadow(self, request) -> None:
+        current_scope_id: Callable[[], Any]
+        if self._is_project_view:
+            level, current_scope_id = ScopeLevel.PROJECT, lambda: self.project_id
+        elif self._is_team_view:
+            level, current_scope_id = ScopeLevel.TEAM, lambda: self.team_id
+        elif "organization_id" in self.parent_query_kwargs:
+            level, current_scope_id = ScopeLevel.ORGANIZATION, lambda: self.organization_id
+        else:
+            return
+        record_request_scope_shadow(
+            request,
+            level=level,
+            path_kwargs=self.parent_query_kwargs,
+            token_team=self._get_team_from_request if self.accepts_project_token else None,
+            current_scope_id=current_scope_id,
+        )
 
     def dangerously_get_permissions(self):
         """
@@ -613,12 +637,8 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
             or not can_filter_queryset(queryset.model)
         ):
             return access.filter_queryset_by_access_level(queryset, include_all_if_admin=include_all_if_admin)
-        return filter_queryset(
-            queryset,
-            resource=Resource(
-                type=ResourceType(cast(str, model_to_resource(cast(Model, queryset.model)))), project_id=access.team.id
-            ),
-            include_all_if_admin=include_all_if_admin,
+        return filter_visible_project_objects(
+            queryset, team_id=access.team.id, include_all_if_admin=include_all_if_admin
         )
 
     def dangerously_get_object(self) -> Any:

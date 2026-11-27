@@ -32,6 +32,7 @@ type EnvConfig struct {
 	PosthogSecret        string
 	DedicatedSecrets     map[string]string
 	EncryptionSaltKeys   string
+	CdpSealedStateKeys   string
 	Domain               string
 	TLSBlock             string
 	RegistryURL          string
@@ -60,6 +61,11 @@ func NewEnvConfig(domain, version string) (*EnvConfig, error) {
 		return nil, fmt.Errorf("failed to generate encryption key: %w", err)
 	}
 
+	sealKey, err := GenerateSealKey()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate CDP seal key: %w", err)
+	}
+
 	registryURL := os.Getenv("REGISTRY_URL")
 	if registryURL == "" {
 		registryURL = "posthog/posthog"
@@ -76,6 +82,7 @@ func NewEnvConfig(domain, version string) (*EnvConfig, error) {
 		PosthogSecret:        secret,
 		DedicatedSecrets:     dedicatedSecrets,
 		EncryptionSaltKeys:   encryptionKey,
+		CdpSealedStateKeys:   sealKey,
 		Domain:               domain,
 		TLSBlock:             tlsBlock,
 		RegistryURL:          registryURL,
@@ -111,6 +118,7 @@ SESSION_RECORDING_V2_METADATA_SWITCHOVER=%s
 	for _, key := range dedicatedSecretKeys {
 		content += fmt.Sprintf("%s=%s\n", key, c.DedicatedSecrets[key])
 	}
+	content += fmt.Sprintf("CDP_SEALED_STATE_KEYS=%s\n", c.CdpSealedStateKeys)
 
 	return os.WriteFile(".env", []byte(content), 0600)
 }
@@ -120,6 +128,7 @@ func LoadExistingEnv() map[string]string {
 	keys := []string{
 		"POSTHOG_SECRET",
 		"ENCRYPTION_SALT_KEYS",
+		"CDP_SEALED_STATE_KEYS",
 		"DOMAIN",
 		"TLS_BLOCK",
 		"CADDY_HOST",
@@ -179,12 +188,19 @@ func UpdateEnvForUpgrade(version string) error {
 
 	existing := LoadExistingEnv()
 
-	if existing["ENCRYPTION_SALT_KEYS"] == "" {
-		key, err := GenerateEncryptionKey()
+	// Both are Fernet keys, which must be exactly 32 characters, so neither uses GenerateSecret.
+	for key, generate := range map[string]func() (string, error){
+		"ENCRYPTION_SALT_KEYS":  GenerateEncryptionKey,
+		"CDP_SEALED_STATE_KEYS": GenerateSealKey,
+	} {
+		if existing[key] != "" {
+			continue
+		}
+		value, err := generate()
 		if err != nil {
 			return err
 		}
-		if err := AppendToEnv("ENCRYPTION_SALT_KEYS", key); err != nil {
+		if err := AppendToEnv(key, value); err != nil {
 			return err
 		}
 	}
@@ -221,6 +237,14 @@ func UpdateEnvForUpgrade(version string) error {
 		}
 	}
 
+	// Batch exports are off unless .env turns them on. The old stack is still up here, so an
+	// install keeps them on unless its database shows that it has none.
+	if !envHasKey("BATCH_EXPORTS_ENABLED") && keepBatchExportsEnabled(countBatchExports()) {
+		if err := AppendToEnv("BATCH_EXPORTS_ENABLED", "true"); err != nil {
+			return err
+		}
+	}
+
 	if version != "" {
 		if err := UpdateEnvValue("POSTHOG_APP_TAG", version); err != nil {
 			return err
@@ -228,6 +252,32 @@ func UpdateEnvForUpgrade(version string) error {
 	}
 
 	return nil
+}
+
+func envHasKey(key string) bool {
+	data, err := os.ReadFile(".env")
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(line, key+"=") {
+			return true
+		}
+	}
+	return false
+}
+
+func countBatchExports() (string, error) {
+	cmd, args := GetDockerComposeCommand()
+	fullArgs := append(args, "exec", "-T", "db", "psql", "-U", "posthog", "-d", "posthog", "-tAc",
+		"SELECT count(*) FROM posthog_batchexport WHERE deleted IS NOT TRUE")
+	return RunCommand(cmd, fullArgs...)
+}
+
+// A count that cannot be read keeps batch exports on, so that a stopped database never turns
+// off an export that is running.
+func keepBatchExportsEnabled(count string, err error) bool {
+	return err != nil || strings.TrimSpace(count) != "0"
 }
 
 func FixEnvQuoting() error {

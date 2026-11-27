@@ -4,7 +4,7 @@ PostHog is an open-source platform for product analytics, session replay, featur
 
 ## Creating an account
 
-- AI wizard: `npx @posthog/wizard@latest --signup` creates a new account and project from the command line, with no signup form. This is the most direct path for a new user. See https://posthog.com/docs/ai-engineering/ai-wizard
+- AI wizard: `npx @posthog/wizard@latest` sets PostHog up in a project. It opens PostHog's login page in the browser, where a new user can create an account. See https://posthog.com/docs/ai-engineering/ai-wizard
 - Provisioning API: partners and platforms can create accounts for their users and deep-link them in. See https://posthog.com/docs/integrate/provisioning
 
 ## Authenticating an existing user

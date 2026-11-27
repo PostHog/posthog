@@ -458,10 +458,43 @@ def _refresh_one_team(config: HyperCacheManagementConfig, team: Team) -> Refresh
 
 
 # Every writer scores a member with a whole number of seconds, so a score ending in .5 marks a
-# member that only the cleanup wrote. The delay keeps the member out of the 24-hour window that
+# member that a pending delete wrote. The delay keeps the member out of the 24-hour window that
 # select_expiring_teams reads, so an entry whose delete keeps failing never uses up one of the
 # `limit` members that the selection returns.
 _DELETE_RETRY_DELAY_SECONDS = 2 * 24 * 3600 + 0.5
+
+
+def delete_entry_keeping_failed_delete_tracked(hypercache: HyperCache, identifier: str | int) -> bool:
+    """Delete a cache entry, and keep its expiry tracking member while any tier still holds the entry.
+
+    The member moves to a retry score first, and leaves the sorted set only after every delete succeeds.
+    After a failed delete, cleanup_stale_expiry_tracking still finds the entry of a deleted team.
+    A failed delete of the shared Redis copy raises too, so a calling task retries it.
+    An identifier with no member gets one only when a tier holds the entry after the delete.
+
+    Returns:
+        True when the member stays in the sorted set, because a tier still holds the entry
+    """
+    sorted_set_key = hypercache.expiry_sorted_set_key
+    if not sorted_set_key:
+        hypercache.delete_cache_entry(identifier, strict_mirror=True)
+        return False
+
+    retry_score = int(time.time()) + _DELETE_RETRY_DELAY_SECONDS
+    member = str(identifier)
+    redis_client = get_client(hypercache.redis_url)
+    tracking_error: Exception | None = None
+    try:
+        redis_client.zadd(sorted_set_key, {member: retry_score}, xx=True)
+    except Exception as e:
+        # The object-storage copy has no TTL, so a failed tracking write must not skip the deletes.
+        tracking_error = e
+    hypercache.delete_cache_entry(identifier, strict_mirror=True, tracked_expiry_score=retry_score)
+    if tracking_error is not None:
+        raise tracking_error
+    return redis_client.zscore(sorted_set_key, member) is not None or _retrack_if_still_stored(
+        hypercache, identifier, redis_client, sorted_set_key, retry_score
+    )
 
 
 def _retrack_if_still_stored(
@@ -545,17 +578,11 @@ def cleanup_stale_expiry_tracking(config: HyperCacheManagementConfig) -> int:
             logger.info(f"No stale {config.log_prefix} expiry entries found")
             return 0
 
-        retry_score = int(time.time()) + _DELETE_RETRY_DELAY_SECONDS
         removed = 0
         kept = 0
         for identifier in stale:
-            member = str(identifier)
             try:
-                redis_client.zadd(sorted_set_key, {member: retry_score}, xx=True)
-                hypercache.delete_cache_entry(identifier, strict_mirror=True, tracked_expiry_score=retry_score)
-                if redis_client.zscore(sorted_set_key, member) is not None or _retrack_if_still_stored(
-                    hypercache, identifier, redis_client, sorted_set_key, retry_score
-                ):
+                if delete_entry_keeping_failed_delete_tracked(hypercache, identifier):
                     kept += 1
                 else:
                     removed += 1

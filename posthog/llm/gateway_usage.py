@@ -15,6 +15,7 @@ class GatewayRequestCost:
     model: str
     provider: str
     cost_microusd: int
+    standard_cost_microusd: int
 
 
 async def fetch_gateway_cost(
@@ -43,17 +44,27 @@ async def fetch_gateway_cost(
         if not isinstance(body, dict) or body.get("request_id") != request_id:
             return None
         amount = body.get("cost_usd")
+        standard_amount = body.get("standard_cost_usd")
+        if standard_amount is None:
+            standard_amount = amount
         model, provider = body.get("model") or "unknown", body.get("provider") or "unknown"
         if (
             not isinstance(amount, str)
             or not _USD_AMOUNT.fullmatch(amount)
+            or not isinstance(standard_amount, str)
+            or not _USD_AMOUNT.fullmatch(standard_amount)
             or not isinstance(model, str)
             or len(model) > 255
             or not isinstance(provider, str)
             or len(provider) > 255
         ):
             return None
-        return GatewayRequestCost(model=model, provider=provider, cost_microusd=int(Decimal(amount) * 1_000_000))
+        return GatewayRequestCost(
+            model=model,
+            provider=provider,
+            cost_microusd=int(Decimal(amount) * 1_000_000),
+            standard_cost_microusd=int(Decimal(standard_amount) * 1_000_000),
+        )
     except (aiohttp.ClientError, TimeoutError, ValueError, TypeError):
         logger.warning("gateway_usage.lookup_failed")
         return None

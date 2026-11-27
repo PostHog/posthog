@@ -59,6 +59,42 @@ CONTACT_SEARCH_FIELDS = [
     "urls",
 ]
 
+# Fields of `GET /sequence_subscription/`. That list endpoint needs a sequence, contact or lead id,
+# so the table reads through Advanced Filtering, which returns only the fields named here.
+SEQUENCE_SUBSCRIPTION_SEARCH_FIELDS = [
+    "calls_assigned_to",
+    "contact_email",
+    "contact_id",
+    "created_by_id",
+    "date_created",
+    "date_updated",
+    "id",
+    "lead_id",
+    "organization_id",
+    "sender_account_id",
+    "sender_email",
+    "sender_name",
+    "sequence_id",
+    "start_date",
+    "status",
+    "status_reason",
+    "updated_by_id",
+]
+
+# Fields of `GET /custom_object/`. That list endpoint needs a lead id, so the table reads through
+# Advanced Filtering. The custom field values come from the `custom` selector.
+CUSTOM_OBJECT_SEARCH_FIELDS = [
+    "created_by",
+    "custom_object_type_id",
+    "date_created",
+    "date_updated",
+    "id",
+    "lead_id",
+    "name",
+    "organization_id",
+    "updated_by",
+]
+
 
 # How an endpoint pages. "offset" is Close's usual `_skip`/`_limit`. A few small dimension
 # endpoints (lead/opportunity statuses, pipelines, shared custom fields) return every row in one
@@ -87,12 +123,14 @@ class CloseEndpointConfig:
     # `/organization/{id}/` has no list counterpart, so the organization ids come from `/me/`
     # and each organization is fetched on its own (see close.py).
     fan_out_from_me: bool = False
-    # Advanced Filtering object type. Set only for the two resources whose list endpoints expose
-    # no date filter at all, so offset pagination is the only option and Close's `_skip` cap
-    # eventually truncates the table (see api_inventory.md).
+    # Advanced Filtering object type. Set for resources whose list endpoints expose no date filter
+    # (Leads, Contacts), where Close's `_skip` cap eventually truncates the table, and for
+    # resources whose list endpoints need a parent id (see api_inventory.md).
     search_object_type: Optional[str] = None
     # Fields to request from Advanced Filtering. Required when `search_object_type` is set.
     search_fields: list[str] = field(default_factory=list)
+    # Whether to add the `custom` selector to `search_fields`. Off for object types with no custom fields.
+    search_custom_fields: bool = True
 
 
 # Canonical CRM endpoint set. Incremental support is only enabled where a genuine server-side
@@ -214,6 +252,48 @@ CLOSE_ENDPOINTS: dict[str, CloseEndpointConfig] = {
         name="SharedCustomFields",
         path="/custom_field/shared/",
         table_name="shared_custom_fields",
+        pagination="single_page",
+    ),
+    "Sequences": CloseEndpointConfig(
+        name="Sequences",
+        path="/sequence/",
+        table_name="sequences",
+    ),
+    "SequenceSubscriptions": CloseEndpointConfig(
+        name="SequenceSubscriptions",
+        path="/sequence_subscription/",
+        table_name="sequence_subscriptions",
+        incremental_fields=[_date_incremental_field("date_created"), _date_incremental_field("date_updated")],
+        partition_key="date_created",
+        search_object_type="sequence_subscription",
+        search_fields=SEQUENCE_SUBSCRIPTION_SEARCH_FIELDS,
+        search_custom_fields=False,
+    ),
+    "CustomObjectTypes": CloseEndpointConfig(
+        name="CustomObjectTypes",
+        path="/custom_object_type/",
+        table_name="custom_object_types",
+        pagination="single_page",
+    ),
+    "CustomObjects": CloseEndpointConfig(
+        name="CustomObjects",
+        path="/custom_object/",
+        table_name="custom_objects",
+        incremental_fields=[_date_incremental_field("date_created"), _date_incremental_field("date_updated")],
+        partition_key="date_created",
+        search_object_type="custom_object",
+        search_fields=CUSTOM_OBJECT_SEARCH_FIELDS,
+    ),
+    "Groups": CloseEndpointConfig(
+        name="Groups",
+        path="/group/",
+        table_name="groups",
+        pagination="single_page",
+    ),
+    "Roles": CloseEndpointConfig(
+        name="Roles",
+        path="/role/",
+        table_name="roles",
         pagination="single_page",
     ),
 }
