@@ -1,13 +1,14 @@
 import re
 import datetime
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Literal, Optional, cast
+from typing import TYPE_CHECKING, Any, Literal, Optional, Self, cast
 from uuid import UUID
 
 from pydantic import (
     BaseModel,
     ConfigDict,
     Field as PydanticField,
+    model_validator,
 )
 
 from posthog.hogql.base import Expr
@@ -271,6 +272,17 @@ class Table(FieldOrTable):
     # `FieldTraverser` keys that `SELECT *` returns. Each one makes every `SELECT *` on the table run its join.
     asterisk_traversers: list[str] = []
     model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="after")
+    def _check_asterisk_traversers(self) -> Self:
+        for key in self.asterisk_traversers:
+            field_ = self.fields.get(key)
+            if not isinstance(field_, FieldTraverser) or str(field_.chain[-1]) != key:
+                raise ValueError(
+                    f"asterisk_traversers: {key!r} must be a FieldTraverser to a column also named {key!r}, "
+                    "because HogQL names a traversed column after its target"
+                )
+        return self
 
     def has_field(self, name: str | int) -> bool:
         return str(name) in self.fields

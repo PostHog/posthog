@@ -2872,6 +2872,16 @@ class TestAsteriskTraversers(SimpleTestCase):
 
         assert list(table.get_asterisk()) == expected
 
+    @parameterized.expand(
+        [
+            ("renamed_traverser", {"label": FieldTraverser(chain=["joined", "label_id"])}),
+            ("missing_key", {}),
+        ]
+    )
+    def test_asterisk_traversers_reject_a_key_star_cannot_name(self, _name, label_fields):
+        with self.assertRaisesRegex(ValueError, "asterisk_traversers: 'label'"):
+            Table(fields={"id": IntegerDatabaseField(name="id"), **label_fields}, asterisk_traversers=["label"])
+
     def test_column_aliased_star_leaves_out_the_traversers(self):
         context = HogQLContext(database=Database(), enable_select_queries=True)
         query = resolve_types(parse_select("SELECT * FROM system.event_definitions AS d (a, b)"), context, "clickhouse")
