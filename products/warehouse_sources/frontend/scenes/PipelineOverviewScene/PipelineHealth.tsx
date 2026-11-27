@@ -93,13 +93,20 @@ export function PipelineHealth(): JSX.Element {
                 },
                 {
                     // The endpoint sends the last *successful* sync here, not the moment the
-                    // failure started, so "Never" is the honest reading of a null.
+                    // failure started, so "Never" is the honest reading of a null. A sync PostHog
+                    // halted is the exception: it sends the halt time, so label it as such.
                     title: 'Last synced',
                     key: 'failed_at',
                     width: 140,
                     render: (_, issue) =>
                         issue.failed_at ? (
-                            <TZLabel time={issue.failed_at} />
+                            issue.status === 'disabled' ? (
+                                <span>
+                                    Halted <TZLabel time={issue.failed_at} />
+                                </span>
+                            ) : (
+                                <TZLabel time={issue.failed_at} />
+                            )
                         ) : (
                             <span className="text-muted">Never</span>
                         ),
