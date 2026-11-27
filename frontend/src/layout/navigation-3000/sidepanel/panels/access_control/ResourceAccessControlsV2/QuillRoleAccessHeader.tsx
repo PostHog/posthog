@@ -18,12 +18,12 @@ import {
     Text,
 } from '@posthog/quill'
 
-import { fullName } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 
 import { roleAccessControlLogic } from '../roleAccessControlLogic'
+import { roleMemberNames } from './helpers'
 import type { AccessControlRoleEntry } from './types'
 
 export function QuillRoleAccessHeader({ role }: { role: AccessControlRoleEntry }): JSX.Element {
@@ -33,10 +33,6 @@ export function QuillRoleAccessHeader({ role }: { role: AccessControlRoleEntry }
     const [confirmOpen, setConfirmOpen] = useState(false)
 
     const members = sortedRoles.find((r) => r.id === role.role_id)?.members ?? []
-    const memberNames = members
-        .map((m) => (m.user.first_name ? fullName(m.user) : m.user.email))
-        .sort()
-        .join(', ')
 
     return (
         <div className="flex items-center justify-between gap-2">
@@ -78,7 +74,7 @@ export function QuillRoleAccessHeader({ role }: { role: AccessControlRoleEntry }
                         {members.length > 0 && (
                             <AlertDialogDescription>
                                 {members.length === 1 ? '1 member loses' : `${members.length} members lose`} the role:{' '}
-                                <span className="ph-no-capture">{memberNames}</span>.
+                                <span className="ph-no-capture">{roleMemberNames(members)}</span>.
                             </AlertDialogDescription>
                         )}
                     </AlertDialogHeader>

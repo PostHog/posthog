@@ -6,6 +6,8 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { APIScopeObject, AccessControlLevel, EffectiveAccessControlEntry, SidePanelTab } from '~/types'
 
+import { accessControlLogic } from '../accessControlLogic'
+import { resourcesAccessControlLogic } from '../resourcesAccessControlLogic'
 import { accessControlsLogic } from './accessControlsLogic'
 import { getLevelOptionsForResource } from './helpers'
 import { AccessControlFilters, AccessControlMemberEntry, AccessControlRoleEntry } from './types'
@@ -343,6 +345,52 @@ describe('accessControlsLogic', () => {
             sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Support)
 
             await expectLogic(logic).toMatchValues({ activeTab: 'defaults' })
+        })
+    })
+
+    describe('subject access changes', () => {
+        let logic: ReturnType<typeof accessControlsLogic.build>
+
+        beforeEach(() => {
+            initKeaTests()
+            logic = accessControlsLogic.build({ projectId: '997' })
+            logic.mount()
+        })
+
+        afterEach(async () => {
+            // The saves run in the connected logics' loaders, so let those settle before the logic goes away
+            await expectLogic(
+                accessControlLogic({ resource: 'project', resource_id: '997', title: '', description: '' })
+            ).toFinishAllListeners()
+            await expectLogic(resourcesAccessControlLogic).toFinishAllListeners()
+            logic.unmount()
+        })
+
+        it('saves a role or member project rule through its own endpoint', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setSubjectProjectAccess('role', 'role-1', AccessControlLevel.Admin)
+                logic.actions.setSubjectProjectAccess('member', 'member-1', null)
+            }).toDispatchActions([
+                logic.actionCreators.updateAccessControlRoles(
+                    [{ role: 'role-1', level: AccessControlLevel.Admin }],
+                    'v2'
+                ),
+                logic.actionCreators.updateAccessControlMembers([{ member: 'member-1', level: null }], 'v2'),
+            ])
+        })
+
+        it.each([
+            ['role', { role: 'subject-1', organization_member: null }],
+            ['member', { role: null, organization_member: 'subject-1' }],
+        ] as const)('scopes a %s product rule to that subject', async (scopeType, subject) => {
+            await expectLogic(logic, () => {
+                logic.actions.setSubjectResourceAccess(scopeType, 'subject-1', 'dashboard', AccessControlLevel.Viewer)
+            }).toDispatchActions([
+                logic.actionCreators.updateResourceAccessControls(
+                    [{ resource: 'dashboard', access_level: AccessControlLevel.Viewer, ...subject }],
+                    scopeType
+                ),
+            ])
         })
     })
 })

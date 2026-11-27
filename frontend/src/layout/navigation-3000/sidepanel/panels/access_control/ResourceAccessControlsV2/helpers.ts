@@ -1,7 +1,7 @@
 import { PROPERTY_ACCESS_LEVEL_OPTIONS } from 'lib/utils/accessControlUtils'
-import { toSentenceCase } from 'lib/utils/strings'
+import { fullNameOrEmail, toSentenceCase } from 'lib/utils/strings'
 
-import { APIScopeObject, AccessControlLevel, EffectiveAccessControlEntry } from '~/types'
+import { APIScopeObject, AccessControlLevel, EffectiveAccessControlEntry, RoleMemberType } from '~/types'
 
 import type { InheritedAccess } from '../accessControlLogic'
 import { AccessControlMemberEntry, AccessControlRoleEntry, AccessControlSettingsEntry, InheritedReason } from './types'
@@ -238,4 +238,12 @@ export function subjectDisabledReason(
         return 'Organization admins always have full access'
     }
     return undefined
+}
+
+/** A role's members by name, sorted, for the role's delete confirmation. */
+export function roleMemberNames(members: RoleMemberType[]): string {
+    return members
+        .map((m) => fullNameOrEmail(m.user))
+        .sort()
+        .join(', ')
 }

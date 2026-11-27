@@ -2,10 +2,7 @@ import type { CellContext, ColumnDef } from '@tanstack/react-table'
 import { useActions, useValues } from 'kea'
 import { createContext, useContext } from 'react'
 
-import { IconInfo } from '@posthog/icons'
-import { Button, DataTable, Text, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
-
-import { getAccessControlTooltip } from 'lib/utils/accessControlUtils'
+import { Button, DataTable } from '@posthog/quill'
 
 import { APIScopeObject, AccessControlLevel } from '~/types'
 
@@ -14,10 +11,8 @@ import type { AccessDetailSubjectScope } from './accessDetailLogic'
 import { getEntryId, getLevelOptionsForResource, inheritedFor } from './helpers'
 import { QuillAccessDetailSection } from './QuillAccessDetailSection'
 import { QuillLevelSelect } from './QuillLevelSelect'
-import { ScopeIcon } from './ScopeIcon'
+import { type ProductRow, QuillProductNameCell } from './QuillProductNameCell'
 import type { AccessControlSettingsEntry } from './types'
-
-type ProductRow = { key: APIScopeObject; label: string }
 
 interface ProductRowEditing {
     entry: AccessControlSettingsEntry
@@ -36,29 +31,6 @@ function useProductRowEditing(): ProductRowEditing {
         throw new Error('Product access cells must render inside ProductRowEditingContext')
     }
     return rowEditing
-}
-
-function ProductCell({ row }: CellContext<ProductRow, unknown>): JSX.Element {
-    const tooltipText = getAccessControlTooltip(row.original.key)
-
-    return (
-        <div className="flex items-center gap-2">
-            <span className="flex items-center text-muted-foreground">
-                <ScopeIcon scope={row.original.key} />
-            </span>
-            <Text size="xs" weight="medium" render={<span />}>
-                {row.original.label}
-            </Text>
-            {tooltipText && (
-                <Tooltip>
-                    <TooltipTrigger render={<span className="flex items-center text-muted-foreground" />}>
-                        <IconInfo />
-                    </TooltipTrigger>
-                    <TooltipContent>{tooltipText}</TooltipContent>
-                </Tooltip>
-            )}
-        </div>
-    )
 }
 
 function AccessCell({ row }: CellContext<ProductRow, unknown>): JSX.Element {
@@ -86,7 +58,7 @@ function AccessCell({ row }: CellContext<ProductRow, unknown>): JSX.Element {
 }
 
 const COLUMNS: ColumnDef<ProductRow>[] = [
-    { id: 'label', header: 'Product', meta: { expand: true }, enableSorting: false, cell: ProductCell },
+    { id: 'label', header: 'Product', meta: { expand: true }, enableSorting: false, cell: QuillProductNameCell },
     { id: 'access', header: 'Access', meta: { align: 'right' }, enableSorting: false, cell: AccessCell },
 ]
 
@@ -104,7 +76,7 @@ export function QuillProductAccessRules({
     cannotEditReason: string | undefined
 }): JSX.Element {
     const { availableResourceLevels, showAllProducts, productsCollapse } = useValues(accessControlsLogic({ projectId }))
-    const { updateResourceAccessControls, setShowAllProducts } = useActions(accessControlsLogic({ projectId }))
+    const { setSubjectResourceAccess, setShowAllProducts } = useActions(accessControlsLogic({ projectId }))
 
     const subjectId = getEntryId(entry)
     const { visibleResources, collapsedCount, canCollapse } = productsCollapse
@@ -113,18 +85,7 @@ export function QuillProductAccessRules({
         entry,
         availableLevels: availableResourceLevels,
         cannotEditReason,
-        onSetLevel: (resource, level) =>
-            updateResourceAccessControls(
-                [
-                    {
-                        resource,
-                        access_level: level,
-                        role: scopeType === 'role' ? subjectId : null,
-                        organization_member: scopeType === 'member' ? subjectId : null,
-                    },
-                ],
-                scopeType
-            ),
+        onSetLevel: (resource, level) => setSubjectResourceAccess(scopeType, subjectId, resource, level),
     }
 
     return (

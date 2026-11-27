@@ -15,8 +15,6 @@ import {
 
 import { teamLogic } from 'scenes/teamLogic'
 
-import { AccessControlLevel } from '~/types'
-
 import { accessControlsLogic } from './accessControlsLogic'
 import type { AccessDetailSubjectScope } from './accessDetailLogic'
 import { getEntryId, getLevelOptionsForResource, inheritedFor } from './helpers'
@@ -35,18 +33,10 @@ export function QuillProjectAccessItem({
     cannotEditReason: string | undefined
 }): JSX.Element {
     const { availableProjectLevels } = useValues(accessControlsLogic({ projectId }))
-    const { updateAccessControlMembers, updateAccessControlRoles } = useActions(accessControlsLogic({ projectId }))
+    const { setSubjectProjectAccess } = useActions(accessControlsLogic({ projectId }))
     const { currentTeam } = useValues(teamLogic)
 
     const subjectId = getEntryId(entry)
-
-    const onChange = (level: AccessControlLevel | null): void => {
-        if (scopeType === 'role') {
-            updateAccessControlRoles([{ role: subjectId, level }], 'v2')
-        } else {
-            updateAccessControlMembers([{ member: subjectId, level }], 'v2')
-        }
-    }
 
     return (
         <Item variant="outline" size="sm">
@@ -86,7 +76,7 @@ export function QuillProjectAccessItem({
                     aria-label="Project access"
                     value={entry.project.access_level}
                     options={getLevelOptionsForResource(availableProjectLevels)}
-                    onChange={onChange}
+                    onChange={(level) => setSubjectProjectAccess(scopeType, subjectId, level)}
                     disabledReason={cannotEditReason}
                     inherited={inheritedFor(entry.project, 'this project')}
                     // A subject with nothing above them falls back to the project's own default, which the

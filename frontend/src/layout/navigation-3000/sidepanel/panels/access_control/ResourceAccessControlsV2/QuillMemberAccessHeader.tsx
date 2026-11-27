@@ -1,13 +1,13 @@
 import { Text } from '@posthog/quill'
 
 import { QuillPersonAvatar } from 'lib/components/QuillPersonAvatar/QuillPersonAvatar'
-import { fullName } from 'lib/utils/strings'
+import { fullNameOrEmail } from 'lib/utils/strings'
 
 import { QuillMemberRolesPicker } from './QuillMemberRolesPicker'
 import type { AccessControlMemberEntry } from './types'
 
 export function QuillMemberAccessHeader({ member }: { member: AccessControlMemberEntry }): JSX.Element {
-    const name = member.user.first_name ? fullName(member.user) : member.user.email
+    const name = fullNameOrEmail(member.user)
 
     return (
         <div className="flex flex-col gap-3">

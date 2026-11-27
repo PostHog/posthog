@@ -6,6 +6,7 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle, Skeleton 
 import { teamLogic } from 'scenes/teamLogic'
 
 import { accessControlsLogic } from '../ResourceAccessControlsV2/accessControlsLogic'
+import type { AccessDetailSubject } from '../ResourceAccessControlsV2/accessDetailLogic'
 import { QuillAccessControlDetail } from '../ResourceAccessControlsV2/QuillAccessControlDetail'
 
 function PanelSkeleton(): JSX.Element {
@@ -28,40 +29,36 @@ export function QuillAccessDetailPanel(): JSX.Element {
     return <QuillAccessDetailForProject projectId={`${currentTeam.id}`} />
 }
 
+function emptyStateCopy(subject: AccessDetailSubject | null): { title: string; description: string } {
+    if (!subject) {
+        return {
+            title: 'Nothing selected',
+            description: 'Select a member or role to view and edit their access permissions.',
+        }
+    }
+    const noun = subject.scopeType === 'role' ? 'role' : 'member'
+    return {
+        title: noun === 'role' ? 'Role not found' : 'Member not found',
+        description: `This ${noun} may have been removed, or you may not have access to it. Pick another from the list.`,
+    }
+}
+
 function QuillAccessDetailForProject({ projectId }: { projectId: string }): JSX.Element {
     const { panelEntry, panelEntryLoading, activePanelSubject } = useValues(accessControlsLogic({ projectId }))
 
-    if (!activePanelSubject) {
-        return (
-            <Empty className="flex-1">
-                <EmptyHeader>
-                    <EmptyMedia variant="icon">
-                        <IconLock />
-                    </EmptyMedia>
-                    <EmptyTitle>Nothing selected</EmptyTitle>
-                    <EmptyDescription>
-                        Select a member or role to view and edit their access permissions.
-                    </EmptyDescription>
-                </EmptyHeader>
-            </Empty>
-        )
-    }
-
-    if (!panelEntry) {
-        if (panelEntryLoading) {
+    if (!activePanelSubject || !panelEntry) {
+        if (activePanelSubject && panelEntryLoading) {
             return <PanelSkeleton />
         }
-        const noun = activePanelSubject.scopeType === 'role' ? 'role' : 'member'
+        const { title, description } = emptyStateCopy(activePanelSubject)
         return (
             <Empty className="flex-1">
                 <EmptyHeader>
                     <EmptyMedia variant="icon">
                         <IconLock />
                     </EmptyMedia>
-                    <EmptyTitle>{noun === 'role' ? 'Role not found' : 'Member not found'}</EmptyTitle>
-                    <EmptyDescription>
-                        {`This ${noun} may have been removed, or you may not have access to it. Pick another from the list.`}
-                    </EmptyDescription>
+                    <EmptyTitle>{title}</EmptyTitle>
+                    <EmptyDescription>{description}</EmptyDescription>
                 </EmptyHeader>
             </Empty>
         )

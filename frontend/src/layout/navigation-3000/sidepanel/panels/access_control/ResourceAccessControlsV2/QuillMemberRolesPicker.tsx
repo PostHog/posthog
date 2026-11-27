@@ -14,19 +14,18 @@ import {
     useComboboxAnchor,
 } from '@posthog/quill'
 
+import { RoleType } from '~/types'
+
 import { roleAccessControlLogic } from '../roleAccessControlLogic'
 
-// Marks the list item that creates a role from the typed name, so it never reads as an existing role's id
-const CREATE_ROLE_PREFIX = 'create-role:'
+type RoleChoice = { kind: 'role'; id: string; name: string } | { kind: 'new'; name: string }
+
+const choiceKey = (choice: RoleChoice): string => (choice.kind === 'role' ? choice.id : `new:${choice.name}`)
+const choiceLabel = (choice: RoleChoice): string =>
+    choice.kind === 'role' ? choice.name : `Create role "${choice.name}"`
 
 // The anchor comes from the Combobox's own context, so these parts have to render inside it
-function RolesPickerFields({
-    labelOf,
-    disabledReason,
-}: {
-    labelOf: (value: string) => string
-    disabledReason: string | undefined
-}): JSX.Element {
+function RolesPickerFields({ disabledReason }: { disabledReason: string | undefined }): JSX.Element {
     const anchor = useComboboxAnchor()
     const inputId = useId()
 
@@ -34,10 +33,10 @@ function RolesPickerFields({
         <>
             <ComboboxChips ref={anchor} disabledReason={disabledReason} data-attr="member-access-roles">
                 <ComboboxValue>
-                    {(values: string[]) => (
+                    {(values: RoleChoice[]) => (
                         <>
-                            {values.map((roleId) => (
-                                <ComboboxChip key={roleId}>{labelOf(roleId)}</ComboboxChip>
+                            {values.map((choice) => (
+                                <ComboboxChip key={choiceKey(choice)}>{choiceLabel(choice)}</ComboboxChip>
                             ))}
                             <ComboboxChipsInput
                                 id={inputId}
@@ -51,9 +50,9 @@ function RolesPickerFields({
             <ComboboxContent anchor={anchor}>
                 <ComboboxEmpty>Type a name to create a role</ComboboxEmpty>
                 <ComboboxList>
-                    {(value: string) => (
-                        <ComboboxItem key={value} value={value}>
-                            {labelOf(value)}
+                    {(choice: RoleChoice) => (
+                        <ComboboxItem key={choiceKey(choice)} value={choice}>
+                            {choiceLabel(choice)}
                         </ComboboxItem>
                     )}
                 </ComboboxList>
@@ -64,68 +63,46 @@ function RolesPickerFields({
 
 export function QuillMemberRolesPicker({ userUuid }: { userUuid: string }): JSX.Element {
     const { sortedRoles, rolesLoading, canEditRoles } = useValues(roleAccessControlLogic)
-    const { addMembersToRole, removeMemberFromRole, createRoleWithMember } = useActions(roleAccessControlLogic)
+    const { setMemberRoles } = useActions(roleAccessControlLogic)
     const [search, setSearch] = useState('')
 
-    // `user_uuid` on role members is write-only in the API, so the readable id is `member.user.uuid`
-    const currentRoles = sortedRoles.filter((role) => role.members.some((member) => member.user.uuid === userUuid))
-    const rolesById = Object.fromEntries(sortedRoles.map((role) => [role.id, role]))
-
+    const toChoice = (role: RoleType): RoleChoice => ({ kind: 'role', id: role.id, name: role.name })
+    const roleChoices = sortedRoles.map(toChoice)
+    const currentChoices = sortedRoles
+        .filter((role) => role.members.some((member) => member.user.uuid === userUuid))
+        .map(toChoice)
     const newRoleName = search.trim()
     const canCreate =
         newRoleName.length > 0 && !sortedRoles.some((role) => role.name.toLowerCase() === newRoleName.toLowerCase())
-    const items = [...sortedRoles.map((role) => role.id), ...(canCreate ? [`${CREATE_ROLE_PREFIX}${newRoleName}`] : [])]
-
-    const labelOf = (value: string): string =>
-        value.startsWith(CREATE_ROLE_PREFIX)
-            ? `Create role "${value.slice(CREATE_ROLE_PREFIX.length)}"`
-            : (rolesById[value]?.name ?? value)
-
-    const onValueChange = (next: string[]): void => {
-        const nextIds = new Set(next)
-        for (const value of next) {
-            if (value.startsWith(CREATE_ROLE_PREFIX)) {
-                createRoleWithMember(value.slice(CREATE_ROLE_PREFIX.length), userUuid)
-                setSearch('')
-                continue
-            }
-            const role = rolesById[value]
-            if (role && !currentRoles.includes(role)) {
-                addMembersToRole(role, [userUuid])
-            }
-        }
-        for (const role of currentRoles) {
-            if (nextIds.has(role.id)) {
-                continue
-            }
-            const roleMember = role.members.find((member) => member.user.uuid === userUuid)
-            if (roleMember) {
-                removeMemberFromRole(role, roleMember.id)
-            }
-        }
-    }
+    const items: RoleChoice[] = canCreate ? [...roleChoices, { kind: 'new', name: newRoleName }] : roleChoices
 
     const disabledReason = canEditRoles === false ? 'You cannot edit roles' : rolesLoading ? 'Saving roles…' : undefined
 
     return (
-        <Combobox<string, true>
+        <Combobox<RoleChoice, true>
             multiple
             autoHighlight
             items={items}
-            itemToStringLabel={labelOf}
-            value={currentRoles.map((role) => role.id)}
-            onValueChange={(next: string[], eventDetails) => {
+            itemToStringLabel={choiceLabel}
+            isItemEqualToValue={(item, value) => choiceKey(item) === choiceKey(value)}
+            value={currentChoices}
+            onValueChange={(next: RoleChoice[], eventDetails) => {
                 // Escape with the list closed would otherwise clear every role
                 if (eventDetails.reason === 'escape-key') {
                     eventDetails.allowPropagation()
                     return
                 }
-                onValueChange(next ?? [])
+                const roleIds = next.flatMap((choice) => (choice.kind === 'role' ? [choice.id] : []))
+                const newRoleNames = next.flatMap((choice) => (choice.kind === 'new' ? [choice.name] : []))
+                setMemberRoles(userUuid, roleIds, newRoleNames)
+                if (newRoleNames.length) {
+                    setSearch('')
+                }
             }}
             inputValue={search}
             onInputValueChange={setSearch}
         >
-            <RolesPickerFields labelOf={labelOf} disabledReason={disabledReason} />
+            <RolesPickerFields disabledReason={disabledReason} />
         </Combobox>
     )
 }
