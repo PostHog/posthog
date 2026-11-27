@@ -19,6 +19,7 @@ from products.data_modeling.backend.models.modeling import (
     ResolutionTimeoutError,
     get_parents_from_model_query,
 )
+from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 
 GET_PARENTS_TEST_CASES = [
     ("select events.*, persons.* from events, persons", {"events", "persons"}),
@@ -164,6 +165,34 @@ class TestGetParentsFromModelQuery(BaseTest):
         """Test that referencing a non-existent table raises QueryError."""
         with pytest.raises(QueryError, match="Unknown table"):
             get_parents_from_model_query(self.team, "test_model", "select * from some_random_view")
+
+    def test_join_on_a_view_whose_backing_table_has_no_columns_yet(self):
+        credential = DataWarehouseCredential.objects.create(team=self.team, access_key="fake", access_secret="fake")
+        unpublished_table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name="staff",
+            format="DeltaS3Wrapper",
+            credential=credential,
+            columns={},
+        )
+        view = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="staff",
+            query={"kind": "HogQLQuery", "query": "SELECT distinct_id AS person FROM events"},
+            columns={"person": "String"},
+            table=unpublished_table,
+            is_materialized=True,
+        )
+        unpublished_table.url_pattern = f"https://example.com/{view.folder_path}/staff"
+        unpublished_table.save(update_fields=["url_pattern"])
+
+        parents = get_parents_from_model_query(
+            self.team,
+            "test_model",
+            "SELECT e.event FROM events AS e JOIN staff AS s ON s.person = e.distinct_id",
+        )
+
+        assert parents == {"events", "models.staff"}
 
 
 class TestBoundedResolver(BaseTest):

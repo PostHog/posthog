@@ -2,9 +2,9 @@ from dataclasses import dataclass, field
 from typing import Literal, Optional
 
 PaginationStyle = Literal["cursor", "offset", "none"]
-# "batched" reads one request per group of deals through a `deal_ids` query param;
-# "per_deal" binds a single deal id into the `{id}` path placeholder.
-DealFanOut = Literal["batched", "per_deal"]
+# "batched" reads one request per group of parents, with their ids in `parent_id_param`;
+# "per_parent" reads one request chain per parent.
+FanOut = Literal["batched", "per_parent"]
 # Endpoints that need more than one collection walk: mail threads are listed per folder, mail
 # messages per thread, and project phases per board.
 CustomRead = Literal["mail_threads", "mail_messages", "project_phases"]
@@ -18,6 +18,7 @@ DEAL_IDS_PER_REQUEST = 100
 # `/api/v2/deals` leaves out archived deals, so deal fan-outs read both lists to keep the line
 # items and history of a deal after it is archived.
 DEAL_PARENT_PATHS = ("/api/v2/deals", "/api/v2/deals/archived")
+ORGANIZATION_PARENT_PATHS = ("/api/v2/organizations",)
 # `/mailbox/mailThreads` lists one folder per request, and a thread is listed in every folder that
 # holds one of its messages.
 MAIL_FOLDERS = ("inbox", "sent", "archive", "drafts")
@@ -39,8 +40,13 @@ class PipedriveEndpointConfig:
     # field, which would rewrite partitions on every sync. `None` disables partitioning for
     # endpoints (users, *_fields) whose rows have no stable creation timestamp.
     partition_key: Optional[str] = "add_time"
-    # Set for endpoints read for every deal in `DEAL_PARENT_PATHS`.
-    deal_fan_out: Optional[DealFanOut] = None
+    # Set for endpoints read for every parent listed by `parent_paths`.
+    fan_out: Optional[FanOut] = None
+    parent_paths: tuple[str, ...] = DEAL_PARENT_PATHS
+    # Query param that carries the parent id(s); `None` binds the id into the `{id}` path placeholder.
+    parent_id_param: Optional[str] = None
+    # Column the source adds to each child row with the parent id it requested.
+    parent_id_column: Optional[str] = None
     custom_read: Optional[CustomRead] = None
     page_size: int = PAGE_SIZE
     data_selector: str = "data"
@@ -62,6 +68,9 @@ _SHARED_ENDPOINTS: dict[str, PipedriveEndpointConfig] = {
     "stages": PipedriveEndpointConfig(name="stages", path="/api/v2/stages", pagination="cursor"),
     "notes": PipedriveEndpointConfig(name="notes", path="/api/v1/notes", pagination="offset"),
     "leads": PipedriveEndpointConfig(name="leads", path="/api/v1/leads", pagination="offset"),
+    "archived_leads": PipedriveEndpointConfig(
+        name="archived_leads", path="/api/v1/leads/archived", pagination="offset"
+    ),
     "users": PipedriveEndpointConfig(name="users", path="/api/v1/users", pagination="offset", partition_key=None),
     "deal_fields": PipedriveEndpointConfig(
         name="deal_fields", path="/api/v1/dealFields", pagination="offset", partition_key=None
@@ -71,6 +80,28 @@ _SHARED_ENDPOINTS: dict[str, PipedriveEndpointConfig] = {
     ),
     "organization_fields": PipedriveEndpointConfig(
         name="organization_fields", path="/api/v1/organizationFields", pagination="offset", partition_key=None
+    ),
+    # The v1 field lists keep the `id`/`key`/`name` shape of the other *_fields tables. Lead and note
+    # fields have no v2 endpoint, and `/activityFields` and `/noteFields` are not paginated.
+    "activity_fields": PipedriveEndpointConfig(
+        name="activity_fields", path="/api/v1/activityFields", pagination="none", partition_key=None
+    ),
+    "product_fields": PipedriveEndpointConfig(
+        name="product_fields", path="/api/v1/productFields", pagination="offset", partition_key=None
+    ),
+    "lead_fields": PipedriveEndpointConfig(
+        name="lead_fields", path="/api/v1/leadFields", pagination="offset", partition_key=None
+    ),
+    "note_fields": PipedriveEndpointConfig(
+        name="note_fields", path="/api/v1/noteFields", pagination="none", partition_key=None
+    ),
+    # Project fields exist only on v2, keyed by `field_code`.
+    "project_fields": PipedriveEndpointConfig(
+        name="project_fields",
+        path="/api/v2/projectFields",
+        pagination="cursor",
+        primary_keys=["field_code"],
+        partition_key=None,
     ),
     "lead_labels": PipedriveEndpointConfig(
         name="lead_labels", path="/api/v1/leadLabels", pagination="none", partition_key=None
@@ -98,7 +129,8 @@ _SHARED_ENDPOINTS: dict[str, PipedriveEndpointConfig] = {
         path="/api/v2/deals/products",
         pagination="cursor",
         primary_keys=["deal_id", "id"],
-        deal_fan_out="batched",
+        fan_out="batched",
+        parent_id_param="deal_ids",
     ),
     # Changelog rows carry no id or deal reference, so the source adds the deal id it requested.
     "deal_changelog": PipedriveEndpointConfig(
@@ -107,7 +139,28 @@ _SHARED_ENDPOINTS: dict[str, PipedriveEndpointConfig] = {
         pagination="cursor",
         primary_keys=["deal_id", "field_key", "time"],
         partition_key="time",
-        deal_fan_out="per_deal",
+        fan_out="per_parent",
+        parent_id_column="deal_id",
+    ),
+    "deal_participants": PipedriveEndpointConfig(
+        name="deal_participants",
+        path="/api/v1/deals/{id}/participants",
+        pagination="offset",
+        primary_keys=["deal_id", "id"],
+        fan_out="per_parent",
+        parent_id_column="deal_id",
+    ),
+    # A relationship is listed under both of its organizations, with fields relative to the
+    # organization requested, so each row is keyed by that organization.
+    "organization_relationships": PipedriveEndpointConfig(
+        name="organization_relationships",
+        path="/api/v1/organizationRelationships",
+        pagination="none",
+        primary_keys=["org_id", "id"],
+        fan_out="per_parent",
+        parent_paths=ORGANIZATION_PARENT_PATHS,
+        parent_id_param="org_id",
+        parent_id_column="org_id",
     ),
     "mail_threads": PipedriveEndpointConfig(
         name="mail_threads", path=MAIL_THREADS_PATH, pagination="offset", custom_read="mail_threads"

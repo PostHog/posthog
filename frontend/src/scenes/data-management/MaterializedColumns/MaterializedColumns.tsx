@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { IconDatabase, IconPlus, IconRefresh } from '@posthog/icons'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
@@ -17,13 +18,16 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { AutoMaterializedProperties } from './AutoMaterializedProperties'
 import { CreateSlotModal } from './CreateSlotModal'
 import {
-    AutoMaterializedColumn,
     MaterializedColumnSlot,
     MaterializedColumnSlotState,
     materializedColumnsLogic,
 } from './materializedColumnsLogic'
+import { MaterializedColumnsStaffNotice } from './MaterializedColumnsStaffNotice'
+import { QuillMaterializedColumns } from './QuillMaterializedColumns'
+import { STATE_TOOLTIP, dmatColumnName } from './slotDisplay'
 
 export const scene: SceneExport = {
     component: MaterializedColumns,
@@ -32,12 +36,6 @@ export const scene: SceneExport = {
 
 type SlotColumn = LemonTableColumn<MaterializedColumnSlot, keyof MaterializedColumnSlot | undefined>
 
-// DMAT uses a single string-only column pool; HogQL casts to the property's
-// logical type at read time (typed dmat_* columns were removed).
-function dmatColumnName(slotIndex: number): string {
-    return `dmat_string_${slotIndex}`
-}
-
 const STATE_TAG_TYPE: Record<MaterializedColumnSlotState, LemonTagType> = {
     [MaterializedColumnSlotState.PENDING]: 'default',
     [MaterializedColumnSlotState.BACKFILL]: 'warning',
@@ -45,22 +43,12 @@ const STATE_TAG_TYPE: Record<MaterializedColumnSlotState, LemonTagType> = {
     [MaterializedColumnSlotState.ERROR]: 'danger',
 }
 
-const STATE_TOOLTIP: Record<MaterializedColumnSlotState, string> = {
-    [MaterializedColumnSlotState.PENDING]:
-        'Queued. The next weekly backfill cycle will assign a column and start the historical backfill.',
-    [MaterializedColumnSlotState.BACKFILL]:
-        'New events are populating the column; historical events are being backfilled. Queries still use JSON until READY.',
-    [MaterializedColumnSlotState.READY]: 'Active — HogQL reads from the materialized column.',
-    [MaterializedColumnSlotState.ERROR]:
-        'Backfill failed. Click "Retry" to put it back in the queue for the next cycle.',
-}
-
 export function MaterializedColumns(): JSX.Element {
     const { user } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { slots, slotsLoading, slotUsage, showCreateModal, autoMaterializedColumns, autoMaterializedColumnsLoading } =
-        useValues(materializedColumnsLogic)
+    const { slots, slotsLoading, slotUsage, showCreateModal } = useValues(materializedColumnsLogic)
     const { loadSlots, setShowCreateModal, deleteSlot, retrySlot } = useActions(materializedColumnsLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const propertyColumn: SlotColumn = {
         title: 'Property',
@@ -168,11 +156,7 @@ export function MaterializedColumns(): JSX.Element {
                         forceIcon: <IconDatabase />,
                     }}
                 />
-                <p>Only users with staff access can manage materialized columns. Please contact your instance admin.</p>
-                <p>
-                    If you're an admin and don't have access, set <code>is_staff=true</code> for your user on the
-                    PostgreSQL <code>posthog_user</code> table.
-                </p>
+                <MaterializedColumnsStaffNotice />
                 <SceneDivider />
             </SceneContent>
         )
@@ -190,95 +174,78 @@ export function MaterializedColumns(): JSX.Element {
                 }}
             />
 
-            <div className="space-y-4">
-                {currentTeam && slotUsage && (
-                    <>
-                        <div className="bg-bg-light rounded p-4">
-                            <h3 className="text-lg font-semibold mb-2">Slot usage</h3>
-                            <div className="grid grid-cols-2 gap-4">
-                                <div className="space-y-1">
-                                    <div className="font-semibold">Used</div>
-                                    <div className="text-2xl">
-                                        {slotUsage.used_total} / {slotUsage.max_slots_per_team}
+            {todayRailNav ? (
+                <QuillMaterializedColumns />
+            ) : (
+                <div className="space-y-4">
+                    {currentTeam && slotUsage && (
+                        <>
+                            <div className="bg-bg-light rounded p-4">
+                                <h3 className="text-lg font-semibold mb-2">Slot usage</h3>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-1">
+                                        <div className="font-semibold">Used</div>
+                                        <div className="text-2xl">
+                                            {slotUsage.used_total} / {slotUsage.max_slots_per_team}
+                                        </div>
+                                    </div>
+                                    <div className="space-y-1">
+                                        <div className="font-semibold">Available</div>
+                                        <div className="text-2xl">{slotUsage.available}</div>
                                     </div>
                                 </div>
-                                <div className="space-y-1">
-                                    <div className="font-semibold">Available</div>
-                                    <div className="text-2xl">{slotUsage.available}</div>
+                                <div className="text-xs text-muted mt-2">
+                                    Cap is team-wide. Newly assigned properties stay PENDING until the next weekly
+                                    backfill cycle.
                                 </div>
                             </div>
-                            <div className="text-xs text-muted mt-2">
-                                Cap is team-wide. Newly assigned properties stay PENDING until the next weekly backfill
-                                cycle.
-                            </div>
-                        </div>
 
-                        <LemonDivider />
+                            <LemonDivider />
 
-                        <div className="flex justify-between items-center">
-                            <h3 className="text-lg font-semibold">Materialized slots</h3>
-                            <div className="flex gap-2">
-                                <LemonButton
-                                    icon={slotsLoading ? <Spinner /> : <IconRefresh />}
-                                    onClick={loadSlots}
-                                    type="secondary"
-                                    size="small"
-                                >
-                                    Refresh
-                                </LemonButton>
-                                <LemonButton
-                                    icon={<IconPlus />}
-                                    onClick={() => setShowCreateModal(true)}
-                                    type="primary"
-                                    size="small"
-                                    disabledReason={
-                                        slotUsage.available <= 0
-                                            ? `Team is at the cap of ${slotUsage.max_slots_per_team} slots`
-                                            : undefined
-                                    }
-                                >
-                                    Assign slot
-                                </LemonButton>
-                            </div>
-                        </div>
-
-                        <LemonTable
-                            loading={slotsLoading}
-                            columns={columns}
-                            dataSource={slots}
-                            pagination={{ pageSize: 20 }}
-                            emptyState="No materialized slots assigned yet. Click 'Assign slot' to get started."
-                        />
-
-                        <LemonDivider />
-
-                        <div>
-                            <h3 className="text-lg font-semibold mb-2">Auto-materialized properties</h3>
-                            <p className="text-sm text-muted mb-4">
-                                These properties are already automatically materialized by PostHog. You're already
-                                getting all the performance gains we can provide!
-                            </p>
-                            {autoMaterializedColumnsLoading ? (
-                                <div className="flex items-center justify-center py-8">
-                                    <Spinner />
+                            <div className="flex justify-between items-center">
+                                <h3 className="text-lg font-semibold">Materialized slots</h3>
+                                <div className="flex gap-2">
+                                    <LemonButton
+                                        icon={slotsLoading ? <Spinner /> : <IconRefresh />}
+                                        onClick={loadSlots}
+                                        type="secondary"
+                                        size="small"
+                                    >
+                                        Refresh
+                                    </LemonButton>
+                                    <LemonButton
+                                        icon={<IconPlus />}
+                                        onClick={() => setShowCreateModal(true)}
+                                        type="primary"
+                                        size="small"
+                                        disabledReason={
+                                            slotUsage.available <= 0
+                                                ? `Team is at the cap of ${slotUsage.max_slots_per_team} slots`
+                                                : undefined
+                                        }
+                                    >
+                                        Assign slot
+                                    </LemonButton>
                                 </div>
-                            ) : autoMaterializedColumns.length === 0 ? (
-                                <div className="text-muted text-sm">No auto-materialized properties found.</div>
-                            ) : (
-                                <div className="flex flex-wrap gap-2">
-                                    {autoMaterializedColumns.map((column: AutoMaterializedColumn) => (
-                                        <LemonTag key={column.column_name} type="default">
-                                            {column.property_name}
-                                        </LemonTag>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
+                            </div>
 
-                        {showCreateModal && <CreateSlotModal />}
-                    </>
-                )}
-            </div>
+                            <LemonTable
+                                loading={slotsLoading}
+                                columns={columns}
+                                dataSource={slots}
+                                pagination={{ pageSize: 20 }}
+                                emptyState="No materialized slots assigned yet. Click 'Assign slot' to get started."
+                            />
+
+                            <LemonDivider />
+
+                            <AutoMaterializedProperties />
+
+                            {showCreateModal && <CreateSlotModal />}
+                        </>
+                    )}
+                </div>
+            )}
         </SceneContent>
     )
 }

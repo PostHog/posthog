@@ -2103,21 +2103,26 @@ _SOURCE_SHAPES = [
 
 class TestShouldCoalesceTables:
     @pytest.mark.parametrize(
-        "resume_manager,is_webhook,expected",
+        "resume_manager,is_webhook,is_cdc,expected",
         [
             # The case the resolved manager exists for: a resumable source class whose current run
             # reports supports_resume=False resolves to no manager, commits no cursor, and so is free
             # to coalesce. Reading the raw manager here switched coalescing off for every run of every
             # resumable class instead.
-            (None, False, True),
-            (MagicMock(), False, False),
-            (None, True, False),
-            (MagicMock(), True, False),
+            (None, False, False, True),
+            (MagicMock(), False, False, False),
+            (None, True, False, False),
+            (MagicMock(), True, False, False),
+            # A change stream cuts its own batches at the rows the loader fills from Delta; merging
+            # its small DELETE batches is what ran the loader out of memory.
+            (None, False, True, False),
         ],
-        ids=["no_cursor_to_commit", "commits_a_cursor", "webhook", "webhook_and_cursor"],
+        ids=["no_cursor_to_commit", "commits_a_cursor", "webhook", "webhook_and_cursor", "cdc"],
     )
-    def test_coalescing_is_off_exactly_when_a_yield_is_durable(self, resume_manager, is_webhook, expected):
-        assert should_coalesce_tables(resume_manager=resume_manager, is_webhook=is_webhook) is expected
+    def test_coalescing_is_off_when_a_yield_is_durable_or_sized_by_the_source(
+        self, resume_manager, is_webhook, is_cdc, expected
+    ):
+        assert should_coalesce_tables(resume_manager=resume_manager, is_webhook=is_webhook, is_cdc=is_cdc) is expected
 
 
 class TestResumeCursorCommit:

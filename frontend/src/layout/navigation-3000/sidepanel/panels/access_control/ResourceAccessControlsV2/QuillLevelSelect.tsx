@@ -11,6 +11,8 @@ import {
     TooltipTrigger,
 } from '@posthog/quill'
 
+import type { InheritedAccess } from '../accessControlLogic'
+
 export interface QuillLevelSelectOption<T extends string> {
     value: T
     label: string
@@ -28,6 +30,11 @@ interface QuillLevelSelectProps<T extends string> {
     onChange: (value: T | null) => void
     /** Offers "No override" (a null value) in its own group above the options. */
     allowNoOverride?: boolean
+    /**
+     * What applies when there is no rule. Offers "No override" too, labelled with the level it falls back to,
+     * and explains where that level comes from on hover.
+     */
+    inherited?: InheritedAccess | null
     placeholder?: string
     disabledReason?: string
     /** Explains the current value on hover. A disabled select shows its disabledReason instead. */
@@ -47,7 +54,8 @@ export function QuillLevelSelect<T extends string>({
     value,
     options,
     onChange,
-    allowNoOverride,
+    allowNoOverride: allowNoOverrideProp,
+    inherited,
     placeholder = 'Select level…',
     disabledReason,
     tooltip,
@@ -57,6 +65,16 @@ export function QuillLevelSelect<T extends string>({
     id,
     'aria-label': ariaLabel,
 }: QuillLevelSelectProps<T>): JSX.Element {
+    const allowNoOverride = allowNoOverrideProp || !!inherited
+    const noOverrideLabel = inherited ? (
+        <span className="whitespace-nowrap">
+            {NO_OVERRIDE_LABEL} <span className="text-muted-foreground">· {inherited.label}</span>
+        </span>
+    ) : (
+        NO_OVERRIDE_LABEL
+    )
+    const triggerTooltip = value === null && inherited ? inherited.reason : tooltip
+
     const items: SelectEntry<T>[] = [
         ...(allowNoOverride ? [{ value: null, label: NO_OVERRIDE_LABEL }] : []),
         ...options.map((option) => ({ value: option.value, label: option.label })),
@@ -67,7 +85,7 @@ export function QuillLevelSelect<T extends string>({
             {(selected: T | null) =>
                 selected === null ? (
                     allowNoOverride ? (
-                        NO_OVERRIDE_LABEL
+                        noOverrideLabel
                     ) : (
                         <span className="text-muted-foreground">{placeholder}</span>
                     )
@@ -82,7 +100,7 @@ export function QuillLevelSelect<T extends string>({
 
     return (
         <Select<T | null> items={items} value={value} onValueChange={(next) => onChange(next as T | null)}>
-            {tooltip && !disabledReason ? (
+            {triggerTooltip && !disabledReason ? (
                 <Tooltip>
                     <TooltipTrigger
                         delay={0}
@@ -92,7 +110,7 @@ export function QuillLevelSelect<T extends string>({
                     >
                         {valueContent}
                     </TooltipTrigger>
-                    <TooltipContent>{tooltip}</TooltipContent>
+                    <TooltipContent>{triggerTooltip}</TooltipContent>
                 </Tooltip>
             ) : (
                 <SelectTrigger
@@ -109,7 +127,7 @@ export function QuillLevelSelect<T extends string>({
                 {allowNoOverride && (
                     <>
                         <SelectGroup>
-                            <SelectItem value={null}>{NO_OVERRIDE_LABEL}</SelectItem>
+                            <SelectItem value={null}>{noOverrideLabel}</SelectItem>
                         </SelectGroup>
                         <SelectSeparator />
                     </>

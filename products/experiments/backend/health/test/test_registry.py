@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from posthog.schema import MultipleVariantHandling, PropertyOperator
+from posthog.schema import ExperimentWarehouseNativeRowsLeftOut, MultipleVariantHandling, PropertyOperator
 
 from products.experiments.backend.facade.contracts import (
     ExperimentHealthCheckKey,
@@ -350,6 +350,11 @@ class TestEvaluate(TestCase):
                 "bias_risk_waits_for_exposures",
                 {"exposures": NO_EXPOSURES},
                 {Key.BIAS_RISK_MULTIPLE_EXCLUDED: Status.NOT_APPLICABLE},
+            ),
+            (
+                "event_exposures_have_no_rows_left_out",
+                {},
+                {Key.EXPOSURE_ROWS_LEFT_OUT: Status.NOT_APPLICABLE},
             ),
             (
                 "bias_risk_does_not_apply_when_the_split_assigns_nobody",
@@ -952,6 +957,15 @@ class TestEvaluate(TestCase):
             (Key.ZERO_EXPOSURES, {}),
             (Key.UNSERVED_VARIANT_EXPOSURES, {"flag": UNSERVED_CONTROL_FLAG}),
             (Key.STALE_EXPERIMENT, {}),
+            (
+                Key.EXPOSURE_ROWS_LEFT_OUT,
+                {
+                    "warehouse_native_exposures": True,
+                    "exposures": replace(
+                        UNEVEN_SPLIT_TOTALS, rows_left_out=ExperimentWarehouseNativeRowsLeftOut(empty_id=0)
+                    ),
+                },
+            ),
         ]
     )
     def test_a_rule_names_values_that_its_check_reads(self, key: Key, changes: dict[str, Any]) -> None:

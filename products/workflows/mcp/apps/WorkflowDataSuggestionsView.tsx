@@ -117,7 +117,7 @@ function SuggestionCard({
                             </Button>
                         ) : null}
                         {build?.status === 'failed' ? (
-                            <span className="text-sm text-destructive">{build.error}</span>
+                            <span className="text-sm text-destructive-foreground">{build.error}</span>
                         ) : null}
                     </div>
                 )}

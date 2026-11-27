@@ -1,11 +1,14 @@
 import dataclasses
 from collections.abc import Callable, Iterator
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Optional, cast
 from urllib.parse import quote, unquote
 
+from requests import Response
+
 from products.warehouse_sources.sources.knock.settings import (
     ENDPOINTS_CONFIG,
+    INSERTED_AT_GTE_PARAM,
     KNOCK_BASE_URL,
     KNOCK_MANAGEMENT_BASE_URL,
     KNOCK_MANAGEMENT_PAGE_SIZE,
@@ -63,6 +66,48 @@ def _to_iso8601(value: Any) -> str:
     if isinstance(value, datetime):
         return value.isoformat()
     return str(value)
+
+
+def _to_utc_datetime(value: Any) -> datetime | None:
+    if isinstance(value, datetime):
+        parsed = value
+    elif isinstance(value, str):
+        try:
+            parsed = datetime.fromisoformat(value)
+        except ValueError:
+            return None
+    else:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+
+
+class KnockWatermarkPaginator(JSONResponseCursorPaginator):
+    """Stops a newest-first `inserted_at` walk at the first page that reaches below the watermark.
+
+    The server-side `inserted_at.gte` filter bounds the walk too. This stop keeps the walk
+    bounded if Knock ignores the filter, as it ignored the bracket form we sent before.
+    """
+
+    def __init__(self, floor: datetime) -> None:
+        super().__init__(cursor_path="page_info.after", cursor_param="after")
+        self.floor = floor
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        super().update_state(response, data)
+        if not self._has_next_page or not data:
+            return
+        for row in data:
+            inserted_at = _to_utc_datetime(row.get("inserted_at")) if isinstance(row, dict) else None
+            if inserted_at is not None and inserted_at < self.floor:
+                self._has_next_page = False
+                return
+
+
+def _watermark_paginator(config: KnockEndpointConfig, incremental_floor: Any) -> KnockWatermarkPaginator | None:
+    if config.incremental_param != INSERTED_AT_GTE_PARAM:
+        return None
+    floor = _to_utc_datetime(incremental_floor)
+    return KnockWatermarkPaginator(floor) if floor is not None else None
 
 
 def parse_key_list(keys: Optional[str]) -> list[str]:
@@ -128,7 +173,11 @@ def _no_child_window(_incremental_field: str) -> Optional[IncrementalConfig]:
 
 
 def get_resource(
-    endpoint: str, should_use_incremental_field: bool, path: str | None = None, environment: str | None = None
+    endpoint: str,
+    should_use_incremental_field: bool,
+    path: str | None = None,
+    environment: str | None = None,
+    incremental_floor: Any = None,
 ) -> EndpointResource:
     config = ENDPOINTS_CONFIG[endpoint]
 
@@ -157,6 +206,8 @@ def get_resource(
         "data_selector_required": True,
     }
     paginator = _paginator_override(config)
+    if should_use_incremental_field:
+        paginator = _watermark_paginator(config, incremental_floor) or paginator
     if paginator is not None:
         endpoint_config["paginator"] = paginator
 
@@ -188,10 +239,14 @@ def _fanout_items(
     assert fanout is not None
     parent_config = ENDPOINTS_CONFIG[fanout.parent_name]
 
+    parent_endpoint_extra: Endpoint = {"data_selector": parent_config.data_selector, "data_selector_required": True}
     if should_use_incremental_field and endpoint_config.incremental_param and db_incremental_field_last_value:
         fanout = dataclasses.replace(
             fanout, parent_params={endpoint_config.incremental_param: _to_iso8601(db_incremental_field_last_value)}
         )
+        parent_paginator = _watermark_paginator(endpoint_config, db_incremental_field_last_value)
+        if parent_paginator is not None:
+            parent_endpoint_extra["paginator"] = parent_paginator
 
     child_endpoint_extra: Endpoint = {"data_selector": endpoint_config.data_selector, "data_selector_required": True}
     paginator = _paginator_override(endpoint_config)
@@ -212,7 +267,7 @@ def _fanout_items(
         should_use_incremental_field=should_use_incremental_field,
         incremental_field=endpoint_config.default_incremental_field,
         incremental_config_factory=_no_child_window,
-        parent_endpoint_extra={"data_selector": parent_config.data_selector, "data_selector_required": True},
+        parent_endpoint_extra=parent_endpoint_extra,
         child_endpoint_extra=child_endpoint_extra,
         parent_data_map=_percent_encode_id if fanout.parent_name == "users" else None,
         # The size param is shared by the parent and the child. Knock's default page size is
@@ -356,7 +411,12 @@ def knock_source(
             "client": client_config,
             "resource_defaults": {},
             "resources": [
-                get_resource(endpoint, should_use_incremental_field, environment=(environment or "").strip() or None)
+                get_resource(
+                    endpoint,
+                    should_use_incremental_field,
+                    environment=(environment or "").strip() or None,
+                    incremental_floor=db_incremental_field_last_value,
+                )
             ],
         }
 

@@ -306,6 +306,7 @@ async fn offsets_commit_only_after_the_background_task_succeeds() {
         batch_timeout: Duration::from_secs(20),
         max_background_tasks: 1,
         background_task_timeout: Duration::from_secs(5),
+        telemetry: config.consumer_loop.telemetry.clone(),
     };
     let result = run_consumer_loop(
         &mut source,
@@ -509,6 +510,7 @@ async fn shadow_scenario(name: &str) {
         batch_timeout: Duration::from_secs(30),
         max_background_tasks: 1,
         background_task_timeout: Duration::from_secs(30),
+        telemetry: config.consumer_loop.telemetry.clone(),
     };
     let stats = run_consumer_loop(
         &mut source,
