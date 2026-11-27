@@ -5245,6 +5245,8 @@ def test_a_pull_request_link_answers_in_its_thread_instead_of_a_second_card(
         assert replies == [expect_reply]
         assert _link_cards() == []
         assert fakes.FakeSlackIntegration.posted_messages[0]["thread_ts"] == LINK_TS
+    pull_request_reads = [path for path, _ in stamphog_chain.recorder.request_priorities if "/pulls/192" in path]
+    assert (pull_request_reads == []) is (case in ("card_posted", "waiting_for_stamphog"))
     assert BroadcastRequest.objects.for_team(team.id).filter(
         requested_via=BroadcastRequestSource.SLACK_LINK
     ).exists() is (expect_reply is None)

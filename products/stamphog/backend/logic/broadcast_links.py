@@ -23,6 +23,7 @@ from posthog.egress.limiter.policies import Priority
 from posthog.github.requesters import Requester, members_with_resource_access, resolve_requester
 from posthog.integrations import IntegrationManager
 from posthog.models import Team, User
+from posthog.token_bucket import BucketDecision, Budget, consume
 
 from ..facade.enums import BroadcastRequestSource
 from ..models import BroadcastRequest, PullRequest, StamphogRepoConfig
@@ -31,6 +32,7 @@ from .broadcast_requests import (
     BroadcastRequestAsk,
     LinkAsk,
     LinkAskOutcome,
+    earlier_link_ask,
     human_approver,
     open_link_request,
     stamphog_approval_live,
@@ -140,21 +142,15 @@ def broadcast_channel_repositories(slack_team_id: str, channel_id: str) -> froze
     return frozenset(repositories)
 
 
-# One person's link posts that the handler takes in ``_POSTER_WINDOW_SECONDS``. Above it, posts are dropped
-# silently, so a loop of reposts cannot fill the task queue or the GitHub budget of the installation.
-_POSTER_LIMIT = 20
-_POSTER_WINDOW_SECONDS = 10 * 60
+# The budget of the commands product for one person, so a link post costs a poster what a ``stamp`` does.
+# Above it, posts are dropped silently, so a loop of reposts cannot fill the task queue or the GitHub budget.
+_POSTER_BUDGET = Budget(burst=5, per_hour=30)
 
 
 def poster_within_limit(slack_team_id: str, slack_user_id: str) -> bool:
-    """Whether this poster may have another link post taken. True when the cache cannot answer."""
-    key = f"stamphog:broadcast_link_poster:{slack_team_id}:{slack_user_id}"
-    try:
-        cache.add(key, 0, _POSTER_WINDOW_SECONDS)
-        return cache.incr(key) <= _POSTER_LIMIT
-    except Exception:
-        logger.warning("stamphog_broadcast_link_poster_limit_failed", exc_info=True)
-        return True
+    """Whether this poster may have another link post taken. True when Redis cannot answer."""
+    decision = consume(f"stamphog:broadcast_link_poster:{slack_team_id}:{slack_user_id}", _POSTER_BUDGET)
+    return not isinstance(decision, BucketDecision) or decision.allowed
 
 
 def claim_link_post(slack_team_id: str, channel_id: str, message_ts: str) -> bool:
@@ -238,6 +234,18 @@ def open_from_link(post: LinkPost) -> LinkAsk | None:
         logger.info("stamphog_broadcast_link_ignored", slack_channel_id=post.channel_id)
         return None
     repo_config = target.repo_config
+    db = router.db_for_write(BroadcastRequest)
+    # Before GitHub, so a link that people post again and again costs the installation no API calls.
+    earlier = earlier_link_ask(
+        repo_config.team_id,
+        repo_config_id=repo_config.id,
+        pr_number=post.link.pr_number,
+        channel_id=post.channel_id,
+        thread_ts=post.message_ts,
+        using=db,
+    )
+    if earlier is not None:
+        return _answer(post, target, earlier)
     client = StamphogGitHubClient(repo_config.installation_id, lane=Priority.NORMAL)
     try:
         pr = client.get_pr(repo_config.repository, post.link.pr_number)
@@ -257,7 +265,6 @@ def open_from_link(post: LinkPost) -> LinkAsk | None:
         requested_via=BroadcastRequestSource.SLACK_LINK,
         requester_slack_user_id=post.slack_user_id,
     )
-    db = router.db_for_write(BroadcastRequest)
     with transaction.atomic(using=db):
         pull_request = _pull_request_row(repo_config, pr, using=db)
         asked = open_link_request(
@@ -269,6 +276,11 @@ def open_from_link(post: LinkPost) -> LinkAsk | None:
             stamphog_approval_live=stamphog_approval_live(reviews),
             using=db,
         )
+    return _answer(post, target, asked)
+
+
+def _answer(post: LinkPost, target: _LinkTarget, asked: LinkAsk) -> LinkAsk:
+    """Reply in the post's thread when the post opened no request. A request it opened gets its card later."""
     if asked.outcome == LinkAskOutcome.ALREADY_ASKED:
         text = ALREADY_ASKED_WITH_LINK.format(permalink=asked.permalink) if asked.permalink else ALREADY_ASKED
     elif asked.outcome == LinkAskOutcome.STAMPHOG_APPROVED:

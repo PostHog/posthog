@@ -220,6 +220,37 @@ def stamphog_approved_head(pull_request: PullRequest, head_sha: str, *, using: s
     return runs.filter(retained_at_head(head_sha)).exists()
 
 
+def earlier_link_ask(
+    team_id: int, *, repo_config_id: UUID, pr_number: int, channel_id: str, thread_ts: str, using: str
+) -> LinkAsk | None:
+    """What a link post gets when the pull request already has an active request, or None when it has none.
+
+    REPEATED when the request belongs to this post, which is a retry of the task.
+    """
+    existing = (
+        BroadcastRequest.objects.for_team(team_id)
+        .using(using)
+        .filter(
+            pull_request__repo_config_id=repo_config_id,
+            pull_request__pr_number=pr_number,
+            status__in=ACTIVE_BROADCAST_REQUEST_STATUSES,
+        )
+        .first()
+    )
+    if existing is None:
+        return None
+    delivery = (
+        BroadcastRequestDelivery.objects.for_team(team_id)
+        .using(using)
+        .filter(broadcast_request=existing, kind=BroadcastRequestDeliveryKind.SLACK_MESSAGE)
+        .first()
+    )
+    if delivery is not None and (delivery.channel_id, delivery.thread_ts) == (channel_id, thread_ts):
+        return LinkAsk(outcome=LinkAskOutcome.REPEATED, request=existing)
+    permalink = delivery.permalink if delivery and delivery.state == BroadcastRequestDelivery.State.POSTED else ""
+    return LinkAsk(outcome=LinkAskOutcome.ALREADY_ASKED, request=existing, permalink=permalink)
+
+
 def open_link_request(
     pull_request: PullRequest,
     head_sha: str,
@@ -237,23 +268,18 @@ def open_link_request(
     post before the card exists, so a retry for the same post finds its own request.
     """
     team_id = pull_request.team_id
-    active = (
-        BroadcastRequest.objects.for_team(team_id)
-        .using(using)
-        .filter(pull_request=pull_request, status__in=ACTIVE_BROADCAST_REQUEST_STATUSES)
-    )
     deliveries = BroadcastRequestDelivery.objects.for_team(team_id).using(using)
     kind = BroadcastRequestDeliveryKind.SLACK_MESSAGE
 
     def asked_before() -> LinkAsk | None:
-        existing = active.first()
-        if existing is None:
-            return None
-        delivery = deliveries.filter(broadcast_request=existing, kind=kind).first()
-        if delivery is not None and (delivery.channel_id, delivery.thread_ts) == (channel_id, thread_ts):
-            return LinkAsk(outcome=LinkAskOutcome.REPEATED, request=existing)
-        permalink = delivery.permalink if delivery and delivery.state == BroadcastRequestDelivery.State.POSTED else ""
-        return LinkAsk(outcome=LinkAskOutcome.ALREADY_ASKED, request=existing, permalink=permalink)
+        return earlier_link_ask(
+            team_id,
+            repo_config_id=pull_request.repo_config_id,
+            pr_number=pull_request.pr_number,
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            using=using,
+        )
 
     earlier = asked_before()
     if earlier is not None:
