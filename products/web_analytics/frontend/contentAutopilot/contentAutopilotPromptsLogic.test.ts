@@ -274,6 +274,24 @@ describe('contentAutopilotPromptsLogic', () => {
         expect(activeOf()).toBe(true)
     })
 
+    it('keeps a row picked during a page load only when the page that arrives shows it', async () => {
+        logic = contentAutopilotPromptsLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        const current = EXAMPLE_PROMPTS.filter((prompt) => !prompt.archived_at).map((prompt) => prompt.id)
+        let resolvePage: (value: Awaited<ReturnType<typeof aeoPromptsList>>) => void = () => {}
+        mockPromptsList.mockImplementationOnce(() => new Promise((resolve) => (resolvePage = resolve)))
+
+        logic.actions.setPromptsPage(2)
+        // The previous rows still show while the next page loads, so they can be picked.
+        logic.actions.selectPrompts(current.slice(0, 2))
+        const nextPage = EXAMPLE_PROMPTS.filter((prompt) => prompt.id !== current[0])
+        resolvePage({ count: 120, next: null, previous: null, results: nextPage })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.selectedPromptIds).toEqual([current[1]])
+    })
+
     it.each([
         ['closes the dialog and reloads the list and the topics', true],
         ['keeps the dialog open and shows why', false],

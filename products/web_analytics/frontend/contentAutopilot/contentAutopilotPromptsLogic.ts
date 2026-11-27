@@ -375,7 +375,9 @@ export const contentAutopilotPromptsLogic = kea<contentAutopilotPromptsLogicType
                 setShowArchived: (_, { showArchived }) => showArchived,
             },
         ],
-        // Every reload can bring other rows, so a selection only lasts while the same page shows.
+        // Every reload can bring other rows, so a selection only lasts while the same page shows. A row picked
+        // while the reload ran is kept only if it is still on the page that arrives, so Set topic never changes
+        // a prompt the table no longer shows.
         selectedPromptIds: [
             [] as string[],
             {
@@ -384,6 +386,8 @@ export const contentAutopilotPromptsLogic = kea<contentAutopilotPromptsLogicType
                 selectPrompts: (_, { promptIds }) => promptIds,
                 clearPromptSelection: () => [],
                 loadAeoPrompts: () => [],
+                loadAeoPromptsSuccess: (state, { prompts }) =>
+                    state.filter((id) => prompts.results.some((prompt) => prompt.id === id && !prompt.archived_at)),
             },
         ],
         setTopicOpen: [

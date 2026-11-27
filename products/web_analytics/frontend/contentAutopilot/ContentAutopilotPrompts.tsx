@@ -108,7 +108,7 @@ const PromptSearchesLine = ({ prompt }: { prompt: AEOPromptApi }): JSX.Element |
 const LOADING_ROWS = 6
 
 const SelectPageCheckbox = (): JSX.Element => {
-    const { selectablePromptIds, selectedPromptIds } = useValues(contentAutopilotPromptsLogic)
+    const { selectablePromptIds, selectedPromptIds, promptsLoading } = useValues(contentAutopilotPromptsLogic)
     const { selectPrompts, clearPromptSelection } = useActions(contentAutopilotPromptsLogic)
     const all = selectablePromptIds.length > 0 && selectedPromptIds.length === selectablePromptIds.length
     return (
@@ -117,7 +117,13 @@ const SelectPageCheckbox = (): JSX.Element => {
             checked={all}
             indeterminate={!all && selectedPromptIds.length > 0}
             onCheckedChange={(checked) => (checked ? selectPrompts(selectablePromptIds) : clearPromptSelection())}
-            disabledReason={selectablePromptIds.length === 0 ? 'No prompts on this page can be changed' : undefined}
+            disabledReason={
+                promptsLoading
+                    ? 'Wait for the prompts to load'
+                    : selectablePromptIds.length === 0
+                      ? 'No prompts on this page can be changed'
+                      : undefined
+            }
             aria-label="Select every prompt on this page"
             data-attr="content-autopilot-prompts-select-page"
         />
@@ -125,14 +131,20 @@ const SelectPageCheckbox = (): JSX.Element => {
 }
 
 const SelectPromptCheckbox = ({ prompt }: { prompt: AEOPromptApi }): JSX.Element => {
-    const { selectedPromptIds } = useValues(contentAutopilotPromptsLogic)
+    const { selectedPromptIds, promptsLoading } = useValues(contentAutopilotPromptsLogic)
     const { togglePromptSelected } = useActions(contentAutopilotPromptsLogic)
     return (
         <Checkbox
             size="sm"
             checked={selectedPromptIds.includes(prompt.id)}
             onCheckedChange={() => togglePromptSelected(prompt.id)}
-            disabledReason={prompt.archived_at ? 'Restore the prompt to change it' : undefined}
+            disabledReason={
+                promptsLoading
+                    ? 'Wait for the prompts to load'
+                    : prompt.archived_at
+                      ? 'Restore the prompt to change it'
+                      : undefined
+            }
             aria-label={`Select ${prompt.prompt}`}
             data-attr="content-autopilot-prompt-select"
         />
