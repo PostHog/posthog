@@ -2,14 +2,12 @@ from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 
 from products.messaging.backend.facade.clickhouse import (
-    ADD_PROVIDER_MESSAGE_ID_TO_EMAIL_STATUS_EVENTS_DATA_SQL,
-    ADD_PROVIDER_MESSAGE_ID_TO_EMAIL_STATUS_EVENTS_SQL,
     ADD_SCHEDULED_AT_TO_EMAIL_STATUS_EVENTS_DATA_SQL,
     ADD_SCHEDULED_AT_TO_EMAIL_STATUS_EVENTS_SQL,
     DROP_EMAIL_STATUS_EVENTS_MV_SQL,
     DROP_KAFKA_EMAIL_STATUS_EVENTS_TABLE_SQL,
-    EMAIL_STATUS_EVENTS_MV_SQL,
-    KAFKA_EMAIL_STATUS_EVENTS_TABLE_SQL,
+    EMAIL_STATUS_EVENTS_MV_SQL_0380,
+    KAFKA_EMAIL_STATUS_EVENTS_TABLE_SQL_0380,
 )
 
 # The view goes first, so no row is read from the topic until the storage table has the column. The new Kafka
@@ -30,20 +28,6 @@ operations = [
         sharded=False,
         is_alter_on_replicated_table=False,
     ),
-    # The view below selects every column the table family has today, so a database that runs this migration late
-    # also needs the columns of later migrations first. Those migrations skip what is already there.
-    run_sql_with_exceptions(
-        ADD_PROVIDER_MESSAGE_ID_TO_EMAIL_STATUS_EVENTS_DATA_SQL,
-        node_roles=[NodeRole.AUX],
-        sharded=False,
-        is_alter_on_replicated_table=True,
-    ),
-    run_sql_with_exceptions(
-        ADD_PROVIDER_MESSAGE_ID_TO_EMAIL_STATUS_EVENTS_SQL,
-        node_roles=[NodeRole.AUX, NodeRole.DATA],
-        sharded=False,
-        is_alter_on_replicated_table=False,
-    ),
-    run_sql_with_exceptions(KAFKA_EMAIL_STATUS_EVENTS_TABLE_SQL(), node_roles=[NodeRole.AUX]),
-    run_sql_with_exceptions(EMAIL_STATUS_EVENTS_MV_SQL(), node_roles=[NodeRole.AUX]),
+    run_sql_with_exceptions(KAFKA_EMAIL_STATUS_EVENTS_TABLE_SQL_0380(), node_roles=[NodeRole.AUX]),
+    run_sql_with_exceptions(EMAIL_STATUS_EVENTS_MV_SQL_0380(), node_roles=[NodeRole.AUX]),
 ]

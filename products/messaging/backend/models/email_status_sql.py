@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 from django.conf import settings
 
 from posthog.clickhouse.kafka_engine import (
@@ -58,12 +60,15 @@ EMAIL_STATUS_KAFKA_COLUMNS = """
 # The queued row carries the recipient and the workflow, and the sent row the sending domain and the id SES gave
 # the email. Other rows leave them empty. A scheduled row carries the recipient and the time the send is due,
 # which a reschedule moves by writing a new scheduled row.
-EMAIL_STATUS_EVENTS_KAFKA_COLUMNS = f"""
+_EMAIL_STATUS_EVENTS_KAFKA_COLUMNS_0380 = f"""
     {EMAIL_STATUS_KAFKA_COLUMNS},
     recipient String,
     function_id String,
     sending_domain LowCardinality(String),
-    scheduled_at Nullable(DateTime64(6, 'UTC')),
+    scheduled_at Nullable(DateTime64(6, 'UTC'))
+""".strip()
+EMAIL_STATUS_EVENTS_KAFKA_COLUMNS = f"""
+    {_EMAIL_STATUS_EVENTS_KAFKA_COLUMNS_0380},
     provider_message_id String
 """.strip()
 
@@ -128,6 +133,10 @@ KAFKA_EMAIL_STATUS_TABLE_SQL = lambda: _kafka_email_status_table_sql(
 
 KAFKA_EMAIL_STATUS_EVENTS_TABLE_SQL = lambda: _kafka_email_status_table_sql(
     KAFKA_EMAIL_STATUS_EVENTS_TABLE, EMAIL_STATUS_EVENTS_KAFKA_COLUMNS, CONSUMER_GROUP_EMAIL_STATUS_EVENTS
+)
+# 0380 keeps the columns it installed, so a database that runs it late still has a storage table that matches.
+KAFKA_EMAIL_STATUS_EVENTS_TABLE_SQL_0380: Callable[[], str] = lambda: _kafka_email_status_table_sql(
+    KAFKA_EMAIL_STATUS_EVENTS_TABLE, _EMAIL_STATUS_EVENTS_KAFKA_COLUMNS_0380, CONSUMER_GROUP_EMAIL_STATUS_EVENTS
 )
 
 
@@ -196,28 +205,26 @@ ENGINE = {Distributed(data_table=EMAIL_STATUS_EVENTS_DATA_TABLE, cluster=setting
 )
 
 
-EMAIL_STATUS_EVENTS_MV_SQL = lambda: (
-    f"""
+_EMAIL_STATUS_EVENTS_MV_COLUMNS_0380 = (
+    "team_id, message_id, status, version, created_at, status_at, reason, recipient, function_id, sending_domain, "
+    "scheduled_at"
+)
+
+
+def _email_status_events_mv_sql(columns: str) -> str:
+    return f"""
 CREATE MATERIALIZED VIEW IF NOT EXISTS {EMAIL_STATUS_EVENTS_MV_TABLE}
 TO {EMAIL_STATUS_EVENTS_DATA_TABLE}
-AS SELECT
-    team_id,
-    message_id,
-    status,
-    version,
-    created_at,
-    status_at,
-    reason,
-    recipient,
-    function_id,
-    sending_domain,
-    scheduled_at,
-    provider_message_id,
-    _timestamp,
-    _offset,
-    _partition
+AS SELECT {columns}, _timestamp, _offset, _partition
 FROM {KAFKA_EMAIL_STATUS_EVENTS_TABLE}
 """
+
+
+EMAIL_STATUS_EVENTS_MV_SQL = lambda: _email_status_events_mv_sql(
+    f"{_EMAIL_STATUS_EVENTS_MV_COLUMNS_0380}, provider_message_id"
+)
+EMAIL_STATUS_EVENTS_MV_SQL_0380: Callable[[], str] = lambda: _email_status_events_mv_sql(
+    _EMAIL_STATUS_EVENTS_MV_COLUMNS_0380
 )
 
 

@@ -1655,22 +1655,7 @@
   
   CREATE MATERIALIZED VIEW IF NOT EXISTS email_status_events_mv
   TO email_status_events_data
-  AS SELECT
-      team_id,
-      message_id,
-      status,
-      version,
-      created_at,
-      status_at,
-      reason,
-      recipient,
-      function_id,
-      sending_domain,
-      scheduled_at,
-      provider_message_id,
-      _timestamp,
-      _offset,
-      _partition
+  AS SELECT team_id, message_id, status, version, created_at, status_at, reason, recipient, function_id, sending_domain, scheduled_at, provider_message_id, _timestamp, _offset, _partition
   FROM kafka_email_status_events
   
   '''
