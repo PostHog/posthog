@@ -80,6 +80,7 @@ function AccessCell({ row }: CellContext<ProductRow, unknown>): JSX.Element {
             disabledReason={cannotEditReason}
             inherited={inheritedFor(resource, row.original.label.toLowerCase())}
             allowNoOverride
+            className="w-56"
         />
     )
 }
@@ -135,6 +136,7 @@ export function QuillProductAccessRules({
                 <div className="flex">
                     <Button
                         variant="link"
+                        size="inline"
                         onClick={() => setShowAllProducts(!showAllProducts)}
                         data-attr="access-detail-toggle-products"
                     >

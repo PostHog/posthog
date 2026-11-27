@@ -93,6 +93,7 @@ export function QuillProjectAccessItem({
                     // entry doesn't resolve, so "No override" is offered without naming a level
                     allowNoOverride
                     data-attr="access-detail-project-access"
+                    className="w-56"
                 />
             </ItemActions>
         </Item>
