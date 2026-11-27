@@ -85,6 +85,8 @@ pair=()
 [ "$(jq -r '.pair // false' "$SCENARIO_RUN_MANIFEST")" = true ] && pair=(--pair)
 SCENARIO_POOLER_URLS=$(cat "$root/pooler/urls") || exit
 export SCENARIO_POOLER_URLS
+SCENARIO_WRITER_URL=$(cat "$root/writer/url") && [ -n "$SCENARIO_WRITER_URL" ] || exit
+export SCENARIO_WRITER_URL
 (cd "$repo/nodejs" && exec node --import tsx tests/scenarios/main.ts run "$card_id" --profile "$input/runner-profile.yaml" "${pair[@]}") >"$evidence/card.log" 2>&1 &
 card=$!
 copy_live "$SCENARIO_RUN_ID" live.jsonl

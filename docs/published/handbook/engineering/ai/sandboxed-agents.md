@@ -9,20 +9,20 @@ GitHub repositories, and code execution.
 Use them when your feature needs an autonomous agent that reads PostHog data, writes code, and produces artifacts like PRs or reports.
 
 For simpler LLM calls (summarization, translation, classification),
-skip this page and use the LLM gateway (`get_llm_client(product=..., team_id=...)`) directly —
-it's simpler and doesn't need a sandbox.
+skip this page and call the AI gateway directly with a client builder from `posthog/llm/gateway_client.py`, such as `build_openai_client(ai_product=...)`.
+It's simpler and doesn't need a sandbox.
 
 ## When to use what
 
-| Example                                                                                         | Solution                                                   |
-| ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| Signals team building an enrichment pipeline that generates reports from PostHog analytics data | Sandboxed agent (this page)                                |
-| Conversations team building a support agent that queries PostHog and customer documentation     | Sandboxed agent (this page)                                |
-| AI observability summarizing a funnel, generating a natural-language insight title              | LLM gateway via `get_llm_client(product=..., team_id=...)` |
-| Not sure                                                                                        | Ask in `#team-posthog-ai`                                  |
+| Example                                                                                         | Solution                                             |
+| ----------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| Signals team building an enrichment pipeline that generates reports from PostHog analytics data | Sandboxed agent (this page)                          |
+| Conversations team building a support agent that queries PostHog and customer documentation     | Sandboxed agent (this page)                          |
+| AI observability summarizing a funnel, generating a natural-language insight title              | AI gateway via `build_openai_client(ai_product=...)` |
+| Not sure                                                                                        | Ask in `#team-posthog-ai`                            |
 
 **Rule of thumb**: if the LLM needs to _do things_ (query data, read files, create branches, open PRs), use a sandboxed agent.
-If it just needs to _answer a question_ given some context you already have, use the LLM gateway.
+If it just needs to _answer a question_ given some context you already have, use the AI gateway.
 
 ## How it works
 

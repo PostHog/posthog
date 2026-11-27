@@ -1514,9 +1514,8 @@ except ValueError:
     WIZARD_GATEWAY_TOKEN_CAP_USD_BY_PROGRAM = {}
     WIZARD_GATEWAY_TOKEN_CAP_USD_BY_PROGRAM_INVALID = True
 
-# PostHog Desktop on the Go ai-gateway: the URL is the ai-gateway host because gateway.* cannot
-# validate a phe_. A dedicated relay-team phs_ keeps the mint ceiling to desktop tokens. Unset
-# refuses as `unconfigured`, which keeps the app on the legacy gateway.
+# PostHog Desktop on the Go ai-gateway. A dedicated relay-team phs_ keeps the mint ceiling to desktop
+# tokens. Unset refuses mints as `unconfigured`.
 DESKTOP_GATEWAY_URL = get_from_env("DESKTOP_GATEWAY_URL", "")
 DESKTOP_GATEWAY_MINT_KEY = get_from_env("DESKTOP_GATEWAY_MINT_KEY", "")
 DESKTOP_GATEWAY_TOKEN_CAP_USD = get_from_env("DESKTOP_GATEWAY_TOKEN_CAP_USD", "200")
@@ -1656,8 +1655,7 @@ WEB_ANALYTICS_PATH_CLEANING_SUGGESTIONS_TEAM_IDS: list[int] = [
     )
 ]
 
-# Model the path-cleaning-suggestion job sends to the LLM gateway. Must be in the `web_analytics`
-# product allowlist in services/llm-gateway/src/llm_gateway/products/config.py.
+# Model the path-cleaning-suggestion job sends to the AI gateway.
 WEB_ANALYTICS_PATH_CLEANING_SUGGESTIONS_MODEL: str = get_from_env(
     "WEB_ANALYTICS_PATH_CLEANING_SUGGESTIONS_MODEL", "claude-haiku-4-5"
 )
