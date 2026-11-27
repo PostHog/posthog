@@ -302,7 +302,9 @@ export const contentAutopilotBrandDetailLogic = kea<contentAutopilotBrandDetailL
         // Each brand has its own URL, so a brand can be linked to and the back button closes it.
         openBrandDetail: ({ brandId }) => {
             const path = urls.webAnalyticsContentAutopilotBrand(brandId)
-            return router.values.location.pathname.endsWith(path) ? undefined : [path, router.values.searchParams]
+            // The workspace tab is not part of the brand page, and going back sets it to the rankings.
+            const { tab: _, ...searchParams } = router.values.searchParams
+            return router.values.location.pathname.endsWith(path) ? undefined : [path, searchParams]
         },
         closeBrandDetail: () =>
             values.brandId === null && router.values.location.pathname.includes('/web/ai-visibility/brands/')
