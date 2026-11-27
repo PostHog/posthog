@@ -1,4 +1,5 @@
 import { spawnSync } from 'child_process'
+import { createHash } from 'crypto'
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'fs'
 import os from 'os'
 import path from 'path'
@@ -67,6 +68,41 @@ async function onPostgres<T>(url: string, work: (client: Client) => Promise<T>):
         await client.end()
     }
 }
+
+it('refuses an alert bundle when its shipped rules do not match the manifest', () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), 'scenario-alert-prepare-'))
+    try {
+        const input = path.join(root, 'input')
+        const bin = path.join(root, 'bin')
+        const digest = (text: string): string => createHash('sha256').update(text).digest('hex')
+        mkdirSync(bin)
+        mkdirSync(path.join(input, 'alerts'), { recursive: true })
+        writeFileSync(path.join(bin, 'aws'), '#!/bin/sh\n[ "$1 $2" = "s3 cp" ]\n', { mode: 0o755 })
+        writeFileSync(path.join(input, 'alerts/rules.yaml'), 'groups: []\n')
+        writeFileSync(path.join(input, 'alerts/labels.yaml'), 'labels: {}\n')
+        writeFileSync(
+            path.join(input, 'manifest.json'),
+            JSON.stringify({
+                inputs: { 'alerts/rules.yaml': digest('groups: []'), 'alerts/labels.yaml': digest('labels: {}\n') },
+            })
+        )
+
+        const result = spawnSync('bash', [SCRIPT], {
+            env: {
+                ...process.env,
+                PATH: `${bin}:${process.env.PATH}`,
+                SCENARIO_HOST_ROOT: root,
+                SCENARIO_RUN_ID: RUN_ID,
+                SCENARIO_EVIDENCE_BUCKET: BUCKET,
+            },
+        })
+
+        expect(result.status).toBe(1)
+        expect(readFileSync(path.join(root, 'prepare.log'), 'utf8')).toContain('alerts/rules.yaml: FAILED')
+    } finally {
+        rmSync(root, { recursive: true, force: true })
+    }
+})
 
 describe('host-prepare.sh', () => {
     let dir: string

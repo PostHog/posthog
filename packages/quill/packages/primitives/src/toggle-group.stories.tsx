@@ -91,3 +91,34 @@ export const DisabledReason: Story = {
         )
     },
 } satisfies Story
+
+export const SingleSelect: Story = {
+    render: () => {
+        const rows = [
+            { label: 'Endpoint', value: 'read' },
+            { label: 'Person', value: 'write', readDisabledReason: 'Write includes read' },
+            { label: 'Feature flag', value: 'none' },
+        ]
+        return (
+            <div className="flex w-80 flex-col gap-2">
+                {rows.map((row) => (
+                    <div key={row.label} className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-semibold">{row.label}</span>
+                        <ToggleGroup
+                            variant="outline"
+                            size="sm"
+                            aria-label={`${row.label} access`}
+                            defaultValue={[row.value]}
+                        >
+                            <ToggleGroupItem value="none">No access</ToggleGroupItem>
+                            <ToggleGroupItem value="read" disabledReason={row.readDisabledReason}>
+                                Read
+                            </ToggleGroupItem>
+                            <ToggleGroupItem value="write">Write</ToggleGroupItem>
+                        </ToggleGroup>
+                    </div>
+                ))}
+            </div>
+        )
+    },
+} satisfies Story

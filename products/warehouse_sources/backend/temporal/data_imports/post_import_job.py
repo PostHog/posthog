@@ -156,11 +156,19 @@ def _enrichment_gate(gate: PostImportGateContext) -> bool:
     # Same gates create_external_data_job_model_activity applies for V2, but evaluated
     # post-register: columns this sync added are already visible, so enrichment picks
     # them up now instead of on the next sync. Both children re-check and are idempotent.
-    return gate.ai_data_processing_approved and _enrichment_pending(gate.team_id, gate.schema.table, gate.schema)
+    table = gate.schema.table
+    # Post-register, a missing table means this sync wrote nothing, so the child would only skip.
+    if table is None:
+        return False
+    return gate.ai_data_processing_approved and _enrichment_pending(gate.team_id, table, gate.schema)
 
 
 def _statistics_gate(gate: PostImportGateContext) -> bool:
-    return bool(gate.team is not None and _statistics_stale(gate.team_id, gate.schema.table))
+    table = gate.schema.table
+    if gate.team is None or table is None:
+        return False
+    # A `None` row count predates row counting, so it counts as written.
+    return _statistics_stale(gate.team_id, table, wrote_rows=gate.job.rows_synced != 0)
 
 
 def _ducklake_copy_gate(gate: PostImportGateContext) -> bool:

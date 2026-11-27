@@ -1,8 +1,9 @@
-import { Meta, StoryObj } from '@storybook/react'
-import { within } from '@testing-library/dom'
+import { Decorator, Meta, StoryObj } from '@storybook/react'
+import { waitFor, within } from '@testing-library/dom'
 import { BindLogic } from 'kea'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { QuillSurfaceContext } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { urls } from 'scenes/urls'
 import { MarketingAnalyticsFilters } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/MarketingAnalyticsFilters/MarketingAnalyticsFilters'
 import { MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
@@ -15,6 +16,7 @@ import {
     MarketingAnalyticsRecommendationResolutionState,
     MarketingAnalyticsRecommendationCpa,
     MarketingAnalyticsRecommendationCpaBenchmarkSource,
+    MarketingAnalyticsRecommendationsQueryResponse,
 } from '~/queries/schema/schema-general'
 
 import IconGoogleAds from 'public/services/google-ads.png'
@@ -285,6 +287,20 @@ const RESULTS: MarketingAnalyticsRecommendation[] = [
 
 const QUERY_URL = '/api/environments/:team_id/query/MarketingAnalyticsRecommendationsQuery/'
 
+function respondWith(response: Partial<MarketingAnalyticsRecommendationsQueryResponse>): Mocks['post'] {
+    return {
+        [QUERY_URL]: () => [
+            200,
+            {
+                results: RESULTS,
+                disclaimer: DISCLAIMER,
+                conversionSource: { kind: 'google_ads', goalNames: [] },
+                ...response,
+            },
+        ],
+    }
+}
+
 const MOCKS: Mocks = {
     delete: { '/api/projects/:team_id/query/:query_id/': [204] },
     get: {
@@ -304,16 +320,19 @@ const MOCKS: Mocks = {
             previous: null,
         },
     },
-    post: {
-        [QUERY_URL]: () => [200, { results: RESULTS, disclaimer: DISCLAIMER }],
-    },
+    post: respondWith({}),
 }
+
+const INTRO_SEEN_KEY = 'products.marketingAnalytics.recommendationsLogic.introSeen'
+const resetIntro = (): void => localStorage.removeItem(INTRO_SEEN_KEY)
 
 const meta: Meta<typeof RecommendationsSection> = {
     title: 'Scenes-App/Marketing Analytics/Recommendations',
     component: RecommendationsSection,
     beforeEach: () => {
         localStorage.removeItem('997__.scenes.webAnalytics.marketingAnalyticsLogic.integrationFilter')
+        // Opening the recommendations in one story marks the intro as seen for the next ones.
+        localStorage.setItem(INTRO_SEEN_KEY, 'true')
         const originalNow = performance.now
         performance.now = () => 0
         return () => {
@@ -348,7 +367,10 @@ const meta: Meta<typeof RecommendationsSection> = {
 export default meta
 type Story = StoryObj<typeof meta>
 
-export const Summary: Story = {}
+export const Summary: Story = {
+    beforeEach: resetIntro,
+    parameters: { testOptions: { waitForSelector: '[data-attr="marketing-recommendations-intro-open"]' } },
+}
 
 export const Loading: Story = {
     parameters: {
@@ -368,6 +390,46 @@ async function openRecommendations(canvasElement: HTMLElement): Promise<void> {
 export const Modal: Story = {
     play: async ({ canvasElement }) => {
         await openRecommendations(canvasElement)
+    },
+}
+
+const withQuillSurface: Decorator = (Story) => (
+    <QuillSurfaceContext.Provider value={true}>
+        <Story />
+    </QuillSurfaceContext.Provider>
+)
+
+const QUILL_FEATURE_FLAGS = [
+    FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS,
+    FEATURE_FLAGS.MARKETING_ANALYTICS_RECOMMENDATIONS,
+    FEATURE_FLAGS.TODAY_RAIL_NAV,
+]
+
+export const SummaryQuill: Story = {
+    beforeEach: resetIntro,
+    decorators: [withQuillSurface],
+    parameters: {
+        featureFlags: QUILL_FEATURE_FLAGS,
+        testOptions: { waitForSelector: '[data-attr="marketing-recommendations-intro-open"]' },
+    },
+}
+
+export const ModalQuill: Story = {
+    beforeEach: resetIntro,
+    decorators: [withQuillSurface],
+    parameters: { featureFlags: QUILL_FEATURE_FLAGS },
+    play: async ({ canvasElement }) => {
+        const find = (selector: string): Promise<HTMLElement> =>
+            waitFor(() => {
+                const element = canvasElement.ownerDocument.querySelector<HTMLElement>(selector)
+                if (!element) {
+                    throw new Error(`Missing ${selector}`)
+                }
+                return element
+            })
+        await userEvent.click(await find('[data-attr="marketing-recommendations-open"]'))
+        // The intro popover is a dialog too, so wait for the rule list that only the modal has.
+        await find('[data-attr^="marketing-recommendations-group-"]')
     },
 }
 
@@ -420,6 +482,21 @@ const SOURCES_WITH_GAPS = [
 
 const MOCKS_WITH_GAPS: Mocks = {
     ...MOCKS,
+    post: respondWith({
+        dataGaps: [
+            {
+                kind: 'posthog_conversions_not_ready',
+                message:
+                    'PostHog conversions for this period are still being computed, so CPAs count the conversions Google Ads reports. Check again in a few minutes.',
+            },
+            {
+                kind: 'conversion_action_tables_not_synced',
+                campaignTable: 'example.campaign',
+                message:
+                    'CPAs count the primary conversion actions, because campaign_conversion_action_stats is not synced. Sync it to count only the selected conversion actions.',
+            },
+        ],
+    }),
     get: {
         ...MOCKS.get,
         '/api/environments/:team_id/external_data_sources/': {
@@ -448,6 +525,47 @@ export const MissingTablesInModal: Story = {
     },
 }
 
+export const PostHogConversionGapsInModal: Story = {
+    parameters: {
+        featureFlags: [
+            FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS,
+            FEATURE_FLAGS.MARKETING_ANALYTICS_RECOMMENDATIONS,
+            FEATURE_FLAGS.MARKETING_ANALYTICS_SETUP,
+            FEATURE_FLAGS.MARKETING_ANALYTICS_UTM_AUDIT,
+        ],
+        msw: {
+            mocks: {
+                ...MOCKS,
+                post: respondWith({
+                    conversionSource: { kind: 'posthog', goalNames: ['Sign ups', 'Purchases'] },
+                    dataGaps: [
+                        {
+                            kind: 'posthog_conversion_goals_unusable',
+                            message:
+                                'CPAs count only the marked goals that can be counted: Demo requests has no event or action to count.',
+                        },
+                        {
+                            kind: 'posthog_campaigns_unmatched',
+                            message:
+                                'PostHog conversions from 2 utm_campaign values match no Google Ads campaign, so campaigns without PostHog conversions are not judged by CPA. The UTM audit lists them; map each one to its campaign in campaign name mappings.',
+                        },
+                    ],
+                }),
+            },
+        },
+    },
+    play: async ({ canvasElement }) => {
+        await openRecommendations(canvasElement)
+        // The section has a button with the same label, so the modal's is found by its data-attr.
+        const modal = within(canvasElement.ownerDocument.body)
+        await modal.findByText('CPAs from your PostHog goals: Sign ups, Purchases')
+        const modalButton = canvasElement.ownerDocument.querySelector<HTMLElement>(
+            '[data-attr="marketing-recommendations-modal-data-gaps"]'
+        )
+        await userEvent.click(modalButton as HTMLElement)
+    },
+}
+
 function withResolved(
     state: (
         row: MarketingAnalyticsRecommendation
@@ -456,7 +574,7 @@ function withResolved(
     const results = RESULTS.map((row) => {
         const resolved = state(row)
         return resolved === 'detected'
-            ? { ...row, detectedChange: 'negative_keyword' }
+            ? { ...row, detectedChange: 'negative_keyword' as const }
             : resolved
               ? {
                     ...row,
@@ -470,9 +588,7 @@ function withResolved(
     })
     return {
         ...MOCKS,
-        post: {
-            [QUERY_URL]: () => [200, { results, disclaimer: DISCLAIMER }],
-        },
+        post: respondWith({ results }),
     }
 }
 
@@ -497,7 +613,7 @@ export const ResolvedInModal: Story = {
         await openRecommendations(canvasElement)
         const modal = within(canvasElement.ownerDocument.body)
         await userEvent.click(await modal.findByText('Review 3 dismissed or applied'))
-        await userEvent.click(await modal.findByText('Spend without conversions', { selector: 'button *' }))
+        await modal.findByText('Dismissed and applied')
     },
 }
 

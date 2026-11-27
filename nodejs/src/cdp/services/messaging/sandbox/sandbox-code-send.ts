@@ -32,8 +32,17 @@ export function senderOfCodeSend(
     if (integration.team_id !== teamId) {
         return { kind: 'refused', refusal: 'sandbox_sender_unavailable' }
     }
-    const { cc, bcc, replyTo, from, attachments, thread } = send
-    if (cc?.length || bcc?.length || replyTo?.length || attachments?.length || thread || from?.email || from?.name) {
+    const { cc, bcc, replyTo, from, attachments, thread, category } = send
+    if (
+        cc?.length ||
+        bcc?.length ||
+        replyTo?.length ||
+        attachments?.length ||
+        thread ||
+        from?.email ||
+        from?.name ||
+        category?.type === 'marketing'
+    ) {
         return { kind: 'refused', refusal: 'sandbox_fields_unsupported' }
     }
     return { kind: 'email_sandbox' }

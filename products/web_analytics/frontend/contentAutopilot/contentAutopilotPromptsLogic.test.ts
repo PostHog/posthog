@@ -47,7 +47,9 @@ const setupContext = (activePrompts: number, maxActivePrompts: number): AEOSetup
     ai_data_processing_approved: true,
     first_run_available: true,
     prompt_target: 20,
+    prompt_count_max: 50,
     website_days: 7,
+    first_run_checks: [],
     engines: [],
 })
 

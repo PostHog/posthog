@@ -1,18 +1,29 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonBanner, lemonToast } from '@posthog/lemon-ui'
+import { Item, ItemContent, ItemDescription } from '@posthog/quill'
 
 import api from 'lib/api'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { DataWarehouseManagedViewsetCard } from 'scenes/data-management/managed-viewsets/DataWarehouseManagedViewsetCard'
 import { DataWarehouseManagedViewsetImpactModal } from 'scenes/data-management/managed-viewsets/DataWarehouseManagedViewsetImpactModal'
 import { disableDataWarehouseManagedViewsetModalLogic } from 'scenes/data-management/managed-viewsets/disableDataWarehouseManagedViewsetModalLogic'
+import { QuillDataWarehouseManagedViewsetCard } from 'scenes/data-management/managed-viewsets/QuillDataWarehouseManagedViewsetCard'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { AccessControlResourceType } from '~/types'
 
+const DISABLED_MESSAGE = (
+    <>
+        <strong>Revenue analytics is currently disabled.</strong> Enable it below to start configuring revenue sources
+        and events.
+    </>
+)
+
 export function DataWarehouseManagedViewsetConfiguration(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { loadCurrentTeam } = useActions(teamLogic)
+    const quillSurface = useQuillSurface()
     const { views } = useValues(disableDataWarehouseManagedViewsetModalLogic({ type: 'ManagedViewsetConfiguration' }))
 
     const isEnabled = currentTeam?.managed_viewsets?.['revenue_analytics'] ?? false
@@ -30,20 +41,26 @@ export function DataWarehouseManagedViewsetConfiguration(): JSX.Element {
         }
     }
 
+    const ViewsetCard = quillSurface ? QuillDataWarehouseManagedViewsetCard : DataWarehouseManagedViewsetCard
+
     return (
         <>
-            {!isEnabled && (
-                <LemonBanner type="warning">
-                    <div className="flex items-center gap-2">
-                        <span>
-                            <strong>Revenue analytics is currently disabled.</strong> Enable it below to start
-                            configuring revenue sources and events.
-                        </span>
-                    </div>
-                </LemonBanner>
-            )}
+            {!isEnabled &&
+                (quillSurface ? (
+                    <Item tone="warning" size="sm">
+                        <ItemContent>
+                            <ItemDescription>{DISABLED_MESSAGE}</ItemDescription>
+                        </ItemContent>
+                    </Item>
+                ) : (
+                    <LemonBanner type="warning">
+                        <div className="flex items-center gap-2">
+                            <span>{DISABLED_MESSAGE}</span>
+                        </div>
+                    </LemonBanner>
+                ))}
 
-            <DataWarehouseManagedViewsetCard
+            <ViewsetCard
                 type="ManagedViewsetConfiguration"
                 kind="revenue_analytics"
                 displayConfigLink={false}

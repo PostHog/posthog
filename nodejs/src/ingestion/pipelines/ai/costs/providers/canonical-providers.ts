@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-11-25 10:05:18 UTC
+// Generated at: 2026-11-26 20:01:53 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -77,12 +77,14 @@ export type CanonicalProvider =
     | 'deepinfra-us'
     | 'deepseek'
     | 'digitalocean'
+    | 'doubleword-mxfp4'
     | 'doubleword-nvfp4'
     | 'featherless'
     | 'featherless-fp4'
     | 'featherless-fp8'
     | 'fireworks'
     | 'fireworks-fast'
+    | 'fireworks-flex'
     | 'fireworks-spot'
     | 'fireworks-us'
     | 'friendli'
@@ -156,7 +158,6 @@ export type CanonicalProvider =
     | 'nextbit-fp4'
     | 'nextbit-fp8'
     | 'nextbit-int4'
-    | 'novita-bf16'
     | 'novita-fp8'
     | 'nvidia'
     | 'nvidia-bf16'
@@ -179,7 +180,6 @@ export type CanonicalProvider =
     | 'pareto-inference-mxfp4'
     | 'pareto-inference-nvfp4'
     | 'particle-ai-nvfp4'
-    | 'particle-ai-nvfp4-flex'
     | 'particle-ai-us'
     | 'particle-ai-us-flex'
     | 'pearl-research-fp8'
@@ -220,13 +220,13 @@ export type CanonicalProvider =
     | 'streamlake-fp8'
     | 'tencent-fp4'
     | 'tencent-fp8'
+    | 'tenstorrent-fast'
     | 'tenstorrent-fp8'
     | 'together'
     | 'together-fast'
     | 'together-us'
     | 'typesafe'
     | 'typesafe-zdr'
-    | 'unbiased'
     | 'upstage'
     | 'upstage-zdr'
     | 'venice'

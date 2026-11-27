@@ -134,6 +134,9 @@ class SendGridClient:
                 query["page_token"] = token
             body = self.get(path, query)
             data = body.get("result") if isinstance(body, dict) else None
+            # An account with nothing of a kind, such as no Single Sends, gets `"result": null` instead of `[]`.
+            if data is None and isinstance(body, dict) and "result" in body:
+                data = []
             if not isinstance(data, list):
                 raise SendGridAPIError(f"SendGrid sent an unexpected response for {path}.")
             next_token = _next_page_token(body)

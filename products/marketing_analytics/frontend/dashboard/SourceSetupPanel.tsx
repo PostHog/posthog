@@ -7,6 +7,7 @@ import { LemonButton, LemonCard, LemonCollapse, LemonTag, Spinner } from '@posth
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 import type { Suggestion } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/setupPlanLogic'
@@ -14,6 +15,8 @@ import { nativeSourceDisplayLabel } from 'scenes/web-analytics/tabs/marketing-an
 
 import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
 
+import { marketingSourceConnectUrl } from '../components/marketingSourceConnectUrl'
+import { QuillSourceSetupPanel } from './QuillSourceSetupPanel'
 import { expandedSourceTypes, sourceConnectionGroupsLogic } from './sourceConnectionGroupsLogic'
 
 const HedgehogMoney = pngHoggie(moneyPng)
@@ -22,6 +25,9 @@ type SourceConnectionStatus = 'Connected' | 'Syncing' | 'Needs attention' | 'Syn
 
 const needsAction = (status: SourceConnectionStatus): boolean =>
     status === 'Needs attention' || status === 'Sync failed'
+
+const manageSourceUrl = (connection: { id: string; manageUrl?: string }): string =>
+    connection.manageUrl ?? urls.dataWarehouseSource(`managed-${connection.id}`)
 
 export interface SourceSetupPanelProps {
     state: 'checking' | 'scanning' | 'suggestions' | 'empty' | 'error' | 'waiting' | 'dismissed'
@@ -81,6 +87,7 @@ export function SourceSetupPanel({
     const { expansion } = useValues(groupsLogic)
     const expandedGroups = expandedSourceTypes(expansion, sourceTypes, sourceTypesNeedingAction)
     const { setExpandedSourceTypes } = useActions(groupsLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const hasConnectionsToFix = connections.some((connection) => needsAction(connection.status))
     const busy = state === 'checking' || state === 'scanning'
     const title =
@@ -118,6 +125,66 @@ export function SourceSetupPanel({
                           : 'Spend and ad performance will appear after the first sync finishes. You can connect other platforms while you wait.'
                       : `We found campaign tracking from ${suggestions.length} ${suggestions.length === 1 ? 'platform' : 'platforms'} in your latest event scan.`)
 
+    if (todayRailNav) {
+        return (
+            <QuillSourceSetupPanel
+                title={title}
+                description={description}
+                busy={busy}
+                compact={compact}
+                showScanBadge={!compact && (state === 'scanning' || state === 'suggestions')}
+                showIllustration={showIllustration}
+                showEmptyHint={state === 'empty'}
+                showIntro={!busy && !compact}
+                showOrganicKeywordsIntro={!!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS]}
+                showFirstSyncNote={!busy && !compact && state !== 'error' && state !== 'waiting'}
+                showBackgroundImportNote={
+                    state === 'waiting' && connections.some((connection) => !needsAction(connection.status))
+                }
+                headerAction={headerAction}
+                footer={footer}
+                groups={sourceTypes.map((sourceType) => ({
+                    sourceType,
+                    label: nativeSourceDisplayLabel(sourceType),
+                    connections: connections
+                        .filter((connection) => connection.sourceType === sourceType)
+                        .map((connection) => ({
+                            id: connection.id,
+                            name: connection.name,
+                            status: connection.status,
+                            detail: connection.detail,
+                            action: connection.action,
+                            manageUrl: needsAction(connection.status) ? manageSourceUrl(connection) : null,
+                        })),
+                }))}
+                expandedGroups={expandedGroups}
+                onExpandedGroupsChange={(expanded) => setExpandedSourceTypes(expanded, sourceTypes)}
+                manageSourceDataAttr={manageSourceDataAttr}
+                suggestions={suggestions.map((suggestion) => ({
+                    id: suggestion.id,
+                    sourceType: suggestion.apply?.kind as string,
+                    name: suggestion.title.replace(/^Connect /, ''),
+                    found: suggestion.event_volume
+                        ? `Found in ${suggestion.event_volume} events`
+                        : 'Found in campaign tracking',
+                    evidence: suggestion.evidence,
+                    connectUrl:
+                        suggestion.apply?.op === 'open_source_wizard' &&
+                        typeof suggestion.apply.kind === 'string' &&
+                        suggestion.apply.kind.length > 0
+                            ? marketingSourceConnectUrl(suggestion.apply.kind, 'marketing_analytics_source_setup_panel')
+                            : null,
+                }))}
+                onDismiss={onDismiss}
+                onRestore={state === 'dismissed' ? onRestore : undefined}
+                rescanLabel={state === 'error' ? 'Try again' : 'Scan again'}
+                onRescan={busy ? undefined : onRetry}
+                rescanLoading={rescanLoading}
+                rescanDisabledReason={rescanDisabledReason}
+            />
+        )
+    }
+
     const rescanButton =
         !busy && onRetry ? (
             <LemonButton
@@ -132,7 +199,7 @@ export function SourceSetupPanel({
         ) : null
 
     return (
-        <LemonCard hoverEffect={false} className="w-full mt-6 p-0 overflow-hidden">
+        <LemonCard hoverEffect={false} className="w-full p-0 overflow-hidden">
             <div className={compact ? 'p-4 space-y-3' : 'p-6 space-y-5'}>
                 {!compact && (state === 'scanning' || state === 'suggestions') && (
                     <LemonTag type="muted">7-day event scan</LemonTag>
@@ -221,11 +288,7 @@ export function SourceSetupPanel({
                                                         <LemonButton
                                                             type="secondary"
                                                             size="small"
-                                                            to={
-                                                                connection.manageUrl ??
-                                                                urls.dataWarehouseSource(`managed-${connection.id}`)
-                                                            }
-                                                            targetBlank
+                                                            to={manageSourceUrl(connection)}
                                                             data-attr={manageSourceDataAttr}
                                                         >
                                                             Manage source
@@ -265,14 +328,12 @@ export function SourceSetupPanel({
                                             typeof suggestion.apply.kind === 'string' &&
                                             suggestion.apply.kind.length > 0 && (
                                                 <LemonButton
-                                                    type="primary"
+                                                    type="secondary"
                                                     size="small"
-                                                    to={urls.dataWarehouseSourceNew(
+                                                    to={marketingSourceConnectUrl(
                                                         suggestion.apply.kind,
-                                                        urls.marketingAnalyticsApp(),
-                                                        'Marketing analytics'
+                                                        'marketing_analytics_source_setup_panel'
                                                     )}
-                                                    targetBlank
                                                     data-attr="marketing-onboarding-connect-source"
                                                 >
                                                     Connect

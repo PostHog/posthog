@@ -41,6 +41,23 @@ _OUTBOUND_URL_ATTRIBUTE_KEYS = ("http.url", "url.full")
 _ALWAYS_SAMPLED_ROOT_PATHS = re.compile(r"^/?api/(environments|projects)/\d+/dashboard_v2/query_batch/?$")
 
 
+def _request_path(attributes: Attributes) -> str | None:
+    # OTEL_SEMCONV_STABILITY_OPT_IN=http sends `url.path`. Old semconv sends `http.target` only when the WSGI
+    # server sets RAW_URI or REQUEST_URI. Granian sets neither, so its requests carry the full URL in `http.url`.
+    if not attributes:
+        return None
+    path = attributes.get("url.path") or attributes.get("http.target")
+    if isinstance(path, str):
+        return path.partition("?")[0]
+    url = attributes.get("http.url")
+    if isinstance(url, str):
+        try:
+            return urlsplit(url).path
+        except ValueError:
+            return None
+    return None
+
+
 class _AlwaysSampleRoutesSampler(Sampler):
     """Samples every server span entering through a few low-volume routes and leaves all other decisions to `delegate`."""
 
@@ -57,12 +74,11 @@ class _AlwaysSampleRoutesSampler(Sampler):
         links: Sequence[Link] | None = None,
         trace_state: TraceState | None = None,
     ) -> SamplingResult:
-        # Old HTTP semconv sends `http.target` (path and query), OTEL_SEMCONV_STABILITY_OPT_IN=http sends `url.path`.
         # A remote parent comes from the caller's `traceparent`, so its sampled flag must not switch tracing off here.
         parent = trace.get_current_span(parent_context).get_span_context()
         if attributes and (not parent.is_valid or parent.is_remote):
-            path = attributes.get("url.path") or attributes.get("http.target")
-            if isinstance(path, str) and _ALWAYS_SAMPLED_ROOT_PATHS.match(path.partition("?")[0]):
+            path = _request_path(attributes)
+            if path is not None and _ALWAYS_SAMPLED_ROOT_PATHS.match(path):
                 return SamplingResult(Decision.RECORD_AND_SAMPLE, attributes)
         return self._delegate.should_sample(parent_context, trace_id, name, kind, attributes, links, trace_state)
 

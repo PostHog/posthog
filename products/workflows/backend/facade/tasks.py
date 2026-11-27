@@ -13,9 +13,13 @@ from products.workflows.backend.tasks.ses_account_reputation import (
 )
 from products.workflows.backend.tasks.ses_sender_health import check_ses_sender_health
 from products.workflows.backend.tasks.ses_tenant_state import reconcile_ses_tenant_states
-from products.workflows.backend.tasks.workflow_email_health import sweep_workflow_email_deliverability
+from products.workflows.backend.tasks.workflow_email_health import (
+    capture_workflow_first_real_sends,
+    sweep_workflow_email_deliverability,
+)
 
 __all__ = [
+    "capture_workflow_first_real_sends",
     "check_ses_sender_health",
     "resume_batch_jobs_waiting_for_realtime_cohort",
     "poll_ses_account_enforcement",

@@ -990,7 +990,15 @@ def team_deleted(sender, instance: Team, **kwargs) -> None:
     from products.feature_flags.backend.tasks import clear_team_definitions_cache
 
     team_id = instance.id
-    transaction.on_commit(lambda: clear_team_definitions_cache.delay(team_id))
+
+    def enqueue_clear() -> None:
+        try:
+            clear_team_definitions_cache.delay(team_id)
+        except Exception:
+            # A broker failure must not fail the delete. The daily cleanup then deletes the entry.
+            logger.exception("Failed to enqueue definitions cache clear for deleted team", team_id=team_id)
+
+    transaction.on_commit(enqueue_clear)
 
 
 def experiment_changed(sender: Any, change: ExperimentChanged, **kwargs: Any) -> None:

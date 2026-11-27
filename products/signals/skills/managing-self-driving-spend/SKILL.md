@@ -7,13 +7,16 @@ description: >
   down by signal source, scout, and day, links it to the reports it produced, recommends changes
   ranked by savings, and applies them only after the user confirms each one. Trigger terms:
   inbox spend, self-driving cost, scout cost, why is my bill high, reduce inbox spend, billing
-  limit, daily report limit, turn off a source, pause a scout, scout pre-check.
+  limit, daily report limit, turn off a source, pause a scout, scout pre-check, scout schedule,
+  run a scout less often, trigger a scout from a workflow, Self-driving trial spend.
 ---
 
 # Managing Self-driving spend
 
 Start with `posthog:inbox-usage-get` for monthly recorded usage, including processing, research, repository selection, scout execution, and automatic report implementation.
-Pass `month: "YYYY-MM"`, or omit it for this month; history starts no earlier than October 2026, and a project's first receipt can be later.
+Pass `month: "YYYY-MM"`, or omit it for this month.
+Receipts expire three calendar months after they are created, so the tool rejects a month that starts before that, and the SQL tables no longer hold those receipts.
+Use this month or one of the two months before it.
 Show amounts as AI credits, with the USD value next to them: multiply decimal credits by the returned `pricing.usd_per_credit`.
 Recorded usage includes exempt work and is not an invoice; use `posthog:billing-limits-get` for the billing spend and limit.
 On a large project these tools can return more than fits in your context. If yours saves the output to a file, parse the file with a script, and keep the fields you need.
@@ -25,11 +28,14 @@ On a large project these tools can return more than fits in your context. If you
    Use the returned canonical `project_id` for SQL reconciliation; child environments resolve to their parent and require access there.
 2. **Inventory.** List sources with `posthog:inbox-source-configs-list` and scouts with `posthog:scout-config-list`.
    Explain historical spend even for disabled items; recommend controls only where they still apply.
+   For each scout, read `status` and `pause_reason` (see "Scout status" in [references/controls.md](references/controls.md)).
+   Read `posthog:scout-metadata-get` for the project's run limits and `runs_today`.
 3. **By source and scout.** Use the monthly tool's `sources` and `scouts`; their `total_credits` sum to the overall total.
    Sources include downstream research and implementation; scouts contain execution only, including runs with no reports.
 4. **Drill down.** Use `posthog:execute-sql` with [references/queries.md](references/queries.md) for custom dates, individual runs or reports, and finer source breakdowns.
    If the monthly tool is unavailable, use the SQL ledger subject to its access controls; report credits if no verified USD conversion is available.
-5. **By day.** Run "First receipt" and "Spend by day" in [references/queries-spend.md](references/queries-spend.md), and investigate spikes by source, scout, or `kind`.
+5. **By day.** Run "Earliest receipt" and "Spend by day" in [references/queries-spend.md](references/queries-spend.md), and investigate spikes by source, scout, or `kind`.
+   For scouts, run "Spend by scout and trigger" to separate scheduled runs from runs a schedule does not control.
 6. **Yield.** Run "Baselines", "Yield by signal source", and "Yield by scout" in [references/queries-yield.md](references/queries-yield.md).
    Yield is the share of settled reports that were resolved. Compare each item with its baseline on both settled rate and cost per resolved.
 7. **Inside each large source.** Run "Breakdown inside a source" in [references/queries-source-parts.md](references/queries-source-parts.md) for every source that holds more than 10% of signal spend.
@@ -41,6 +47,8 @@ On a large project these tools can return more than fits in your context. If you
    [references/controls.md](references/controls.md) lists the tool for each control, or where to change it in the app when no tool exists.
    Read the setting back after you change it.
 
+Steps 1 to 8 only read. A caller that must not change settings, such as a scheduled run with nobody to confirm a change, stops after step 8 and lists the recommendations.
+
 Present the result with [references/report-template.md](references/report-template.md).
 
 ## Rules
@@ -48,6 +56,8 @@ Present the result with [references/report-template.md](references/report-templa
 - Sum each `system.signal_spend` record once. Signal `metadata.total_spend`, scout `spend_credits`, and report detail totals are copies or overlapping views, not additional charges.
 - Filter finalized usage by `finalized_at` with inclusive start and exclusive end in UTC. Work started earlier can finalize in this period.
 - Show `exempt_credits` as a subset, not an additional cost. Use receipt exemptions rather than excluding named sources or scouts; non-exempt usage is still not necessarily invoiced usage.
+  Exempt credits include work that PostHog's own systems start and the spend of a Self-driving trial (see "Trials" in [references/controls.md](references/controls.md)).
+  On a project in a trial, most or all of the usage can be exempt.
 - Report `unsettled_credits`, `untracked_scout_run_count`, and any row with `incomplete` true. Unsettled credits cover work created in the requested month, exclude finalized totals, and are not the outstanding balance across all months. Missing receipts mean unknown cost.
 - Explain the two summary flags by their cause. `incomplete` is true when any work is unsettled, any scout run is untracked, or any row is incomplete, so it is usually true while Self-driving is running. `attribution_incomplete` is true when any spend has no source, which is the null-source row.
 - Preserve unattributed costs, including implementation for deleted reports. Implementation is attributed to the report's current triggering signal, which can change.
@@ -62,6 +72,11 @@ Present the result with [references/report-template.md](references/report-templa
   Check `edited_report_ids` before you recommend pausing it.
 - A scout with a pre-check can have few runs on purpose, because a skipped run leaves no run row.
   Read `last_precheck_at` and `last_precheck_outcome` before you call its runs missing.
+- Scout spend follows the number of runs. Before you recommend a pause, check the three controls that cut runs and keep the scout: a pre-check, a slower or cron schedule, and a workflow trigger with a backstop schedule.
+  [references/controls.md](references/controls.md) says when each one fits.
+- A schedule and a pre-check control scheduled runs only. Runs that a person, a report check, a Monitoring check, or a workflow starts are billed the same way, and neither control reduces them.
+  Read "Spend by scout and trigger" before you promise a saving from either one.
+- Do not recommend pausing a scout that the system already paused or warned. Read its `status` and `pause_reason` first, and say what the system did instead.
 - Turn off a source only after you check its narrowing settings and source steering. [references/controls.md](references/controls.md) lists which sources read `steering`.
 - Never turn off error tracking ingestion or lower its rate limits to save Self-driving spend.
   That drops exception data permanently. Change the Self-driving source instead.

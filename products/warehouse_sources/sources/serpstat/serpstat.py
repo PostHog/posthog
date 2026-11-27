@@ -101,6 +101,18 @@ def serpstat_resource(
             params["filters"] = {"date_from": date_from}
     if endpoint == "backlinks":
         params.update(searchType="domain_with_subdomains", sort="add", order="desc")
+    if endpoint == "ref_domains":
+        params.update(searchType="domain_with_subdomains", sort="domain_rank", order="desc")
+    if endpoint == "lost_backlinks":
+        params.update(searchType="domain_with_subdomains", sort="check", order="desc")
+    if endpoint == "top_competitors_history":
+        params.update(
+            projectRegionId=int(config.project_region_id),
+            dateFrom=(date.fromisoformat(date_to) - timedelta(days=POSITION_HISTORY_DAYS - 1)).isoformat(),
+            dateTo=date_to,
+            sort="sum_traffic",
+            order="desc",
+        )
 
     rest_config: RESTAPIConfig = {
         "client": {
@@ -150,4 +162,32 @@ def serpstat_resource(
     )
     if settings.project_param:
         resource.add_map(lambda row: {**row, "project_id": int(config.project_id)})
+    if endpoint == "top_competitors_history":
+        resource.add_map(lambda row: competitor_history_rows(row, int(config.project_region_id)))
     return resource
+
+
+def _metric(value: Any) -> Any:
+    return value.get("value") if isinstance(value, dict) else value
+
+
+def competitor_history_rows(competitor: dict[str, Any], project_region_id: int) -> list[dict[str, Any]]:
+    rows = []
+    for entry in competitor.get("dates") or []:
+        result = entry.get("result") or {}
+        ranges = result.get("keywords_by_ranges")
+        rows.append(
+            {
+                "project_id": competitor.get("project_id"),
+                "project_region_id": project_region_id,
+                "domain": competitor.get("domain"),
+                "date": entry.get("date"),
+                "traffic_distribution": _metric(result.get("traffic_distribution")),
+                "avg_position": _metric(result.get("avg_position")),
+                "keywords_count": _metric(result.get("keywords_count")),
+                "keywords_by_ranges": {key: _metric(value) for key, value in ranges.items()}
+                if isinstance(ranges, dict)
+                else None,
+            }
+        )
+    return rows

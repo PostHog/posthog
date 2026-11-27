@@ -3,6 +3,7 @@
 
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::num::{NonZeroU32, NonZeroUsize};
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -115,13 +116,36 @@ pub enum Settlement {
         /// The key's run finished at least one message.
         progressed: bool,
     },
-    /// The request finished nothing, so a budgeted retry would wait out the
-    /// same budget again. The key resends without one at once.
-    Bounced(Vec<SerializedKafkaMessage>),
+    Bounced {
+        messages: Vec<SerializedKafkaMessage>,
+        retry_at: Instant,
+        escalate_now: bool,
+    },
     Failed {
         messages: Vec<SerializedKafkaMessage>,
         retry_at: Instant,
     },
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum EscalationRule {
+    #[default]
+    Legacy,
+    StalledKey,
+}
+
+impl FromStr for EscalationRule {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value.trim().to_lowercase().as_str() {
+            "legacy" => Ok(EscalationRule::Legacy),
+            "stalled_key" => Ok(EscalationRule::StalledKey),
+            other => Err(format!(
+                "unknown budget escalation rule '{other}' (expected 'legacy' or 'stalled_key')"
+            )),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -181,11 +205,10 @@ struct KeyState {
     segments: VecDeque<Segment>,
     claim: Option<Claim>,
     retry_at: Option<Instant>,
-    /// Settles that left messages unfinished since the key last finished a
-    /// run; a bounce counts as all of them. A failure leaves it, because a
-    /// failed request says nothing about the budget.
+    /// Settles that count under the [`EscalationRule`]. A failure leaves it,
+    /// because a failed request says nothing about the budget.
     unfinished_attempts: u32,
-    /// One of those settles finished a message of the key.
+    /// The key finished a message since it last finished a run.
     progressed: bool,
 }
 
@@ -305,6 +328,10 @@ impl ReadySizes {
     }
 }
 
+fn attempts_used_up(budget_attempts: Option<NonZeroU32>, unfinished_attempts: u32) -> bool {
+    budget_attempts.is_some_and(|attempts| unfinished_attempts >= attempts.get())
+}
+
 /// An unbudgeted replay goes ahead of a budgeted one of its epoch, because
 /// it is the request that surely finishes its messages.
 fn send_order(class: &RequestClass) -> (bool, u64, bool) {
@@ -321,6 +348,7 @@ pub struct KeyQueues {
     ready_sizes: ReadySizes,
     run_cap: RunCap,
     budget_attempts: Option<NonZeroU32>,
+    escalation_rule: EscalationRule,
     queued_messages: usize,
     queued_bytes: usize,
     claimed_keys: usize,
@@ -337,6 +365,13 @@ impl KeyQueues {
     pub fn with_budget_attempts(self, budget_attempts: Option<NonZeroU32>) -> Self {
         Self {
             budget_attempts,
+            ..self
+        }
+    }
+
+    pub fn with_escalation_rule(self, escalation_rule: EscalationRule) -> Self {
+        Self {
+            escalation_rule,
             ..self
         }
     }
@@ -497,34 +532,61 @@ impl KeyQueues {
         self.claimed_keys = self.claimed_keys.saturating_sub(1);
 
         let reason = match settlement {
-            Settlement::Bounced(_) => EscalationReason::Bounce,
+            Settlement::Bounced { .. } => EscalationReason::Bounce,
             _ => EscalationReason::Attempts,
         };
-        let (mut requeued, retry_at) = match settlement {
-            Settlement::Done => {
+        let (mut requeued, retry_at) = match (settlement, self.escalation_rule) {
+            (Settlement::Done, _) => {
                 state.unfinished_attempts = 0;
                 state.progressed = false;
                 (Vec::new(), None)
             }
-            Settlement::Unfinished {
-                messages,
-                progressed,
-            } => {
+            (
+                Settlement::Unfinished {
+                    messages,
+                    progressed: true,
+                },
+                EscalationRule::StalledKey,
+            ) => {
+                state.unfinished_attempts = 0;
+                state.progressed = true;
+                (messages, None)
+            }
+            (
+                Settlement::Unfinished {
+                    messages,
+                    progressed,
+                },
+                _,
+            ) => {
                 state.unfinished_attempts = state.unfinished_attempts.saturating_add(1);
                 state.progressed |= progressed;
                 (messages, None)
             }
-            Settlement::Bounced(messages) => {
+            (Settlement::Bounced { messages, .. }, EscalationRule::Legacy) => {
                 if let Some(attempts) = self.budget_attempts {
                     state.unfinished_attempts = state.unfinished_attempts.max(attempts.get());
                 }
                 (messages, None)
             }
-            Settlement::Failed { messages, retry_at } => (messages, Some(retry_at)),
+            (
+                Settlement::Bounced {
+                    messages,
+                    retry_at,
+                    escalate_now,
+                },
+                EscalationRule::StalledKey,
+            ) => {
+                state.unfinished_attempts = match self.budget_attempts {
+                    Some(attempts) if escalate_now => state.unfinished_attempts.max(attempts.get()),
+                    _ => state.unfinished_attempts.saturating_add(1),
+                };
+                let escalates = attempts_used_up(self.budget_attempts, state.unfinished_attempts);
+                (messages, (!escalates).then_some(retry_at))
+            }
+            (Settlement::Failed { messages, retry_at }, _) => (messages, Some(retry_at)),
         };
-        let unbudgeted = self
-            .budget_attempts
-            .is_some_and(|attempts| state.unfinished_attempts >= attempts.get());
+        let unbudgeted = attempts_used_up(self.budget_attempts, state.unfinished_attempts);
         let mut settled = Settled::default();
 
         if !claim.revoked.is_empty() {
@@ -1002,6 +1064,7 @@ mod tests {
 
     #[rstest]
     #[case::attempts_used_up(
+        EscalationRule::Legacy,
         &[
             SettleKind::Unfinished,
             SettleKind::Failed,
@@ -1013,16 +1076,19 @@ mod tests {
         "a failure neither counts as an attempt nor resets the count"
     )]
     #[case::bounced(
+        EscalationRule::Legacy,
         &[SettleKind::Bounced, SettleKind::Failed, SettleKind::Unfinished],
         &[escalation(EscalationReason::Bounce, false), None, None],
         "a bounce uses up the attempts at once, and a failure keeps the escalation"
     )]
     #[case::progressed_in_an_earlier_attempt(
+        EscalationRule::Legacy,
         &[SettleKind::Progressed, SettleKind::Unfinished],
         &[None, escalation(EscalationReason::Attempts, true)],
         "progress in any budgeted attempt marks the escalation"
     )]
     #[case::progressed_before_a_finished_run(
+        EscalationRule::Legacy,
         &[
             SettleKind::Progressed,
             SettleKind::Done,
@@ -1032,13 +1098,33 @@ mod tests {
         &[None, None, None, escalation(EscalationReason::Attempts, false)],
         "a finished run clears the progress of the attempts before it"
     )]
+    #[case::stalled_key_progress_resets_the_count(
+        EscalationRule::StalledKey,
+        &[
+            SettleKind::Unfinished,
+            SettleKind::Progressed,
+            SettleKind::Unfinished,
+            SettleKind::Unfinished,
+        ],
+        &[None, None, None, escalation(EscalationReason::Attempts, true)],
+        "only settles without progress since the last progress count"
+    )]
+    #[case::stalled_key_bounces_count_one_each(
+        EscalationRule::StalledKey,
+        &[SettleKind::Bounced, SettleKind::Failed, SettleKind::Bounced],
+        &[None, None, escalation(EscalationReason::Bounce, false)],
+        "a bounce counts as one attempt, and a failure neither counts nor resets"
+    )]
     fn a_key_reports_its_escalation_once(
+        #[case] rule: EscalationRule,
         #[case] settles: &[SettleKind],
         #[case] expected: &[Option<Escalation>],
         #[case] reason: &str,
     ) {
         let now = Instant::now();
-        let mut queues = KeyQueues::default().with_budget_attempts(NonZeroU32::new(2));
+        let mut queues = KeyQueues::default()
+            .with_budget_attempts(NonZeroU32::new(2))
+            .with_escalation_rule(rule);
         queues.push(key("a"), 0, vec![message("a", 0, 1)], now);
 
         let escalations: Vec<Option<Escalation>> = settles
@@ -1060,7 +1146,11 @@ mod tests {
                         messages,
                         progressed: true,
                     },
-                    SettleKind::Bounced => Settlement::Bounced(messages),
+                    SettleKind::Bounced => Settlement::Bounced {
+                        messages,
+                        retry_at: now,
+                        escalate_now: false,
+                    },
                     SettleKind::Failed => failure(messages, now),
                 };
                 queues

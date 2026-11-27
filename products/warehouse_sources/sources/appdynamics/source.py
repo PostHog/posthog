@@ -196,6 +196,7 @@ You can create an API client in your controller under **Administration → API C
             "Too many metric paths configured": None,
             "Too many event types configured": None,
             "Too many AppDynamics applications": None,
+            "Too many AppDynamics database servers": None,
             "AppDynamics sync would issue": None,
         }
 

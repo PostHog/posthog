@@ -1,8 +1,6 @@
 import type { SkillInfo } from '../result'
 import { runNext, type SetupRun, type Step } from '../setup-run'
-import { SETUP_NEXT } from '../state'
-
-export const ADD_SKILLS = 'hog skills add <skill...>'
+import { SETUP_COMMAND } from '../state'
 
 // Setup has just added PostHog to the code, so the skills worth keeping for later are the ones for
 // using it. A list that fails to load only leaves the skills out of this step.
@@ -30,7 +28,7 @@ export const products: Step = {
 
     async advance(run) {
         if (!run.input.next) {
-            return runNext('setup_products_pending', `Run \`${SETUP_NEXT}\` to finish setup.`)
+            return runNext('setup_products_pending', `Run \`${SETUP_COMMAND}\` to finish setup.`)
         }
 
         // Both load the same skills release, so they share one download.

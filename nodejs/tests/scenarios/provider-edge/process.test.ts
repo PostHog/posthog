@@ -4,12 +4,16 @@ import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import net from 'net'
 import { tmpdir } from 'os'
 import path from 'path'
+import { Client } from 'pg'
 import { createInterface } from 'readline'
+import { setTimeout as sleep } from 'timers/promises'
 import { pathToFileURL } from 'url'
 
+import { defaultConfig } from '~/common/config/config'
 import { internalFetch } from '~/common/utils/request'
 
-import { ruleOf } from './faults'
+import { heldAnswerRule, ruleOf } from './faults'
+import { FaultHold } from './index'
 import { EdgeProcess, startEdgeProcess } from './process'
 
 const ALICE = 'run-1-1@www.example.com'
@@ -70,7 +74,7 @@ describe('provider edge process', () => {
                 (error: Error) => error.name
             )
 
-    it('answers a send with a held fault, observes and accepts that answer, and lifts the fault on release', async () => {
+    it('answers a send with a held fault, observes and accepts that answer, lifts the fault on release, and lists the unit it hit', async () => {
         const held = await edge.hold(REJECT)
         const observing = held.observed()
         const accepting = held.accepted!(AbortSignal.timeout(10_000))
@@ -79,11 +83,12 @@ describe('provider edge process', () => {
         const accepted = await accepting
         await held.release()
 
-        expect({ answer, seen, accepted, after: await send() }).toEqual({
+        expect({ answer, seen, accepted, after: await send(), hits: await held.hits?.() }).toEqual({
             answer: 'MessageRejected',
             seen: true,
             accepted: true,
             after: 'sent',
+            hits: ['run-1-1'],
         })
     })
 
@@ -92,6 +97,37 @@ describe('provider edge process', () => {
         await edge.clearFaults()
 
         expect(await send()).toBe('sent')
+    })
+
+    it.each<[string, (held: FaultHold) => Promise<void>]>([
+        ['its valve releases', (held) => held.release()],
+        ['the edge clears its faults', () => edge.clearFaults()],
+    ])('answers a send it holds once %s', async (_path, remove) => {
+        const held = await edge.hold(heldAnswerRule())
+        const accepting = held.accepted!(AbortSignal.timeout(10_000))
+        const answer = send()
+        const accepted = await accepting
+        const answeredBeforeRemoval = await Promise.race([answer.then(() => true), sleep(200).then(() => false)])
+
+        await remove(held)
+
+        expect({ accepted, answeredBeforeRemoval, answer: await answer }).toEqual({
+            accepted: true,
+            answeredBeforeRemoval: false,
+            answer: 'sent',
+        })
+    })
+
+    it('opens a Postgres proxy in the edge process that a client queries through', async () => {
+        const client = new Client({
+            connectionString: await edge.pgProxyOf(defaultConfig.CYCLOTRON_NODE_DATABASE_URL!),
+        })
+        await client.connect()
+        try {
+            expect((await client.query('SELECT 1 AS up')).rows).toEqual([{ up: 1 }])
+        } finally {
+            await client.end()
+        }
     })
 
     it('rejects a pending call when the edge process dies', async () => {

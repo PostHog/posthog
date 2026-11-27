@@ -25,6 +25,7 @@ from products.mcp_store.backend.facade.api import (
     member_server_tools,
     resolve_agent_gateway_server_ids,
     resolve_installations_for_sandbox,
+    slack_mcp_installation_id,
     slack_mcp_user_scopes,
     team_tools_not_connected,
 )
@@ -307,6 +308,11 @@ class TestConnectSlackMcpFromSlackLink(BaseTest):
             return
         assert installation is not None
         assert [active.id for active in get_active_installations(self.team.id, self.user.id)] == [str(installation.id)]
+        # A run mounts only a connection that shows whose Slack it reads, so a token of its own never counts.
+        mounted = slack_mcp_installation_id(self.team.id, self.user.id, slack_team_id="T1", slack_user_id="U1")
+        assert mounted == (None if existing_token else str(installation.id))
+        assert slack_mcp_installation_id(self.team.id, self.user.id, slack_team_id="T2", slack_user_id="U1") is None
+        assert slack_mcp_installation_id(self.team.id, self.user.id, slack_team_id="T1", slack_user_id="U2") is None
         if existing_token:
             assert installation.sensitive_configuration == {"access_token": existing_token}
             return

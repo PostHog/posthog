@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import type { ReactNode } from 'react'
 
-import { IconRefresh, IconX } from '@posthog/icons'
+import { IconRefresh } from '@posthog/icons'
 import { Button } from '@posthog/quill-primitives'
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -9,8 +9,10 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { MCP_TOOL_CALL_EVENT } from 'lib/components/TaxonomicFilter/utils/mcpProperties'
 import { cn } from 'lib/utils/css-classes'
 
-import { mcpAnalyticsFiltersLogic } from '../mcpAnalyticsFiltersLogic'
+import { DEFAULT_FACET_FILTERS, mcpAnalyticsFiltersLogic } from '../mcpAnalyticsFiltersLogic'
+import { mcpFacetsLogic } from '../mcpFacetsLogic'
 import { McpInternalUsersFilter } from './McpInternalUsersFilter'
+import { type McpPageQuickFilters, McpQuickFilters } from './McpQuickFilters'
 
 const TAXONOMIC_GROUP_TYPES = [
     TaxonomicFilterGroupType.MCPProperties,
@@ -45,14 +47,33 @@ const UNIVERSAL_FILTER_TAG_ACTIVE_FILTERS = [
     '[&_.PropertyFilterButton_.LemonButton]:rounded-[0.25rem]!',
 ].join(' ')
 
+export type McpFacetControl = 'tool' | 'category' | 'errors' | 'harness' | 'model' | 'slow' | 'isNew' | 'feedback'
+
+const ALL_FACET_CONTROLS: readonly McpFacetControl[] = [
+    'tool',
+    'category',
+    'errors',
+    'harness',
+    'model',
+    'slow',
+    'isNew',
+    'feedback',
+]
+
 interface McpSharedFiltersProps {
     pageKey: string
     dataAttrPrefix: string
     className?: string
     children?: ReactNode
-    trailingControls?: ReactNode
+    /** Whether the page's own filters are set, so "Clear filters" shows for them too. */
+    hasPageFilters?: boolean
+    onClearPageFilters?: () => void
     onRefresh: () => void
     refreshing: boolean
+    /** A tab whose data lacks a facet's property leaves it out. */
+    facetControls?: readonly McpFacetControl[]
+    /** Filters only this tab has, listed in the quick filters menu after the shared ones. */
+    pageQuickFilters?: McpPageQuickFilters
 }
 
 export function McpSharedFilters({
@@ -60,12 +81,17 @@ export function McpSharedFilters({
     dataAttrPrefix,
     className,
     children,
-    trailingControls,
+    hasPageFilters = false,
+    onClearPageFilters,
     onRefresh,
     refreshing,
+    facetControls = ALL_FACET_CONTROLS,
+    pageQuickFilters,
 }: McpSharedFiltersProps): JSX.Element {
-    const { propertyFilters } = useValues(mcpAnalyticsFiltersLogic)
-    const { setPropertyFilters } = useActions(mcpAnalyticsFiltersLogic)
+    const { propertyFilters, hasActiveFacetFilters } = useValues(mcpAnalyticsFiltersLogic)
+    const { setPropertyFilters, setFacetFilters } = useActions(mcpAnalyticsFiltersLogic)
+    const { facets, facetsLoading } = useValues(mcpFacetsLogic)
+    const { loadFacets } = useActions(mcpFacetsLogic)
 
     return (
         <div className={cn('w-full min-w-0', className)} data-attr={`${dataAttrPrefix}-property-filter`}>
@@ -85,27 +111,47 @@ export function McpSharedFilters({
                             <div data-quill className="contents">
                                 {addFilter}
                             </div>
-                            {activeFilters.length > 0 && (
+                            <McpQuickFilters
+                                facetControls={facetControls}
+                                dataAttrPrefix={dataAttrPrefix}
+                                pageFilters={pageQuickFilters}
+                            />
+                            {(activeFilters.length > 0 || hasActiveFacetFilters || hasPageFilters) && (
                                 <Button
-                                    variant="outline"
-                                    onClick={clearFilters}
+                                    variant="link-muted"
+                                    size="sm"
+                                    onClick={() => {
+                                        if (activeFilters.length > 0) {
+                                            clearFilters()
+                                        }
+                                        if (hasActiveFacetFilters) {
+                                            setFacetFilters(DEFAULT_FACET_FILTERS)
+                                        }
+                                        onClearPageFilters?.()
+                                    }}
                                     data-attr={`${dataAttrPrefix}-clear-filters`}
                                 >
-                                    <IconX />
                                     Clear filters
                                 </Button>
                             )}
                             <div className="ml-auto flex items-center gap-2">
-                                {trailingControls}
                                 <McpInternalUsersFilter dataAttr={`${dataAttrPrefix}-test-account-filter`} />
                                 <Button
                                     variant="outline"
-                                    onClick={onRefresh}
+                                    size="icon"
+                                    onClick={() => {
+                                        onRefresh()
+                                        // The facets load once on mount, so a failed load retries only from here.
+                                        if (!facets && !facetsLoading) {
+                                            loadFacets()
+                                        }
+                                    }}
                                     loading={refreshing}
+                                    aria-label="Refresh"
+                                    title="Refresh"
                                     data-attr={`${dataAttrPrefix}-refresh`}
                                 >
                                     <IconRefresh />
-                                    Refresh
                                 </Button>
                             </div>
                         </div>

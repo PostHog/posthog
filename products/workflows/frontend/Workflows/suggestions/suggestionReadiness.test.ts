@@ -8,6 +8,8 @@ const NOW = dayjs('2026-11-20T15:00:00Z')
 function optimization(overrides: {
     enabled?: boolean
     trackedSends?: number
+    untrackedSends?: number
+    readsConversion?: boolean
     liveHoursAgo?: number
     lastCheckedHoursAgo?: number | null
     nextCheckInHours?: number | null
@@ -16,6 +18,8 @@ function optimization(overrides: {
     const {
         enabled = true,
         trackedSends = 30,
+        untrackedSends = 0,
+        readsConversion = false,
         liveHoursAgo = 120,
         lastCheckedHoursAgo = 6,
         nextCheckInHours = 18,
@@ -27,8 +31,10 @@ function optimization(overrides: {
         sample: noSample
             ? null
             : {
-                  reached: trackedSends >= 20 && liveHoursAgo >= 48,
+                  reached: (readsConversion ? trackedSends + untrackedSends : trackedSends) >= 20 && liveHoursAgo >= 48,
                   tracked_sends: trackedSends,
+                  sends: trackedSends + untrackedSends,
+                  reads_conversion: readsConversion,
                   required_sends: 20,
                   version_live_since: NOW.subtract(liveHoursAgo, 'hour').toISOString(),
               },
@@ -53,6 +59,18 @@ describe('suggestionReadiness', () => {
             optimization({ trackedSends: 12, liveHoursAgo: 30 }),
             'Needs 8 more emails with open tracking',
             'Suggestions can start after that, and no earlier than tomorrow around 9:00 AM.',
+        ],
+        [
+            'short on sends with a goal, where untracked sends count',
+            optimization({ trackedSends: 0, untrackedSends: 12, readsConversion: true }),
+            'Needs 8 more emails',
+            'Suggestions can start at the first check after that.',
+        ],
+        [
+            'enough untracked sends with a goal',
+            optimization({ trackedSends: 0, untrackedSends: 25, readsConversion: true }),
+            'Next check tomorrow around 9:00 AM',
+            'Last checked 6 hours ago.',
         ],
         [
             'one send short',

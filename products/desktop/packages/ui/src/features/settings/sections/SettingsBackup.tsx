@@ -153,7 +153,7 @@ export function SettingsBackupView({
           {error && (
             <p
               role="alert"
-              className="m-0 break-words text-[12px] text-destructive"
+              className="m-0 break-words text-[12px] text-destructive-foreground"
             >
               {error}
             </p>

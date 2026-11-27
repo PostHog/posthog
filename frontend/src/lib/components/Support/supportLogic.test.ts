@@ -315,6 +315,7 @@ describe('supportLogic', () => {
                 ...FORM_FIELDS,
                 ai_conversation_id: 'conv-1',
                 ai_trace_id: 'trace-1',
+                ai_context_url: 'https://us.posthog.com/project/2/ai-observability/traces/trace-1',
                 ai_feedback_rating: 'bad',
             })
 
@@ -325,6 +326,7 @@ describe('supportLogic', () => {
                         $ai_conversation_id: 'conv-1',
                         $ai_session_id: 'conv-1',
                         $ai_trace_id: 'trace-1',
+                        ai_context_url: 'https://us.posthog.com/project/2/ai-observability/traces/trace-1',
                         $ai_support_ticket_id: 't1',
                         $ai_feedback_rating: 'bad',
                     },

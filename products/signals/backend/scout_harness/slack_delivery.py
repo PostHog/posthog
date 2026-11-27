@@ -9,6 +9,7 @@ from typing import Literal, TypeVar
 from urllib.parse import quote
 
 from django.conf import settings
+from django.utils import timezone
 
 import structlog
 from slack_sdk.errors import SlackApiError
@@ -19,12 +20,25 @@ from posthog.integrations import IntegrationManager, IntegrationNotFound, Integr
 from posthog.models.integration import SlackIntegration
 from posthog.models.team.team import Team
 from posthog.redis import get_client
+from posthog.slack.channels import is_shared_channel
 from posthog.slack.formatting import channel_id_from_target, escape_slack_mrkdwn
 from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN, slack_markdown_block
 
 from products.signals.backend.assignment_flags import assignment_side_effects_allowed
-from products.signals.backend.models import SignalReport, SignalReportSlackThread, SignalScoutEmission, SignalScoutRun
+from products.signals.backend.models import (
+    SignalReport,
+    SignalReportSlackThread,
+    SignalScoutEmission,
+    SignalScoutMessage,
+    SignalScoutMessageDelivery,
+    SignalScoutRun,
+)
 from products.signals.backend.report_urls import ReportLinkSource, build_report_url
+from products.signals.backend.scout_harness.message_routes import (
+    UNSENDABLE_REPORT_STATUSES,
+    find_message_route,
+    scout_send_message_enabled,
+)
 from products.signals.backend.scout_harness.scout_naming import scout_display_name
 from products.signals.backend.scout_harness.slack_charts import (
     ChartRenderBudget,
@@ -34,6 +48,7 @@ from products.signals.backend.scout_harness.slack_charts import (
     strip_chart_blocks,
 )
 from products.signals.backend.slack_formatting import (
+    bare_misleading_link_labels,
     chunk_slack_text,
     defuse_slack_tokens,
     group_segments_to_limit,
@@ -90,7 +105,7 @@ _SCOUT_SLACK_REPLY_PACE_SECONDS = 1
 
 _SlackResult = TypeVar("_SlackResult")
 
-ScoutSlackOutputType = Literal["finding", "report"]
+ScoutSlackOutputType = Literal["finding", "report", "message"]
 ScoutSlackReplyRetryScheduler = Callable[[int, list[list[dict]], int, str, str], None]
 
 # Each member gets an individual DM (a group DM would need the `mpim:write` scope the Slack app
@@ -953,3 +968,142 @@ def post_scout_report_to_slack(
         # The report was threaded before and is not now, so its lead carries the whole summary.
         _delete_scout_report_replies(client, conversation=conversation, reply_ts=reply_ts)
         _record_reply_ts([])
+
+
+def _scout_url(team_id: int, skill_name: str) -> str:
+    return f"{settings.SITE_URL.rstrip('/')}/project/{team_id}/inbox/scouts/{quote(skill_name, safe='')}"
+
+
+def build_scout_message_slack_message(message: SignalScoutMessage) -> tuple[list[dict], str]:
+    """Render one scout message: the scout, the title, the body, then links to its report and scout."""
+    scout_name = _scout_name(message.run)
+    title = " ".join(message.title.split())[:150] or "Scout message"
+    blocks: list[dict] = [
+        {
+            "type": "context",
+            "elements": [{"type": "mrkdwn", "text": f"*Scout · {escape_slack_mrkdwn(scout_name)}*"}],
+        },
+        {"type": "header", "text": {"type": "plain_text", "text": title}},
+    ]
+    rendered_body = prepare_slack_markdown(bare_misleading_link_labels(message.body.strip()))
+    if rendered_body:
+        blocks.append(slack_markdown_block(rendered_body))
+    buttons: list[dict] = []
+    if message.report_id is not None:
+        buttons.append(
+            {
+                "type": "button",
+                "text": {"type": "plain_text", "text": "View report in PostHog"},
+                "url": build_report_url(message.team_id, message.report_id, ReportLinkSource.SLACK_SCOUT),
+            }
+        )
+    buttons.append(
+        {
+            "type": "button",
+            "text": {"type": "plain_text", "text": "View scout"},
+            "url": _scout_url(message.team_id, message.skill_name),
+        }
+    )
+    blocks.append({"type": "actions", "elements": buttons})
+    fallback = f"Scout · {escape_slack_mrkdwn(scout_name)}: {escape_slack_mrkdwn(title[:200])}"
+    return blocks, fallback
+
+
+def _ensure_channel_not_shared(client: WebClient, channel_id: str) -> None:
+    """Refuse a channel shared with another workspace. Checked at send time, because a channel can
+    be connected to another workspace after the route was saved."""
+    channel = client.conversations_info(channel=channel_id)["channel"]
+    if is_shared_channel(channel):
+        raise ScoutSlackPermanentDeliveryError(
+            "Scout messages are never posted to a channel shared with another workspace",
+            error_code="shared_channel",
+        )
+
+
+def _ensure_message_delivery_authorized(delivery: SignalScoutMessageDelivery, *, integration_id: int) -> None:
+    """Refuse a delivery its route no longer allows. Checked before every post and retry, because an owner
+    can remove a recipient, a route or the integration, or turn `emit` or the flag off, while it waits in the queue."""
+    message = delivery.message
+    config = message.run.scout_config
+    destinations = config.output_destinations if config is not None else None
+    refusal: str | None = None
+    if not scout_send_message_enabled(message.run.team):
+        refusal = "flag_off"
+    elif config is not None and not config.emit:
+        refusal = "emit_off"
+    elif (route := find_message_route(destinations, message.route_key)) is None:
+        refusal = "route_removed"
+    elif not any(
+        target.target_id == delivery.target_id and target.type == delivery.target_type for target in route.targets
+    ):
+        refusal = "recipient_removed"
+    elif (
+        not isinstance(destinations, dict)
+        or not isinstance(destinations.get("slack"), dict)
+        or destinations["slack"].get("integration_id") != integration_id
+    ):
+        refusal = "integration_changed"
+    elif message.report is None or message.report.status in UNSENDABLE_REPORT_STATUSES:
+        refusal = "report_hidden"
+    if refusal is not None:
+        raise ScoutSlackPermanentDeliveryError(
+            f"The scout message route no longer allows this delivery ({refusal})", error_code=refusal
+        )
+
+
+def post_scout_message_to_slack(
+    delivery: SignalScoutMessageDelivery,
+    *,
+    delivery_id: str,
+    integration_id: int,
+    channel: str,
+) -> None:
+    # The task acks late, so a worker lost after the post retries a delivery that already landed.
+    if delivery.status == SignalScoutMessageDelivery.Status.SENT:
+        return
+    message = delivery.message
+    _ensure_message_delivery_authorized(delivery, integration_id=integration_id)
+    integration = _slack_integration_for_project(integration_id=integration_id, project_id=message.run.team.project_id)
+    channel_id = _slack_channel_id(channel)
+    blocks, fallback = build_scout_message_slack_message(message)
+    slack = SlackIntegration(integration, source="signals_scout")
+    client = slack.client
+    try:
+        if delivery.target_type == SignalScoutMessageDelivery.TargetType.SLACK_DM:
+            _ensure_dm_recipient_eligible(slack, channel_id)
+        else:
+            _ensure_channel_not_shared(client, channel_id)
+        response = _send_shortening_markdown(
+            lambda message_blocks: client.chat_postMessage(
+                channel=channel_id,
+                blocks=message_blocks,
+                text=fallback,
+                client_msg_id=delivery_id,
+                unfurl_links=False,
+                unfurl_media=False,
+            ),
+            blocks,
+            delivery_id=delivery_id,
+        )
+    except SlackApiError as exc:
+        error_code = slack_api_error_code(exc)
+        if error_code in _PERMANENT_SLACK_ERROR_CODES:
+            raise ScoutSlackPermanentDeliveryError(
+                f"Slack rejected the scout message with {error_code}",
+                error_code=error_code,
+            ) from exc
+        raise
+    delivery.status = SignalScoutMessageDelivery.Status.SENT
+    delivery.slack_ts = str(response.get("ts") or "") or None
+    delivery.error_code = None
+    delivery.save(update_fields=["status", "slack_ts", "error_code", "updated_at"])
+
+
+def mark_scout_message_delivery_failed(*, team_id: int, delivery_id: str, error_code: str | None) -> None:
+    SignalScoutMessageDelivery.all_teams.filter(team_id=team_id, id=delivery_id).exclude(
+        status=SignalScoutMessageDelivery.Status.SENT
+    ).update(
+        status=SignalScoutMessageDelivery.Status.FAILED,
+        error_code=(error_code or "unknown")[:64],
+        updated_at=timezone.now(),
+    )

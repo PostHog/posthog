@@ -211,6 +211,38 @@ describe('supportSettingsLogic', () => {
         })
     })
 
+    describe('email display name', () => {
+        it('saves the trimmed display name and updates the channel', async () => {
+            useMocks({
+                get: {
+                    '/api/conversations/v1/email/status': {
+                        configs: [{ id: 'email-config', from_email: 'support@example.com', from_name: 'Old name' }],
+                    },
+                    '/api/projects/:team_id/conversations/ai_reply_playbook/': PLAYBOOK_GET,
+                },
+                post: {
+                    '/api/conversations/v1/email/set_display_name': async ({ request }) => {
+                        expect(await request.json()).toEqual({ config_id: 'email-config', from_name: 'Acme Support' })
+                        return [200, { ok: true }]
+                    },
+                },
+            })
+            logic = supportSettingsLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.emailDisplayNameDrafts['email-config']).toBe('Old name')
+
+            logic.actions.setEmailDisplayNameDraft('email-config', '  Acme Support  ')
+            logic.actions.saveEmailDisplayName('email-config')
+
+            expect(logic.values.emailDisplayNameSavingConfigId).toBe('email-config')
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.emailConfigs[0].from_name).toBe('Acme Support')
+            expect(logic.values.emailDisplayNameDrafts['email-config']).toBe('Acme Support')
+            expect(logic.values.emailDisplayNameSavingConfigId).toBeNull()
+        })
+    })
+
     describe('aiResolutionChannels selector', () => {
         it('drops flag-gated channels that are no longer available', async () => {
             initKeaTests(true, {

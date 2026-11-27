@@ -922,10 +922,38 @@ def fetch_property_deletion_stats(obj: "DataDeletionRequest", *, user_id: int | 
     return _fetch_stats(obj.team_id, extra_filter, params, user_id=user_id)
 
 
+def fetch_query_backed_deletion_stats(obj: "DataDeletionRequest", *, user_id: int | None = None) -> dict:
+    """Count the events a query-backed request selects.
+
+    The stored query returns only event UUIDs, so there are no timestamps or parts to report.
+    """
+    from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+    from posthog.clickhouse.workload import Workload
+    from posthog.data_deletion import count_query_backed_deletion
+
+    with tags_context(
+        product=Product.INTERNAL,
+        feature=Feature.DATA_DELETION,
+        team_id=obj.team_id,
+        user_id=user_id,
+        workload=Workload.OFFLINE,
+        query_type="delete_event_count",
+    ):
+        count = count_query_backed_deletion(obj)
+    return {
+        "count": count,
+        "min_timestamp": None,
+        "max_timestamp": None,
+        "part_count": None,
+        "parts_size": None,
+        "parts_row_count": None,
+    }
+
+
 def fetch_deletion_stats(obj: "DataDeletionRequest", *, user_id: int | None = None) -> dict:
     """Dispatch to the appropriate stats function based on request type."""
     if obj.request_type == RequestType.HOGQL_EVENT_REMOVAL:
-        raise ValueError("Stats are not available for query-backed deletion requests yet.")
+        return fetch_query_backed_deletion_stats(obj, user_id=user_id)
     if obj.request_type == RequestType.PROPERTY_REMOVAL:
         return fetch_property_deletion_stats(obj, user_id=user_id)
     return fetch_event_deletion_stats(obj, user_id=user_id)
@@ -1078,7 +1106,7 @@ def count_remaining_matching_events(request: "DataDeletionRequest") -> int:
         query_type="data_deletion_request_verify_queued",
     ):
         for target in resolve_read_targets_via_sync_execute(DEFAULT_DELETION_TARGETS):
-            if not target.may_hold_any_of(events):
+            if target.derived_from_events or not target.may_hold_any_of(events):
                 continue
             try:
                 predicate, params = event_removal_where(request, target)

@@ -4738,7 +4738,23 @@ export const ErrorTrackingIssueStatusApi = {
     Suppressed: 'suppressed',
 } as const
 
+export type ErrorTrackingIssueTagColorApi =
+    (typeof ErrorTrackingIssueTagColorApi)[keyof typeof ErrorTrackingIssueTagColorApi]
+
+export const ErrorTrackingIssueTagColorApi = {
+    Blue: 'blue',
+    Teal: 'teal',
+    Green: 'green',
+    Yellow: 'yellow',
+    Orange: 'orange',
+    Red: 'red',
+    Pink: 'pink',
+    Purple: 'purple',
+} as const
+
 export interface ErrorTrackingIssueTagApi {
+    /** Named color of the tag, or null for a color picked from the label. */
+    color?: ErrorTrackingIssueTagColorApi | null
     /** What the tag means, for a tooltip. */
     description: string
     /** Key of the tag definition. */
@@ -6094,6 +6110,27 @@ export interface ExperimentBreakdownResultApi {
     variants: ExperimentVariantResultFrequentistApi[] | ExperimentVariantResultBayesianApi[]
 }
 
+/**
+ * Exposed entities with no row of the metric query that counted, by variant.
+ */
+export type ExperimentWarehouseNativeRowsLeftOutApiExposedWithoutRows = { [key: string]: number } | null
+
+/**
+ * Exposure rows whose variant is not one the flag serves, counted by the value seen. At most the 50 most common values.
+ */
+export type ExperimentWarehouseNativeRowsLeftOutApiUnknownVariants = { [key: string]: number } | null
+
+export interface ExperimentWarehouseNativeRowsLeftOutApi {
+    /** Exposure rows with an empty entity_id. */
+    empty_id?: number | null
+    /** Exposed entities with no row of the metric query that counted, by variant. */
+    exposed_without_rows?: ExperimentWarehouseNativeRowsLeftOutApiExposedWithoutRows
+    /** Exposure rows whose variant is not one the flag serves, in total, including the values that `unknown_variants` leaves out. */
+    unknown_variant_rows?: number | null
+    /** Exposure rows whose variant is not one the flag serves, counted by the value seen. At most the 50 most common values. */
+    unknown_variants?: ExperimentWarehouseNativeRowsLeftOutApiUnknownVariants
+}
+
 export interface ExperimentQueryResponseApi {
     baseline?: ExperimentStatsBaseValidatedApi | null
     /** Results grouped by breakdown value. When present, baseline and variant_results contain aggregated data. */
@@ -6103,6 +6140,8 @@ export interface ExperimentQueryResponseApi {
     /** Whether exposures were served from the precomputation system */
     is_precomputed?: boolean | null
     kind?: 'ExperimentQuery'
+    /** Rows of the warehouse-native metric query that the run left out, by reason. Set by a warehouse-native run only. */
+    rows_left_out?: ExperimentWarehouseNativeRowsLeftOutApi | null
     variant_results?: ExperimentVariantResultFrequentistApi[] | ExperimentVariantResultBayesianApi[] | null
     /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
     warnings?: DataWarehouseSyncWarningApi[] | null

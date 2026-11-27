@@ -2,7 +2,7 @@ import { Meta, StoryObj } from '@storybook/react'
 import { within } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
 
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, STORYBOOK_FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -51,4 +51,26 @@ export const NewAnnotationModalLemonUIDatePicker: Story = {
 export const NewAnnotationModalQuillDatePicker: Story = {
     parameters: { featureFlags: [FEATURE_FLAGS.QUILL_DATE_PICKER] },
     play: openNewAnnotationModal,
+}
+
+const QUILL_FLAGS = [...STORYBOOK_FEATURE_FLAGS, FEATURE_FLAGS.TODAY_RAIL_NAV]
+
+export const AnnotationsQuill: Story = {
+    parameters: {
+        featureFlags: QUILL_FLAGS,
+        testOptions: { waitForSelector: '[data-attr="annotations-table"]', snapshotBrowsers: [] },
+    },
+}
+
+export const NewAnnotationModalQuill: Story = {
+    parameters: {
+        featureFlags: QUILL_FLAGS,
+        testOptions: { waitForSelector: '[data-attr="annotations-table"]', snapshotBrowsers: [] },
+    },
+    play: async (context) => {
+        await openNewAnnotationModal(context)
+        const body = within(context.canvasElement.ownerDocument.body)
+        await body.findByRole('dialog', { name: 'New annotation' })
+        await userEvent.type(await body.findByPlaceholderText("What's this annotation about?"), 'Launched pricing page')
+    },
 }

@@ -291,6 +291,10 @@ export const ExperimentHoldoutsCreateBody = /* @__PURE__ */ zod
                         .number()
                         .nullish()
                         .describe('Group type index for this condition set. None means person-level aggregation.'),
+                    description: zod
+                        .string()
+                        .nullish()
+                        .describe('Display-only name for this release condition group. It does not affect evaluation.'),
                 })
             )
             .optional()
@@ -582,6 +586,10 @@ export const ExperimentHoldoutsUpdateBody = /* @__PURE__ */ zod
                         .number()
                         .nullish()
                         .describe('Group type index for this condition set. None means person-level aggregation.'),
+                    description: zod
+                        .string()
+                        .nullish()
+                        .describe('Display-only name for this release condition group. It does not affect evaluation.'),
                 })
             )
             .optional()
@@ -874,6 +882,10 @@ export const ExperimentHoldoutsPartialUpdateBody = /* @__PURE__ */ zod
                         .number()
                         .nullish()
                         .describe('Group type index for this condition set. None means person-level aggregation.'),
+                    description: zod
+                        .string()
+                        .nullish()
+                        .describe('Display-only name for this release condition group. It does not affect evaluation.'),
                 })
             )
             .optional()
@@ -1111,7 +1123,8 @@ export const ExperimentsEndCreateBody = /* @__PURE__ */ zod.object({
  * already pending or in progress for this experiment. An experiment that started too long ago gets 201 with
  * a run that is already failed: every metric carries the `recalculation_window_too_long` error in
  * `metric_errors`, no workflow starts, and a retry gets the same answer. A manual trigger within five
- * minutes after the latest completed run finished returns 429 with a Retry-After header. The response payload intentionally does not
+ * minutes after the latest completed run finished returns 429 with a Retry-After header. While recalculations are
+ * paused for the instance, a request with no active run returns 503 with a Retry-After header. The response payload intentionally does not
  * include the `results` array — at POST time the workflow has just been queued and no per-metric
  * results exist yet. Clients should poll `GET metrics_recalculation/{id}/` for results as the workflow
  * progresses.

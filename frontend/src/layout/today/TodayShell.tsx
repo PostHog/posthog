@@ -15,11 +15,14 @@ import { lazyWithRetry } from 'lib/utils/retryImport'
 
 import { QuillSceneHeader } from '~/layout/scenes/components/QuillSceneHeader'
 
+import { TodayCustomizeRailDialog } from './TodayCustomizeRailDialog'
+import { TodayDesignChangelogCard } from './TodayDesignChangelogCard'
 import { TodayNavSwitchDialog } from './TodayNavSwitchDialog'
 import { TodayPaneIntro } from './TodayPaneIntro'
 import { TodayPhoneHeader } from './TodayPhoneHeader'
 import { TodayPreviewCardProvider } from './TodayPreviewCardProvider'
 import { TodayRail } from './TodayRail'
+import { TodayRailCustomizeDemo } from './TodayRailCustomizeDemo'
 import { TODAY_PANES } from './todayRailItems'
 import { todayRecentsLogic } from './todayRecentsLogic'
 import {
@@ -167,10 +170,14 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
                         <TodaySidebarPinButton />
                     </div>
                 }
-                actions={PaneAction && <PaneAction />}
+                actions={
+                    <div className="-me-2 flex items-center gap-2">
+                        {/* Keyed by pane, so one pane's open popover never carries over to the next pane. */}
+                        <TodayPaneIntro key={activePane} pane={activePane} />
+                        {PaneAction && <PaneAction />}
+                    </div>
+                }
             />
-            {/* Keyed by pane, so a closing animation on one pane's intro never carries over to the next pane's. */}
-            <TodayPaneIntro key={activePane} pane={activePane} />
             {paneContent}
         </div>
     )
@@ -185,6 +192,14 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
             )}
             <TodayNavSwitchDialog />
             <TodayTour />
+            {/* The phone layout has no rail, so nothing here has a rail to talk about. */}
+            {!phoneLayout && (
+                <>
+                    <TodayCustomizeRailDialog />
+                    <TodayDesignChangelogCard />
+                    <TodayRailCustomizeDemo />
+                </>
+            )}
         </>
     )
 

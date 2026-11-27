@@ -330,6 +330,9 @@ spot-run for a judge with no usable key, per 2.3). For a numeric or categorical 
 category keys the saved eval will accept.
 Both tools currently use generation samples; for a trace target they can check shared source or prompt behavior,
 but they do not reproduce the complete settled trace. Review the first live trace results before increasing rollout.
+For an LLM judge on a trace target, check `$ai_evaluation_input_truncated` on those results: `true` means the trace
+did not fit the judge's budget (300,000 characters, or 150,000 when the judge model's context window rejects the
+longer transcript) and the judge saw shortened content, so a verdict or N/A on that run can come from the missing part. Move checks that need the full input to a Hog eval, which reads the complete trace.
 
 > **Watch out:** some orgs reuse a single `$ai_trace_id` across 100k+ events. Scoping by trace-ID prefix
 > can match far more than expected — verify volume with the SQL above before enabling.

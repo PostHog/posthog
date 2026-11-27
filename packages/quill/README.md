@@ -139,6 +139,18 @@ Subtree override — theme one section differently. Any valid CSS selector works
 - ❌ **Status colours** (destructive, success, warning, info) — fixed by semantic meaning; a red error should stay red regardless of brand hue
 - ❌ **Secondary** — neutral dark by design
 
+**Status colors.** Quill's status tokens work the opposite way to shadcn's.
+The bare name (`destructive`, `success`, `warning`, `info`, `completed`) is a pale background tint.
+The readable color is the `-foreground` token.
+
+| Use                    | Class                                                      |
+| ---------------------- | ---------------------------------------------------------- |
+| Background or fill     | `bg-destructive`, `bg-destructive/5`                       |
+| Text, icon, SVG stroke | `text-destructive-foreground`, `stroke-success-foreground` |
+
+`text-destructive` type-checks and renders, but comes out at about 1.1–1.4:1 contrast in both themes, far below the 4.5:1 minimum.
+Semgrep rules `quill-status-text-needs-foreground` and `quill-text-destructive-needs-foreground` block it in CI.
+
 ### 7. Use components
 
 ```tsx

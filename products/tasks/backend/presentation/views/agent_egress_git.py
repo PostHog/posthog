@@ -58,6 +58,8 @@ class AgentEgressGitGrantViewSet(ViewSet):
 
     @extend_schema(exclude=True, responses={200: GitReadGrantSerializer})
     def list(self, request: Request, parent_lookup_team_id: str, run_id: str, execution_id: str) -> Response:
+        if request.META.get("REMOTE_ADDR") not in {"127.0.0.1", "::1"}:
+            return Response({"detail": "Git grant access denied."}, status=status.HTTP_403_FORBIDDEN)
         if not request.is_secure() or not settings.AGENT_EGRESS_REGION:
             return Response({"detail": "Git grant unavailable."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
         claims = cast(Mapping[str, object], request.auth)
