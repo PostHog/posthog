@@ -488,7 +488,14 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
 # Activity visibility restrictions - controls which users can see certain activity logs
 # Used to hide sensitive activities (e.g., impersonated logins, user account changes) from non-staff users
 activity_visibility_restrictions: list[dict[str, Any]] = [
-    {"scope": "Notebook", "activities": ["updated"], "change_field": "app_view_grant"},
+    {
+        "scope": "Notebook",
+        "activities": ["updated"],
+        "change_field": "app_view_grant",
+        "allow_organization_admin": True,
+        "allow_staff": True,
+        "summarize_for_destinations": True,
+    },
     {
         # Account views are private to their creator, so even their IDs and timestamps stay out of
         # the team and org feeds.
@@ -1342,7 +1349,7 @@ def apply_activity_visibility_restrictions(queryset: QuerySet, user: Union["User
     from posthog.models.activity_logging.utils import activity_visibility_manager
 
     is_staff = bool(user and not isinstance(user, AnonymousUser) and hasattr(user, "is_staff") and user.is_staff)
-    return activity_visibility_manager.apply_to_queryset(queryset, is_staff)
+    return activity_visibility_manager.apply_to_queryset(queryset, is_staff, user_id=getattr(user, "pk", None))
 
 
 def load_activity(
@@ -1408,11 +1415,50 @@ def bound_detail_for_internal_event(detail: Any) -> tuple[Any, bool]:
     return None, True
 
 
+def activity_log_event_properties(instance: ActivityLog) -> dict[str, Any] | None:
+    from posthog.api.advanced_activity_logs import ActivityLogSerializer
+    from posthog.models.activity_logging.utils import activity_visibility_manager
+
+    restrictions = list(activity_visibility_manager.matching_restrictions(instance, restrict_for_staff=True))
+    if any(not rule.get("summarize_for_destinations") for rule in restrictions):
+        return None
+
+    serialized = ActivityLogSerializer(instance).data
+    if restrictions:
+        fields = {rule["change_field"] for rule in restrictions}
+        changes = sorted(
+            {
+                (field, action)
+                for field, action in activity_visibility_manager.changed_fields(instance)
+                if field in fields and action in ("created", "changed", "deleted")
+            }
+        )
+        summary = {
+            key: serialized[key]
+            for key in (
+                "id",
+                "user",
+                "created_at",
+                "was_impersonated",
+                "team_id",
+                "organization_id",
+                "scope",
+                "activity",
+            )
+        }
+        summary["detail"] = {"changes": [{"field": field, "action": action} for field, action in changes]}
+        return summary
+
+    serialized["detail"] = json.loads(json.dumps(serialized["detail"], cls=ActivityDetailEncoder))
+    serialized["detail"], truncated = bound_detail_for_internal_event(serialized["detail"])
+    if truncated:
+        serialized["detail_truncated"] = True
+    return serialized
+
+
 @receiver(post_save, sender=ActivityLog)
 def activity_log_created(sender, instance: "ActivityLog", created, **kwargs):
-    from posthog.api.advanced_activity_logs import ActivityLogSerializer
     from posthog.api.shared import UserBasicSerializer
-    from posthog.models.activity_logging.utils import activity_visibility_manager
 
     from products.cdp.backend.internal_events import InternalEventEvent, InternalEventPerson, produce_internal_event
 
@@ -1420,7 +1466,8 @@ def activity_log_created(sender, instance: "ActivityLog", created, **kwargs):
         return
 
     try:
-        if activity_visibility_manager.is_restricted(instance, restrict_for_staff=True):
+        serialized_data = activity_log_event_properties(instance)
+        if serialized_data is None:
             logger.info(
                 "Skipping restricted activity log event",
                 scope=instance.scope,
@@ -1430,12 +1477,6 @@ def activity_log_created(sender, instance: "ActivityLog", created, **kwargs):
             )
             return
 
-        serialized_data = ActivityLogSerializer(instance).data
-        # We need to serialize the detail object using the encoder to avoid unsupported types like timedelta
-        serialized_data["detail"] = json.loads(json.dumps(serialized_data["detail"], cls=ActivityDetailEncoder))
-        serialized_data["detail"], detail_truncated = bound_detail_for_internal_event(serialized_data["detail"])
-        if detail_truncated:
-            serialized_data["detail_truncated"] = True
         # TODO: Move this into the producer to support dataclasses
         user_data = UserBasicSerializer(instance.user).data if instance.user else None
 

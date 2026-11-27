@@ -969,7 +969,12 @@
          AND NOT ((("posthog_activitylog"."scope" = 'Notebook'
                     AND "posthog_activitylog"."activity" IN ('updated')
                     AND "posthog_activitylog"."detail" @> '{"changes": [{"field": "app_view_grant"}]}'::jsonb
-                    AND "posthog_activitylog"."detail" IS NOT NULL)
+                    AND "posthog_activitylog"."detail" IS NOT NULL
+                    AND NOT ("posthog_activitylog"."organization_id" IN
+                               (SELECT "U0"."organization_id" AS "organization_id"
+                                FROM "posthog_organizationmembership" "U0"
+                                WHERE ("U0"."level" >= 8
+                                       AND "U0"."user_id" = 99999))))
                    OR ("posthog_activitylog"."scope" = 'AccountView'
                        AND "posthog_activitylog"."activity" IN ('created',
                                                                 'updated',
@@ -1094,7 +1099,12 @@
          AND NOT ((("posthog_activitylog"."scope" = 'Notebook'
                     AND "posthog_activitylog"."activity" IN ('updated')
                     AND "posthog_activitylog"."detail" @> '{"changes": [{"field": "app_view_grant"}]}'::jsonb
-                    AND "posthog_activitylog"."detail" IS NOT NULL)
+                    AND "posthog_activitylog"."detail" IS NOT NULL
+                    AND NOT ("posthog_activitylog"."organization_id" IN
+                               (SELECT "U0"."organization_id" AS "organization_id"
+                                FROM "posthog_organizationmembership" "U0"
+                                WHERE ("U0"."level" >= 8
+                                       AND "U0"."user_id" = 99999))))
                    OR ("posthog_activitylog"."scope" = 'AccountView'
                        AND "posthog_activitylog"."activity" IN ('created',
                                                                 'updated',

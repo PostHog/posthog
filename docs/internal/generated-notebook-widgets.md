@@ -40,6 +40,8 @@ PostHog AI and MCP agents use the `building-notebook-apps` skill to compose sour
 
 An organization admin can choose **App-only access** in a published app and enter a project member’s email. The link shares the revision open on screen. If a newer revision was published, open it and review it before granting access. The recipient signs in under the organization’s usual access policies to see the tabs, text, and saved native SQL results. The app labels verified partial results and shows only the displayed value for single-number charts. Automatic charts with one column share the first cell. For other automatic charts whose displayed values cannot be established, and for charts that aggregate or reshape rows such as pie charts, publish a table or single number to share the values. Republish a release that has no verified saved result. The link expires after 30 days or when the release leaves the notebook’s two retained revisions. Unpublishing the app revokes its links. This link grants no access to the source notebook. Select a member in **App-only access** to revoke their links to every release of that app. Grant changes and recipient details appear in the notebook’s own activity log.
 
+Bar, line and area charts can combine rows with the same category. Publish those charts as a table or single number to share the values. Each repeated output block counts toward the app-only view’s 8 MiB and 50,000-cell display limits. If the app exceeds either limit, publish fewer or smaller output blocks.
+
 ## Dashboard widgets
 
 Choose **Add to dashboard** from a generated widget's notebook menu to save its selected version, input mappings, and completed dataframe results.

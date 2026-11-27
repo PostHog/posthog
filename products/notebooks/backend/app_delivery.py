@@ -1,3 +1,4 @@
+import json
 from contextlib import suppress
 from dataclasses import asdict
 from datetime import timedelta
@@ -20,6 +21,7 @@ from posthog.models.activity_logging.activity_log import Change
 from posthog.token_bucket import BucketDecision, Budget, consume
 
 from products.notebooks.backend.activity_logging import log_notebook_activity
+from products.notebooks.backend.app_release_results import MAX_RELEASE_RESULT_BYTES
 from products.notebooks.backend.app_viewer import native_app_output_ids
 from products.notebooks.backend.facade.contracts import ActiveAppViewGrant, AppOutput, AppOutputTab, AppViewGrantResult
 from products.notebooks.backend.markdown_conversion import build_markdown_notebook_content
@@ -231,6 +233,66 @@ def displayed_native_sql_cells(release: NotebookAppRelease) -> dict[str, dict[st
     }
 
 
+def has_distinct_chart_categories(result: dict[str, Any], settings: dict[str, Any]) -> bool:
+    rows = result["first_page"]
+    columns = result["columns"]
+    if result.get("row_count", len(rows)) != len(rows):
+        return False
+    if "xAxis" in settings or "yAxis" in settings:
+        axis = settings.get("xAxis")
+        category = axis.get("column") if isinstance(axis, dict) else None
+    else:
+        axes = automatic_chart_columns(result, columns, None)
+        category = next(iter(axes), None)
+    if category == "event" or columns.count(category) != 1:
+        return False
+    index = columns.index(category)
+    seen: set[str | float] = set()
+    for row in rows:
+        if not isinstance(row, list) or len(row) <= index:
+            return False
+        value = row[index]
+        if not isinstance(value, str) and not (
+            "xAxis" in settings and type(value) in (int, float) and abs(value) < 2**53
+        ):
+            return False
+        if value in seen:
+            return False
+        seen.add(value)
+    return True
+
+
+class SharedOutputLimitExceeded(serializers.ValidationError):
+    default_detail = (
+        "This app exceeds the shared output limit. Publish smaller results or remove repeated output blocks."
+    )
+
+
+class SharedOutputBudget:
+    def __init__(self, *, byte_limit: int) -> None:
+        self.bytes_left = byte_limit
+        self.cells_left = 50_000
+
+    def count(self, values: list) -> None:
+        self.cells_left -= max(1, len(values))
+        if self.cells_left < 0:
+            raise SharedOutputLimitExceeded()
+        self.bytes_left -= 2 + len(values)
+        for value in values:
+            self.bytes_left -= len(json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode())
+            if self.bytes_left < 0:
+                raise SharedOutputLimitExceeded()
+
+    def project_rows(self, rows: list, indexes: list[int]) -> list[list]:
+        output = []
+        for row in rows:
+            if isinstance(row, list):
+                values = [row[index] if index < len(row) else None for index in indexes]
+                self.count(values)
+                output.append(values)
+        return output
+
+
 def shared_chart_display(props: dict[str, Any], result: dict[str, Any]) -> str | None:
     if props.get("outputTab") == "results":
         return "ActionsTable"
@@ -250,14 +312,15 @@ def shared_chart_display(props: dict[str, Any], result: dict[str, Any]) -> str |
         return display
     chart = viz.get("chartSettings") or {}
     if isinstance(chart, dict) and not (chart.get("seriesBreakdownColumn") or chart.get("resultCustomizations")):
+        if display == "ScatterPlot":
+            return display
         if display in (
             "ActionsLineGraph",
             "ActionsAreaGraph",
             "ActionsBar",
             "ActionsUnstackedBar",
             "ActionsStackedBar",
-            "ScatterPlot",
-        ):
+        ) and has_distinct_chart_categories(result, chart):
             return display
     return None
 
@@ -266,11 +329,14 @@ def app_output_tabs(
     release: NotebookAppRelease, *, tenant_column: str | None = None, tenant_value: str | None = None
 ) -> list[AppOutputTab]:
     sql_cells = displayed_native_sql_cells(release)
+    budget = SharedOutputBudget(byte_limit=MAX_RELEASE_RESULT_BYTES)
+    budget.count([tab["title"] for tab in release.layout["tabs"]])
     tabs = {tab["id"]: {"title": tab["title"], "blocks": []} for tab in release.layout["tabs"]}
     for block in release.layout["blocks"]:
         tab = tabs.get(block["tab_id"])
         if tab is None:
             continue
+        budget.count([block.get("title"), block.get("text")])
         if block["kind"] == "text":
             tab["blocks"].append({"title": block.get("title"), "text": block.get("text")})
             continue
@@ -321,15 +387,15 @@ def app_output_tabs(
         if tenant_column is not None:
             displayed = [column for column in displayed if column != tenant_column]
         if displayed:
+            budget.count(displayed)
+            budget.count([props.get("title")])
             indexes = [columns.index(column) for column in displayed]
             tab["blocks"].append(
                 {
                     "title": block.get("title") or props.get("title"),
                     "columns": displayed,
                     "partial": partial,
-                    "rows": [
-                        [row[i] if i < len(row) else None for i in indexes] for row in rows if isinstance(row, list)
-                    ],
+                    "rows": budget.project_rows(rows, indexes),
                 }
             )
     return [AppOutputTab(title=tab["title"], blocks=tab["blocks"]) for tab in tabs.values()]
@@ -358,14 +424,19 @@ def read_granted_output(team_id: int, recipient_id: int, grant_id: UUID) -> AppO
     if isinstance(budget, BucketDecision) and not budget.allowed:
         raise Throttled(wait=budget.retry_after)
     cache = cast(RedisCache, caches["notebook_app_outputs"])
-    cache_key = f"notebook-app-output:v4:{team_id}:{release.pk}"
+    cache_key = f"notebook-app-output:v5:{team_id}:{release.pk}"
     cached = cache.get(cache_key)
     if cached is None:
         lock = cache.lock(cache_key + ":building", timeout=20)
         if not lock.acquire(blocking=False):
             raise Throttled(wait=2, detail="This release is loading. Try again shortly.")
         try:
-            tabs = app_output_tabs(release)
+            try:
+                tabs = app_output_tabs(release)
+            except SharedOutputLimitExceeded:
+                tabs = [
+                    AppOutputTab(title="Published app", blocks=[{"text": SharedOutputLimitExceeded.default_detail}])
+                ]
             cache.set(cache_key, [asdict(tab) for tab in tabs], timeout=300)
         finally:
             with suppress(LockNotOwnedError):

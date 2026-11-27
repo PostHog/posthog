@@ -11,7 +11,10 @@ Read this doc before you add or change activity logging.
 
 ## Reading activity rows
 
-Notebook app grant changes appear in the individual notebook’s activity history after its access check. Project and organization feeds, exports, SQL queries and destination events omit those changes.
+Notebook app grant changes appear in the individual notebook’s activity history after its access check.
+Organization admins and owners can also read grants and revocations in their organization’s audit log and in project audit feeds and CSV exports, including after the notebook is deleted.
+Staff who can access a project’s audit log can read its grant records there. The organization-wide endpoint requires an admin or owner membership.
+The `system.activity_logs` SQL table omits these records.
 
 Activity rows show the actor, optional client tag, and time above the action summary and its target.
 Long action summaries collapse to two lines.
@@ -363,6 +366,7 @@ Organization IP restriction configuration logs initial creation and changes to t
   The Activity page reads times and days without an offset in the project timezone, as insights do.
 - Access control: resource `activity_log`, default level `viewer`.
 - Entitlement: both list endpoints are gated by `AvailableFeature.AUDIT_LOGS` on Cloud and apply the entitlement's lookback window (`get_activity_log_lookback_restriction` in `posthog/models/activity_logging/retention.py`). Writes always happen.
+- Destinations receive a summary when a notebook grant changes. The audit row ID links the actor and action to the detailed record. The event omits the notebook ID, title, recipient and release revision.
 - `activity_visibility_restrictions` hides selected rows from non-staff users (login events of impersonated sessions).
 
 Scheduled scouts already carry `activity_log:read`. MCP hides `advanced-activity-logs-list` when the Cloud organization lacks the Audit Logs entitlement.
