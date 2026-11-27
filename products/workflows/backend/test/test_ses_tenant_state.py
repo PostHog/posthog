@@ -220,7 +220,7 @@ class TestReconcileSesTenantStates(BaseTest):
                 team=team, kind="email", integration_id=f"{team.id}.example.com", config={"provider": "ses"}
             )
         clock = FakeClock()
-        ses = FakeSesTenantReader(clock, call_seconds=[0.4, 2.0, 0.4, 0.4], failing_call=1)
+        ses = FakeSesTenantReader(clock, call_seconds=[0.4, 2.0, 0.4, 0.4], failing_call=2)
 
         with (
             patch("products.workflows.backend.tasks.ses_tenant_state.SESProvider", return_value=ses),
