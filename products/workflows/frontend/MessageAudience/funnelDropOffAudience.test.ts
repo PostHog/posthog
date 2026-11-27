@@ -94,13 +94,13 @@ describe('funnel drop-off audience checked', () => {
         await jest.advanceTimersByTimeAsync(100)
         expect(sentEvents.map(({ event }) => event)).toContain(SETTLED)
         const sharedKeys = new Set(Object.keys(sentEvents.find(({ event }) => event === SETTLED)?.properties ?? {}))
-        return sentEvents
-            .filter(({ event }) => event === 'funnel drop-off audience checked')
-            .map(({ properties }) =>
-                Object.fromEntries(
-                    Object.entries(properties).filter(([key]) => !key.startsWith('$sdk_debug_') && !sharedKeys.has(key))
-                )
+        const audienceEvents = sentEvents.filter(({ event }) => event === 'funnel drop-off audience checked')
+        expect(JSON.stringify(audienceEvents)).not.toMatch(/person-\d|user-\d|@example\.com/)
+        return audienceEvents.map(({ properties }) =>
+            Object.fromEntries(
+                Object.entries(properties).filter(([key]) => !key.startsWith('$sdk_debug_') && !sharedKeys.has(key))
             )
+        )
     }
 
     function actorsQueryMocks(pages: ActorsPage[], { holdFirstRequest = false } = {}): Parameters<typeof useMocks>[0] {
