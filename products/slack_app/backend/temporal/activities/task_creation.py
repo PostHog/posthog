@@ -14,9 +14,11 @@ from posthog.dataclasses import frozen
 from posthog.temporal.common.utils import close_db_connections
 
 from products.slack_app.backend.facade.api import slack_artifact_delivery_state_updates
-from products.slack_app.backend.logic.politeness import POLITE_REQUEST_REACTION, is_polite_request
+from products.slack_app.backend.facade.enums import SlackReactionKind
+from products.slack_app.backend.logic.politeness import is_polite_request
 from products.slack_app.backend.logic.reply_suggestions import clear_open_suggestions
 from products.slack_app.backend.logic.thread_join import ThreadJoinDecision, decide_thread_join
+from products.slack_app.backend.services.reaction_settings import reaction_for
 from products.slack_app.backend.services.slack_messages import (
     SlackThreadMessage,
     context_block,
@@ -48,11 +50,7 @@ from products.slack_app.backend.temporal.helpers import (
     safe_unreact,
     warn_if_personal_github_cannot_open_repository,
 )
-from products.slack_app.backend.temporal.types import (
-    SLACK_APP_PROCESSING_REACTION,
-    PostHogCodeSlackMentionWorkflowInputs,
-    SlackAppModelOverride,
-)
+from products.slack_app.backend.temporal.types import PostHogCodeSlackMentionWorkflowInputs, SlackAppModelOverride
 from products.tasks.backend.facade.profiles import TaskRunOptions
 
 if TYPE_CHECKING:
@@ -814,9 +812,9 @@ def create_posthog_code_task_for_repo_activity(
 
     user_message_ts = event.get("ts")
     if user_message_ts:
-        safe_react(slack.client, channel, user_message_ts, "eyes")
+        _add_reaction(slack, channel, user_message_ts, slack_user_id, SlackReactionKind.WORKING)
         if is_polite_request(extract_message_text(event)):
-            safe_react(slack.client, channel, user_message_ts, POLITE_REQUEST_REACTION)
+            _add_reaction(slack, channel, user_message_ts, slack_user_id, SlackReactionKind.POLITE)
 
     from products.slack_app.backend.services.slack_messages import (  # noqa: PLC0415
         decode_slack_event_text,
@@ -1211,7 +1209,7 @@ def forward_posthog_code_followup_activity(
         join = decide_thread_join(integration, mapping, slack_user_id)
         if join == ThreadJoinDecision.DENY:
             # The queue already marked the message as being worked on, and nothing will answer it.
-            _clear_processing_reaction(slack, channel, user_message_ts)
+            _clear_processing_reaction(slack, channel, user_message_ts, slack_user_id)
             logger.info("slack_app_followup_thread_join_denied", channel=channel, thread_ts=thread_ts)
             return True
         # The follow-up is from a different Slack user than the one who started the
@@ -1247,7 +1245,7 @@ def forward_posthog_code_followup_activity(
 
             # The creator's approval sends this message again, so it stops here. Nothing works on
             # it while it waits, so it loses the reaction that says so.
-            _clear_processing_reaction(slack, channel, user_message_ts)
+            _clear_processing_reaction(slack, channel, user_message_ts, slack_user_id)
             post_thread_join_prompt(
                 slack,
                 integration,
@@ -1284,7 +1282,7 @@ def forward_posthog_code_followup_activity(
     try:
         tasks_facade.check_wake_by_task_id(mapping.task_id, source="slack_follow_up")
     except tasks_facade.TaskDoneError as error:
-        _clear_processing_reaction(slack, channel, user_message_ts)
+        _clear_processing_reaction(slack, channel, user_message_ts, slack_user_id)
         post_slack_thread_reply(slack.client, channel=channel, thread_ts=thread_ts, text=str(error))
         return True
 
@@ -1429,7 +1427,7 @@ def forward_posthog_code_followup_activity(
     )
 
     if user_message_ts:
-        safe_react(slack.client, channel, user_message_ts, "eyes")
+        _add_reaction(slack, channel, user_message_ts, slack_user_id, SlackReactionKind.WORKING)
 
     uploaded_attachments, attachment_skips = _upload_prepared_slack_attachments(
         tasks_facade,
@@ -1486,7 +1484,7 @@ def forward_posthog_code_followup_activity(
             task_run_id=str(task_run.id),
             signal_result=signal_result,
         )
-        _set_followup_done_reaction(slack, channel, user_message_ts, "x")
+        _set_followup_error_reaction(slack, channel, user_message_ts, slack_user_id)
         post_slack_thread_reply(
             slack.client,
             channel=channel,
@@ -2119,7 +2117,7 @@ def _resume_task_with_new_run(
     mapping.save(update_fields=["task_run", "updated_at"])
 
     if user_message_ts:
-        safe_react(slack.client, channel, user_message_ts, "eyes")
+        _add_reaction(slack, channel, user_message_ts, slack_user_id, SlackReactionKind.WORKING)
 
     logger.info(
         "posthog_code_task_resumed",
@@ -2157,18 +2155,27 @@ def _delete_followup_progress(
         pass
 
 
-def _clear_processing_reaction(slack: Any, channel: str, user_message_ts: str | None) -> None:
+def _add_reaction(
+    slack: Any, channel: str, message_ts: str, slack_user_id: str | None, kind: SlackReactionKind
+) -> None:
+    """React to a person's message with their choice for this kind, unless they or the workspace turned it off."""
+    reaction = reaction_for(slack.integration, slack_user_id, kind)
+    if reaction.enabled:
+        safe_react(slack.client, channel, message_ts, reaction.emoji)
+
+
+def _clear_processing_reaction(
+    slack: Any, channel: str, user_message_ts: str | None, slack_user_id: str | None
+) -> None:
     if user_message_ts:
-        safe_unreact(slack.client, channel, user_message_ts, SLACK_APP_PROCESSING_REACTION)
+        working = reaction_for(slack.integration, slack_user_id, SlackReactionKind.WORKING)
+        safe_unreact(slack.client, channel, user_message_ts, working.emoji)
 
 
-def _set_followup_done_reaction(slack: Any, channel: str, user_message_ts: str | None, done_emoji: str) -> None:
+def _set_followup_error_reaction(
+    slack: Any, channel: str, user_message_ts: str | None, slack_user_id: str | None
+) -> None:
     if not user_message_ts:
         return
-
-    try:
-        slack.client.reactions_remove(channel=channel, timestamp=user_message_ts, name="eyes")
-    except Exception:
-        pass
-
-    safe_react(slack.client, channel, user_message_ts, done_emoji)
+    _clear_processing_reaction(slack, channel, user_message_ts, slack_user_id)
+    _add_reaction(slack, channel, user_message_ts, slack_user_id, SlackReactionKind.ERROR)

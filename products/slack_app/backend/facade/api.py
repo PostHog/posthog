@@ -35,12 +35,15 @@ from products.slack_app.backend.facade.types import (
     ChannelOption,
     SlackAppSettings,
     SlackChannelSettings,
+    SlackEmojiCatalog,
+    SlackFeatureDisabled,
     SlackPersonalSettingsChange,
     SlackReactionChoice,
     SlackRepositoryOptions,
     SlackSetupNotFound,
     WorkspaceSetup,
 )
+from products.slack_app.backend.feature_flags import is_slack_app_emojis_settings_enabled
 from products.slack_app.backend.logic.feature_tips.features import SlackFeature
 from products.slack_app.backend.logic.feature_tips.state import record_feature_used
 from products.slack_app.backend.logic.inbox_report_actions import (
@@ -70,6 +73,7 @@ from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.slack_app.backend.services.followup_invite import build_followup_invite, build_followup_invite_text
 from products.slack_app.backend.services.public_channel_catalog import public_channel_options
 from products.slack_app.backend.services.slack_auth import invalidate_auth_state
+from products.slack_app.backend.services.slack_emoji import list_custom_emoji
 from products.slack_app.backend.services.slack_scopes import SLACK_CANVAS_SCOPE, SLACK_FILE_SCOPE, has_scopes
 from products.slack_app.backend.services.slack_user_info import invalidate_workspace_bot_user_id
 from products.slack_app.backend.services.task_notifications import (
@@ -331,3 +335,10 @@ def update_slack_channel_settings(
         default_repository=default_repository,
         untagged_question_mode=untagged_question_mode,
     )
+
+
+def list_slack_custom_emoji(team_id: int, integration_id: int) -> SlackEmojiCatalog:
+    integration = _setup_integration(team_id, integration_id)
+    if not is_slack_app_emojis_settings_enabled(integration):
+        raise SlackFeatureDisabled("Choosing reaction emoji is not available for this Slack workspace yet.")
+    return list_custom_emoji(integration)

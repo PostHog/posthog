@@ -123334,9 +123334,49 @@ export namespace Schemas {
       untagged_question_mode: SlackChannelQuestionModeEnum | null;
     }
 
+    export interface SlackAppCustomEmoji {
+      /** Name of the custom emoji, without colons. */
+      name: string;
+      /**
+         * Image of the emoji. Null for an alias of a standard emoji.
+         * @nullable
+         */
+      image_url: string | null;
+      /**
+         * Name of the emoji this one is an alias of. Null when it has its own image.
+         * @nullable
+         */
+      alias_for: string | null;
+    }
+
     export interface SlackAppDefaultProject {
       /** ID of the Slack integration of the project that becomes the workspace default. */
       integration_id: number;
+    }
+
+    /**
+     * * `loaded` - Custom emoji loaded
+     * * `missing_scope` - The install cannot read custom emoji
+     * * `unavailable` - Slack did not answer
+     */
+    export type SlackCustomEmojiStatusEnum = typeof SlackCustomEmojiStatusEnum[keyof typeof SlackCustomEmojiStatusEnum];
+
+
+    export const SlackCustomEmojiStatusEnum = {
+      Loaded: 'loaded',
+      MissingScope: 'missing_scope',
+      Unavailable: 'unavailable',
+    } as const;
+
+    export interface SlackAppEmojiCatalog {
+      /** Custom emoji of the Slack workspace, by name. */
+      custom_emoji: SlackAppCustomEmoji[];
+      /** loaded: the list is complete. missing_scope: the install lacks emoji:read, so only standard emoji can be picked. unavailable: Slack did not answer, so try again later.
+       *
+       * * `loaded` - Custom emoji loaded
+       * * `missing_scope` - The install cannot read custom emoji
+       * * `unavailable` - Slack did not answer */
+      custom_emoji_status: SlackCustomEmojiStatusEnum;
     }
 
     export interface SlackAppJoinChannels {
@@ -123441,6 +123481,8 @@ export namespace Schemas {
       reactions: SlackAppReactionChoices;
       /** Whether PostHog works in Slack channels shared with other organizations. */
       external_channels_enabled: boolean;
+      /** The reactions PostHog adds for a person without choices of their own, after PostHog's defaults fill the gaps. */
+      effective_reactions: SlackAppResolvedReactions;
     }
 
     export interface SlackAppSettings {

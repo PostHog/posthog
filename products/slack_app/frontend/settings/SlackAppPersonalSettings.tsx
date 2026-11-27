@@ -13,6 +13,7 @@ import {
 import { urls } from 'scenes/urls'
 
 import type { SlackThreadJoinModeEnumApi, SlackUntaggedModeEnumApi } from '../generated/api.schemas'
+import { SlackAppReactionSettings } from './SlackAppReactionSettings'
 import { slackAppSettingsLogic } from './slackAppSettingsLogic'
 
 const UNTAGGED_MODE_OPTIONS: { value: SlackUntaggedModeEnumApi; label: string }[] = [
@@ -179,6 +180,8 @@ export function SlackAppPersonalSettings(): JSX.Element {
                     />
                 </SettingRow>
             </SettingsGroup>
+
+            <SlackAppReactionSettings level="personal" />
 
             <LemonCollapse
                 panels={[

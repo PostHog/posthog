@@ -397,13 +397,18 @@ class TestSlackAppSettings(APIBaseTest):
     @patch(
         "products.access_control.backend.facade.user_access_control.UserAccessControl.access_controls_supported", True
     )
-    def test_a_member_restricted_on_the_install_cannot_read_or_change_its_settings(self) -> None:
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    @patch("slack_sdk.WebClient.emoji_list")
+    def test_a_member_restricted_on_the_install_cannot_read_or_change_its_settings(
+        self, emoji_list, _flag_enabled
+    ) -> None:
         self._set_level(OrganizationMembership.Level.MEMBER)
         AccessControl.objects.create(
             team=self.team, resource="integration", resource_id=str(self.integration.id), access_level="none"
         )
 
         read = self.client.get(self._url())
+        emoji = self.client.get(self._url("emoji/"))
         write = self.client.put(
             self._url("channels/C111/"),
             {"default_integration_id": None, "default_repository": "example/web-app", "untagged_question_mode": None},
@@ -411,5 +416,58 @@ class TestSlackAppSettings(APIBaseTest):
         )
 
         assert read.status_code == status.HTTP_403_FORBIDDEN
+        assert emoji.status_code == status.HTTP_403_FORBIDDEN
         assert write.status_code == status.HTTP_403_FORBIDDEN
         assert not SlackChannelSettings.objects.exists()
+        emoji_list.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("with_the_scope", "chat:write,emoji:read", True, "loaded", ["hog-alias", "hog-wave", "thumbs"]),
+            ("without_the_scope", "chat:write", True, "missing_scope", []),
+            ("flag_off", "chat:write,emoji:read", False, None, None),
+        ]
+    )
+    @patch("slack_sdk.WebClient.emoji_list")
+    def test_emoji_picker_lists_custom_emoji_once_per_workspace(
+        self,
+        _name: str,
+        scopes: str,
+        flag_on: bool,
+        expected_status: str | None,
+        expected_names: list[str] | None,
+        emoji_list,
+    ) -> None:
+        cache.clear()
+        self.integration.config = {**self.integration.config, "scope": scopes}
+        self.integration.save()
+        emoji_list.return_value = {
+            "ok": True,
+            "emoji": {
+                "hog-wave": "https://emoji.example.com/hog-wave.png",
+                "hog-alias": "alias:hog-wave",
+                "thumbs": "alias:thumbsup",
+            },
+        }
+
+        with patch("posthoganalytics.feature_enabled", return_value=flag_on):
+            first = self.client.get(self._url("emoji/"))
+            second = self.client.get(self._url("emoji/"))
+
+        if expected_status is None:
+            assert first.status_code == status.HTTP_404_NOT_FOUND
+            emoji_list.assert_not_called()
+            return
+        assert first.status_code == status.HTTP_200_OK
+        assert second.json() == first.json()
+        body = first.json()
+        assert body["custom_emoji_status"] == expected_status
+        assert [entry["name"] for entry in body["custom_emoji"]] == expected_names
+        assert emoji_list.call_count == (1 if expected_status == "loaded" else 0)
+        if expected_status == "loaded":
+            assert body["custom_emoji"][0] == {
+                "name": "hog-alias",
+                "image_url": "https://emoji.example.com/hog-wave.png",
+                "alias_for": "hog-wave",
+            }
+            assert body["custom_emoji"][2] == {"name": "thumbs", "image_url": None, "alias_for": "thumbsup"}

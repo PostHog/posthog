@@ -20,6 +20,7 @@ from products.slack_app.backend.facade.api import (
     get_slack_workspace_setup,
     join_slack_setup_channels,
     list_slack_channel_settings,
+    list_slack_custom_emoji,
     list_slack_repository_options,
     list_slack_setup_channels,
     set_slack_workspace_default_project,
@@ -29,6 +30,7 @@ from products.slack_app.backend.facade.api import (
 )
 from products.slack_app.backend.facade.enums import (
     SlackChannelQuestionMode,
+    SlackCustomEmojiStatus,
     SlackReactionKind,
     SlackSetupEntry,
     SlackSetupStepKey,
@@ -38,6 +40,7 @@ from products.slack_app.backend.facade.enums import (
 from products.slack_app.backend.facade.types import (
     MAX_CHANNELS_TO_JOIN,
     ChannelCatalogBusy,
+    SlackFeatureDisabled,
     SlackPersonalSettingsChange,
     SlackReactionChoice,
     SlackSettingsInvalid,
@@ -271,6 +274,9 @@ class SlackAppWorkspaceSettingsSerializer(serializers.Serializer):
     external_channels_enabled = serializers.BooleanField(
         help_text="Whether PostHog works in Slack channels shared with other organizations."
     )
+    effective_reactions = SlackAppResolvedReactionsSerializer(
+        help_text="The reactions PostHog adds for a person without choices of their own, after PostHog's defaults fill the gaps."
+    )
 
 
 class SlackAppPersonalSettingsSerializer(serializers.Serializer):
@@ -426,6 +432,24 @@ class SlackAppChannelSettingsUpdateSerializer(serializers.Serializer):
     )
 
 
+class SlackAppCustomEmojiSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="Name of the custom emoji, without colons.")
+    image_url = serializers.URLField(
+        allow_null=True, help_text="Image of the emoji. Null for an alias of a standard emoji."
+    )
+    alias_for = serializers.CharField(
+        allow_null=True, help_text="Name of the emoji this one is an alias of. Null when it has its own image."
+    )
+
+
+class SlackAppEmojiCatalogSerializer(serializers.Serializer):
+    custom_emoji = SlackAppCustomEmojiSerializer(many=True, help_text="Custom emoji of the Slack workspace, by name.")
+    custom_emoji_status = serializers.ChoiceField(
+        choices=SlackCustomEmojiStatus.choices,
+        help_text="loaded: the list is complete. missing_scope: the install lacks emoji:read, so only standard emoji can be picked. unavailable: Slack did not answer, so try again later.",
+    )
+
+
 def _reactions(data: dict[str, dict[str, Any]]) -> dict[SlackReactionKind, SlackReactionChoice]:
     return {
         SlackReactionKind(kind): SlackReactionChoice(emoji=choice.get("emoji"), enabled=choice.get("enabled"))
@@ -453,7 +477,7 @@ PERSONAL_SETTING_FIELDS = (
 
 class SlackAppSettingsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "integration"
-    scope_object_read_actions = ["retrieve", "channels", "repositories"]
+    scope_object_read_actions = ["retrieve", "channels", "repositories", "emoji"]
     scope_object_write_actions = ["workspace", "personal", "update_channel"]
 
     def read_object(self) -> IntegrationRecord | None:
@@ -548,6 +572,18 @@ class SlackAppSettingsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         except GitHubRateLimitError as error:
             raise Throttled(detail=GITHUB_RATE_LIMITED) from error
         return Response(SlackAppRepositoryOptionsSerializer(options).data)
+
+    @validated_request(
+        responses={200: OpenApiResponse(response=SlackAppEmojiCatalogSerializer)},
+        summary="List the custom emoji of the Slack workspace for the reaction picker",
+    )
+    @action(detail=True, methods=["get"], url_path="emoji", required_scopes=["integration:read"])
+    def emoji(self, request: Request, pk: str | None = None, **kwargs: Any) -> Response:
+        try:
+            catalog = list_slack_custom_emoji(self.team_id, self._integration_id(pk))
+        except (SlackSetupNotFound, SlackFeatureDisabled) as error:
+            raise NotFound() from error
+        return Response(SlackAppEmojiCatalogSerializer(catalog).data)
 
     @validated_request(
         responses={200: OpenApiResponse(response=SlackAppChannelSettingsListSerializer)},

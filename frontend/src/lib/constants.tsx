@@ -554,6 +554,7 @@ export const FEATURE_FLAGS = {
     SHOW_REPLAY_FILTERS_FEEDBACK_BUTTON: 'show-replay-filters-feedback-button', // owner: @ksvat #team-replay
     SIGNUP_AA_TEST_4_WAY: 'signup-aa-test-4-way', // owner: @andehen #team-experiments multivariate=control,test-1,test-2,test-3
     SIGNUP_PASSWORD_CRACK_ESTIMATED: 'signup-password-crack-estimated',
+    SLACK_APP_EMOJIS_SETTINGS: 'slack-app-emojis-settings', // owner: #team-surfaces, gates choosing the Slack app's reaction emoji
     SLACK_APP_WEB_SETTINGS: 'slack-app-web-settings', // owner: #team-surfaces, gates the Slack app section in project settings
     SLACK_DWH: 'slack-dwh', // owner: @MarconLP #team-warehouse-sources
     SMALL_SOFTWARE_APPS: 'small-software-apps', // owner: @DanielVisca, shows the canvas app tile in the dashboard add-widget picker; the backend gates tile creation on the same key

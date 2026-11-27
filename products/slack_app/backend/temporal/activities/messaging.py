@@ -6,11 +6,17 @@ from temporalio import activity
 from posthog.models.integration import SlackIntegration
 from posthog.temporal.common.utils import close_db_connections
 
+from products.slack_app.backend.facade.enums import SlackReactionKind
+from products.slack_app.backend.services.reaction_settings import reaction_for
 from products.slack_app.backend.services.slack_messages import post_slack_thread_reply
 from products.slack_app.backend.services.workspace_integrations import get_integration, require_workspace_integration
-from products.slack_app.backend.temporal.helpers import post_personal_github_prompt, safe_react, swap_reaction
+from products.slack_app.backend.temporal.helpers import (
+    post_personal_github_prompt,
+    safe_react,
+    safe_unreact,
+    swap_reaction,
+)
 from products.slack_app.backend.temporal.types import (
-    SLACK_APP_PROCESSING_REACTION,
     SLACK_APP_QUEUED_REACTION,
     PostHogCodeSlackMentionWorkflowInputs,
     SlackAppMessageReactionInput,
@@ -203,8 +209,8 @@ def post_posthog_code_internal_error_activity(
 @activity.defn
 @close_db_connections
 def mark_slack_app_message_processing_activity(input: SlackAppMessageReactionInput) -> None:
-    """Swap the queued :hourglass: reaction for :eyes: when the conversation
-    queue starts processing a message.
+    """Swap the queued :hourglass: reaction for the working reaction when the
+    conversation queue starts processing a message.
 
     Purely cosmetic UX feedback: never raises, so a Slack hiccup can't stall
     the conversation queue behind retries of a reaction.
@@ -212,9 +218,11 @@ def mark_slack_app_message_processing_activity(input: SlackAppMessageReactionInp
     try:
         integration = require_workspace_integration(input.integration_id, input.slack_team_id)
         slack = SlackIntegration(integration)
-        swap_reaction(
-            slack.client, input.channel, input.message_ts, SLACK_APP_QUEUED_REACTION, SLACK_APP_PROCESSING_REACTION
-        )
+        working = reaction_for(integration, input.slack_user_id, SlackReactionKind.WORKING)
+        if working.enabled:
+            swap_reaction(slack.client, input.channel, input.message_ts, SLACK_APP_QUEUED_REACTION, working.emoji)
+        else:
+            safe_unreact(slack.client, input.channel, input.message_ts, SLACK_APP_QUEUED_REACTION)
     except Exception as e:
         logger.warning(
             "slack_app_processing_reaction_failed",

@@ -308,6 +308,8 @@ class SlackAppMessageReactionInput(BaseModel):
     slack_team_id: str
     channel: str
     message_ts: str
+    # The author of the message, whose own reaction choice applies. None for a task queued before it existed.
+    slack_user_id: str | None = None
 
 
 class SlackAppModelOverrideInput(BaseModel):
