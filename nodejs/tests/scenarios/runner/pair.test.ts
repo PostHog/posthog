@@ -164,6 +164,13 @@ describe('pairOf', () => {
             /^the control offered 92 of its 100 units, so it may not have carried the faulted run's load$/,
         ],
         [
+            "a control short by its card's minOffered share",
+            { ...CLEAN, units: { targetUnits: 100, offeredUnits: 90 } },
+            BREACHED,
+            'unjudged',
+            /^the control offered 90 of its 100 units, so it may not have carried the faulted run's load$/,
+        ],
+        [
             'a control that offered as many units as the faulted run, but not all it targeted',
             { ...CLEAN, units: { targetUnits: 100, offeredUnits: 92 } },
             { ...BREACHED, units: { targetUnits: 100, offeredUnits: 92 } },
