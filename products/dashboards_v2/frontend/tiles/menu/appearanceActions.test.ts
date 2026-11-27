@@ -98,5 +98,11 @@ describe('showAction', () => {
         pick('icon').onSelect!()
         expect(findTile(board, 'a')?.panel.appearance).not.toHaveProperty('description')
         expect(choices(start)).toEqual([])
+        const describedSection = { ...section, panel: { ...section.panel, description: 'What it groups' } }
+        expect(choices(describedSection).map((item) => item.label)).toEqual([
+            'In an icon',
+            'Next to the title',
+            'Hidden',
+        ])
     })
 })

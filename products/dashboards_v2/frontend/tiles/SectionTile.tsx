@@ -59,6 +59,8 @@ export function SectionTile({
 }): JSX.Element {
     const { onEdit, onSectionFoldedChange, can } = useDashboard()
     const collapsed = !!panel.collapsed
+    const descriptionMode = panel.appearance?.description ?? 'icon'
+    const description = descriptionMode === 'hidden' ? undefined : panel.description
     const [draft, setDraft] = useState<string | null>(null)
     const ownActions = useSectionActions(id, panel, () => setDraft(panel.title))
     const [confirmingRemove, setConfirmingRemove] = useState(false)
@@ -120,18 +122,17 @@ export function SectionTile({
                             onDraftChange={setDraft}
                         />
                         <SectionCount count={panel.tiles.length} />
-                        {panel.description && (
-                            <>
-                                <DescriptionInfo description={panel.description} />
-                                <span
-                                    className={clsx(
-                                        DESCRIPTION_IMAGE_ONLY_CLASS,
-                                        'truncate text-xs text-muted-foreground'
-                                    )}
-                                >
-                                    {panel.description}
-                                </span>
-                            </>
+                        {description && descriptionMode === 'icon' && <DescriptionInfo description={description} />}
+                        {description && (
+                            <span
+                                className={clsx(
+                                    descriptionMode === 'icon' && DESCRIPTION_IMAGE_ONLY_CLASS,
+                                    'TileGrid__text min-w-0 shrink-[100] truncate text-xs text-muted-foreground'
+                                )}
+                                title={description}
+                            >
+                                {description}
+                            </span>
                         )}
                     </SectionHeader>
                     {!collapsed && (
@@ -180,6 +181,9 @@ export function Section({
         </Card>
     )
 }
+
+// A long title stops here, so the count, the description and the actions keep their room in the header.
+const TITLE_MAX_WIDTH = 'max-w-96'
 
 /** The section's title bar, which is also what the section is dragged by. */
 export function SectionHeader({ actions, children }: { actions?: ReactNode; children: ReactNode }): JSX.Element {
@@ -238,8 +242,9 @@ export function SectionTitle({
         label = (
             <Button
                 size="xs"
-                className="quill-card__title min-w-0 max-w-full shrink"
-                tooltip="Rename"
+                className={clsx('quill-card__title min-w-0 shrink', TITLE_MAX_WIDTH)}
+                // The title is cut off past its width, so the tooltip is where the whole of it shows.
+                tooltip={`Rename "${title}"`}
                 data-attr="dashboard-v2-section-rename"
                 onClick={() => setDraft(title)}
             >
@@ -247,7 +252,11 @@ export function SectionTitle({
             </Button>
         )
     } else {
-        label = <CardTitle className="TileGrid__text truncate">{title}</CardTitle>
+        label = (
+            <CardTitle className={clsx('TileGrid__text truncate', TITLE_MAX_WIDTH)} title={title}>
+                {title}
+            </CardTitle>
+        )
     }
 
     return (
