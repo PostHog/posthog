@@ -25,8 +25,8 @@ const readingsOf = ({ max, avg }: CapacityMinute): number[] =>
     [max, avg].filter((reading): reading is number => reading !== undefined)
 
 // The host before promotion and the controller after the run judge minutes by these rules. Only the host sets
-// `bothReadings`, so the controller passes a minute that lacks one reading. `idleSince` is undefined for a warm
-// reader, which skips the idle rules.
+// `bothReadings`, so the controller refuses a minute that lacks one reading only when another rule fails it.
+// `idleSince` is undefined for a warm reader, which skips the idle rules.
 export function capacityProblems(
     minutes: readonly CapacityMinute[],
     { min, max, idleMax }: CapacityLimits,
