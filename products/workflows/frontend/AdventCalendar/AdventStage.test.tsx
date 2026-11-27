@@ -9,6 +9,7 @@ import { initKeaTests } from '~/test/init'
 import { UserType } from '~/types'
 
 import { adventCalendarLogic } from './adventCalendarLogic'
+import { AdventShareButton } from './AdventShareButton'
 import { AdventStage } from './AdventStage'
 
 const UUID = '0190d8a2-1c4e-7b3a-9f21-5a6b7c8d9e01'
@@ -38,20 +39,32 @@ describe('AdventStage', () => {
         jest.useRealTimers()
     })
 
-    it('takes the doors out of keyboard reach while a reveal runs, and gives them back after', () => {
+    it('takes the doors and the share button out of reach while a reveal runs, and gives them back after', () => {
+        window.localStorage.setItem(
+            'workflows-advent-calendar-progress',
+            JSON.stringify({ [UUID]: { opened: [1, 2], answers: { 2: 'tim' } } })
+        )
         const logic = adventCalendarLogic()
         logic.mount()
-        const { container, unmount } = render(<AdventStage />)
-        const isInert = (): boolean | undefined =>
-            container.querySelector('.AdventStage__workflow')?.hasAttribute('inert')
+        const { container, unmount } = render(
+            <>
+                <AdventShareButton />
+                <AdventStage />
+            </>
+        )
+        const reach = (): { doors: boolean; share: boolean } => ({
+            doors: !container.querySelector('.AdventStage__workflow')?.hasAttribute('inert'),
+            share: container.querySelector('[data-attr="advent-share"]')?.getAttribute('aria-disabled') === 'false',
+        })
 
-        expect(isInert()).toBe(false)
+        expect(reach()).toEqual({ doors: true, share: true })
 
-        act(() => logic.actions.activateDoor('door-1'))
-        expect(isInert()).toBe(true)
+        const doorThree = logic.values.graph.doors.find((door) => door.day === 3 && door.status === 'ready')!
+        act(() => logic.actions.activateDoor(doorThree.id))
+        expect(reach()).toEqual({ doors: false, share: false })
 
         act(() => logic.actions.finishReveal())
-        expect(isInert()).toBe(false)
+        expect(reach()).toEqual({ doors: true, share: true })
 
         unmount()
         logic.unmount()
