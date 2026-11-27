@@ -1725,7 +1725,7 @@ export interface TransactionalEmailClickApi {
     /** When the recipient clicked. */
     at: string
     /**
-     * The link that was clicked, with no path for an email marked sensitive. Null when no engagement event recorded the click: the project or the send turned engagement events off, or the send named no distinct ID.
+     * The link that was clicked, with no path for an email marked sensitive. Null when no engagement event of the click carries a link: the project or the send turned engagement events off, the send named no distinct ID, or the link could not be read.
      * @nullable
      */
     link_url: string | null
