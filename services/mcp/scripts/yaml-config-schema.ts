@@ -325,8 +325,17 @@ export const ToolConfigSchema = z
                  * Defaults to the tool's title if omitted.
                  */
                 action_label: z.string().optional(),
+                // See `preview` in definitions/README.md.
+                preview: z.string().optional(),
+                preview_digest_param: z.string().optional(),
             })
             .strict()
+            .refine((data) => !!data.preview === data.message.includes('{preview}'), {
+                message: '`preview` and a `{preview}` placeholder in `message` need each other.',
+            })
+            .refine((data) => !data.preview_digest_param || !!data.preview, {
+                message: '`preview_digest_param` needs `preview`.',
+            })
             .optional(),
     })
     .strict()

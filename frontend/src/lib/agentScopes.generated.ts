@@ -144,6 +144,7 @@ export const AGENT_USE_CASE_SCOPES = [
     'task:write',
     'tracing:read',
     'transactional_email:write',
+    'transactional_push:write',
     'field_note:read',
     'field_note:write',
     'uploaded_media:read',

@@ -1237,6 +1237,10 @@ function hooksVarName(toolName: string): string {
     return `hooks_${toCamelCase(toolName)}`
 }
 
+function previewVarName(toolName: string): string {
+    return `preview_${toCamelCase(toolName)}`
+}
+
 /** Emits the handler expression, wrapped with the tool's `hooks:` module when it has one. */
 function renderHandler(config: ToolConfig, toolName: string, handlerFn: string): string {
     return config.hooks ? `withToolHooks(${hooksVarName(toolName)}, ${handlerFn})` : handlerFn
@@ -1720,12 +1724,35 @@ function buildConfirmedActionFactories(args: {
     const executeResolvedArgsField =
         resolvedFallbackNames.length > 0 ? `            resolvedArgs: ${JSON.stringify(resolvedFallbackNames)},\n` : ''
 
+    const previewVar = config.confirmed_action?.preview ? previewVarName(toolName) : undefined
+    const previewScope = `{ ${scopeParts.join(', ')} }`
+    const preparePreviewBlock = previewVar
+        ? `        const __preview = await ${previewVar}(context, ${prepareArgsExpr}, ${previewScope})\n`
+        : ''
+    const preparePreviewField = previewVar ? '            preview: __preview,\n' : ''
+    const executePreviewField = previewVar
+        ? `            loadPreview: (args) => ${previewVar}(context, args as z.infer<ReturnType<typeof ${schemaName}>>, ${previewScope}),\n`
+        : ''
+
+    const digestParam = config.confirmed_action?.preview_digest_param
+    if (digestParam) {
+        const request = '        const result = await context.api.request'
+        if (!executeHandlerBody.includes(request)) {
+            throw new Error(`${toolName}: no API request to send ${digestParam} with`)
+        }
+        executeHandlerBody = executeHandlerBody.replace(
+            request,
+            `        if (__guard.previewDigest !== undefined) body[${JSON.stringify(digestParam)}] = __guard.previewDigest\n        const result = await context.api.request`
+        )
+        executeHandlerBody = `        return await refuseChangedPreview(${JSON.stringify(toolName)}, async () => {\n${executeHandlerBody}        })\n`
+    }
+
     // Prepare handler: validate args via the base schema (already happens
     // before our handler runs) and call into the runtime. Args are signed
     // (with any state fallbacks resolved) — bound to user identity + purpose
     // (+ active scope).
     const prepareHandler = `        const __runtime = getConfirmedActionRuntime()
-${scopeResolveBlock}${prepareFallbackBlock}        return await prepareConfirmedAction(context, {
+${scopeResolveBlock}${prepareFallbackBlock}${preparePreviewBlock}        return await prepareConfirmedAction(context, {
             args: ${prepareArgsExpr},
             purpose: ${JSON.stringify(toolName)},
             inputSchema: ${schemaName}(),
@@ -1733,7 +1760,7 @@ ${scopeResolveBlock}${prepareFallbackBlock}        return await prepareConfirmed
             messageTemplate: ${JSON.stringify(messageTemplate)},
             codec: __runtime.codec,
             stash: __runtime.stash,
-${prepareScopeField}        })
+${prepareScopeField}${preparePreviewField}        })
 `
 
     // Execute handler: guard, then re-run the original handler body with
@@ -1746,7 +1773,7 @@ ${scopeResolveBlock}        const __guard = await executeConfirmedAction<z.infer
             inputSchema: ${schemaName}(),
 ${executeResolvedArgsField}            codec: __runtime.codec,
             stash: __runtime.stash,
-${executeScopeField}        })
+${executeScopeField}${executePreviewField}        })
         if (!__guard.ok) {
             return __guard.result as never
         }
@@ -2039,6 +2066,14 @@ function generateCategoryFile(
             )
             process.exit(1)
         }
+        const previewModule = config.confirmed_action?.preview
+        if (previewModule && !fs.existsSync(path.join(TOOLS_SRC_DIR, `${previewModule}.ts`))) {
+            console.error(
+                `Enabled tool "${name}": preview module "${previewModule}" not found. ` +
+                    `Expected services/mcp/src/tools/${previewModule}.ts.`
+            )
+            process.exit(1)
+        }
         const missingScopes = findMissingSpecScopes(config, resolved)
         if (missingScopes.length > 0) {
             reportMissingSpecScopes(name, fileName, missingScopes)
@@ -2320,11 +2355,19 @@ function generateCategoryFile(
                   .join('')
             : ''
 
+    const previewImportLines = enabledTools
+        .filter(([, toolConfig]) => toolConfig.confirmed_action?.preview)
+        .map(
+            ([name, toolConfig]) =>
+                `import ${previewVarName(name)} from '@/tools/${toolConfig.confirmed_action!.preview}'\n`
+        )
+        .join('')
+
     const wrapperImportLine =
         enabledWrappers.length > 0 ? `import { createQueryWrapper } from '@/tools/query-wrapper-factory'\n` : ''
 
     const confirmedActionImportLine = hasConfirmedAction
-        ? `import { getConfirmedActionRuntime } from '@/tools/confirmed-action-registry'\nimport { executeConfirmedAction, prepareConfirmedAction, type PrepareConfirmedActionResult } from '@/tools/confirmed-action-runtime'\n`
+        ? `import { getConfirmedActionRuntime } from '@/tools/confirmed-action-registry'\nimport { executeConfirmedAction, prepareConfirmedAction, ${enabledTools.some(([, c]) => c.confirmed_action?.preview_digest_param) ? 'refuseChangedPreview, ' : ''}type PrepareConfirmedActionResult } from '@/tools/confirmed-action-runtime'\n`
         : ''
 
     const schemaRefCode = allSchemaRefBlocks.length > 0 ? '\n' + allSchemaRefBlocks.join('\n\n') + '\n' : ''
@@ -2333,7 +2376,7 @@ function generateCategoryFile(
 import { z } from 'zod'
 
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-${toolUtilsImportLine ? `${toolUtilsImportLine}` : ''}${schemasImportLine}${withUiAppImportLine}${toolInputsImportLine}${castHelpersImportLine}${wrapperImportLine}${hooksImportLines}${confirmedActionImportLine}${orvalImportLine}${schemaRefCode}${toolCodes.join('')}${wrapperSchemasCode}
+${toolUtilsImportLine ? `${toolUtilsImportLine}` : ''}${schemasImportLine}${withUiAppImportLine}${toolInputsImportLine}${castHelpersImportLine}${wrapperImportLine}${hooksImportLines}${previewImportLines}${confirmedActionImportLine}${orvalImportLine}${schemaRefCode}${toolCodes.join('')}${wrapperSchemasCode}
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
 ${mapEntries}
 }
