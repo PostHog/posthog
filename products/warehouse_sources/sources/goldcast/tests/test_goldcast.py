@@ -14,42 +14,79 @@ def _driver(access_key: str = "tok") -> SourceDriver:
     return SourceDriver(GoldcastSource(), GoldcastSourceConfig(access_key=access_key))
 
 
-class TestTopLevelEndpoints:
-    def test_broadcasts_drop_stream_credentials(self) -> None:
-        result = _driver().run(
-            "broadcasts",
-            [
-                ScriptedResponse(
-                    json=[
-                        {
-                            "id": "b1",
-                            "title": "Keynote",
-                            "youtube_stream_key": "yt-fake-key",
-                            "facebook_stream_key": "fb-fake-key",
-                            "custom_stream_key": "custom-fake-key",
-                            "external_rtmp_push_stream": "rtmp://stream.example.com/live/fake-key",
-                            "wordly_session_key": "wordly-fake-key",
-                            "medialive_rtmp_input_details": {"in_stream_key": "rtmp-fake-key"},
-                        }
-                    ]
-                )
-            ],
-        )
+class TestSecretFieldStripping:
+    @parameterized.expand(
+        [
+            (
+                "broadcasts",
+                [
+                    ScriptedResponse(
+                        json=[
+                            {
+                                "id": "b1",
+                                "title": "Keynote",
+                                "youtube_stream_key": "yt-fake-key",
+                                "facebook_stream_key": "fb-fake-key",
+                                "custom_stream_key": "custom-fake-key",
+                                "external_rtmp_push_stream": "rtmp://stream.example.com/live/fake-key",
+                                "wordly_session_key": "wordly-fake-key",
+                                "medialive_rtmp_input_details": {"in_stream_key": "rtmp-fake-key"},
+                            }
+                        ]
+                    )
+                ],
+                [{"id": "b1", "title": "Keynote"}],
+            ),
+            (
+                "recordings",
+                [
+                    ScriptedResponse(json=[{"id": "e1"}]),
+                    ScriptedResponse(
+                        json=[
+                            {
+                                "s3_key": "recordings/e1/main.mp4",
+                                "signed_get_url": "https://files.example.com/main.mp4?signature=fake",
+                                "expires_in": 3600,
+                                "name": "Main stage",
+                                "descriptor": "main",
+                                "created_at": "2026-01-01T00:00:00Z",
+                            }
+                        ]
+                    ),
+                ],
+                [
+                    {
+                        "s3_key": "recordings/e1/main.mp4",
+                        "name": "Main stage",
+                        "descriptor": "main",
+                        "created_at": "2026-01-01T00:00:00Z",
+                        "event": "e1",
+                    }
+                ],
+            ),
+        ]
+    )
+    def test_secret_fields_are_dropped(
+        self, endpoint: str, responses: list[ScriptedResponse], expected_rows: list[dict[str, Any]]
+    ) -> None:
+        result = _driver().run(endpoint, responses)
 
         assert result.raised is None
-        assert result.rows == [{"id": "b1", "title": "Keynote"}]
+        assert result.rows == expected_rows
 
 
 class TestFanOut:
     @parameterized.expand(
         [
-            ("webinars", "/event/", "/event/webinars/p1/", "event"),
-            ("speakers", "/event/", "/event/p1/public/v1/speakers/", "event"),
-            ("broadcast_polls", "/event/broadcasts/", "/event/broadcasts/p1/polls/", "broadcast"),
+            ("webinars", "/event/", "/event/webinars/p1/", None, "event"),
+            ("speakers", "/event/", "/event/p1/public/v1/speakers/", None, "event"),
+            ("broadcast_polls", "/event/broadcasts/", "/event/broadcasts/p1/polls/", None, "broadcast"),
+            ("booths", "/event/", "/event/booths/", "p1", "event"),
+            ("recordings", "/event/", "/event/p1/get_recordings/", None, "event"),
         ]
     )
     def test_child_request_binds_parent_id_and_stamps_it(
-        self, endpoint: str, parent_path: str, child_path: str, parent_field: str
+        self, endpoint: str, parent_path: str, child_path: str, child_event_param: str | None, parent_field: str
     ) -> None:
         result = _driver().run(
             endpoint,
@@ -59,6 +96,7 @@ class TestFanOut:
         assert result.raised is None
         assert result.rows == [{"id": "c1", parent_field: "p1"}]
         assert result.paths == [parent_path, child_path]
+        assert result.params("event") == [None, child_event_param]
         assert [request.origin for request in result.requests] == ["https://customapi.goldcast.io"] * 2
 
     def test_child_non_404_error_propagates(self) -> None:

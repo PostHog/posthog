@@ -1748,3 +1748,269 @@ async fn test_remote_config_token_path_resolves_project_id_from_db_when_cache_la
         Value::String("plain-payload".to_string())
     );
 }
+
+/// A plain member, because org admins skip access control, in a new organization.
+async fn member_with_personal_key(
+    context: &TestContext,
+    features: &[&str],
+) -> (
+    feature_flags::team::team_models::Team,
+    i32,
+    uuid::Uuid,
+    String,
+) {
+    let org_id = uuid::Uuid::new_v4();
+    let team = context
+        .insert_new_team_with_org(None, &org_id.to_string())
+        .await
+        .unwrap();
+    let mut conn = context.get_non_persons_connection().await.unwrap();
+    sqlx::query(
+        "UPDATE posthog_organization SET available_product_features = \
+         ARRAY(SELECT jsonb_build_object('key', k, 'name', k) FROM unnest($2::text[]) k) \
+         WHERE id = $1",
+    )
+    .bind(org_id)
+    .bind(features)
+    .execute(&mut *conn)
+    .await
+    .unwrap();
+
+    let user_id = context
+        .create_user(
+            &TestContext::generate_test_email("rc_rbac"),
+            &org_id,
+            team.id,
+        )
+        .await
+        .unwrap();
+    context
+        .add_user_to_organization(user_id, &org_id, 1)
+        .await
+        .unwrap();
+    let membership_id: uuid::Uuid = sqlx::query_scalar(
+        "SELECT id FROM posthog_organizationmembership WHERE user_id = $1 AND organization_id = $2",
+    )
+    .bind(user_id)
+    .bind(org_id)
+    .fetch_one(&mut *conn)
+    .await
+    .unwrap();
+    let (_pak_id, api_key) = context
+        .create_personal_api_key(user_id, "RC RBAC", vec!["feature_flag:read"], None, None)
+        .await
+        .unwrap();
+    (team, user_id, membership_id, api_key)
+}
+
+async fn insert_access_control(
+    context: &TestContext,
+    team_id: i32,
+    resource: &str,
+    resource_id: &str,
+    access_level: &str,
+    organization_member_id: Option<uuid::Uuid>,
+    role_id: Option<uuid::Uuid>,
+) {
+    let mut conn = context.get_non_persons_connection().await.unwrap();
+    sqlx::query(
+        "INSERT INTO ee_accesscontrol \
+         (id, team_id, resource, resource_id, access_level, organization_member_id, role_id, created_at, updated_at) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())",
+    )
+    .bind(uuid::Uuid::new_v4())
+    .bind(team_id)
+    .bind(resource)
+    .bind(resource_id)
+    .bind(access_level)
+    .bind(organization_member_id)
+    .bind(role_id)
+    .execute(&mut *conn)
+    .await
+    .unwrap();
+}
+
+async fn get_remote_config(
+    addr: &std::net::SocketAddr,
+    team_id: i32,
+    key: &str,
+    api_key: &str,
+) -> (reqwest::StatusCode, String) {
+    let response = reqwest::Client::new()
+        .get(url(addr, team_id, key))
+        .header("Authorization", format!("Bearer {api_key}"))
+        .send()
+        .await
+        .unwrap();
+    (response.status(), response.text().await.unwrap())
+}
+
+#[tokio::test]
+async fn test_remote_config_personal_key_private_flag_needs_member_grant() {
+    let mut config = Config::default_test_config();
+    config.flags_secret_keys = K1.to_string();
+    let context = TestContext::new(Some(&config)).await;
+    let (team, _user_id, membership_id, api_key) =
+        member_with_personal_key(&context, &["access_control"]).await;
+    let flag_id = insert_rc_flag(&context, team.id, "rc-private", TOK_PRIMARY, true, true).await;
+    let flag_id = flag_id.to_string();
+    insert_access_control(
+        &context,
+        team.id,
+        "feature_flag",
+        &flag_id,
+        "none",
+        None,
+        None,
+    )
+    .await;
+    let server = common::ServerHandle::for_config(config.clone()).await;
+
+    let (status, body) = get_remote_config(&server.addr, team.id, "rc-private", &api_key).await;
+    assert_eq!(status, 403, "body: {body}");
+    assert!(!body.contains("world"), "leaked plaintext: {body}");
+
+    insert_access_control(
+        &context,
+        team.id,
+        "feature_flag",
+        &flag_id,
+        "viewer",
+        Some(membership_id),
+        None,
+    )
+    .await;
+    let (status, body) = get_remote_config(&server.addr, team.id, "rc-private", &api_key).await;
+    assert_eq!(status, 200, "body: {body}");
+    assert_eq!(body, serde_json::to_string(PLAINTEXT).unwrap());
+}
+
+#[tokio::test]
+async fn test_remote_config_personal_key_private_flag_role_grant_needs_rbac_feature() {
+    let mut config = Config::default_test_config();
+    config.flags_secret_keys = K1.to_string();
+    let context = TestContext::new(Some(&config)).await;
+    let (team, user_id, membership_id, api_key) =
+        member_with_personal_key(&context, &["access_control"]).await;
+    let org_id = context.get_organization_id_for_team(&team).await.unwrap();
+    let flag_id = insert_rc_flag(&context, team.id, "rc-role", TOK_PRIMARY, true, true).await;
+    let flag_id = flag_id.to_string();
+    insert_access_control(
+        &context,
+        team.id,
+        "feature_flag",
+        &flag_id,
+        "none",
+        None,
+        None,
+    )
+    .await;
+
+    let role_id = uuid::Uuid::new_v4();
+    let mut conn = context.get_non_persons_connection().await.unwrap();
+    sqlx::query(
+        "INSERT INTO ee_role (id, name, organization_id, feature_flags_access_level, created_at) \
+         VALUES ($1, 'Flag readers', $2, 21, NOW())",
+    )
+    .bind(role_id)
+    .bind(org_id)
+    .execute(&mut *conn)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO ee_rolemembership (id, role_id, user_id, organization_member_id, joined_at, updated_at) \
+         VALUES ($1, $2, $3, $4, NOW(), NOW())",
+    )
+    .bind(uuid::Uuid::new_v4())
+    .bind(role_id)
+    .bind(user_id)
+    .bind(membership_id)
+    .execute(&mut *conn)
+    .await
+    .unwrap();
+    insert_access_control(
+        &context,
+        team.id,
+        "feature_flag",
+        &flag_id,
+        "viewer",
+        None,
+        Some(role_id),
+    )
+    .await;
+    let server = common::ServerHandle::for_config(config.clone()).await;
+
+    // Without the role based access feature, Django ignores role rules.
+    let (status, body) = get_remote_config(&server.addr, team.id, "rc-role", &api_key).await;
+    assert_eq!(status, 403, "body: {body}");
+
+    sqlx::query(
+        "UPDATE posthog_organization SET available_product_features = available_product_features \
+         || ARRAY[jsonb_build_object('key', 'role_based_access', 'name', 'role_based_access')] \
+         WHERE id = $1",
+    )
+    .bind(org_id)
+    .execute(&mut *conn)
+    .await
+    .unwrap();
+    let (status, body) = get_remote_config(&server.addr, team.id, "rc-role", &api_key).await;
+    assert_eq!(status, 200, "body: {body}");
+}
+
+#[tokio::test]
+async fn test_remote_config_personal_key_rules_ignored_without_access_control_feature() {
+    let mut config = Config::default_test_config();
+    config.flags_secret_keys = K1.to_string();
+    let context = TestContext::new(Some(&config)).await;
+    let (team, _user_id, _membership_id, api_key) = member_with_personal_key(&context, &[]).await;
+    let flag_id = insert_rc_flag(&context, team.id, "rc-free", TOK_PRIMARY, true, true).await;
+    insert_access_control(
+        &context,
+        team.id,
+        "feature_flag",
+        &flag_id.to_string(),
+        "none",
+        None,
+        None,
+    )
+    .await;
+    let server = common::ServerHandle::for_config(config.clone()).await;
+
+    let (status, body) = get_remote_config(&server.addr, team.id, "rc-free", &api_key).await;
+    assert_eq!(status, 200, "body: {body}");
+}
+
+#[tokio::test]
+async fn test_remote_config_personal_key_private_project_returns_403() {
+    let mut config = Config::default_test_config();
+    config.flags_secret_keys = K1.to_string();
+    let context = TestContext::new(Some(&config)).await;
+    let (team, _user_id, _membership_id, api_key) =
+        member_with_personal_key(&context, &["access_control"]).await;
+    insert_rc_flag(
+        &context,
+        team.id,
+        "rc-private-project",
+        TOK_PRIMARY,
+        true,
+        true,
+    )
+    .await;
+    insert_access_control(
+        &context,
+        team.id,
+        "project",
+        &team.id.to_string(),
+        "none",
+        None,
+        None,
+    )
+    .await;
+    let server = common::ServerHandle::for_config(config.clone()).await;
+
+    // Django answers 403 before it looks up the flag, so a missing key gets 403 too.
+    for key in ["rc-private-project", "does-not-exist"] {
+        let (status, body) = get_remote_config(&server.addr, team.id, key, &api_key).await;
+        assert_eq!(status, 403, "key {key}, body: {body}");
+    }
+}

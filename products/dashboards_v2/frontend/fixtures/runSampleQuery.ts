@@ -2,7 +2,7 @@ import { PropertyOperator } from '~/types'
 
 import { type AnalyticsPropertyFilter, analyticsPropertyFilters } from '../filters/analytics/analyticsPropertyFilters'
 import type { DataFrame, RunQuery } from '../query/queryTypes'
-import type { PanelQuery } from '../dashboard/document/dashboardSchema'
+import { type PanelQuery } from '../query/querySchema'
 
 // TODO(2026-11-25): Delete once the scene always runs real queries through the query batch runner.
 // Without both v2 query flags, the scene draws charts from these seeded sample frames.

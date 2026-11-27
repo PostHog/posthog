@@ -5,11 +5,13 @@ import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { setupPlanLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/setupPlanLogic'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { QuillSuggestedActions } from './QuillSuggestedActions'
 import { CAPABILITY_COPY, ReadinessHeader } from './ReadinessHeader'
 import { SuggestionRow } from './SuggestionRow'
 
@@ -64,7 +66,13 @@ export function SuggestedActions(): JSX.Element {
         useRestrictedArea({ scope: RestrictionScope.Project, minimumAccessLevel: TeamMembershipLevel.Admin }) ??
         getAccessControlDisabledReason(AccessControlResourceType.MarketingAnalytics, AccessControlLevel.Editor)
 
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
     const isBatchApplying = safeBatch.some((s) => applyingIds.includes(s.id))
+
+    if (todayRailNav) {
+        return <QuillSuggestedActions editDisabledReason={editDisabledReason} isBatchApplying={isBatchApplying} />
+    }
 
     return (
         <div className="deprecated-space-y-4">

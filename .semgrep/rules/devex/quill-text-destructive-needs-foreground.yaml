@@ -1,0 +1,17 @@
+rules:
+    - id: quill-text-destructive-needs-foreground
+      message: |
+          `text-destructive` does not give red text in this app. Outside a `[data-quill]` subtree no
+          utility exists for it, so the text keeps its inherited color. Inside one, quill's
+          `--destructive` is a pale background tint, so the text is close to invisible.
+
+          Inside quill (`data-quill`), use `text-destructive-foreground`. In Lemon UI code, use
+          `text-danger`. See "Status colors" in `packages/quill/README.md`.
+      severity: ERROR
+      languages: [typescript]
+      paths:
+          # Only `destructive` here: `text-success` and `text-warning` are Lemon UI utilities in this app.
+          include:
+              - /frontend/src
+              - /products/*/frontend
+      pattern-regex: (?<![\w-])(text|fill|stroke)-destructive(?![\w-])

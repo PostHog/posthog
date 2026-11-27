@@ -61,6 +61,18 @@ class TestConversionRecommendations(APIBaseTest):
         )
         privacy_mode.start()
         self.addCleanup(privacy_mode.stop)
+        event_usage = patch(
+            "products.marketing_analytics.backend.services.conversion_recommendations.fetch_most_used_event_names",
+            return_value=[],
+        )
+        self.event_usage = event_usage.start()
+        self.addCleanup(event_usage.stop)
+        property_usage = patch(
+            "products.marketing_analytics.backend.services.conversion_recommendations.fetch_event_property_usage",
+            return_value={},
+        )
+        self.property_usage = property_usage.start()
+        self.addCleanup(property_usage.stop)
 
     @parameterized.expand([("consent",), ("flag",)])
     def test_generation_rechecks_consent_and_flag_before_worker_data_access(self, denied: str) -> None:
@@ -284,9 +296,15 @@ class TestConversionRecommendations(APIBaseTest):
         self.assertEqual(self.client.get(endpoint).json()["result_run"]["id"], run_id)
         self.assertIsNone(self.client.get(self.base).json()["latest_run"])
 
-    @parameterized.expand([("amount", True), ("invented_amount", False)])
+    @parameterized.expand(
+        [
+            ("amount", True, None),
+            ("invented_amount", False, None),
+            ("amount", False, RuntimeError("unavailable")),
+        ]
+    )
     def test_revenue_proposal_requires_observed_amount_and_keeps_business_questions(
-        self, amount: str, has_amount: bool
+        self, amount: str, has_amount: bool, usage_error: Exception | None
     ) -> None:
         now = timezone.now()
         run = ConversionRecommendationRun.objects.for_team(self.team.pk).create(
@@ -298,6 +316,14 @@ class TestConversionRecommendations(APIBaseTest):
         )
         EventDefinition.objects.create(team=self.team, name="order_settled", last_seen_at=now)
         EventProperty.objects.create(team=self.team, event="order_settled", property="amount")
+        EventProperty.objects.bulk_create(
+            [
+                EventProperty(team=self.team, event="order_settled", property=f"a_filler_{index:02}")
+                for index in range(60)
+            ]
+        )
+        self.property_usage.return_value = {"amount": 5}
+        self.property_usage.side_effect = usage_error
         PropertyDefinition.objects.create(
             team=self.team, name="amount", type=PropertyDefinition.Type.EVENT, is_numerical=True
         )
@@ -433,6 +459,52 @@ class TestConversionRecommendations(APIBaseTest):
         else:
             self.assertEqual(run.results, {})
             self.assertTrue(run.error)
+
+    @parameterized.expand(
+        [
+            (
+                "queried_events_first",
+                ["z_used_most", "retired", "m_used_less"],
+                None,
+                ["z_used_most", "m_used_less", "b_unused", "c_never_seen"],
+            ),
+            ("no_usage_recorded", [], None, ["b_unused", "c_never_seen", "m_used_less", "z_used_most"]),
+            (
+                "usage_unavailable",
+                [],
+                RuntimeError("unavailable"),
+                ["b_unused", "c_never_seen", "m_used_less", "z_used_most"],
+            ),
+        ]
+    )
+    def test_event_catalog_lists_queried_events_first_then_fills_by_name(
+        self, _name: str, used_names: list[str], usage_error: Exception | None, expected: list[str]
+    ) -> None:
+        now = timezone.now()
+        run = ConversionRecommendationRun.objects.for_team(self.team.pk).create(
+            team_id=self.team.pk,
+            requested_by=self.user,
+            lookback_days=30,
+            date_from=now - timedelta(days=30),
+            date_to=now,
+        )
+        EventDefinition.objects.bulk_create(
+            [
+                EventDefinition(team=self.team, name="retired", last_seen_at=now - timedelta(days=40)),
+                EventDefinition(team=self.team, name="b_unused", last_seen_at=now),
+                EventDefinition(team=self.team, name="c_never_seen"),
+                EventDefinition(team=self.team, name="m_used_less", last_seen_at=now),
+                EventDefinition(team=self.team, name="z_used_most", last_seen_at=now),
+            ]
+        )
+        self.event_usage.return_value = used_names
+        self.event_usage.side_effect = usage_error
+        service = ConversionRecommendationService(self.team, self.user)
+
+        self.assertEqual([candidate.event for candidate in service.event_catalog(run)], expected)
+        with patch("products.marketing_analytics.backend.services.conversion_recommendations.MAX_CATALOG_EVENTS", 2):
+            capped = service.event_catalog(run)
+        self.assertEqual([candidate.event for candidate in capped], expected[:2])
 
     @parameterized.expand([("valid", False), ("unknown", True)])
     def test_catalog_shortlist_uses_only_visible_bounded_metadata(self, _name: str, unknown: bool) -> None:

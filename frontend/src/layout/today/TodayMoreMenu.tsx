@@ -1,51 +1,65 @@
-import { useValues } from 'kea'
-import { useState } from 'react'
+import { useActions, useValues } from 'kea'
 
 import { IconEllipsis } from '@posthog/icons'
-import { Popover, PopoverContent, PopoverTrigger } from '@posthog/quill'
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuGroup,
+    DropdownMenuItem,
+    DropdownMenuLabel,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+} from '@posthog/quill'
 
+import { getAppContext } from 'lib/utils/getAppContext'
+
+import { todayDesignChangelogLogic } from './todayDesignChangelogLogic'
+import { TodayMoreMenuRow } from './TodayMoreMenuRow'
+import { todayRailLayoutLogic } from './todayRailLayoutLogic'
 import { TodayRailTile } from './TodayRailTile'
-import { TODAY_RAIL_WIDTH, TodayRailPane, todayShellLogic } from './todayShellLogic'
+import { TodayRailPane, todayShellLogic } from './todayShellLogic'
 
-/** The rail panes that do not fit, as the rail's own tiles so a pane looks and behaves alike wherever it sits. */
-export function TodayMoreMenu({
-    overflowPanes,
-    renderTile,
-}: {
-    overflowPanes: TodayRailPane[]
-    renderTile: (pane: TodayRailPane) => JSX.Element
-}): JSX.Element | null {
+/** The panes that do not fit the rail and the ones the person hid from it, plus the way to arrange the rail. */
+export function TodayMoreMenu({ overflowPanes }: { overflowPanes: TodayRailPane[] }): JSX.Element {
     const { activePane } = useValues(todayShellLogic)
-    const [open, setOpen] = useState(false)
-
-    if (overflowPanes.length === 0) {
-        return null
-    }
+    const { hiddenRailPanes, moreMenuOpen } = useValues(todayRailLayoutLogic)
+    const { setCustomizeOpen, setMoreMenuOpen } = useActions(todayRailLayoutLogic)
+    const { showChangelogAgain } = useActions(todayDesignChangelogLogic)
+    const panes = [...overflowPanes, ...hiddenRailPanes]
 
     return (
-        <Popover open={open} onOpenChange={setOpen}>
-            <PopoverTrigger
+        // Its open state lives in the logic, so the design changelog's demo can open it.
+        <DropdownMenu open={moreMenuOpen} onOpenChange={setMoreMenuOpen}>
+            <DropdownMenuTrigger
                 render={
                     <TodayRailTile
                         label="More"
                         icon={<IconEllipsis />}
-                        active={open || overflowPanes.includes(activePane)}
+                        active={moreMenuOpen || panes.includes(activePane)}
                         // pinned: autocapture `data-attr` kept from when this menu was the help menu.
                         dataAttr="help-menu-button"
                     />
                 }
             />
-            <PopoverContent side="right" align="end" className="w-auto p-0 py-3">
-                <div
-                    className="flex flex-col items-center gap-3"
-                    // The rail's width, so each tile takes the size it has on the rail.
-                    // eslint-disable-next-line react/forbid-dom-props
-                    style={{ width: TODAY_RAIL_WIDTH }}
-                    onClickCapture={() => setOpen(false)}
-                >
-                    {overflowPanes.map(renderTile)}
-                </div>
-            </PopoverContent>
-        </Popover>
+            <DropdownMenuContent side="right" align="end" className="w-72">
+                {panes.length > 0 && (
+                    <>
+                        <DropdownMenuGroup>
+                            <DropdownMenuLabel>More</DropdownMenuLabel>
+                            {panes.map((pane) => (
+                                <TodayMoreMenuRow key={pane} pane={pane} />
+                            ))}
+                        </DropdownMenuGroup>
+                        <DropdownMenuSeparator />
+                    </>
+                )}
+                <DropdownMenuItem data-attr="today-rail-customize" onClick={() => setCustomizeOpen(true)}>
+                    Customize navigation
+                </DropdownMenuItem>
+                {getAppContext()?.preflight?.is_debug && (
+                    <DropdownMenuItem onClick={showChangelogAgain}>Show design changelog</DropdownMenuItem>
+                )}
+            </DropdownMenuContent>
+        </DropdownMenu>
     )
 }

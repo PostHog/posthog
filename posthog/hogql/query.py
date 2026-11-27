@@ -139,6 +139,11 @@ DESCRIBE_UNREADABLE_COLUMNS_TIMEOUT_SECONDS = 5
 QUERY_AST_LIMIT_SETTINGS = {"max_ast_elements", "max_expanded_ast_elements"}
 MAIN_CLUSTER_WORKLOADS = (Workload.DEFAULT, Workload.ONLINE, Workload.OFFLINE)
 
+SelectRewrite = Callable[[ast.SelectQuery | ast.SelectSetQuery, HogQLContext], ast.SelectQuery | ast.SelectSetQuery]
+# A caller sets this to rewrite the queries it runs, after the executor's own optimizers and before the
+# query is printed. It is a context variable and not a modifier, so a request cannot turn a rewrite on.
+hogql_select_rewrite: ContextVar[SelectRewrite | None] = ContextVar("hogql_select_rewrite", default=None)
+
 
 def _contains_raw_bytes(value: object) -> bool:
     if value is None or isinstance(value, str):
@@ -373,6 +378,12 @@ class HogQLQueryExecutor:
                 transformed_node = transformer.visit(self.select_query)
                 if isinstance(transformed_node, ast.SelectQuery) or isinstance(transformed_node, ast.SelectSetQuery):
                     self.select_query = transformed_node
+
+        rewrite = hogql_select_rewrite.get()
+        if rewrite is not None:
+            with self.timings.measure("select_rewrite"):
+                assert self.hogql_context is not None
+                self.select_query = rewrite(self.select_query, self.hogql_context)
 
     @tracer.start_as_current_span("HogQLQueryExecutor._resolve_direct_source")
     def _resolve_direct_source(self) -> Optional["ExternalDataSource"]:

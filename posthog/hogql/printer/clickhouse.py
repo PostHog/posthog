@@ -37,7 +37,11 @@ from posthog.hogql.escape_sql import (
     safe_identifier,
 )
 from posthog.hogql.functions import ADD_OR_NULL_DATETIME_FUNCTIONS, FIRST_ARG_DATETIME_FUNCTIONS
-from posthog.hogql.functions.clickhouse.json import JSON_FUNCTIONS
+from posthog.hogql.functions.clickhouse.json import (
+    JSON_FUNCTIONS,
+    JSON_TYPED_PATH_FUNCTIONS,
+    looks_like_clickhouse_type_name,
+)
 from posthog.hogql.functions.embed_text import resolve_embed_text
 from posthog.hogql.functions.prompt_jev import is_decision_call
 from posthog.hogql.functions.udfs import JSON_DROP_KEYS_CLICKHOUSE_NAME
@@ -1169,6 +1173,18 @@ class ClickHousePrinter(BasePrinter):
                 raise QueryError(f"{node.name} requires a constant string type name as its second argument")
             if type_arg.value != "Dynamic" and parse_sql_runtime_type(type_arg.value).family == "unknown":
                 raise QueryError(f"Unsupported type in {node.name}: '{type_arg.value}'")
+        # ClickHouse reports a malformed type name as SYNTAX_ERROR, which we treat as our own bad SQL.
+        if node.name in JSON_TYPED_PATH_FUNCTIONS and len(node.args) >= 2:
+            type_arg = node.args[-1]
+            if (
+                isinstance(type_arg, ast.Constant)
+                and isinstance(type_arg.value, str)
+                and not looks_like_clickhouse_type_name(type_arg.value)
+            ):
+                raise QueryError(
+                    f"The last argument of {node.name} must be a ClickHouse data type, such as 'String' or "
+                    f"'Array(Int64)'. '{type_arg.value}' is not a data type."
+                )
 
         return super().visit_call(node)
 

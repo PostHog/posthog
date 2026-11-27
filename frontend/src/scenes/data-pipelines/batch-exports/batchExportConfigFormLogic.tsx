@@ -53,7 +53,7 @@ const TOP_LEVEL_FORM_FIELDS = new Set([
     'integration_id',
 ])
 
-const ALLOWED_BASE_CONFIG_KEYS = new Set(['exclude_events', 'include_events'])
+const ALLOWED_BASE_CONFIG_KEYS = new Set(['exclude_events', 'include_events', 'use_new_events_schema'])
 
 function buildDestinationPayload(formValues: Record<string, any>): {
     type: string

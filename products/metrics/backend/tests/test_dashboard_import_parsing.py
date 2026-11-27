@@ -161,6 +161,25 @@ def test_parses_panels_into_queries_displays_and_a_grid_without_overlaps() -> No
     assert not any(_overlaps(a, b) for index, a in enumerate(layouts) for b in layouts[index + 1 :])
 
 
+def test_panels_with_odd_grafana_widths_stay_side_by_side() -> None:
+    dashboard = {
+        "title": "Odd widths",
+        "panels": [
+            {
+                "id": index,
+                "type": "text",
+                "title": f"Panel {index}",
+                "gridPos": {"x": 5 * index, "y": 0, "w": 5, "h": 8},
+            }
+            for index in range(3)
+        ],
+    }
+
+    layouts = [panel.layout for panel in GrafanaDashboardParser(dashboard).parse().panels]
+
+    assert [(layout.x, layout.y, layout.w) for layout in layouts] == [(0, 0, 3), (3, 0, 2), (5, 0, 3)]
+
+
 def test_legacy_rows_place_spans_side_by_side_under_a_title() -> None:
     spec = GrafanaDashboardParser(
         {
@@ -817,6 +836,23 @@ def test_screenshot_boxes_never_overlap(boxes: list[RequestedBox], expected: dic
             [GridLayout(x=6, y=0, w=6, h=3)],
             {"tall": GridLayout(x=0, y=0, w=6, h=6), "below": GridLayout(x=6, y=3, w=6, h=3)},
             id="a_tile_from_another_band_keeps_both_bands",
+        ),
+        pytest.param(
+            [_box("a", 0, 0, 4, 3), _box("b", 6, 0, 4, 3), _box("tall", 10, 0, 2, 6), _box("c", 0, 3, 4, 3)],
+            [GridLayout(x=4, y=0, w=2, h=3), GridLayout(x=4, y=3, w=6, h=3)],
+            {
+                "a": GridLayout(x=0, y=0, w=6, h=3),
+                "b": GridLayout(x=6, y=0, w=4, h=3),
+                "tall": GridLayout(x=10, y=0, w=2, h=6),
+                "c": GridLayout(x=0, y=3, w=10, h=3),
+            },
+            id="tiles_beside_a_taller_tile_still_fill_the_gaps",
+        ),
+        pytest.param(
+            [_box("a", 4, 0, 4, 3)],
+            [GridLayout(x=0, y=0, w=4, h=3)],
+            {"a": GridLayout(x=0, y=0, w=8, h=3)},
+            id="a_tile_widens_left_into_a_gap",
         ),
     ],
 )

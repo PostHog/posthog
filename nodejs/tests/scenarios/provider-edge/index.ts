@@ -225,6 +225,9 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
                 postInBackground(() => sendFeedback(feedback, accepted, events, correlation.unitId))
             }
         }
+        if (fault?.answer.kind === 'accepted-then-status') {
+            return sesError(fault.answer.answer)
+        }
         const reply = { status: 200, body: { MessageId: messageId } }
         if (fault?.answer.kind === 'hold-answer') {
             return { heldBy: fault.id, reply }

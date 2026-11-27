@@ -81,6 +81,9 @@ META_PERMISSION_ERROR_CODE = 10
 # Meta error code 9005, "Video content was not found": a media page asks a video post that Meta can
 # no longer find for one of `MEDIA_REFUSABLE_FIELDS`.
 META_VIDEO_NOT_FOUND_ERROR_CODE = 9005
+# Posts in a row on a refused media page whose refusable-field read may fail with a retryable error before
+# the sync fails. A throttle or an outage fails every post, a post Meta cannot serve fails alone.
+MEDIA_MAX_CONSECUTIVE_RETRYABLE_SKIPS = 3
 
 
 class InstagramAPIError(Exception):
@@ -397,6 +400,7 @@ def _media_page(client: InstagramClient, url: str, logger: FilteringBoundLogger)
 
     body = client.get(_with_query_param(url, "fields", MEDIA_PAGE_SAFE_FIELDS))
     rows = body.get("data")
+    consecutive_retryable_skips = 0
     for row in rows if isinstance(rows, list) else []:
         if not isinstance(row, dict) or not row.get("id"):
             continue
@@ -408,10 +412,18 @@ def _media_page(client: InstagramClient, url: str, logger: FilteringBoundLogger)
         try:
             extra = client.get(client.build_url(media_id, {"fields": MEDIA_REFUSABLE_FIELDS}))
         except InstagramBadRequestError as error:
-            if error.code != META_VIDEO_NOT_FOUND_ERROR_CODE:
+            consecutive_retryable_skips = 0
+            logger.warning(f"Instagram: skipping refusable fields for media {media_id}: {error}")
+            continue
+        except InstagramRetryableError as error:
+            # Meta already refused this page, so a post it cannot serve can answer with a transient error
+            # instead of 9005. Several in a row point at a throttle or an outage: fail so the sync retries.
+            consecutive_retryable_skips += 1
+            if consecutive_retryable_skips >= MEDIA_MAX_CONSECUTIVE_RETRYABLE_SKIPS:
                 raise
             logger.warning(f"Instagram: skipping refusable fields for media {media_id}: {error}")
             continue
+        consecutive_retryable_skips = 0
         row.update({name: value for name, value in extra.items() if name != "id"})
     return body
 

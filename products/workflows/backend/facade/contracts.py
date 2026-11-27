@@ -9,6 +9,8 @@ from uuid import UUID
 from posthog.dataclasses import frozen
 
 from products.workflows.backend.facade.enums import (
+    AdventCalendarDay,
+    AdventCalendarOption,
     EmailDomainSetupRecordKind,
     EmailDomainSetupRecordStatus,
     EmailDomainSetupRecordType,
@@ -1510,3 +1512,22 @@ class ConversionGoalBackfill:
     workflows_read: int
     revisions_read: int
     goals_found: int
+
+
+@frozen
+class AdventCalendarShare:
+    option: AdventCalendarOption
+    share: int
+
+
+@frozen
+class AdventCalendarDoorOpenResult:
+    day: int
+    opened_at: datetime
+
+
+@frozen
+class AdventCalendarQuestionResult:
+    day: AdventCalendarDay
+    answer: AdventCalendarOption | None
+    shares: tuple[AdventCalendarShare, ...]

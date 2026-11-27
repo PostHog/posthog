@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import type { AttachedContextItem } from '~/layout/ai/attachedContext'
 import { attachedContextLogic } from '~/layout/ai/attachedContextLogic'
@@ -154,5 +155,40 @@ describe('attachedContextLogic', () => {
         await expectLogic(logic, () => {
             logic.actions.undismissContext('hog_flow:1', 'g')
         }).toMatchValues({ contextItems: groupItems('v2') })
+    })
+
+    it('reports a skill as attached once per attachment, not on each re-registration', () => {
+        const capture = jest.spyOn(posthog, 'capture')
+        const skill = { type: 'skill', key: 'setting-up-data-catalog', label: 'Setup skill' }
+
+        logic.actions.registerContext('scene', [skill, { type: 'text', value: 'draft 1' }])
+        logic.actions.registerContext('scene', [skill, { type: 'text', value: 'draft 2' }])
+        logic.actions.deregisterContext('scene')
+        logic.actions.registerContext('scene', [skill])
+
+        expect(capture.mock.calls.filter(([event]) => event === 'posthog ai context skill attached')).toEqual([
+            ['posthog ai context skill attached', { skill_name: 'setting-up-data-catalog' }],
+            ['posthog ai context skill attached', { skill_name: 'setting-up-data-catalog' }],
+        ])
+    })
+
+    it('reports only the first delivery of a skill to each task', () => {
+        const capture = jest.spyOn(posthog, 'capture')
+        const skill = { type: 'skill', key: 'setting-up-data-catalog' }
+
+        logic.actions.contextDelivered('task-a', [skill, { type: 'instructions', value: 'Load the skill' }], true)
+        logic.actions.contextDelivered('task-a', [skill])
+        logic.actions.contextDelivered('task-b', [skill])
+
+        expect(capture.mock.calls.filter(([event]) => event === 'posthog ai context skill delivered')).toEqual([
+            [
+                'posthog ai context skill delivered',
+                { skill_name: 'setting-up-data-catalog', task_id: 'task-a', from_new_chat: true },
+            ],
+            [
+                'posthog ai context skill delivered',
+                { skill_name: 'setting-up-data-catalog', task_id: 'task-b', from_new_chat: false },
+            ],
+        ])
     })
 })
