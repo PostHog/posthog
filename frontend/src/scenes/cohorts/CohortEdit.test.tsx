@@ -290,7 +290,7 @@ describe('cohortEditLogic', () => {
             jest.restoreAllMocks()
         })
 
-        it('scrolls to the group of a lone negated criterion instead of showing a toast', async () => {
+        it('scrolls to the group error of a lone negated criterion instead of showing a toast', async () => {
             const scrollIntoView = jest.spyOn(Element.prototype, 'scrollIntoView')
             jest.spyOn(Element.prototype, 'getClientRects').mockReturnValue([{}] as unknown as DOMRectList)
             const toastError = jest.spyOn(lemonToast, 'error')
@@ -329,7 +329,7 @@ describe('cohortEditLogic', () => {
             await userEvent.click(document.querySelector('[data-attr="save-cohort"]') as HTMLElement)
 
             await waitFor(() => expect(scrollIntoView).toHaveBeenCalled())
-            expect(scrollIntoView.mock.contexts[0]).toHaveClass('CohortCriteriaGroups__matching-group--error')
+            expect(scrollIntoView.mock.contexts[0]).toHaveClass('CohortCriteriaGroups__matching-group__error')
             expect(toastError).not.toHaveBeenCalled()
         })
     })
