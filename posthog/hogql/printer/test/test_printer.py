@@ -4584,6 +4584,29 @@ class TestPrinter(BaseTest):
             == printed
         )
 
+    @parameterized.expand(
+        [
+            ("same_function", "lookupPaidSourceType(lookupPaidSourceType('google'))", "lookupPaidSourceType"),
+            ("mixed_functions", "lookupOrganicMediumType(lookupDomainType('google.com'))", "lookupDomainType"),
+            ("wrapped", "lookupPaidSourceType(lower(lookupOrganicSourceType('google')))", "lookupOrganicSourceType"),
+            ("scalar_subquery", "lookupPaidMediumType((SELECT lookupPaidMediumType('cpc')))", "lookupPaidMediumType"),
+        ]
+    )
+    def test_nested_channel_lookup_is_rejected(self, _name: str, expr: str, inner_function: str):
+        with self.assertRaises(QueryError) as context:
+            self._print(f"select {expr} from events")
+
+        assert str(context.exception) == (
+            f"Function '{inner_function}' cannot be nested inside another channel lookup function."
+        )
+
+    def test_sibling_channel_lookups_are_allowed(self):
+        printed = self._print(
+            "select lookupPaidSourceType('google'), lookupPaidMediumType('cpc'), lookupDomainType('google.com') from events"
+        )
+
+        assert printed.count("channel_definition_dict") == 5
+
     def test_currency_conversion(self):
         printed = self._print(
             "select convertCurrency('USD', 'EUR', 100, toDate('2021-01-01')) as currency",

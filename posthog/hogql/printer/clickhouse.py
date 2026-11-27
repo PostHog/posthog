@@ -214,6 +214,19 @@ def _channel_medium_lookup(channel_dict: str, attribute: str, key: str) -> str:
     return f"if(isNull({key}), NULL, dictGetOrNull('{channel_dict}', '{attribute}', (coalesce({key}, ''), 'medium')))"
 
 
+# These print their argument more than once, so each level of nesting multiplies the printed SQL. User HogQL can call
+# them, so a nested call is refused before the SQL grows exponentially.
+_CHANNEL_LOOKUP_FUNCTIONS = frozenset(
+    {
+        "lookupDomainType",
+        "lookupPaidSourceType",
+        "lookupPaidMediumType",
+        "lookupOrganicSourceType",
+        "lookupOrganicMediumType",
+    }
+)
+
+
 def _group_type_index_of_blob(column_name: str) -> int | None:
     group_column_match = re.fullmatch(r"group(\d+)_properties", column_name)
     return int(group_column_match.group(1)) if group_column_match else None
@@ -223,6 +236,8 @@ class ClickHousePrinter(BasePrinter):
     DIALECT_NAME: ClassVar[HogQLDialect] = "clickhouse"
     _reads_native_events_table: bool = False
     _unmasked_blob_type: ast.FieldType | None = None
+    # Set while the argument of a channel lookup is printed, which may hold a subquery (see _CHANNEL_LOOKUP_FUNCTIONS).
+    _inside_channel_lookup_argument: bool = False
 
     def visit_cte(self, node: ast.CTE):
         if node.materialized is False:
@@ -481,8 +496,20 @@ class ClickHousePrinter(BasePrinter):
         is_null_literal = isinstance(column_type, ast.UnknownType) and not column_type.unanalyzable
         return column_type.nullable and not is_null_literal
 
+    def _print_channel_lookup_arguments(self, node: ast.Call) -> list[str]:
+        if self._inside_channel_lookup_argument:
+            raise QueryError(f"Function '{node.name}' cannot be nested inside another channel lookup function.")
+        self._inside_channel_lookup_argument = True
+        try:
+            return [self.visit(arg) for arg in node.args]
+        finally:
+            self._inside_channel_lookup_argument = False
+
     def _render_posthog_function_call(self, node: ast.Call, func_meta) -> str:
-        args = [self.visit(arg) for arg in node.args]
+        if node.name in _CHANNEL_LOOKUP_FUNCTIONS:
+            args = self._print_channel_lookup_arguments(node)
+        else:
+            args = [self.visit(arg) for arg in node.args]
 
         if node.name == "embedText":
             return self.visit_constant(resolve_embed_text(self.context.team, node))
