@@ -194,29 +194,17 @@ jobs:
                   echo "::add-mask::$SCCACHE_WEBDAV_TOKEN"
                   echo "token=$SCCACHE_WEBDAV_TOKEN" >> "$GITHUB_OUTPUT"
 
-            # Native debug symbols upload to PostHog error tracking from inside the
-            # image build (see rust/Dockerfile), where hog logs in with this job's OIDC
-            # token. The image build cannot read the runner's environment, so the request
-            # credentials go in as build secrets. Only master builds on the canonical
-            # deploy repo pass them; everywhere else the Dockerfile skips the upload, so
-            # unrebased branches and forks are unaffected.
-            - name: Prepare symbol upload credentials
+            # Native debug symbols go to PostHog error tracking from the runner, after the image
+            # is pushed (see "Upload native debug symbols" below). Only master pushes on the
+            # canonical deploy repo upload them: those are the runs the trust policy admits, and a
+            # dispatch builds an unreviewed branch. Only rust/Dockerfile has the symbols stage.
+            - name: Decide whether to upload symbols
               id: symbols
               env:
-                  # Master pushes only, the runs the trust policy admits. A dispatch runs the
-                  # dispatched branch's unreviewed Dockerfile, which must never see these.
-                  ENABLED: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' && vars.CD_DEPLOY_ENABLED == 'true' }}
+                  ENABLED: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' && vars.CD_DEPLOY_ENABLED == 'true' && matrix.dockerfile == './rust/Dockerfile' }}
               run: |
-                  if [ "$ENABLED" = "true" ] && [ -n "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]; then
-                      echo "::add-mask::$ACTIONS_ID_TOKEN_REQUEST_TOKEN"
-                      {
-                          echo "request-url=$ACTIONS_ID_TOKEN_REQUEST_URL"
-                          echo "request-token=$ACTIONS_ID_TOKEN_REQUEST_TOKEN"
-                          # Unique per run: secret mounts don't participate in the layer
-                          # cache key, so this busts the cache to guarantee the upload
-                          # actually runs on builds that carry credentials (see rust/Dockerfile).
-                          echo "trigger=${{ github.run_id }}-${{ github.run_attempt }}"
-                      } >> "$GITHUB_OUTPUT"
+                  if [ "$ENABLED" = "true" ]; then
+                      echo "enabled=true" >> "$GITHUB_OUTPUT"
                   else
                       echo "Native symbol upload disabled for this build"
                   fi
@@ -243,12 +231,78 @@ jobs:
                       EXTRA_CFLAGS=${{ matrix.extra_cflags || '' }}
                       SQLX_DATABASES=${{ matrix.sqlx_databases || '' }}
                       SCCACHE_WEBDAV_KEY_PREFIX=${{ steps.sccache.outputs.cache-key-prefix }}
-                      SYMBOL_UPLOAD_TRIGGER=${{ steps.symbols.outputs.trigger }}
                   secrets: |
                       SCCACHE_WEBDAV_ENDPOINT=${{ steps.sccache.outputs.endpoint }}
                       SCCACHE_WEBDAV_TOKEN=${{ steps.sccache.outputs.token }}
-                      actions_id_token_request_url=${{ steps.symbols.outputs.request-url }}
-                      actions_id_token_request_token=${{ steps.symbols.outputs.request-token }}
+
+            # The symbols stage of rust/Dockerfile: the binary and the workspace sources its
+            # debug info names. The same arguments as the image build, so the builder stage
+            # comes from the layer cache and only the collect step runs. Symbols must never
+            # block shipping an image, so this step and the upload warn instead of failing.
+            - name: Export native debug symbols
+              id: export_symbols
+              if: steps.symbols.outputs.enabled == 'true'
+              continue-on-error: true
+              # continue-on-error does not cover the job's own timeout-minutes, which would cancel
+              # the job after the image push and skip the deploy, so both steps stay well inside it.
+              timeout-minutes: 10
+              uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
+              with:
+                  project: ${{ matrix.project }}
+                  context: ./rust/
+                  file: ${{ matrix.dockerfile }}
+                  target: symbols
+                  platforms: linux/arm64,linux/amd64
+                  outputs: type=local,dest=${{ runner.temp }}/symbols
+                  build-args: |
+                      SCCACHE_LOG=debug
+                      SCCACHE_NO_DAEMON=1
+                      BIN=${{ matrix.bin || matrix.image }}
+                      BUILD_FEATURES=${{ matrix.features || '' }}
+                      EXTRA_RUSTFLAGS=${{ matrix.extra_rustflags || '' }}
+                      EXTRA_CFLAGS=${{ matrix.extra_cflags || '' }}
+                      SQLX_DATABASES=${{ matrix.sqlx_databases || '' }}
+                      SCCACHE_WEBDAV_KEY_PREFIX=${{ steps.sccache.outputs.cache-key-prefix }}
+                  secrets: |
+                      SCCACHE_WEBDAV_ENDPOINT=${{ steps.sccache.outputs.endpoint }}
+                      SCCACHE_WEBDAV_TOKEN=${{ steps.sccache.outputs.token }}
+
+            # They go to the internal PostHog project (HOG_PROJECT_ID=2 on US cloud), and hog logs
+            # in with this job's OIDC token, through the trust policy for master pushes of the deploy
+            # repo. hog finds each source file at the path DWARF records, so the sources go back to
+            # those absolute paths under /app before each platform's upload. GITHUB_SHA stays unset
+            # for hog, so it stamps no release: symbolication resolves by GNU build id alone, and
+            # the image jobs run concurrently, so a shared lookup-then-create release would race.
+            - name: Upload native debug symbols
+              if: steps.export_symbols.outcome == 'success'
+              continue-on-error: true
+              timeout-minutes: 5
+              env:
+                  BIN: ${{ matrix.bin || matrix.image }}
+                  HOG_PROJECT_ID: '2'
+                  # Copy the checksum from the release's SHA256SUMS when HOG_VERSION changes.
+                  HOG_VERSION: 0.3.0
+                  HOG_SHA256: 9dff37a41ec5bf947c190fc4760e95a051be9ea7744eb3d0f4a4e7be695674bc
+              run: |
+                  set -euo pipefail
+                  hog_dir="$RUNNER_TEMP/hog"
+                  mkdir -p "$hog_dir"
+                  curl --proto '=https' --tlsv1.2 -fsSL --retry 5 --retry-all-errors --retry-max-time 60 --connect-timeout 10 \
+                      -o "$hog_dir/hog.tar.gz" \
+                      "https://github.com/PostHog/posthog/releases/download/hog%2Fv$HOG_VERSION/hog-linux-x64.tar.gz"
+                  echo "$HOG_SHA256  $hog_dir/hog.tar.gz" | sha256sum -c -
+                  # hog runs hog-worker from its own folder, so the archive is extracted whole.
+                  tar -xzf "$hog_dir/hog.tar.gz" -C "$hog_dir"
+
+                  for platform_dir in "$RUNNER_TEMP"/symbols/linux_*; do
+                      sudo rm -rf /app
+                      sudo tar -xf "$platform_dir/sources.tar" -C /
+                      mkdir -p "$platform_dir/binary"
+                      mv "$platform_dir/$BIN" "$platform_dir/binary/"
+                      env -u GITHUB_SHA "$hog_dir/hog" error-tracking upload "$platform_dir/binary" --include-source
+                      echo "Native debug symbols uploaded for $BIN ($(basename "$platform_dir"))"
+                  done
+                  sudo rm -rf /app
 
             - name: Build failure properties
               if: failure()
