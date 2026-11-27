@@ -652,9 +652,10 @@ class TransactionalEmailActivity:
 
 class EmailClickNoSessionReason(LabeledStrEnum):
     OFF_SITE = "off_site", "The link goes outside the sending domain, so it carries no run tag"
+    SENSITIVE = "sensitive", "A sensitive email's links carry no run tag"
     LINK_TAGGING_OFF = "link_tagging_off", "The project doesn't tag email links"
     LINK_UNKNOWN = "link_unknown", "No click event recorded the link"
-    NOT_FOUND = "not_found", "No visit with this send's run tag"
+    NOT_FOUND = "not_found", "No visit with this send's run tag could be tied to the click"
 
 
 @frozen

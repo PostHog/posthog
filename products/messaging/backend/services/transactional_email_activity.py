@@ -1,7 +1,7 @@
 """What the recipient of one email did in the product around the send."""
 
 from datetime import UTC, datetime, timedelta
-from urllib.parse import urlparse
+from urllib.parse import parse_qsl, urlparse
 from uuid import UUID
 
 from posthog.hogql import ast
@@ -37,11 +37,11 @@ ACTIVITY_WINDOW_DAYS = 7
 ACTIVITY_BEFORE_LIMIT = 50
 ACTIVITY_AFTER_LIMIT = 100
 MAX_DISTINCT_IDS = 100
-MAX_OWN_EVENTS = 200
+MAX_OWN_EVENTS_PER_KIND = 100
 MAX_LANDINGS = 100
 CLICK_EVENT = "$workflows_email_link_clicked"
 OWN_EVENTS = ("$workflows_email_sent", "$workflows_email_delivered", "$workflows_email_opened", CLICK_EVENT)
-LANDING_BEFORE_CLICK = timedelta(minutes=2)
+CLOCK_SKEW = timedelta(minutes=2)
 LANDING_AFTER_CLICK = timedelta(minutes=30)
 SESSION_SPAN = timedelta(days=1)
 
@@ -282,7 +282,7 @@ def _own_events(team: Team, user: User | None, detail: TransactionalEmailLogDeta
           AND properties.$workflow_invocation_id = {message_id}
           AND timestamp >= {start} AND timestamp < {end}
         ORDER BY timestamp
-        LIMIT {limit}
+        LIMIT {limit} BY event
         """,
         team=team,
         user=user,
@@ -290,9 +290,9 @@ def _own_events(team: Team, user: User | None, detail: TransactionalEmailLogDeta
             "events": ast.Constant(value=list(OWN_EVENTS)),
             "distinct_id": ast.Constant(value=detail.distinct_id),
             "message_id": ast.Constant(value=detail.entry.message_id),
-            "start": ast.Constant(value=queued_at - LANDING_BEFORE_CLICK),
+            "start": ast.Constant(value=queued_at - CLOCK_SKEW),
             "end": ast.Constant(value=queued_at + timedelta(days=EMAIL_STATUS_TTL_DAYS)),
-            "limit": ast.Constant(value=MAX_OWN_EVENTS),
+            "limit": ast.Constant(value=MAX_OWN_EVENTS_PER_KIND),
         },
         query_type="transactional_email_activity_own_events",
         workload=Workload.ONLINE,
@@ -320,7 +320,7 @@ def _clicks(
         click_times,
         links,
         [_is_off_site(link_url, sending_domain) for link_url in links],
-        _landings(team, user, detail.entry.message_id, click_times[0], click_times[-1]),
+        _landings(team, user, detail.entry.message_id, click_times),
     )
     link_tagging_enabled = is_email_workflow_run_link_tag_enabled(team_id=team.id)
     return [
@@ -331,17 +331,15 @@ def _clicks(
             session=sessions.get(index),
             no_session_reason=None
             if index in sessions
-            else _no_session_reason(link_url, link_tagging_enabled, sending_domain),
+            else _no_session_reason(link_url, link_tagging_enabled, sending_domain, detail.sensitive),
         )
         for index, (at, event, link_url) in enumerate(zip(click_times, events, links))
     ]
 
 
 def _landings(
-    team: Team, user: User | None, message_id: str, first_click: datetime, last_click: datetime
+    team: Team, user: User | None, message_id: str, click_times: list[datetime]
 ) -> list[TransactionalEmailClickSession]:
-    start = first_click - LANDING_BEFORE_CLICK
-    end = last_click + LANDING_AFTER_CLICK
     response = execute_hogql_query(
         """
         SELECT
@@ -352,7 +350,7 @@ def _landings(
             argMin(properties.$browser, timestamp),
             argMin(properties.$geoip_city_name, timestamp)
         FROM events
-        WHERE {tagged_landing} AND timestamp >= {start} AND timestamp < {end}
+        WHERE {tagged_landing} AND {in_click_windows}
         GROUP BY $session_id
         ORDER BY landed_at
         LIMIT {limit}
@@ -361,15 +359,20 @@ def _landings(
         user=user,
         placeholders={
             "tagged_landing": tagged_landing([message_id]),
-            "start": ast.Constant(value=start),
-            "end": ast.Constant(value=end),
+            "in_click_windows": _in_click_windows(click_times),
             "limit": ast.Constant(value=MAX_LANDINGS),
         },
         query_type="transactional_email_activity_landings",
         workload=Workload.ONLINE,
     )
     landings = response.results or []
-    stats = _session_stats(team, user, [row[0] for row in landings], start - SESSION_SPAN, end)
+    stats = _session_stats(
+        team,
+        user,
+        [row[0] for row in landings],
+        min(row[1] for row in landings) - SESSION_SPAN if landings else click_times[0],
+        max(row[1] for row in landings) + timedelta(seconds=1) if landings else click_times[-1],
+    )
     return [
         TransactionalEmailClickSession(
             session_id=session_id,
@@ -383,6 +386,33 @@ def _landings(
         )
         for session_id, landed_at, landing_url, device_type, browser, city in landings
     ]
+
+
+def _in_click_windows(click_times: list[datetime]) -> ast.Expr:
+    windows: list[tuple[datetime, datetime]] = []
+    for at in click_times:
+        start, end = at - CLOCK_SKEW, at + LANDING_AFTER_CLICK
+        if windows and start <= windows[-1][1]:
+            windows[-1] = (windows[-1][0], max(windows[-1][1], end))
+        else:
+            windows.append((start, end))
+    return ast.Or(
+        exprs=[
+            ast.And(
+                exprs=[
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.GtEq,
+                        left=ast.Field(chain=["timestamp"]),
+                        right=ast.Constant(value=start),
+                    ),
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Lt, left=ast.Field(chain=["timestamp"]), right=ast.Constant(value=end)
+                    ),
+                ]
+            )
+            for start, end in windows
+        ]
+    )
 
 
 def _session_stats(
@@ -417,43 +447,70 @@ def _sessions_by_click(
 ) -> dict[int, TransactionalEmailClickSession]:
     sessions: dict[int, TransactionalEmailClickSession] = {}
     for landing in landings:
-        candidates = [
+        eligible = [
             index
             for index, at in enumerate(click_times)
-            if index not in sessions
-            and not off_site[index]
-            and at <= landing.landed_at + LANDING_BEFORE_CLICK
-            and landing.landed_at <= at + LANDING_AFTER_CLICK
+            if not off_site[index] and at - CLOCK_SKEW <= landing.landed_at <= at + LANDING_AFTER_CLICK
         ]
-        same_page = [index for index in candidates if _lands_on(links[index], landing.landing_url)]
-        if same_page:
-            sessions[same_page[-1]] = landing
-        elif len(candidates) == 1:
-            sessions[candidates[0]] = landing
+        same_page = [index for index in eligible if _lands_on(links[index], landing.landing_url)]
+        free = [index for index in same_page or eligible if index not in sessions]
+        if free and (same_page or len(free) == 1):
+            sessions[_started_by(free, click_times, landing.landed_at)] = landing
     return sessions
 
 
+def _started_by(indexes: list[int], click_times: list[datetime], landed_at: datetime) -> int:
+    before = [index for index in indexes if click_times[index] <= landed_at]
+    return before[-1] if before else indexes[0]
+
+
 def _lands_on(link_url: str | None, landing_url: str) -> bool:
-    if not link_url:
-        return False
-    link, landing = urlparse(link_url), urlparse(landing_url)
-    if (link.hostname or "").lower() != (landing.hostname or "").lower():
-        return False
-    return not link.path or link.path.rstrip("/") == landing.path.rstrip("/")
+    link, landing = _url(link_url), _url(landing_url)
+    return bool(
+        link
+        and landing
+        and link.host == landing.host
+        and link.path == landing.path
+        and set(link.params) <= set(landing.params)
+    )
+
+
+@frozen
+class _Url:
+    host: str
+    path: str
+    params: list[tuple[str, str]]
+
+
+def _url(url: str | None) -> _Url | None:
+    if not url:
+        return None
+    try:
+        parsed = urlparse(url)
+        host = (parsed.hostname or "").lower()
+    except ValueError:
+        return None
+    return _Url(host=host, path=parsed.path.rstrip("/"), params=parse_qsl(parsed.query, keep_blank_values=True))
 
 
 def _is_off_site(link_url: str | None, sending_domain: str) -> bool:
-    link_host = urlparse(link_url).hostname if link_url else None
+    link = _url(link_url)
     return bool(
-        link_host and sending_domain and organizational_domain(link_host) != organizational_domain(sending_domain)
+        link
+        and link.host
+        and sending_domain
+        and organizational_domain(link.host) != organizational_domain(sending_domain)
     )
 
 
 def _no_session_reason(
-    link_url: str | None, link_tagging_enabled: bool, sending_domain: str
+    link_url: str | None, link_tagging_enabled: bool, sending_domain: str, sensitive: bool
 ) -> EmailClickNoSessionReason:
     if _is_off_site(link_url, sending_domain):
         return EmailClickNoSessionReason.OFF_SITE
+    link = _url(link_url)
+    if sensitive and link and not link.path:
+        return EmailClickNoSessionReason.SENSITIVE
     if not link_tagging_enabled:
         return EmailClickNoSessionReason.LINK_TAGGING_OFF
     if not link_url:
