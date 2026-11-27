@@ -530,14 +530,16 @@ def operation_result(request: HttpRequest, result_id: str) -> HttpResponse:
     return _no_store(response)
 
 
-def _preselected_choices(request: HttpRequest, form_class: type[forms.Form]) -> dict[str, object]:
+def _preselected_choices(
+    request: HttpRequest, form_class: type[forms.Form], field_type: type[forms.ChoiceField] = forms.ChoiceField
+) -> dict[str, object]:
     # A link preselects choices, so an old URL that names one of several documents opens the form on it, and the
     # rows staff tick in a table open the form with those rows ticked.
     # Text fields stay empty: a reason taken from a URL would reach the audit log without staff writing it.
     return {
         name: request.GET.getlist(name) if isinstance(field, forms.MultipleChoiceField) else request.GET[name]
         for name, field in form_class.base_fields.items()
-        if isinstance(field, forms.ChoiceField) and name in request.GET
+        if isinstance(field, field_type) and name in request.GET
     }
 
 
@@ -744,7 +746,11 @@ def run_tool_operation(request: HttpRequest, tool_key: str, operation_key: str) 
     if step.expired:
         return step.render_expired(request)
 
-    preselected = _preselected_choices(request, operation.form_class) if operation.form_class else {}
+    # Only the rows ticked in a selectable table, which fill a multiple choice field. A link must not pick a single
+    # choice such as an execution mode or a deactivation reason for staff.
+    preselected = (
+        _preselected_choices(request, operation.form_class, forms.MultipleChoiceField) if operation.form_class else {}
+    )
     form = step.bind(operation, initial={**(operation.form_initial or {}), **preselected})
     context = _operation_context(target, operation, form, request)
     if request.method == "GET":

@@ -242,7 +242,7 @@ class BulkApproveForm(ApprovalReasonForm):
         try:
             revisions = json.loads(self.cleaned_data["criteria_revisions"] or "{}")
             return {pk: datetime.fromisoformat(value) if value else None for pk, value in revisions.items()}
-        except (ValueError, AttributeError):
+        except (ValueError, AttributeError, TypeError):
             raise forms.ValidationError("Tick the requests again on the deletion requests page.")
 
     def clean(self) -> dict:

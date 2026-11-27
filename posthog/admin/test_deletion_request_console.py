@@ -353,11 +353,15 @@ class TestDeletionRequestConsole(BaseTest):
 
         listing = BeautifulSoup(self.client.get("/admin/console/tools/deletion-requests/").content, "html.parser")
         boxes = {box["value"] for box in listing.select('form[data-console-select] input[name="requests"]')}
-        opened = self.client.get(BULK_APPROVE_URL, {"requests": [str(kept.pk), str(edited.pk)]})
+        opened = self.client.get(
+            BULK_APPROVE_URL,
+            {"requests": [str(kept.pk), str(edited.pk)], "execution_mode": ExecutionMode.IMMEDIATE.value},
+        )
         form = opened.context["form"]
         preview = self._bulk_approve([kept, edited], ExecutionMode.DEFERRED, form.initial["criteria_revisions"])
         assert boxes == {str(obj.pk) for obj in (kept, edited, not_picked)}
         assert set(form.initial["requests"]) == {str(kept.pk), str(edited.pk)}
+        assert form.initial["execution_mode"] == ExecutionMode.DEFERRED.value
         assert preview.status_code == 200
         DataDeletionRequest.objects.filter(pk=edited.pk).update(criteria_updated_at=timezone.now())
         confirmed = self.client.post(BULK_APPROVE_URL, {"confirm_token": preview.context["confirm_token"]}, follow=True)
@@ -370,10 +374,13 @@ class TestDeletionRequestConsole(BaseTest):
         }
         assert f"Skipped 1 request that changed since you reviewed them: {edited.pk}" in confirmed.content.decode()
 
-    def test_bulk_approve_refuses_an_execution_mode_a_picked_request_cannot_run(self) -> None:
+    @parameterized.expand([("unsupported_mode", ExecutionMode.DEFERRED, ""), ("revision_not_a_string", None, 5)])
+    def test_bulk_approve_refuses_what_it_cannot_run(
+        self, _name: str, mode: ExecutionMode | None, revision: object
+    ) -> None:
         obj = self._request(request_type=RequestType.PROPERTY_REMOVAL, properties=["$ip"], status=RequestStatus.PENDING)
 
-        response = self._bulk_approve([obj], ExecutionMode.DEFERRED, json.dumps({str(obj.pk): ""}))
+        response = self._bulk_approve([obj], mode or ExecutionMode.IMMEDIATE, json.dumps({str(obj.pk): revision}))
 
         assert response.status_code == 400
         obj.refresh_from_db()
