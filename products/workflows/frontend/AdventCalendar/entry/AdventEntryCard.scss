@@ -1,3 +1,16 @@
+@mixin advent-entry-two-rows {
+    .AdventEntryCard__doors {
+        display: grid;
+        grid-template-columns: repeat(12, minmax(0, 2.5rem));
+        row-gap: 6px;
+        place-items: center;
+    }
+
+    .AdventEntryCard__door {
+        width: 100%;
+    }
+}
+
 @mixin advent-entry-inline {
     .AdventEntryCard__content {
         flex-wrap: nowrap;
@@ -47,16 +60,13 @@
     }
 
     @container advent-entry (max-width: 67rem) {
-        &.AdventEntryCard--many .AdventEntryCard__doors {
-            display: grid;
-            grid-template-columns: repeat(12, minmax(0, 2.5rem));
-            row-gap: 6px;
-            place-items: center;
+        &.AdventEntryCard--many {
+            @include advent-entry-two-rows;
         }
+    }
 
-        &.AdventEntryCard--many .AdventEntryCard__door {
-            width: 100%;
-        }
+    @container advent-entry (max-width: 30rem) {
+        @include advent-entry-two-rows;
     }
 
     @container advent-entry (min-width: 63rem) {

@@ -1,7 +1,6 @@
 import './AdventEntryCard.scss'
 
 import { useValues } from 'kea'
-import { useMemo } from 'react'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { cn } from 'lib/utils/css-classes'
@@ -10,7 +9,6 @@ import { urls } from 'scenes/urls'
 import { ADVENT_LAST_DAY } from '../adventContent'
 import { AdventSnow } from '../AdventSnow'
 import { AdventEntryDoor } from './AdventEntryDoor'
-import { adventEntryDoors } from './adventEntryDoors'
 import { reportAdventEntryClicked } from './adventEntryEvents'
 import { AdventEntryPhase } from './adventEntryPhase'
 import { adventEntryProgressLogic } from './adventEntryProgressLogic'
@@ -29,14 +27,8 @@ function graphDay(phase: AdventEntryPhase): number {
 
 export function AdventEntryCard({ phase }: { phase: AdventEntryPhase }): JSX.Element {
     const hoverSnow = useAdventHoverSnow()
-    const { progress, rewards } = useValues(adventEntryProgressLogic)
-    const today = graphDay(phase)
-    const doors = useMemo(
-        () => (progress && rewards ? adventEntryDoors(progress, rewards, today) : null),
-        [progress, rewards, today]
-    )
+    const { doors, nextDoorDay } = useValues(adventEntryProgressLogic({ today: graphDay(phase) }))
     const opened = doors?.filter((door) => door.status === 'open').length ?? 0
-    const todayOpened = doors?.some((door) => door.day === today && door.status === 'open') ?? false
     return (
         <div className={cn('AdventEntryCard', `AdventEntryCard--${rowFit(opened)}`)} data-attr="advent-entry-card">
             <AdventSnow />
@@ -67,7 +59,7 @@ export function AdventEntryCard({ phase }: { phase: AdventEntryPhase }): JSX.Ele
                         onClick={() => reportAdventEntryClicked('card')}
                         data-attr="advent-entry-card-open"
                     >
-                        {phase.status === 'open' && !todayOpened ? `Open door ${phase.day}` : 'Open the calendar'}
+                        {nextDoorDay ? `Open door ${nextDoorDay}` : 'Open the calendar'}
                     </LemonButton>
                 </span>
             </div>
