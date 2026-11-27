@@ -17,6 +17,10 @@ KNOCK_PAGE_SIZE = 50
 # The Management API pages with `limit`, capped at 100 (the cap the Knock CLI enforces).
 KNOCK_MANAGEMENT_PAGE_SIZE = 100
 
+# The spec and docs name the messages filter with a dot. Knock ignores the bracket form
+# `inserted_at[gte]` and lists every message, so an incremental run walked the whole history.
+INSERTED_AT_GTE_PARAM = "inserted_at.gte"
+
 
 @dataclass(frozen=True)
 class KnockEndpointConfig:
@@ -86,14 +90,14 @@ def _message_fanout() -> DependentEndpointConfig:
 # pipeline then persists the incremental watermark only when a sync completes instead
 # of checkpointing per batch on a newest-first stream.
 ENDPOINTS_CONFIG: dict[str, KnockEndpointConfig] = {
-    # Message delivery log — the highest-volume stream. `inserted_at[gte]` is a
+    # Message delivery log — the highest-volume stream. `inserted_at.gte` is a
     # documented server-side filter, so incremental sync genuinely reduces pages.
     "messages": KnockEndpointConfig(
         name="messages",
         path="/v1/messages",
         data_selector="items",
         incremental_fields=[incremental_field("inserted_at")],
-        incremental_param="inserted_at[gte]",
+        incremental_param=INSERTED_AT_GTE_PARAM,
         partition_key="inserted_at",
     ),
     # Identified recipients. No server-side updated-since filter exists, so full
@@ -155,7 +159,7 @@ ENDPOINTS_CONFIG: dict[str, KnockEndpointConfig] = {
         data_selector="items",
         primary_keys=("message_id", "id"),
         incremental_fields=[incremental_field("message_inserted_at")],
-        incremental_param="inserted_at[gte]",
+        incremental_param=INSERTED_AT_GTE_PARAM,
         partition_key="inserted_at",
         fanout=_message_fanout(),
         should_sync_default=False,
@@ -167,7 +171,7 @@ ENDPOINTS_CONFIG: dict[str, KnockEndpointConfig] = {
         data_selector="items",
         primary_keys=("message_id", "id"),
         incremental_fields=[incremental_field("message_inserted_at")],
-        incremental_param="inserted_at[gte]",
+        incremental_param=INSERTED_AT_GTE_PARAM,
         partition_key="inserted_at",
         fanout=_message_fanout(),
         should_sync_default=False,
@@ -182,7 +186,7 @@ ENDPOINTS_CONFIG: dict[str, KnockEndpointConfig] = {
         data_selector="items",
         primary_keys=("message_id", "id"),
         incremental_fields=[incremental_field("message_inserted_at")],
-        incremental_param="inserted_at[gte]",
+        incremental_param=INSERTED_AT_GTE_PARAM,
         partition_key="inserted_at",
         fanout=_message_fanout(),
         should_sync_default=False,
