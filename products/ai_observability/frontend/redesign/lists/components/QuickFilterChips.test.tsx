@@ -49,4 +49,21 @@ describe('QuickFilterChips', () => {
         expect(chipButton(container, 'errors').textContent).toBe('Errors12')
         expect(chipButton(container, 'feedback').textContent).toBe('User feedback')
     })
+
+    it.each<[QuickFilterChip['countStatus'], boolean]>([
+        ['loading', false],
+        ['error', true],
+    ])('shows no stale count while its count is %s', (countStatus, failureMark) => {
+        const { container } = render(
+            <QuickFilterChips
+                chips={[{ ...CHIPS[0], countStatus }]}
+                active={null}
+                onToggle={() => {}}
+                data-attr="traces-list"
+            />
+        )
+
+        expect(chipButton(container, 'errors').textContent).not.toContain('12')
+        expect(!!chipButton(container, 'errors').querySelector('[role="img"][aria-label^="Couldn"]')).toBe(failureMark)
+    })
 })

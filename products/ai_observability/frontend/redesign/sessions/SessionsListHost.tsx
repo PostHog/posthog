@@ -12,9 +12,11 @@ import { groupsModel } from '~/models/groupsModel'
 import type { SessionListItemApi } from '../../generated/api.schemas'
 import { ListEmptyState } from '../lists/components/ListEmptyState'
 import { ListErrorState } from '../lists/components/ListErrorState'
+import { ListScopeChip } from '../lists/components/ListScopeChip'
 import { ListTable } from '../lists/components/ListTable'
 import { ListToolbar } from '../lists/components/ListToolbar'
 import { listFiltersLogic } from '../lists/listFiltersLogic'
+import { scopeLabel } from '../lists/listScopes'
 import { TraceCellLoad } from '../shared/cellLoads'
 import { shellScopeLogic } from '../shell/shellScopeLogic'
 import { TraceDrawerHost } from '../trace/TraceDrawerHost'
@@ -50,10 +52,11 @@ export function SessionsListHost(): JSX.Element {
         openSessionPageHref,
         sessionHref,
     } = useValues(sessionsListLogic)
-    const { showPreviousPage, showNextPage, reload, openSession, lookUpSession, clearFilters } =
-        useActions(sessionsListLogic)
+    const { showPreviousPage, showNextPage, reload, openSession, lookUpSession } = useActions(sessionsListLogic)
     const { filters, searchDraft } = useValues(listFiltersLogic(SESSIONS_LIST_FILTERS))
-    const { setPropertyFilters, setSearchDraft } = useActions(listFiltersLogic(SESSIONS_LIST_FILTERS))
+    const { setPropertyFilters, setSearchDraft, clearScope, clearFilters } = useActions(
+        listFiltersLogic(SESSIONS_LIST_FILTERS)
+    )
     const { titles, people } = useValues(sessionCellsLogic)
     const { dateFrom, dateTo } = useValues(shellScopeLogic)
     const { setDateRange, setFilterTestAccounts } = useActions(shellScopeLogic)
@@ -109,6 +112,11 @@ export function SessionsListHost(): JSX.Element {
                 search={searchDraft}
                 onSearchChange={searchEnabled ? setSearchDraft : undefined}
                 searchPlaceholder="Search inputs and outputs"
+                scope={
+                    filters.scope ? (
+                        <ListScopeChip scope={filters.scope} label={scopeLabel(filters.scope)} onClear={clearScope} />
+                    ) : null
+                }
                 filters={
                     <PropertyFilters
                         propertyFilters={filters.propertyFilters}

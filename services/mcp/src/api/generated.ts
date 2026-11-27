@@ -141331,6 +141331,7 @@ export namespace Schemas {
     /**
      * Lists only sessions with a trace whose events belong to the group with this key. Send it with group_type_index.
      * @minLength 1
+     * @maxLength 65536
      */
     group_key?: string;
     /**
@@ -141346,7 +141347,7 @@ export namespace Schemas {
      */
     limit?: number;
     /**
-     * Lists only sessions with a trace whose events belong to the person with this UUID.
+     * Lists only sessions with a trace where any event belongs to the person with this UUID. A listed trace keeps the events of other people.
      */
     person_id?: string;
     /**
@@ -141413,6 +141414,16 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
+     * Lists only traces where any event has this normalized error message, as the errors list shows it. A listed trace keeps its other events.
+     * @maxLength 65536
+     */
+    error?: string;
+    /**
+     * Lists only traces where a call to the tool with this name failed. A listed trace keeps its other events.
+     * @maxLength 65536
+     */
+    failed_tool?: string;
+    /**
      * Whether to leave out events from the project's test accounts. Defaults to the project's own setting for filtering test accounts.
      * @nullable
      */
@@ -141420,6 +141431,7 @@ export namespace Schemas {
     /**
      * Lists only traces whose events belong to the group with this key. Send it with group_type_index.
      * @minLength 1
+     * @maxLength 65536
      */
     group_key?: string;
     /**
@@ -141435,7 +141447,7 @@ export namespace Schemas {
      */
     limit?: number;
     /**
-     * Lists only traces whose events belong to the person with this UUID.
+     * Lists only traces where any event belongs to the person with this UUID. A listed trace keeps the events of other people.
      */
     person_id?: string;
     /**
@@ -141447,6 +141459,11 @@ export namespace Schemas {
      * @maxLength 1000
      */
     search?: string;
+    /**
+     * Lists only traces where any event called the tool with this name. A listed trace keeps its other events.
+     * @maxLength 65536
+     */
+    tool?: string;
     /**
      * Lists only traces with an error, or only traces with user feedback. The counts ignore it.
      *

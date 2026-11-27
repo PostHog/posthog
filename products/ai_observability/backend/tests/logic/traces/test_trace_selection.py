@@ -256,6 +256,9 @@ def test_a_selection_rejects_filters_it_cannot_apply(_name: str, filters: list[d
         ),
         ("search", {"search": "refund"}),
         ("person_id", {"person_id": "person-1"}),
+        ("error", {"error": "Rate limit reached"}),
+        ("tool", {"tool": "search_docs"}),
+        ("failed_tool", {"failed_tool": "search_docs"}),
         ("group", {"group": TraceGroupScope(key="acme", type_index=0)}),
         ("quick_filter", {"quick_filter": "errors"}),
         ("filter_test_accounts", {"filter_test_accounts": True}),
@@ -264,6 +267,18 @@ def test_a_selection_rejects_filters_it_cannot_apply(_name: str, filters: list[d
 def test_session_scope_rejects_list_filters(_name: str, filters: dict[str, Any]) -> None:
     with pytest.raises(InvalidTraceSelectionError):
         TraceSelection(window=WINDOW, session_id="session-1", **filters)
+
+
+@parameterized.expand(
+    [
+        (f"{scope} {name}", {scope: value})
+        for scope in ("error", "tool", "failed_tool")
+        for name, value in (("empty", ""), ("whitespace", " \t"))
+    ]
+)
+def test_a_blank_scope_is_refused(_name: str, scope: dict[str, Any]) -> None:
+    with pytest.raises(InvalidTraceSelectionError):
+        TraceSelection(window=WINDOW, **scope)
 
 
 def test_session_scope_accepts_window_and_support_flag() -> None:

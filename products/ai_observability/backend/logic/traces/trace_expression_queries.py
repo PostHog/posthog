@@ -1,6 +1,7 @@
 from collections.abc import Callable, Sequence
 
 from posthog.hogql import ast
+from posthog.hogql.parser import parse_expr
 
 from posthog.dataclasses import frozen
 
@@ -132,9 +133,31 @@ def trace_latency(columns: TraceColumns, aggregate: Aggregate) -> ast.Expr:
     return ast.Call(name="round", args=[_if(nothing_timed, _constant(None), total), _constant(2)])
 
 
+def event_errored(columns: TraceColumns) -> ast.Expr:
+    return _compare(ast.CompareOperationOp.Eq, columns.is_error, _constant("true"))
+
+
 def trace_errored(columns: TraceColumns, aggregate: Aggregate) -> ast.Expr:
-    flagged = _compare(ast.CompareOperationOp.Eq, columns.is_error, _constant("true"))
-    return _compare(ast.CompareOperationOp.Gt, aggregate("countIf", [flagged]), _constant(0))
+    return _compare(ast.CompareOperationOp.Gt, aggregate("countIf", [event_errored(columns)]), _constant(0))
+
+
+def error_message(columns: TraceColumns) -> ast.Expr:
+    """The event's normalized error message as it was sent, NULL when the event has none."""
+    # Where events store properties as a JSON string, `properties.$ai_error_normalized` keeps the JSON escapes, so a
+    # message with a quote, a backslash or a newline would not equal the message as sent. JSONExtractString decodes it
+    # there, and HogQL prints it as a read of the typed property where events store typed properties.
+    message = ast.Call(name="JSONExtractString", args=[columns.properties, _constant("$ai_error_normalized")])
+    return ast.Call(name="nullIf", args=[message, _constant("")])
+
+
+def tool_names(columns: TraceColumns, property_name: str) -> ast.Expr:
+    """The tool names a comma-separated property lists, in their order, each trimmed, without empty parts."""
+    # Decoded like `error_message`, so a name with a quote or a backslash reads as it was sent in both events layouts.
+    names = ast.Call(name="JSONExtractString", args=[columns.properties, _constant(property_name)])
+    return parse_expr(
+        "arrayFilter(x -> x != '', arrayMap(x -> trim(x), splitByChar(',', ifNull({names}, ''))))",
+        placeholders={"names": names},
+    )
 
 
 def trace_cost(columns: TraceColumns, aggregate: Aggregate) -> ast.Expr:
@@ -211,3 +234,9 @@ def event_identified(columns: TraceColumns) -> ast.Expr:
             ast.Not(expr=event_is_otel(columns)),
         ]
     )
+
+
+def event_anonymous(columns: TraceColumns) -> ast.Expr:
+    # No OpenTelemetry clause: an OpenTelemetry event carries a distinct id derived from something other than the trace
+    # id, so it counts as identified here.
+    return _compare(ast.CompareOperationOp.Eq, columns.distinct_id, _if_null(columns.trace_id, ""))

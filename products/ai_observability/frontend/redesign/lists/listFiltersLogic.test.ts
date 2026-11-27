@@ -8,7 +8,7 @@ import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types
 
 import { pageLoad } from '../shared/testPageLoad'
 import { currentUrlWith } from '../trace/rawSearchParam'
-import { LIST_SEARCH_DEBOUNCE_MS, ListFilters, listFiltersLogic } from './listFiltersLogic'
+import { LIST_SEARCH_DEBOUNCE_MS, ListFilters, ListFiltersLogicProps, listFiltersLogic } from './listFiltersLogic'
 
 const LIST_PATH = urls.aiObservabilityTraces()
 const MODEL_FILTER: AnyPropertyFilter = {
@@ -17,16 +17,17 @@ const MODEL_FILTER: AnyPropertyFilter = {
     operator: PropertyOperator.Exact,
     type: PropertyFilterType.Event,
 }
-const NO_FILTERS: ListFilters = { propertyFilters: [], search: '', quickFilter: null }
+const NO_FILTERS: ListFilters = { propertyFilters: [], search: '', quickFilter: null, scope: null }
+const SCOPED_FILTERS: Partial<ListFiltersLogicProps> = { scopeKinds: ['person', 'error', 'tool'] }
 
 describe('listFiltersLogic', () => {
     let logic: ReturnType<typeof listFiltersLogic.build>
 
     const param = (name: string): string | null => new URLSearchParams(router.values.location.search).get(name)
 
-    function mountAt(url: string): void {
+    function mountAt(url: string, props: Partial<ListFiltersLogicProps> = {}): void {
         router.actions.locationChanged(pageLoad(url))
-        logic = listFiltersLogic({ listId: 'traces', path: LIST_PATH })
+        logic = listFiltersLogic({ listId: 'traces', path: LIST_PATH, ...props })
         logic.mount()
     }
 
@@ -163,15 +164,46 @@ describe('listFiltersLogic', () => {
         expect(router.values.searchParams).toEqual({ view: 'errors', trace_search: 'invoice' })
     })
 
-    it('clears the three filters, the typed search and their params, and keeps the others', () => {
+    it('reads and writes the search under its list search param', async () => {
+        mountAt(`${LIST_PATH}?trace_search=invoice&error_search=1.50`, { searchParam: 'error_search' })
+        expect(logic.values).toMatchObject({ searchDraft: '1.50', filters: { ...NO_FILTERS, search: '1.50' } })
+
+        type('timeout')
+        await waitOutDebounce()
+
+        expect(router.values.searchParams).toEqual({ trace_search: 'invoice', error_search: 'timeout' })
+    })
+
+    it('reads no scope where its list accepts none', () => {
+        mountAt(`${LIST_PATH}?person=p1&error=boom`)
+
+        expect(logic.values.filters.scope).toBeNull()
+    })
+
+    it('clears only the scope param, with the typed search', async () => {
+        mountAt(`${LIST_PATH}?error=a%25b%0Ac&view=errors&date_from=-7d`, SCOPED_FILTERS)
+        type('invoice')
+
+        logic.actions.clearScope()
+        await waitOutDebounce()
+
+        expect(logic.values.filters).toEqual({ ...NO_FILTERS, quickFilter: 'errors', search: 'invoice' })
+        expect(router.values.searchParams).toEqual({ view: 'errors', date_from: '-7d', trace_search: 'invoice' })
+    })
+
+    it.each([
+        ['resetting keeps the test accounts choice', (): void => logic.actions.resetFilters(), 'true'],
+        ['clearing also turns test account filtering off', (): void => logic.actions.clearFilters(), 'false'],
+    ])('clears the filters, the scope, the typed search and their params: %s', (_name, clear, testAccounts) => {
         const filters = encodeURIComponent(JSON.stringify([MODEL_FILTER]))
         mountAt(
-            `${LIST_PATH}?filters=${filters}&filter_test_accounts=true&trace_search=invoice&view=errors&date_from=-7d`
+            `${LIST_PATH}?filters=${filters}&filter_test_accounts=true&trace_search=invoice&view=errors&date_from=-7d&tool=search_docs`,
+            SCOPED_FILTERS
         )
 
-        logic.actions.resetFilters()
+        clear()
 
         expect(logic.values).toMatchObject({ filters: NO_FILTERS, searchDraft: '' })
-        expect(router.values.searchParams).toEqual({ date_from: '-7d', filter_test_accounts: 'true' })
+        expect(router.values.searchParams).toEqual({ date_from: '-7d', filter_test_accounts: testAccounts })
     })
 })

@@ -14,6 +14,7 @@ from parameterized import parameterized
 from products.ai_observability.backend.facade import api
 from products.ai_observability.backend.presentation.views.session_page import SessionPageRequestSerializer
 from products.ai_observability.backend.presentation.views.session_turns import SessionTurnsQuerySerializer
+from products.ai_observability.backend.presentation.views.sessions import SessionListQuerySerializer
 from products.ai_observability.backend.presentation.views.trace_ids import (
     UnreadableSessionIdError,
     decode_session_id_segment,
@@ -173,6 +174,12 @@ class TestSessionViewSet(ClickhouseTestMixin, APIBaseTest):
 
 
 class TestSessionRequestParsing(SimpleTestCase):
+    def test_sessions_list_accepts_the_person_scope_only(self) -> None:
+        fields = SessionListQuerySerializer().fields
+
+        assert "person_id" in fields
+        assert not {"error", "tool", "failed_tool"} & set(fields)
+
     @parameterized.expand(
         [
             ("a dot", ".", True),

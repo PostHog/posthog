@@ -21,6 +21,7 @@ from posthog.models.event.util import bulk_create_events
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 
 from products.ai_observability.backend.logic.traces import trace_queries
+from products.ai_observability.backend.presentation.views.list_filters import MAX_SCOPE_TEXT_LENGTH
 
 from .trace_fixtures import (
     GENERATION,
@@ -337,6 +338,28 @@ class TestTraceListViewSet(ClickhouseTestMixin, APIBaseTest):
         else:
             assert [item["id"] for item in response.json()["items"]] == ["chosen"]
 
+    def test_list_passes_error_tool_and_failed_tool_to_the_selection(self) -> None:
+        long_error = " Timed out: " + "x" * (MAX_SCOPE_TEXT_LENGTH - 13) + " "
+        long_tool = "t" * MAX_SCOPE_TEXT_LENGTH
+        with patch(
+            "products.ai_observability.backend.presentation.views.traces.api.load_trace_list",
+            return_value=lambda: SimpleNamespace(model_dump=lambda **_: {}),
+        ) as load:
+            response = self._get(
+                {
+                    "error": long_error,
+                    "tool": long_tool,
+                    "failed_tool": "fetch",
+                    "group_key": long_tool,
+                    "group_type_index": 0,
+                }
+            )
+
+        assert response.status_code == 200, response.content
+        selection = load.call_args.args[2]
+        assert (selection.error, selection.tool, selection.failed_tool) == (long_error, long_tool, "fetch")
+        assert selection.group is not None and selection.group.key == long_tool
+
     @parameterized.expand(
         [
             ("bad cursor", {"cursor": "%%%"}),
@@ -351,6 +374,14 @@ class TestTraceListViewSet(ClickhouseTestMixin, APIBaseTest):
             ("limit too small", {"limit": 0}),
             ("unknown view", {"view": "slow"}),
             ("person id that is not a uuid", {"person_id": "not-a-uuid"}),
+            ("empty error scope", {"error": ""}),
+            ("whitespace-only error scope", {"error": "   "}),
+            ("empty tool scope", {"tool": ""}),
+            ("whitespace-only failed tool scope", {"failed_tool": " "}),
+            ("error scope too long", {"error": "x" * (MAX_SCOPE_TEXT_LENGTH + 1)}),
+            ("tool scope too long", {"tool": "t" * (MAX_SCOPE_TEXT_LENGTH + 1)}),
+            ("failed tool scope too long", {"failed_tool": "t" * (MAX_SCOPE_TEXT_LENGTH + 1)}),
+            ("group key too long", {"group_key": "g" * (MAX_SCOPE_TEXT_LENGTH + 1), "group_type_index": 0}),
             (
                 "custom expression that fails in clickhouse",
                 {"properties": json.dumps([{"type": "hogql", "key": "toDateTime('not a date') > now()"}])},

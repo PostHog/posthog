@@ -1,6 +1,6 @@
 import json
 from collections.abc import Callable
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -18,11 +18,15 @@ from pydantic import TypeAdapter
 
 from posthog.schema import AnyPropertyFilterDiscriminated
 
+from posthog.hogql.parser import parse_select
+
 from posthog.models import Organization, Team
 from posthog.models.ai_events.test_util import bulk_create_ai_events
 from posthog.models.event.util import bulk_create_events
 from posthog.models.group.util import create_group
 
+from products.ai_observability.backend.logic.traces.trace_expression_queries import EVENTS_COLUMNS, event_errored
+from products.ai_observability.backend.logic.traces.trace_metrics import previous_window
 from products.ai_observability.backend.logic.traces.trace_paging import (
     AroundTakes,
     around_takes,
@@ -42,9 +46,12 @@ from products.ai_observability.backend.logic.traces.trace_selection_queries impo
     SELECTION_QUERY_NAME,
     SelectionCounts,
     _reads_beyond_posthog_tables,
+    execute_selection,
+    grouped_traces,
     load_rows_after,
     load_rows_around,
     load_rows_before,
+    period_membership,
 )
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
@@ -52,6 +59,8 @@ from products.event_definitions.backend.models.property_definition import Proper
 T0 = datetime(2026, 9, 1, 10, 0, 0, 123456, tzinfo=UTC)
 CASES_PATH = Path(__file__).parents[4] / "shared" / "trace_selection_cases.json"
 _PROPERTY_FILTER = TypeAdapter(AnyPropertyFilterDiscriminated)
+SCOPED_PERSON = "00000000-0000-4000-8000-00000000000a"
+OTHER_PERSON = "00000000-0000-4000-8000-00000000000b"
 
 
 def load_cases() -> list[dict[str, Any]]:
@@ -69,7 +78,8 @@ def load_cases() -> list[dict[str, Any]]:
       events table and ai_events.
     - `selection`: `date_from` and `date_to` in minutes, and optionally `properties` (property filter objects),
       `filter_test_accounts`, `include_support_traces`, `search`, `quick_filter` (`errors` or `feedback`),
-      `person_id`, `group` as `{"key", "type_index"}`, `order` (`newest_first` or `oldest_first`) and `session_id`.
+      `person_id`, `error`, `tool`, `failed_tool`, `group` as `{"key", "type_index"}`, `order` (`newest_first` or
+      `oldest_first`) and `session_id`.
     - `expected_trace_ids`: the first page, in the selection's order.
     - `expected_counts`: `total`, `errors` and `feedback` for the selection without its quick filter, or null for a
       session scope, which reads no counts.
@@ -116,6 +126,9 @@ def to_selection(team: Team, selection: dict[str, Any]) -> TraceSelection:
         include_support_traces=selection.get("include_support_traces", False),
         search=selection.get("search"),
         person_id=selection.get("person_id"),
+        error=selection.get("error"),
+        tool=selection.get("tool"),
+        failed_tool=selection.get("failed_tool"),
         group=TraceGroupScope(key=group["key"], type_index=group["type_index"]) if group else None,
         quick_filter=selection.get("quick_filter"),
         session_id=selection.get("session_id"),
@@ -145,6 +158,68 @@ class TestTraceSelectionQueries(ClickhouseTestMixin, BaseTest):
 
         assert [position.trace_id for position in read.rows.positions] == case["expected_trace_ids"]
         assert (asdict(read.counts) if read.counts else None) == case["expected_counts"]
+
+    @parameterized.expand([(case["name"], case) for case in CASES if "search" not in case["selection"]])
+    def test_period_membership_holds_the_traces_each_window_lists_before_the_event_rules(
+        self, _name: str, case: dict[str, Any]
+    ) -> None:
+        self.team.test_account_filters = case.get("team_test_account_filters", [])
+        self.team.test_account_filters_default_checked = case.get("team_test_account_filters_default_checked", False)
+        self.team.save()
+        seed(self.team, case["events"])
+        selection = to_selection(self.team, case["selection"])
+        unruled = replace(selection, filter_test_accounts=False, include_support_traces=True)
+        previous = previous_window(selection.window)
+
+        def listed(listing: TraceSelection) -> set[str]:
+            query = parse_select("SELECT trace_id FROM {traces}", {"traces": grouped_traces(self.team, listing, {})})
+            return {trace_id for (trace_id,) in execute_selection(self.team, self.user, listing, query, "test")}
+
+        membership = parse_select(
+            "SELECT trace_id, in_current, in_previous FROM {traces}",
+            {"traces": period_membership(self.team, selection, previous, holding=None)},
+        )
+        rows = execute_selection(self.team, self.user, selection, membership, "test")
+
+        assert {trace_id for trace_id, in_current, _ in rows if in_current} == listed(unruled)
+        assert {trace_id for trace_id, _, in_previous in rows if in_previous} == listed(
+            replace(unruled, window=previous)
+        )
+
+    def test_period_membership_keeps_only_traces_holding_a_match_with_their_whole_span(self) -> None:
+        flagged = {"$ai_is_error": True}
+        seed(
+            self.team,
+            [
+                {"event": "$ai_generation", "trace_id": "flagged-now", "minutes": 10, "properties": flagged},
+                {"event": "$ai_generation", "trace_id": "plain-now", "minutes": 20},
+                {"event": "$ai_generation", "trace_id": "flagged-before", "minutes": -60, "properties": flagged},
+                {
+                    "event": "$ai_generation",
+                    "trace_id": "flagged-before-span-now",
+                    "minutes": -60,
+                    "properties": flagged,
+                },
+                {"event": "$ai_span", "trace_id": "flagged-before-span-now", "minutes": 30},
+            ],
+        )
+        selection = to_selection(self.team, {"date_from": 0, "date_to": 120})
+        membership = parse_select(
+            "SELECT trace_id, in_current, in_previous FROM {traces}",
+            {
+                "traces": period_membership(
+                    self.team, selection, previous_window(selection.window), holding=event_errored(EVENTS_COLUMNS)
+                )
+            },
+        )
+
+        rows = execute_selection(self.team, self.user, selection, membership, "test")
+
+        assert {(trace_id, bool(current), bool(previous)) for trace_id, current, previous in rows} == {
+            ("flagged-now", True, False),
+            ("flagged-before", False, True),
+            ("flagged-before-span-now", True, True),
+        }
 
     def _page_through(self, limit: int, selection: TraceSelection | None = None) -> list[TracePosition]:
         selection = selection or self._selection()
@@ -403,6 +478,74 @@ class TestTraceSelectionQueries(ClickhouseTestMixin, BaseTest):
 
         assert [position.trace_id for position in page.rows.positions] == ["after-identify", "before-identify"]
 
+    def test_an_error_scope_matches_a_message_with_quotes_a_backslash_a_newline_and_unicode_exactly(self) -> None:
+        message = 'Can\'t parse "réponse" in C:\\data\nat line <N> ✗'
+        seed(
+            self.team,
+            [
+                {
+                    "event": "$ai_generation",
+                    "trace_id": "exact",
+                    "minutes": 0,
+                    "properties": {"$ai_is_error": True, "$ai_error_normalized": message},
+                },
+                {
+                    "event": "$ai_generation",
+                    "trace_id": "without-newline",
+                    "minutes": 1,
+                    "properties": {"$ai_is_error": True, "$ai_error_normalized": message.replace("\n", " ")},
+                },
+            ],
+        )
+
+        page = load_rows_after(self.team, self.user, self._selection(error=message), after=None, take=10)
+
+        assert [position.trace_id for position in page.rows.positions] == ["exact"]
+
+    def _seed_a_trace_each_scope_matches_on_another_event(self) -> TraceSelection:
+        seed(
+            self.team,
+            [
+                {"event": "$ai_span", "trace_id": "both", "minutes": -5, "person_id": OTHER_PERSON},
+                {"event": "$ai_generation", "trace_id": "both", "minutes": 0, "person_id": SCOPED_PERSON},
+                {
+                    "event": "$ai_generation",
+                    "trace_id": "both",
+                    "minutes": 5,
+                    "person_id": OTHER_PERSON,
+                    "properties": {"$ai_tools_called": "lookup"},
+                },
+            ],
+        )
+        return self._selection(person_id=SCOPED_PERSON, tool="lookup")
+
+    def test_a_trace_two_scopes_match_on_different_events_keeps_its_other_events(self) -> None:
+        selection = self._seed_a_trace_each_scope_matches_on_another_event()
+
+        page = load_rows_after(self.team, self.user, selection, after=None, take=10)
+
+        assert page.rows.positions == (TracePosition(trace_id="both", first_timestamp=at(-5)),)
+
+    def test_a_trace_sharing_no_event_with_one_of_two_scopes_is_not_returned(self) -> None:
+        selection = self._seed_a_trace_each_scope_matches_on_another_event()
+        seed(
+            self.team,
+            [
+                {"event": "$ai_generation", "trace_id": "person-only", "minutes": 1, "person_id": SCOPED_PERSON},
+                {
+                    "event": "$ai_generation",
+                    "trace_id": "tool-only",
+                    "minutes": 2,
+                    "person_id": OTHER_PERSON,
+                    "properties": {"$ai_tools_called": "lookup"},
+                },
+            ],
+        )
+
+        page = load_rows_after(self.team, self.user, selection, after=None, take=10)
+
+        assert [position.trace_id for position in page.rows.positions] == ["both"]
+
     @parameterized.expand([("in the selection", False), ("in the test account filters", True)])
     def test_a_hogql_filter_can_read_a_saved_view(self, _name: str, as_test_account_filter: bool) -> None:
         DataWarehouseSavedQuery.objects.create(
@@ -464,7 +607,10 @@ class TestTraceSelectionQueries(ClickhouseTestMixin, BaseTest):
             (expected_name, "llm_analytics")
         ]
 
-    def test_a_read_past_its_deadline_fails_instead_of_returning_partial_counts(self) -> None:
+    @parameterized.expand([("list read", True), ("read past the list time limit", False)])
+    def test_a_read_past_its_deadline_fails_instead_of_returning_partial_counts(
+        self, _name: str, list_time_limit: bool
+    ) -> None:
         selection_queries: list[str] = []
 
         def record_query(execute: Any, query: str, *args: Any, **kwargs: Any) -> Any:
@@ -473,8 +619,12 @@ class TestTraceSelectionQueries(ClickhouseTestMixin, BaseTest):
                 selection_queries.append(query)
             return execute(query, *args, **kwargs)
 
+        selection = self._selection()
+        query = parse_select("SELECT trace_id FROM {traces}", {"traces": grouped_traces(self.team, selection, {})})
         with patch_clickhouse_client_execute(record_query):
-            load_rows_after(self.team, self.user, self._selection(), after=None, take=10)
+            execute_selection(
+                self.team, self.user, selection, query, SELECTION_QUERY_NAME, list_time_limit=list_time_limit
+            )
 
         [selection_query] = selection_queries
         assert "timeout_overflow_mode='throw'" in selection_query
