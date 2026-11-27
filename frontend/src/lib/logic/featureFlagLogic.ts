@@ -192,8 +192,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         // The app shell keeps this logic mounted for the page lifetime, so a new mount is a new page that
         // starts from the server decision again.
         posthogAiAccessRevoked = false
+        let flagsLoadedOnThisPage = false
         posthog.onFeatureFlags((flags, variants, context) => {
-            if (!context?.errorsLoading) {
+            if (context?.errorsLoading === false) {
+                flagsLoadedOnThisPage = true
+            }
+            if (flagsLoadedOnThisPage) {
                 actions.setFeatureFlags(flags, variants)
                 return
             }
