@@ -21,7 +21,6 @@ import {
     sampleOf,
     startSampler,
 } from './measurements'
-import { Buckets, p99Of, worstP99Of } from './pickups'
 
 const FROM = Date.parse('2026-01-05T10:00:00.000Z')
 const ROLE = 'cdp-cyclotron-worker-email'
@@ -458,24 +457,49 @@ describe('measurements', () => {
         )
     })
 
-    const latencyWriter = (latency: (second: number) => number | 'failed'): WriterSample[] =>
+    type Latency =
+        | number
+        | 'failed'
+        | { failedAfterMs: number; startsLateMs?: number }
+        | { startsLateMs: number; latencyMs: number }
+
+    const latencyWriter = (latency: (second: number) => Latency): WriterSample[] =>
         everySecondOf(0, 1500).map((second): WriterSample => {
             const ms = latency(second)
             const at = { at: atS(second), monoMs: second * 1000 }
             return ms === 'failed'
                 ? { ...at, latencyMs: 0, ok: false, sqlstate: '57P01' }
-                : { ...at, latencyMs: ms, ok: true, inRecovery: false }
+                : typeof ms === 'number'
+                  ? { ...at, latencyMs: ms, ok: true, inRecovery: false }
+                  : 'failedAfterMs' in ms
+                    ? {
+                          at: at.at + (ms.startsLateMs ?? 0),
+                          monoMs: at.monoMs + (ms.startsLateMs ?? 0),
+                          latencyMs: ms.failedAfterMs,
+                          ok: false,
+                          sqlstate: '57014',
+                      }
+                    : {
+                          at: at.at + ms.startsLateMs,
+                          monoMs: at.monoMs + ms.startsLateMs,
+                          latencyMs: ms.latencyMs,
+                          ok: true,
+                      }
         })
 
     const THREE_MINUTE_VALVE: ValveTimelineEntry[] = [{ ...VALVE, releasedAt: isoAt(880) }]
+    const UNSETTLED_REMAINDER = 'a write after the last whole minute of the valve failed or passed the bar'
+    const IN_FLIGHT_AT_END = 'a write probe was in flight at the valve end'
+    const SPLIT_SCRAPES = 'a scrape interval that crosses a minute boundary cannot say which side its pickups fell on'
 
     it.each<
         [
             string,
-            (second: number) => number | 'failed',
+            (second: number) => Latency,
             ValveTimelineEntry[],
             Omit<Measurement, 'name' | 'unit'>[],
             ((second: number) => boolean)?,
+            DriveWindow?,
         ]
     >([
         [
@@ -546,6 +570,140 @@ describe('measurements', () => {
             (second) => !between(752, 768)(second),
         ],
         [
+            'counts a probe that fails after a minute boundary in both minutes it overlaps',
+            (second) => (between(700, 758)(second) ? 400 : second === 759 ? { failedAfterMs: 2000 } : 10),
+            THREE_MINUTE_VALVE,
+            [
+                { key: 'baseline', value: 10 },
+                { key: 'bar', value: 20 },
+                { key: 't0', value: 400 },
+                { key: 't60', value: 10 },
+                { key: 't120', value: 10 },
+                { key: 'recovery_seconds', value: 120 },
+            ],
+        ],
+        [
+            'keeps a probe that fails after T0 out of the baseline and counts it in the first valve minute',
+            (second) => (second === 699 ? { failedAfterMs: 2000 } : 10),
+            THREE_MINUTE_VALVE,
+            [
+                { key: 'baseline', value: 10 },
+                { key: 'bar', value: 20 },
+                { key: 't0', value: 10 },
+                { key: 't60', value: 10 },
+                { key: 't120', value: 10 },
+                { key: 'recovery_seconds', value: 60 },
+            ],
+        ],
+        [
+            'reads recovery over the whole minutes of a valve whose clean remainder follows them',
+            (second) => (between(700, 759)(second) ? 400 : 10),
+            [{ ...VALVE, releasedAt: isoAt(920.5) }],
+            [
+                { key: 'baseline', value: 10 },
+                { key: 'bar', value: 20 },
+                { key: 't0', value: 400 },
+                { key: 't60', value: 10 },
+                { key: 't120', value: 10 },
+                { key: 'recovery_seconds', value: 60 },
+            ],
+        ],
+        [
+            'leaves recovery unknown when a write in the remainder after the last whole minute is slow',
+            (second) => (second === 915 ? 400 : 10),
+            [{ ...VALVE, releasedAt: isoAt(920.5) }],
+            [
+                { key: 'baseline', value: 10 },
+                { key: 'bar', value: 20 },
+                { key: 't0', value: 10 },
+                { key: 't60', value: 10 },
+                { key: 't120', value: 10 },
+                { key: 'recovery_seconds', value: null, censored: true, unmeasured: UNSETTLED_REMAINDER },
+            ],
+        ],
+        [
+            'leaves recovery unknown when a write fails in the remainder after the last whole minute',
+            (second) => (second === 905 ? 'failed' : 10),
+            [{ ...VALVE, releasedAt: isoAt(920.5) }],
+            [
+                { key: 'baseline', value: 10 },
+                { key: 'bar', value: 20 },
+                { key: 't0', value: 10 },
+                { key: 't60', value: 10 },
+                { key: 't120', value: 10 },
+                { key: 'recovery_seconds', value: null, censored: true, unmeasured: UNSETTLED_REMAINDER },
+            ],
+        ],
+        [
+            'leaves recovery unknown when a write fails exactly at the valve end',
+            (second) => (second === 879 ? { failedAfterMs: 1000 } : 10),
+            THREE_MINUTE_VALVE,
+            [
+                { key: 'baseline', value: 10 },
+                { key: 'bar', value: 20 },
+                { key: 't0', value: 10 },
+                { key: 't60', value: 10 },
+                { key: 't120', value: 10 },
+                { key: 'recovery_seconds', value: null, censored: true, unmeasured: IN_FLIGHT_AT_END },
+            ],
+        ],
+        [
+            'leaves the bar unset when a probe that started before the baseline hides a gap in it',
+            (second) => (second === 669 ? { failedAfterMs: 2000, startsLateMs: 500 } : 10),
+            THREE_MINUTE_VALVE,
+            [
+                { key: 'baseline', value: null, censored: true },
+                { key: 'bar', value: null, censored: true },
+                { key: 't0', value: 10 },
+                { key: 't60', value: 10 },
+                { key: 't120', value: 10 },
+                { key: 'recovery_seconds', value: null, censored: true },
+            ],
+            (second) => !between(670, 679)(second),
+            { startedAt: atS(0), warmedAt: atS(670), endedAt: atS(1500) },
+        ],
+        [
+            'leaves recovery unknown when a write is still in flight at the valve end',
+            (second) => (second === 879 ? { startsLateMs: 800, latencyMs: 400 } : 10),
+            THREE_MINUTE_VALVE,
+            [
+                { key: 'baseline', value: 10 },
+                { key: 'bar', value: 20 },
+                { key: 't0', value: 10 },
+                { key: 't60', value: 10 },
+                { key: 't120', value: 10 },
+                { key: 'recovery_seconds', value: null, censored: true, unmeasured: IN_FLIGHT_AT_END },
+            ],
+        ],
+        [
+            'counts a slow write in the minute it ended, though it started in the minute before',
+            (second) => (second === 759 ? { startsLateMs: 750, latencyMs: 400 } : 10),
+            THREE_MINUTE_VALVE,
+            [
+                { key: 'baseline', value: 10 },
+                { key: 'bar', value: 20 },
+                { key: 't0', value: 10 },
+                { key: 't60', value: 400 },
+                { key: 't120', value: 10 },
+                { key: 'recovery_seconds', value: 120 },
+            ],
+        ],
+        [
+            'keeps a probe that started before the baseline out of it',
+            (second) => (second === 669 ? { startsLateMs: 750, latencyMs: 400 } : second >= 700 ? 300 : 10),
+            THREE_MINUTE_VALVE,
+            [
+                { key: 'baseline', value: 10 },
+                { key: 'bar', value: 20 },
+                { key: 't0', value: 300 },
+                { key: 't60', value: 300 },
+                { key: 't120', value: 300 },
+                { key: 'recovery_seconds', value: null, censored: true },
+            ],
+            () => true,
+            { startedAt: atS(0), warmedAt: atS(670), endedAt: atS(1500) },
+        ],
+        [
             'keeps the minutes of a valve whose baseline had a failed probe, with no bar and no recovery',
             (second) => (second === 650 ? 'failed' : between(700, 759)(second) ? 400 : 10),
             THREE_MINUTE_VALVE,
@@ -560,7 +718,7 @@ describe('measurements', () => {
         ],
         ['measures nothing for a card without a valve', () => 10, [], []],
         ['measures nothing on a baseline under 30 seconds', () => 10, [{ ...VALVE, intentAt: isoAt(10) }], []],
-    ])('write latency p99 %s', (_story, latency, timeline, measured, probed = () => true) => {
+    ])('write latency p99 %s', (_story, latency, timeline, measured, probed = () => true, drive = DRIVE) => {
         const names = ['write_latency_p99_ms', 'write_latency_recovery_seconds']
         const recovery = measured.filter(({ key }) => key === 'recovery_seconds')
 
@@ -568,8 +726,8 @@ describe('measurements', () => {
             measure(
                 names.map((name) => ({ name, params: {} })),
                 evidence({
-                    writer: latencyWriter(latency).filter(({ at }) => probed((at - FROM) / 1000)),
-                    drive: DRIVE,
+                    writer: latencyWriter(latency).filter(({ at }) => probed(Math.floor((at - FROM) / 1000))),
+                    drive,
                     timeline,
                 })
             )
@@ -646,7 +804,7 @@ describe('measurements', () => {
                 { key: 'hogflow_t0', value: 5 },
                 { key: 'hogflow_t60', value: 0.5 },
                 { key: 'hogflow_t120', value: 5 },
-                { key: 'hogflow_recovery_seconds', value: null, censored: true },
+                { key: 'hogflow_recovery_seconds', value: null, censored: true, unmeasured: SPLIT_SCRAPES },
             ],
         ],
         [
@@ -668,7 +826,7 @@ describe('measurements', () => {
                 { key: 'hogflow_t0', value: 5 },
                 { key: 'hogflow_t60', value: 0.5 },
                 { key: 'hogflow_t120', value: 5 },
-                { key: 'hogflow_recovery_seconds', value: null, censored: true },
+                { key: 'hogflow_recovery_seconds', value: null, censored: true, unmeasured: SPLIT_SCRAPES },
             ],
         ],
         [
@@ -690,7 +848,7 @@ describe('measurements', () => {
                 { key: 'hogflow_t0', value: 0.5 },
                 { key: 'hogflow_t60', value: 0.5 },
                 { key: 'hogflow_t120', value: 5, incomplete: true },
-                { key: 'hogflow_recovery_seconds', value: null, censored: true },
+                { key: 'hogflow_recovery_seconds', value: null, censored: true, unmeasured: SPLIT_SCRAPES },
             ],
         ],
         [
@@ -702,7 +860,7 @@ describe('measurements', () => {
                 { key: 'hogflow_t0', value: 5 },
                 { key: 'hogflow_t60', value: 0.5 },
                 { key: 'hogflow_t120', value: 0.5 },
-                { key: 'hogflow_recovery_seconds', value: null, censored: true },
+                { key: 'hogflow_recovery_seconds', value: null, censored: true, unmeasured: SPLIT_SCRAPES },
             ],
         ],
         [
@@ -714,7 +872,7 @@ describe('measurements', () => {
                 { key: 'hogflow_t0', value: 5 },
                 { key: 'hogflow_t60', value: 0.5 },
                 { key: 'hogflow_t120', value: 0.5 },
-                { key: 'hogflow_recovery_seconds', value: null, censored: true },
+                { key: 'hogflow_recovery_seconds', value: null, censored: true, unmeasured: SPLIT_SCRAPES },
             ],
         ],
         [
@@ -726,7 +884,7 @@ describe('measurements', () => {
                 { key: 'hogflow_t0', value: 5 },
                 { key: 'hogflow_t60', value: 5 },
                 { key: 'hogflow_t120', value: 5 },
-                { key: 'hogflow_recovery_seconds', value: null, censored: true },
+                { key: 'hogflow_recovery_seconds', value: null, censored: true, unmeasured: SPLIT_SCRAPES },
             ],
         ],
         [
@@ -738,7 +896,7 @@ describe('measurements', () => {
                 { key: 'hogflow_t0', value: 5 },
                 { key: 'hogflow_t60', value: 0.5 },
                 { key: 'hogflow_t120', value: 0.5 },
-                { key: 'hogflow_recovery_seconds', value: null, censored: true },
+                { key: 'hogflow_recovery_seconds', value: null, censored: true, unmeasured: SPLIT_SCRAPES },
             ],
         ],
         [
@@ -750,7 +908,7 @@ describe('measurements', () => {
                 { key: 'hogflow_t0', value: 5 },
                 { key: 'hogflow_t60', value: 0.5 },
                 { key: 'hogflow_t120', value: 5 },
-                { key: 'hogflow_recovery_seconds', value: null, censored: true },
+                { key: 'hogflow_recovery_seconds', value: null, censored: true, unmeasured: SPLIT_SCRAPES },
             ],
         ],
         [
@@ -762,7 +920,7 @@ describe('measurements', () => {
                 { key: 'hogflow_t0', value: 5 },
                 { key: 'hogflow_t60', value: 0.5 },
                 { key: 'hogflow_t120', value: 0.5, incomplete: true },
-                { key: 'hogflow_recovery_seconds', value: null, censored: true },
+                { key: 'hogflow_recovery_seconds', value: null, censored: true, unmeasured: SPLIT_SCRAPES },
             ],
         ],
         [
@@ -781,7 +939,7 @@ describe('measurements', () => {
                 { key: 'hogflow_t0', value: 5 },
                 { key: 'hogflow_t60', value: 0.5 },
                 { key: 'hogflow_t120', value: 0.5, incomplete: true },
-                { key: 'hogflow_recovery_seconds', value: null, censored: true },
+                { key: 'hogflow_recovery_seconds', value: null, censored: true, unmeasured: SPLIT_SCRAPES },
             ],
         ],
         [
@@ -793,7 +951,7 @@ describe('measurements', () => {
                 { key: 'hogflow_t0', value: 5, censored: true },
                 { key: 'hogflow_t60', value: 0.5 },
                 { key: 'hogflow_t120', value: 0.5 },
-                { key: 'hogflow_recovery_seconds', value: null, censored: true },
+                { key: 'hogflow_recovery_seconds', value: null, censored: true, unmeasured: SPLIT_SCRAPES },
             ],
         ],
         [
@@ -805,7 +963,7 @@ describe('measurements', () => {
                 { key: 'hogflow_t0', value: 0.5 },
                 { key: 'hogflow_t60', value: null, censored: true, incomplete: true },
                 { key: 'hogflow_t120', value: 0.5 },
-                { key: 'hogflow_recovery_seconds', value: null, censored: true },
+                { key: 'hogflow_recovery_seconds', value: null, censored: true, unmeasured: SPLIT_SCRAPES },
             ],
         ],
     ])('pickup p99 %s', (_story, samples, measured) => {
@@ -830,28 +988,82 @@ describe('measurements', () => {
         ])
     })
 
-    it('bounds the last minute p99 at or above the p99 of any share of the closing pickups that falls inside it', () => {
-        let seed = 7
-        const random = (below: number): number => {
-            seed = (seed * 1_103_515_245 + 12_345) % 2 ** 31
-            return seed % below
+    it('never reads the last minute pickup p99 under the p99 of any share of the closing pickups that falls inside it', () => {
+        const p99Bound = ([fast, slow, past]: number[]): number => {
+            const rank = Math.ceil(0.99 * (fast + slow + past))
+            return rank <= fast ? 0.5 : rank <= fast + slow ? 5 : Infinity
         }
-        const cumulated = ([fast, slow, past]: number[]): Buckets => ({
-            '0.5': fast,
-            '5': fast + slow,
-            '+Inf': fast + slow + past,
-        })
-        for (let i = 0; i < 2000; i++) {
-            const inside = [random(200), random(4), random(2)]
-            const closing = [random(200), random(4), random(2)]
-            const share = closing.map((count) => random(count + 1))
-            if (inside.every((count) => count === 0)) {
-                continue
+        const upTo = (count: number): number[] => Array.from({ length: count + 1 }, (_, i) => i)
+        const combinations = (...choices: number[][]): number[][] =>
+            choices.reduce<number[][]>((sets, options) => sets.flatMap((set) => options.map((n) => [...set, n])), [[]])
+        for (const inside of combinations([0, 1, 98, 99, 100], [0, 1, 2], [0, 1])) {
+            for (const closing of combinations([0, 1, 100], [0, 1, 2], [0, 1])) {
+                const total = [0, 0, 0]
+                const samples = everySecondOf(2, 1497, 5).map((second): MetricSample => {
+                    const picked =
+                        second === 872
+                            ? inside
+                            : second === 882
+                              ? closing
+                              : between(822, 877)(second)
+                                ? [0, 0, 0]
+                                : [10, 0, 0]
+                    picked.forEach((count, bucket) => (total[bucket] += count))
+                    const [fast, slow, past] = total
+                    return {
+                        ...sample(second, 0, 1),
+                        role: HOGFLOW,
+                        lateness: { hogflow: { '0.5': fast, '5': fast + slow, '+Inf': fast + slow + past } },
+                    }
+                })
+                const worst = Math.max(
+                    ...combinations(...closing.map(upTo))
+                        .map((share) => inside.map((count, bucket) => count + share[bucket]))
+                        .filter((counts) => counts.some((count) => count > 0))
+                        .map(p99Bound)
+                )
+                const last = measure(
+                    [{ name: 'pickup_p99_seconds', params: {} }],
+                    evidence({ samples, drive: DRIVE, timeline: THREE_MINUTE_VALVE })
+                ).find(({ key }) => key === 'hogflow_t120')!
+                expect({ inside, closing, holds: last.censored === true || last.value! >= worst }).toEqual({
+                    inside,
+                    closing,
+                    holds: true,
+                })
             }
-            const actual = p99Of(cumulated(inside.map((count, bucket) => count + share[bucket])))
-            const bound = worstP99Of(cumulated(inside), cumulated(closing))
-            expect(bound.value).toBeGreaterThanOrEqual(actual.value)
-            expect(bound.beyond || !actual.beyond).toBe(true)
+        }
+    })
+
+    it('never recovers writes in a minute that a failed probe overlaps, and keeps a probe that fails after T0 out of the baseline', () => {
+        const names = ['write_latency_p99_ms', 'write_latency_recovery_seconds']
+        for (const boundaryS of [700, 760, 820]) {
+            for (const startOffsetMs of [-2500, -1500, -500, 500]) {
+                for (const failedAfterMs of [500, 1500, 2000]) {
+                    const at = atS(boundaryS) + startOffsetMs
+                    const endedAt = at + failedAfterMs
+                    if (endedAt < atS(700)) {
+                        continue
+                    }
+                    const failed: WriterSample = { at, monoMs: at - FROM, ok: false, latencyMs: failedAfterMs }
+                    const measured = measure(
+                        names.map((name) => ({ name, params: {} })),
+                        evidence({
+                            writer: [...latencyWriter(() => 10), failed].sort((a, b) => a.at - b.at),
+                            drive: DRIVE,
+                            timeline: THREE_MINUTE_VALVE,
+                        })
+                    )
+                    const lastOverlappedS = Math.floor((endedAt - atS(700)) / 60_000) * 60
+                    const recovery = measured.find(({ name }) => name === names[1])!.value
+                    expect({
+                        at: new Date(at).toISOString(),
+                        failedAfterMs,
+                        bar: measured.find(({ key }) => key === 'bar')!.value,
+                        recoveredAfterIt: recovery === null || recovery > lastOverlappedS,
+                    }).toEqual({ at: new Date(at).toISOString(), failedAfterMs, bar: 20, recoveredAfterIt: true })
+                }
+            }
         }
     })
 
