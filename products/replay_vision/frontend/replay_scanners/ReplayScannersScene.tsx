@@ -17,7 +17,7 @@ import { HighlightFeedTab } from './components/HighlightFeedTab'
 import { QuillCreateScannerButton } from './components/QuillCreateScannerButton'
 import { VisionHomeMenu } from './components/VisionHomeMenu'
 import { VisionUsageTab } from './components/VisionUsageTab'
-import { visionHomeLogic } from './visionHomeLogic'
+import { scannerFeedIsIdle, visionHomeLogic } from './visionHomeLogic'
 
 export const scene: SceneExport = {
     component: ReplayScannersScene,
@@ -27,7 +27,7 @@ export const scene: SceneExport = {
 }
 
 export function ReplayScannersScene(): JSX.Element {
-    const { view, homeScanners } = useValues(visionHomeLogic)
+    const { view, homeScanners, scannerStatuses } = useValues(visionHomeLogic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     // A project with no scanners has nothing to pick between, so its intro stands alone.
     const showMenu = homeScanners.length > 0 || view !== 'all'
@@ -61,8 +61,11 @@ export function ReplayScannersScene(): JSX.Element {
             ) : view === 'usage' ? (
                 <VisionUsageTab />
             ) : (
-                // Keyed, so switching scanners starts each feed from its own first page.
-                <HighlightFeedTab key={view} scannerId={view === 'all' ? undefined : view} />
+                // Keyed, so switching scanners, or a first scan finishing, starts the feed from its own first page.
+                <HighlightFeedTab
+                    key={`${view}:${scannerFeedIsIdle(scannerStatuses[view]?.kind)}`}
+                    scannerId={view === 'all' ? undefined : view}
+                />
             )}
         </SceneContent>
     )

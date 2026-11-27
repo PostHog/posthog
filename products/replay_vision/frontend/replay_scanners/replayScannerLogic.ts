@@ -2768,6 +2768,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                         (cache.statusWrites ?? 0) === writesBefore
                     ) {
                         actions.scannerStatusRefreshed(scannerFromApi(response))
+                        // The stats poll stops while nothing is in flight, so a first sweep's results need this nudge.
+                        reloadObservationsAndStats(true)
                     }
                 } catch {
                     // A failed refresh leaves the last status; the next one tries again.

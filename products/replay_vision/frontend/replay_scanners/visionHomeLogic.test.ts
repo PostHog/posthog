@@ -48,6 +48,7 @@ describe('visionHomeLogic', () => {
         ['?tab=highlights', 'all'],
         ['?tab=scanners', 'all'],
         ['?tab=usage', 'usage'],
+        ['?tab=search&scanner=scanner-a', 'search'],
         ['?scanner=scanner-a', 'scanner-a'],
         ['?scanner=deleted-scanner', 'all'],
     ])('reads %s as the %s view', async (query, expected) => {

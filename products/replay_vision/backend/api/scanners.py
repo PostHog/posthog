@@ -3130,9 +3130,20 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         ranked = rank_highlight_feed_by_embedding(candidate_rows)
         has_more = len(ranked) > page_end
         scanner_by_observation = {row["id"]: row.get("scanner_id") for row in candidate_rows}
+        pick_ids = [
+            entry.observation_id for entry in ranked if entry.reason["kind"] == HighlightFeedReason.EMBEDDING_PICK
+        ]
+        # The rank row can admit a pick its snapshot hides, so the counts take the same snapshot gate as the page rows.
+        readable_pick_ids = set(
+            accessible_observations(
+                self.user_access_control,
+                self.team_id,
+                ReplayObservation.objects.filter(team_id=self.team_id, id__in=pick_ids),
+            ).values_list("id", flat=True)
+        )
         highlight_counts_by_scanner: dict[str, int] = {}
         for entry in ranked:
-            if entry.reason["kind"] == HighlightFeedReason.EMBEDDING_PICK:
+            if entry.reason["kind"] == HighlightFeedReason.EMBEDDING_PICK and entry.observation_id in readable_pick_ids:
                 scanner_key = str(scanner_by_observation[entry.observation_id])
                 highlight_counts_by_scanner[scanner_key] = highlight_counts_by_scanner.get(scanner_key, 0) + 1
         # Counted on the first page only, because every later page covers the same window.
