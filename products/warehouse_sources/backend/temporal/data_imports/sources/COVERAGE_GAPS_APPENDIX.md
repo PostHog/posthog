@@ -14267,15 +14267,15 @@ Note: The swagger.json is public at https://api.stackoverflowteams.com/v3/swagge
 
 ## Statsig — gaps
 
-Today (8): `audit_logs`, `dynamic_configs`, `experiments`, `gates`, `layers`, `metrics`, `segments`, `users`
+Today (12): `audit_logs`, `autotunes`, `dynamic_configs`, `experiments`, `gates`, `holdouts`, `layers`, `metrics`, `param_stores`, `segments`, `teams`, `users`
 
 Diffed against: <https://api.statsig.com/openapi/20240601.json>
 
-- [ ] `Holdouts (GET /console/v1/holdouts)` — holdout definitions and population percentages, to explain why users are excluded from experiments and gates we already sync (high)
-- [ ] `Teams (GET /console/v1/users/teams)` — lookup for team ownership carried on gates, experiments, layers and segments (high)
+- [x] `Holdouts (GET /console/v1/holdouts)` — holdout definitions and population percentages, to explain why users are excluded from experiments and gates we already sync (high)
+- [x] `Teams (GET /console/v1/users/teams)` — lookup for team ownership carried on gates, experiments, layers and segments (high)
 - [ ] `Tags (GET /console/v1/tags)` — lookup for the tags carried on gates, experiments and other entities (medium)
-- [ ] `Param stores (GET /console/v1/param_stores)` — remote parameter stores that map parameters to gates and experiments (medium)
-- [ ] `Autotunes (GET /console/v1/autotunes)` — bandit experiments, a sibling of the experiments table (medium)
+- [x] `Param stores (GET /console/v1/param_stores)` — remote parameter stores that map parameters to gates and experiments (medium)
+- [x] `Autotunes (GET /console/v1/autotunes)` — bandit experiments, a sibling of the experiments table (medium)
 - [ ] `Events (GET /console/v1/events)` — catalog of logged event names, to join metric definitions to event sources (medium)
 - [ ] `Release pipelines (GET /console/v1/release_pipelines)` — staged rollout definitions attached to gates (low)
 - [ ] `Unit ID types (GET /console/v1/unit_id_types)` — lookup for the ID type used by gates, experiments and layers (low)
