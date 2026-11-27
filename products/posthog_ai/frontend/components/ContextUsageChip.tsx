@@ -7,7 +7,6 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { runStreamLogic } from '../logics/runStreamLogic'
 import type { ContextUsage } from '../types/streamTypes'
 
-/** The model spend the run reports, plus the compute that PostHog AI credits bill, or `null` while neither is known. */
 function runCostUsd(contextUsage: ContextUsage | null, aiCreditsComputeCostUsd: number): number | null {
     const modelCost = typeof contextUsage?.cost === 'number' ? contextUsage.cost : null
     if (modelCost === null && !aiCreditsComputeCostUsd) {

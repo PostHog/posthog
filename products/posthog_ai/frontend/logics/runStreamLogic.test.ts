@@ -1,4 +1,3 @@
-import { waitFor } from '@testing-library/react'
 import { getContext } from 'kea'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
@@ -1636,14 +1635,19 @@ describe('runStreamLogic', () => {
                 logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
             }).toFinishAllListeners()
             let resolveUsage: (usage: TaskRunComputeUsageResponseApi) => void = () => {}
-            jest.mocked(tasksRunsComputeUsageRetrieve).mockReturnValue(
-                new Promise((resolve) => {
+            let markRequested: () => void = () => {}
+            const requested = new Promise<void>((resolve) => {
+                markRequested = resolve
+            })
+            jest.mocked(tasksRunsComputeUsageRetrieve).mockImplementation(() => {
+                markRequested()
+                return new Promise((resolve) => {
                     resolveUsage = resolve
                 })
-            )
+            })
 
             logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', { stopReason: 'end_turn' }))
-            await waitFor(() => expect(tasksRunsComputeUsageRetrieve).toHaveBeenCalledTimes(2))
+            await requested
             logic.actions.reset()
             resolveUsage(runComputeUsage(0.9))
             await expectLogic(logic).toFinishAllListeners()
