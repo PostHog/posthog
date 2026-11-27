@@ -196,10 +196,14 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
                                 ),
                             ])
                     )
-                    const addsNothing = Object.entries(merged).every(
-                        ([uuid, progress]) => !!state[uuid] && sameAdventProgress(state[uuid], progress)
+                    const isSettled = Object.entries(merged).every(
+                        ([uuid, progress]) =>
+                            !!state[uuid] &&
+                            !!progressByUser[uuid] &&
+                            sameAdventProgress(state[uuid], progress) &&
+                            sameAdventProgress(progressByUser[uuid], progress)
                     )
-                    return addsNothing ? state : merged
+                    return isSettled ? state : merged
                 },
                 openDoor: (state, { userUuid, day, optionId }) => {
                     const progress = state[userUuid] ?? EMPTY_ADVENT_PROGRESS

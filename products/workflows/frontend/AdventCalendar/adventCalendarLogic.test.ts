@@ -105,16 +105,20 @@ describe('adventCalendarLogic', () => {
     ])('settles on one answer when this tab picks %s and another picks %s', (here, there) => {
         logic.actions.activateDoor('door-1')
         logic.actions.answerDoor('door-2', here)
+        const otherTab = JSON.stringify({
+            '0190d8a2-1c4e-7b3a-9f21-5a6b7c8d9e01': { opened: [1, 2], answers: { 2: there } },
+        })
+        window.localStorage.setItem('workflows-advent-calendar-progress', otherTab)
         window.dispatchEvent(
-            new StorageEvent('storage', {
-                key: 'workflows-advent-calendar-progress',
-                newValue: JSON.stringify({
-                    '0190d8a2-1c4e-7b3a-9f21-5a6b7c8d9e01': { opened: [1, 2], answers: { 2: there } },
-                }),
-            })
+            new StorageEvent('storage', { key: 'workflows-advent-calendar-progress', newValue: otherTab })
         )
 
         expect(doorOf(logic, 'door-2')).toEqual({ status: 'open', reward: 'James Hawkins' })
+        expect(
+            JSON.parse(window.localStorage.getItem('workflows-advent-calendar-progress') ?? '{}')[
+                '0190d8a2-1c4e-7b3a-9f21-5a6b7c8d9e01'
+            ].answers[2]
+        ).toBe('james')
 
         logic.unmount()
         logic = adventCalendarLogic()
@@ -138,12 +142,17 @@ describe('adventCalendarLogic', () => {
 
     it('writes nothing back to storage when a door click adds no progress, so it cannot overwrite another tab', () => {
         logic.actions.activateDoor('door-1')
-        const stored = logic.values.progressByUser
+        const saved = JSON.stringify(
+            JSON.parse(window.localStorage.getItem('workflows-advent-calendar-progress') ?? '{}'),
+            null,
+            2
+        )
+        window.localStorage.setItem('workflows-advent-calendar-progress', saved)
 
         logic.actions.activateDoor('door-4-upper')
         logic.actions.activateDoor('door-1')
 
-        expect(logic.values.progressByUser).toBe(stored)
+        expect(window.localStorage.getItem('workflows-advent-calendar-progress')).toBe(saved)
     })
 
     it.each(['[object Object]', 'undefined', '{"0190d8a2-1c4e-7b3a-9f21-5a6b7c8d9e01":{"opened":3}}'])(
