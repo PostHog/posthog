@@ -31,6 +31,8 @@ SHARE_REGAINED_PER_REQUEST = 0.002
 MAX_PARALLEL_REQUESTS = 4
 # How many pages `read_ahead` reads while the caller saves, and the most it hands over at once.
 MAX_PAGES_AHEAD = 10
+# The caller checks the import may go on each time it takes a batch, so reading never runs further past that than this.
+MAX_SECONDS_AHEAD = 15.0
 MAX_RATE_LIMIT_WAITS = 5
 MAX_RETRY_AFTER_SECONDS = 60
 # A long contact scan sees the odd timeout or 5xx. Retrying here keeps them from using up the whole step's retries.
@@ -239,13 +241,25 @@ def read_ahead(
 ) -> Generator[list[tuple[ResendPage, R]]]:
     """`read` for each page in a thread of its own, so the requests go on while the caller saves what it was handed.
 
-    Each batch holds the pages read since the last one, at least one and at most MAX_PAGES_AHEAD, in page order. An
-    error in the thread is raised once the pages read before it are handed over. When the caller stops iterating,
+    Each batch holds the pages read since the last one, at least one and at most MAX_PAGES_AHEAD, in page order. The
+    thread starts no page more than MAX_SECONDS_AHEAD after the caller last took a batch or asked for one. An error in
+    the thread is raised once the pages read before it are handed over. When the caller stops iterating,
     `client` is stopped, so the thread sends nothing more and ends. `pages` and `read` must use `client` and not the
     database, whose connection belongs to the caller's transaction.
     """
     ready: queue.Queue[tuple[ResendPage, R] | BaseException | None] = queue.Queue(maxsize=MAX_PAGES_AHEAD)
     stop = threading.Event()
+    reading_until = [time.monotonic() + MAX_SECONDS_AHEAD]
+
+    def keep_reading() -> None:
+        reading_until[0] = time.monotonic() + MAX_SECONDS_AHEAD
+
+    def may_read() -> bool:
+        while not stop.is_set():
+            if time.monotonic() < reading_until[0]:
+                return True
+            stop.wait(0.2)
+        return False
 
     def hand_over(item: tuple[ResendPage, R] | BaseException | None) -> bool:
         while not stop.is_set():
@@ -258,10 +272,13 @@ def read_ahead(
 
     def produce() -> None:
         try:
-            for page in pages:
+            while may_read():
+                page = next(pages, None)
+                if page is None:
+                    hand_over(None)
+                    return
                 if not hand_over((page, read(page))):
                     return
-            hand_over(None)
         except BaseException as e:
             hand_over(e)
 
@@ -282,7 +299,9 @@ def read_ahead(
                     break
                 item = ready.get()
             if batch:
+                keep_reading()
                 yield batch
+            keep_reading()
         if ending is not None:
             raise ending
     finally:

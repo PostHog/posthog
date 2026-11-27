@@ -3,7 +3,7 @@ import copy
 import json
 import time
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from datetime import timedelta
 from functools import partial
 from pathlib import Path
@@ -1443,6 +1443,27 @@ class TestResendClientPace(SimpleTestCase):
             batches.close()
 
         assert len([url for url in reads if "/contacts/p1-" in url]) < 10
+
+    def test_reading_pauses_while_a_save_outlasts_the_time_it_may_read_ahead(self) -> None:
+        taken: list[int] = []
+
+        def pages() -> Iterator[resend_client.ResendPage]:
+            for page in range(30):
+                taken.append(page)
+                threading.Event().wait(0.05)
+                yield resend_client.ResendPage(data=[], next_after=None)
+
+        client_module = "products.messaging.backend.services.resend_client"
+        with patch(f"{client_module}.MAX_SECONDS_AHEAD", 0.3):
+            client = resend_client.ResendClient(API_KEY)
+            batches = resend_client.read_ahead(client, pages(), lambda page: None)
+            next(batches)
+            # A save that takes much longer than reading may run ahead.
+            threading.Event().wait(1.5)
+            read_during_save = len(taken)
+            batches.close()
+
+        assert read_during_save < 9
 
     def test_a_stopped_import_ends_a_rate_limit_wait_without_another_request(self) -> None:
         reads: list[str] = []
