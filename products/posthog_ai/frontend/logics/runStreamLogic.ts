@@ -29,12 +29,14 @@ import { attachedContextLogic } from '~/layout/ai/attachedContextLogic'
 
 import {
     tasksRunsCommandCreate,
+    tasksRunsComputeUsageRetrieve,
     tasksRunsRetrieve,
     tasksRunsStreamTokenRetrieve,
 } from 'products/tasks/frontend/generated/api'
 import {
     type TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi,
     type TaskRunCommandRequestApi,
+    type TaskRunComputeUsageResponseApi,
     type TaskRunDetailDTOApi,
     TaskRuntimeEnumApi,
 } from 'products/tasks/frontend/generated/api.schemas'
@@ -2636,6 +2638,7 @@ export interface runStreamLogicValues {
     currentProjectId: number | null // projectLogic
     toolListeners: Record<string, ToolStreamSubscription> // toolStreamEventsLogic
     user: UserType | null // userLogic
+    aiCreditsComputeCostUsd: number
     availableCommands: AgentCommand[]
     awaitingOptimisticAttach: boolean
     bootstrapError: StreamErrorEnvelope | null
@@ -2939,6 +2942,12 @@ export interface runStreamLogicActions {
     }
     setAvailableCommands: (commands: AgentCommand[]) => {
         commands: AgentCommand[]
+    }
+    loadAiCreditsComputeCost: () => {
+        value: true
+    }
+    setAiCreditsComputeCostUsd: (costUsd: number) => {
+        costUsd: number
     }
     setContextUsage: (usage: ContextUsage) => {
         usage: ContextUsage
@@ -3295,6 +3304,9 @@ export const runStreamLogic = kea<runStreamLogicType>([
         /** Records the agent's `/clear` capability, read off each `_posthog/run_started` frame. */
         setConversationClearSupported: (supported: boolean) => ({ supported }),
         markTurnComplete: (isReplay: boolean = false) => ({ isReplay }),
+        /** Reads the run's billed sandbox compute, which the agent's own usage frames do not report. */
+        loadAiCreditsComputeCost: true,
+        setAiCreditsComputeCostUsd: (costUsd: number) => ({ costUsd }),
         setTurnSuggestionLedger: (ledger: TurnSuggestionLedger) => ({ ledger }),
         loadTurnSuggestionLedger: (taskId: string, attempt: number = 0) => ({ taskId, attempt }),
         /** Records an outcome this tab sent to the server, so the card closes before the frame echoes back. */
@@ -3802,6 +3814,14 @@ export const runStreamLogic = kea<runStreamLogicType>([
             {
                 setContextUsage: (_, { usage }) => usage,
                 reset: () => null,
+            },
+        ],
+        // The run's compute that PostHog AI credits bill. The footer adds it to the model cost the run reports.
+        aiCreditsComputeCostUsd: [
+            0,
+            {
+                setAiCreditsComputeCostUsd: (_, { costUsd }) => costUsd,
+                reset: () => 0,
             },
         ],
         // Kept across a resume: the successor run re-advertises its list, and until then the old one holds.
@@ -4355,6 +4375,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 if (replayContextUsage) {
                     actions.setContextUsage(replayContextUsage)
                 }
+                actions.loadAiCreditsComputeCost()
             }
         }
         const rememberLegacyBacklog = (session: RunStreamRecovery, entries: unknown[], offset: number): void => {
@@ -5831,6 +5852,34 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 )
                 if (resume.turnComplete) {
                     actions.markTurnComplete()
+                }
+            },
+            markTurnComplete: ({ isReplay }) => {
+                // A history replay marks every past turn complete, so the compute loads once when the replay ends.
+                if (!isReplay) {
+                    actions.loadAiCreditsComputeCost()
+                }
+            },
+            loadAiCreditsComputeCost: async (_, breakpoint) => {
+                const taskId = values.bootstrappedTaskId
+                const runId = values.bootstrappedRunId
+                const projectId = values.currentProjectId
+                if (!taskId || !runId || projectId === null) {
+                    return
+                }
+                // A burst of turn completions, such as a reconnect replay, makes one request.
+                await breakpoint(100)
+                let usage: TaskRunComputeUsageResponseApi
+                try {
+                    usage = await tasksRunsComputeUsageRetrieve(String(projectId), taskId, runId)
+                } catch {
+                    // The compute only adds to the model cost that the run reports, so a failed read keeps the last value.
+                    return
+                }
+                breakpoint()
+                // A reset or a successor run while the request was in flight makes this response stale.
+                if (values.bootstrappedRunId === runId) {
+                    actions.setAiCreditsComputeCostUsd(usage.ai_credits_compute_cost_usd)
                 }
             },
             attachOptimisticResume: ({ taskId, run }) => {

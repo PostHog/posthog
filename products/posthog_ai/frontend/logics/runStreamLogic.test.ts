@@ -1,3 +1,4 @@
+import { waitFor } from '@testing-library/react'
 import { getContext } from 'kea'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
@@ -12,10 +13,11 @@ import { initKeaTests } from '~/test/init'
 
 import {
     tasksRunsCommandCreate,
+    tasksRunsComputeUsageRetrieve,
     tasksRunsRetrieve,
     tasksRunsStreamTokenRetrieve,
 } from 'products/tasks/frontend/generated/api'
-import type { TaskRunDetailDTOApi } from 'products/tasks/frontend/generated/api.schemas'
+import type { TaskRunComputeUsageResponseApi, TaskRunDetailDTOApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import logPageFixtures from '../../../tasks/backend/tests/fixtures/log_pages.json'
 import { lookupToolRenderer, toolRegistry } from '../components/tool/toolRegistry'
@@ -63,7 +65,12 @@ jest.mock('products/tasks/frontend/generated/api', () => ({
     tasksRunsRetrieve: jest.fn(),
     tasksRunsCommandCreate: jest.fn(),
     tasksRunsStreamTokenRetrieve: jest.fn(),
+    tasksRunsComputeUsageRetrieve: jest.fn(),
 }))
+
+function runComputeUsage(aiCreditsComputeCostUsd: number): TaskRunComputeUsageResponseApi {
+    return { posthog_code_compute_cost_usd: 0.5, ai_credits_compute_cost_usd: aiCreditsComputeCostUsd }
+}
 
 function notification(method: string, params: Record<string, unknown>): StoredLogEntry {
     return {
@@ -261,6 +268,7 @@ describe('runStreamLogic', () => {
             }
         })
         jest.mocked(turnSuggestionsStateRetrieve).mockReset().mockResolvedValue({ muted: false, resolved_turns: [] })
+        jest.mocked(tasksRunsComputeUsageRetrieve).mockReset().mockResolvedValue(runComputeUsage(0))
         projectLogic.mount()
         projectLogic.actions.loadCurrentProjectSuccess({ id: 997 } as any)
         ;(tasksRunsCommandCreate as jest.Mock)
@@ -1605,6 +1613,42 @@ describe('runStreamLogic', () => {
             }).toFinishAllListeners()
 
             expect(logic.values.latestTurnTraceId).toBe(TRACE)
+        })
+    })
+
+    describe('AI credits compute cost', () => {
+        it('loads the compute after the history replay and again after each live turn', async () => {
+            jest.mocked(tasksRunsComputeUsageRetrieve).mockResolvedValue(runComputeUsage(0.1))
+            await expectLogic(logic, () => {
+                logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            }).toFinishAllListeners()
+            expect(logic.values.aiCreditsComputeCostUsd).toBe(0.1)
+
+            jest.mocked(tasksRunsComputeUsageRetrieve).mockResolvedValue(runComputeUsage(0.3))
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', { stopReason: 'end_turn' }))
+            }).toFinishAllListeners()
+            expect(logic.values.aiCreditsComputeCostUsd).toBe(0.3)
+        })
+
+        it('drops a compute response that arrives after a reset', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            }).toFinishAllListeners()
+            let resolveUsage: (usage: TaskRunComputeUsageResponseApi) => void = () => {}
+            jest.mocked(tasksRunsComputeUsageRetrieve).mockReturnValue(
+                new Promise((resolve) => {
+                    resolveUsage = resolve
+                })
+            )
+
+            logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', { stopReason: 'end_turn' }))
+            await waitFor(() => expect(tasksRunsComputeUsageRetrieve).toHaveBeenCalledTimes(2))
+            logic.actions.reset()
+            resolveUsage(runComputeUsage(0.9))
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.aiCreditsComputeCostUsd).toBe(0)
         })
     })
 
