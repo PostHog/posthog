@@ -61,14 +61,16 @@ def accessible_experiment_ids(
 def launched_experiment_ids(team_id: int, experiment_ids: Collection[int]) -> set[int]:
     """The ids in ``experiment_ids`` of live experiments in the team that have launched."""
     return set(
-        Experiment.objects.filter(
-            team_id=team_id, id__in=experiment_ids, deleted=False, start_date__isnull=False
-        ).values_list("id", flat=True)
+        Experiment.objects.for_team(team_id)
+        .deleted_is_false()
+        .filter(id__in=experiment_ids, start_date__isnull=False)
+        .values_list("id", flat=True)
     )
 
 
 def _live_experiment(team: Team, experiment_id: int) -> Experiment | None:
-    return Experiment.objects.filter(id=experiment_id, team=team, deleted=False).select_related("feature_flag").first()
+    experiments = Experiment.objects.on_exact_team(team.id).deleted_is_false()
+    return experiments.filter(id=experiment_id).select_related("feature_flag").first()
 
 
 def session_attribution(linkage: ExperimentExposureLinkage, distinct_id: str) -> SessionAttribution | None:
