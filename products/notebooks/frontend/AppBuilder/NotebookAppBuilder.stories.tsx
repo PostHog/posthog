@@ -327,6 +327,21 @@ export const CascadingDropdown: Story = {
     },
 }
 
+export const DateRange: Story = {
+    beforeEach: () => {
+        const report = structuredClone(layout)
+        const range = report.blocks.find((block) => block.variable === 'week')!
+        Object.assign(range, {
+            title: 'Reporting period',
+            input_kind: 'date_range',
+            end_variable: 'end_week',
+            width: 6,
+        })
+        saved = { ...saved, app_draft: report, app_published: report }
+    },
+    parameters: { pageUrl: `${urls.notebook(SHORT_ID)}?view=app` },
+}
+
 export const Notebook: Story = {
     parameters: { pageUrl: urls.notebook(SHORT_ID), testOptions: { waitForSelector: '.MarkdownNotebook' } },
     play: async ({ canvasElement }) => {

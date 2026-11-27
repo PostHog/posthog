@@ -23,6 +23,7 @@ from products.notebooks.backend.sql_v2_variables import (
     NotebookVariableError,
     NotebookVariableValue,
     build_notebook_variables,
+    notebook_date_range_is_reversed,
     substitute_hogql_variables,
 )
 
@@ -39,7 +40,10 @@ def plan_viewer_queries(
 
 
 def resolve_viewer_queries(release: AppRelease, inputs: dict[str, NotebookVariableValue]) -> list[AppViewerQuery]:
-    allowed = {block["variable"] for block in release.layout["blocks"] if block["kind"] == "input"}
+    controls = [block for block in release.layout["blocks"] if block["kind"] == "input"]
+    allowed = {block["variable"] for block in controls}
+    ranges = [block for block in controls if block.get("input_kind") == "date_range"]
+    allowed.update(block["end_variable"] for block in ranges if block.get("end_variable"))
     if inputs.keys() - allowed:
         raise ValidationError("Choose a published app input.")
     defaults = build_notebook_variables(release.variables)
@@ -49,6 +53,11 @@ def resolve_viewer_queries(release: AppRelease, inputs: dict[str, NotebookVariab
     overrides.is_valid(raise_exception=True)
     by_name = {var["name"]: var for var in overrides.validated_data}
     variables = build_notebook_variables([by_name.get(var["name"], var) for var in release.variables])
+    dates = {var.name: var.value for var in variables}
+    for block in ranges:
+        start_date, end_date = dates.get(block["variable"]), dates.get(block.get("end_variable", ""))
+        if notebook_date_range_is_reversed(start_date, end_date):
+            raise ValidationError("Choose an end date on or after the start date.")
     displayed = app_result_node_ids(release.layout)
     cells = extract_cells(build_markdown_notebook_content(release.markdown))
     build_dependency_edges(cells)

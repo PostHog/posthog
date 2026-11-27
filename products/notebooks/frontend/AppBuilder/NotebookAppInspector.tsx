@@ -159,6 +159,12 @@ export function NotebookAppInspector({
                                     { value: 'auto', label: 'Match variable type' },
                                     { value: 'query_select', label: 'Dropdown from query' },
                                     {
+                                        value: 'date_range',
+                                        label: 'Date range',
+                                        disabledReason:
+                                            variableType !== 'date' ? 'Choose a date variable first.' : undefined,
+                                    },
+                                    {
                                         value: 'select',
                                         label: variableType === 'list' ? 'Multi-select dropdown' : 'Dropdown',
                                     },
@@ -177,6 +183,21 @@ export function NotebookAppInspector({
                                 variableType={variableType}
                                 onChange={(patch) => onBlock(block.id, patch)}
                             />
+                            {block.input_kind === 'date_range' && (
+                                <>
+                                    <LemonLabel>End date variable</LemonLabel>
+                                    <LemonSelect
+                                        fullWidth
+                                        aria-label="End date variable"
+                                        value={block.end_variable || undefined}
+                                        placeholder="Choose a second date variable"
+                                        options={variables
+                                            .filter((item) => item.type === 'date' && item.name !== block.variable)
+                                            .map((item) => ({ value: item.name, label: item.name }))}
+                                        onChange={(end_variable) => onBlock(block.id, { end_variable })}
+                                    />
+                                </>
+                            )}
                             {block.input_kind === 'slider' &&
                                 SLIDER_FIELDS.map(({ key, label, defaultValue }) => (
                                     <Fragment key={key}>

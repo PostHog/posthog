@@ -20,6 +20,7 @@ passes the value as data instead:
 
 import re
 from collections.abc import Iterator
+from datetime import date, datetime
 from difflib import get_close_matches
 from typing import Any
 
@@ -36,6 +37,20 @@ from posthog.dataclasses import frozen
 RESERVED_VARIABLE_NAMES = frozenset({"filters"})
 
 NotebookVariableValue = str | int | float | bool | list[str] | None
+
+
+def notebook_calendar_date(value: object) -> date | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        return datetime.fromisoformat(value.strip()).date()
+    except ValueError:
+        return None
+
+
+def notebook_date_range_is_reversed(start: object, end: object) -> bool:
+    start_date, end_date = notebook_calendar_date(start), notebook_calendar_date(end)
+    return start_date is not None and end_date is not None and start_date > end_date
 
 
 class NotebookVariableError(Exception):

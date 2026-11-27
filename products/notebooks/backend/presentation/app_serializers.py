@@ -61,6 +61,7 @@ class NotebookAppInputKind(models.TextChoices):
     AUTO = "auto", "Automatic"
     SELECT = "select", "Dropdown"
     QUERY_SELECT = "query_select", "Query dropdown"
+    DATE_RANGE = "date_range", "Date range"
     SLIDER = "slider", "Slider"
 
 
@@ -85,6 +86,9 @@ class NotebookAppBlockSerializer(serializers.Serializer):
     )
     variable = serializers.CharField(
         max_length=80, allow_blank=True, default="", help_text="Notebook variable controlled by an input."
+    )
+    end_variable = serializers.CharField(
+        max_length=80, allow_blank=True, default="", help_text="End date variable for a date range."
     )
     input_kind = serializers.ChoiceField(
         choices=NotebookAppInputKind.choices, default="auto", help_text="Control used for an input."

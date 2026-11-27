@@ -78485,6 +78485,7 @@ export namespace Schemas {
      * * `auto` - Automatic
      * * `select` - Dropdown
      * * `query_select` - Query dropdown
+     * * `date_range` - Date range
      * * `slider` - Slider
      */
     export type NotebookAppInputKindEnum = typeof NotebookAppInputKindEnum[keyof typeof NotebookAppInputKindEnum];
@@ -78494,6 +78495,7 @@ export namespace Schemas {
       Auto: 'auto',
       Select: 'select',
       QuerySelect: 'query_select',
+      DateRange: 'date_range',
       Slider: 'slider',
     } as const;
 
@@ -78561,11 +78563,17 @@ export namespace Schemas {
          * @maxLength 80
          */
       variable?: string;
+      /**
+         * End date variable for a date range.
+         * @maxLength 80
+         */
+      end_variable?: string;
       /** Control used for an input.
        *
        * * `auto` - Automatic
        * * `select` - Dropdown
        * * `query_select` - Query dropdown
+       * * `date_range` - Date range
        * * `slider` - Slider */
       input_kind?: NotebookAppInputKindEnum;
       /**

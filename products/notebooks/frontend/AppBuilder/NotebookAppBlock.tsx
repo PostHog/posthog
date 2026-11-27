@@ -10,6 +10,8 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { NOTEBOOK_MARKDOWN_REGISTRY } from 'scenes/notebooks/Notebook/markdownNotebookRegistry'
 import type { NotebookVariable, NotebookVariableValue } from 'scenes/notebooks/Notebook/notebookVariables'
 
+import { NotebookAppDateRange } from 'products/notebooks/frontend/AppBuilder/NotebookAppDateRange'
+
 import type { NotebookAppBlockApi } from '../generated/api.schemas'
 import { NotebookAppInput } from './NotebookAppInput'
 import { appCellMarkdown } from './notebookAppLayout'
@@ -45,6 +47,9 @@ export function NotebookAppBlock({
                 <LemonMarkdown disableImages="all">{block.text || '*Add text in component settings.*'}</LemonMarkdown>
             </div>
         )
+    }
+    if (block.kind === 'input' && block.input_kind === 'date_range') {
+        return <NotebookAppDateRange block={block} variables={variables} disabled={!canInteract} onChange={onInput} />
     }
     if (block.kind === 'input') {
         return (

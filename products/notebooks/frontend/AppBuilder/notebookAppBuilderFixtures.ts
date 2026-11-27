@@ -8,6 +8,7 @@ export const appBuilderDemoVariables: NotebookVariable[] = [
     { name: 'weeks', type: 'number', value: 6 },
     { name: 'include_trials', type: 'boolean', value: true },
     { name: 'week', type: 'date', value: '2026-07-27' },
+    { name: 'end_week', type: 'date', value: '2026-10-12' },
 ]
 
 export const appBuilderDemoCells: (NotebookComponentProps & { nodeId: string; returnVariable: string })[] = [
@@ -23,7 +24,8 @@ FROM (
         if({region} = 'Europe', 0.65, if({region} = 'North America', 0.86, 0.78)) AS activation_rate
     FROM numbers(12)
     WHERE number >= 12 - {weeks}
-      AND (empty({week}) OR week >= toDateOrNull({week}))
+      AND (nullIf({week}, '') IS NULL OR week >= toDate(nullIf({week}, '')))
+      AND (nullIf({end_week}, '') IS NULL OR week <= toDate(nullIf({end_week}, '')))
 )
 ORDER BY week`,
         returnVariable: 'weekly_growth',
@@ -84,7 +86,11 @@ export function appBuilderDemoResults(
         return [date.toISOString().slice(0, 10), signups, activated]
     })
         .slice(-Number(values.weeks))
-        .filter(([week]) => !values.week || String(week) >= String(values.week).slice(0, 10))
+        .filter(
+            ([week]) =>
+                (!values.week || String(week) >= String(values.week).slice(0, 10)) &&
+                (!values.end_week || String(week) <= String(values.end_week).slice(0, 10))
+        )
     const signups = rows.reduce((total, row) => total + Number(row[1]), 0)
     const activated = rows.reduce((total, row) => total + Number(row[2]), 0)
     const growth = {
