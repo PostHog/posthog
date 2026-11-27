@@ -4,7 +4,7 @@ from datetime import timedelta
 from typing import Any
 from uuid import UUID
 
-from django.db import transaction
+from django.db import connection, transaction
 from django.utils import timezone
 
 import structlog
@@ -18,7 +18,7 @@ from posthog.hogql.query import HogQLQueryExecutor
 
 from posthog.clickhouse.workload import Workload
 from posthog.exceptions import Conflict
-from posthog.models import Team, User
+from posthog.models import User
 
 from products.authorization.backend.facade import api as authorization
 from products.authorization.backend.facade.contracts import Resource, Subject
@@ -126,7 +126,10 @@ def configure(
         checks = sorted(checked_node_ids or [])
         current_plans(locked, revision, checks)
         reserve_check_capacity(locked, user, checks)
-        Team.objects.select_for_update().only("pk").get(pk=team_id)
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [f"notebook-app-schedules:{team_id}"]
+            )
         active = NotebookAppSchedule.objects.for_team(team_id).filter(enabled=True)
         if active.exclude(notebook=locked).count() >= MAX_SCHEDULES_PER_TEAM:
             raise ValidationError(f"A project can have up to {MAX_SCHEDULES_PER_TEAM} active app schedules.")
