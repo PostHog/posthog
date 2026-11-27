@@ -861,18 +861,19 @@ def _thread_cost(run: "TaskRunDTO", *, own_plan: bool) -> Decimal | None:
     `$ai_generation` events, which arrive with a short delay and are cached for a minute, so the
     newest requests can be missing here. A later reply's total then includes them.
 
-    A run on someone's own plan does not pay for models with PostHog credits, so only its sandbox
-    compute counts, and a run with no billed compute shows no cost at all.
+    The sandbox compute counts only when PostHog AI credits bill it. A run on someone's own plan does
+    not pay for models with PostHog credits, so only that compute counts, and a run with no billed
+    compute shows no cost at all. That path does not query the model spend that it would discard.
     """
-    from products.tasks.backend.facade.billing import bills_compute_to_ai_credits, get_task_usage  # noqa: PLC0415
+    from products.tasks.backend.facade.billing import get_task_compute_cost, get_task_usage  # noqa: PLC0415
 
-    if run.task_created_at is None:
-        return None
     try:
-        usage = get_task_usage(team_id=run.team_id, task_id=run.task_id, task_created_at=run.task_created_at)
-        compute_cost = usage.compute_cost_usd if bills_compute_to_ai_credits(run.task_origin_product) else Decimal(0)
+        compute_cost = get_task_compute_cost(team_id=run.team_id, task_id=run.task_id).ai_credits_usd
         if own_plan:
             return compute_cost or None
+        if run.task_created_at is None:
+            return None
+        usage = get_task_usage(team_id=run.team_id, task_id=run.task_id, task_created_at=run.task_created_at)
         return usage.token_cost_usd + compute_cost
     except Exception:
         # Its own guard, like `_project_name`: a failed lookup costs the reader one segment.

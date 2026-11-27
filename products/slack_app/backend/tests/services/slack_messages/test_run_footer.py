@@ -22,9 +22,11 @@ from products.slack_app.backend.services.slack_messages import (
     reply_footer_block,
     viewer_has_code_access,
 )
-from products.tasks.backend.facade.billing import TaskUsage
+from products.tasks.backend.facade.billing import TaskComputeCost, TaskUsage
 
 TASK_URL = "https://us.posthog.com/project/1/tasks/2?runId=3&unfurl=false"
+# Compute that bills to the PostHog Desktop meter, which the Slack thread cost must leave out.
+DESKTOP_METER_COMPUTE = Decimal("0.40")
 OWN_PLAN_STATE = {"runtime_adapter": "codex", "codex_model_access": "own-subscription", "codex_subscription_user_id": 7}
 
 
@@ -161,16 +163,24 @@ class TestLoadRunFooter(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("posthog_credits_with_billed_compute", {}, ["slack"], Decimal("1.25")),
-            ("posthog_credits_without_billed_compute", {}, [], Decimal("1.00")),
-            ("own_plan_pays_only_for_billed_compute", OWN_PLAN_STATE, ["slack"], Decimal("0.25")),
-            ("own_plan_without_billed_compute_shows_no_cost", OWN_PLAN_STATE, [], None),
+            ("posthog_credits_add_billed_compute", {}, Decimal("0.25"), Decimal("1.25")),
+            ("posthog_credits_without_billed_compute", {}, Decimal(0), Decimal("1.00")),
+            ("own_plan_shows_only_billed_compute", OWN_PLAN_STATE, Decimal("0.25"), Decimal("0.25")),
+            ("own_plan_without_billed_compute_shows_no_cost", OWN_PLAN_STATE, Decimal(0), None),
         ]
     )
+    @patch("products.tasks.backend.facade.billing.get_task_compute_cost")
     @patch("products.tasks.backend.facade.billing.get_task_usage")
     @patch("products.tasks.backend.facade.api.get_task_run")
-    def test_thread_cost_adds_compute_only_while_the_origin_is_billed(
-        self, _name: str, state: dict, billed_origins: list[str], expected: Decimal | None, mock_get_run, mock_usage
+    def test_thread_cost_adds_the_compute_that_ai_credits_bill(
+        self,
+        _name: str,
+        state: dict,
+        ai_credits_compute: Decimal,
+        expected: Decimal | None,
+        mock_get_run,
+        mock_usage,
+        mock_compute,
     ) -> None:
         mock_get_run.return_value = SimpleNamespace(
             id=uuid4(),
@@ -178,13 +188,14 @@ class TestLoadRunFooter(SimpleTestCase):
             team_id=1,
             state=state,
             created_by_id=None,
-            task_origin_product="slack",
             task_created_at=datetime(2026, 11, 1, tzinfo=UTC),
         )
-        mock_usage.return_value = TaskUsage(token_cost_usd=Decimal("1.00"), compute_cost_usd=Decimal("0.25"))
+        mock_usage.return_value = TaskUsage(token_cost_usd=Decimal("1.00"), compute_cost_usd=DESKTOP_METER_COMPUTE)
+        mock_compute.return_value = TaskComputeCost(
+            posthog_code_usd=DESKTOP_METER_COMPUTE, ai_credits_usd=ai_credits_compute
+        )
 
-        with self.settings(AI_CREDITS_COMPUTE_BILLED_ORIGINS=billed_origins):
-            footer = load_run_footer("run-1", integration_id=None, include_thread_cost=True)
+        footer = load_run_footer("run-1", integration_id=None, include_thread_cost=True)
 
         assert footer.thread_cost_usd == expected
 
