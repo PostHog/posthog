@@ -269,7 +269,11 @@ class GooglePlayConsoleClient:
             timeout=REQUEST_TIMEOUT_SECONDS,
         )
 
-    @vendor_retry()
+    # `suspend_adapter=False` keeps the adapter's own GET/HEAD/OPTIONS retry (`DEFAULT_RETRY`) live
+    # for a transient 500/502/503/504, so that behavior, and the vendor's exhausted-error copy for
+    # it, stays exactly as before. This decorator adds the retry the adapter never gave a 429: its
+    # own budget is too short for Play's quota window to clear, and it never covers a POST at all.
+    @vendor_retry(suspend_adapter=False)
     def request(
         self,
         method: str,
@@ -292,10 +296,6 @@ class GooglePlayConsoleClient:
                 body=response.text[:500],
             )
             if response.status_code == 429:
-                # The adapter's own retry only covers GET/HEAD/OPTIONS and gives up after a few
-                # short tries, too few for Play's quota window to clear. Retry it here instead,
-                # with the vendor's longer, Retry-After-aware backoff, before it reaches Temporal's
-                # own retry (and error tracking).
                 raise_for_retryable_status(response, vendor="Google Play", url=url)
             response.raise_for_status()
 

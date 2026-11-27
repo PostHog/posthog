@@ -269,6 +269,17 @@ def test_retries_a_429_on_a_post_request_before_succeeding() -> None:
     ]
 
 
+def test_get_request_still_recovers_from_a_transient_503_via_the_adapters_own_retry() -> None:
+    # `vendor_retry` must not suspend the adapter's own GET retry (`DEFAULT_RETRY`), or a
+    # transient 500/502/503/504 on a GET would reach `raise_for_status()` on the first try instead
+    # of recovering the way it always did.
+    with scripted_network(
+        [TOKEN, ScriptedResponse(status=503, body=b"unavailable"), ScriptedResponse(json={"apps": []})]
+    ):
+        client = GooglePlayConsoleClient(_key(), "v1beta1", structlog.get_logger())
+        assert client.request("GET", "apps:search") == {"apps": []}
+
+
 def test_list_apps_follows_pagination() -> None:
     with scripted_network(
         [
