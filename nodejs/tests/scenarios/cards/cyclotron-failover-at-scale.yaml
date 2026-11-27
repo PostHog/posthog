@@ -6,14 +6,14 @@ seed: 6
 setup:
     teams: 1
 drive:
-    for: 75m
+    for: 60m
     traffic:
         - name: event_email
         - name: event_webhook
         - name: transactional_email
     ramp:
         - scale: 10
-          for: 75m
+          for: 60m
 valves:
     - valve: pg.failover
       target: cyclotron
