@@ -8,7 +8,6 @@ import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedAr
 import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
-import { urls } from 'scenes/urls'
 import {
     VALID_FILE_MARKETING_SOURCES,
     VALID_WAREHOUSE_MARKETING_SOURCES,
@@ -19,6 +18,7 @@ import {
 
 import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
 
+import { marketingSourceConnectUrl } from './marketingSourceConnectUrl'
 import { newAdSourcesLogic } from './newAdSourcesLogic'
 import { QuillAddIntegrationButton } from './QuillAddIntegrationButton'
 
@@ -73,13 +73,7 @@ export function AddIntegrationButton({ onIntegrationSelect }: AddIntegrationButt
     const integrationUrl = (integrationId: string): string | undefined =>
         onIntegrationSelect
             ? undefined
-            : urls.dataWarehouseSourceNew(
-                  integrationId,
-                  urls.marketingAnalyticsApp(),
-                  'Marketing analytics',
-                  undefined,
-                  'marketing_analytics_integration_menu'
-              )
+            : marketingSourceConnectUrl(integrationId, 'marketing_analytics_integration_menu')
 
     if (quillSurface) {
         return (

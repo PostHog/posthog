@@ -30,8 +30,8 @@ export const toolCallDurationSeconds = new Histogram({
 
 export const toolResponsesShortenedTotal = new Counter({
     name: 'mcp_tool_responses_shortened_total',
-    help: 'Tool responses shortened to the response budget, by whether a client limit or the default ceiling applied.',
-    labelNames: ['tool', 'budget'] as const,
+    help: "Tool responses shortened to the calling client's documented tool result limit.",
+    labelNames: ['tool'] as const,
 })
 
 export const initDurationSeconds = new Histogram({

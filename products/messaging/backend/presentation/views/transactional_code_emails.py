@@ -57,7 +57,8 @@ class CodeEmailSerializer(serializers.Serializer):
     description = serializers.CharField(help_text="What the email is for. Empty when nobody added one.")
     tags = serializers.ListField(child=serializers.CharField(), help_text="Tags for organizing transactional emails.")
     sensitive = serializers.BooleanField(
-        help_text="True when PostHog keeps no copy of each sent email's body and records only the site address of a clicked link."
+        help_text="True when PostHog keeps no copy of each sent email's body, turns click tracking off by default, "
+        "and records only the site address of a clicked link when click tracking is on."
     )
     source_url = serializers.CharField(
         allow_null=True, help_text="A link to the file in your repository that sends this email. Null when unlinked."

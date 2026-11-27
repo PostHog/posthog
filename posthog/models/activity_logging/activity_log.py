@@ -1,6 +1,8 @@
 import json
 import dataclasses
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
 from types import ModuleType
 from typing import TYPE_CHECKING, Any, Literal, Optional, Required, TypedDict, Union, cast
 from uuid import UUID
@@ -45,6 +47,7 @@ MAX_INTERNAL_EVENT_DETAIL_BYTES = 512 * 1024
 _SUMMARY_DETAIL_KEYS = ("id", "short_id", "type", "name")
 _MAX_SUMMARY_NAME_LENGTH = 1000
 PROJECT_KEY_ACTOR_SCOPES = frozenset({"ScoreDefinition", "TraceReview"})
+_publish_activity_after_commit: ContextVar[bool] = ContextVar("publish_activity_after_commit", default=False)
 
 ACTIVITY_LOG_WRITE_FAILURES = Counter(
     "activity_log_write_failures_total",
@@ -1128,9 +1131,10 @@ def log_activity(
         user_id = user.pk if user is not None else None
 
         def _do_log_activity(deferred: bool) -> ActivityLog:
+            manager = ActivityLog.objects.db_manager(using) if strict else ActivityLog.objects
             if deferred and user_id is not None and _deleted_user_ids({user_id}):
-                return ActivityLog.objects.create(**{**fields, "user": None})
-            return ActivityLog.objects.create(**fields)
+                return manager.create(**{**fields, "user": None})
+            return manager.create(**fields)
 
         if instance_only:
             return ActivityLog(**fields)
@@ -1229,7 +1233,12 @@ def log_activity_with_soft_delete(
 
 
 def bulk_log_activity(
-    log_entries: list[LogActivityEntry], batch_size: int = 500, *, notify: bool = True, using: str | None = None
+    log_entries: list[LogActivityEntry],
+    batch_size: int = 500,
+    *,
+    notify: bool = True,
+    using: str | None = None,
+    strict: bool = False,
 ) -> list[ActivityLog]:
     """Write activity log rows in bulk.
 
@@ -1246,7 +1255,7 @@ def bulk_log_activity(
     activity_logs = []
     dropped_count = 0
     for entry in log_entries:
-        log = log_activity(**entry, instance_only=True)
+        log = log_activity(**entry, instance_only=True, strict=strict)
 
         if log:
             activity_logs.append(log)
@@ -1278,7 +1287,8 @@ def bulk_log_activity(
                 if log.user_id in deleted_user_ids:
                     log.user = None
 
-        created_logs = ActivityLog.objects.bulk_create(activity_logs, batch_size=batch_size)
+        manager = ActivityLog.objects.db_manager(using) if strict else ActivityLog.objects
+        created_logs = manager.bulk_create(activity_logs, batch_size=batch_size)
 
         if notify:
             for log in created_logs:
@@ -1296,6 +1306,7 @@ def bulk_log_activity(
                 "log_entries": log_entries,
             },
             using=using,
+            strict=strict,
         )
         or []
     )
@@ -1406,16 +1417,30 @@ def bound_detail_for_internal_event(detail: Any) -> tuple[Any, bool]:
     return None, True
 
 
+@contextmanager
+def defer_activity_log_events() -> Iterator[None]:
+    token = _publish_activity_after_commit.set(True)
+    try:
+        yield
+    finally:
+        _publish_activity_after_commit.reset(token)
+
+
 @receiver(post_save, sender=ActivityLog)
-def activity_log_created(sender, instance: "ActivityLog", created, **kwargs):
+def activity_log_created(sender, instance: "ActivityLog", created, using: str | None = None, **kwargs):
+    if created:
+        if _publish_activity_after_commit.get():
+            transaction.on_commit(lambda: _publish_activity_log(instance), using=using or instance._state.db)
+        else:
+            _publish_activity_log(instance)
+
+
+def _publish_activity_log(instance: "ActivityLog") -> None:
     from posthog.api.advanced_activity_logs import ActivityLogSerializer
     from posthog.api.shared import UserBasicSerializer
     from posthog.models.activity_logging.utils import activity_visibility_manager
 
     from products.cdp.backend.internal_events import InternalEventEvent, InternalEventPerson, produce_internal_event
-
-    if not created:
-        return
 
     try:
         if activity_visibility_manager.is_restricted(instance, restrict_for_staff=True):

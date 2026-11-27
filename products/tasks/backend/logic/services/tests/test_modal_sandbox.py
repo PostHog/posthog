@@ -654,7 +654,7 @@ class TestModalSandboxAgentServer:
                 return ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
             if "http_code=" in command:
                 return ExecutionResult(
-                    stdout="gateway.us.posthog.com http_code=200", stderr="", exit_code=0, error=None
+                    stdout="ai-gateway.us.posthog.com http_code=200", stderr="", exit_code=0, error=None
                 )
             return ExecutionResult(stdout='{"status":"ok","hasSession":false}', stderr="", exit_code=0, error=None)
 
@@ -1822,7 +1822,7 @@ class TestStartupFailureDiagnostics:
         def _exec(command: str, timeout_seconds: Any = None) -> ExecutionResult:
             if "http_code=" in command:
                 return ExecutionResult(
-                    stdout="gateway.us.posthog.com http_code=200", stderr="", exit_code=0, error=None
+                    stdout="ai-gateway.us.posthog.com http_code=200", stderr="", exit_code=0, error=None
                 )
             return ExecutionResult(stdout="ok", stderr="", exit_code=0, error=None)
 
@@ -1885,7 +1885,7 @@ class TestStartupFailureDiagnostics:
         def _exec(command: str, timeout_seconds: Any = None) -> ExecutionResult:
             if "http_code=" in command:
                 return ExecutionResult(
-                    stdout="gateway.us.posthog.com http_code=200", stderr="", exit_code=0, error=None
+                    stdout="ai-gateway.us.posthog.com http_code=200", stderr="", exit_code=0, error=None
                 )
             if "cpu_loop_ms" in command:
                 raise SandboxTimeoutError(
@@ -1928,7 +1928,7 @@ class TestStartupFailureDiagnostics:
                 return ExecutionResult(stdout="x" * log_bytes, stderr="", exit_code=0, error=None)
             if "http_code=" in command:
                 return ExecutionResult(
-                    stdout="gateway.us.posthog.com http_code=200", stderr="", exit_code=0, error=None
+                    stdout="ai-gateway.us.posthog.com http_code=200", stderr="", exit_code=0, error=None
                 )
             return ExecutionResult(stdout="ok", stderr="", exit_code=0, error=None)
 
@@ -2558,6 +2558,53 @@ class TestModalSandboxCreateImageFallback:
         )
         assert "custom image posthog-dev-stack (never became ready) -> base image" in sandbox.config.image_fallback
 
+    def test_every_create_attempt_gets_a_fresh_sandbox_name(self):
+        config = SandboxConfig(
+            name="t",
+            template=SandboxTemplate.VM_BASE,
+            custom_image_name="posthog-dev-stack",
+            snapshot_external_id="im-snap-1",
+        )
+        names: list[str] = []
+        ready = iter([False, False, True])
+
+        def sandbox_create(**kwargs: Any) -> Any:
+            names.append(kwargs["name"])
+            sb = MagicMock()
+            sb.object_id = f"sb-{len(names)}"
+            if not next(ready):
+                sb.wait_until_ready.side_effect = ModalTimeoutError("readiness probe timed out")
+            return sb
+
+        with (
+            patch("products.tasks.backend.logic.services.modal_sandbox.modal.enable_output"),
+            patch.object(ModalSandbox, "_get_app_for_config", return_value=MagicMock()),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox._get_template_image",
+                return_value=MagicMock(name="base"),
+            ),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox.modal.Image.from_name",
+                return_value=MagicMock(name="custom"),
+            ),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox.modal.Image.from_id",
+                return_value=MagicMock(name="snapshot"),
+            ),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox._attach_local_package_mounts",
+                side_effect=lambda image, template, **kwargs: image,
+            ),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox.modal.Sandbox.create", side_effect=sandbox_create
+            ),
+        ):
+            ModalSandbox.create(config)
+
+        assert len(names) == 3
+        assert len(set(names)) == 3
+        assert all(name.startswith("t-") for name in names)
+
     def test_unready_base_image_is_terminated_and_provisioning_fails(self):
         mock_sb = MagicMock()
         mock_sb.object_id = "sb-dead"
@@ -3163,25 +3210,20 @@ class TestSessionInitProbeHosts:
         assert expected_host in hosts
         assert unused_host not in hosts
 
-    @override_settings(
-        SANDBOX_LLM_GATEWAY_URL="https://gateway.dev.posthog.dev",
-        SANDBOX_AI_GATEWAY_URL="https://ai-gateway.dev.posthog.dev",
-    )
-    def test_includes_both_configured_gateway_hosts(self):
-        # Routed products call the ai-gateway during session init; if the probe
+    @override_settings(SANDBOX_AI_GATEWAY_URL="https://ai-gateway.dev.posthog.dev")
+    def test_includes_configured_gateway_host(self):
+        # The agent calls the ai-gateway during session init; if the probe
         # omits its host, a blocked ai-gateway diagnoses as "no egress block
         # detected" (the exact failure class this probe exists to name).
         hosts = _session_init_probe_hosts()
-        assert "gateway.dev.posthog.dev" in hosts
         assert "ai-gateway.dev.posthog.dev" in hosts
 
-    @override_settings(
-        SANDBOX_LLM_GATEWAY_URL="https://api.anthropic.com",
-        SANDBOX_AI_GATEWAY_URL=None,
-    )
-    def test_deduplicates_against_static_hosts_and_skips_unset(self):
-        hosts = _session_init_probe_hosts()
+    @pytest.mark.parametrize("gateway_url", ["https://api.anthropic.com", None])
+    def test_deduplicates_against_static_hosts_and_skips_unset(self, gateway_url: str | None):
+        with override_settings(SANDBOX_AI_GATEWAY_URL=gateway_url):
+            hosts = _session_init_probe_hosts()
         assert hosts.count("api.anthropic.com") == 1
+        assert None not in hosts
 
 
 def _socks_rate_limit() -> Exception:

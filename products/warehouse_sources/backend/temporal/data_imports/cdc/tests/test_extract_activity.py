@@ -41,6 +41,11 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     ChangeEventBatcher,
     HistoryNaming,
 )
+from products.warehouse_sources.backend.temporal.data_imports.cdc.dispatch import (
+    BUFFER_GENERATION_KEY,
+    BUFFER_GENERATION_LOADED_KEY,
+    BUFFER_WRITE_OPEN_KEY,
+)
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import (
     CDCErrorCategory,
     CDCMaskedKeyError,
@@ -383,28 +388,48 @@ class TestSetupSelfCleansUnrunnableSchedules:
         mock_delete.assert_called_once()
         mock_get_adapter.assert_not_called()
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
-    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
-    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
-    def test_no_syncing_tables_syncs_the_schedule_instead_of_deleting_it(
-        self, _mock_close_conns, MockSourceModel, mock_get_adapter
-    ):
-        source = _make_source()
-        MockSourceModel.objects.get.return_value = source
-        MockSourceModel.DoesNotExist = ExternalDataSource.DoesNotExist
+    @pytest.mark.django_db
+    @pytest.mark.parametrize(
+        "tables, deleted",
+        [
+            pytest.param([("users", "cdc", False, 1)], False, id="a_table_paused_within_the_grace_keeps_it"),
+            pytest.param([("users", "cdc", False, 48)], True, id="a_table_paused_past_the_grace_does_not"),
+            pytest.param([("users", "incremental", False, 1)], True, id="a_live_non_cdc_table_does_not_hold_it"),
+            pytest.param([("users", "cdc", True, 1)], True, id="a_deleted_cdc_table_does_not_hold_it"),
+        ],
+    )
+    def test_no_syncing_tables_deletes_the_schedule_once_no_cdc_table_was_recently_active(self, team, tables, deleted):
+        source = ExternalDataSource.objects.create(
+            team_id=team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            status="Running",
+            source_type="Postgres",
+        )
+        for name, sync_type, gone, hours_ago in tables:
+            schema = ExternalDataSchema.objects.create(
+                team_id=team.pk,
+                source=source,
+                name=name,
+                sync_type=sync_type,
+                should_sync=sync_type != "cdc",
+                deleted=gone,
+            )
+            ExternalDataSchema.objects.filter(pk=schema.pk).update(
+                updated_at=datetime.now(tz=UTC) - timedelta(hours=hours_ago)
+            )
 
-        act = _make_extract_activity(source)
+        act = CDCExtractActivity(CDCExtractInput(team_id=team.pk, source_id=source.id))
+        act.log = MagicMock()
         service = "products.data_warehouse.backend.logic.data_load.service"
         with (
-            patch.object(act, "_get_cdc_schemas", return_value=[]),
-            patch(f"{service}.sync_cdc_extraction_schedule") as mock_sync,
-            patch(f"{service}.delete_cdc_extraction_schedule") as mock_delete,
+            patch(f"{_ACTIVITIES}.close_old_connections"),
+            patch(f"{service}.delete_external_data_schedule") as mock_delete,
+            patch(f"{service}.sync_connect"),
         ):
             assert act._setup() is False
 
-        mock_sync.assert_called_once_with(source)
-        mock_delete.assert_not_called()
-        mock_get_adapter.assert_not_called()
+        assert mock_delete.called is deleted
 
 
 class TestBuildEventNameMap:
@@ -490,12 +515,14 @@ class TestCDCExtractActivity:
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
     @patch.object(CDCExtractActivity, "_get_cdc_schemas")
+    @patch.object(CDCExtractActivity, "_has_recently_active_cdc_schemas", return_value=True)
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
     def test_no_cdc_schemas_returns_early(
         self,
         mock_close_conns,
         MockSourceModel,
+        _mock_has_schemas,
         mock_get_schemas,
         mock_get_adapter,
         mock_activity,
@@ -1952,6 +1979,70 @@ class TestBufferedIngressCapture:
         # The point of the whole design: durable buffer releases the customer's WAL immediately.
         capture.reader.confirm_position.assert_called_once_with("0/200")
         assert schema.sync_type_config["cdc_last_log_position"] == "0/200"
+
+    def test_a_completed_run_counts_a_buffer_write_only_for_the_tables_it_wrote(self):
+        source = _make_source()
+        users = _make_schema("users", source=source)
+        orders = _make_schema("orders", source=source)
+
+        with _capture_harness(source, [users, orders], [_make_event(table="users", position="0/100")]) as capture:
+            capture.extract()
+
+        assert users.sync_type_config[BUFFER_GENERATION_KEY] == 1
+        assert BUFFER_WRITE_OPEN_KEY not in users.sync_type_config
+        assert BUFFER_GENERATION_KEY not in orders.sync_type_config
+
+    def test_a_write_a_failed_run_left_open_is_counted_by_the_next_completed_run(self):
+        # The failed run's file can be in S3 while its slot never advanced past it, so the table
+        # must keep owing a load until some later run counts it.
+        source = _make_source()
+        schema = _make_schema("users", source=source)
+
+        with _capture_harness(source, [schema], [_make_event(position="0/100")]) as capture:
+            capture.buffer.write_batch.side_effect = RuntimeError("s3 down")
+            capture.activity.info.return_value.attempt = CDC_MAX_EXTRACTION_ATTEMPTS
+            with pytest.raises(RuntimeError):
+                capture.extract()
+
+        assert schema.sync_type_config[BUFFER_WRITE_OPEN_KEY] is True
+        assert BUFFER_GENERATION_KEY not in schema.sync_type_config
+
+        with _capture_harness(source, [schema]) as capture:
+            capture.extract()
+
+        assert schema.sync_type_config[BUFFER_GENERATION_KEY] == 1
+        assert BUFFER_WRITE_OPEN_KEY not in schema.sync_type_config
+
+    @parameterized.expand(
+        [
+            ("table_whose_ticks_stand_down", [], True, timedelta(hours=1), True),
+            ("table_this_run_wrote", [_make_event(position="0/100")], True, timedelta(hours=1), False),
+            ("flag_off", [], False, timedelta(hours=1), False),
+            ("table_whose_full_runs_stopped", [], True, timedelta(hours=7), False),
+        ]
+    )
+    def test_a_quiet_table_is_marked_checked_while_its_ticks_stand_down(
+        self, _name: str, events: list[ChangeEvent], flag: bool, since_full_run: timedelta, checked: bool
+    ) -> None:
+        source = _make_source()
+        schema = _make_schema("users", source=source)
+        schema.Status = ExternalDataSchema.Status
+        schema.status = ExternalDataSchema.Status.COMPLETED
+        schema.initial_sync_complete = True
+        schema.reset_pipeline = False
+        schema.manual_run_requested = False
+        schema.manual_sync_pending = False
+        schema.last_full_run = datetime.now(UTC) - since_full_run
+        schema.last_checked_at = None
+        schema.sync_type_config.update({BUFFER_GENERATION_KEY: 4, BUFFER_GENERATION_LOADED_KEY: 4})
+
+        with (
+            patch(f"{_ACTIVITIES}.data_driven_load_enabled", return_value=flag),
+            _capture_harness(source, [schema], events) as capture,
+        ):
+            capture.extract()
+
+        assert (schema.last_checked_at is not None) is checked
 
     @parameterized.expand(
         [

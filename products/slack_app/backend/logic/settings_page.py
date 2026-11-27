@@ -91,6 +91,22 @@ def clean_reactions(reactions: ReactionSettings) -> ReactionSettings:
     return cleaned
 
 
+def _can_change_workspace_row(integration: WorkspaceIntegration, user: User) -> bool:
+    """The workspace settings live on one row for the Slack workspace, which several organizations can connect to.
+
+    So the person needs the install's own permission in each of those organizations. Otherwise an admin of one
+    organization could undo a restriction another organization chose.
+    """
+    if not can_change_workspace_settings(integration, user):
+        return False
+    allowed_by_organization: dict[UUID, bool] = {}
+    for candidate in workspace_integrations(_workspace_id(integration)):
+        organization_id = candidate.team.organization_id
+        if not allowed_by_organization.get(organization_id):
+            allowed_by_organization[organization_id] = can_change_workspace_settings(candidate, user)
+    return all(allowed_by_organization.values())
+
+
 def _project_options(integration: WorkspaceIntegration, user: User) -> list[WorkspaceIntegration]:
     """Projects connected to this Slack workspace that the person can open."""
     return accessible_candidates(workspace_integrations(_workspace_id(integration)), user=user)
@@ -199,7 +215,7 @@ def get_settings(integration: WorkspaceIntegration, user: User) -> SlackAppSetti
     return SlackAppSettings(
         integration_id=integration.id,
         slack_workspace_name=((integration.config or {}).get("team") or {}).get("name"),
-        can_edit_workspace=can_change_workspace_settings(integration, user),
+        can_edit_workspace=_can_change_workspace_row(integration, user),
         workspace=SlackWorkspaceSettings(
             reactions=with_every_kind(workspace_reactions),
             external_channels_enabled=resolve_external_channels_enabled(slack_workspace_id),
@@ -215,9 +231,10 @@ def update_workspace_settings(
     reactions: ReactionSettings | None,
     external_channels_enabled: bool | None,
 ) -> None:
-    if not can_change_workspace_settings(integration, user):
+    if not _can_change_workspace_row(integration, user):
         raise WorkspaceSettingsError(
-            "Only the person who installed Slack or a project admin can change these settings."
+            "Only the person who installed Slack or a project admin can change these settings. When several "
+            "PostHog organizations use this Slack workspace, you need that access in each of them."
         )
     slack_workspace_id = _workspace_id(integration)
     if reactions is not None:

@@ -29,13 +29,20 @@ export function AISection(): JSX.Element {
         aiSuggestionsLoading,
         aiDiagnosticsEnabled,
         aiDiagnosticsLoading,
+        aiRerunUntilTeamReply,
+        aiRerunModeLoading,
         aiEnabledChannels,
         aiAllChannels,
         aiResolutionChannels,
         aiReplyModes,
     } = useValues(supportSettingsLogic)
-    const { setAiSuggestionsEnabled, setAiDiagnosticsEnabled, setAiResolutionChannels, setAiReplyMode } =
-        useActions(supportSettingsLogic)
+    const {
+        setAiSuggestionsEnabled,
+        setAiDiagnosticsEnabled,
+        setAiRerunUntilTeamReply,
+        setAiResolutionChannels,
+        setAiReplyMode,
+    } = useActions(supportSettingsLogic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const isChannelActive = (channel: TicketChannel): boolean => aiEnabledChannels.includes(channel)
@@ -52,6 +59,9 @@ export function AISection(): JSX.Element {
                 aiSuggestionsLoading={aiSuggestionsLoading}
                 aiDiagnosticsEnabled={aiDiagnosticsEnabled}
                 aiDiagnosticsLoading={aiDiagnosticsLoading}
+                aiRerunUntilTeamReply={aiRerunUntilTeamReply}
+                aiRerunModeLoading={aiRerunModeLoading}
+                onAiRerunUntilTeamReplyChange={setAiRerunUntilTeamReply}
                 aiAllChannels={aiAllChannels}
                 aiResolutionChannels={aiResolutionChannels}
                 aiReplyModes={aiReplyModes}
@@ -110,6 +120,33 @@ export function AISection(): JSX.Element {
                                 checked={aiDiagnosticsEnabled}
                                 onChange={(checked) => setAiDiagnosticsEnabled(checked)}
                                 loading={aiDiagnosticsLoading}
+                            />
+                        </div>
+                    </LemonCard>
+                </SceneSection>
+            )}
+
+            {aiSuggestionsEnabled && (
+                <SceneSection
+                    title="Follow-up messages"
+                    titleSize="sm"
+                    className="my-8"
+                    description="By default the agent runs once per ticket, on the first customer message."
+                >
+                    <LemonCard hoverEffect={false} className="flex flex-col gap-y-3 max-w-[800px] px-4 py-3">
+                        <div className="flex items-center gap-4 justify-between">
+                            <div>
+                                <label className="font-medium">Run again when the customer adds a message</label>
+                                <p className="text-xs text-muted-alt mb-0">
+                                    The agent runs again on each new customer message until a teammate replies, up to 3
+                                    more runs per ticket.
+                                </p>
+                            </div>
+                            <LemonSwitch
+                                checked={aiRerunUntilTeamReply}
+                                onChange={(checked) => setAiRerunUntilTeamReply(checked)}
+                                loading={aiRerunModeLoading}
+                                data-attr="support-ai-rerun-until-team-reply"
                             />
                         </div>
                     </LemonCard>

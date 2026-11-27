@@ -130,6 +130,7 @@ async def test_provider_usage_limit_skips_activity_retries_without_dropping_sign
 
 
 @pytest.mark.asyncio
+@pytest.mark.django_db
 async def test_safe_verdict_cache_preserves_repeated_signals_across_dates() -> None:
     redis = FakeAsyncRedis()
     judge = AsyncMock(return_value=SafetyFilterJudgeResponse(safe=True))

@@ -94,6 +94,12 @@ from products.slack_app.backend.logic.onboarding.work_focus import (
     work_focus_review_blocks,
     work_focus_started_blocks,
 )
+from products.slack_app.backend.logic.shared_channels import (
+    SHARED_CHANNELS_TURNED_OFF_MESSAGE,
+    SharedChannelAccess,
+    shared_channel_access,
+    shared_channel_refusal_message,
+)
 from products.slack_app.backend.logic.untagged_question import is_untagged_question_candidate
 from products.slack_app.backend.models import (
     ChannelWelcomeMode,
@@ -110,6 +116,7 @@ from products.slack_app.backend.services import (
     slack_welcome_messages,
     turn_feedback,
 )
+from products.slack_app.backend.services.channel_metadata import schedule_channel_metadata_refresh
 from products.slack_app.backend.services.channel_settings import resolve_channel_untagged_question_mode
 from products.slack_app.backend.services.commands import SLASH_COMMAND_PREFIX, mention_command_redirect
 from products.slack_app.backend.services.integration_resolver import (
@@ -2703,7 +2710,30 @@ def _dispatch_mention_to_target(
         return ROUTE_HANDLED_LOCALLY
 
     channel_id = event.get("channel") if isinstance(event.get("channel"), str) else None
-    if channel_id and is_ext_shared_channel and not _channel_is_approved(mention_target.integration_id, channel_id):
+    access = (
+        shared_channel_access(mention_target, channel_id)
+        if channel_id and is_ext_shared_channel
+        else SharedChannelAccess.ALLOWED
+    )
+    if access == SharedChannelAccess.TURNED_OFF:
+        replied = untagged_followup_mapping is None and _post_slack_user_ephemeral(
+            slack,
+            channel_id or "",
+            str(event.get("user") or ""),
+            event.get("thread_ts") if isinstance(event.get("thread_ts"), str) else None,
+            SHARED_CHANNELS_TURNED_OFF_MESSAGE,
+        )
+        _report_slack_mention_dropped(
+            event,
+            slack_team_id,
+            # pinned: analytics property value, the reason a mention never reached the agent
+            reason="shared_channels_turned_off",
+            replied=replied,
+            integration=mention_target,
+            posthog_user=posthog_user,
+        )
+        return ROUTE_HANDLED_LOCALLY
+    if access == SharedChannelAccess.NEEDS_APPROVAL:
         if untagged_followup_mapping is not None:
             logger.info(
                 "slack_app_thread_message_channel_unapproved",
@@ -3071,7 +3101,9 @@ def route_posthog_code_event_to_relevant_region(
             attributed_user = _report_slack_mention_received(event, probe, slack_team_id, posthog_user=None)
             channel_id = event.get("channel") if isinstance(event.get("channel"), str) else None
             ephemeral_only = bool(
-                is_ext_shared_channel and channel_id and not _channel_is_approved(slack_team_id, channel_id)
+                is_ext_shared_channel
+                and channel_id
+                and shared_channel_access(probe, channel_id) != SharedChannelAccess.ALLOWED
             )
             replied = _post_user_resolution_failure_reply(
                 probe=probe,
@@ -3445,7 +3477,7 @@ def _hand_off_command(
         return False
     # The answer is visible in the thread, which would announce PostHog in a shared channel that has
     # not approved it yet. The agent path has the approval gate for that.
-    if is_ext_shared_channel and not _channel_is_approved(slack_team_id, channel):
+    if is_ext_shared_channel and shared_channel_access(probe, channel) != SharedChannelAccess.ALLOWED:
         return False
     # A command is addressed to the app: a message that opens with someone else's mention is not.
     bot_user_id = get_cached_bot_user_id(SlackIntegration(probe), probe)
@@ -3807,16 +3839,6 @@ def _post_team_join_welcome(integration: WorkspaceIntegration, slack_user_id: st
             exc_info=True,
         )
         return False
-
-
-def _channel_is_approved(slack_workspace_id: str, channel_id: str) -> bool:
-    """True iff a user in this channel has already granted PostHog approval.
-
-    The ``is_ext_shared_channel`` flag that gates whether approval is required
-    at all lives on the Slack event envelope — see ``posthog_code_event_handler``
-    — so this only needs to answer the persistence question.
-    """
-    return SlackChannel.approval_granted(slack_workspace_id, channel_id)
 
 
 def _post_channel_approval_prompt(
@@ -4386,6 +4408,23 @@ def _thread_join_context(payload: dict) -> tuple[str, dict[str, Any]] | None:
     return context_token, context
 
 
+def _shared_channel_refusal_since_prompt(integration: WorkspaceIntegration, context: dict[str, Any]) -> str | None:
+    """The refusal for a confirmed prompt in a Slack Connect channel, or None when the run may start.
+
+    A prompt stays open for minutes, and the dispatch skips the webhook's gates, so an admin who turned shared
+    channels off in the meantime is checked again here.
+    """
+    channel = context.get("slack_channel_id")
+    if not context.get("is_ext_shared_channel") or not isinstance(channel, str):
+        return None
+    access = shared_channel_access(integration, channel)
+    return None if access == SharedChannelAccess.ALLOWED else shared_channel_refusal_message(access)
+
+
+def _replace_prompt(response_url: str, text: str) -> None:
+    inbox_interactivity.post_response_url(response_url, {"replace_original": True, "text": text})
+
+
 def _close_thread_join_prompt(context_token: str, context: dict[str, Any], response_url: str) -> None:
     """Forget an answered prompt, so the same person can ask again with their next message."""
     cache.delete(_picker_context_cache_key(context_token))
@@ -4435,6 +4474,11 @@ def _handle_thread_join_allow(payload: dict) -> HttpResponse:
     )
     if mapping is None:
         _close_thread_join_prompt(context_token, context, response_url)
+        return HttpResponse(status=200)
+    refusal = _shared_channel_refusal_since_prompt(integration, context)
+    if refusal is not None:
+        _close_thread_join_prompt(context_token, context, "")
+        _replace_prompt(response_url, refusal)
         return HttpResponse(status=200)
     # The message re-enters the pipeline past the webhook's gates, so the joiner's access to the
     # mapped project is checked again here.
@@ -4589,6 +4633,12 @@ def _handle_untagged_followup_run(payload: dict) -> HttpResponse:
 
     if _untagged_followups_revoked_since_prompt(integration, context):
         _delete_ephemeral_via_response_url(response_url)
+        return HttpResponse(status=200)
+
+    refusal = _shared_channel_refusal_since_prompt(integration, context)
+    if refusal is not None:
+        cache.delete(_picker_context_cache_key(context_token))
+        _replace_prompt(response_url, refusal)
         return HttpResponse(status=200)
 
     cache.delete(_picker_context_cache_key(context_token))
@@ -4890,15 +4940,16 @@ def _handle_reply_suggestion_click(payload: dict, clicked: reply_suggestions.Cli
 
     # A typed reply in an unapproved Slack Connect channel is dropped before dispatch, and a
     # channel can become shared after the buttons were posted.
-    if not _channel_is_approved(slack_team_id, channel) and channel_is_ext_shared(slack, channel):
-        logger.info("slack_app_reply_suggestion_channel_unapproved", integration_id=integration.id)
+    # A DM never asks Slack, so the sharing check goes first and a DM click skips the flag evaluation.
+    access = (
+        shared_channel_access(integration, channel)
+        if channel_is_ext_shared(slack, channel)
+        else SharedChannelAccess.ALLOWED
+    )
+    if access != SharedChannelAccess.ALLOWED:
+        logger.info("slack_app_reply_suggestion_channel_unapproved", integration_id=integration.id, access=access)
         _post_slack_user_ephemeral(
-            slack,
-            channel,
-            clicker_slack_user_id,
-            thread_ts,
-            "This channel is shared with another organization, so PostHog needs approval here first. "
-            "Mention @PostHog in the channel to approve it.",
+            slack, channel, clicker_slack_user_id, thread_ts, shared_channel_refusal_message(access)
         )
         return HttpResponse(status=200)
 
@@ -5222,6 +5273,8 @@ def _start_mention_workflow(
             posthog_user=posthog_user,
             awaited_request_reply=awaited_request_reply,
         )
+        if isinstance(event.get("channel"), str):
+            schedule_channel_metadata_refresh(integration, event["channel"], is_ext_shared=is_ext_shared_channel)
         if _resolve_pending_repo_picker_from_followup(event, integration):
             return ROUTE_HANDLED_LOCALLY
     workflow_inputs = PostHogCodeSlackMentionWorkflowInputs(
