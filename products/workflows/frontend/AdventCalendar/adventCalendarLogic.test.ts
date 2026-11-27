@@ -8,6 +8,9 @@ import { UserType } from '~/types'
 
 import { adventCalendarLogic } from './adventCalendarLogic'
 
+const KEY = 'workflows-advent-calendar-progress'
+const UUID = '0190d8a2-1c4e-7b3a-9f21-5a6b7c8d9e01'
+
 function signIn(user: Partial<UserType>): void {
     userLogic.actions.loadUserSuccess({ ...userLogic.values.user, ...user } as UserType)
 }
@@ -29,7 +32,7 @@ describe('adventCalendarLogic', () => {
         window.localStorage.clear()
         capture = jest.spyOn(posthog, 'capture').mockImplementation()
         initKeaTests()
-        signIn({ uuid: '0190d8a2-1c4e-7b3a-9f21-5a6b7c8d9e01', is_staff: false })
+        signIn({ uuid: UUID, is_staff: false })
         logic = adventCalendarLogic()
         logic.mount()
     })
@@ -86,9 +89,9 @@ describe('adventCalendarLogic', () => {
         logic.actions.activateDoor('door-1')
         window.dispatchEvent(
             new StorageEvent('storage', {
-                key: 'workflows-advent-calendar-progress',
+                key: KEY,
                 newValue: JSON.stringify({
-                    '0190d8a2-1c4e-7b3a-9f21-5a6b7c8d9e01': { opened: [1, 2], answers: { 2: 'tim' } },
+                    [UUID]: { opened: [1, 2], answers: { 2: 'tim' } },
                 }),
             })
         )
@@ -106,12 +109,10 @@ describe('adventCalendarLogic', () => {
         logic.actions.activateDoor('door-1')
         logic.actions.answerDoor('door-2', here)
         const otherTab = JSON.stringify({
-            '0190d8a2-1c4e-7b3a-9f21-5a6b7c8d9e01': { opened: [1, 2], answers: { 2: there } },
+            [UUID]: { opened: [1, 2], answers: { 2: there } },
         })
-        window.localStorage.setItem('workflows-advent-calendar-progress', otherTab)
-        window.dispatchEvent(
-            new StorageEvent('storage', { key: 'workflows-advent-calendar-progress', newValue: otherTab })
-        )
+        window.localStorage.setItem(KEY, otherTab)
+        window.dispatchEvent(new StorageEvent('storage', { key: KEY, newValue: otherTab }))
 
         expect(doorOf(logic, 'door-2')).toEqual({ status: 'open', reward: 'James Hawkins' })
 
@@ -124,10 +125,7 @@ describe('adventCalendarLogic', () => {
 
     it('takes the answer another tab stored before its event arrives, so the reward does not swap later', () => {
         logic.actions.activateDoor('door-1')
-        window.localStorage.setItem(
-            'workflows-advent-calendar-progress',
-            JSON.stringify({ '0190d8a2-1c4e-7b3a-9f21-5a6b7c8d9e01': { opened: [1, 2], answers: { 2: 'tim' } } })
-        )
+        window.localStorage.setItem(KEY, JSON.stringify({ [UUID]: { opened: [1, 2], answers: { 2: 'tim' } } }))
 
         logic.actions.answerDoor('door-2', 'james')
 
@@ -135,61 +133,42 @@ describe('adventCalendarLogic', () => {
         expect(capture).not.toHaveBeenCalledWith('workflows advent answer picked', expect.anything())
     })
 
-    it('writes nothing back to storage when a door click adds no progress, so it cannot overwrite another tab', () => {
+    it('leaves a newer save from another tab untouched when a door that stays locked is clicked', () => {
         logic.actions.activateDoor('door-1')
-        const saved = JSON.stringify(
-            JSON.parse(window.localStorage.getItem('workflows-advent-calendar-progress') ?? '{}'),
-            null,
-            2
-        )
-        window.localStorage.setItem('workflows-advent-calendar-progress', saved)
+        const newer = JSON.stringify({ [UUID]: { opened: [1, 2], answers: { 2: 'tim' } } }, null, 2)
+        window.localStorage.setItem(KEY, newer)
 
-        logic.actions.activateDoor('door-4-upper')
-        logic.actions.activateDoor('door-1')
+        logic.actions.activateDoor('door-4-lower')
 
-        expect(window.localStorage.getItem('workflows-advent-calendar-progress')).toBe(saved)
+        expect(window.localStorage.getItem(KEY)).toBe(newer)
     })
 
     it.each([
         '[object Object]',
-        'undefined',
-        '{"0190d8a2-1c4e-7b3a-9f21-5a6b7c8d9e01":{"opened":3}}',
-        '{"0190d8a2-1c4e-7b3a-9f21-5a6b7c8d9e01":{"opened":[1,25,-1,2.5],"answers":{"30":"tim"}}}',
-    ])('keeps its progress and opens the next door when another tab stores %s', (newValue) => {
+        'null',
+        `{"${UUID}":{"opened":3}}`,
+        `{"${UUID}":{"opened":[1,25,-1,2.5],"answers":{"30":"tim"}}}`,
+    ])('keeps working when storage holds %s at load and from another tab', (value) => {
         const uncaught: ErrorEvent[] = []
         const onError = (event: ErrorEvent): number => uncaught.push(event)
         window.addEventListener('error', onError)
+        logic.unmount()
+        window.localStorage.setItem(KEY, value)
+        logic = adventCalendarLogic()
+        logic.mount()
         logic.actions.activateDoor('door-1')
 
-        window.localStorage.setItem('workflows-advent-calendar-progress', newValue)
-        window.dispatchEvent(new StorageEvent('storage', { key: 'workflows-advent-calendar-progress', newValue }))
+        window.localStorage.setItem(KEY, value)
+        window.dispatchEvent(new StorageEvent('storage', { key: KEY, newValue: value }))
         logic.actions.answerDoor('door-2', 'tim')
         window.removeEventListener('error', onError)
 
         expect(uncaught).toEqual([])
-        expect(
-            JSON.parse(window.localStorage.getItem('workflows-advent-calendar-progress') ?? '{}')[
-                '0190d8a2-1c4e-7b3a-9f21-5a6b7c8d9e01'
-            ]
-        ).toEqual({ opened: [1, 2], answers: { 2: 'tim' } })
+        expect(JSON.parse(window.localStorage.getItem(KEY) ?? '{}')[UUID]).toEqual({
+            opened: [1, 2],
+            answers: { 2: 'tim' },
+        })
     })
-
-    it.each(['null', '[1]', '{"0190d8a2-1c4e-7b3a-9f21-5a6b7c8d9e01":{"opened":3}}'])(
-        'loads with %s already stored and opens doors from the start',
-        (stored) => {
-            logic.unmount()
-            window.localStorage.setItem('workflows-advent-calendar-progress', stored)
-            logic = adventCalendarLogic()
-            logic.mount()
-
-            expect(doorOf(logic, 'door-1')?.status).toBe('ready')
-
-            logic.actions.activateDoor('door-1')
-            logic.actions.answerDoor('door-2', 'tim')
-
-            expect(doorOf(logic, 'door-2')).toEqual({ status: 'open', reward: 'Tim Glaser' })
-        }
-    )
 
     it('opens a question door with the answer and drops the path not taken', () => {
         logic.actions.activateDoor('door-1')

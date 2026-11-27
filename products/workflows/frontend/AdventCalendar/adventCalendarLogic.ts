@@ -39,15 +39,12 @@ function isAdventDay(day: unknown): day is number {
     return Number.isInteger(day) && (day as number) >= 1 && (day as number) <= ADVENT_LAST_DAY
 }
 
-function cleanProgress(value: unknown): AdventProgress | null {
-    if (!isRecord(value) || !Array.isArray(value.opened)) {
-        return null
-    }
-    const answers = isRecord(value.answers) ? Object.entries(value.answers) : []
+function cleanProgress(opened: unknown[], answers: unknown): AdventProgress {
+    const answered = Object.entries(isRecord(answers) ? answers : {})
     return {
-        opened: [...new Set(value.opened.filter(isAdventDay))],
+        opened: [...new Set(opened.filter(isAdventDay))],
         answers: Object.fromEntries(
-            answers.filter(
+            answered.filter(
                 (answer): answer is [string, string] => isAdventDay(Number(answer[0])) && typeof answer[1] === 'string'
             )
         ),
@@ -55,25 +52,22 @@ function cleanProgress(value: unknown): AdventProgress | null {
 }
 
 function cleanProgressByUser(value: unknown): Record<string, AdventProgress> {
-    if (!isRecord(value)) {
-        return {}
-    }
     return Object.fromEntries(
-        Object.entries(value).flatMap(([uuid, progress]) => {
-            const clean = cleanProgress(progress)
-            return clean ? [[uuid, clean]] : []
-        })
+        Object.entries(isRecord(value) ? value : {}).flatMap(([uuid, progress]) =>
+            isRecord(progress) && Array.isArray(progress.opened)
+                ? [[uuid, cleanProgress(progress.opened, progress.answers)]]
+                : []
+        )
     )
 }
 
 function storedProgress(value: string): Record<string, AdventProgress> | null {
-    let parsed: unknown
     try {
-        parsed = JSON.parse(value)
+        const parsed: unknown = JSON.parse(value)
+        return isRecord(parsed) ? cleanProgressByUser(parsed) : null
     } catch {
         return null
     }
-    return isRecord(parsed) ? cleanProgressByUser(parsed) : null
 }
 
 function sameAdventProgress(a: AdventProgress, b: AdventProgress): boolean {
@@ -310,7 +304,10 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
     listeners(({ actions, values, cache }) => {
         const readyDoorAfterSync = (doorId: string): AdventDoor | null => {
             const stored = storedProgress(window.localStorage.getItem(PROGRESS_STORAGE_KEY) ?? '')
-            if (stored) {
+            const theirs = stored?.[values.user?.uuid ?? '']
+            const known = theirs ? mergeAdventProgress(values.progress, theirs) : values.progress
+            const knownDoor = buildAdventGraph(known, values.today, values.rewards).doors.find((d) => d.id === doorId)
+            if (stored && knownDoor && knownDoor.status !== 'locked') {
                 actions.syncProgress(stored)
             }
             const door = values.graph.doors.find((candidate) => candidate.id === doorId)
