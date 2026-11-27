@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, Literal, Optional, cast
 from uuid import UUID
 
 from django.conf import settings
-from django.core.exceptions import ValidationError
+from django.core.exceptions import ImproperlyConfigured, ValidationError
 from django.db import transaction
 
 from pydantic import BaseModel
@@ -85,6 +85,7 @@ from products.tasks.backend.logic.services.run_actor import (
     loop_owner_eligible_for_credentials,
 )
 from products.tasks.backend.logic.services.sandbox import is_public_sandbox_repo
+from products.tasks.backend.logic.services.sandbox_config import sandbox_ai_gateway_dev_token
 from products.tasks.backend.metrics import observe_mcp_exclude_tools_over_cap
 from products.tasks.backend.redis import get_tasks_cache
 from products.tasks.backend.temporal.process_task.ai_gateway_token import (
@@ -1721,6 +1722,10 @@ def run_gateway_env_vars(ctx: TaskProcessingContext, task: Task) -> dict[str, st
     """
     from products.signals.backend.facade.trial import TrialExecutionRefused, start_task_trial
 
+    try:
+        sandbox_ai_gateway_dev_token()
+    except ImproperlyConfigured as error:
+        raise ProcessTaskFatalError(str(error), {"team_id": ctx.team_id, "run_id": ctx.run_id}, error) from error
     trial = bool((ctx.state or {}).get("self_driving_funding", {}).get("funding") == "trial")
     if trial:
         if "own-subscription" in (ctx.claude_model_access, ctx.codex_model_access) or (
@@ -1899,7 +1904,7 @@ def ai_gateway_env_vars(
     if requires_pi_scout and not (
         ai_product == "signals_scout"
         and settings.SANDBOX_AI_GATEWAY_URL
-        and settings.SANDBOX_AI_GATEWAY_MINT_KEY
+        and (settings.SANDBOX_AI_GATEWAY_MINT_KEY or settings.SANDBOX_AI_GATEWAY_DEV_TOKEN)
         and settings.SANDBOX_AI_GATEWAY_PRODUCTS
         and sandbox_product_routed(ai_product, ai_stage, settings.SANDBOX_AI_GATEWAY_PRODUCTS)
     ):
@@ -1909,7 +1914,7 @@ def ai_gateway_env_vars(
     if not (
         settings.SANDBOX_AI_GATEWAY_URL
         and settings.SANDBOX_AI_GATEWAY_PRODUCTS
-        and settings.SANDBOX_AI_GATEWAY_MINT_KEY
+        and (settings.SANDBOX_AI_GATEWAY_MINT_KEY or settings.SANDBOX_AI_GATEWAY_DEV_TOKEN)
     ):
         raise gateway_token_unavailable("not_configured", team_id, ai_product)
     if not (

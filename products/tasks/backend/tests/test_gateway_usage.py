@@ -72,6 +72,18 @@ class TestGatewayUsage(BaseTest):
     def _process(self, run: TaskRun, *, limit: int = 20) -> TaskRunCost:
         return process_pending_gateway_usage(run_id=run.id, team_id=self.team.id, limit=limit)
 
+    @override_settings(DEBUG=True, SANDBOX_AI_GATEWAY_DEV_TOKEN="phe_dev_mode_token")
+    @patch("aiohttp.ClientSession._request", autospec=True)
+    def test_dev_mode_token_skips_cost_lookups(self, get: Mock) -> None:
+        run = self._run()
+        self._report(run, ["parent"])
+
+        self._process(run)
+
+        get.assert_not_called()
+        run.refresh_from_db()
+        assert run.state["unprocessed_request_ids"] == ["parent"]
+
     @patch.dict("os.environ", {"HTTPS_PROXY": "http://proxy.example.com:8080"})
     @patch("aiohttp.ClientSession._request", autospec=True)
     def test_records_cost_by_model_and_provider_and_removes_processed_ids(self, get: Mock) -> None:

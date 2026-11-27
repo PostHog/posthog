@@ -23,7 +23,10 @@ from posthog.llm.gateway_usage import GatewayRequestCost, fetch_gateway_cost
 
 from products.tasks.backend.facade.contracts import TaskRunCost, TaskRunSpend, TaskRunTokenUsage
 from products.tasks.backend.facade.task_run_signals import task_run_cost_updated
-from products.tasks.backend.logic.services.sandbox_config import sandbox_ai_gateway_worker_url
+from products.tasks.backend.logic.services.sandbox_config import (
+    sandbox_ai_gateway_dev_token,
+    sandbox_ai_gateway_worker_url,
+)
 from products.tasks.backend.logic.services.sandbox_pricing import COMPUTE_RATE_CARDS, calculate_sandbox_compute_cost
 from products.tasks.backend.models import SandboxSession, TaskRun, TaskRunGatewayRequest
 
@@ -199,7 +202,7 @@ def process_pending_gateway_usage(*, run_id: UUID, team_id: int, limit: int = 20
         if _drain_queued_requests(run, state):
             run.state = state
             _save_accounting_state(run)
-        if not gateway_usage_enabled(run):
+        if not gateway_usage_enabled(run) or sandbox_ai_gateway_dev_token():
             return _cost_sources(run).as_contract()
         pending = _pending_ids(state)[:limit]
     deadline = time.monotonic() + _PROCESSING_SECONDS
