@@ -455,7 +455,7 @@ export interface accessControlsLogicMeta {
             accessDetailInDialog: boolean,
             accessDetailDialogOpen: boolean,
             panelSubject: AccessDetailSubject | null,
-            sidePanelOpen: any,
+            sidePanelOpen: boolean,
             selectedTab: SidePanelTab | null,
             activePanelSubject: AccessDetailSubject | null
         ) => AccessDetailSubject | null
