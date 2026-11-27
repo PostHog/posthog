@@ -7,7 +7,6 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { integrationsCreate } from 'products/integrations/frontend/generated/api'
-import type { IntegrationKindEnumApi } from 'products/integrations/frontend/generated/api.schemas'
 
 const IAM_ROLE_ARN_REGEX = /^arn:aws(-[a-z-]+)?:iam::\d{12}:role\/.+$/
 
@@ -141,8 +140,7 @@ export const awsWarehouseSourcesSetupModalLogic = kea<awsWarehouseSourcesSetupMo
             submit: async ({ name, awsRoleArn }) => {
                 try {
                     const integration = await integrationsCreate(String(values.currentProjectId), {
-                        // TODO: drop the cast once the generated kind enum lists aws-warehouse-sources.
-                        kind: 'aws-warehouse-sources' as IntegrationKindEnumApi,
+                        kind: 'aws-warehouse-sources',
                         config: { name, aws_role_arn: awsRoleArn.trim() },
                     })
                     actions.loadIntegrations()
