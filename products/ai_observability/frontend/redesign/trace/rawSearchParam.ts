@@ -10,16 +10,13 @@ export function rawSearchParam(search: string, name: string): string | null {
     return /^(\[.*\]|\{.*\}) +$/.test(value) ? value.slice(0, -1) : value
 }
 
-const SCOPE_TEXT_PARAMS = ['error', 'tool', 'failed_tool']
-
 // kea-router loses the text of a number or boolean, so a typed `1.50` must stay raw. A JSON param such as `filters` must
 // stay parsed, because kea-router pads a string shaped like JSON and reads it back as a string. The drawer's own params
-// are ids, every list's search param, such as `trace_search` or `error_search`, is typed text, and a scope such as
-// `error` is an error message or a tool name, so they stay raw whatever their shape.
+// are ids and every list's search param, such as `trace_search` or `error_search`, and every scope is typed text, so
+// they stay raw whatever their shape.
 function keepsRawText(name: string, value: unknown): boolean {
     return (
-        TRACE_DRAWER_PARAMS.includes(name) ||
-        SCOPE_TEXT_PARAMS.includes(name) ||
+        [...TRACE_DRAWER_PARAMS, 'error', 'tool', 'failed_tool'].includes(name) ||
         name.endsWith('_search') ||
         typeof value === 'number' ||
         typeof value === 'boolean'
