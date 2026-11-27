@@ -144,6 +144,7 @@ class Output:
 
 PAGE_PARAM = "page"
 ROWS_PER_PAGE = 50
+MAX_PAGE_NUMBER = 1_000_000
 
 
 @frozen
@@ -205,9 +206,11 @@ def paginate[T](
 
 def requested_page(request: "HttpRequest") -> int:
     try:
-        return max(1, int(request.GET.get(PAGE_PARAM, "1")))
+        number = int(request.GET.get(PAGE_PARAM, "1"))
     except ValueError:
         return 1
+    # A page number past this would make an offset Postgres refuses, before the clamp to the last page can run.
+    return min(max(1, number), MAX_PAGE_NUMBER)
 
 
 def paginate_facade[T](

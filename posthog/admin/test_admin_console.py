@@ -783,11 +783,18 @@ class TestAdminConsolePaging(SimpleTestCase):
             number=number, num_pages=3, summary="5 teams", previous_url=previous_url, next_url=next_url
         )
 
-    @parameterized.expand([("first_page", "", [0, 1], 1), ("past_the_end", "?page=99", [4], 3)])
+    @parameterized.expand(
+        [
+            ("first_page", "", [0, 1], 1),
+            ("past_the_end", "?page=99", [4], 3),
+            ("past_any_offset", "?page=99999999999999999999", [4], 3),
+        ]
+    )
     def test_a_facade_page_past_the_end_shows_the_last_page(
         self, _name: str, query: str, rows: list[int], number: int
     ) -> None:
         def fetch(page: PageRequest) -> FacadePage[int]:
+            assert page.offset < 2**63, "the offset would overflow a Postgres bigint"
             return FacadePage(results=list(range(5))[page.offset : page.offset + page.limit], count=5)
 
         paged = paginate_facade(RequestFactory().get(f"/{query}"), fetch, noun="team", per_page=2)
