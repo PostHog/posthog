@@ -7,6 +7,7 @@ from django.http import HttpRequest, HttpResponse
 
 import structlog
 
+from posthog.admin.console.organization_members_tool import organization_members_url
 from posthog.admin.console.organization_tools import DeactivationReasonForm, deactivate_organizations
 from posthog.admin.console.panels import MAX_FACTS_PER_PANEL, Fact, Operation, Owner, Panel, Tone
 from posthog.admin.console.records import RECORD_TYPES
@@ -47,7 +48,7 @@ class OrganizationOverviewPanel(Panel):
             status = Fact(label="Status", value="Active", tone=Tone.SUCCESS)
         facts = [
             status,
-            Fact(label="Members", value=str(obj.members.count())),
+            Fact(label="Members", value=str(obj.members.count()), href=organization_members_url(obj)),
             Fact(label="Created", value=obj.created_at.strftime("%b %-d, %Y")),
         ]
         if obj.is_pending_deletion:

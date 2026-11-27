@@ -106,15 +106,23 @@ def test_first_incremental_sync_sends_no_filter_but_orders_by_the_field() -> Non
     assert result.params("order_by") == ["updated_at"]
 
 
-@pytest.mark.parametrize("table", ["cycles", "states"])
-def test_per_project_lists_fan_out_and_carry_the_project_id(table: str) -> None:
+@pytest.mark.parametrize(
+    ("table", "segment", "expand"),
+    [
+        ("cycles", "cycles", None),
+        ("states", "states", None),
+        ("estimates", "estimates", "points"),
+        ("work_item_types", "work-item-types", None),
+    ],
+)
+def test_per_project_lists_fan_out_and_carry_the_project_id(table: str, segment: str, expand: str | None) -> None:
     result = _driver().run(
         table,
         route(
             {
                 "/workspaces/my-team/projects/": [cursor_page([{"id": "proj-1"}, {"id": "proj-2"}], None)],
-                f"/projects/proj-1/{table}/": [cursor_page([{"id": "row-1", "project_id": None}], None)],
-                f"/projects/proj-2/{table}/": [
+                f"/projects/proj-1/{segment}/": [cursor_page([{"id": "row-1", "project_id": None}], None)],
+                f"/projects/proj-2/{segment}/": [
                     ScriptedResponse(
                         status=404, json={"type": "not_found", "code": "not_found", "detail": "Not found."}
                     )
@@ -125,6 +133,44 @@ def test_per_project_lists_fan_out_and_carry_the_project_id(table: str) -> None:
 
     assert result.raised is None
     assert result.rows == [{"id": "row-1", "project_id": "proj-1"}]
+    child_requests = [request for request in result.requests if f"/{segment}/" in request.path]
+    assert [request.param("expand") for request in child_requests] == [expand, expand]
+
+
+@pytest.mark.parametrize(
+    ("table", "segment"), [("work_item_comments", "comments"), ("work_item_activities", "activities")]
+)
+def test_work_item_lists_fan_out_over_workspace_work_items_and_bind_both_ids(table: str, segment: str) -> None:
+    result = _driver().run(
+        table,
+        route(
+            {
+                "/workspaces/my-team/work-items/": [
+                    cursor_page([{"id": "w1", "project_id": "proj-1"}], "c2"),
+                    cursor_page([{"id": "w2", "project_id": "proj-2"}], None),
+                ],
+                f"/projects/proj-1/work-items/w1/{segment}/": [
+                    cursor_page([{"id": "row-1", "work_item_id": "w1"}], "k2"),
+                    cursor_page([{"id": "row-2", "work_item_id": "w1"}], None),
+                ],
+                f"/projects/proj-2/work-items/w2/{segment}/": [ScriptedResponse(status=404, json=NOT_FOUND)],
+            }
+        ),
+    )
+
+    assert result.raised is None
+    assert result.rows == [
+        {"id": "row-1", "work_item_id": "w1", "project_id": "proj-1"},
+        {"id": "row-2", "work_item_id": "w1", "project_id": "proj-1"},
+    ]
+    parent_requests = [request for request in result.requests if request.path.endswith("/my-team/work-items/")]
+    assert [request.param("cursor") for request in parent_requests] == [None, "c2"]
+    for request in parent_requests:
+        assert request.param("fields") == "id,project_id"
+        assert request.param("archived") == "true"
+        assert request.param("is_draft") == "false"
+    child_requests = [request for request in result.requests if request.path.endswith(f"/w1/{segment}/")]
+    assert [request.param("cursor") for request in child_requests] == [None, "k2"]
 
 
 def test_a_server_that_repeats_its_cursor_stops_the_walk() -> None:

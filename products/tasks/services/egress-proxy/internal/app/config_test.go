@@ -16,6 +16,8 @@ func TestConfigurationRejectsUnsafeLimitsAndListeners(t *testing.T) {
 		{"public administration", `{"admin_address":"0.0.0.0:9090"}`},
 		{"hostname administration", `{"admin_address":"localhost:9090"}`},
 		{"invalid port", `{"listen_address":"127.0.0.1:65536"}`},
+		{"hostname metrics", `{"metrics_address":"localhost:9092"}`},
+		{"invalid metrics port", `{"metrics_address":":65536"}`},
 		{"disabled request timeout", `{"request_timeout_seconds":0}`},
 		{"disabled shutdown timeout", `{"shutdown_timeout_seconds":0}`},
 		{"unbounded cache", `{"cache_entries":1000001}`},

@@ -322,7 +322,9 @@ class TestPagination:
 
 
 class TestLookupEndpoints:
-    @pytest.mark.parametrize("endpoint", ["lead_labels", "activity_types", "currencies", "project_boards"])
+    @pytest.mark.parametrize(
+        "endpoint", ["lead_labels", "activity_types", "currencies", "project_boards", "activity_fields", "note_fields"]
+    )
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_reads_every_row_in_one_request(self, MockSession: mock.MagicMock, endpoint: str) -> None:
         session = MockSession.return_value
@@ -507,6 +509,130 @@ class TestDealFanOut:
         ]
         assert params[0] == {"deal_ids": "1,2,3", "limit": PAGE_SIZE, "cursor": "c2"}
         assert params[2] == {"deal_ids": "4", "limit": PAGE_SIZE}
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_deal_participants_pages_each_deal_by_offset(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        urls: list[str] = []
+        full_page = [{"id": i} for i in range(PAGE_SIZE)]
+        params = _wire(
+            session,
+            [
+                _response([{"id": 7}, {"id": 8}], {"next_cursor": None}),
+                _response(full_page, {"pagination": {"more_items_in_collection": True}}),
+                _response([{"id": 9999}], {"pagination": {"more_items_in_collection": False}}),
+                _response([{"id": 50}], {"pagination": {"more_items_in_collection": False}}),
+                _response([], {"next_cursor": None}),
+            ],
+            urls=urls,
+        )
+        manager = _make_manager()
+
+        rows = _rows(_source("deal_participants", manager))
+
+        assert [(row["deal_id"], row["id"]) for row in rows] == [
+            *((7, i) for i in range(PAGE_SIZE)),
+            (7, 9999),
+            (8, 50),
+        ]
+        assert urls[1:4] == [
+            f"{BASE}/api/v1/deals/7/participants",
+            f"{BASE}/api/v1/deals/7/participants",
+            f"{BASE}/api/v1/deals/8/participants",
+        ]
+        assert params[1:4] == [
+            {"start": 0, "limit": PAGE_SIZE},
+            {"start": PAGE_SIZE, "limit": PAGE_SIZE},
+            {"start": 0, "limit": PAGE_SIZE},
+        ]
+        assert manager.save_state.call_args_list[0].args[0] == PipedriveResumeConfig(
+            paginator_state={
+                "parent_index": 0,
+                "parent_page": None,
+                "done_through": None,
+                "group": [7],
+                "child": {"offset": PAGE_SIZE},
+            }
+        )
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_deal_participants_resume_continues_at_the_saved_offset(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        params = _wire(
+            session,
+            [
+                _response([{"id": 9999}], {"pagination": {"more_items_in_collection": False}}),
+                _response([{"id": 7}, {"id": 8}], {"next_cursor": None}),
+                _response([{"id": 50}], {"pagination": {"more_items_in_collection": False}}),
+                _response([], {"next_cursor": None}),
+            ],
+        )
+        manager = _make_manager(
+            PipedriveResumeConfig(
+                paginator_state={
+                    "parent_index": 0,
+                    "parent_page": None,
+                    "done_through": None,
+                    "group": [7],
+                    "child": {"offset": PAGE_SIZE},
+                }
+            )
+        )
+
+        rows = _rows(_source("deal_participants", manager))
+
+        assert [(row["deal_id"], row["id"]) for row in rows] == [(7, 9999), (8, 50)]
+        assert params[0] == {"start": PAGE_SIZE, "limit": PAGE_SIZE}
+        assert params[2] == {"start": 0, "limit": PAGE_SIZE}
+
+
+class TestOrganizationRelationships:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_reads_each_organization_and_keys_rows_by_it(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        urls: list[str] = []
+        relationship = {"id": 70, "type": "parent", "rel_owner_org_id": {"value": 1}, "rel_linked_org_id": {"value": 3}}
+        params = _wire(
+            session,
+            [
+                _response([{"id": 1}, {"id": 2}], {"next_cursor": "o2"}),
+                _response([dict(relationship)]),
+                # An organization with no relationships returns `"data": null`.
+                _response(None, drop_data=True),
+                _response([{"id": 3}, {"id": 4}], {"next_cursor": None}),
+                _response([dict(relationship)]),
+                _response(None, drop_data=True, status=404),
+            ],
+            urls=urls,
+        )
+        manager = _make_manager()
+
+        rows = _rows(_source("organization_relationships", manager))
+
+        assert rows == [{**relationship, "org_id": 1}, {**relationship, "org_id": 3}]
+        assert urls == [
+            f"{BASE}/api/v2/organizations",
+            *[f"{BASE}/api/v1/organizationRelationships"] * 2,
+            f"{BASE}/api/v2/organizations",
+            *[f"{BASE}/api/v1/organizationRelationships"] * 2,
+        ]
+        assert params == [
+            DEAL_LIST_PARAMS,
+            {"org_id": "1"},
+            {"org_id": "2"},
+            {**DEAL_LIST_PARAMS, "cursor": "o2"},
+            {"org_id": "3"},
+            {"org_id": "4"},
+        ]
+        assert manager.save_state.call_args.args[0] == PipedriveResumeConfig(
+            paginator_state={
+                "parent_index": 0,
+                "parent_page": {"cursor": "o2"},
+                "done_through": 3,
+                "group": None,
+                "child": None,
+            }
+        )
 
 
 MAIL_THREADS_URL = f"{BASE}/api/v1/mailbox/mailThreads"

@@ -4,10 +4,16 @@ from parameterized import parameterized
 
 from products.warehouse_sources.sources.openai_ads._config import OpenAIAdsSourceConfig
 from products.warehouse_sources.sources.openai_ads.canonical_descriptions import CANONICAL_DESCRIPTIONS
+from products.warehouse_sources.sources.openai_ads.openai_ads import SERVER_ERROR_MESSAGE
 from products.warehouse_sources.sources.openai_ads.settings import ENDPOINTS
 from products.warehouse_sources.sources.openai_ads.source import OpenAIAdsSource
 from products.warehouse_sources.sources.sdk import ExternalDataSourceType, ReleaseStatus, SourceFieldInputConfig
-from products.warehouse_sources.sources.sdk.testing import RecordedRequest, ScriptedResponse, SourceDriver
+from products.warehouse_sources.sources.sdk.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    error_message_matches,
+)
 
 _ENTITY_ENDPOINTS = ["campaigns", "ad_groups", "ads"]
 _INSIGHTS_ENDPOINTS = ["campaign_insights", "ad_group_insights", "ad_insights", "ad_account_insights"]
@@ -125,6 +131,31 @@ class TestRetryableErrors:
     def test_credential_and_client_errors_are_not_misclassified(self, _name: str, other_error: str) -> None:
         retryable = OpenAIAdsSource().get_retryable_errors()
         assert not any(pattern in other_error for pattern in retryable)
+
+    @parameterized.expand(
+        [
+            (
+                "insights_400",
+                "400 Client Error: Bad Request for url: https://api.ads.openai.com/v1/ad_account/insights?aggregation_level=campaign | api error: code=server_error",
+            ),
+            (
+                "account_403",
+                "Server error (HTTP 403) for https://api.ads.openai.com/v1/ad_account | api error: code=server_error",
+            ),
+        ]
+    )
+    def test_body_reported_server_errors_keep_the_schema_on_with_server_error_copy(
+        self, _name: str, observed_error: str
+    ) -> None:
+        source = OpenAIAdsSource()
+        assert not error_message_matches(observed_error, source.get_non_retryable_errors())
+        assert error_message_matches(observed_error, source.get_retryable_errors())
+        messages = [
+            message
+            for pattern, message in source.get_retry_exhausted_errors().items()
+            if error_message_matches(observed_error, [pattern])
+        ]
+        assert messages == [SERVER_ERROR_MESSAGE]
 
 
 class TestDocumentedTables:

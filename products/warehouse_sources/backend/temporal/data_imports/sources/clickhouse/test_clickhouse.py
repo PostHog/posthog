@@ -497,6 +497,17 @@ class TestClickHouseSourceRetryableErrors:
                 "cloudflare_tunnel_down",
                 "HTTP driver received HTTP status 530, server response: error code: 1033 (for url https://host:8443)",
             ),
+            (
+                # QUOTA_EXCEEDED (code 201): a server-side quota on the connecting user was
+                # exceeded. The quota clears on its own once its interval ends, so this must stay
+                # retryable rather than disable the schema (which would leave it off long after
+                # the quota had already cleared).
+                "quota_exceeded",
+                "Received ClickHouse exception, code: 201, server response: Code: 201. DB::Exception: Quota for "
+                "user `play` for 3600s has been exceeded: execution_time = 601.308620926/600. Interval will end "
+                "at 2026-11-26 04:30:52. Name of quota template: `explorer`. (QUOTA_EXCEEDED) "
+                "(version 26.12.1.396 (official build)) (for url https://play.clickhouse.com:443)",
+            ),
         ],
     )
     def test_bare_gateway_status_is_classified_as_retryable(self, source, _name, error_msg):
@@ -504,6 +515,17 @@ class TestClickHouseSourceRetryableErrors:
         # exception noise on every occurrence instead of silently retried.
         retryable = source.get_retryable_errors()
         assert any(pattern in error_msg for pattern in retryable)
+
+    def test_quota_exceeded_does_not_disable_the_schema(self, source):
+        # A quota-exceeded error must not also appear in get_non_retryable_errors, or
+        # `_handle_import_error` (which consults that dict first) would disable the schema
+        # even though the quota clears on its own.
+        error_msg = (
+            "Received ClickHouse exception, code: 201, server response: Code: 201. DB::Exception: Quota for "
+            "user `play` for 3600s has been exceeded: execution_time = 601.308620926/600. (QUOTA_EXCEEDED)"
+        )
+        non_retryable = source.get_non_retryable_errors()
+        assert not any(pattern in error_msg for pattern in non_retryable)
 
     def test_arrow_stream_flatbuffer_error_is_classified_as_retryable(self, source):
         # pyarrow raises `OSError("Invalid flatbuffers message.")` from its own IPC framing when
@@ -1221,6 +1243,30 @@ class TestGetRowsBatching:
         assert sum(t.num_rows for t in yielded) == 150_000
         # First yield must have crossed the row target.
         assert yielded[0].num_rows >= YIELD_TARGET_ROWS
+
+    @parameterized.expand(
+        [
+            ("uint8", pa.uint8(), 200, pa.int16()),
+            ("uint16", pa.uint16(), 40_000, pa.int32()),
+            ("uint32", pa.uint32(), 3_000_000_000, pa.int64()),
+            ("uint64_has_no_wider_signed_type", pa.uint64(), 2**63 + 5, pa.uint64()),
+        ]
+    )
+    def test_widens_unsigned_integers_so_delta_can_store_later_values(self, _name, source_type, big, expected_type):
+        blocks = [
+            pa.RecordBatch.from_arrays(
+                [pa.array([1, 2], type=pa.int64()), pa.array([1, None], type=source_type)], names=["id", "n"]
+            ),
+            pa.RecordBatch.from_arrays(
+                [pa.array([3], type=pa.int64()), pa.array([big], type=source_type)], names=["id", "n"]
+            ),
+        ]
+
+        with patch.object(ch_module, "YIELD_TARGET_ROWS", 2):
+            yielded = self._run_get_rows(blocks)
+
+        assert [table.schema.field("n").type for table in yielded] == [expected_type, expected_type]
+        assert [table.column("n").to_pylist() for table in yielded] == [[1, None], [big]]
 
     def test_skips_empty_blocks(self):
         blocks = [self._block(0), self._block(50), self._block(0)]

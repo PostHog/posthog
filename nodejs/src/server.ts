@@ -30,7 +30,7 @@ import { CdpCohortMembershipConsumer } from './cdp/consumers/cdp-cohort-membersh
 import { CdpCyclotronDeadLetterWorker } from './cdp/consumers/cdp-cyclotron-dead-letter-worker.consumer'
 import { CdpCyclotronWorkerBatchResolve } from './cdp/consumers/cdp-cyclotron-worker-batch-resolve.consumer'
 import { CdpCyclotronWorkerEmailSandbox } from './cdp/consumers/cdp-cyclotron-worker-email-sandbox.consumer'
-import { CdpCyclotronWorkerEmail } from './cdp/consumers/cdp-cyclotron-worker-email.consumer'
+import { EMAIL_QUEUE_CONSUMERS } from './cdp/consumers/cdp-cyclotron-worker-email.consumer'
 import { CdpCyclotronWorkerHogFlow } from './cdp/consumers/cdp-cyclotron-worker-hogflow.consumer'
 import { CdpCyclotronWorker } from './cdp/consumers/cdp-cyclotron-worker.consumer'
 import { CdpDatawarehouseEventsConsumer } from './cdp/consumers/cdp-data-warehouse-events.consumer'
@@ -66,7 +66,7 @@ import { sandboxTestSendBucket } from './cdp/services/messaging/sandbox/sandbox-
 import { HogInvocationResultsService } from './cdp/services/monitoring/hog-invocation-results.service'
 import { createCrashGuardSettings } from './cdp/services/poison-batch/crash-guard'
 import { createSesRateLimiterValkeyPool } from './cdp/services/rate-limiter/rate-limiter-valkey-pool'
-import { DEAD_LETTER_QUEUE } from './cdp/types'
+import { CYCLOTRON_QUEUE_ROLES, DEAD_LETTER_QUEUE } from './cdp/types'
 import { EncryptedFields } from './cdp/utils/encryption-utils'
 import { PosthogJwtAudience } from './cdp/utils/jwt-utils'
 import { ScopedServiceJwt } from './cdp/utils/scoped-service-jwt'
@@ -275,6 +275,7 @@ export class PluginServer implements NodeServer {
                           rescheduleChunkSize: this.config.CYCLOTRON_NODE_RESCHEDULE_CHUNK_SIZE,
                           rescheduleMaxChunksPerCall: this.config.CYCLOTRON_NODE_RESCHEDULE_MAX_CHUNKS_PER_CALL,
                           rescheduleChunkSleepMs: this.config.CYCLOTRON_NODE_RESCHEDULE_CHUNK_SLEEP_MS,
+                          ...CYCLOTRON_QUEUE_ROLES,
                       })
                     : null
                 const api = new CdpApi(
@@ -410,28 +411,29 @@ export class PluginServer implements NodeServer {
         }
 
         if (capabilities.cdpCyclotronWorkerEmail) {
-            serviceLoaders.push(async () => {
-                // Dedicated queue instance — see note on cdpCyclotronWorkerHogFlow above.
-                // When the SES rate-limiter Valkey is configured, use the rate-limited
-                // variant so dequeue is gated by a Valkey-backed token bucket. Without
-                // the env var (typical for local dev outside k8s) we fall back to the
-                // plain queue and dequeue is unthrottled.
-                //
-                // Fair dequeue (per-team round-robin) is intrinsic to the email queue —
-                // the worker derives it from its queue name — and applies regardless of
-                // whether rate limiting is on.
-                const sesValkey = createSesRateLimiterValkeyPool(this.config)
-                const queue = sesValkey
-                    ? new CyclotronJobQueueRateLimitedPostgresV2(
-                          this.config.CONSUMER_BATCH_SIZE,
-                          this.config,
-                          sesRateLimitedQueueOptions(this.config, sesValkey)
-                      )
-                    : new CyclotronJobQueuePostgresV2(this.config.CONSUMER_BATCH_SIZE, this.config)
-                const worker = new CdpCyclotronWorkerEmail(this.config, this.withEmailActionValkeys(cdpDeps!), queue)
-                await worker.start()
-                return worker.service
-            })
+            for (const EmailWorker of Object.values(EMAIL_QUEUE_CONSUMERS)) {
+                serviceLoaders.push(async () => {
+                    // Dedicated queue instance — see note on cdpCyclotronWorkerHogFlow above.
+                    // When the SES rate-limiter Valkey is configured, use the rate-limited
+                    // variant so dequeue is gated by a Valkey-backed token bucket. Without
+                    // the env var (typical for local dev outside k8s) we fall back to the
+                    // plain queue and dequeue is unthrottled.
+                    //
+                    // Fair dequeue (per-team round-robin) comes from the queue's traits and
+                    // applies regardless of whether rate limiting is on.
+                    const sesValkey = createSesRateLimiterValkeyPool(this.config)
+                    const queue = sesValkey
+                        ? new CyclotronJobQueueRateLimitedPostgresV2(
+                              this.config.CONSUMER_BATCH_SIZE,
+                              this.config,
+                              sesRateLimitedQueueOptions(this.config, sesValkey)
+                          )
+                        : new CyclotronJobQueuePostgresV2(this.config.CONSUMER_BATCH_SIZE, this.config)
+                    const worker = new EmailWorker(this.config, this.withEmailActionValkeys(cdpDeps!), queue)
+                    await worker.start()
+                    return worker.service
+                })
+            }
         }
 
         if (capabilities.cdpCyclotronWorkerEmailSandbox) {
@@ -519,6 +521,7 @@ export class PluginServer implements NodeServer {
                         maxConnections: 10,
                     },
                     queueName: HOGFLOW_BATCH_RESOLVE_QUEUE,
+                    fairDequeueQueues: CYCLOTRON_QUEUE_ROLES.fairDequeueQueues,
                     pollDelayMs: 100,
                     pollDelayMaxMs: this.config.CDP_CYCLOTRON_BATCH_DELAY_MAX_MS,
                     heartbeatTimeoutMs: this.config.CDP_HOG_FLOW_BATCH_AUDIENCE_FETCH_TIMEOUT_MS + 30_000,

@@ -2,13 +2,14 @@ import { parseSeed } from '../cards/schema'
 import { durationMs } from '../duration'
 import { FIRST_START_TIMEOUT_S } from '../environment/stack'
 import { EXIT_CODE } from '../runner/status'
+import { credentialsOf } from '../scorecard/write'
 import { Controller, admit, refuseOutsideDev } from './admission'
 import { awsCli } from './aws'
 import { isCardId, runCardOf } from './card'
 import { awaitCard, lastWorkAt, prepareDatabase, startCard } from './host'
 import { lease, manifestOf } from './lease'
 import { githubOrigin } from './origin'
-import { CloudProfile, ProfileInputs, REGION, TTL_HOURS, loadCloudProfile, loadRunInputs } from './profile'
+import { CloudProfile, CloudRunProfileInputs, REGION, TTL_HOURS, loadCloudProfile, loadRunInputs } from './profile'
 import { report } from './report'
 import { addReader, createRunStack } from './stack'
 import { teardown } from './teardown'
@@ -40,18 +41,37 @@ function defaultController(): Controller {
     return { ...controller, origin: githubOrigin(controller) }
 }
 
-async function run(controller: Controller, inputs: ProfileInputs, cardId: string, seed?: number): Promise<number> {
+async function run(
+    controller: Controller,
+    inputs: CloudRunProfileInputs,
+    cardId: string,
+    seed?: number
+): Promise<number> {
     const { profile } = inputs
     const { min, max, idleMax } = profile.readerAcu
     if (idleMax !== undefined && idleMax < min) {
         throw new Error(`readerAcu.idleMax ${idleMax} is under readerAcu.min ${min}, so no reader could pass it.`)
+    }
+    if (controller.env.SCENARIO_PUBLISH_IN_WORKFLOW !== '1') {
+        const { credentials, problem } = credentialsOf(controller.env)
+        if (!credentials) {
+            controller.warn(`Refused the run: ${problem ?? 'Scenario runs credentials are not set.'}`)
+            return EXIT_CODE.writeFailed
+        }
     }
     const admission = await admit(controller, profile)
     if ('problems' in admission) {
         controller.warn(`Refused the run:\n${admission.problems.map((problem) => `- ${problem}`).join('\n')}`)
         return EXIT_CODE.invalid
     }
-    const card = runCardOf(controller.origin, admission.admitted.commit, cardId, inputs.runner.bytes, seed)
+    const card = runCardOf(
+        controller.origin,
+        admission.admitted.commit,
+        cardId,
+        inputs.runner.bytes,
+        inputs.readAlertFile,
+        seed
+    )
     if (card.failsOver && idleMax === undefined) {
         throw new Error(`${cardId} fails the reader over, so the cloud profile needs readerAcu.idleMax.`)
     }

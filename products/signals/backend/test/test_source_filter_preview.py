@@ -4,6 +4,7 @@ from datetime import timedelta
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -21,6 +22,7 @@ from products.signals.backend.emission.linear_issues import EXTRA_FIELDS, LINEAR
 from products.signals.backend.filter_catalog import SignalFilterSourceDefinition
 from products.signals.backend.filter_catalog_seeds import LINEAR_ISSUE_SEED
 from products.signals.backend.models import SignalSourceConfig
+from products.signals.backend.source_filter_preview import preview_supported
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.testing import create_synced_table_from_rows
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
@@ -378,3 +380,9 @@ class TestSourceFilterValidate(_LinearSourceFilterTest):
         assert validation["catalog_version"] == catalog.active_catalog_version.version
         assert (validation["error"] is None) is validation["valid"]
         assert (validation["error_code"], validation["error_start"], validation["error_end"]) == expected_error
+
+
+class TestPreviewSupported(SimpleTestCase):
+    @parameterized.expand([("linear_issue", "linear", "issue", True), ("github_issue", "github", "issue", False)])
+    def test_preview_supported(self, _name: str, source_product: str, source_type: str, expected: bool) -> None:
+        assert preview_supported(source_product, source_type) is expected

@@ -147,12 +147,13 @@ class SavedPage:
     imported: int
     # Problems with single records that do not fail the step.
     warnings: tuple[str, ...] = ()
-    # Added to the step's totals, by the keys in the step's `count_labels`.
+    # Added to the step's totals. The summary shows only the keys in the step's `count_labels`.
     counts: Mapping[str, int] = field(default_factory=dict)
     items: tuple[ImportItem, ...] = ()
     people_imports: tuple[PeopleImportPlan, ...] = ()
     # Fails the step after the page's own writes commit, and leaves the step's progress as it was.
     error: str | None = None
+    skipped: bool = False
 
 
 @frozen

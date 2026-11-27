@@ -2,6 +2,7 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -246,6 +247,7 @@ describe('signalSourcesLogic', () => {
     ])('does not enable Search Console signals with an %s', async (_name, schemaName) => {
         const createConfig = jest.spyOn(signalsApi, 'signalsSourceConfigsCreate')
         const toastError = jest.spyOn(lemonToast, 'error')
+        const capture = jest.spyOn(posthog, 'capture')
         warehouseSources = [
             {
                 ...githubSource,
@@ -262,9 +264,101 @@ describe('signalSourcesLogic', () => {
 
         expect(createConfig).not.toHaveBeenCalled()
         expect(toastError).toHaveBeenCalledWith(expect.stringContaining('Add the Web search type'))
+        expect(capture).toHaveBeenCalledWith(
+            'Signal source toggle failed',
+            expect.objectContaining({ source_product: 'google_search_console', enabled: true }),
+            undefined
+        )
         expect(logic.values.externalSourceStates.google_search_console.loading).toBe(false)
         createConfig.mockRestore()
         toastError.mockRestore()
+        capture.mockRestore()
+    })
+
+    it.each([
+        {
+            name: 'an incremental cursor when the table has one',
+            incrementalFields: [
+                200,
+                {
+                    incremental_fields: [
+                        { label: 'created_at', type: 'datetime', field: 'created_at', field_type: 'datetime' },
+                        { label: 'updated_at', type: 'datetime', field: 'updated_at', field_type: 'datetime' },
+                    ],
+                    incremental_available: true,
+                    append_available: true,
+                    full_refresh_available: true,
+                    supports_webhooks: false,
+                    available_columns: [],
+                    detected_primary_keys: ['id'],
+                },
+            ],
+            expectedWrite: {
+                should_sync: true,
+                sync_type: 'incremental',
+                incremental_field: 'updated_at',
+                incremental_field_type: 'datetime',
+            },
+        },
+        {
+            name: 'full refresh when the table has no cursor',
+            incrementalFields: [
+                200,
+                {
+                    incremental_fields: [],
+                    incremental_available: false,
+                    append_available: false,
+                    full_refresh_available: true,
+                    supports_webhooks: false,
+                    available_columns: [],
+                    detected_primary_keys: null,
+                },
+            ],
+            expectedWrite: { should_sync: true, sync_type: 'full_refresh' },
+        },
+        {
+            name: 'full refresh when the table fields fail to load',
+            incrementalFields: [400, { message: 'Invalid credentials' }],
+            expectedWrite: { should_sync: true, sync_type: 'full_refresh' },
+        },
+    ])('turns on a table with no sync type using $name', async ({ incrementalFields, expectedWrite }) => {
+        const schemaWrites: unknown[] = []
+        warehouseSources = [
+            {
+                ...githubSource,
+                schemas: [
+                    { ...githubSchema('schema-1', 'org/repo.dependabot_alerts'), should_sync: false, sync_type: null },
+                ],
+            },
+        ]
+        useMocks({
+            post: {
+                '/api/projects/:team_id/signals/source_configs/': () => [
+                    200,
+                    {
+                        ...githubIssuesConfig,
+                        source_product: 'github_dependabot',
+                        source_type: SignalSourceType.ScannerFinding,
+                    },
+                ],
+                '/api/environments/:team_id/external_data_schemas/:id/incremental_fields/': () => incrementalFields,
+            },
+            patch: {
+                '/api/environments/:team_id/external_data_schemas/:id/': async ({ request }) => {
+                    schemaWrites.push(await request.json())
+                    return [200, {}]
+                },
+            },
+        })
+        logic.actions.loadSourceConfigsSuccess([])
+        sourcesDataLogic.actions.loadSourcesSuccess({ results: warehouseSources, next: null, previous: null })
+
+        await expectLogic(logic, () =>
+            logic.actions.initiateDataWarehouseSourceToggle('github_dependabot')
+        ).toFinishAllListeners()
+
+        expect(schemaWrites).toEqual([expectedWrite])
+        expect(logic.values.externalSourceStates.github_dependabot.loading).toBe(false)
     })
 
     it.each(['/inbox', '/inbox/sources'])(

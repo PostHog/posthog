@@ -8,6 +8,7 @@ from posthog.celery_queues import CeleryQueue
 from posthog.egress.limiter.policies import Priority
 from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models import User
+from posthog.models.integration import SlackIntegration
 from posthog.models.scoping import with_team_scope
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 from posthog.scoping_audit import skip_team_scope_audit
@@ -18,11 +19,13 @@ from products.slack_app.backend.api import (
     does_other_region_claim_workspace,
     send_region_proxy_request,
 )
+from products.slack_app.backend.feature_flags import is_slack_app_channel_context_enabled
 from products.slack_app.backend.logic.interview_recruitment import (
     FrustrationInviteRequest,
     linked_posthog_user,
     offer_frustration_invite,
 )
+from products.slack_app.backend.services.channel_metadata import refresh_channel_metadata
 from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration, with_teams
 from products.slack_app.backend.slack_link_unfurl import add_artifact_image_to_unfurl, start_unfurl_charts
 from products.slack_app.backend.temporal.types import SlackUnfurlChartRequest
@@ -72,6 +75,21 @@ def _load_integration(integration_id: int, team_id: int) -> WorkspaceIntegration
         return with_teams([IntegrationManager.slack.oauth.get(team_id, integration_id)])[0]
     except IntegrationNotFound:
         return None
+
+
+@shared_task(ignore_result=True)
+@with_team_scope()
+def refresh_slack_channel_metadata(*, team_id: int, integration_id: int, slack_channel_id: str) -> None:
+    integration = _load_integration(integration_id, team_id)
+    if integration is None or not integration.integration_id:
+        return
+    if not is_slack_app_channel_context_enabled(integration):
+        return
+    refresh_channel_metadata(
+        SlackIntegration(integration, source="slack_app_channel_metadata"),
+        slack_workspace_id=integration.integration_id,
+        slack_channel_id=slack_channel_id,
+    )
 
 
 @shared_task(ignore_result=True)

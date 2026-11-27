@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonCheckbox, LemonModal } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 
 import type { OverviewMetricCardItem } from '~/queries/nodes/OverviewGrid/OverviewMetricCardGrid'
@@ -17,6 +18,7 @@ import {
     toggleOverviewMetric,
 } from './overviewMetricConfiguration'
 import { overviewMetricsLogic } from './overviewMetricsLogic'
+import { QuillOverviewMetricConfigModal } from './QuillOverviewMetricConfigModal'
 
 export function OverviewMetricConfigModal({
     items,
@@ -30,6 +32,28 @@ export function OverviewMetricConfigModal({
     const { closeEditor, applySelection, setDraftSelection } = useActions(logic)
     const draft = draftSelection ?? shownOverviewMetrics(items, selection).map((item) => item.key)
     const full = draft.length >= MAX_OVERVIEW_METRICS
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const handleReset = (): void => setDraftSelection(defaultOverviewMetricSelection(items))
+    const handleApply = (): void => applySelection(draft)
+    const handleMove = (key: string, direction: -1 | 1): void =>
+        setDraftSelection(moveOverviewMetric(draft, key, direction))
+    const handleToggle = (key: string): void => setDraftSelection(toggleOverviewMetric(draft, key))
+
+    if (todayRailNav) {
+        return (
+            <QuillOverviewMetricConfigModal
+                isOpen={editorOpen}
+                onClose={closeEditor}
+                items={items}
+                draft={draft}
+                full={full}
+                onReset={handleReset}
+                onApply={handleApply}
+                onMove={handleMove}
+                onToggle={handleToggle}
+            />
+        )
+    }
 
     return (
         <LemonModal
@@ -39,11 +63,7 @@ export function OverviewMetricConfigModal({
             width={600}
             footer={
                 <div className="flex w-full flex-wrap items-center justify-between gap-2">
-                    <LemonButton
-                        type="secondary"
-                        onClick={() => setDraftSelection(defaultOverviewMetricSelection(items))}
-                        data-attr="marketing-metrics-reset"
-                    >
+                    <LemonButton type="secondary" onClick={handleReset} data-attr="marketing-metrics-reset">
                         Reset to defaults
                     </LemonButton>
                     <div className="flex gap-2">
@@ -52,7 +72,7 @@ export function OverviewMetricConfigModal({
                         </LemonButton>
                         <LemonButton
                             type="primary"
-                            onClick={() => applySelection(draft)}
+                            onClick={handleApply}
                             disabledReason={draft.length === 0 ? 'Choose at least one metric' : undefined}
                             data-attr="marketing-metrics-apply"
                         >
@@ -88,7 +108,7 @@ export function OverviewMetricConfigModal({
                                             ? 'Already at the end'
                                             : undefined
                                     }
-                                    onClick={() => setDraftSelection(moveOverviewMetric(draft, key, direction))}
+                                    onClick={() => handleMove(key, direction)}
                                 />
                             ))}
                         </div>
@@ -114,9 +134,7 @@ export function OverviewMetricConfigModal({
                                             <LemonCheckbox
                                                 checked={checked}
                                                 label={<span className="break-words">{item.key}</span>}
-                                                onChange={() =>
-                                                    setDraftSelection(toggleOverviewMetric(draft, item.key))
-                                                }
+                                                onChange={() => handleToggle(item.key)}
                                                 disabledReason={
                                                     !checked && full
                                                         ? `You can show up to ${MAX_OVERVIEW_METRICS} metrics. Remove one to add another.`

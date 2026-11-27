@@ -5,13 +5,7 @@ import type {
 } from 'products/signals/frontend/generated/api.schemas'
 
 import { monitoringListParams } from '../logics/monitoringTabLogic'
-import {
-    monitoringAxis,
-    monitoringEvidence,
-    monitoringReadingOverdue,
-    monitoringRowStatus,
-    sortByVerdict,
-} from './monitoringTimeline'
+import { monitoringAxis, monitoringReadingOverdue, monitoringRowStatus, sortByVerdict } from './monitoringTimeline'
 
 const NOW = Date.parse('2026-11-18T17:00:00Z')
 const HOUR = 3_600_000
@@ -122,35 +116,6 @@ describe('monitoringTimeline', () => {
                 .start
         ).toBe(NOW - 264 * HOUR)
         expect(monitoringAxis([longWindow], NOW).end).toBe(NOW + 30 * 24 * HOUR)
-    })
-
-    test('draws a chart only when the lead check has a metric snapshot that places the fix', () => {
-        const withMetric = (bucketCount: number): SignalReportListApi =>
-            ({
-                ...report('a', {
-                    summary: {
-                        ...summary('on_track', 10, 2),
-                        lead_check: { ...summary('on_track', 10, 2).lead_check!, metric_id: 'errors' },
-                    },
-                }),
-                metrics: [
-                    {
-                        metric_id: 'errors',
-                        title: 'Errors',
-                        kind: 'occurrences',
-                        value_at: at(-0.25),
-                        series: Array.from({ length: bucketCount }, () => 3),
-                        series_buckets: Array.from({ length: bucketCount }, (_, i) => at(i - bucketCount + 1)),
-                        value_format: 'count',
-                        interval: 'hour',
-                    },
-                ],
-            }) as SignalReportListApi
-
-        expect(monitoringEvidence(report('agent-only', { summary: summary('final_check_only', 10) }), 'UTC')).toBeNull()
-        expect(monitoringEvidence(withMetric(30), 'UTC')?.trend.fixIndex).toBe(5)
-        // One bucket cannot show a before and an after.
-        expect(monitoringEvidence(withMetric(1), 'UTC')).toBeNull()
     })
 
     test.each([

@@ -50,6 +50,7 @@ from products.slack_app.backend.temporal.activities import (
     request_untagged_question_confirmation_activity,
     resolve_posthog_code_slack_command_user_activity,
     run_posthog_slack_inbox_onboarding_activity,
+    run_slack_app_daily_focus_agent_activity,
 )
 from products.slack_app.backend.temporal.activities.report_implementation import (
     finish_slack_report_implementation_activity,
@@ -107,6 +108,7 @@ SLACK_APP_ACTIVITIES: list[ActivityDefinition] = [
     mark_slack_app_message_queued_activity,
     edit_slack_app_onboarding_message_activity,
     find_slack_app_work_focus_activity,
+    run_slack_app_daily_focus_agent_activity,
     claim_due_slack_app_daily_focus_activity,
     index_slack_app_daily_summary_activity,
     offer_slack_app_tool_connections_activity,
@@ -168,6 +170,7 @@ __all__ = [
     "classify_slack_app_model_router_activity",
     "edit_slack_app_onboarding_message_activity",
     "find_slack_app_work_focus_activity",
+    "run_slack_app_daily_focus_agent_activity",
     "claim_due_slack_app_daily_focus_activity",
     "index_slack_app_daily_summary_activity",
     "offer_slack_app_tool_connections_activity",

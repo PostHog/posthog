@@ -1,8 +1,10 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useAsyncActions, useValues } from 'kea'
 
+import { IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonInput, LemonTable } from '@posthog/lemon-ui'
 
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { sourceManagementLogic } from '../logics/sourceManagementLogic'
@@ -12,6 +14,7 @@ export function SelfManagedSourcesTable(): JSX.Element {
     const { filteredSelfManagedTables, searchTerm, databaseLoading, pendingSelfManagedTableIdsLoading } =
         useValues(sourceManagementLogic)
     const { deleteSelfManagedTable, refreshSelfManagedTableSchema, setSearchTerm } = useActions(sourceManagementLogic)
+    const { deleteSelfManagedTables } = useAsyncActions(sourceManagementLogic)
 
     return (
         <div>
@@ -24,6 +27,44 @@ export function SelfManagedSourcesTable(): JSX.Element {
                 loading={databaseLoading || pendingSelfManagedTableIdsLoading}
                 pagination={{ pageSize: 10 }}
                 scrollToTopOnPageChange={false}
+                bulkSelection={{
+                    getKey: (table) => table.id,
+                    rowAriaLabel: (table) => `Select ${table.name}`,
+                    noun: ['table', 'tables'],
+                    clearSelectionKey: searchTerm,
+                    barClassName: 'mb-2',
+                    renderActions: (ctx) => (
+                        <LemonButton
+                            size="small"
+                            type="primary"
+                            status="danger"
+                            icon={<IconTrash />}
+                            data-attr="self-managed-tables-bulk-delete"
+                            onClick={() =>
+                                LemonDialog.open({
+                                    title: `Delete ${pluralize(ctx.selectedCount, 'table', 'tables')}?`,
+                                    description: `Table deletion cannot be undone. All views and joins related to ${pluralize(ctx.selectedCount, 'this table', 'these tables', false)} will be deleted.`,
+                                    shouldAwaitSubmit: true,
+                                    primaryButton: {
+                                        children: 'Delete',
+                                        status: 'danger',
+                                        'data-attr': 'self-managed-tables-bulk-delete-confirm',
+                                        onClick: async () => {
+                                            const tableIds = ctx.selectedKeys
+                                            ctx.clearSelection()
+                                            await deleteSelfManagedTables(tableIds)
+                                        },
+                                    },
+                                    secondaryButton: {
+                                        children: 'Cancel',
+                                    },
+                                })
+                            }
+                        >
+                            Delete
+                        </LemonButton>
+                    ),
+                }}
                 columns={[
                     {
                         width: 0,

@@ -102,6 +102,7 @@ class TestDeepLinks(StripeProvisioningTestBase):
 
         assert res.status_code == 302
         assert res["Location"] == f"/login?next=%2Fproject%2F{self.team.id}"
+        assert "_auth_user_id" not in self.client.session
         assert self.client.get("/api/users/@me/").status_code == 401
 
     def test_deep_link_refused_when_an_access_rule_blocks_the_account(self):

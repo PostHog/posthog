@@ -48,7 +48,6 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "country": "Country the company's headquarters is located in.",
             "owner_id": "Identifier of the Apollo user who owns the account.",
             "created_at": "Time the account was created in Apollo.",
-            "updated_at": "Time the account was last updated — the cursor used for incremental sync.",
         },
     },
     "opportunities": {

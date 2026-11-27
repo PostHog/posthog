@@ -107,6 +107,8 @@ async function redirectToRegionalAuthorize(url: URL, region: Region, kv: KVNames
             putPendingCallback(kv, new URL(callbackUrl).pathname, nonce, {
                 redirect_uri: originalRedirectUri,
                 state: state ?? null,
+                region,
+                client_id: clientId ?? undefined,
             })
         )
         if (clientId) {

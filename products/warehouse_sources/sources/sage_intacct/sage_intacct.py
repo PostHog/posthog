@@ -5,7 +5,13 @@ from urllib.parse import quote
 from requests import Request, Response
 
 from products.warehouse_sources.sources.sage_intacct._config import SageIntacctSourceConfig
-from products.warehouse_sources.sources.sage_intacct.settings import BASE_URL, PAGE_SIZE, TOKEN_URL
+from products.warehouse_sources.sources.sage_intacct.settings import (
+    BASE_URL,
+    PAGE_SIZE,
+    QUERY_ROWS_OBJECTS,
+    QUERY_ROWS_PAGE_SIZE,
+    TOKEN_URL,
+)
 from products.warehouse_sources.sources.sdk import (
     BasePaginator,
     OAuth2Auth,
@@ -85,6 +91,51 @@ def probe_credentials(config: SageIntacctSourceConfig, object_name: str) -> None
         client.session.close()
 
 
+def _model_fields(model: dict[str, Any], prefix: str = "") -> list[str]:
+    fields = [
+        f"{prefix}{name}"
+        for name, spec in (model.get("fields") or {}).items()
+        if not (isinstance(spec, dict) and spec.get("writeOnly"))
+    ]
+    for section in ("groups", "refs"):
+        for name, child in (model.get(section) or {}).items():
+            if isinstance(child, dict):
+                fields.extend(_model_fields(child, f"{prefix}{name}."))
+    return fields
+
+
+def query_fields(client: RESTClient, object_name: str) -> list[str]:
+    for models in client.paginate(
+        "services/core/model",
+        params={"name": object_name},
+        paginator=SinglePagePaginator(),
+        data_selector='["ia::result"]',
+        data_selector_required=True,
+    ):
+        if len(models) != 1 or not isinstance(models[0], dict):
+            raise ValueError("Sage Intacct returned an invalid object model")
+        fields = _model_fields(models[0])
+        if "key" not in fields:
+            raise ValueError("Sage Intacct returned an object model without a key field")
+        return fields
+    raise ValueError("Sage Intacct returned no object model")
+
+
+def _nest(row: dict[str, Any]) -> dict[str, Any]:
+    # The query service returns dotted field names; nest them so rows match the detail endpoint shape.
+    nested: dict[str, Any] = {}
+    for path, value in row.items():
+        *parents, leaf = path.split(".")
+        node = nested
+        for part in parents:
+            child = node.get(part)
+            if not isinstance(child, dict):
+                child = node[part] = {}
+            node = child
+        node[leaf] = value
+    return nested
+
+
 def sage_intacct_rows(
     config: SageIntacctSourceConfig,
     object_name: str,
@@ -94,16 +145,23 @@ def sage_intacct_rows(
     paginator = SageIntacctPaginator(start=state.next_start if state else 1)
     client = make_client(config)
     next_start: int | None = None
+    query_rows = object_name in QUERY_ROWS_OBJECTS
 
     def page_state_hook(next_state: dict[str, Any] | None, has_next_page: bool) -> None:
         nonlocal next_start
         next_start = next_state["next_start"] if next_state is not None else None
 
     try:
+        fields = query_fields(client, object_name) if query_rows else ["key"]
         for references in client.paginate(
             "services/core/query",
             method="POST",
-            json={"object": object_name, "fields": ["key"], "orderBy": [{"key": "asc"}], "size": PAGE_SIZE},
+            json={
+                "object": object_name,
+                "fields": fields,
+                "orderBy": [{"key": "asc"}],
+                "size": QUERY_ROWS_PAGE_SIZE if query_rows else PAGE_SIZE,
+            },
             paginator=paginator,
             data_selector='["ia::result"]',
             data_selector_required=True,
@@ -114,6 +172,9 @@ def sage_intacct_rows(
                 key = reference.get("key") if isinstance(reference, dict) else None
                 if not isinstance(key, str) or not key:
                     raise ValueError("Sage Intacct returned a record without a key")
+                if query_rows:
+                    rows.append(_nest(reference))
+                    continue
                 for records in client.paginate(
                     f"objects/{object_name}/{quote(key, safe='')}",
                     paginator=SinglePagePaginator(),

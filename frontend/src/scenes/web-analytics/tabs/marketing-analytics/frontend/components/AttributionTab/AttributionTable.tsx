@@ -6,6 +6,7 @@ import { useState } from 'react'
 
 import { LemonBanner, LemonTable, LemonTableColumn, LemonTableColumnGroup, Tooltip } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { formatCurrency } from 'lib/utils/currency'
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
@@ -28,6 +29,25 @@ import {
 } from '../../logic/marketingAttributionLogic'
 import { BREAKDOWN_LABELS } from '../../logic/marketingBreakdown'
 import { AttributionChart } from './AttributionChart'
+import { MODELS_IDENTICAL_DISMISS_KEY, QuillAttributionTable } from './QuillAttributionTable'
+
+export interface AttributionNumericColumn {
+    key: string
+    title: string
+    tooltip: string
+    value: (row: MarketingAnalyticsAttributionRow) => number | null
+    format: (value: number) => string
+    sorter: (a: MarketingAnalyticsAttributionRow, b: MarketingAnalyticsAttributionRow) => number
+    fillPercent?: (row: MarketingAnalyticsAttributionRow) => number
+    groupBoundary?: boolean
+}
+
+export interface AttributionColumnGroup {
+    key: string
+    title: string
+    tooltip: string
+    columns: AttributionNumericColumn[]
+}
 
 const modelTooltip = (model: AttributionMode, windowDays: number): string => {
     switch (model) {
@@ -65,6 +85,7 @@ export function AttributionTable({
     const { loadData } = useActions(logic)
     const { breakdownBy, effectiveLookbackDays } = useValues(marketingAttributionLogic)
     const { baseCurrency } = useValues(teamLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     useAttachedLogic(logic, attachTo)
 
     const attributionResponse = response as MarketingAnalyticsAttributionQueryResponse | undefined
@@ -84,154 +105,115 @@ export function AttributionTable({
     // One scale across every conversions column is what makes bar lengths comparable between models.
     const maxInfluenced = Math.max(0, ...rows.map((row) => row.influencedConversions))
 
-    const buildColumns = (): LemonTableColumnGroup<MarketingAnalyticsAttributionRow>[] => {
-        const numericColumn = (
-            title: string,
-            tooltip: string,
-            value: (row: MarketingAnalyticsAttributionRow) => number | null,
-            format: (value: number) => string,
-            key: string,
-            options?: { withMagnitudeBar?: boolean; groupBoundary?: boolean }
-        ): LemonTableColumn<MarketingAnalyticsAttributionRow, keyof MarketingAnalyticsAttributionRow | undefined> => ({
-            title,
-            tooltip,
-            key,
-            align: 'right',
-            render: (_, row) => {
-                const raw = value(row)
-                return raw === null ? <span className="text-secondary">-</span> : format(raw)
-            },
-            sorter: (a, b) => (value(a) ?? -1) - (value(b) ?? -1),
-            className: clsx(
-                options?.withMagnitudeBar && 'AttributionTable__magnitude-cell',
-                options?.groupBoundary && 'AttributionTable__group-boundary'
-            ),
-            ...(options?.withMagnitudeBar
-                ? {
-                      style: (_, row) =>
-                          ({
-                              '--attribution-fill': `${
-                                  maxInfluenced > 0 ? Math.round(((value(row) ?? 0) / maxInfluenced) * 100) : 0
-                              }%`,
-                          }) as React.CSSProperties,
-                  }
-                : {}),
-        })
+    const numericColumn = (
+        title: string,
+        tooltip: string,
+        value: (row: MarketingAnalyticsAttributionRow) => number | null,
+        format: (value: number) => string,
+        key: string,
+        options?: { withMagnitudeBar?: boolean; groupBoundary?: boolean }
+    ): AttributionNumericColumn => ({
+        title,
+        tooltip,
+        key,
+        value,
+        format,
+        sorter: (a, b) => (value(a) ?? -1) - (value(b) ?? -1),
+        groupBoundary: options?.groupBoundary,
+        ...(options?.withMagnitudeBar
+            ? {
+                  fillPercent: (row: MarketingAnalyticsAttributionRow): number =>
+                      maxInfluenced > 0 ? Math.round(((value(row) ?? 0) / maxInfluenced) * 100) : 0,
+              }
+            : {}),
+    })
 
-        return [
-            {
-                children: [
-                    {
-                        title: dimensionLabel,
-                        key: 'breakdown_value',
-                        render: (_, row) => (
-                            <span className="font-medium">
-                                {row.breakdownValue || <span className="text-secondary">(none)</span>}
-                            </span>
-                        ),
-                        sorter: (a, b) => a.breakdownValue.localeCompare(b.breakdownValue),
-                    },
-                ],
-            },
-            {
-                title: (
-                    <Tooltip
-                        title={`Every visitor and conversion that touched this ${dimensionLabel.toLowerCase()} at least once inside the ${windowDays}-day attribution window. One conversion can be influenced by several of them, so these columns add up to more than your total conversions.`}
-                    >
-                        <span>Influenced</span>
-                    </Tooltip>
+    const columnGroups: AttributionColumnGroup[] = [
+        {
+            key: 'influenced',
+            title: 'Influenced',
+            tooltip: `Every visitor and conversion that touched this ${dimensionLabel.toLowerCase()} at least once inside the ${windowDays}-day attribution window. One conversion can be influenced by several of them, so these columns add up to more than your total conversions.`,
+            columns: [
+                numericColumn(
+                    'Visitors',
+                    `People who arrived via this ${dimensionLabel.toLowerCase()}, whether or not they converted. Counts arrivals up to ${windowDays} days before the date range, since those visits can still earn credit for conversions in it.`,
+                    (row) => row.visitors,
+                    (value) => humanFriendlyNumber(value),
+                    'visitors',
+                    { groupBoundary: true }
                 ),
-                children: [
-                    numericColumn(
-                        'Visitors',
-                        `People who arrived via this ${dimensionLabel.toLowerCase()}, whether or not they converted. Counts arrivals up to ${windowDays} days before the date range, since those visits can still earn credit for conversions in it.`,
-                        (row) => row.visitors,
-                        (value) => humanFriendlyNumber(value),
-                        'visitors',
-                        { groupBoundary: true }
-                    ),
-                    numericColumn(
-                        'Conversions',
-                        'Conversions with at least one touchpoint here. Counted once per conversion.',
-                        (row) => row.influencedConversions,
-                        (value) => humanFriendlyNumber(value),
-                        'influenced_conversions',
-                        { withMagnitudeBar: true }
-                    ),
-                    numericColumn(
-                        rateLabel,
-                        countsRepeatConversions
-                            ? `Conversions this ${dimensionLabel.toLowerCase()} influenced, per visitor it brought. Above 1x when people convert more than once.`
-                            : `The share of this ${dimensionLabel.toLowerCase()}'s visitors who went on to convert, whichever touchpoint gets the credit.`,
-                        (row) => (row.visitors > 0 ? row.influencedConversions / row.visitors : null),
-                        formatRate,
-                        'influenced_rate'
-                    ),
-                    ...(hasValue
-                        ? [
-                              numericColumn(
-                                  'Value',
-                                  'Full value of every influenced conversion, also counted in full against the other rows that influenced it.',
-                                  (row) => row.influencedValue,
-                                  (value) => formatCurrency(value, baseCurrency),
-                                  'influenced_value'
-                              ),
-                          ]
-                        : []),
-                ],
-            },
-            ...models.map((model, index) => ({
-                title: (
-                    <Tooltip title={modelTooltip(model, windowDays)}>
-                        <span>{MODEL_LABELS[model]}</span>
-                    </Tooltip>
+                numericColumn(
+                    'Conversions',
+                    'Conversions with at least one touchpoint here. Counted once per conversion.',
+                    (row) => row.influencedConversions,
+                    (value) => humanFriendlyNumber(value),
+                    'influenced_conversions',
+                    { withMagnitudeBar: true }
                 ),
-                children: [
-                    numericColumn(
-                        'Conversions',
-                        `Conversions credited to this ${dimensionLabel.toLowerCase()} by the ${MODEL_LABELS[
-                            model
-                        ].toLowerCase()} model. Fractional when credit is shared across touchpoints.`,
-                        (row) => row.models[index]?.conversions ?? null,
-                        // Multi-touch credit is fractional; whole numbers make linear look identical to
-                        // last touch at low volumes.
-                        (value) => humanFriendlyNumber(value, 1),
-                        `${model}_conversions`,
-                        { withMagnitudeBar: true, groupBoundary: true }
-                    ),
-                    numericColumn(
-                        rateLabel,
-                        'Conversions credited by this model, divided by visitors. The denominator is the same for every model, so the columns are directly comparable.',
-                        (row) => row.models[index]?.conversionRate ?? null,
-                        formatRate,
-                        `${model}_rate`
-                    ),
-                    ...(hasValue
-                        ? [
-                              numericColumn(
-                                  'Value',
-                                  `Conversion value credited to this ${dimensionLabel.toLowerCase()} by the ${MODEL_LABELS[
-                                      model
-                                  ].toLowerCase()} model.`,
-                                  (row) => row.models[index]?.conversionValue ?? null,
-                                  (value) => formatCurrency(value, baseCurrency),
-                                  `${model}_value`
-                              ),
-                          ]
-                        : []),
-                ],
-            })),
-        ]
-    }
-
-    const columns = buildColumns().map((group) => ({
+                numericColumn(
+                    rateLabel,
+                    countsRepeatConversions
+                        ? `Conversions this ${dimensionLabel.toLowerCase()} influenced, per visitor it brought. Above 1x when people convert more than once.`
+                        : `The share of this ${dimensionLabel.toLowerCase()}'s visitors who went on to convert, whichever touchpoint gets the credit.`,
+                    (row) => (row.visitors > 0 ? row.influencedConversions / row.visitors : null),
+                    formatRate,
+                    'influenced_rate'
+                ),
+                ...(hasValue
+                    ? [
+                          numericColumn(
+                              'Value',
+                              'Full value of every influenced conversion, also counted in full against the other rows that influenced it.',
+                              (row) => row.influencedValue,
+                              (value) => formatCurrency(value, baseCurrency),
+                              'influenced_value'
+                          ),
+                      ]
+                    : []),
+            ],
+        },
+        ...models.map((model, index) => ({
+            key: model,
+            title: MODEL_LABELS[model],
+            tooltip: modelTooltip(model, windowDays),
+            columns: [
+                numericColumn(
+                    'Conversions',
+                    `Conversions credited to this ${dimensionLabel.toLowerCase()} by the ${MODEL_LABELS[
+                        model
+                    ].toLowerCase()} model. Fractional when credit is shared across touchpoints.`,
+                    (row) => row.models[index]?.conversions ?? null,
+                    // Multi-touch credit is fractional; whole numbers make linear look identical to
+                    // last touch at low volumes.
+                    (value) => humanFriendlyNumber(value, 1),
+                    `${model}_conversions`,
+                    { withMagnitudeBar: true, groupBoundary: true }
+                ),
+                numericColumn(
+                    rateLabel,
+                    'Conversions credited by this model, divided by visitors. The denominator is the same for every model, so the columns are directly comparable.',
+                    (row) => row.models[index]?.conversionRate ?? null,
+                    formatRate,
+                    `${model}_rate`
+                ),
+                ...(hasValue
+                    ? [
+                          numericColumn(
+                              'Value',
+                              `Conversion value credited to this ${dimensionLabel.toLowerCase()} by the ${MODEL_LABELS[
+                                  model
+                              ].toLowerCase()} model.`,
+                              (row) => row.models[index]?.conversionValue ?? null,
+                              (value) => formatCurrency(value, baseCurrency),
+                              `${model}_value`
+                          ),
+                      ]
+                    : []),
+            ],
+        })),
+    ].map((group) => ({
         ...group,
-        children:
-            metric === 'revenue'
-                ? group.children.filter(
-                      (column) => column.key === 'breakdown_value' || String(column.key).endsWith('_value')
-                  )
-                : group.children,
+        columns: metric === 'revenue' ? group.columns.filter((column) => column.key.endsWith('_value')) : group.columns,
     }))
 
     if (responseError) {
@@ -258,10 +240,79 @@ export function AttributionTable({
             return Math.max(...conversions) - Math.min(...conversions) < 0.05
         })
 
+    if (todayRailNav) {
+        return (
+            <QuillAttributionTable
+                metric={metric}
+                rows={rows}
+                models={models}
+                columnGroups={columnGroups}
+                dimensionLabel={dimensionLabel}
+                loading={responseLoading}
+                allModelsAgree={allModelsAgree}
+                unattributed={unattributed}
+                totalConversions={totalConversions}
+                windowDays={windowDays}
+            />
+        )
+    }
+
+    const toLemonColumn = (
+        column: AttributionNumericColumn
+    ): LemonTableColumn<MarketingAnalyticsAttributionRow, keyof MarketingAnalyticsAttributionRow | undefined> => {
+        const { fillPercent } = column
+        return {
+            title: column.title,
+            tooltip: column.tooltip,
+            key: column.key,
+            align: 'right',
+            render: (_, row) => {
+                const raw = column.value(row)
+                return raw === null ? <span className="text-secondary">-</span> : column.format(raw)
+            },
+            sorter: column.sorter,
+            className: clsx(
+                fillPercent && 'AttributionTable__magnitude-cell',
+                column.groupBoundary && 'AttributionTable__group-boundary'
+            ),
+            ...(fillPercent
+                ? {
+                      style: (_: unknown, row: MarketingAnalyticsAttributionRow) =>
+                          ({ '--attribution-fill': `${fillPercent(row)}%` }) as React.CSSProperties,
+                  }
+                : {}),
+        }
+    }
+
+    const columns: LemonTableColumnGroup<MarketingAnalyticsAttributionRow>[] = [
+        {
+            children: [
+                {
+                    title: dimensionLabel,
+                    key: 'breakdown_value',
+                    render: (_, row) => (
+                        <span className="font-medium">
+                            {row.breakdownValue || <span className="text-secondary">(none)</span>}
+                        </span>
+                    ),
+                    sorter: (a, b) => a.breakdownValue.localeCompare(b.breakdownValue),
+                },
+            ],
+        },
+        ...columnGroups.map((group) => ({
+            title: (
+                <Tooltip title={group.tooltip}>
+                    <span>{group.title}</span>
+                </Tooltip>
+            ),
+            children: group.columns.map(toLemonColumn),
+        })),
+    ]
+
     return (
         <div className="flex flex-col gap-4">
             {!responseLoading && allModelsAgree && (
-                <LemonBanner type="info" dismissKey="marketing-attribution-models-identical">
+                <LemonBanner type="info" dismissKey={MODELS_IDENTICAL_DISMISS_KEY}>
                     Every model reports the same credit for this goal. That usually means people convert in their first
                     session, so each conversion has a single touchpoint and there is nothing to split. Goals that happen
                     later in the journey, like signing up or paying, show how the models differ.

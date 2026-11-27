@@ -69,11 +69,14 @@ class WarehouseNativeQueryBuilder:
         date_to: datetime,
         multiple_variant_handling: MultipleVariantHandling,
         metric: ExperimentMeanMetric | ExperimentRatioMetric | None = None,
+        excluded_variants: tuple[str, ...] = (),
     ):
-        """Without a metric the builder can only build the exposures statement."""
+        """Without a metric the builder can only build the exposures statement. `excluded_variants` are the variants
+        of the flag that the experiment leaves out on purpose: their rows don't count, and they aren't unknown."""
         self.exposure = exposure
         self.metric = metric
         self.variants = variants
+        self.excluded_variants = excluded_variants
         self.date_from = date_from
         self.date_to = date_to
         self.multiple_variant_handling = multiple_variant_handling
@@ -311,14 +314,15 @@ ORDER BY 1, 2"""
         the flag does not serve is counted by the value seen, so the user can spot a misspelt variant. The window
         bounds the scan as it does for the exposures statement, so a table with years of history is not read in
         full. The customer's query runs once: every reason comes from one pass over its rows, and the cap on the
-        values is applied after."""
+        values is applied after. Each row also carries the total of its reason, so the capped values don't hide how
+        many rows the reason left out."""
         rows = f"{self._prefix}exposure_rows"
         left_out = f"{self._prefix}left_out"
         counts = f"{self._prefix}left_out_counts"
         # The cap applies to the unknown variant values only, so a flood of them cannot push out another reason.
         max_unknown = 50
-        variants = ", ".join(_string_literal(variant_key) for variant_key in self.variants)
-        unknown_variant = f"({rows}.variant IS NULL OR {rows}.variant NOT IN ({variants}))"
+        known = ", ".join(_string_literal(variant_key) for variant_key in (*self.variants, *self.excluded_variants))
+        unknown_variant = f"({rows}.variant IS NULL OR {rows}.variant NOT IN ({known}))"
         return f"""WITH {",\n".join(self._exposure_row_ctes())},
 {left_out} AS (
     SELECT
@@ -343,7 +347,8 @@ ORDER BY 1, 2"""
 SELECT
     {counts}.reason AS reason,
     {counts}.value AS value,
-    {counts}.row_count AS row_count
+    {counts}.row_count AS row_count,
+    SUM({counts}.row_count) OVER (PARTITION BY {counts}.reason) AS reason_row_count
 FROM {counts}
 QUALIFY {counts}.reason != 'unknown_variant'
     OR ROW_NUMBER() OVER (PARTITION BY {counts}.reason ORDER BY {counts}.row_count DESC) <= {max_unknown}

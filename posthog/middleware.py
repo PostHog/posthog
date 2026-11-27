@@ -17,6 +17,7 @@ from django.conf import settings
 from django.contrib import auth
 from django.contrib.auth import BACKEND_SESSION_KEY, logout
 from django.contrib.auth.middleware import AuthenticationMiddleware as DjangoAuthenticationMiddleware
+from django.contrib.auth.models import AnonymousUser
 from django.core.cache import cache
 from django.core.exceptions import MiddlewareNotUsed
 from django.db import (
@@ -703,10 +704,13 @@ class CHQueries:
         start = time.perf_counter()
         # Stays "error" if get_response raises — observed in the finally below.
         status_class = "error"
+        drf_request: object | None = None
 
         try:
             response: HttpResponse = self.get_response(request)
             status_class = f"{response.status_code // 100}xx"
+            # A DRF response keeps the view's request, which knows the authenticator and the parsed body.
+            drf_request = (getattr(response, "renderer_context", None) or {}).get("request")
             if get_query_tag_value("is_scout_experiment") is True:
                 response["X-PostHog-Suppress-Analytics"] = "true"
             # Lets the frontend put the id on its failure analytics, which then join to this request's logs.
@@ -738,7 +742,7 @@ class CHQueries:
                     access_method=get_query_tag_value("access_method") or "",
                     status_class=status_class,
                 ).observe(time.perf_counter() - start)
-                record_scope_usage(request, route=api_route, status_class=status_class)
+                record_scope_usage(request, route=api_route, status_class=status_class, drf_request=drf_request)
             reset_query_tags()
 
     def process_view(
@@ -1335,17 +1339,23 @@ def get_impersonated_session_expires_at(request: HttpRequest) -> Optional[dateti
     return min(idle_expiry_time, total_expiry_time)
 
 
+def _human_or_anonymous(user: Any) -> Any:
+    if isinstance(user, User) and not user.is_human:
+        return AnonymousUser()
+    return user
+
+
 def _get_session_user(request: HttpRequest) -> Any:
     if not hasattr(request, "_cached_user"):
         with User.objects.joining_current_organization():
-            setattr(request, "_cached_user", auth.get_user(request))  # noqa: B010
+            setattr(request, "_cached_user", _human_or_anonymous(auth.get_user(request)))  # noqa: B010
     return getattr(request, "_cached_user")  # noqa: B009
 
 
 async def _aget_session_user(request: HttpRequest) -> Any:
     if not hasattr(request, "_acached_user"):
         with User.objects.joining_current_organization():
-            setattr(request, "_acached_user", await auth.aget_user(request))  # noqa: B010
+            setattr(request, "_acached_user", _human_or_anonymous(await auth.aget_user(request)))  # noqa: B010
     return getattr(request, "_acached_user")  # noqa: B009
 
 
@@ -1390,7 +1400,7 @@ class AdminImpersonationMiddleware:
     def __call__(self, request: HttpRequest):
         if self._should_swap_user(request):
             original_user = get_original_user_from_session(request)
-            if original_user and original_user.is_active and original_user.is_staff:
+            if original_user and original_user.is_active and original_user.is_staff and original_user.is_human:
                 request.user = original_user
                 # Keep the lazy auth-middleware cache in sync with the swapped user.
                 request._cached_user = original_user  # type: ignore[attr-defined]
