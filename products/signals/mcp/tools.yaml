@@ -1019,10 +1019,10 @@ tools:
             idempotent: true
         title: Preview inbox alert name patterns
         description: >
-            Try the proposed allow and block patterns together before updating the product analytics source. Include
-            any saved patterns you intend to keep. An omitted list is empty. The preview checks the alert and insight
-            names for up to 100 of the newest enabled alerts you can view. Inspect each alert's outcome, check
-            `has_more` for additional alerts, and correct any pattern errors before saving. Saves nothing.
+            Try the proposed allow and block patterns together before updating the product analytics source. Include any
+            saved patterns you intend to keep. An omitted list is empty. The preview checks the alert and insight names
+            for up to 100 of the newest enabled alerts you can view. Inspect each alert's outcome, check `has_more` for
+            additional alerts, and correct any pattern errors before saving. Saves nothing.
         feature_flag: signals-analytics-all-alerts
     inbox-source-configs-create:
         operation: signals_source_configs_create
