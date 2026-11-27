@@ -14,13 +14,15 @@ from posthog.temporal.health_checks.rollups.freshness import RollupWindow
 from products.web_analytics.backend.models.health_rollups import EventsHealthDaily
 from products.web_analytics.backend.temporal.health_checks.rollup_reads import events_health_totals
 
-# A week-wide window, wider than the daily schedule. A project with intermittent browser
-# traffic keeps at least one browser event in the window across single zero-traffic days,
+# A week-wide window, wider than the daily schedule. A project with intermittent web
+# traffic keeps at least one pageview in the window across single zero-traffic days,
 # so its verdict stays stable instead of flapping resolved-then-firing day to day.
 REVERSE_PROXY_LOOKBACK_DAYS = 7
-# Judge a team only when the window holds this many browser events. Below it, the query
-# cannot tell "no reverse proxy" apart from "not enough browser traffic to know".
-REVERSE_PROXY_MIN_BROWSER_EVENTS = 50
+# Judge a team only when the window holds this many pageviews. Below it, the query
+# cannot tell "no reverse proxy" apart from "not enough web traffic to know".
+# The check reads only $pageview because the mobile SDKs that send $screen do not set
+# $lib_custom_api_host, so their events look unproxied even behind a reverse proxy.
+REVERSE_PROXY_MIN_PAGEVIEWS = 50
 
 
 class ReverseProxyCheck(RollupHealthCheck):
@@ -67,7 +69,7 @@ class ReverseProxyCheck(RollupHealthCheck):
             description=(
                 "PostHog isn't receiving events through a reverse proxy for this project. "
                 "Without one, ad blockers can silently drop a meaningful share of "
-                "`$pageview` / `$screen` events, undercounting traffic and skewing web analytics. "
+                "`$pageview` events, undercounting traffic and skewing web analytics. "
                 "Recommend serving capture from a first-party domain via a reverse proxy."
             ),
             weight=_SEVERITY_WEIGHT[issue.severity],
@@ -78,7 +80,7 @@ class ReverseProxyCheck(RollupHealthCheck):
         return {
             team_id: [_reverse_proxy_result()]
             for team_id, totals in events_health_totals(team_ids, window).items()
-            if totals.browser_events >= REVERSE_PROXY_MIN_BROWSER_EVENTS and totals.proxied_browser_events == 0
+            if totals.pageviews >= REVERSE_PROXY_MIN_PAGEVIEWS and totals.proxied_pageviews == 0
         }
 
 

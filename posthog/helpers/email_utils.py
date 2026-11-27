@@ -219,11 +219,15 @@ def sanitize_email_string(value: str) -> str:
     """
     normalized = unicodedata.normalize("NFKC", value)
     cleaned = _INVISIBLE_CHAR_RE.sub("", normalized)
-    escaped = html.escape(cleaned)
+    return defang_urls(html.escape(cleaned))
+
+
+def defang_urls(value: str) -> str:
+    """Step 4 of `sanitize_email_string` alone, for text that is already HTML-escaped or is not HTML."""
     # No `.` or `:` means neither regex can match — skip the two passes.
-    if "." not in escaped and ":" not in escaped:
-        return escaped
-    defanged = _URL_SCHEME_RE.sub(_defang_match, escaped)
+    if "." not in value and ":" not in value:
+        return value
+    defanged = _URL_SCHEME_RE.sub(_defang_match, value)
     return _BARE_DOMAIN_RE.sub(_defang_match, defanged)
 
 

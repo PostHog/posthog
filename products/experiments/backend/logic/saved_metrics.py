@@ -12,6 +12,8 @@ from posthog.paging import Page, PageRequest
 from posthog.queryset_paging import select_page
 
 from products.experiments.backend.facade.contracts import ListAccess, SavedMetricListFilters
+from products.experiments.backend.facade.enums import SharedMetricType
+from products.experiments.backend.logic.list_access import visible_saved_metrics, visible_to
 from products.experiments.backend.metric_utils import filter_metric_group_ids_by_event
 from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric
 
@@ -25,17 +27,6 @@ def with_relations(queryset: QuerySet[ExperimentSavedMetric]) -> QuerySet[Experi
     )
 
 
-def visible_to[M: (ExperimentSavedMetric, Experiment)](queryset: QuerySet[M], access: ListAccess | None) -> QuerySet[M]:
-    # The same narrowing `UserAccessControl.filter_queryset_by_access_level` applies to a queryset list.
-    if access is None:
-        return queryset
-    if access.only_allowed:
-        return queryset.filter(Q(id__in=access.allowed_ids) | Q(created_by_id=access.viewer_id))
-    if access.blocked_ids:
-        return queryset.exclude(Q(id__in=access.blocked_ids) & ~Q(created_by_id=access.viewer_id))
-    return queryset
-
-
 def _matching_search(
     queryset: QuerySet[ExperimentSavedMetric], search_terms: Sequence[str]
 ) -> QuerySet[ExperimentSavedMetric]:
@@ -46,12 +37,31 @@ def _matching_search(
     return queryset.filter(Exists(matching))
 
 
+def _type_filter(metric_type: SharedMetricType) -> Q:
+    if metric_type == SharedMetricType.TREND:
+        # Only legacy trend metrics carry the "Trend" type label. The new engine has no trend type.
+        return Q(query__kind="ExperimentTrendsQuery")
+    type_filter = Q(query__kind="ExperimentMetric", query__metric_type=metric_type.value)
+    if metric_type == SharedMetricType.FUNNEL:
+        # The list shows legacy funnel metrics with the same "Funnel" type label.
+        type_filter |= Q(query__kind="ExperimentFunnelsQuery")
+    return type_filter
+
+
 def list_page(
     *, team: Team, filters: SavedMetricListFilters, access: ListAccess | None, page: PageRequest
 ) -> Page[ExperimentSavedMetric]:
-    queryset = visible_to(ExperimentSavedMetric.objects.filter(team_id=team.id), access)
+    queryset = visible_saved_metrics(team.id, access)
     if filters.search_terms:
         queryset = _matching_search(queryset, filters.search_terms)
+    if filters.created_by_ids:
+        queryset = queryset.filter(created_by_id__in=filters.created_by_ids)
+    if filters.tags:
+        # An ID subquery keeps a metric with several matching tags to one row.
+        tagged = ExperimentSavedMetric.objects.filter(team_id=team.id, tagged_items__tag__name__in=filters.tags)
+        queryset = queryset.filter(pk__in=tagged.values("pk"))
+    if filters.metric_type:
+        queryset = queryset.filter(_type_filter(filters.metric_type))
     if filters.event:
         # Event references live deep in the query JSON, so the match runs in Python over the candidate rows.
         groups = [(pk, [query] if query else []) for pk, query in queryset.order_by().values_list("pk", "query")]

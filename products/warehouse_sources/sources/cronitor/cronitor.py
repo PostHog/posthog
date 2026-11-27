@@ -1,6 +1,6 @@
 import time
 from collections.abc import Callable, Iterator
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 from urllib.parse import quote, urlencode, urlsplit, urlunsplit
 
@@ -20,11 +20,15 @@ from products.warehouse_sources.sources.cronitor.settings import (
     PAGE_SIZE,
     PAGINATED_LIST_ENDPOINTS,
     SITE_ERRORS_ENDPOINT,
+    SITE_METRICS_FIELDS,
+    SITE_METRICS_LOOKBACK_DAYS,
+    SITE_METRICS_WINDOW_DAYS,
     CronitorListEndpoint,
 )
 from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SourceResponse,
+    format_datetime,
     frozen,
     make_tracked_session,
     retry_with_deadline,
@@ -46,9 +50,10 @@ class CronitorResumeConfig:
     # invocations: stable key bookmark of the next monitor to fan out into (not a positional
     # index, so monitors added/removed between a crash and the retry can't shift the resume point).
     monitor_key: str | None = None
-    # metrics: Unix start of the next time window to fetch.
+    # metrics and site_daily_metrics: Unix start of the next time window to fetch.
     window_start: int | None = None
-    # site_errors: stable key bookmark of the next site to fan out into, paired with `page`.
+    # site_errors and site_daily_metrics: stable key bookmark of the next site to fan out into,
+    # paired with `page` or `window_start`.
     site_key: str | None = None
 
 
@@ -92,7 +97,21 @@ def _coerce_epoch(value: Any) -> int | None:
 def _fetch(session: requests.Session, url: str, api_key: str, logger: FilteringBoundLogger) -> Any:
     # HTTP Basic auth: API key as the username, empty password.
     response = session.get(url, auth=(api_key, ""), headers={"Accept": "application/json"}, timeout=60)
+    return _parse_response(response, url, logger)
 
+
+@retry_with_deadline(
+    retry=retry_if_exception_type((CronitorRetryableError, requests.ReadTimeout, requests.ConnectionError)),
+    stop=stop_after_attempt(5),
+    wait=wait_exponential_jitter(initial=1, max=30),
+    reraise=True,
+)
+def _post(session: requests.Session, url: str, api_key: str, logger: FilteringBoundLogger, body: dict[str, Any]) -> Any:
+    response = session.post(url, auth=(api_key, ""), headers={"Accept": "application/json"}, json=body, timeout=60)
+    return _parse_response(response, url, logger)
+
+
+def _parse_response(response: requests.Response, url: str, logger: FilteringBoundLogger) -> Any:
     # Cronitor rate limits with 429 (exact limits undocumented); transient 5xx are retryable too.
     if response.status_code == 429 or response.status_code >= 500:
         raise CronitorRetryableError(f"Cronitor API error (retryable): status={response.status_code}, url={url}")
@@ -436,6 +455,91 @@ def _get_metric_rows(
         resumable_source_manager.save_state(CronitorResumeConfig(window_start=start))
 
 
+def _day_start(epoch: int) -> datetime:
+    return datetime.fromtimestamp(epoch, UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def _get_site_metric_rows(
+    session: requests.Session,
+    api_key: str,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[CronitorResumeConfig],
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+) -> Iterator[list[dict[str, Any]]]:
+    """Fan out over every RUM site, reading daily analytics buckets in fixed time windows."""
+    site_keys = _list_site_keys(session, api_key, logger)
+    if not site_keys:
+        return
+
+    now_epoch = int(time.time())
+    now = datetime.fromtimestamp(now_epoch, UTC)
+    today = _day_start(now_epoch)
+    floor = today - timedelta(days=SITE_METRICS_LOOKBACK_DAYS)
+
+    last_value = _coerce_epoch(db_incremental_field_last_value) if should_use_incremental_field else None
+    # The newest bucket was still filling when it was read, so read it again with the day before it.
+    start = _day_start(last_value) - timedelta(days=1) if last_value is not None else floor
+    # Keep every window at least one day long, so the day bucket always fits the range.
+    start = min(max(start, floor), today - timedelta(days=1))
+
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    remaining = site_keys
+    first_start = start
+    if resume is not None and resume.site_key in site_keys and resume.window_start is not None:
+        remaining = site_keys[site_keys.index(resume.site_key) :]
+        first_start = max(datetime.fromtimestamp(resume.window_start, UTC), floor)
+        logger.debug(f"Cronitor: resuming site metrics from site {resume.site_key} window {resume.window_start}")
+
+    window = timedelta(days=SITE_METRICS_WINDOW_DAYS)
+    for index, site_key in enumerate(remaining):
+        window_start = first_start if index == 0 else start
+        while window_start < now:
+            window_end = window_start + window
+            # Fold a short tail into this window rather than send a range under one day.
+            if now - window_end < timedelta(days=2):
+                window_end = now
+            body = {
+                "site": site_key,
+                "kind": "timeseries",
+                "aggregate": list(SITE_METRICS_FIELDS),
+                "time": "custom",
+                "start": format_datetime(window_start, "iso_z"),
+                "end": format_datetime(window_end, "iso_z"),
+                "time_bucket": "day",
+                "timezone": "UTC",
+            }
+            try:
+                data = _post(session, f"{BASE_URL}/sites/query", api_key, logger, body)
+            except requests.HTTPError as exc:
+                # A site deleted between enumeration and this query 404s; skip the rest of it.
+                if exc.response is not None and exc.response.status_code == 404:
+                    logger.warning(f"Cronitor: site {site_key} not found while querying analytics, skipping")
+                    break
+                raise
+
+            points = data.get("data") if isinstance(data, dict) else None
+            if not isinstance(points, list):
+                raise CronitorResponseShapeError(
+                    "Cronitor returned an unexpected response shape for /sites/query: no list under 'data'"
+                )
+            rows = [{**point, "site_key": site_key} for point in points if isinstance(point, dict) and point.get("ts")]
+
+            if window_end < now:
+                resumable_source_manager.save_state(
+                    CronitorResumeConfig(site_key=site_key, window_start=int(window_end.timestamp()))
+                )
+            elif index + 1 < len(remaining):
+                resumable_source_manager.save_state(
+                    CronitorResumeConfig(site_key=remaining[index + 1], window_start=int(start.timestamp()))
+                )
+            if rows:
+                yield rows
+            else:
+                resumable_source_manager.safe_point()
+            window_start = window_end
+
+
 def get_rows(
     api_key: str,
     endpoint: str,
@@ -454,6 +558,15 @@ def get_rows(
         yield from _get_paginated_rows(session, api_key, logger, resumable_source_manager, endpoint)
     elif endpoint == "site_errors":
         yield from _get_site_error_rows(session, api_key, logger, resumable_source_manager)
+    elif endpoint == "site_daily_metrics":
+        yield from _get_site_metric_rows(
+            session,
+            api_key,
+            logger,
+            resumable_source_manager,
+            should_use_incremental_field,
+            db_incremental_field_last_value,
+        )
     elif endpoint == "invocations":
         yield from _get_invocation_rows(session, api_key, logger, resumable_source_manager)
     elif endpoint == "metrics":

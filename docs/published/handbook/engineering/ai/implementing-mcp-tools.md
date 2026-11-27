@@ -378,7 +378,8 @@ The server's tool instructions resolve an ambiguous target project before skill 
 
 Claude web and desktop silently drop a tool when its serialized `inputSchema` reaches 16,384 characters, so the final `exec` input schema has a test budget below that limit.
 Keep only guidance needed on nearly every call inline, including the compact tool-domain index.
-Everything else belongs in the `learn` catalog: Claude web and desktop guides, and, behind the `mcp-exec-skills` flag, PostHog and project skills.
+Everything else belongs in the `learn` catalog: the built-in guides, and, behind the `mcp-exec-skills` flag, PostHog and project skills.
+Every other cli client except the PostHog Code consumer gets the same compact `exec` schema with the built-in guides, so guidance moved behind `learn` reaches them too.
 Skill names, descriptions, and bodies never go into the tool schema; agents discover them with `learn -s "<query>"` and read them with `learn <source>:<skill> [path]`.
 Project skill search applies the caller's per-skill read permissions before ranking and limiting results; restricted skills contribute no metadata or excerpts.
 The search endpoint uses dedicated burst and sustained budgets at the standard API rates (480 requests/minute and 4,800/hour). Personal API keys have separate budgets; OAuth and browser sessions share a budget per user. Exceeding either budget returns HTTP 429 with `Retry-After`, before the search runs.
@@ -480,7 +481,7 @@ The response returns fractional credits as decimal strings and `pricing.usd_per_
 Use `system.signal_spend` for finer queries and `system.scout_runs.spend_credits` for per-run inspection, without adding the latter to the spend records again.
 Report details expose associated scout-run costs separately because one run can contribute to several reports.
 The tool shares the `self-driving-usage-display` flag with the usage UI.
-Deploy the backend route before the MCP tool wherever this shared flag is already enabled, since MCP and Django deploy separately.
+The MCP deploy waits until Django runs the same commit, so the backend route and the MCP tool can ship in one change, also where this shared flag is already enabled.
 
 The underlying root billing API also supports an optional `organization_id` UUID on overview reads.
 Use it when refreshing billing after a payment so another tab changing the user's current project cannot change the target.

@@ -28,6 +28,7 @@ pub const OOB_DOMAINS: &[&str] = &[
     "oast.site",
     "oastify.com",
     "rbndr.us",
+    "requestrepo.com",
 ];
 
 const MAX_DNS_NAME_LEN: usize = 253;

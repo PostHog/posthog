@@ -61,6 +61,14 @@ const TEAM_COLUMNS: &str = "
         '{}'
     )::text[] AS flags_blocked_ips,
     COALESCE(
+        (SELECT allowed_hosts FROM feature_flags_teamfeatureflagpolicyconfig WHERE team_id = posthog_team.id),
+        '{}'
+    )::text[] AS flags_allowed_hosts,
+    COALESCE(
+        (SELECT allowed_ips FROM feature_flags_teamfeatureflagpolicyconfig WHERE team_id = posthog_team.id),
+        '{}'
+    )::text[] AS flags_allowed_ips,
+    COALESCE(
         (SELECT level FROM cohort_realtime_team_access WHERE team_id = posthog_team.id),
         'off'
     )::text AS realtime_cohort_level
@@ -108,7 +116,7 @@ impl Team {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::team::request_blocklist::BlockReason;
+    use crate::team::request_lists::{BlockReason, CallerHost};
     use crate::team::team_models::{PropertyMatchingVersion, RealtimeCohortLevel};
     use crate::utils::test_utils::{
         insert_new_team_in_redis, setup_redis_client, setup_team_hypercache_reader, TestContext,
@@ -359,7 +367,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_fetch_team_reflects_feature_flag_policy_blocklist() {
+    async fn test_fetch_team_reflects_feature_flag_policy_request_lists() {
         let context = TestContext::new(None).await;
         let team = context
             .insert_new_team(None)
@@ -376,8 +384,9 @@ mod tests {
 
         sqlx::query(
             "INSERT INTO feature_flags_teamfeatureflagpolicyconfig \
-             (team_id, require_tags, blocked_hosts, blocked_ips) \
-             VALUES ($1, false, ARRAY['example.com'], ARRAY['203.0.113.0/24'])",
+             (team_id, require_tags, blocked_hosts, blocked_ips, allowed_hosts, allowed_ips) \
+             VALUES ($1, false, ARRAY['example.com'], ARRAY['203.0.113.0/24'], \
+                     ARRAY['example.org'], ARRAY['198.51.100.0/24'])",
         )
         .bind(team.id)
         .execute(&mut *conn)
@@ -391,16 +400,38 @@ mod tests {
             .await
             .expect("Failed to fetch team by id from pg");
 
+        let allowed_ip = Some("198.51.100.1".parse().unwrap());
+        let cases = [
+            (
+                CallerHost::Named("app.example.com"),
+                allowed_ip,
+                Some(BlockReason::Host),
+            ),
+            (
+                CallerHost::Absent,
+                Some("203.0.113.9".parse().unwrap()),
+                Some(BlockReason::Ip),
+            ),
+            (
+                CallerHost::Named("example.net"),
+                allowed_ip,
+                Some(BlockReason::HostNotAllowed),
+            ),
+            (
+                CallerHost::Absent,
+                Some("192.0.2.1".parse().unwrap()),
+                Some(BlockReason::IpNotAllowed),
+            ),
+            (CallerHost::Named("app.example.org"), allowed_ip, None),
+        ];
         for team_from_pg in [by_token, by_id] {
-            assert_eq!(
-                team_from_pg
-                    .request_block_reason(Some("app.example.com"), ["192.0.2.1".parse().unwrap()]),
-                Some(BlockReason::Host)
-            );
-            assert_eq!(
-                team_from_pg.request_block_reason(None, ["203.0.113.9".parse().unwrap()]),
-                Some(BlockReason::Ip)
-            );
+            for (host, caller_ip, expected) in cases {
+                assert_eq!(
+                    team_from_pg.request_block_reason(host, caller_ip, caller_ip),
+                    expected,
+                    "{host:?} from {caller_ip:?}"
+                );
+            }
         }
     }
 

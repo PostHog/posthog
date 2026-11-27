@@ -27,6 +27,10 @@ function hasOwn(record: object, key: string): boolean {
     return Object.prototype.hasOwnProperty.call(record, key)
 }
 
+function fingerprint(key: KeyObject): string {
+    return key.export({ type: 'spki', format: 'der' }).toString('base64')
+}
+
 function parseFile(name: string, contents: string): KeyObject[] {
     // A private key on the service would undo the reason for EdDSA. Refuse it, whatever the
     // file is called.
@@ -70,7 +74,7 @@ export function parseIntegrationPublicKeys(files: Record<string, string>): Integ
         }
         const parsed = parseFile(name, contents)
         for (const key of parsed) {
-            const der = key.export({ type: 'spki', format: 'der' }).toString('base64')
+            const der = fingerprint(key)
             const existing = owner.get(der)
             if (existing !== undefined && existing !== deployment) {
                 throw new Error(`a public key for ${deployment} is also listed for ${existing}`)
@@ -104,7 +108,9 @@ export class IntegrationKeyLoader {
     /** As `load()`, from one snapshot of the directory. */
     loadFrom(files: Record<string, string>): void {
         const keys = parseIntegrationPublicKeys(files)
-        if (Object.keys(keys).length === 0) {
+        // A warm reload accepts an empty key set, because removing the last file revokes the last
+        // caller. Only boot refuses it, so that a pod never starts with no callers.
+        if (Object.keys(keys).length === 0 && !this.loaded) {
             throw new Error(`no ${PUBLIC_KEY_SUFFIX} files in ${this.dir}`)
         }
         this.keys = keys
@@ -115,17 +121,57 @@ export class IntegrationKeyLoader {
 
     /**
      * Reload, keeping the previous keys if the directory is unreadable or invalid, so a
-     * malformed edit cannot lock a running fleet out. The metrics make that visible when a
-     * revocation does not land.
+     * malformed edit cannot lock a running fleet out. An invalid directory still revokes every
+     * key it removed. The metrics make a refused edit visible.
      */
     async reload(): Promise<void> {
+        const files = await readMount(this.dir)
         try {
-            await this.load()
+            if (files === null) {
+                throw new Error(`could not read ${this.dir}`)
+            }
+            this.loadFrom(files)
         } catch (err) {
             integrationKeyReloadFailuresTotal.inc()
             logger.error('auth:integration_keys_reload_failed', {
                 error: err instanceof Error ? err.message : String(err),
             })
+            if (files !== null) {
+                this.dropKeysNotIn(files)
+            }
+        }
+    }
+
+    /**
+     * Keep only the held keys that the deployment's file still lists. A refused edit then still
+     * revokes a key, whether it removed the file or one block in it, and every key it adds waits
+     * for a valid edit. A block that does not parse lists nothing.
+     */
+    private dropKeysNotIn(files: Record<string, string>): void {
+        const kept: IntegrationPublicKeys = {}
+        const dropped: string[] = []
+        for (const [deployment, held] of Object.entries(this.keys)) {
+            const name = `${deployment}${PUBLIC_KEY_SUFFIX}`
+            const listed = new Set<string>()
+            const contents = hasOwn(files, name) ? (files[name] ?? '') : ''
+            for (const block of contents.match(PEM_BLOCK) ?? []) {
+                try {
+                    listed.add(fingerprint(createPublicKey(block)))
+                } catch {
+                    continue
+                }
+            }
+            const still = held.filter((key) => listed.has(fingerprint(key)))
+            if (still.length < held.length) {
+                dropped.push(deployment)
+            }
+            if (still.length > 0) {
+                kept[deployment] = still
+            }
+        }
+        if (dropped.length > 0) {
+            this.keys = kept
+            logger.warn('auth:integration_keys_dropped_from_refused_snapshot', { deployments: dropped.sort() })
         }
     }
 

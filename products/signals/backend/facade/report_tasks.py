@@ -6,6 +6,7 @@ module attribute, so a test that patches the implementation also changes what ca
 """
 
 from products.signals.backend import (
+    agent_instructions,
     implementation_repositories,
     report_task_actions,
     task_run_artefacts,
@@ -22,6 +23,7 @@ __all__ = [
     "enforce_report_task_cap",
     "implementation_access_instruction",
     "implementation_access_repositories",
+    "implementation_custom_image_id",
     "queue_task_handoff_claims",
     "is_pull_request_run_request",
     "is_report_implementation_task",
@@ -111,3 +113,7 @@ def implementation_access_repositories(*, team_id: int, repository: str) -> list
 def implementation_access_instruction(*, repository: str, access_repositories: list[str]) -> str:
     """The prompt paragraph that tells the agent about `access_repositories`. Empty when there are none."""
     return implementation_repositories.access_repositories_instruction(repository, access_repositories)
+
+
+def implementation_custom_image_id(*, team_id: int) -> str | None:
+    return agent_instructions.resolve_custom_image_id(team_id, agent_instructions.SignalAgentRole.IMPLEMENTATION)

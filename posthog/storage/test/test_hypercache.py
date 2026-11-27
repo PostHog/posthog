@@ -54,6 +54,19 @@ class TestCacheKey(HyperCacheTestBase):
         assert key == "cache/teams/123/test_namespace/test_value"
 
 
+class TestComputeEtag(HyperCacheTestBase):
+    def test_compute_etag_is_the_etag_a_write_stores(self):
+        hc = HyperCache(namespace="etag_ns", value="etag_value", load_fn=lambda team: {}, enable_etag=True)
+        data = {"b": [1, 2], "a": {"y": 1, "x": None}}
+
+        hc.set_cache_value(self.team_id, data)
+        try:
+            assert hc.compute_etag(data) == hc.get_etag(self.team_id)
+        finally:
+            hc.clear_cache(self.team_id)
+        assert hc.compute_etag({"a": {"x": None, "y": 1}, "b": [1, 2]}) == hc.compute_etag(data)
+
+
 class TestHyperCache(HyperCacheTestBase):
     def test_init(self):
         """Test HyperCache initialization"""

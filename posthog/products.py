@@ -2,13 +2,13 @@ import json
 import importlib
 import importlib.util
 from collections import defaultdict
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from importlib.machinery import PathFinder
 from pathlib import Path
 from types import ModuleType
 from typing import TYPE_CHECKING, Optional
 
-from django.apps import apps
+from django.apps import AppConfig, apps
 from django.conf import settings
 
 from posthog.schema_enums import ProductItemCategory, ProductKey
@@ -48,7 +48,7 @@ def _has_submodule(app_name: str, submodule: str) -> bool:
     return True
 
 
-def load_product_modules(submodule: str) -> Iterator[ModuleType]:
+def load_product_modules(submodule: str, *, skip: Callable[[AppConfig], bool] | None = None) -> Iterator[ModuleType]:
     """Import `<product app>.<submodule>` for every product that has one.
 
     How core picks up per-product declarations (`routes`, `data_freshness`, ...) without a
@@ -57,8 +57,13 @@ def load_product_modules(submodule: str) -> Iterator[ModuleType]:
 
     Products are imported dynamically here, so the core->product edges are invisible to import
     tooling (tach/grimp). Accepted on purpose, as the alternative duplicates PRODUCTS_APPS.
+
+    An app that `skip` returns True for is left out before its module is imported.
     """
-    for app_name in product_app_names():
+    for app_config in apps.get_app_configs():
+        app_name = app_config.name
+        if not is_product_module(app_name) or (skip is not None and skip(app_config)):
+            continue
         if not _has_submodule(app_name, submodule):
             continue
         yield importlib.import_module(f"{app_name}.{submodule}")

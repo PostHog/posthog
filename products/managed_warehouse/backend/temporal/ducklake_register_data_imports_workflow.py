@@ -424,6 +424,7 @@ def _gigahog_config() -> GigahogConfig | None:
         client_id=settings.GIGAHOG_IMPORTS_CLIENT_ID,
         client_secret=settings.GIGAHOG_IMPORTS_CLIENT_SECRET,
         api_direct=settings.GIGAHOG_API_DIRECT,
+        oauth_direct=settings.GIGAHOG_OAUTH_DIRECT,
     )
 
 

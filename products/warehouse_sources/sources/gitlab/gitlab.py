@@ -2,7 +2,7 @@ import re
 import time
 import dataclasses
 from collections.abc import Iterator
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 from urllib.parse import quote, urlencode, urlparse
 
@@ -15,6 +15,7 @@ from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SourceResponse,
     _is_host_safe,
+    coerce_date,
     make_tracked_session,
     retry_with_deadline,
 )
@@ -33,6 +34,7 @@ PARTIAL_FLUSH_INTERVAL_SECONDS = 60.0
 DEFAULT_HOST = "https://gitlab.com"
 HOST_NOT_ALLOWED_ERROR = "GitLab host is not allowed"
 HTTP_NOT_ALLOWED_ERROR = "GitLab host must use HTTPS"
+PAID_TIER_REQUIRED_ERROR = "GitLab refused an endpoint that needs GitLab Premium or Ultimate"
 PROJECT_REF_ERROR = (
     "PostHog couldn't read a project from that value. Enter group/project (for example, "
     "mygroup/myproject), the numeric project ID, or the project's GitLab URL."
@@ -52,6 +54,10 @@ class GitLabRetryableError(Exception):
 
 
 class GitLabHostNotAllowedError(Exception):
+    pass
+
+
+class GitLabPaidTierRequiredError(Exception):
     pass
 
 
@@ -133,6 +139,13 @@ def _format_incremental_value(value: Any) -> str:
     return str(value)
 
 
+def _format_date_filter_value(value: Any) -> str:
+    watermark_date = coerce_date(value)
+    if watermark_date is None:
+        raise ValueError(f"Cannot read GitLab incremental value {value!r} as a date")
+    return (watermark_date - timedelta(days=2)).isoformat()
+
+
 def _active_incremental_field(
     config: GitLabEndpointConfig,
     should_use_incremental_field: bool,
@@ -164,7 +177,10 @@ def _build_initial_params(
     )
     if active_field is not None:
         filter_param = config.incremental_filter_params[active_field]
-        params[filter_param] = _format_incremental_value(db_incremental_field_last_value)
+        if config.incremental_filter_is_date:
+            params[filter_param] = _format_date_filter_value(db_incremental_field_last_value)
+        else:
+            params[filter_param] = _format_incremental_value(db_incremental_field_last_value)
 
     if config.supports_order_by:
         order_by = active_field or config.stable_order_by
@@ -413,6 +429,12 @@ def get_rows(
 
         if allow_not_found and response.status_code == 404:
             return None
+
+        # Premium answers 403 on a Free project; Community Edition has no route and answers 404.
+        if response.status_code in (403, 404) and config.requires_paid_tier:
+            raise GitLabPaidTierRequiredError(
+                f"{PAID_TIER_REQUIRED_ERROR}: status={response.status_code}, endpoint={endpoint}"
+            )
 
         if not response.ok:
             logger.error(f"GitLab API error: status={response.status_code}, body={response.text}, url={page_url}")

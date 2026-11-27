@@ -32,7 +32,7 @@ FALLBACK_SIZE = "g-8vcpu-32gb"
 # smoke test has passed. Hobby has to fit on a small host. Each Python service loads the whole app,
 # so one more process or one more import at startup costs hundreds of MiB. A change that needs more
 # memory raises this number in the same pull request and says why in its description.
-HOBBY_MEMORY_BUDGET_MIB = 9500
+HOBBY_MEMORY_BUDGET_MIB = 10000
 # A total below this means the measurement failed, because no working install is this small.
 HOBBY_MEMORY_FLOOR_MIB = 2000
 

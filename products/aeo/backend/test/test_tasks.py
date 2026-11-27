@@ -1,4 +1,6 @@
+import time
 import threading
+from contextlib import nullcontext
 
 import pytest
 from unittest.mock import Mock, patch
@@ -6,6 +8,7 @@ from unittest.mock import Mock, patch
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 
+from celery.exceptions import Retry
 from redis.exceptions import (
     ConnectionError as RedisConnectionError,
     LockNotOwnedError,
@@ -16,7 +19,7 @@ from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 from posthog.redis import get_client
 
-from products.aeo.backend import keyword_suggestions
+from products.aeo.backend import credits, keyword_suggestions, run_stop
 from products.aeo.backend.facade.api import get_prompt_set_overview
 from products.aeo.backend.models import AEOCitationCheck, AEOPrompt
 from products.aeo.backend.tasks import tasks
@@ -25,7 +28,7 @@ from products.aeo.backend.tasks.tasks import (
     run_aeo_citation_checks_for_team_task,
     suggest_aeo_keywords_task,
 )
-from products.aeo.backend.test.factories import create_citation_check, create_own_brand
+from products.aeo.backend.test.factories import ai_credits_used_up, create_citation_check, create_own_brand
 
 
 @pytest.fixture
@@ -49,6 +52,8 @@ def _add_prompt(team: Team, *, active: bool) -> None:
         ("kill_switch_off", False, False, False),
         ("ai_not_approved", True, False, False),
         ("org_deactivated", True, False, False),
+        ("out_of_credits_while_free", True, True, True),
+        ("out_of_credits_once_billed", True, False, False),
     ],
 )
 def test_dispatch_runs_teams_with_active_prompts_that_pass_the_gate(
@@ -60,7 +65,10 @@ def test_dispatch_runs_teams_with_active_prompts_that_pass_the_gate(
     elif state == "org_deactivated":
         Organization.objects.filter(id=team.organization_id).update(is_active=False)
 
+    billable = frozenset({"ai_visibility"}) if state == "out_of_credits_once_billed" else frozenset()
     with (
+        ai_credits_used_up(team) if state.startswith("out_of_credits") else nullcontext(),
+        patch.object(credits, "BILLABLE_AI_PRODUCTS", billable),
         patch.object(tasks, "feature_enabled_or_false", return_value=kill_switch_on),
         patch.object(tasks.run_aeo_citation_checks_for_team_task, "delay") as dispatch,
         patch.object(tasks, "run_citation_checks", return_value=(Mock(run_id=None), [])) as run,
@@ -70,6 +78,29 @@ def test_dispatch_runs_teams_with_active_prompts_that_pass_the_gate(
 
     assert [call.args for call in dispatch.call_args_list] == ([(team.id,)] if dispatched else [])
     assert run.call_count == (1 if gate_passes else 0)
+
+
+def test_setups_run_waits_for_a_run_still_finishing_instead_of_being_dropped(team: Team) -> None:
+    lease = get_client().lock(run_stop.lease_key(team.id), timeout=60)
+    assert lease.acquire(blocking=False)
+    run_stop.mark_run_queued(team.id)
+
+    with (
+        patch.object(tasks, "feature_enabled_or_false", return_value=True),
+        patch.object(tasks, "run_citation_checks") as run,
+        patch.object(run_aeo_citation_checks_for_team_task, "retry", side_effect=Retry()) as retry,
+        pytest.raises(Retry),
+    ):
+        run_aeo_citation_checks_for_team_task(team.id, wait_for_lease=True, queued_at=123.0)
+
+    run.assert_not_called()
+    # Each try keeps the time the run was queued, so a stop asked for during the wait still ends it, and the task
+    # is allowed every try of the wait rather than Celery's default 3.
+    assert retry.call_args.kwargs["kwargs"] == {"wait_for_lease": True, "queued_at": 123.0}
+    assert run_aeo_citation_checks_for_team_task.max_retries == tasks.RUN_LEASE_WAIT_RETRIES
+    assert run_stop.checks_running(team.id)
+    lease.release()
+    run_stop.clear_run_queued(team.id)
 
 
 @pytest.mark.parametrize("run_in_progress", [False, True])
@@ -88,6 +119,34 @@ def test_one_run_per_team_at_a_time(team: Team, run_in_progress: bool) -> None:
     if not run_in_progress:
         assert lease.acquire(blocking=False), "the finished run must give the lease back"
     lease.release()
+
+
+@pytest.mark.parametrize("when", ["before_start", "during_run"])
+def test_a_stop_ends_the_run_it_was_asked_for_and_not_a_run_queued_later(team: Team, when: str) -> None:
+    def run(_team: Team, stop: threading.Event) -> tuple[Mock, list]:
+        if when == "during_run":
+            run_stop.request_stop(team.id)
+            assert stop.wait(timeout=10), "the run must see the stop"
+        return Mock(run_id=None), []
+
+    queued_at = time.time()
+    if when == "before_start":
+        run_stop.request_stop(team.id)
+    with (
+        patch.object(tasks, "feature_enabled_or_false", return_value=True),
+        patch.object(tasks, "run_citation_checks", side_effect=run) as runner,
+    ):
+        run_aeo_citation_checks_for_team_task(team.id, queued_at=queued_at)
+        assert runner.call_count == (0 if when == "before_start" else 1)
+        assert get_client().lock(f"aeo_citation_run:{team.id}", timeout=60).acquire(blocking=False)
+        get_client().delete(f"aeo_citation_run:{team.id}")
+
+        # The stop stays for any other run queued before it, and doesn't skip one queued after it.
+        assert run_stop.stop_requested(team.id, since=queued_at)
+        runner.side_effect = None
+        runner.return_value = (Mock(run_id=None), [])
+        run_aeo_citation_checks_for_team_task(team.id, queued_at=time.time())
+        assert runner.call_count == (1 if when == "before_start" else 2)
 
 
 def test_a_run_that_outlived_its_lease_still_finishes_cleanly(team: Team) -> None:

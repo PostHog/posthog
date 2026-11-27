@@ -26,7 +26,7 @@ const meta: Meta<typeof AiVisibilityEnginesSetting> = {
 export default meta
 
 export const Engines: StoryFn<typeof AiVisibilityEnginesSetting> = () => (
-    <div className="p-4 max-w-200">
+    <div className="p-4 max-w-200" data-quill>
         <AiVisibilityEnginesSetting />
     </div>
 )

@@ -63,6 +63,7 @@ import {
 import type {
     ExternalDataSchemaApi,
     IncrementalFieldTypeEnumApi,
+    SettableSyncFrequencyEnumApi,
 } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { ApiVersionDeprecationBanner } from '../SourceScene/SourceScene'
@@ -532,6 +533,8 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
         incrementalFieldLookbackSeconds?: number | null
     ): void => {
         const noIncrementalField = syncType === 'full_refresh' || syncType === 'cdc' || syncType === 'xmin'
+        // Set only for a migrated table that this save turns on, from the frequency picked in the confirm dialog.
+        let pendingSelfManagedSyncFrequency: DataWarehouseSyncInterval | undefined
 
         const applyUpdate = async ({
             dropHistoryTable = false,
@@ -555,6 +558,10 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
                             : null,
                     ...((syncType === 'cdc' || syncType === 'incremental') && cdcTableMode
                         ? { cdc_table_mode: cdcTableMode }
+                        : {}),
+                    // The picker offers only the allowed frequencies.
+                    ...(pendingSelfManagedSyncFrequency
+                        ? { sync_frequency: pendingSelfManagedSyncFrequency as SettableSyncFrequencyEnumApi }
                         : {}),
                     ...(dropHistoryTable ? { drop_history_table: true } : {}),
                     ...(copyAccessRulesToHistory ? { copy_access_rules_to_history: true } : {}),
@@ -654,7 +661,10 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
         }
 
         if (!schema.should_sync && schema.pending_self_managed_table) {
-            confirmPendingSelfManagedSync(askAboutHistoryThenApply)
+            confirmPendingSelfManagedSync(syncType, (syncFrequency) => {
+                pendingSelfManagedSyncFrequency = syncFrequency
+                askAboutHistoryThenApply()
+            })
             return
         }
 

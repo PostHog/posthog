@@ -1,7 +1,8 @@
-import { LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+import { Button, Heading, Skeleton, Text } from '@posthog/quill'
 
 import { pluralize } from 'lib/utils/strings'
 
+import { AiVisibilityTag } from './AiVisibilityTag'
 import type { AnswerMention } from './answerMentions'
 import { ContentAutopilotSiteLabel } from './ContentAutopilotSiteLabel'
 
@@ -12,28 +13,42 @@ export type CompetitorCatalogState = 'loading' | 'failed' | 'ready'
 export const ContentAutopilotAnswerMentionList = ({
     mentions,
     competitors,
+    onRetryCompetitors,
 }: {
     mentions: AnswerMention[]
     competitors: CompetitorCatalogState
+    onRetryCompetitors: () => void
 }): JSX.Element => (
     <div className="flex flex-col gap-2" data-attr="content-autopilot-prompt-answer-mentions">
-        <h5 className="m-0">Brands in this answer{competitors === 'loading' ? '' : ` (${mentions.length})`}</h5>
+        <Heading size="sm" render={<h5 className="m-0" />}>
+            Brands in this answer{competitors === 'loading' ? '' : ` (${mentions.length})`}
+        </Heading>
         {competitors === 'failed' ? (
-            <span className="text-muted text-sm">
-                Couldn't load your competitors, so only your brand is marked. Refresh the page to try again.
-            </span>
+            <Text size="xs" variant="muted" className="m-0">
+                Couldn't load your competitors, so only your brand is marked.{' '}
+                <Button
+                    variant="link"
+                    size="inline"
+                    onClick={onRetryCompetitors}
+                    data-attr="content-autopilot-prompt-answer-competitors-retry"
+                >
+                    Try again
+                </Button>
+            </Text>
         ) : null}
         {competitors === 'loading' ? (
             <div className="flex flex-col gap-1.5">
-                <LemonSkeleton className="h-4 w-40" />
-                <LemonSkeleton className="h-4 w-32" />
+                <Skeleton className="h-4 w-40" />
+                <Skeleton className="h-4 w-32" />
             </div>
         ) : mentions.length ? (
-            <ol className="m-0 p-0 list-none flex flex-col gap-1.5 text-sm">
+            <ol className="m-0 p-0 list-none flex flex-col gap-1.5 text-xs">
                 {mentions.map(({ brand, count, cited }, index) => (
                     <li key={brand.key} className="flex flex-wrap items-center justify-between gap-2">
                         <span className="flex min-w-0 items-center gap-2">
-                            <span className="w-4 shrink-0 text-right text-xs text-muted tabular-nums">{index + 1}</span>
+                            <span className="w-4 shrink-0 text-right text-xs text-muted-foreground tabular-nums">
+                                {index + 1}
+                            </span>
                             {brand.domain ? (
                                 <ContentAutopilotSiteLabel domain={brand.domain} isTarget={false} isCompetitor>
                                     {brand.name}
@@ -41,25 +56,21 @@ export const ContentAutopilotAnswerMentionList = ({
                             ) : (
                                 <span className="flex items-center gap-1.5">
                                     <span className="font-semibold">{brand.name}</span>
-                                    <LemonTag type="success" size="small">
-                                        You
-                                    </LemonTag>
+                                    <AiVisibilityTag type="success">You</AiVisibilityTag>
                                 </span>
                             )}
                         </span>
-                        <span className="flex items-center gap-2 text-xs text-secondary whitespace-nowrap">
+                        <span className="flex items-center gap-2 text-xs text-muted-foreground whitespace-nowrap">
                             {pluralize(count, 'mention')}
-                            {cited ? (
-                                <LemonTag type="highlight" size="small">
-                                    Cited
-                                </LemonTag>
-                            ) : null}
+                            {cited ? <AiVisibilityTag type="highlight">Cited</AiVisibilityTag> : null}
                         </span>
                     </li>
                 ))}
             </ol>
         ) : (
-            <span className="text-muted text-sm">This answer names neither your brand nor a confirmed competitor.</span>
+            <Text size="xs" variant="muted" className="m-0">
+                This answer names neither your brand nor a confirmed competitor.
+            </Text>
         )}
     </div>
 )

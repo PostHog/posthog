@@ -6,9 +6,11 @@ import { FileSystemIconType } from '~/queries/schema/schema-general'
 import {
     BillingAlertConfigurationStateEnumApi as PlatformAlertStateApi,
     CalendarUnitEnumApi,
+    GroupingModeEnumApi,
     PlatformAlertApi,
     PlatformAlertConfigurationApi,
     PlatformAlertConfigurationSourceKindEnumApi,
+    PlatformAlertOwnerEnumApi,
 } from './generated/api.schemas'
 
 export type PlatformAlertConfigurationStatus = PlatformAlertStateApi | 'disabled' | 'not_checked'
@@ -229,6 +231,29 @@ export function listRowMute(row: PlatformAlertListRow, now: Date): PlatformAlert
     }
     const count = row.configuration.alerts.filter((alert) => activeSnooze(alert.snooze_until, now)).length
     return count ? { kind: 'groupsSnoozed', count } : null
+}
+
+export function listRowFiringSince(row: PlatformAlertListRow): string | null {
+    const { configuration } = row
+    const only = configuration.enabled && configuration.alerts.length === 1 ? configuration.alerts[0] : null
+    const alert = row.kind === 'group' ? row.group : only
+    return alert?.state === 'firing' ? alert.firing_started_at : null
+}
+
+export function canChangeFromList(configuration: PlatformAlertConfigurationApi): boolean {
+    return configuration.owner === PlatformAlertOwnerEnumApi.Platform
+}
+
+// The API refuses a group snooze on a source-owned alert (409) and on an ungrouped one (400).
+export function canSnoozeGroups(configuration: PlatformAlertConfigurationApi): boolean {
+    return (
+        configuration.owner === PlatformAlertOwnerEnumApi.Platform &&
+        configuration.grouping.mode === GroupingModeEnumApi.ByResultLabels
+    )
+}
+
+export function groupSnoozeLockedByAlert(configuration: PlatformAlertConfigurationApi, now: Date): boolean {
+    return activeSnooze(configuration.snooze_until, now) !== null
 }
 
 export function describeOverflow(configuration: PlatformAlertConfigurationApi): string | null {
