@@ -292,7 +292,7 @@ Record **one record per series you judged**, in every run, whatever the verdict:
 Set `subject` to `metric:<name>:<series>:<period>` and `bm_measure` to the series name, `<measure column>` or `<measure column>:<segment>`, in the same format every run.
 A read of 13 series is 13 records; a series you skipped as not due has no record, because nothing was judged.
 Copy the script's numbers and verdicts into the record (null where a lens did not run, never zero), `bm_driver_verdict` with the script's verdict or `not_run`, `bm_decision` with what you did, `bm_story_id` when gate 4 joined the finding, and `bm_report_id` when a report exists.
-Batch the records in one `scout-record-output` call at the end of the run, before the close-out, and say in the close-out how many you recorded.
+Submit the records at the end of the run, before the close-out, in batches of at most 100 per `scout-record-output` call (the harness rejects a larger call and writes nothing from it), in as few calls as that allows, and say in the close-out how many you recorded.
 The records are how the team reads precision (reports kept over reports filed), recall (moves that stayed `remembered`), and cost per finding, from `$scout_structured_output` events, without opening a transcript.
 
 ## Disqualifiers (skip these)

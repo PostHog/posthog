@@ -49,7 +49,8 @@ Modes (request `mode`):
       {"mode": "concentrate", "total_cur": 64000, "total_base": 50000,
        "entities": [{"name": "acct_17", "cur": 9500, "base": 900}, ...]}
     `entities` holds the top 20 by absolute delta; the totals cover every entity. The verdict is
-    `concentrated` when at most 5 entities moving with the move carry 60% of it, else `spread`.
+    `driver` when at most 5 entities moving with the move carry 60% of it, else `none`, the same
+    words as `decompose`, so it copies into the record unchanged.
 
 `rate: true` on a judge request marks a rate (a retention, a conversion, a margin): its bars
 scale with its own swing above small floors (step 3%, drift 2% per period; 5% and 3% daily),
@@ -57,8 +58,8 @@ because a rate moving 20% in one period is a collapse, not the first sign of one
 carry a `name`, echoed on its result.
 
 `clears_report_bar` at the top level is either lens; `report_lens` names the one that clears it,
-and each lens block carries `windows`, the `cur` and `base` period ranges it compared, which the
-decomposition reads.
+and each lens block carries `windows`, the `cur` and `base` ranges it compared, half-open
+(`[start, end)`, the end being the start of the next period), which the decomposition reads.
 
 The product-analytics `investigate-metric` skill ships `scripts/breakdown_attribution.py`, which
 attributes a trends breakdown with its own thresholds (top-1 at 50%, top-3 at 70%). This script
@@ -131,8 +132,20 @@ def _insufficient(reason: str) -> dict:
     return {"verdict": "insufficient history", "reason": reason}
 
 
-def _window(start: date, end: date) -> list[str]:
-    return [start.isoformat(), end.isoformat()]
+def _next_period(day: date, grain: str) -> date:
+    if grain == "daily":
+        return day + timedelta(days=1)
+    if grain == "weekly":
+        return day + timedelta(days=7)
+    months = 3 if grain == "quarterly" else 1
+    month = day.month - 1 + months
+    return date(day.year + month // 12, month % 12 + 1, 1)
+
+
+def _window(start: date, last: date, grain: str) -> list[str]:
+    """A half-open range, the first period's start to the start of the period after the last one,
+    so the end drops straight into a `< end` predicate."""
+    return [start.isoformat(), _next_period(last, grain).isoformat()]
 
 
 def _combine(result: dict, step: dict, drift: dict) -> dict:
@@ -187,7 +200,7 @@ def judge_daily(series: list[tuple[date, float]], counts: dict[date, float] | No
         step_bar,
         step_pass,
         median_same_weekday=round(median_same_weekday, 2),
-        windows={"cur": _window(day, day), "base": _window(min(step_base), max(step_base))},
+        windows={"cur": _window(day, day, "daily"), "base": _window(min(step_base), max(step_base), "daily")},
         **({"swing_pct": _pct(swing)} if swing is not None else {}),
     )
 
@@ -220,8 +233,8 @@ def judge_daily(series: list[tuple[date, float]], counts: dict[date, float] | No
             last_7_days=round(current, 2),
             long_trend=long_trend,
             windows={
-                "cur": _window(day - timedelta(days=6), day),
-                "base": _window(day - timedelta(days=34), day - timedelta(days=7)),
+                "cur": _window(day - timedelta(days=6), day, "daily"),
+                "base": _window(day - timedelta(days=34), day - timedelta(days=7), "daily"),
             },
         )
     return _combine(result, step, drift)
@@ -282,7 +295,7 @@ def judge_period(
         swing_pct=_pct(swing),
         long_trend=long_trend,
         seasonal_match=_seasonal_match(series, grain, value),
-        windows={"cur": _window(period, period), "base": _window(base_days[-3], base_days[-1])},
+        windows={"cur": _window(period, period, grain), "base": _window(base_days[-3], base_days[-1], grain)},
     )
 
     # Period drift: the last 3 periods against the 3 before, grown at the trend for 3 periods, so a
@@ -299,7 +312,10 @@ def judge_period(
             drift_bar,
             drift_pass,
             last_3_average=round(last3_avg, 2),
-            windows={"cur": _window(base_days[-2], period), "base": _window(base_days[-5], base_days[-3])},
+            windows={
+                "cur": _window(base_days[-2], period, grain),
+                "base": _window(base_days[-5], base_days[-3], grain),
+            },
         )
     else:
         drift = _insufficient("fewer than 6 periods for the drift lens")
@@ -323,7 +339,6 @@ def judge(request: dict) -> dict:
         result = judge_period(grain, series, counts, rate)
     else:
         raise ValueError(f"unknown grain {grain!r}")
-    # The name is echoed back, so a batch of every series a read returned maps to its results by name.
     if "name" in request:
         result = {"name": request["name"], **result}
     return result
@@ -504,7 +519,7 @@ def concentrate(request: dict) -> dict:
         "kind": "concentration",
         "total_delta": round(total, 2),
         "entities": rows,
-        "verdict": "concentrated" if concentrated else "spread",
+        "verdict": "driver" if concentrated else "none",
         "top_entities": [r["name"] for r in with_move[:needed]] if concentrated else [],
         "entities_for_60_pct": needed,
         "top1_share_pct": _pct(with_move[0]["delta"] / total) if with_move else None,

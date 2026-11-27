@@ -35,7 +35,9 @@ echo '{"name": "orders", "mode": "judge", "grain": "monthly", "series": [["2025-
 
 The response carries a `step` block and a `drift` block, each with `expected`, `deviation_pct`, `bar_pct`, `report_bar_pct`, `clears_report_bar`, `verdict` and `windows`, and at the top level `period`, `value`, the step block's `expected`, `deviation_pct`, `bar_pct` and `report_bar_pct` (so the record fields read the same at every grain), `step_verdict`, `long_trend` and `seasonal_match` (period grains) and one overall `verdict` (`move`, `within`, `insufficient history`).
 The top-level `clears_report_bar` is true when **either** lens clears its report bar, and `report_lens` names which (`step` first, then `drift`, else null): a slow slide only the drift lens sees is as reportable as a step.
-`windows` is `{"cur": [first, last], "base": [first, last]}`, the period starts the lens compared; the decomposition reads exactly these.
+`windows` is `{"cur": [start, end], "base": [start, end]}`, half-open ranges: `start` is the first period's start and `end` the start of the period after the last one, so a monthly step on October reads `cur: ["2026-10-01", "2026-11-01"]`.
+In SQL, substitute them as they are: `start` into `>= '<cur start>'` and `end` into `< '<cur end>'`.
+A `query-trends` `dateRange.date_to` is inclusive of its day, so there pass the day before `end`.
 A daily step block also carries the same-weekday median.
 A period with a null value is dropped before scoring: a gap is missing data, not a zero.
 
@@ -316,8 +318,8 @@ LIMIT 20
 ```
 
 Take `total_cur` and `total_base` from the series itself, so the entities not listed still count, and feed `{"mode": "concentrate", "total_cur": ..., "total_base": ..., "entities": [...]}` to the script.
-The verdict is `concentrated` when at most 5 entities moving with the move carry 60% of it, and `top_entities` names them; otherwise `spread`.
-A concentrated move is a driver: record `bm_driver_dimension` as the entity column, `bm_driver_segments` as the entities, and title the report by the count ("Churned revenue up 35%, 70% from 3 accounts").
+The verdict is `driver` when at most 5 entities moving with the move carry 60% of it, and `top_entities` names them; otherwise `none`.
+These are the same words `decompose` uses, so `bm_driver_verdict` takes the script's verdict unchanged; record `bm_driver_dimension` as the entity column, `bm_driver_segments` as the entities, and title the report by the count ("Churned revenue up 35%, 70% from 3 accounts").
 Name an entity in the report by the identifier the table carries; do not look up a person's name or email to decorate it.
 For a churn or contraction measure, run it before profiling: losing a few large accounts is the common cause, and profiling cannot find it.
 
