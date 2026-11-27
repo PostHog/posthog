@@ -18,7 +18,7 @@ import { Target, targetProblems } from './target'
 
 export const PROFILES_DIR = path.join(__dirname, '..', 'profiles')
 export const ROLE_RESTART_BACKOFF_MS = 2000
-export const PROCESS_ENV_SETTINGS = ['HOG_BYTECODE_CACHE_REQUIRED', 'HOG_BYTECODE_CACHE_REWRITE']
+export const PROCESS_ENV_SETTINGS = ['HOG_BYTECODE_CACHE_REQUIRED', 'HOG_BYTECODE_CACHE_REWRITE', 'NODE_OPTIONS']
 export const LOAD_PRODUCER_SETTING_PREFIX = 'KAFKA_PRODUCER_'
 
 export type LoadedCard = {

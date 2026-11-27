@@ -14,7 +14,6 @@ import type { ValveTimelineEntry } from '../valves/valves'
 import { CounterReading, counterDrift } from './drift'
 import { acceptedDeliveriesOf, deliveryKey } from './invariants'
 import type { JudgeEvidence } from './invariants'
-import type { JournalEntry } from './judge'
 
 export type MetricSample = {
     role: string
@@ -248,37 +247,158 @@ const latencySummary = (prefix: string, sorted: number[]): Measured[] =>
               { key: `${prefix}max`, value: sorted.at(-1)! },
           ]
 
+type Latency = { offeredAt: number; withFiles: boolean; ms: number }
+
+function latenciesOf({ journal, truth }: Pick<MeasureEvidence, 'journal' | 'truth'>): Latency[] {
+    const firstAccepted = new Map<string, number>()
+    for (const { unitId, actionId, status, at } of [...truth].sort((a, b) => a.seq - b.seq)) {
+        const key = unitId !== undefined && actionId !== undefined ? deliveryKey(unitId, actionId) : undefined
+        if (key !== undefined && status >= 200 && status < 300 && !firstAccepted.has(key)) {
+            firstAccepted.set(key, Date.parse(at))
+        }
+    }
+    return journal
+        .filter(({ answer }) => answer.accepted)
+        .flatMap(({ unitId, offeredAt, expect }) =>
+            expect.deliveries.flatMap((actionId) => {
+                const deliveredAt = firstAccepted.get(deliveryKey(unitId, actionId))
+                return deliveredAt === undefined
+                    ? []
+                    : [{ offeredAt, withFiles: (expect.attachments?.length ?? 0) > 0, ms: deliveredAt - offeredAt }]
+            })
+        )
+}
+
+const sortedMs = (latencies: readonly Latency[]): number[] => latencies.map(({ ms }) => ms).sort((a, b) => a - b)
+
+const runsFiles = ({ journal }: Pick<MeasureEvidence, 'journal'>): boolean =>
+    journal.some(({ answer, expect }) => answer.accepted && expect.attachments !== undefined)
+
 export const deliveryLatencyMs: MeasurementDefinition = {
     name: 'delivery_latency_ms',
     params: z.object({}).strict(),
     unit: 'ms',
-    measure: ({ journal, truth }) => {
-        const firstAccepted = new Map<string, number>()
-        for (const { unitId, actionId, status, at } of [...truth].sort((a, b) => a.seq - b.seq)) {
-            const key = unitId !== undefined && actionId !== undefined ? deliveryKey(unitId, actionId) : undefined
-            if (key !== undefined && status >= 200 && status < 300 && !firstAccepted.has(key)) {
-                firstAccepted.set(key, Date.parse(at))
-            }
-        }
-        const accepted = journal.filter(({ answer }) => answer.accepted)
-        const latenciesOf = (entries: readonly JournalEntry[]): number[] =>
-            entries
-                .flatMap(({ unitId, offeredAt, expect }) =>
-                    expect.deliveries.flatMap((actionId) => {
-                        const deliveredAt = firstAccepted.get(deliveryKey(unitId, actionId))
-                        return deliveredAt === undefined ? [] : [deliveredAt - offeredAt]
-                    })
-                )
-                .sort((a, b) => a - b)
-        const withFiles = ({ expect }: JournalEntry): boolean => (expect.attachments?.length ?? 0) > 0
+    measure: (evidence) => {
+        const latencies = latenciesOf(evidence)
         return [
-            ...latencySummary('', latenciesOf(accepted)),
-            ...(accepted.some(({ expect }) => expect.attachments !== undefined)
+            ...latencySummary('', sortedMs(latencies)),
+            ...(runsFiles(evidence)
                 ? [
-                      ...latencySummary('plain_', latenciesOf(accepted.filter((entry) => !withFiles(entry)))),
-                      ...latencySummary('files_', latenciesOf(accepted.filter(withFiles))),
+                      ...latencySummary('plain_', sortedMs(latencies.filter(({ withFiles }) => !withFiles))),
+                      ...latencySummary('files_', sortedMs(latencies.filter(({ withFiles }) => withFiles))),
                   ]
                 : []),
+        ]
+    },
+}
+
+type StepWindow = Step & Phase
+
+const stepWindowsOf = ({ drive, steps }: Pick<MeasureEvidence, 'drive' | 'steps'>): StepWindow[] =>
+    steps.flatMap((step) => {
+        const window = { from: drive.startedAt + step.fromMs, to: Math.min(drive.startedAt + step.toMs, drive.endedAt) }
+        return window.to <= window.from ? [] : [{ ...step, ...window }]
+    })
+
+const PARTS = [
+    { part: 'plain', withFiles: false },
+    { part: 'files', withFiles: true },
+] as const
+
+function stepLatencies(evidence: MeasureEvidence): { step: StepWindow; part: string; sorted: number[] }[] {
+    const latencies = latenciesOf(evidence)
+    return runsFiles(evidence)
+        ? stepWindowsOf(evidence).flatMap((step) =>
+              PARTS.map(({ part, withFiles }) => ({
+                  step,
+                  part,
+                  sorted: sortedMs(
+                      latencies.filter(
+                          (latency) =>
+                              latency.withFiles === withFiles &&
+                              latency.offeredAt >= step.from &&
+                              latency.offeredAt < step.to
+                      )
+                  ),
+              }))
+          )
+        : []
+}
+
+export const stepDeliveryLatencyMs: MeasurementDefinition = {
+    name: 'step_delivery_latency_ms',
+    params: z.object({}).strict(),
+    unit: 'ms',
+    measure: (evidence) =>
+        stepLatencies(evidence).flatMap(({ step, part, sorted }) =>
+            sorted.length === 0
+                ? []
+                : [
+                      { key: `${part}_p50_${step.scale}x`, value: nearestRank(sorted, 0.5) },
+                      { key: `${part}_p99_${step.scale}x`, value: nearestRank(sorted, 0.99) },
+                  ]
+        ),
+}
+
+function stepDeferrals(
+    evidence: MeasureEvidence
+): { step: StepWindow; reason: string; increase: ReturnType<typeof phaseIncrease> }[] {
+    const samples = evidence.samples.filter(({ attachments }) => attachments !== undefined)
+    const reasons = [...new Set(samples.flatMap(({ attachments }) => Object.keys(attachments!.deferrals)))].sort()
+    return stepWindowsOf(evidence).flatMap((step) =>
+        reasons.map((reason) => ({
+            step,
+            reason,
+            increase: phaseIncrease(samples, evidence.missed, deferredFor(reason), step),
+        }))
+    )
+}
+
+export const stepAttachmentDeferralsPerSecond: MeasurementDefinition = {
+    name: 'step_attachment_deferrals_per_second',
+    params: z.object({}).strict(),
+    unit: 'tokens/s',
+    measure: (evidence) =>
+        stepDeferrals(evidence).map(({ step, reason, increase: { value, incomplete } }) => ({
+            key: `${reason}_${step.scale}x`,
+            value: value / seconds(step.to - step.from),
+            ...(incomplete ? { incomplete } : {}),
+        })),
+}
+
+const PLAIN_SLOWDOWN = 2
+
+const onsetOf = (key: string, scales: readonly number[]): Measured =>
+    scales.length === 0 ? { key, value: null, censored: true } : { key, value: scales[0] }
+
+export const rampOnsetScale: MeasurementDefinition = {
+    name: 'ramp_onset_scale',
+    params: z.object({}).strict(),
+    unit: 'x',
+    measure: (evidence) => {
+        const deferrals = stepDeferrals(evidence)
+        const plain = stepLatencies(evidence).filter(({ part, sorted }) => part === 'plain' && sorted.length > 0)
+        const p99Of = ({ sorted }: { sorted: number[] }): number => nearestRank(sorted, 0.99)
+        return [
+            ...[...new Set(deferrals.map(({ reason }) => reason))].map((reason) =>
+                onsetOf(
+                    reason,
+                    deferrals
+                        .filter((deferral) => deferral.reason === reason && deferral.increase.value > 0)
+                        .map(({ step }) => step.scale)
+                )
+            ),
+            ...(plain.length < 2
+                ? []
+                : [
+                      onsetOf(
+                          'plain_p99_doubled',
+                          plain
+                              .slice(1)
+                              .filter((step) => p99Of(step) > PLAIN_SLOWDOWN * p99Of(plain[0]))
+                              .map(({ step }) => step.scale)
+                      ),
+                  ]),
         ]
     },
 }
@@ -468,7 +588,7 @@ function phaseIncrease(
     missed: readonly MissedScrape[],
     read: Counter,
     phase: Phase
-): Measured {
+): { value: number; incomplete?: true } {
     let value = 0
     let incomplete = false
     for (const ofReplica of replicasOf(samples)) {
@@ -685,16 +805,13 @@ export const RECOVERY_MEASUREMENTS: MeasurementDefinition[] = [
         name: 'step_claims_per_second',
         params: z.object({}).strict(),
         unit: 'jobs/s',
-        measure: ({ samples, drive, steps }) =>
-            steps.flatMap(({ scale, fromMs, toMs }) => {
-                const step = { from: drive.startedAt + fromMs, to: Math.min(drive.startedAt + toMs, drive.endedAt) }
-                return step.to <= step.from
-                    ? []
-                    : queuesOf(samples).map((queue) => ({
-                          key: `${queue}_${scale}x`,
-                          ...stepClaimRate(samples, queue, step),
-                      }))
-            }),
+        measure: (evidence) =>
+            stepWindowsOf(evidence).flatMap((step) =>
+                queuesOf(evidence.samples).map((queue) => ({
+                    key: `${queue}_${step.scale}x`,
+                    ...stepClaimRate(evidence.samples, queue, step),
+                }))
+            ),
     },
     {
         name: 'baseline_new_jobs_per_second',
@@ -718,6 +835,9 @@ export const MEASUREMENTS: MeasurementDefinition[] = [
     attachmentDeferralWindowS,
     attachmentSendsInFlightMax,
     attachmentReservedBytesMax,
+    stepDeliveryLatencyMs,
+    stepAttachmentDeferralsPerSecond,
+    rampOnsetScale,
     counterDrift,
     ...RECOVERY_MEASUREMENTS,
 ]

@@ -1031,6 +1031,20 @@ describe('drive', () => {
                 { email: 40, webhook: 20 },
             ],
         ],
+        [
+            'a ramp step that names its traffic scales only that kind and offers the rest at the base rate',
+            {
+                for: '2s',
+                ramp: [
+                    { scale: 1, for: '1s' },
+                    { scale: 10, for: '1s', only: ['event_email'] },
+                ],
+            },
+            [
+                { email: 4, webhook: 2 },
+                { email: 40, webhook: 2 },
+            ],
+        ],
     ])('%s', async (_story, ramped, expected) => {
         const card: LoadedCard = {
             ...SMOKE,

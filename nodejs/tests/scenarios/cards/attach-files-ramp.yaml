@@ -1,0 +1,54 @@
+id: attach-files-ramp
+version: 1
+clock: real
+profile: attachments-tight
+seed: 25
+setup:
+    teams: 1
+drive:
+    for: 5m
+    traffic:
+        - name: event_email
+        - name: transactional_email_files
+    ramp:
+        - scale: 1
+          for: 1m
+          only:
+              - transactional_email_files
+        - scale: 2
+          for: 1m
+          only:
+              - transactional_email_files
+        - scale: 3
+          for: 1m
+          only:
+              - transactional_email_files
+        - scale: 4
+          for: 1m
+          only:
+              - transactional_email_files
+        - scale: 6
+          for: 1m
+          only:
+              - transactional_email_files
+convergeWithin: 6m
+invariants:
+    - name: at_least_once
+    - name: duplicate_sends
+    - name: refused_at_intake
+    - name: attachments_intact
+gates:
+    duplicate_sends: 0
+    refused_at_intake: 0
+measure:
+    - name: role_rss_max_bytes
+    - name: role_heap_max_bytes
+    - name: role_restarts
+    - name: delivery_latency_ms
+    - name: step_delivery_latency_ms
+    - name: step_attachment_deferrals_per_second
+    - name: ramp_onset_scale
+    - name: attachment_deferrals
+    - name: attachment_sends_in_flight_max
+    - name: attachment_reserved_bytes_max
+unpaired: a ramp has no control run; each step reads plain mail against its first step

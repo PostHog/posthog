@@ -208,6 +208,21 @@ describe('load', () => {
             'drive.ramp: each ramp step must scale higher than the one before',
         ],
         [
+            'a ramp step that scales traffic the drive does not run',
+            {
+                ...card,
+                drive: {
+                    ...card.drive,
+                    ramp: [
+                        { scale: 1, for: '15s' },
+                        { scale: 2, for: '15s', only: ['event_webhook'] },
+                    ],
+                },
+            },
+            undefined,
+            'drive.ramp: a ramp step scales only traffic the drive runs',
+        ],
+        [
             'a ramp that holds a scale for two steps',
             {
                 ...card,

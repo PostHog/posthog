@@ -135,14 +135,17 @@ function stepScheduleOf({ card, profile }: Pick<LoadedCard, 'card' | 'profile'>)
     const kinds = card.drive.traffic.map(({ name, params }) => {
         const kind = trafficKind(name)
         const { ratePerSecond } = kind.profile.parse(profile.traffic[name])
-        return { kind, ratePerSecond, burst: kind.burstOf?.(params) }
+        return { name, kind, ratePerSecond, burst: kind.burstOf?.(params) }
     })
-    return stepsOf(card.drive).map(({ scale, fromMs, toMs }) =>
+    return stepsOf(card.drive).map(({ scale, fromMs, toMs, only }) =>
         kinds
-            .flatMap(({ kind, ratePerSecond, burst }) => [
-                ...evenly(kind, ratePerSecond * scale, fromMs, toMs),
-                ...(burst ? burstSlots(kind, burst, ratePerSecond * scale, fromMs, toMs) : []),
-            ])
+            .flatMap(({ name, kind, ratePerSecond, burst }) => {
+                const rate = ratePerSecond * (only === undefined || only.includes(name) ? scale : 1)
+                return [
+                    ...evenly(kind, rate, fromMs, toMs),
+                    ...(burst ? burstSlots(kind, burst, rate, fromMs, toMs) : []),
+                ]
+            })
             .sort((a, b) => a.atMs - b.atMs)
     )
 }

@@ -335,6 +335,66 @@ describe('measurements', () => {
         )
     })
 
+    it('reads each ramp step on its own, and names the step where each reason first deferred and plain mail slowed', () => {
+        const sent = (unitId: string, offeredAtMs: number, attachments: string[]): JournalEntry => ({
+            ...offered(unitId, offeredAtMs),
+            expect: { deliveries: ['email'], attachments },
+        })
+        const journal = [
+            sent('plain-1', 1000, []),
+            sent('files-1', 1000, ['a1b2c3']),
+            sent('plain-2', 11_000, []),
+            sent('files-2', 11_000, ['d4e5f6']),
+        ]
+        const truth = [
+            record(1, 'plain-1', 1100),
+            record(2, 'files-1', 3000),
+            record(3, 'plain-2', 11_250),
+            record(4, 'files-2', 17_000),
+        ]
+        const samples = [-5, 0, 5, 10, 15, 20].map((second, i) =>
+            withGauges(sample(second, -60, 1), 1, { deferrals: { at_cap: [0, 0, 0, 0, 2, 6][i], over_budget: 0 } })
+        )
+        const ramp = evidence({
+            journal,
+            truth,
+            samples,
+            drive: { startedAt: atS(0), endedAt: atS(20) },
+            steps: [
+                { scale: 1, fromMs: 0, toMs: 10_000 },
+                { scale: 4, fromMs: 10_000, toMs: 20_000, only: ['transactional_email_files'] },
+            ],
+        })
+        const names = ['step_delivery_latency_ms', 'step_attachment_deferrals_per_second', 'ramp_onset_scale']
+
+        expect(
+            measure(
+                names.map((name) => ({ name, params: {} })),
+                ramp
+            ).map(({ unit: _unit, ...value }) => value)
+        ).toEqual([
+            ...[
+                ['plain_p50_1x', 100],
+                ['plain_p99_1x', 100],
+                ['files_p50_1x', 2000],
+                ['files_p99_1x', 2000],
+                ['plain_p50_4x', 250],
+                ['plain_p99_4x', 250],
+                ['files_p50_4x', 6000],
+                ['files_p99_4x', 6000],
+            ].map(([key, value]) => ({ name: 'step_delivery_latency_ms', key, value })),
+            ...[
+                ['at_cap_1x', 0],
+                ['over_budget_1x', 0],
+                ['at_cap_4x', 0.6],
+                ['over_budget_4x', 0],
+            ].map(([key, value]) => ({ name: 'step_attachment_deferrals_per_second', key, value })),
+            { name: 'ramp_onset_scale', key: 'at_cap', value: 4 },
+            { name: 'ramp_onset_scale', key: 'over_budget', value: null, censored: true },
+            { name: 'ramp_onset_scale', key: 'plain_p99_doubled', value: 4 },
+        ])
+    })
+
     it('samples the process metrics a role serves at start and at stop', async () => {
         const registry = new Registry()
         collectDefaultMetrics({ register: registry })
