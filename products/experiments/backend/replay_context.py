@@ -10,6 +10,8 @@ the Experiment model.
 
 from collections.abc import Collection
 
+from django.db.models import QuerySet
+
 from rest_framework.exceptions import ValidationError
 
 from posthog.hogql import ast
@@ -46,7 +48,7 @@ def accessible_experiment_ids(
     nothing is filtered out then. Soft-deleted experiments stay in: a deleted experiment's
     historical data keeps the access level the experiment had, rather than opening up.
     """
-    queryset = Experiment.objects.filter(team_id=team_id)
+    queryset: QuerySet[Experiment] = Experiment.objects.filter(team_id=team_id)
     if experiment_ids is not None:
         if not experiment_ids:
             return set()

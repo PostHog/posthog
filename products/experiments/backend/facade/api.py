@@ -323,7 +323,7 @@ def list_ended_experiments_without_conclusion(
         .order_by("-end_date")
         .values_list("id", "name", "end_date")[:limit]
     )
-    return [EndedExperiment(id=id, name=name, ended_at=ended_at) for id, name, ended_at in rows]
+    return [EndedExperiment(id=id, name=name, ended_at=ended_at) for id, name, ended_at in rows if ended_at is not None]
 
 
 def _exposes_on_flag_calls(experiment_id: int, exposure_criteria: dict | None) -> bool:
@@ -361,7 +361,7 @@ def list_running_experiments(
     return [
         RunningExperiment(id=id, name=name, started_at=started_at, flag_key=flag_key)
         for id, name, started_at, flag_key, exposure_criteria in rows
-        if _exposes_on_flag_calls(id, exposure_criteria)
+        if started_at is not None and _exposes_on_flag_calls(id, exposure_criteria)
     ]
 
 
@@ -377,6 +377,7 @@ def list_own_running_experiments(*, team_id: int, user_id: int, limit: int) -> l
     return [
         RunningExperiment(id=id, name=name, started_at=started_at, flag_key=flag_key)
         for id, name, started_at, flag_key in rows
+        if started_at is not None
     ]
 
 
@@ -502,6 +503,7 @@ def list_launched_experiments_for_digest(
     return [
         DigestLaunchedExperiment(team_id=team_id, id=id, name=name, start_date=start_date)
         for team_id, id, name, start_date in rows
+        if start_date is not None
     ]
 
 
@@ -519,6 +521,7 @@ def list_completed_experiments_for_digest(
     return [
         DigestCompletedExperiment(team_id=team_id, id=id, name=name, start_date=start_date, end_date=end_date)
         for team_id, id, name, start_date, end_date in rows
+        if end_date is not None
     ]
 
 
