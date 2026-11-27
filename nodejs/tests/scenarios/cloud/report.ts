@@ -137,7 +137,18 @@ async function capacityOf(aws: Aws, readerId: string, from: number, to: number, 
     return { minutes, gaps }
 }
 
-type Judged = { scalars: Record<string, number | string[] | null>; readerAtT0: number | null; reason?: string }
+// One entry per minute from the T0 minute to the last measured maximum, so the climb reads by position.
+const minuteMaximaFrom = (t0Minute: number, after: { at: number; max: number }[]): (number | null)[] =>
+    Array.from(
+        { length: (after.at(-1)!.at - t0Minute) / MINUTE_MS + 1 },
+        (_, i) => after.find(({ at }) => at === t0Minute + i * MINUTE_MS)?.max ?? null
+    )
+
+type Judged = {
+    scalars: Record<string, number | string[] | (number | null)[] | null>
+    readerAtT0: number | null
+    reason?: string
+}
 
 function judgeCapacity({ minutes }: Capacity, t0: number, { min, idleMax }: CloudProfile['readerAcu']): Judged {
     const t0Minute = minuteOf(t0)
@@ -153,6 +164,7 @@ function judgeCapacity({ minutes }: Capacity, t0: number, { min, idleMax }: Clou
         acu_t0_minute_max: maxima.find(({ at }) => at === t0Minute)?.max ?? null,
         acu_peak: peak?.max ?? null,
         acu_seconds_to_peak: peak ? (peak.at - t0Minute) / 1000 : null,
+        acu_after_t0_max: after.length === 0 ? [] : minuteMaximaFrom(t0Minute, after),
         acu_pre_t0_above_idle: minutes
             .filter(
                 ({ at, max, avg }) =>

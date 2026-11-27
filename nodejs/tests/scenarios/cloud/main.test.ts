@@ -1664,6 +1664,7 @@ describe('cloud controller', () => {
                 acu_t0_minute_max: 4,
                 acu_peak: 8,
                 acu_seconds_to_peak: 60,
+                acu_after_t0_max: [4, 8, 8],
                 reader_acu_at_t0: 1.5,
             })
             const t0 = Date.parse(String(published().t0_at))
