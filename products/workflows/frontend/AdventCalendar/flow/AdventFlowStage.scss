@@ -19,6 +19,7 @@
 [theme='dark'] .AdventFlowStage {
     --advent-flow-sheet: color-mix(in oklab, var(--color-black) 92%, var(--color-white));
     --advent-flow-dot: color-mix(in oklab, var(--color-black) 53%, var(--color-white));
+    --advent-flow-edge: var(--color-text-tertiary);
 }
 
 .AdventFlowStage__track {
@@ -69,7 +70,7 @@
 }
 
 .AdventFlowStep__tile--faded {
-    border-color: var(--border-bold) !important;
+    border-color: var(--advent-flow-edge) !important;
     opacity: 0.55;
 }
 
@@ -89,7 +90,7 @@
 
 .AdventFlowStep__end--exit {
     color: var(--color-text-secondary);
-    border-color: var(--border-bold);
+    border-color: var(--advent-flow-edge);
 }
 
 .AdventFlowStep__end--rows.AdventFlowStep__end--trigger {
