@@ -272,20 +272,24 @@ function handoffFileName(response) {
     return match ? match[1] : 'file'
 }
 
-function waitForHandoffReady(tab, origin) {
+function waitForHandoffReady(tab, origin, signal) {
     return new Promise((resolve, reject) => {
+        const stop = () => {
+            window.removeEventListener('message', onMessage)
+            signal.removeEventListener('abort', onAbort)
+        }
         const onMessage = (event) => {
             if (event.source === tab && event.origin === origin && event.data?.type === HANDOFF_READY) {
-                window.clearTimeout(timer)
-                window.removeEventListener('message', onMessage)
+                stop()
                 resolve()
             }
         }
-        const timer = window.setTimeout(() => {
-            window.removeEventListener('message', onMessage)
-            reject(new Error('The tool did not say it was ready'))
-        }, HANDOFF_TIMEOUT_MS)
+        const onAbort = () => {
+            stop()
+            reject(signal.reason)
+        }
         window.addEventListener('message', onMessage)
+        signal.addEventListener('abort', onAbort)
     })
 }
 
@@ -305,21 +309,26 @@ async function handOff(form) {
         say(`The browser blocked the new tab. Allow pop-ups for this site and try again.`)
         return
     }
-    const ready = waitForHandoffReady(tab, origin)
+    const deadline = new AbortController()
+    const timer = window.setTimeout(() => deadline.abort(), HANDOFF_TIMEOUT_MS)
+    const ready = waitForHandoffReady(tab, origin, deadline.signal)
     ready.catch(() => {})
     button.disabled = true
     button.setAttribute('aria-busy', 'true')
-    say(`Opening ${tool}…`)
+    say(`Opening ${tool}\u2026`)
     try {
+        // A failed operation redirects back to this page with its error message, and a lapsed admin verification
+        // redirects to Google. Following either inside fetch loses the message or breaks the sign-in, so reload.
         const response = await fetch(form.action, {
             method: 'POST',
             body: new FormData(form),
             credentials: 'same-origin',
+            redirect: 'manual',
+            signal: deadline.signal,
         })
-        // A failed operation redirects to the record page with its error message, so show that page.
-        if (response.redirected) {
+        if (response.type === 'opaqueredirect') {
             tab.close()
-            window.location.assign(response.url)
+            window.location.reload()
             return
         }
         if (!response.ok) {
@@ -332,8 +341,9 @@ async function handOff(form) {
         tab.postMessage({ type: HANDOFF_MESSAGE, version: HANDOFF_VERSION, files: [file] }, origin)
         say(`Sent to ${tool}.`)
     } catch {
-        say(`${tool} did not answer. Close its tab and try again.`)
+        say(`${tool} did not get the file in time. Close its tab and try again.`)
     } finally {
+        window.clearTimeout(timer)
         button.disabled = false
         button.removeAttribute('aria-busy')
     }

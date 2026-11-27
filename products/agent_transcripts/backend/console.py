@@ -5,6 +5,7 @@ from datetime import datetime
 from uuid import UUID
 
 from django import forms
+from django.conf import settings
 from django.contrib import messages
 from django.db.models import Model
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
@@ -34,8 +35,9 @@ from products.agent_transcripts.backend.facade.enums import SubmissionStatus
 GROWTH = Owner(name="Growth", crest="growth")
 
 # Hoglog viewer (github.com/PostHog/hoglog-viewer) reads agent logs in the browser. It accepts a handoff only from
-# the PostHog origins it lists, so a new region or domain needs adding there too.
+# these origins, so a new region or domain needs adding to both lists.
 HOGLOG_VIEWER = Handoff(url="https://hoglog-viewer.hosthog.dev/#handoff", tool="Hoglog viewer")
+HOGLOG_VIEWER_OPENERS = frozenset({"https://us.posthog.com", "https://eu.posthog.com", "http://localhost:8010"})
 
 QUEUE_TOOL_KEY = "agent-transcripts"
 PANEL_KEY = "agent-transcript"
@@ -427,16 +429,17 @@ class AgentTranscriptPanel(Panel):
                     description="Downloads the file through a link that works for one minute.",
                 )
             )
-            operations.append(
-                Operation(
-                    key=OPEN_IN_VIEWER_OPERATION,
-                    label="Open in Hoglog viewer",
-                    handler=open_in_viewer,
-                    description="Opens the transcript in Hoglog viewer in a new tab. The file goes from this page "
-                    "to that tab and is not stored anywhere else.",
-                    handoff=HOGLOG_VIEWER,
+            if settings.SITE_URL in HOGLOG_VIEWER_OPENERS:
+                operations.append(
+                    Operation(
+                        key=OPEN_IN_VIEWER_OPERATION,
+                        label="Open in Hoglog viewer",
+                        handler=open_in_viewer,
+                        description="Opens the transcript in Hoglog viewer in a new tab. The file goes from this page "
+                        "to that tab and is not stored anywhere else.",
+                        handoff=HOGLOG_VIEWER,
+                    )
                 )
-            )
 
         if submission.status == SubmissionStatus.SUBMITTED:
             operations.append(

@@ -3,7 +3,7 @@ from email.utils import parseaddr
 from typing import Any
 
 from django.core import mail
-from django.test import Client
+from django.test import Client, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -246,6 +246,16 @@ class TestAgentTranscriptConsole(TranscriptStorageTestCase):
         assert response.status_code == 200
         assert response.content == TRANSCRIPT_BYTES
         assert response["Content-Disposition"] == f'attachment; filename="{TRANSCRIPT_FILENAME}"'
+        assert "no-store" in response["Cache-Control"]
+
+    @parameterized.expand(
+        [("posthog_cloud", "https://eu.posthog.com", True), ("self_hosted", "https://ph.example.com", False)]
+    )
+    def test_offers_the_viewer_only_on_sites_the_viewer_accepts(self, _name: str, site_url: str, offered: bool) -> None:
+        self._submission(SubmissionStatus.SUBMITTED)
+
+        with override_settings(SITE_URL=site_url):
+            assert (OPEN_IN_VIEWER_OPERATION in self._offered()) is offered
 
     @parameterized.expand([(AVAILABLE, True, "same-origin-allow-popups"), (DELETED, False, "same-origin")])
     def test_record_page_offers_the_viewer_handoff_only_with_a_file(
