@@ -47,6 +47,7 @@ const isGivenRunId = (value: string): boolean =>
 const schedulesOf = (runId: string): string[] => [`${stackNameOf(runId)}-expiry`, `${stackNameOf(runId)}-expiry-retry`]
 
 export const keyOf = (runId: string, name: string): string => `runs/${runId}/${name}`
+export const manifestBody = (manifest: Manifest): string => JSON.stringify(manifest, null, 2)
 
 const scratchDir = (): ReturnType<typeof mkdtempDisposableSync> =>
     mkdtempDisposableSync(path.join(os.tmpdir(), 'scenario-cloud-'))
@@ -168,7 +169,7 @@ export async function lease(
         ...(card.pair && { pair: true, controlRunId: randomUUID() }),
     }
     const bucket = evidenceOf(controller.aws, profile.baseline.evidenceBucket)
-    const body = JSON.stringify(manifest, null, 2)
+    const body = manifestBody(manifest)
     const created: string[] = []
     if (given !== undefined) {
         await bucket.put(keyOf(runId, 'manifest.json'), body, true).catch((error: unknown) => {

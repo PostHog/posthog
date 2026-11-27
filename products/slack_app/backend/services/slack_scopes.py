@@ -36,6 +36,8 @@ REQUIRED_SLACK_SCOPES: frozenset[str] = frozenset(
 
 SLACK_FILE_SCOPE = "files:write"
 SLACK_CANVAS_SCOPE = "canvases:write"
+# Listed in SlackIntegrationScopeInReview, so only DEV and local installs request it until Slack approves it.
+SLACK_USERGROUPS_SCOPE = "usergroups:read"
 
 
 def has_scopes(integration: IntegrationRecord, required: Iterable[str]) -> bool:

@@ -1,15 +1,15 @@
 import type { z } from 'zod'
 
 import type {
-    contentWidgetPartsSchema,
-    contentWidgetSchema,
+    contentPanelPartsSchema,
+    contentPanelSchema,
     dashboardFilterSchema,
     dashboardDocumentSchema,
     dashboardSchema,
     dashboardTabSchema,
     gridTabSchema,
     linkTabSchema,
-    sectionWidgetSchema,
+    sectionPanelSchema,
     tileAppearanceSchema,
     tilePlaceSchema,
     tileSchema,
@@ -53,11 +53,11 @@ export type DashboardFilter<Config> = Omit<z.infer<typeof dashboardFilterSchema>
 /** A filter as saved. Its `config` is checked against its kind's `configSchema` before the kind's own code uses it. */
 export type SavedFilter = DashboardFilter<z.infer<typeof dashboardFilterSchema>['config']>
 
-export type ContentWidgetParts = z.infer<typeof contentWidgetPartsSchema>
+export type ContentPanelParts = z.infer<typeof contentPanelPartsSchema>
 
 export type TileAppearance = z.infer<typeof tileAppearanceSchema>
 
-export type WidgetSize = {
+export type PanelSize = {
     w: number
     h: number
     minW: number
@@ -66,27 +66,27 @@ export type WidgetSize = {
     stackedRows?: { min: number; max: number }
 }
 
-export type ContentWidget<Config> = Omit<z.infer<typeof contentWidgetSchema>, 'config'> & { config: Config }
+export type ContentPanel<Config> = Omit<z.infer<typeof contentPanelSchema>, 'config'> & { config: Config }
 
-/** A widget as saved. Its `config` is checked against its type's `configSchema` before the type's own code uses it. */
-export type SavedWidget = ContentWidget<z.infer<typeof contentWidgetSchema>['config']>
+/** A panel as saved. Its `config` is checked against its type's `configSchema` before the type's own code uses it. */
+export type SavedPanel = ContentPanel<z.infer<typeof contentPanelSchema>['config']>
 
-export type SectionWidget = z.infer<typeof sectionWidgetSchema>
+export type SectionPanel = z.infer<typeof sectionPanelSchema>
 
-export type Widget = SavedWidget | SectionWidget
+export type Panel = SavedPanel | SectionPanel
 
 /** A section's height follows its tiles, so `h` and `minH` only cover a new, empty one. */
-export const SECTION_SIZE: WidgetSize = { w: 24, h: 6, minW: 8, minH: 3 }
+export const SECTION_SIZE: PanelSize = { w: 24, h: 6, minW: 8, minH: 3 }
 
-/** Looks up a content widget's size. Layout code takes it as an argument, so it never imports a widget. */
-export type SizeOf = (widget: SavedWidget) => WidgetSize
+/** Looks up a content panel's size. Layout code takes it as an argument, so it never imports a panel. */
+export type SizeOf = (panel: SavedPanel) => PanelSize
 
-export function isSectionWidget(widget: Widget): widget is SectionWidget {
-    return widget.type === 'section'
+export function isSectionPanel(panel: Panel): panel is SectionPanel {
+    return panel.type === 'section'
 }
 
-export function widgetSize(widget: Widget, sizeOf: SizeOf): WidgetSize {
-    return isSectionWidget(widget) ? SECTION_SIZE : sizeOf(widget)
+export function panelSize(panel: Panel, sizeOf: SizeOf): PanelSize {
+    return isSectionPanel(panel) ? SECTION_SIZE : sizeOf(panel)
 }
 
 export type Tile = z.infer<typeof tileSchema>
@@ -117,12 +117,12 @@ export interface Dashboard extends z.infer<typeof dashboardSchema> {}
 
 export type DashboardDocument = z.infer<typeof dashboardDocumentSchema>
 
-export type SectionTile = Tile & { widget: SectionWidget }
+export type SectionTile = Tile & { panel: SectionPanel }
 
 export function isSection(tile: Tile): tile is SectionTile {
-    return isSectionWidget(tile.widget)
+    return isSectionPanel(tile.panel)
 }
 
-export function widgetRef(tile: Tile): string | undefined {
-    return isSectionWidget(tile.widget) ? undefined : tile.widget.ref
+export function panelRef(tile: Tile): string | undefined {
+    return isSectionPanel(tile.panel) ? undefined : tile.panel.ref
 }

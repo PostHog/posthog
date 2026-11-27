@@ -51,6 +51,9 @@ const broadcastsCreate = (): ToolBase<ReturnType<typeof BroadcastsCreateSchema>,
         if (params.source_record !== undefined) {
             body['source_record'] = params.source_record
         }
+        if (params.entry_attempt_id !== undefined) {
+            body['entry_attempt_id'] = params.entry_attempt_id
+        }
         if (params.trigger_masking !== undefined) {
             body['trigger_masking'] = params.trigger_masking
         }
@@ -138,6 +141,9 @@ const workflowsCreate = (): ToolBase<ReturnType<typeof WorkflowsCreateSchema>, W
                 }
                 if (params.source_record !== undefined) {
                     body['source_record'] = params.source_record
+                }
+                if (params.entry_attempt_id !== undefined) {
+                    body['entry_attempt_id'] = params.entry_attempt_id
                 }
                 if (params.trigger_masking !== undefined) {
                     body['trigger_masking'] = params.trigger_masking

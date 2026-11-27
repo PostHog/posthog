@@ -214,6 +214,16 @@ function costOf(profile: CloudProfile, hours: number, capacity: Capacity | undef
 
 function environmentOf(profile: CloudProfile, card: RunInputs['card'], manifest: Manifest, runnerFingerprint: unknown) {
     const { idleMax } = profile.readerAcu
+    const runnerProfile = manifest.inputs['runner-profile.yaml']
+    const alertFiles = Object.entries(manifest.inputs)
+        .filter(([name]) => name.startsWith('alerts/'))
+        .sort(([a], [b]) => a.localeCompare(b))
+    const runnerProfileHash =
+        alertFiles.length === 0
+            ? runnerProfile
+            : createHash('sha256')
+                  .update(JSON.stringify([runnerProfile, alertFiles]))
+                  .digest('hex')
     const environment = {
         environment_kind: ENVIRONMENT_KIND,
         writer_class: profile.writerClass,
@@ -224,7 +234,7 @@ function environmentOf(profile: CloudProfile, card: RunInputs['card'], manifest:
         host_class: profile.host.class,
         engine_version: profile.engineVersion,
         pooler_replicas: profile.pooler.replicas,
-        runner_profile_hash: manifest.inputs['runner-profile.yaml'],
+        runner_profile_hash: runnerProfileHash,
         deviations: DEVIATIONS,
     }
     const fingerprint = createHash('sha256')
