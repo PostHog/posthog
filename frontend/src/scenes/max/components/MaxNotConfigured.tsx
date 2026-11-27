@@ -5,9 +5,9 @@ import { Logomark } from 'lib/brand'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 
 /**
- * Shown when PostHog AI (Max) is rendered on a self-hosted instance without both LLM provider keys.
- * The agent runs on Anthropic and conversation titles come from OpenAI, so a chat fails at call time
- * unless ANTHROPIC_API_KEY and OPENAI_API_KEY are both set. This screen tells the user how to set them.
+ * Shown when PostHog AI (Max) is rendered on a self-hosted instance without the LLM provider keys it needs.
+ * Everything runs on Anthropic. Only the legacy chat also needs OpenAI, for its conversation title, so
+ * task surfaces pass `needsOpenAiKey={false}` and ask for ANTHROPIC_API_KEY alone.
  */
 export function MaxNotConfigured({ needsOpenAiKey = true }: { needsOpenAiKey?: boolean }): JSX.Element {
     return (
