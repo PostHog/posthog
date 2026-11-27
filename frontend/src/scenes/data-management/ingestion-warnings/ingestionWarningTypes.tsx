@@ -1,0 +1,405 @@
+import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
+import { Link } from 'lib/lemon-ui/Link'
+import { urls } from 'scenes/urls'
+
+import { IngestionWarning } from './ingestionWarningsLogic'
+
+export const WARNING_TYPE_TO_DESCRIPTION: Record<string, string> = {
+    cannot_merge_already_identified: 'Refused to merge an already identified user',
+    cannot_merge_with_illegal_distinct_id: 'Refused to merge with an illegal distinct id',
+    merge_move_limit_exceeded: 'A merge exceeded its distinct id move limit and was dropped',
+    merge_settled_failure: 'A merge settled without merging and cannot be retried',
+    skipping_event_invalid_uuid: 'Refused to process event with invalid uuid',
+    ignored_invalid_timestamp: 'Ignored an invalid timestamp, event was still ingested',
+    event_timestamp_in_future: 'An event was sent more than 23 hours in the future',
+    ingestion_capacity_overflow: 'Event ingestion has overflowed capacity',
+    message_size_too_large: 'Discarded event exceeding 1MB limit',
+    person_properties_size_violation: 'Person properties exceeded the size limit and were trimmed or rejected',
+    person_properties_depth_violation: 'Person properties were nested more than 128 levels deep and were rejected',
+    replay_timestamp_invalid: 'Replay event timestamp is invalid',
+    replay_timestamp_too_far: 'Replay event timestamp was too far in the future',
+    replay_message_too_large: 'Replay data was dropped because it was too large to ingest',
+    set_on_exception: '$set or $set_once is ignored on exception events and should not be sent',
+    schema_validation_failed: 'Event rejected due to schema validation failure',
+    invalid_heatmap_data: 'Invalid heatmap data',
+    invalid_group_set: 'Discarded a $groupidentify event whose $group_set is not an object',
+    invalid_event_when_process_person_profile_is_false:
+        'Discarded an event that requires person processing because $process_person_profile was set to false',
+    event_dropped_person_processing_disabled:
+        'Discarded an event that requires person processing, which is turned off for this project',
+    cookieless_team_disabled: 'Discarded cookieless event because cookieless tracking is disabled',
+    // Emitted by the capture service when it drops events at validation time
+    missing_event_name: 'Discarded event with no event name',
+    event_name_too_long: 'Discarded event whose name exceeds the length limit',
+    missing_distinct_id: 'Discarded event with no distinct ID',
+    distinct_id_too_large: 'Discarded event whose distinct ID exceeds the size limit',
+    distinct_id_truncated: 'Ingested event after shortening its distinct ID to the 200 character limit',
+    invalid_event_timestamp: 'Discarded event with an invalid timestamp',
+    malformed_event_properties: 'Discarded event with malformed properties',
+    invalid_options: 'Discarded event with invalid capture options',
+    empty_batch: 'Rejected a request containing no events',
+    invalid_batch: 'Rejected a batch with invalid metadata',
+    missing_event_uuid: 'Rejected a batch containing an event with no UUID',
+    invalid_event_uuid: 'Rejected a batch containing an event with an invalid UUID',
+    duplicate_event_uuid: "Discarded events that reused another event's UUID in the same request",
+    high_volume_distinct_id: 'Skipped person profile processing for a high-volume distinct ID',
+    // Emitted by the capture service for its AI endpoints
+    invalid_ai_event: 'Discarded an AI event with an unsupported event name or no $ai_model',
+    invalid_ai_payload: 'Rejected a malformed AI or OpenTelemetry request',
+    no_ai_spans_ingested: 'Accepted an OpenTelemetry export with no AI spans, so nothing was ingested',
+    misrouted_event: 'Discarded a non-AI event sent to the LLM analytics capture endpoint',
+    // Emitted by the capture service for its session replay endpoint
+    missing_session_id: 'Discarded a session replay batch with no $session_id',
+    invalid_session_id: 'Discarded a session replay batch with an invalid $session_id',
+    missing_snapshot_data: 'Discarded a session replay batch with no $snapshot_data',
+}
+
+// Explicit anchor on https://posthog.com/docs/data/ingestion-warnings for each warning type.
+// Don't derive this from the display label — labels and section headings drift apart
+// (e.g. set_on_exception's heading is "Invalid set operations on exception events"), which
+// would land the link at the top of the page instead of the relevant section. Types without
+// a documented section are omitted and fall back to the page root.
+export const WARNING_TYPE_TO_DOCS_ANCHOR: Record<string, string> = {
+    cannot_merge_already_identified: 'refused-to-merge-an-already-identified-user',
+    cannot_merge_with_illegal_distinct_id: 'refused-to-merge-with-an-illegal-distinct-id',
+    merge_move_limit_exceeded: 'a-merge-exceeded-its-distinct-id-move-limit-and-was-dropped',
+    merge_settled_failure: 'a-merge-settled-without-merging-and-cannot-be-retried',
+    skipping_event_invalid_uuid: 'refused-to-process-event-with-invalid-uuid',
+    ignored_invalid_timestamp: 'ignored-an-invalid-timestamp-event-was-still-ingested',
+    event_timestamp_in_future: 'an-event-was-sent-more-than-23-hours-in-the-future',
+    ingestion_capacity_overflow: 'event-ingestion-has-overflowed-capacity',
+    message_size_too_large: 'discarded-event-exceeding-1mb-limit',
+    replay_timestamp_invalid: 'replay-event-timestamp-is-invalid',
+    replay_timestamp_too_far: 'replay-event-timestamp-was-too-far-in-the-future',
+    set_on_exception: 'invalid-set-operations-on-exception-events',
+    invalid_heatmap_data: 'invalid-heatmap-data',
+    high_volume_distinct_id: 'skipped-person-profile-processing-for-a-high-volume-distinct-id',
+    cookieless_team_disabled: 'discarded-cookieless-event-because-cookieless-tracking-is-disabled',
+    misrouted_event: 'discarded-ai-events',
+}
+
+export const WARNING_TYPE_RENDERER = {
+    cannot_merge_already_identified: function Render(warning: IngestionWarning): JSX.Element {
+        const details = warning.details as {
+            sourcePersonDistinctId: string
+            targetPersonDistinctId: string
+            eventUuid: string
+        }
+        return (
+            <>
+                Refused to merge already identified person{' '}
+                <Link to={urls.personByDistinctId(details.sourcePersonDistinctId)}>
+                    {details.sourcePersonDistinctId}
+                </Link>{' '}
+                into{' '}
+                <Link to={urls.personByDistinctId(details.targetPersonDistinctId)}>
+                    {details.targetPersonDistinctId}
+                </Link>{' '}
+                via an $identify or $create_alias call (event uuid: <code>{details.eventUuid}</code>).
+            </>
+        )
+    },
+    cannot_merge_with_illegal_distinct_id: function Render(warning: IngestionWarning): JSX.Element {
+        const details = warning.details as {
+            illegalDistinctId: string
+            otherDistinctId: string
+            eventUuid: string
+        }
+        return (
+            <>
+                Refused to merge an illegal distinct_id{' '}
+                <Link to={urls.personByDistinctId(details.illegalDistinctId)}>{details.illegalDistinctId}</Link> with{' '}
+                <Link to={urls.personByDistinctId(details.otherDistinctId)}>{details.otherDistinctId}</Link> via an
+                $identify or $create_alias call (event uuid: <code>{details.eventUuid}</code>).
+            </>
+        )
+    },
+    merge_move_limit_exceeded: function Render(warning: IngestionWarning): JSX.Element {
+        const details = warning.details as {
+            sourcePersonDistinctId: string
+            targetPersonDistinctId: string
+            eventUuid: string
+        }
+        return (
+            <>
+                Refused to merge{' '}
+                <Link to={urls.personByDistinctId(details.sourcePersonDistinctId)}>
+                    {details.sourcePersonDistinctId}
+                </Link>{' '}
+                into{' '}
+                <Link to={urls.personByDistinctId(details.targetPersonDistinctId)}>
+                    {details.targetPersonDistinctId}
+                </Link>{' '}
+                because it has more distinct ids than one merge may move (event uuid: <code>{details.eventUuid}</code>).
+            </>
+        )
+    },
+    merge_settled_failure: function Render(warning: IngestionWarning): JSX.Element {
+        const details = warning.details as {
+            sourcePersonDistinctId: string
+            targetPersonDistinctId: string
+            eventUuid: string
+        }
+        return (
+            <>
+                A merge of{' '}
+                <Link to={urls.personByDistinctId(details.sourcePersonDistinctId)}>
+                    {details.sourcePersonDistinctId}
+                </Link>{' '}
+                into{' '}
+                <Link to={urls.personByDistinctId(details.targetPersonDistinctId)}>
+                    {details.targetPersonDistinctId}
+                </Link>{' '}
+                settled without merging, and the result is recorded, so a retry cannot change it (event uuid:{' '}
+                <code>{details.eventUuid}</code>).
+            </>
+        )
+    },
+    skipping_event_invalid_uuid: function Render(warning: IngestionWarning): JSX.Element {
+        const details = warning.details as {
+            eventUuid: string
+        }
+        return (
+            <>
+                Refused to process event with invalid uuid: <code>{details.eventUuid}</code>.
+            </>
+        )
+    },
+    ignored_invalid_timestamp: function Render(warning: IngestionWarning): JSX.Element {
+        const details = warning.details as {
+            eventUuid: string
+            field: string
+            value: string
+            reason: string
+        }
+        return (
+            <>
+                Used server timestamp when ingesting event due to invalid input:
+                <ul>
+                    {details.eventUuid ? <li>Event UUID: {details.eventUuid}</li> : ''}
+                    {details.field ? <li>Invalid field: {details.field}</li> : ''}
+                    {details.value ? <li>Invalid value: {details.value}</li> : ''}
+                    {details.reason ? <li>Error: {details.reason}</li> : ''}
+                </ul>
+            </>
+        )
+    },
+    event_timestamp_in_future: function Render(warning: IngestionWarning): JSX.Element {
+        const details = warning.details as {
+            eventUuid: string
+            timestamp: string
+            sentAt: string
+            offset: string
+            now: string
+            result: string
+        }
+        return (
+            <>
+                The event timestamp computed too far in the future, so the capture time was used instead. Event values:
+                <ul>
+                    <li>Computed timestamp: {details.result}</li>
+                    {details.eventUuid ? <li>Event UUID: {details.eventUuid}</li> : ''}
+                    {details.timestamp ? <li>Client provided timestamp: {details.timestamp}</li> : ''}
+                    {details.sentAt ? <li>Client provided sent_at: {details.sentAt}</li> : ''}
+                    {details.offset ? <li>Client provided time offset: {details.offset}</li> : ''}
+                    <li>PostHog server capture time: {details.now}</li>
+                </ul>
+            </>
+        )
+    },
+    ingestion_capacity_overflow: function Render(warning: IngestionWarning): JSX.Element {
+        const details = warning.details as {
+            overflowDistinctId: string
+        }
+        return (
+            <>
+                Event ingestion has overflowed capacity for distinct_id{' '}
+                <Link to={urls.personByDistinctId(details.overflowDistinctId)}>{details.overflowDistinctId}</Link>.
+                Events will still be processed, but are likely to be delayed longer than usual.
+            </>
+        )
+    },
+    message_size_too_large: function Render(warning: IngestionWarning): JSX.Element {
+        const details = warning.details as {
+            eventUuid: string
+            distinctId: string
+        }
+        return (
+            <>
+                Discarded event for distinct_id{' '}
+                <Link to={urls.personByDistinctId(details.distinctId)}>{details.distinctId}</Link> that exceeded 1MB in
+                size after processing (event uuid: <code>{details.eventUuid}</code>)
+            </>
+        )
+    },
+    replay_timestamp_invalid: function Render(warning: IngestionWarning): JSX.Element {
+        const details: {
+            timestamp: string
+            session_id: string
+        } = {
+            timestamp: warning.details.timestamp,
+            session_id: warning.details.replayRecord.session_id,
+        }
+        return (
+            <>
+                Session replay data dropped due to invalid timestamp:
+                <ul>
+                    <li>invalid timestamp: {details.timestamp}</li>
+                    <li>session_id: {details.session_id}</li>
+                </ul>
+                <div className="max-w-30 mt-2">
+                    <ViewRecordingButton
+                        sessionId={details.session_id}
+                        timestamp={details.timestamp}
+                        type="primary"
+                        size="xsmall"
+                        data-attr="skewed-timestamp-view-recording"
+                    />
+                </div>
+            </>
+        )
+    },
+    replay_timestamp_too_far: function Render(warning: IngestionWarning): JSX.Element {
+        const details: {
+            timestamp: string
+            session_id: string
+            daysFromNow: string
+        } = {
+            timestamp: warning.details.timestamp,
+            session_id: warning.details.replayRecord.session_id,
+            daysFromNow: warning.details.daysFromNow,
+        }
+        return (
+            <>
+                The session replay data timestamp was too different from the capture time, so the data was dropped.
+                Event values:
+                <ul>
+                    <li>invalid timestamp: {details.timestamp}</li>
+                    <li>session_id: {details.session_id}</li>
+                    <li>skew: {details.daysFromNow} days</li>
+                </ul>
+                <div className="max-w-30 mt-2">
+                    <ViewRecordingButton
+                        sessionId={details.session_id}
+                        timestamp={details.timestamp}
+                        type="primary"
+                        size="xsmall"
+                        data-attr="skewed-timestamp-view-recording"
+                    />
+                </div>
+            </>
+        )
+    },
+    replay_message_too_large: function Render(warning: IngestionWarning): JSX.Element {
+        const details: {
+            timestamp: string
+            session_id: string
+        } = {
+            timestamp: warning.details.timestamp,
+            session_id: warning.details.replayRecord.session_id,
+        }
+        return (
+            <>
+                Session replay data dropped due to its size, this can cause playback problems:
+                <ul>
+                    <li>session_id: {details.session_id}</li>
+                </ul>
+                <div className="max-w-30 mt-2">
+                    <ViewRecordingButton
+                        sessionId={details.session_id}
+                        timestamp={details.timestamp}
+                        type="primary"
+                        size="xsmall"
+                        data-attr="message-too-large-view-recording"
+                    />
+                </div>
+            </>
+        )
+    },
+    set_on_exception: function Render(warning: IngestionWarning): JSX.Element {
+        const details: {
+            event_uuid: string
+        } = {
+            event_uuid: warning.details.event_uuid,
+        }
+
+        return (
+            <>
+                {' '}
+                Exception {details.event_uuid} contained $set or $set_once properties, which are ignored on exception
+                events
+            </>
+        )
+    },
+    cookieless_team_disabled: function Render(warning: IngestionWarning): JSX.Element {
+        const details = warning.details as {
+            eventUuid: string
+            event: string
+            distinctId: string
+        }
+        return (
+            <>
+                Discarded a <code>{details.event}</code> event sent in cookieless mode (event uuid:{' '}
+                <code>{details.eventUuid}</code>) because cookieless tracking is disabled for this project. Enable it
+                under{' '}
+                <Link to={urls.settings('environment-web-analytics', 'cookieless-server-hash-mode')}>
+                    Settings → Web analytics → Cookieless tracking
+                </Link>
+                , or remove <code>cookieless_mode</code> from your posthog-js config.
+            </>
+        )
+    },
+    schema_validation_failed: function Render(warning: IngestionWarning): JSX.Element {
+        const details = warning.details as {
+            eventUuid: string
+            eventName: string
+            distinctId: string
+            errors: Array<{
+                property: string
+                reason: 'missing_required' | 'type_mismatch'
+                expectedTypes?: string[]
+                actualValue?: string
+            }>
+        }
+        return (
+            <>
+                Event <strong>{details.eventName}</strong> was rejected because it failed schema validation for
+                distinct_id <Link to={urls.personByDistinctId(details.distinctId)}>{details.distinctId}</Link> (event
+                uuid: <code>{details.eventUuid}</code>):
+                <ul>
+                    {(details.errors ?? []).map((error, index) => (
+                        <li key={index}>
+                            {error.reason === 'missing_required' ? (
+                                <>
+                                    Required property <code>{error.property}</code> is missing
+                                </>
+                            ) : (
+                                <>
+                                    Property <code>{error.property}</code> has invalid type (expected{' '}
+                                    {error.expectedTypes?.join(' or ')}, got{' '}
+                                    <code>{error.actualValue ?? 'unknown'}</code>)
+                                </>
+                            )}
+                        </li>
+                    ))}
+                </ul>
+            </>
+        )
+    },
+}
+
+export function warningTypeLabel(type: string): string {
+    return WARNING_TYPE_TO_DESCRIPTION[type as keyof typeof WARNING_TYPE_TO_DESCRIPTION] || type
+}
+
+export function warningDocsUrl(type: string): string {
+    const docsAnchor = WARNING_TYPE_TO_DOCS_ANCHOR[type]
+    return docsAnchor
+        ? `https://posthog.com/docs/data/ingestion-warnings#${docsAnchor}`
+        : 'https://posthog.com/docs/data/ingestion-warnings'
+}
+
+export function renderWarningDescription(warning: IngestionWarning): JSX.Element {
+    const renderer = WARNING_TYPE_RENDERER[warning.type as keyof typeof WARNING_TYPE_RENDERER]
+    return renderer ? renderer(warning) : <pre>{JSON.stringify(warning.details, null, 2)}</pre>
+}

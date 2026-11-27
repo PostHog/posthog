@@ -26,7 +26,7 @@ import {
     WARNING_TYPE_RENDERER,
     WARNING_TYPE_TO_DESCRIPTION,
     WARNING_TYPE_TO_DOCS_ANCHOR,
-} from '../ingestion-warnings/IngestionWarningsView'
+} from '../ingestion-warnings/ingestionWarningTypes'
 import {
     IngestionWarningV2Sample,
     IngestionWarningV2Summary,
