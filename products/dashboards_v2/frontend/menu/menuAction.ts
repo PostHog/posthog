@@ -23,6 +23,8 @@ type MenuActionBase = {
      * always sits last, on its own.
      */
     group?: MenuGroup
+    /** Set on a submenu's entries to split them under headings, such as `Image` and `Data`. One heading alone is not shown. */
+    section?: string
     /** Makes a picture of what the tile holds, so a tile's menu disables it while the tile is still loading. */
     needsLoaded?: boolean
     /** Picking it leaves the menu open, for a choice someone may want to compare with the next one. */
