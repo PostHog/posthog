@@ -9,9 +9,9 @@ import { urls } from 'scenes/urls'
 import { ADVENT_LAST_DAY } from '../adventContent'
 import { AdventSnow } from '../AdventSnow'
 import { AdventEntryDoor } from './AdventEntryDoor'
-import { reportAdventEntryClicked } from './adventEntryEvents'
-import { AdventEntryPhase } from './adventEntryPhase'
+import { reportAdventEntryClicked, reportAdventEntryMiddleClicked } from './adventEntryEvents'
 import { adventEntryProgressLogic } from './adventEntryProgressLogic'
+import { adventEntrySummary } from './adventEntrySummary'
 import { AdventTreeIcon } from './AdventTreeIcon'
 import { useAdventHoverSnow } from './useAdventHoverSnow'
 
@@ -21,13 +21,10 @@ function rowFit(opened: number): 'few' | 'some' | 'many' {
     return opened <= 4 ? 'few' : opened <= 12 ? 'some' : 'many'
 }
 
-function graphDay(phase: AdventEntryPhase): number {
-    return phase.status === 'open' ? phase.day : phase.status === 'over' ? ADVENT_LAST_DAY : 0
-}
-
-export function AdventEntryCard({ phase }: { phase: AdventEntryPhase }): JSX.Element {
+export function AdventEntryCard(): JSX.Element {
     const hoverSnow = useAdventHoverSnow()
-    const { doors, nextDoorDay } = useValues(adventEntryProgressLogic({ today: graphDay(phase) }))
+    const { doors, nextDoorDay, phase } = useValues(adventEntryProgressLogic)
+    const summary = adventEntrySummary(doors, phase)
     const opened = doors?.filter((door) => door.status === 'open').length ?? 0
     return (
         <div className={cn('AdventEntryCard', `AdventEntryCard--${rowFit(opened)}`)} data-attr="advent-entry-card">
@@ -42,6 +39,7 @@ export function AdventEntryCard({ phase }: { phase: AdventEntryPhase }): JSX.Ele
                         <p className="AdventEntryCard__subline m-0 text-[0.8125rem]">The first door opens December 1</p>
                     )}
                 </div>
+                {summary && <p className="sr-only">{summary}</p>}
                 <div className="AdventEntryCard__doors" aria-hidden>
                     {DAYS.map((day) => (
                         <AdventEntryDoor
@@ -56,7 +54,8 @@ export function AdventEntryCard({ phase }: { phase: AdventEntryPhase }): JSX.Ele
                     <LemonButton
                         type="primary"
                         to={urls.workflowsAdventCalendar()}
-                        onClick={() => reportAdventEntryClicked('card')}
+                        onClickCapture={() => reportAdventEntryClicked('card')}
+                        onAuxClick={(event) => reportAdventEntryMiddleClicked(event, 'card')}
                         data-attr="advent-entry-card-open"
                     >
                         {nextDoorDay ? `Open door ${nextDoorDay}` : 'Open the calendar'}

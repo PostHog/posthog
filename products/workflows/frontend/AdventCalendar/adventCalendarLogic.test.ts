@@ -102,20 +102,30 @@ describe('adventCalendarLogic', () => {
         jest.useRealTimers()
     })
 
-    it.each<[string, number | null, boolean, boolean | null]>([
-        ['nothing has looked for workflows yet', null, false, null],
-        ['the Workflows page found none', 0, true, false],
-        ['the Workflows page found some', 1, true, true],
-        ['an earlier visit to the Workflows page found some', 1, false, true],
-    ])('reports the view, with whether the project has workflows, when %s', async (_, count, open, hasWorkflows) => {
+    it.each<[string, number[], boolean, boolean | null]>([
+        ['nothing has looked for workflows yet', [], false, null],
+        ['the Workflows page found none', [0], true, false],
+        ['the Workflows page found some', [1], true, true],
+        ['an earlier visit to the Workflows page found some', [1], false, true],
+        ['the Workflows page found none after an earlier visit found some', [1, 0], true, null],
+    ])('reports the view, with whether the project has workflows, when %s', async (_, counts, open, hasWorkflows) => {
         logic.unmount()
         capture.mockClear()
-        if (count !== null) {
-            useMocks({ get: { '/api/projects/:team_id/hog_flows/': { count, results: [] } } })
+        for (const [visit, count] of counts.entries()) {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/hog_flows/': {
+                        count,
+                        results: count ? [{ id: 'workflow-1', name: 'Welcome series' }] : [],
+                        next: null,
+                        previous: null,
+                    },
+                },
+            })
             const setup = workflowsSetupLogic()
             setup.mount()
-            await expectLogic(setup).toDispatchActions(['detectStatusSuccess']).toFinishAllListeners()
-            if (!open) {
+            await expectLogic(setup).toFinishAllListeners()
+            if (!open || visit < counts.length - 1) {
                 setup.unmount()
             }
         }

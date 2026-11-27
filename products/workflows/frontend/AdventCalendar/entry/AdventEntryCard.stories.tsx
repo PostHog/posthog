@@ -20,9 +20,9 @@ const meta: Meta<typeof AdventEntryCard> = {
     title: 'Scenes-App/Workflows/Advent calendar/Entry card',
     component: AdventEntryCard,
     parameters: {
+        mockDate: '2026-12-03 09:00:00',
         testOptions: { snapshotBrowsers: [] },
     },
-    args: { phase: { status: 'open', day: 3 } },
     beforeEach: storeOpenedDoors(2),
     decorators: [
         (Story) => (
@@ -38,11 +38,17 @@ type Story = StoryObj<typeof AdventEntryCard>
 
 export const TwoDoorsOpen: Story = {}
 
-export const TwelveDoorsOpen: Story = { args: { phase: { status: 'open', day: 13 } }, beforeEach: storeOpenedDoors(12) }
+export const TwelveDoorsOpen: Story = {
+    parameters: { mockDate: '2026-12-13 09:00:00' },
+    beforeEach: storeOpenedDoors(12),
+}
 
-export const AllDoorsOpen: Story = { args: { phase: { status: 'over' } }, beforeEach: storeOpenedDoors(24) }
+export const AllDoorsOpen: Story = { parameters: { mockDate: '2026-12-26 09:00:00' }, beforeEach: storeOpenedDoors(24) }
 
-export const BeforeDecember: Story = { args: { phase: { status: 'soon' } }, beforeEach: storeOpenedDoors(0) }
+export const BeforeDecember: Story = {
+    parameters: { mockDate: '2026-11-27 09:00:00' },
+    beforeEach: storeOpenedDoors(0),
+}
 
 export const NarrowScene: Story = {
     decorators: [
