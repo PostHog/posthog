@@ -459,7 +459,6 @@ def _sessions_by_click(
     landings: list[TransactionalEmailClickSession],
 ) -> dict[int, TransactionalEmailClickSession]:
     sessions: dict[int, TransactionalEmailClickSession] = {}
-    unmatched: list[tuple[TransactionalEmailClickSession, list[int]]] = []
     for landing in landings:
         eligible = [
             index
@@ -467,17 +466,9 @@ def _sessions_by_click(
             if not off_site[index] and at - CLOCK_SKEW <= landing.landed_at <= at + LANDING_AFTER_CLICK
         ]
         same_page = [index for index in eligible if _lands_on(links[index], landing.landing_url)]
-        if not same_page:
-            unmatched.append((landing, eligible))
-            continue
-        free = [index for index in same_page if index not in sessions]
-        if free:
+        free = [index for index in same_page or eligible if index not in sessions]
+        if free and (same_page or len(free) == 1):
             sessions[_started_by(free, click_times, landing.landed_at)] = landing
-    # Visits on no click's page, such as after a redirect, wait until every link match took its click.
-    for landing, eligible in unmatched:
-        free = [index for index in eligible if index not in sessions]
-        if len(free) == 1:
-            sessions[free[0]] = landing
     return sessions
 
 
