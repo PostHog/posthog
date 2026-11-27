@@ -277,6 +277,17 @@ class TestFrontierReview(AbuseClassificationTestCase):
         assert self.frontier_properties() == {"frontier_review_queued": False}
         assert self.broker.queued == []
 
+    def test_a_save_after_a_lost_task_queues_the_review_again(self) -> None:
+        with time_machine.travel(time.time(), tick=False) as clock:
+            probe = self.probe()
+            self.broker.queued.clear()
+            clock.shift(frontier.MAX_DELAY_SECONDS * 2 + frontier.DEBOUNCE_SECONDS)
+            self.save(probe, hog=PROBE_HOG.replace("/latest", "/latest/meta-data"))
+            clock.shift(frontier.DEBOUNCE_SECONDS)
+            self.broker.run_due()
+
+        assert len(self.review_requests()) == 1
+
     def test_a_redelivered_task_reviews_the_burst_once(self) -> None:
         self.review_reply = httpx.Response(200, json=model_message("", stop_reason="refusal"))
         with time_machine.travel(time.time(), tick=False) as clock:

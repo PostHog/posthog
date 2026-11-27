@@ -109,7 +109,11 @@ def start_or_push_back(hog_function_id: str) -> bool:
     now = time.time()
     ttl = _pending_ttl_seconds()
     cache.set(last_saved_key(hog_function_id), now, ttl)
-    return cache.add(pending_key(hog_function_id), now, ttl)
+    if cache.add(pending_key(hog_function_id), now, ttl):
+        return True
+    # A burst still pending past its cap lost its task with no redelivery coming, so this save queues another one.
+    first_saved_at = _number(cache.get(pending_key(hog_function_id)))
+    return first_saved_at is not None and now > first_saved_at + MAX_DELAY_SECONDS + DEBOUNCE_SECONDS
 
 
 def seconds_until_due(hog_function_id: str) -> float | None:
