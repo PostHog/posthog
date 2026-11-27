@@ -501,7 +501,6 @@ def create_serializers() -> dict[str, type[PlatformAlertConfigurationEditSeriali
     return {
         source_kind: _typed_create_serializer(serializer)
         for source_kind, serializer in edit_serializers().items()
-        # A read-only kind's alerts are created through its source's own API.
         if source_kind in creatable and source_kind not in READ_ONLY_SOURCE_KINDS
     }
 
