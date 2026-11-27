@@ -31,7 +31,7 @@ const SCOPES = [
 ]
 
 // `SlackIntegrationScopeInReview`: Slack has not approved these for the public app, so only dev asks for them.
-const SCOPES_IN_REVIEW: string[] = ['usergroups:read']
+const SCOPES_IN_REVIEW: string[] = ['usergroups:read', 'emoji:read']
 
 export const slack: ProviderSpec = {
     kind: 'slack',

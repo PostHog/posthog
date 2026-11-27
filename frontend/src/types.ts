@@ -5781,6 +5781,7 @@ export const SLACK_INTEGRATION_SCOPES = Object.values(SlackIntegrationScope)
 /** @schemaEnum */
 export enum SlackIntegrationScopeInReview {
     USERGROUPS_READ = 'usergroups:read',
+    EMOJI_READ = 'emoji:read',
 }
 
 export const SLACK_INTEGRATION_SCOPES_IN_REVIEW: string[] = Object.values(SlackIntegrationScopeInReview)

@@ -3221,6 +3221,7 @@ class SlackIntegrationScope(StrEnum):
 
 class SlackIntegrationScopeInReview(StrEnum):
     USERGROUPS_READ = "usergroups:read"
+    EMOJI_READ = "emoji:read"
 
 
 class SlashCommandName(StrEnum):

@@ -60768,7 +60768,7 @@
             "type": "string"
         },
         "SlackIntegrationScopeInReview": {
-            "enum": ["usergroups:read"],
+            "enum": ["usergroups:read", "emoji:read"],
             "type": "string"
         },
         "SlashCommandName": {

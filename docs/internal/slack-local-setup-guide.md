@@ -113,6 +113,7 @@ oauth_config:
       - users:read
       - users:read.email
       - usergroups:read
+      - emoji:read
     user:
       - openid
       - email
