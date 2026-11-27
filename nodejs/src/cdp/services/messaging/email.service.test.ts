@@ -4762,6 +4762,7 @@ describe('EmailService', () => {
                 teamOptedOut?: boolean
                 storedRunLinkTag?: unknown
                 href: string
+                cleanTagged?: boolean
             }>([
                 {
                     case: 'tags the links of a tracked send',
@@ -4831,31 +4832,34 @@ describe('EmailService', () => {
                     href: STALE_HREF,
                 },
                 {
-                    case: 'tags the links of a sensitive email that opts in to click tracking',
+                    case: 'tags only the links without a query of a sensitive email that opts in to click tracking',
                     trackingEnabled: true,
                     allowlisted: true,
                     isTest: false,
                     sensitive: true,
                     clickTrackingEnabled: true,
-                    href: TAGGED_HREF,
+                    href: STALE_HREF,
+                    cleanTagged: true,
                 },
                 {
-                    case: 'tags the links of a sensitive code send that turns clicks on',
+                    case: 'tags only the links without a query of a sensitive code send that turns clicks on',
                     trackingEnabled: true,
                     allowlisted: true,
                     isTest: false,
                     sensitive: true,
                     send: { tracking: { clicks: true } },
-                    href: TAGGED_HREF,
+                    href: STALE_HREF,
+                    cleanTagged: true,
                 },
                 {
-                    case: "tags the links of a code send marked sensitive that turns clicks on, on a workflow that isn't sensitive",
+                    case: "tags only the links without a query of a code send marked sensitive that turns clicks on, on a workflow that isn't sensitive",
                     trackingEnabled: true,
                     allowlisted: true,
                     isTest: false,
                     sensitive: false,
                     send: { sensitive: true, tracking: { clicks: true } },
-                    href: TAGGED_HREF,
+                    href: STALE_HREF,
+                    cleanTagged: true,
                 },
                 {
                     case: 'leaves the links of a sensitive test send that turns clicks on',
@@ -4867,24 +4871,24 @@ describe('EmailService', () => {
                     href: STALE_HREF,
                 },
                 {
-                    case: 'drops the run ids of earlier sends from the links of a sensitive code send that turns clicks on, in a team that turned link tagging off',
+                    case: 'leaves the run ids of earlier sends on the links with a query of a sensitive code send that turns clicks on, in a team that turned link tagging off',
                     trackingEnabled: true,
                     allowlisted: true,
                     isTest: false,
                     sensitive: true,
                     send: { tracking: { clicks: true } },
                     teamOptedOut: true,
-                    href: STRIPPED_HREF,
+                    href: STALE_HREF,
                 },
                 {
-                    case: 'drops the run ids of earlier sends from the links of a sensitive code send that turns clicks on, on an email that turned link tagging off',
+                    case: 'leaves the run ids of earlier sends on the links with a query of a sensitive code send that turns clicks on, on an email that turned link tagging off',
                     trackingEnabled: true,
                     allowlisted: true,
                     isTest: false,
                     sensitive: true,
                     send: { tracking: { clicks: true } },
                     storedRunLinkTag: false,
-                    href: STRIPPED_HREF,
+                    href: STALE_HREF,
                 },
                 {
                     case: 'leaves the links of a template that turns click tracking off',
@@ -4934,6 +4938,7 @@ describe('EmailService', () => {
                     teamOptedOut,
                     storedRunLinkTag,
                     href,
+                    cleanTagged,
                 }) => {
                     if (teamOptedOut) {
                         await hub.postgres.query(
@@ -4969,7 +4974,7 @@ describe('EmailService', () => {
                     expect(result.error).toBeUndefined()
                     expect([...ses.sent[0].html!.matchAll(/href="([^"]*)"/g)].map(([, sent]) => sent)).toEqual([
                         href,
-                        href === TAGGED_HREF ? `${CLEAN_HREF}?ph_workflow_run=invocation-1` : CLEAN_HREF,
+                        href === TAGGED_HREF || cleanTagged ? `${CLEAN_HREF}?ph_workflow_run=invocation-1` : CLEAN_HREF,
                         'https://example.com/',
                         SIGNED_HREF,
                         UNTRACKED_HREF,
