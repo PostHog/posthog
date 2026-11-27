@@ -1,7 +1,7 @@
 import posthog from 'posthog-js'
 import type { MouseEvent } from 'react'
 
-import type { CategorySuffixNav } from '~/layout/panel-layout/ProjectTree/customCategorySuffixRegistry'
+import type { CategorySuffixNav } from '~/layout/panel-layout/ProjectTree/CustomCategorySuffix'
 
 import { adventHasWorkflows } from '../adventHasWorkflows'
 
