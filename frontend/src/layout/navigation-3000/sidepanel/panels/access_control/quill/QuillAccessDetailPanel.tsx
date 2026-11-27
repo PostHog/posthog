@@ -17,10 +17,6 @@ function PanelSkeleton(): JSX.Element {
     )
 }
 
-/**
- * The access detail of one member or role, opened with `openSidePanel(SidePanelTab.AccessDetail, 'member:<id>' |
- * 'role:<id>')`. Which subject to show lives in accessControlsLogic (`activePanelSubject`).
- */
 export function QuillAccessDetailPanel(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
 

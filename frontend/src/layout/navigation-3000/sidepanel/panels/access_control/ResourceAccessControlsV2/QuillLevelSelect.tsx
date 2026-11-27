@@ -73,7 +73,6 @@ export function QuillLevelSelect<T extends string>({
     ) : (
         NO_OVERRIDE_LABEL
     )
-    // The fallback's reason is only worth a hover while the fallback is what applies
     const triggerTooltip = value === null && inherited ? inherited.reason : tooltip
 
     const items: SelectEntry<T>[] = [

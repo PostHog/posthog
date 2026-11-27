@@ -89,7 +89,6 @@ const COLUMNS: ColumnDef<ProductRow>[] = [
     { id: 'access', header: 'Access', meta: { align: 'right' }, enableSorting: false, cell: AccessCell },
 ]
 
-/** The subject's access to each product, saved as soon as a level is picked. */
 export function QuillProductAccessRules({
     projectId,
     scopeType,

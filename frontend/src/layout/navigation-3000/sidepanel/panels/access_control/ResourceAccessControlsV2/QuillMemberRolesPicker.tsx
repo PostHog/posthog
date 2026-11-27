@@ -19,7 +19,6 @@ import { roleAccessControlLogic } from '../roleAccessControlLogic'
 // Marks the list item that creates a role from the typed name, so it never reads as an existing role's id
 const CREATE_ROLE_PREFIX = 'create-role:'
 
-/** The member's roles as chips: pick an existing role, type a new name to create one, or remove a chip. */
 export function QuillMemberRolesPicker({ userUuid }: { userUuid: string }): JSX.Element {
     const { sortedRoles, rolesLoading, canEditRoles } = useValues(roleAccessControlLogic)
     const { addMembersToRole, removeMemberFromRole, createRoleWithMember } = useActions(roleAccessControlLogic)

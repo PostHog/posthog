@@ -13,7 +13,6 @@ import { QuillPropertyAccessRules } from './QuillPropertyAccessRules'
 import { QuillRoleAccessHeader } from './QuillRoleAccessHeader'
 import type { AccessControlSettingsEntry } from './types'
 
-/** Everything one member or role can reach in the project, editable in place. */
 export function QuillAccessControlDetail({
     projectId,
     scopeType,
