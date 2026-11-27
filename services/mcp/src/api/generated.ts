@@ -45787,6 +45787,8 @@ export namespace Schemas {
       offset: number;
       /** Offset to fetch the next page when hasMore is true. */
       nextOffset?: number;
+      /** Ids of the Self-driving inbox reports that reference this issue, most recently updated first, at most 10. A report references the issue when its signals came from the issue, when a scout cited the issue as evidence, or when its evidence or summary links the issue. Read one with inbox-reports-retrieve. An empty list means no report references the issue. Absent when the lookup is not available for this project or the caller, or when it failed or timed out. Present only on the first page, when offset is 0. */
+      inbox_report_ids?: string[];
     }
 
     export interface ErrorTrackingIssueExistsResponse {

@@ -19,6 +19,10 @@ Returns sampled events with plural exception fields (`$exception_types`, `$excep
 - A stack trace keeps at most the 50 frames closest to the error. `frames_omitted` gives the number of older frames that were left out.
 - When a stack trace is the same as one returned earlier on the page, its `stacktrace` is `{"same_as_event": "<uuid>", "same_as_exception": <index>}`. Read the frames from that event, at that index of its `$exception_list`. The event can be the same event, when two of its exceptions share a stack.
 
+# Inbox reports
+
+`inbox_report_ids` lists the Self-driving inbox reports that reference this issue, most recently updated first, at most 10. It is on the first page only. Before you investigate or fix the error yourself, read each report with `inbox-reports-retrieve`: a report can already hold the research, a likely cause, or a pull request for this error. A reference does not prove that a report's pull request fixes this issue. An empty list means no report references the issue. The field is absent when the lookup is not available for this project, the caller cannot read reports, or the lookup failed.
+
 # Session recordings
 
 When `$session_id` is present and the user asks what happened before the error, call `query-session-recordings-list` with `session_ids` to fetch matching recordings. Use multiple `$session_id` values in one call when available.

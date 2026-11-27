@@ -336,11 +336,7 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             external_issues = None
         if external_issues is not None:
             payload["external_issues"] = [external_issue_payload(reference) for reference in external_issues]
-        inbox_reports_started_at = time.monotonic()
-        inbox_report_ids = self._inbox_report_ids(request, issue_basics)
-        inbox_reports_ms = round((time.monotonic() - inbox_reports_started_at) * 1000)
-        if inbox_report_ids is not None:
-            payload["inbox_report_ids"] = inbox_report_ids
+        inbox_report_properties = self._add_inbox_report_ids(request, issue_basics, payload)
         if summary_read.summary is not None:
             payload["summary"] = summary_payload(summary_read.summary)
         payload["summary_status"] = summary_read.status.value
@@ -355,12 +351,28 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             summary_status=summary_read.status.value,
             summary_reason=summary_read.reason.value if summary_read.reason is not None else None,
             external_issue_count=len(external_issues) if external_issues is not None else None,
-            inbox_report_count=len(inbox_report_ids) if inbox_report_ids is not None else None,
-            inbox_reports_ms=inbox_reports_ms if inbox_report_ids is not None else None,
+            **inbox_report_properties,
             facts_ms=round((summary_started_at - started_at) * 1000),
             summary_wait_ms=round((summary_finished_at - summary_started_at) * 1000),
         )
         return Response(payload)
+
+    def _add_inbox_report_ids(
+        self,
+        request: ValidatedRequest,
+        issue_basics: contracts.ErrorTrackingIssueBasics,
+        payload: dict[str, object],
+    ) -> dict[str, object]:
+        """Add `inbox_report_ids` to the payload, and return the lookup's properties for the issue read event."""
+        started_at = time.monotonic()
+        report_ids = self._inbox_report_ids(request, issue_basics)
+        if report_ids is None:
+            return {"inbox_report_count": None, "inbox_reports_ms": None}
+        payload["inbox_report_ids"] = report_ids
+        return {
+            "inbox_report_count": len(report_ids),
+            "inbox_reports_ms": round((time.monotonic() - started_at) * 1000),
+        }
 
     def _inbox_report_ids(
         self, request: ValidatedRequest, issue_basics: contracts.ErrorTrackingIssueBasics
@@ -532,5 +544,7 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         payload: dict[str, object] = {"results": results, "hasMore": has_more, "limit": limit, "offset": offset}
         if next_offset is not None:
             payload["nextOffset"] = next_offset
-        self._report_issue_read(request, issue_basics, "issue_events")
+        # Only the first page carries the reports, so an agent that pages through events runs the lookup once.
+        inbox_report_properties = self._add_inbox_report_ids(request, issue_basics, payload) if offset == 0 else {}
+        self._report_issue_read(request, issue_basics, "issue_events", **inbox_report_properties)
         return Response(payload)
