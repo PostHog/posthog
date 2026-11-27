@@ -51,7 +51,7 @@ class TaskUsage:
 
 @frozen
 class TaskComputeCost:
-    """Billed sandbox compute. Every session copies its task's origin, so one meter bills all of it."""
+    """Billed sandbox compute. Every session copies its task's origin and client, so one meter bills all of it."""
 
     cost_usd: Decimal
     # None when no meter bills the task's compute.
@@ -66,9 +66,10 @@ _NO_COMPUTE_COST = TaskComputeCost(cost_usd=Decimal(0), billing_meter=None)
 
 
 def get_task_usage(*, team_id: int, task_id: UUID, task_created_at: datetime) -> TaskUsage:
+    token_cost = get_task_token_cost(team_id=team_id, task_id=task_id, task_created_at=task_created_at)
     compute = get_task_compute_cost(team_id=team_id, task_id=task_id)
     return TaskUsage(
-        token_cost_usd=_get_task_token_cost(team_id=team_id, task_id=task_id, task_created_at=task_created_at),
+        token_cost_usd=token_cost,
         # PostHog Desktop reads this, so it shows only the compute that its own meter bills.
         compute_cost_usd=compute.cost_usd if compute.billing_meter == ComputeBillingMeter.POSTHOG_CODE else Decimal(0),
     )
@@ -91,7 +92,8 @@ def sign_task_usage_request(body: bytes, secret: str, *, timestamp: int | None =
     return TaskUsageRequestSignature(signature=signature, timestamp=request_timestamp)
 
 
-def _get_task_token_cost(*, team_id: int, task_id: UUID, task_created_at: datetime) -> Decimal:
+def get_task_token_cost(*, team_id: int, task_id: UUID, task_created_at: datetime) -> Decimal:
+    """The task's model spend, cached for a minute because it is a ClickHouse query over `$ai_generation` events."""
     cache_key = _task_token_cost_cache_key(team_id=team_id, task_id=task_id, task_created_at=task_created_at)
     cached = cache.get(cache_key)
     if cached is not None:
@@ -263,13 +265,17 @@ def get_task_compute_cost(*, team_id: int, task_id: UUID, run_id: UUID | None = 
     if calculated_at <= pricing_start:
         return _NO_COMPUTE_COST
 
-    # The same sessions the usage report bills: PostHog Desktop's into `posthog_code` credits,
-    # and the origins AI_CREDITS_COMPUTE_BILLED_ORIGINS lists into `ai_credits`, whatever their client.
-    origin = Task.objects.filter(team_id=team_id, id=task_id).values_list("origin_product", flat=True).first()
+    # The same sessions the usage report bills: PostHog Desktop's into `posthog_code` credits when a
+    # first-party client created the task, and the origins AI_CREDITS_COMPUTE_BILLED_ORIGINS lists
+    # into `ai_credits`, whatever their client.
+    task = Task.objects.filter(team_id=team_id, id=task_id).values_list("origin_product", "client_provenance").first()
+    if task is None:
+        return _NO_COMPUTE_COST
+    origin, client_provenance = task
     if origin in ai_credits_compute_origins():
         meter = ComputeBillingMeter.AI_CREDITS
         billed = Q(origin_product=origin)
-    elif origin == Task.OriginProduct.USER_CREATED:
+    elif origin == Task.OriginProduct.USER_CREATED and client_provenance in TaskClientProvenance.values:
         meter = ComputeBillingMeter.POSTHOG_CODE
         billed = Q(origin_product=origin, client_provenance__in=TaskClientProvenance.values)
     else:

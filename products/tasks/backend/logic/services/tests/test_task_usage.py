@@ -60,7 +60,7 @@ class TestTaskUsageQueryTagging(SimpleTestCase):
                 generated_after=datetime(2026, 8, 1, tzinfo=UTC),
                 product=Product.SIGNALS,
             )
-            task_usage._get_task_token_cost(
+            task_usage.get_task_token_cost(
                 team_id=1,
                 task_id=UUID("00000000-0000-0000-0000-000000000002"),
                 task_created_at=datetime(2026, 8, 1, tzinfo=UTC),
@@ -324,7 +324,7 @@ class TestTaskUsage(ClickhouseTestMixin, APIBaseTest):
 
         with (
             patch.object(task_usage, "COMPUTE_RATE_CARDS", (rate_card,)),
-            patch.object(task_usage, "_get_task_token_cost", return_value=Decimal(0)),
+            patch.object(task_usage, "get_task_token_cost", return_value=Decimal(0)),
             patch.object(task_usage.timezone, "now", return_value=rate_start + timedelta(minutes=1)),
         ):
             usage = task_usage.get_task_usage(
@@ -344,6 +344,8 @@ class TestTaskUsage(ClickhouseTestMixin, APIBaseTest):
             ("posthog_ai_billed", Task.OriginProduct.POSTHOG_AI, ["posthog_ai", "slack"], Decimal("0.20")),
             ("slack_billed", Task.OriginProduct.SLACK, ["posthog_ai", "slack"], Decimal("0.20")),
             ("posthog_ai_unbilled", Task.OriginProduct.POSTHOG_AI, [], Decimal(0)),
+            # PostHog Desktop credits bill only tasks that a first-party client created.
+            ("user_created_without_a_first_party_client", Task.OriginProduct.USER_CREATED, [], Decimal(0)),
         ]
     )
     def test_compute_cost_includes_ai_credits_origins_only_while_they_are_billed(
@@ -380,7 +382,7 @@ class TestTaskUsage(ClickhouseTestMixin, APIBaseTest):
         with (
             self.settings(AI_CREDITS_COMPUTE_BILLED_ORIGINS=billed_origins),
             patch.object(task_usage, "COMPUTE_RATE_CARDS", (rate_card,)),
-            patch.object(task_usage, "_get_task_token_cost", return_value=Decimal(0)),
+            patch.object(task_usage, "get_task_token_cost", return_value=Decimal(0)),
             patch.object(task_usage.timezone, "now", return_value=rate_start + timedelta(minutes=1)),
         ):
             usage = task_usage.get_task_usage(team_id=self.team.id, task_id=task.id, task_created_at=task.created_at)
@@ -422,7 +424,7 @@ class TestTaskUsage(ClickhouseTestMixin, APIBaseTest):
 
         with (
             patch.object(task_usage, "COMPUTE_RATE_CARDS", (rate_card,)),
-            patch.object(task_usage, "_get_task_token_cost", return_value=Decimal("2.5")),
+            patch.object(task_usage, "get_task_token_cost", return_value=Decimal("2.5")),
             patch.object(task_usage.timezone, "now", return_value=rate_start - timedelta(days=1)),
         ):
             usage = task_usage.get_task_usage(
@@ -436,10 +438,10 @@ class TestTaskUsage(ClickhouseTestMixin, APIBaseTest):
 
     def test_token_cost_is_cached(self) -> None:
         with patch.object(task_usage, "get_local_task_token_cost", return_value=Decimal("1.25")) as get_cost:
-            first = task_usage._get_task_token_cost(
+            first = task_usage.get_task_token_cost(
                 team_id=self.team.id, task_id=self.task.id, task_created_at=self.task.created_at
             )
-            second = task_usage._get_task_token_cost(
+            second = task_usage.get_task_token_cost(
                 team_id=self.team.id, task_id=self.task.id, task_created_at=self.task.created_at
             )
 
