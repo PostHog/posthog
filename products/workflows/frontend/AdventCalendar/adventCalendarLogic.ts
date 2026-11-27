@@ -257,46 +257,56 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
             ): AdventDoor | null => graph.doors.find((door) => door.id === selectedDoorId) ?? null,
         ],
     }),
-    listeners(({ actions, values, cache }) => ({
-        activateDoor: ({ doorId }) => {
+    listeners(({ actions, values, cache }) => {
+        const readyDoorAfterSync = (doorId: string): AdventDoor | null => {
+            const stored = storedProgress(window.localStorage.getItem(PROGRESS_STORAGE_KEY) ?? '')
+            if (stored) {
+                actions.syncProgress(stored)
+            }
             const door = values.graph.doors.find((candidate) => candidate.id === doorId)
-            if (door?.status === 'ready' && !door.question) {
-                actions.openDoor(values.user?.uuid ?? '', door.day, null)
-            }
-        },
-        answerDoor: ({ doorId, optionId }) => {
-            const door = values.graph.doors.find((candidate) => candidate.id === doorId)
-            const index = door?.question?.options.findIndex((option) => option.id === optionId) ?? -1
-            if (!door || door.status !== 'ready' || index < 0) {
-                return
-            }
-            posthog.capture(EVENTS.answerPicked, { day: door.day, option: optionId })
-            actions.openDoor(values.user?.uuid ?? '', door.day, optionId)
-        },
-        openDoor: ({ day }) => {
-            posthog.capture(EVENTS.doorOpened, { day })
-            actions.preloadImages()
-        },
-        clickTip: ({ day }) => {
-            posthog.capture(EVENTS.tipClicked, { day })
-        },
-        loadUserSuccess: () => {
-            actions.preloadImages()
-        },
-        preloadImages: () => {
-            if (!values.user) {
-                return
-            }
-            cache.preloaded ??= new Map<string, HTMLImageElement>()
-            for (const src of adventImagesToPreload(values.graph)) {
-                if (src && !cache.preloaded.has(src)) {
-                    const image = new Image()
-                    image.src = src
-                    cache.preloaded.set(src, image)
+            return door?.status === 'ready' ? door : null
+        }
+        return {
+            activateDoor: ({ doorId }) => {
+                const door = readyDoorAfterSync(doorId)
+                if (door && !door.question) {
+                    actions.openDoor(values.user?.uuid ?? '', door.day, null)
                 }
-            }
-        },
-    })),
+            },
+            answerDoor: ({ doorId, optionId }) => {
+                const door = readyDoorAfterSync(doorId)
+                const index = door?.question?.options.findIndex((option) => option.id === optionId) ?? -1
+                if (!door || index < 0) {
+                    return
+                }
+                posthog.capture(EVENTS.answerPicked, { day: door.day, option: optionId })
+                actions.openDoor(values.user?.uuid ?? '', door.day, optionId)
+            },
+            openDoor: ({ day }) => {
+                posthog.capture(EVENTS.doorOpened, { day })
+                actions.preloadImages()
+            },
+            clickTip: ({ day }) => {
+                posthog.capture(EVENTS.tipClicked, { day })
+            },
+            loadUserSuccess: () => {
+                actions.preloadImages()
+            },
+            preloadImages: () => {
+                if (!values.user) {
+                    return
+                }
+                cache.preloaded ??= new Map<string, HTMLImageElement>()
+                for (const src of adventImagesToPreload(values.graph)) {
+                    if (src && !cache.preloaded.has(src)) {
+                        const image = new Image()
+                        image.src = src
+                        cache.preloaded.set(src, image)
+                    }
+                }
+            },
+        }
+    }),
     afterMount(({ actions, cache }) => {
         cache.disposables.add(() => {
             actions.refreshClock()

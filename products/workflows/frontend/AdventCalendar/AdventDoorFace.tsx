@@ -1,3 +1,5 @@
+import { CSSProperties } from 'react'
+
 import { IconLock } from '@posthog/icons'
 
 import { ADVENT_DOOR_SIZE, AdventDoor, adventDoorColor } from './adventGraph'
@@ -7,16 +9,17 @@ export interface AdventDoorFaceProps {
     door: AdventDoor
     size: number
     zoom: number
+    style?: CSSProperties
     onClick: () => void
 }
 
-export function AdventDoorFace({ door, size, zoom, onClick }: AdventDoorFaceProps): JSX.Element {
+export function AdventDoorFace({ door, size, zoom, style, onClick }: AdventDoorFaceProps): JSX.Element {
     const color = adventDoorColor(door)
     return (
         <button
             type="button"
             className="AdventCard__face"
-            style={{ width: size, height: size }}
+            style={{ ...style, width: size, height: size }}
             aria-label={`Door ${door.day}`}
             onClick={onClick}
         >

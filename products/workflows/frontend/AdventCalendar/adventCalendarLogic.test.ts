@@ -123,6 +123,19 @@ describe('adventCalendarLogic', () => {
         expect(doorOf(logic, 'door-2')).toEqual({ status: 'open', reward: 'James Hawkins' })
     })
 
+    it('takes the answer another tab stored before its event arrives, so the reward does not swap later', () => {
+        logic.actions.activateDoor('door-1')
+        window.localStorage.setItem(
+            'workflows-advent-calendar-progress',
+            JSON.stringify({ '0190d8a2-1c4e-7b3a-9f21-5a6b7c8d9e01': { opened: [1, 2], answers: { 2: 'tim' } } })
+        )
+
+        logic.actions.answerDoor('door-2', 'james')
+
+        expect(doorOf(logic, 'door-2')).toEqual({ status: 'open', reward: 'Tim Glaser' })
+        expect(capture).not.toHaveBeenCalledWith('workflows advent answer picked', expect.anything())
+    })
+
     it.each(['[object Object]', 'undefined', '{"0190d8a2-1c4e-7b3a-9f21-5a6b7c8d9e01":{"opened":3}}'])(
         'keeps its progress when another tab stores %s',
         (newValue) => {

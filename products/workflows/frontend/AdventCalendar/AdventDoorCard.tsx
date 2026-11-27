@@ -39,11 +39,13 @@ export interface AdventDoorCardProps {
     onMouseLeave: () => void
 }
 
-function closedClip(faceSize: number, isUpward: boolean, isLeftward: boolean): string {
-    const far = `calc(100% - ${ADVENT_CARD_INSET + faceSize}px)`
-    const near = `${ADVENT_CARD_INSET}px`
-    const [top, bottom] = isUpward ? [far, near] : [near, far]
-    const [right, left] = isLeftward ? [near, far] : [far, near]
+function closedClip(faceSize: number, faceInset: number, isUpward: boolean, isLeftward: boolean): string {
+    const [top, bottom] = isUpward
+        ? [`calc(100% - ${ADVENT_CARD_INSET + faceSize}px)`, `${ADVENT_CARD_INSET}px`]
+        : [`${ADVENT_CARD_INSET}px`, `calc(100% - ${ADVENT_CARD_INSET + faceSize}px)`]
+    const [right, left] = isLeftward
+        ? [`${faceInset}px`, `calc(100% - ${faceInset + faceSize}px)`]
+        : [`calc(100% - ${faceInset + faceSize}px)`, `${faceInset}px`]
     return `inset(${top} ${right} ${bottom} ${left} round 12px)`
 }
 
@@ -52,8 +54,8 @@ function cardLayout(
     face: AdventCardFace,
     stage: AdventDoorCardProps['stage'],
     isOpen: boolean
-): { style: CSSProperties; isLeftward: boolean; isUpward: boolean } {
-    const { isLeftward, left, width } = adventCardPlacement(face, stage.width, door.row)
+): { style: CSSProperties; faceShift: CSSProperties; isLeftward: boolean; isUpward: boolean } {
+    const { isLeftward, left, width, faceInset } = adventCardPlacement(face, stage.width, door.row)
     const isUpward = door.row === 2
     const faceTop = face.top - ADVENT_CARD_INSET
     const faceBottom = face.top + face.size + ADVENT_CARD_INSET
@@ -65,10 +67,12 @@ function cardLayout(
         left,
         ...vertical,
         borderColor: adventDoorColor(door),
-        clipPath: isOpen ? OPEN_CLIP : closedClip(face.size, isUpward, isLeftward),
+        clipPath: isOpen ? OPEN_CLIP : closedClip(face.size, faceInset, isUpward, isLeftward),
         transitionDuration: `${isOpen ? OPEN_MS : ADVENT_CARD_CLOSE_MS}ms`,
     }
-    return { style, isLeftward, isUpward }
+    const shift = faceInset - ADVENT_CARD_INSET
+    const faceShift: CSSProperties = isLeftward ? { marginRight: shift } : { marginLeft: shift }
+    return { style, faceShift, isLeftward, isUpward }
 }
 
 function headline(door: AdventDoor): { title: string; detail: string | null } {
@@ -103,7 +107,7 @@ export function AdventDoorCard({
     onMouseLeave,
 }: AdventDoorCardProps): JSX.Element {
     const { title, detail } = headline(door)
-    const { style, isLeftward, isUpward } = cardLayout(door, face, stage, isOpen)
+    const { style, faceShift, isLeftward, isUpward } = cardLayout(door, face, stage, isOpen)
     const showsHint = !isPinned && door.status !== 'ready'
 
     return (
@@ -116,7 +120,13 @@ export function AdventDoorCard({
             onMouseLeave={onMouseLeave}
         >
             <div className={cn('flex gap-3', isLeftward && 'flex-row-reverse', isUpward ? 'items-end' : 'items-start')}>
-                <AdventDoorFace door={door} size={face.size} zoom={face.zoom} onClick={() => onPin(door.id)} />
+                <AdventDoorFace
+                    door={door}
+                    size={face.size}
+                    zoom={face.zoom}
+                    style={faceShift}
+                    onClick={() => onPin(door.id)}
+                />
                 <div className="AdventCard__fade flex min-w-0 flex-1 flex-col gap-0.5">
                     <span className="text-[11px] text-secondary" translate="no">
                         {`Door ${door.day} · ${adventWeekday(door.day)}`}
