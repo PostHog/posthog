@@ -387,6 +387,20 @@ describe('adventCalendarLogic', () => {
         expect(doorOf(logic, 'door-2')?.status).toBe(doorTwo)
     })
 
+    it.each([
+        ['anyone', 'on 27 November', 24, new Date(2026, 10, 27, 9, 0), false],
+        ['anyone else', 'on 1 December', 1, new Date(2026, 11, 1, 9, 0), false],
+        ['a staff user', 'on 1 December', 24, new Date(2026, 11, 1, 9, 0), true],
+    ])('shows %s %s with ?day=24 the day %s', (_, __, today, now, isStaff) => {
+        jest.setSystemTime(now)
+        logic.actions.refreshClock()
+        preflightLogic.actions.loadPreflightSuccess({ ...preflightLogic.values.preflight!, is_debug: false })
+        signIn({ is_staff: isStaff })
+        router.actions.push('/workflows/advent', { day: '24' })
+
+        expect(logic.values.today).toBe(today)
+    })
+
     it('reports a tip click with its day', () => {
         logic.actions.clickTip(7)
 
