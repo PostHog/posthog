@@ -19,6 +19,7 @@ import {
     freeOnlyLimitReachedScanner,
     observation,
     quota,
+    scannerHighlightFeed,
     scannerStats,
     scanners,
     summarizerScanner,
@@ -38,20 +39,7 @@ export const HomeScannerView: StoryObj = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/vision/scanners/highlight_feed/': {
-                    results: [0, 1, 2].map((i) => ({
-                        observation: observation({
-                            id: `00000000-0000-0000-0000-0000000000e${i}`,
-                            scanner_id: scanners.results[0].id,
-                        }),
-                        reason: { kind: 'embedding_pick', watch_category: 'struggle', similar_count: 0 },
-                    })),
-                    has_more: false,
-                    as_of: '2026-05-12T00:00:00Z',
-                    highlight_count: 3,
-                    highlight_counts_by_scanner: { [scanners.results[0].id]: 3 },
-                    observation_count: 1250,
-                },
+                '/api/projects/:team_id/vision/scanners/highlight_feed/': scannerHighlightFeed(scanners.results[0].id),
             },
         }),
     ],
@@ -71,20 +59,7 @@ export const HomeScannerNeedsAiConsent: StoryObj = {
                         ...scanners.results.slice(1),
                     ],
                 },
-                '/api/projects/:team_id/vision/scanners/highlight_feed/': {
-                    results: [0, 1, 2].map((i) => ({
-                        observation: observation({
-                            id: `00000000-0000-0000-0000-0000000000e${i}`,
-                            scanner_id: scanners.results[0].id,
-                        }),
-                        reason: { kind: 'embedding_pick', watch_category: 'struggle', similar_count: 0 },
-                    })),
-                    has_more: false,
-                    as_of: '2026-05-12T00:00:00Z',
-                    highlight_count: 3,
-                    highlight_counts_by_scanner: { [scanners.results[0].id]: 3 },
-                    observation_count: 1250,
-                },
+                '/api/projects/:team_id/vision/scanners/highlight_feed/': scannerHighlightFeed(scanners.results[0].id),
             },
         }),
     ],

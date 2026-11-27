@@ -120,7 +120,36 @@ import {
 } from './types'
 
 // A sweep tick runs every few minutes, so checking once a minute keeps the status close without a request storm.
-export const WATERMARK_POLL_MS = 60_000
+export const STATUS_POLL_MS = 60_000
+
+function serverStatusFields(
+    scanner: ReplayScanner
+): Pick<
+    ReplayScanner,
+    | 'last_swept_at'
+    | 'enabled'
+    | 'disabled_reason'
+    | 'filter_error'
+    | 'limit_reached'
+    | 'limit_from_free_credits'
+    | 'credits_used_against_limit'
+    | 'free_only'
+    | 'sweep_interval_minutes'
+    | 'sweep_throttle_factor'
+> {
+    return {
+        last_swept_at: scanner.last_swept_at,
+        enabled: scanner.enabled,
+        disabled_reason: scanner.disabled_reason,
+        filter_error: scanner.filter_error,
+        limit_reached: scanner.limit_reached,
+        limit_from_free_credits: scanner.limit_from_free_credits,
+        credits_used_against_limit: scanner.credits_used_against_limit,
+        free_only: scanner.free_only,
+        sweep_interval_minutes: scanner.sweep_interval_minutes,
+        sweep_throttle_factor: scanner.sweep_throttle_factor,
+    }
+}
 
 export interface ReplayScannerLogicProps {
     id: string
@@ -677,6 +706,9 @@ export interface replayScannerLogicActions {
         observations: ReplayObservationApi[]
         total: number
     }
+    refreshScannerStatus: () => {
+        value: true
+    }
     loadScanner: () => {
         value: true
     }
@@ -752,7 +784,7 @@ export interface replayScannerLogicActions {
     scannerSaved: (scanner: ScannerFormValues) => {
         scanner: ScannerFormValues
     }
-    scannerWatermarkRefreshed: (scanner: ReplayScanner) => {
+    scannerStatusRefreshed: (scanner: ReplayScanner) => {
         scanner: ReplayScanner
     }
     setCreationMethod: (creationMethod: ScannerCreationMethodEnumApi) => {
@@ -826,7 +858,7 @@ export interface replayScannerLogicActions {
     setObservationWatchGroupFilter: (value: string | null) => {
         value: string | null
     }
-    setWatermarkPolling: (active: boolean) => {
+    setStatusPolling: (active: boolean) => {
         active: boolean
     }
     setObservationsActive: (active: boolean) => {
@@ -994,8 +1026,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         setObservationsActive: (active: boolean) => ({ active }),
         // Background refetches use this instead of loadScannerSuccess, which also resets the form,
         // originalScanner, and submitIntent, and can refire the observation loads.
-        scannerWatermarkRefreshed: (scanner: ReplayScanner) => ({ scanner }),
-        setWatermarkPolling: (active: boolean) => ({ active }),
+        scannerStatusRefreshed: (scanner: ReplayScanner) => ({ scanner }),
+        refreshScannerStatus: true,
+        setStatusPolling: (active: boolean) => ({ active }),
         setCreditLimitUnit: (unit: CreditLimitUnit) => ({ unit }),
         loadScanner: true,
         loadScannerSuccess: (scanner: ScannerFormValues) => ({ scanner }),
@@ -1194,8 +1227,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                         })
                         actions.scannerSaved(scanner)
                         leaveScannerEditor(props.id, urls.replayVision(response.id))
-                        // First scheduled results are minutes away, so the copy matches the Overview's
-                        // pending panel and the button hands off to the instant on-demand tab.
+                        // First scheduled results are minutes away, so the button hands off to the instant on-demand tab.
                         lemonToast.success('Scanner created. First scan in progress.', {
                             button: {
                                 label: 'Scan a recording now',
@@ -1363,9 +1395,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             },
         ],
         scanner: {
-            // Only the sweep watermark lands, so a background refresh can't clobber unsaved form edits.
-            scannerWatermarkRefreshed: (state: ReplayScanner, { scanner }: { scanner: ReplayScanner }) =>
-                state ? { ...state, last_swept_at: scanner.last_swept_at } : scanner,
+            // Only server-owned status fields land, so a background refresh can't clobber unsaved form edits.
+            scannerStatusRefreshed: (state: ReplayScanner, { scanner }: { scanner: ReplayScanner }) =>
+                state ? { ...state, ...serverStatusFields(scanner) } : scanner,
         },
         experimentContext: [
             null as ExperimentScannerContext | null,
@@ -1830,8 +1862,6 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             (stats: ObservationStatsApi | null): string[] => availableTagsFromStats(stats),
         ],
         // The observations metric strip (Total / Succeeded / Failed / Ineligible / In flight).
-        // The per-type overview panels (verdict mix, tag rankings, score distribution, coverage) moved
-        // to the Overview tab (scannerOverviewLogic), which derives them from the same helpers.
         observationStats: [
             (s) => [s.observationStatsApi],
             (stats: ObservationStatsApi | null): ObservationStatusStats => deriveObservationStatusStats(stats),
@@ -2720,33 +2750,33 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 }
             },
 
-            // Rescheduled on failure too — a transient API hiccup shouldn't permanently kill the polling cycle.
-            // The page's status reads the sweep watermark, which only the scanner endpoint reports. Fetched
-            // directly because loadScanner flips scannerLoading, which blanks the scene.
-            setWatermarkPolling: ({ active }) => {
+            // Fetched directly because loadScanner flips scannerLoading, which blanks the scene.
+            refreshScannerStatus: async () => {
+                const teamId = teamLogic.values.currentTeamId
+                if (!teamId || props.id === 'new') {
+                    return
+                }
+                try {
+                    const response = await visionScannersRetrieve(String(teamId), props.id)
+                    if (!cache.disposables.isDisposed) {
+                        actions.scannerStatusRefreshed(scannerFromApi(response))
+                    }
+                } catch {
+                    // A failed refresh leaves the last status; the next one tries again.
+                }
+            },
+            setStatusPolling: ({ active }) => {
                 if (!active) {
-                    cache.disposables.dispose('watermarkPoll')
+                    cache.disposables.dispose('statusPoll')
                     return
                 }
                 cache.disposables.add(() => {
-                    const timer = setInterval(async () => {
-                        const teamId = teamLogic.values.currentTeamId
-                        if (!teamId || props.id === 'new') {
-                            return
-                        }
-                        try {
-                            const response = await visionScannersRetrieve(String(teamId), props.id)
-                            if (!cache.disposables.isDisposed) {
-                                actions.scannerWatermarkRefreshed(scannerFromApi(response))
-                            }
-                        } catch {
-                            // A failed refresh leaves the last watermark; the next tick tries again.
-                        }
-                    }, WATERMARK_POLL_MS)
+                    const timer = setInterval(() => actions.refreshScannerStatus(), STATUS_POLL_MS)
                     return () => clearInterval(timer)
-                }, 'watermarkPoll')
+                }, 'statusPoll')
             },
 
+            // Rescheduled on failure too — a transient API hiccup shouldn't permanently kill the polling cycle.
             loadObservationStatsSuccess: reschedulePoll,
             loadObservationStatsFailure: reschedulePoll,
         }

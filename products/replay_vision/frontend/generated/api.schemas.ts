@@ -3233,8 +3233,11 @@ export interface HighlightFeedResponseApi {
     highlight_count: number
     /** `highlight_count` split by scanner id. A scanner with no highlights is left out. */
     highlight_counts_by_scanner: HighlightFeedResponseApiHighlightCountsByScanner
-    /** Succeeded observations in the window from the scanners the feed reads, highlighted or not, so the highlights can be shown against everything that was scanned. */
-    observation_count: number
+    /**
+     * Succeeded observations in the window from the scanners the feed reads, highlighted or not, so the highlights can be shown against everything that was scanned. Null on later pages, which repeat the first page's window.
+     * @nullable
+     */
+    observation_count: number | null
 }
 
 /**

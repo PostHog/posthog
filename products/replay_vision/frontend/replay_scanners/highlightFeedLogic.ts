@@ -577,10 +577,11 @@ export const highlightFeedLogic = kea<highlightFeedLogicType>([
         ],
     }),
 
-    subscriptions(({ actions }) => ({
+    subscriptions(({ actions, props }) => ({
         // Reloads on a tab switch, and when the scanner list answers after a load and the stored scope stops applying.
+        // A single scanner's feed ignores the scope, so a reload there would repeat the same request.
         scopedToMine: (scopedToMine: boolean, previous: boolean | undefined) => {
-            if (previous !== undefined && scopedToMine !== previous) {
+            if (!props.scannerId && previous !== undefined && scopedToMine !== previous) {
                 actions.loadFeed()
             }
         },

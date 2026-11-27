@@ -5537,6 +5537,7 @@ class TestHighlightFeedAPI(_VisionAPITestCase):
         sessions = [item["observation"]["session_id"] for item in first["results"] + second["results"]]
         assert sessions == [f"hit-{i}" for i in range(6)]
         assert second["has_more"] is False
+        assert (isinstance(first["observation_count"], int), second["observation_count"]) == (True, None)
 
     def test_a_later_page_stays_on_the_build_its_first_page_read(self) -> None:
         scanner = self._create_scanner(name="m")

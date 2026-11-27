@@ -30,7 +30,7 @@ import {
     leaveScannerEditor,
     replayScannerLogic,
     shouldGuardScannerNavigation,
-    WATERMARK_POLL_MS,
+    STATUS_POLL_MS,
 } from './replayScannerLogic'
 import { readScannerDraft, writeScannerDraft } from './scannerDraft'
 import { scannerEditorSceneLogic } from './scannerEditorSceneLogic'
@@ -1777,20 +1777,26 @@ describe('replayScannerLogic', () => {
         })
     })
 
-    describe('scannerWatermarkRefreshed', () => {
+    describe('scannerStatusRefreshed', () => {
         // Guards the background watermark refresh against regressing to the full loadScannerSuccess
         // path, which resets the form from the server and refires the observation loads.
-        it('advances the sweep watermark without resetting form edits or reloading observations', async () => {
+        it('takes the server status fields without resetting form edits or reloading observations', async () => {
             logic.actions.loadScannerSuccess({ ...logic.values.scanner!, id: 'abc', name: 'Loaded' })
             logic.actions.setScannerValues({ name: 'Edited' })
 
-            const refreshed = { ...logic.values.scanner!, name: 'Loaded', last_swept_at: '2026-08-13T10:00:00Z' }
+            const refreshed = {
+                ...logic.values.scanner!,
+                name: 'Loaded',
+                last_swept_at: '2026-08-13T10:00:00Z',
+                filter_error: 'Unknown property',
+            }
             // toDispatchActions moves the history pointer past the setup's own setScannerValues first.
-            await expectLogic(logic, () => logic.actions.scannerWatermarkRefreshed(refreshed))
-                .toDispatchActions(['scannerWatermarkRefreshed'])
+            await expectLogic(logic, () => logic.actions.scannerStatusRefreshed(refreshed))
+                .toDispatchActions(['scannerStatusRefreshed'])
                 .toNotHaveDispatchedActions(['setScannerValues', 'loadObservations', 'loadObservationStats'])
             expect(logic.values.scanner?.name).toBe('Edited')
             expect(logic.values.scanner?.last_swept_at).toBe('2026-08-13T10:00:00Z')
+            expect(logic.values.scanner?.filter_error).toBe('Unknown property')
         })
 
         // The scanner page's status leaves "Starting" only through this poll, so it must run and stop on cue.
@@ -1816,14 +1822,14 @@ describe('replayScannerLogic', () => {
             swept = '2026-08-13T11:00:00Z'
             jest.useFakeTimers({ doNotFake: ['nextTick', 'queueMicrotask'] })
             try {
-                sidLogic.actions.setWatermarkPolling(true)
-                jest.advanceTimersByTime(WATERMARK_POLL_MS)
-                await expectLogic(sidLogic).toDispatchActions(['scannerWatermarkRefreshed'])
+                sidLogic.actions.setStatusPolling(true)
+                jest.advanceTimersByTime(STATUS_POLL_MS)
+                await expectLogic(sidLogic).toDispatchActions(['scannerStatusRefreshed'])
                 expect(sidLogic.values.scanner?.last_swept_at).toBe('2026-08-13T11:00:00Z')
 
-                sidLogic.actions.setWatermarkPolling(false)
+                sidLogic.actions.setStatusPolling(false)
                 const calls = retrieveSpy.mock.calls.length
-                jest.advanceTimersByTime(WATERMARK_POLL_MS * 3)
+                jest.advanceTimersByTime(STATUS_POLL_MS * 3)
                 expect(retrieveSpy.mock.calls.length).toBe(calls)
             } finally {
                 jest.useRealTimers()

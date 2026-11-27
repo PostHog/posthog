@@ -1,25 +1,17 @@
-import { useValues } from 'kea'
-import { useState } from 'react'
-
 import { LemonBanner } from '@posthog/lemon-ui'
 
-import type { LemonBannerAction } from 'lib/lemon-ui/LemonBanner/LemonBanner'
+import type { LemonBannerAction, LemonBannerProps } from 'lib/lemon-ui/LemonBanner/LemonBanner'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { visionScannersPartialUpdate } from '../../generated/api'
-import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
 import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
-import { quotaBannerState } from '../../utils/quotaProjection'
-import { saveScannerEnabled } from '../saveScannerEnabled'
-import { disabledReasonDetail, stoppedByFreeCredits } from '../scannerCopy'
+import { stoppedByFreeCredits } from '../scannerCopy'
 import { scannerEditUrl } from '../scannerEditorSceneLogic'
-import type { ScannerStatus } from '../scannerStatus'
+import { isOffForAReason, type ScannerStatus } from '../scannerStatus'
 import { scannerStatusDetail } from '../scannerStatusDetail'
 import type { ReplayScanner } from '../types'
-import { statusLabel } from './ScannerStatusLabel'
+import { useScannerSave } from '../useScannerSave'
+import { type StatusTone, statusLabel } from './ScannerStatusLabel'
 
 // Project-wide causes have their own banners, and a person's own turn-off and the first scan have the idle note.
 const NOTE_KINDS: ReadonlySet<ScannerStatus['kind']> = new Set([
@@ -31,8 +23,11 @@ const NOTE_KINDS: ReadonlySet<ScannerStatus['kind']> = new Set([
     'no_matches',
 ])
 
-export function isOffForAReason(status: ScannerStatus | undefined): boolean {
-    return status?.kind === 'off' && !!status.reason && status.reason !== 'manual'
+const BANNER_TYPE: Record<StatusTone, LemonBannerProps['type']> = {
+    danger: 'error',
+    warning: 'warning',
+    success: 'info',
+    muted: 'info',
 }
 
 export function ScannerStatusNote({
@@ -40,74 +35,31 @@ export function ScannerStatusNote({
     status,
     onSaved,
 }: {
-    scanner: ReplayScanner
+    scanner: Pick<ReplayScanner, 'id' | 'user_access_level' | 'credit_limit'>
     status: ScannerStatus
     onSaved: () => void
 }): JSX.Element | null {
-    const { currentTeamId } = useValues(teamLogic)
-    const { quota } = useValues(visionQuotaLogic)
-    const [saving, setSaving] = useState(false)
+    const { turnOn, turnOffFreeOnly, saving } = useScannerSave(scanner.id, onSaved)
 
-    const offForAReason = isOffForAReason(status)
-    const freeCreditsOff = status.kind === 'off' && status.reason === 'free_credits_used'
-    if (!NOTE_KINDS.has(status.kind) && !offForAReason) {
+    if (!NOTE_KINDS.has(status.kind) && !isOffForAReason(status)) {
         return null
     }
     const editDisabledReason = getReplayVisionEditDisabledReason(scanner.user_access_level)
-    const quotaState = quotaBannerState(quota)
+    const freeCreditsOff = status.kind === 'off' && status.reason === 'free_credits_used'
     const { label, tone } = statusLabel(status)
 
-    const turnOffFreeOnly = (): void => {
+    const confirmTurnOffFreeOnly = (): void => {
         LemonDialog.open({
-            title: freeCreditsOff ? 'Turn off free credits only and start scanning?' : 'Turn off free credits only?',
+            title: 'Turn off free credits only?',
             description:
                 scanner.credit_limit != null
                     ? `This scanner will keep scanning after free credits run out. Scans past them are billed, up to its limit of ${scanner.credit_limit.toLocaleString('en-US')} credits a month.`
                     : "This scanner will keep scanning after free credits run out. Scans past them are billed, up to your organization's spend limit.",
-            primaryButton: {
-                children: freeCreditsOff ? 'Turn off and scan' : 'Turn off',
-                onClick: async () => {
-                    if (!currentTeamId) {
-                        return
-                    }
-                    setSaving(true)
-                    try {
-                        await visionScannersPartialUpdate(String(currentTeamId), scanner.id, {
-                            free_only: false,
-                            ...(freeCreditsOff && { enabled: true }),
-                        })
-                        onSaved()
-                    } catch (error: any) {
-                        lemonToast.error(
-                            `Couldn't turn off free credits only${error?.detail ? `: ${error.detail}` : ''}. Try again from the scanner's settings.`
-                        )
-                    } finally {
-                        setSaving(false)
-                    }
-                },
-            },
+            primaryButton: { children: 'Turn off', onClick: () => void turnOffFreeOnly() },
             secondaryButton: { children: 'Cancel' },
         })
     }
-
-    // Turning on runs the consent or take-over step the reason needs first.
-    const turnOn = async (): Promise<void> => {
-        if (!currentTeamId) {
-            return
-        }
-        setSaving(true)
-        try {
-            if (await saveScannerEnabled(String(currentTeamId), scanner.id, true)) {
-                onSaved()
-            }
-        } catch (error: any) {
-            lemonToast.error(
-                `Couldn't turn on the scanner${error?.detail ? `: ${error.detail}` : ''}. Try again from its settings.`
-            )
-        } finally {
-            setSaving(false)
-        }
-    }
+    // Turning on runs the paid-scanning, consent or take-over step the off reason needs first.
     const turnOnAction = (children: string): LemonBannerAction => ({
         children,
         onClick: () => void turnOn(),
@@ -115,20 +67,19 @@ export function ScannerStatusNote({
         disabledReason: editDisabledReason,
         'data-attr': 'vision-scanner-status-turn-on',
     })
-
-    const turnOffFreeOnlyAction: LemonBannerAction = {
-        children: 'Turn off free credits only',
-        onClick: turnOffFreeOnly,
-        loading: saving,
+    const linkAction = (children: string, to: string, dataAttr: string): LemonBannerAction => ({
+        children,
+        to,
         disabledReason: editDisabledReason,
-        'data-attr': 'vision-scanner-status-turn-off-free-only',
-    }
+        'data-attr': dataAttr,
+    })
+
     const action = ((): LemonBannerAction | undefined => {
         switch (status.kind) {
             case 'off':
                 switch (status.reason) {
                     case 'free_credits_used':
-                        return turnOffFreeOnlyAction
+                        return turnOnAction('Turn off free credits only')
                     case 'no_ai_consent':
                         return turnOnAction('Allow AI analysis')
                     case 'creator_lost_access':
@@ -138,35 +89,33 @@ export function ScannerStatusNote({
                         return undefined
                 }
             case 'no_matches':
-                return {
-                    children: 'Review filters',
-                    to: urls.replayVisionScannerTriggers(scanner.id),
-                    disabledReason: editDisabledReason,
-                    'data-attr': 'vision-scanner-status-review-filters',
-                }
+                return linkAction(
+                    'Review filters',
+                    urls.replayVisionScannerTriggers(scanner.id),
+                    'vision-scanner-status-review-filters'
+                )
             case 'filter_error':
-                return {
-                    children: 'Edit filters',
-                    to: urls.replayVisionScannerTriggers(scanner.id),
-                    disabledReason: editDisabledReason,
-                    'data-attr': 'vision-scanner-status-edit-filters',
-                }
+                return linkAction(
+                    'Edit filters',
+                    urls.replayVisionScannerTriggers(scanner.id),
+                    'vision-scanner-status-edit-filters'
+                )
             case 'no_sampling':
-                return {
-                    children: 'Edit sampling',
-                    to: scannerEditUrl(scanner.id, null),
-                    disabledReason: editDisabledReason,
-                    'data-attr': 'vision-scanner-status-edit-sampling',
-                }
+                return linkAction(
+                    'Edit sampling',
+                    scannerEditUrl(scanner.id, null),
+                    'vision-scanner-status-edit-sampling'
+                )
             case 'limit_reached':
                 return stoppedByFreeCredits(status)
-                    ? turnOffFreeOnlyAction
-                    : {
-                          children: 'Raise limit',
-                          to: scannerEditUrl(scanner.id, null),
+                    ? {
+                          children: 'Turn off free credits only',
+                          onClick: confirmTurnOffFreeOnly,
+                          loading: saving,
                           disabledReason: editDisabledReason,
-                          'data-attr': 'vision-scanner-status-raise-limit',
+                          'data-attr': 'vision-scanner-status-turn-off-free-only',
                       }
+                    : linkAction('Raise limit', scannerEditUrl(scanner.id, null), 'vision-scanner-status-raise-limit')
             default:
                 return undefined
         }
@@ -177,26 +126,19 @@ export function ScannerStatusNote({
         <div data-attr="vision-scanner-status-note" data-status={status.kind}>
             <LemonBanner
                 // Hitting a limit is spend control doing its job, so it warns rather than reads as a failure.
-                type={
-                    status.kind === 'limit_reached' || freeCreditsOff
-                        ? 'warning'
-                        : status.kind === 'off' && status.reason === 'experiment_deleted'
-                          ? 'info'
-                          : tone === 'danger'
-                            ? 'error'
-                            : tone === 'warning'
-                              ? 'warning'
-                              : 'info'
-                }
+                type={status.kind === 'limit_reached' || freeCreditsOff ? 'warning' : BANNER_TYPE[tone]}
                 action={action}
             >
                 <p className="font-semibold m-0">{label}</p>
                 <p className="m-0">
-                    {freeCreditsOff
-                        ? 'Your free credits ran out, so this scanner turned off. Turn off free credits only to keep scanning. Scans past free credits are billed.'
-                        : status.kind === 'off'
-                          ? `This scanner turned off. ${disabledReasonDetail(status.reason)}`
-                          : scannerStatusDetail(status, quotaState.kind ? quotaState.resetsOn : null)}
+                    {freeCreditsOff ? (
+                        'Your free credits ran out, so this scanner turned off. Turn off free credits only to keep scanning. Scans past free credits are billed.'
+                    ) : (
+                        <>
+                            {status.kind === 'off' && 'This scanner turned off. '}
+                            {scannerStatusDetail(status, null)}
+                        </>
+                    )}
                 </p>
             </LemonBanner>
         </div>

@@ -3,6 +3,7 @@ import { mswDecorator } from '~/mocks/browser'
 import type {
     BackfillEstimateResponseApi,
     ExperimentVariantsReadoutApi,
+    HighlightFeedResponseApi,
     ObservationStatsApi,
     ReplayObservationApi,
     ReplayScannerApi,
@@ -810,3 +811,15 @@ export const freeOnlyLimitReachedScanner: ReplayScannerApi = {
     credits_used_against_limit: 2600,
     limit_reached: true,
 }
+
+export const scannerHighlightFeed = (scannerId: string): HighlightFeedResponseApi => ({
+    results: [0, 1, 2].map((i) => ({
+        observation: observation({ id: `00000000-0000-0000-0000-0000000000e${i}`, scanner_id: scannerId }),
+        reason: { kind: 'embedding_pick', watch_category: 'struggle', similar_count: 0 },
+    })),
+    has_more: false,
+    as_of: '2026-05-12T00:00:00Z',
+    highlight_count: 3,
+    highlight_counts_by_scanner: { [scannerId]: 3 },
+    observation_count: 1250,
+})

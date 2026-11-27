@@ -13,6 +13,7 @@ import { HighlightFeedItemApi } from '../../generated/api.schemas'
 import { visionScannersListLogic } from '../../logics/visionScannersListLogic'
 import { type HighlightFeedEmptyReason, isHighlightFeedBlock } from '../highlightFeedEmptyState'
 import { FEED_PAGE_SIZE, feedWindowOption, feedWindowPhrase, highlightFeedLogic } from '../highlightFeedLogic'
+import { isOffForAReason } from '../scannerStatus'
 import { scannerFeedIsIdle, scannerObservationsUrl, visionHomeLogic } from '../visionHomeLogic'
 import { HighlightFeedBlockedBanner } from './HighlightFeedBlockedBanner'
 import { FILLER_REASON_KINDS, HighlightFeedRow } from './HighlightFeedCard'
@@ -20,7 +21,7 @@ import { HighlightFeedEmptyState } from './HighlightFeedEmptyState'
 import { HighlightFeedHeader } from './HighlightFeedHeader'
 import { ScannerFeedIdleNote } from './ScannerFeedIdleNote'
 import { ScannerHighlightsHeader } from './ScannerHighlightsHeader'
-import { isOffForAReason, ScannerStatusNote } from './ScannerStatusNote'
+import { ScannerStatusNote } from './ScannerStatusNote'
 
 /**
  * Columns follow the scene's width, so cards stay a similar size and a wide window fills with them rather than empty margin.
@@ -214,10 +215,7 @@ function HighlightFeedView({ scannerId }: { scannerId?: string }): JSX.Element {
     const scanner = scannerId && selectedScanner?.id === scannerId ? selectedScanner : null
     const scannerStatus = scanner ? scannerStatuses[scanner.id] : undefined
     const scannerStatusKind = scannerStatus?.kind
-    const idleKind =
-        scannerFeedIsIdle(scannerStatusKind) && !isOffForAReason(scannerStatus)
-            ? (scannerStatusKind as 'off' | 'starting')
-            : null
+    const idleKind = scannerFeedIsIdle(scannerStatusKind) && !isOffForAReason(scannerStatus) ? scannerStatusKind : null
     const emptyReason =
         scannerId && fleetEmptyReason && !SCANNER_VIEW_REASONS.has(fleetEmptyReason) ? 'quiet-window' : fleetEmptyReason
     const { loadFeed } = useActions(highlightFeedLogic)
@@ -240,7 +238,7 @@ function HighlightFeedView({ scannerId }: { scannerId?: string }): JSX.Element {
             {scannerId
                 ? scanner && <ScannerHighlightsHeader scanner={scanner} />
                 : !(emptyReason === 'no-scanners' && items.length === 0) && <HighlightFeedHeader />}
-            {scanner && idleKind && <ScannerFeedIdleNote scanner={scanner} kind={idleKind} />}
+            {scanner && idleKind && <ScannerFeedIdleNote scanner={scanner} kind={idleKind} onSaved={loadScanners} />}
             {scanner && scannerStatus && (
                 <ScannerStatusNote scanner={scanner} status={scannerStatus} onSaved={loadScanners} />
             )}

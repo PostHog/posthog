@@ -51,6 +51,10 @@ export function isOffByChoice(
     return !!scanner && scanner.enabled === false && (!scanner.disabled_reason || scanner.disabled_reason === 'manual')
 }
 
+export function isOffForAReason(status: ScannerStatus | undefined): boolean {
+    return status?.kind === 'off' && !!status.reason && status.reason !== 'manual'
+}
+
 /** The one status the scanner page leads with. Earlier checks win, so a scanner that is off never also reads as stopped. */
 export function scannerStatus(
     scanner: ScannerStatusFields,

@@ -2375,9 +2375,11 @@ class HighlightFeedResponseSerializer(serializers.Serializer):
         help_text="`highlight_count` split by scanner id. A scanner with no highlights is left out.",
     )
     observation_count = serializers.IntegerField(
+        allow_null=True,
         help_text=(
             "Succeeded observations in the window from the scanners the feed reads, highlighted or not, so the "
-            "highlights can be shown against everything that was scanned."
+            "highlights can be shown against everything that was scanned. Null on later pages, which repeat the "
+            "first page's window."
         ),
     )
 
@@ -3133,18 +3135,21 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             if entry.reason["kind"] == HighlightFeedReason.EMBEDDING_PICK:
                 scanner_key = str(scanner_by_observation[entry.observation_id])
                 highlight_counts_by_scanner[scanner_key] = highlight_counts_by_scanner.get(scanner_key, 0) + 1
-        observation_count = accessible_observations(
-            self.user_access_control,
-            self.team_id,
-            ReplayObservation.objects.filter(
-                team_id=self.team_id,
-                scanner_id__in=allowed_ids,
-                status=ObservationStatus.SUCCEEDED,
-                created_at__gte=date_from,
-                created_at__lte=window_end,
-                completed_at__lte=as_of,
-            ),
-        ).count()
+        # Counted on the first page only, because every later page covers the same window.
+        observation_count = None
+        if params["offset"] == 0:
+            observation_count = accessible_observations(
+                self.user_access_control,
+                self.team_id,
+                ReplayObservation.objects.filter(
+                    team_id=self.team_id,
+                    scanner_id__in=allowed_ids,
+                    status=ObservationStatus.SUCCEEDED,
+                    created_at__gte=date_from,
+                    created_at__lte=window_end,
+                    completed_at__lte=as_of,
+                ),
+            ).count()
         ranked = ranked[params["offset"] : page_end]
         reasons_by_id = {entry.observation_id: entry.reason for entry in ranked}
         rows = {

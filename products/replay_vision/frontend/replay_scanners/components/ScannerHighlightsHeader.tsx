@@ -3,6 +3,8 @@ import { useValues } from 'kea'
 import { IconList, IconPencil } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
+import { pluralize } from 'lib/utils/strings'
+
 import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import { highlightFeedLogic } from '../highlightFeedLogic'
 import { scannerEditUrl } from '../scannerEditorSceneLogic'
@@ -11,10 +13,6 @@ import type { ReplayScanner } from '../types'
 import { scannerFeedIsIdle, scannerObservationsUrl, visionHomeLogic } from '../visionHomeLogic'
 import { HighlightFeedRangeMenu } from './HighlightFeedRangeMenu'
 import { ScannerStatusLabel } from './ScannerStatusLabel'
-
-function plural(count: number, noun: string): string {
-    return `${count.toLocaleString()} ${count === 1 ? noun : `${noun}s`}`
-}
 
 export function ScannerHighlightsHeader({ scanner }: { scanner: ReplayScanner }): JSX.Element {
     const { scannerStatuses } = useValues(visionHomeLogic)
@@ -52,8 +50,8 @@ export function ScannerHighlightsHeader({ scanner }: { scanner: ReplayScanner })
             )}
             {showDetails && feedCounts && (
                 <span className="text-secondary">
-                    · {feedCounts.highlights === 0 ? 'No highlights' : plural(feedCounts.highlights, 'highlight')} from{' '}
-                    {plural(feedCounts.observations, 'session')} scanned
+                    · {feedCounts.highlights === 0 ? 'No highlights' : pluralize(feedCounts.highlights, 'highlight')}{' '}
+                    from {pluralize(feedCounts.observations, 'session')} scanned
                 </span>
             )}
             {showDetails && (

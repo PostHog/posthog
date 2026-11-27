@@ -45,7 +45,7 @@ export function isProblemStatus(status: ScannerStatus): boolean {
 }
 
 /** True when the scanner cannot have found anything new, so its view shows a note in place of stats. */
-export function scannerFeedIsIdle(kind: ScannerStatus['kind'] | undefined): boolean {
+export function scannerFeedIsIdle(kind: ScannerStatus['kind'] | undefined): kind is 'off' | 'starting' {
     return kind === 'off' || kind === 'starting'
 }
 

@@ -61,7 +61,7 @@ export function ReplayScannerSceneComponent(): JSX.Element {
     useAttachedLogic(scannerLogic, replayScannerSceneLogic)
 
     const { scanner, scannerLoading, observationStatsApi, togglingEnabled } = useValues(scannerLogic)
-    const { loadScanner, toggleEnabled, setWatermarkPolling } = useActions(scannerLogic)
+    const { toggleEnabled, setStatusPolling, refreshScannerStatus } = useActions(scannerLogic)
     const { quota } = useValues(visionQuotaLogic)
     const { recordingsBlock } = useValues(replayRecordingsLogic)
     const experimentScanners = useFeatureFlag('VISION_EXPERIMENT_SCANNER')
@@ -87,9 +87,9 @@ export function ReplayScannerSceneComponent(): JSX.Element {
     // Starting and delayed end when a sweep tick finishes, which the page only sees by refetching the scanner.
     const waitingOnSweep = status?.kind === 'starting' || status?.kind === 'delayed'
     useEffect(() => {
-        setWatermarkPolling(waitingOnSweep)
-        return () => setWatermarkPolling(false)
-    }, [waitingOnSweep, setWatermarkPolling])
+        setStatusPolling(waitingOnSweep)
+        return () => setStatusPolling(false)
+    }, [waitingOnSweep, setStatusPolling])
 
     if (scannerLoading || !scanner || !status) {
         return (
@@ -166,7 +166,7 @@ export function ReplayScannerSceneComponent(): JSX.Element {
             <IngestionLimitBanner />
             <RecordingsBlockBanner />
             <QuotaBanner />
-            <ScannerStatusNote scanner={scanner as ReplayScanner} status={status} onSaved={loadScanner} />
+            <ScannerStatusNote scanner={scanner as ReplayScanner} status={status} onSaved={refreshScannerStatus} />
 
             <LemonTabs
                 // Only an experiment scanner has a Variants tab, so a stale ?tab=variants falls back.
