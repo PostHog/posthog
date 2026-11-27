@@ -32,14 +32,16 @@ function centerOf(today: number, zoom: number): number {
 }
 
 describe('useAdventTrackScroll', () => {
-    it("keeps a phone swipe when the stage resizes, and centers the new day's door when the day changes", () => {
+    it("keeps the swiped-to spot in the middle when the stage resizes, and centers the new day's door when the day changes", () => {
         const { container, rerender } = render(<Track {...propsOf(3, 0.5, 700)} />)
         const track = container.firstElementChild!
+        const middleOfPicture = (zoom: number): number => (track.scrollLeft + 390 / 2) / zoom
         expect(track.scrollLeft).toBe(centerOf(3, 0.5))
 
-        track.scrollLeft = 10
+        track.scrollLeft = 300
+        const swipedTo = middleOfPicture(0.5)
         rerender(<Track {...propsOf(3, 0.45, 640)} />)
-        expect(track.scrollLeft).toBe(10)
+        expect(middleOfPicture(0.45)).toBeCloseTo(swipedTo)
 
         rerender(<Track {...propsOf(4, 0.45, 640)} />)
         expect(track.scrollLeft).toBe(centerOf(4, 0.45))
