@@ -21,6 +21,7 @@ from posthog.models.event.util import bulk_create_events
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 
 from products.ai_observability.backend.logic.traces import trace_queries
+from products.ai_observability.backend.presentation.views.list_filters import MAX_SCOPE_TEXT_LENGTH
 
 from .trace_fixtures import (
     GENERATION,
@@ -338,8 +339,8 @@ class TestTraceListViewSet(ClickhouseTestMixin, APIBaseTest):
             assert [item["id"] for item in response.json()["items"]] == ["chosen"]
 
     def test_list_passes_error_tool_and_failed_tool_to_the_selection(self) -> None:
-        long_error = " Timed out: " + "x" * 12_000 + " "
-        long_tool = "t" * 300
+        long_error = " Timed out: " + "x" * (MAX_SCOPE_TEXT_LENGTH - 13) + " "
+        long_tool = "t" * MAX_SCOPE_TEXT_LENGTH
         with patch(
             "products.ai_observability.backend.presentation.views.traces.api.load_trace_list",
             return_value=lambda: SimpleNamespace(model_dump=lambda **_: {}),
@@ -368,6 +369,9 @@ class TestTraceListViewSet(ClickhouseTestMixin, APIBaseTest):
             ("whitespace-only error scope", {"error": "   "}),
             ("empty tool scope", {"tool": ""}),
             ("whitespace-only failed tool scope", {"failed_tool": " "}),
+            ("error scope too long", {"error": "x" * (MAX_SCOPE_TEXT_LENGTH + 1)}),
+            ("tool scope too long", {"tool": "t" * (MAX_SCOPE_TEXT_LENGTH + 1)}),
+            ("failed tool scope too long", {"failed_tool": "t" * (MAX_SCOPE_TEXT_LENGTH + 1)}),
             (
                 "custom expression that fails in clickhouse",
                 {"properties": json.dumps([{"type": "hogql", "key": "toDateTime('not a date') > now()"}])},

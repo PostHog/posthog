@@ -321,6 +321,7 @@ export interface ErrorFirstSeenRequestApi {
      * Up to 100 error keys, as the errors list hands them out.
      * @minItems 1
      * @maxItems 100
+     * @items.maxLength 65536
      */
     keys: string[]
 }
@@ -2170,6 +2171,7 @@ export interface ToolTraceSharesRequestApi {
      * Up to 100 tool keys, as the tools list hands them out.
      * @minItems 1
      * @maxItems 100
+     * @items.maxLength 65536
      */
     keys: string[]
 }
@@ -7306,8 +7308,9 @@ export type AiObservabilityErrorsListParams = {
      */
     limit?: number
     /**
-     * How many errors to skip before the page starts. Defaults to 0.
+     * How many errors to skip before the page starts, from 0 to 16777115. Defaults to 0.
      * @minimum 0
+     * @maximum 16777115
      */
     offset?: number
     /**
@@ -7960,8 +7963,9 @@ export type AiObservabilityToolsListParams = {
      */
     limit?: number
     /**
-     * How many tools to skip before the page starts. Defaults to 0.
+     * How many tools to skip before the page starts, from 0 to 16777115. Defaults to 0.
      * @minimum 0
+     * @maximum 16777115
      */
     offset?: number
     /**
@@ -8095,10 +8099,12 @@ export type AiObservabilityTracesListParams = {
     date_to?: string
     /**
      * Lists only traces where any event has this normalized error message, as the errors list shows it. A listed trace keeps its other events.
+     * @maxLength 65536
      */
     error?: string
     /**
      * Lists only traces where a call to the tool with this name failed. A listed trace keeps its other events.
+     * @maxLength 65536
      */
     failed_tool?: string
     /**
@@ -8138,6 +8144,7 @@ export type AiObservabilityTracesListParams = {
     search?: string
     /**
      * Lists only traces where any event called the tool with this name. A listed trace keeps its other events.
+     * @maxLength 65536
      */
     tool?: string
     /**

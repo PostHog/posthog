@@ -10,6 +10,10 @@ from posthog.permissions import scopes_caller_lacks
 from ...facade import api
 from .property_filters import QUERY_SCOPE, QUERY_SCOPE_REQUIRED, PropertyFiltersField, filters_need_query_scope
 
+# Bounds the text a request can embed in a ClickHouse query, while any real error message, tool name or key of one
+# still fits.
+MAX_SCOPE_TEXT_LENGTH = 65_536
+
 
 def page_limit_field(noun: str, *, default: int, maximum: int) -> serializers.IntegerField:
     return serializers.IntegerField(
@@ -20,11 +24,12 @@ def page_limit_field(noun: str, *, default: int, maximum: int) -> serializers.In
     )
 
 
-def page_offset_field(noun: str) -> serializers.IntegerField:
+def page_offset_field(noun: str, *, maximum: int) -> serializers.IntegerField:
     return serializers.IntegerField(
         min_value=0,
+        max_value=maximum,
         default=0,
-        help_text=f"How many {noun} to skip before the page starts. Defaults to 0.",
+        help_text=f"How many {noun} to skip before the page starts, from 0 to {maximum}. Defaults to 0.",
     )
 
 
@@ -61,6 +66,7 @@ def error_scope_field() -> serializers.CharField:
     return serializers.CharField(
         required=False,
         allow_blank=True,
+        max_length=MAX_SCOPE_TEXT_LENGTH,
         trim_whitespace=False,
         help_text="Lists only traces where any event has this normalized error message, as the errors list shows it. "
         "A listed trace keeps its other events.",
@@ -71,6 +77,7 @@ def tool_scope_field() -> serializers.CharField:
     return serializers.CharField(
         required=False,
         allow_blank=True,
+        max_length=MAX_SCOPE_TEXT_LENGTH,
         help_text="Lists only traces where any event called the tool with this name. A listed trace keeps its other "
         "events.",
     )
@@ -80,6 +87,7 @@ def failed_tool_scope_field() -> serializers.CharField:
     return serializers.CharField(
         required=False,
         allow_blank=True,
+        max_length=MAX_SCOPE_TEXT_LENGTH,
         help_text="Lists only traces where a call to the tool with this name failed. A listed trace keeps its other "
         "events.",
     )
