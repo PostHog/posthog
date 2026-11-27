@@ -129,6 +129,7 @@ _ATTR_CMN_ERROR = 0x20000000
 _ATTR_CMN_RETURNED_ATTRS = 0x80000000
 _ATTR_DIR_MOUNTSTATUS = 0x4
 _DIR_MNTSTATUS_MNTPOINT = 0x1
+_DIR_MNTSTATUS_TRIGGER = 0x2
 _ATTR_FILE_LINKCOUNT = 0x1
 _ATTR_FILE_ALLOCSIZE = 0x4
 _ATTR_CMNEXT_PRIVATESIZE = 0x8
@@ -199,7 +200,7 @@ def _bulk_directory_reader() -> Callable[[str, int, list[str]], Iterator[_FileBl
                 entries = buffer.raw
                 offset = 0
                 for _ in range(count):
-                    entry = _parse_bulk_entry(entries, offset, directory)
+                    entry = _parse_bulk_entry(entries, offset, directory, device)
                     offset += _U32.unpack_from(entries, offset)[0]
                     if isinstance(entry, str):
                         subdirectories.append(entry)
@@ -214,10 +215,10 @@ def _bulk_directory_reader() -> Callable[[str, int, list[str]], Iterator[_FileBl
     return read
 
 
-def _parse_bulk_entry(entries: bytes, offset: int, directory: str) -> str | _FileBlocks | None:
+def _parse_bulk_entry(entries: bytes, offset: int, directory: str, device: int) -> str | _FileBlocks | None:
     """The subdirectory path or file blocks of one getattrlistbulk(2) entry, or None for any other entry.
 
-    Each attribute is present only when its bit is set in the returned set, in group order and then bit order within a group.
+    Each attribute is present only when its bit is set in the returned set, in group order and then bit order within a group, except that ATTR_CMN_ERROR comes first.
     """
 
     _, common, _, directory_attributes, file_attributes, extended = _BULK_ENTRY_HEADER.unpack_from(entries, offset)
@@ -231,27 +232,28 @@ def _parse_bulk_entry(entries: bytes, offset: int, directory: str) -> str | _Fil
         cursor += field.size
         return int(value)
 
-    name = None
-    if common & _ATTR_CMN_NAME:
-        name_offset, name_length = _ATTRIBUTE_REFERENCE.unpack_from(entries, cursor)
-        start = cursor + name_offset
-        name = os.fsdecode(entries[start : start + name_length - 1])
-        cursor += _ATTRIBUTE_REFERENCE.size
+    error = take(_U32, _ATTR_CMN_ERROR, common)
+    if not common & _ATTR_CMN_NAME:
+        return None
+    name_offset, name_length = _ATTRIBUTE_REFERENCE.unpack_from(entries, cursor)
+    start = cursor + name_offset
+    path = os.path.join(directory, os.fsdecode(entries[start : start + name_length - 1]))
+    cursor += _ATTRIBUTE_REFERENCE.size
     object_type = take(_U32, _ATTR_CMN_OBJTYPE, common)
     inode = take(_U64, _ATTR_CMN_FILEID, common)
-    if take(_U32, _ATTR_CMN_ERROR, common) or name is None:
-        return None
+    if error or object_type is None:
+        return _entry_from_lstat(path, device)
 
     if object_type == _VDIR:
         mount_status = take(_U32, _ATTR_DIR_MOUNTSTATUS, directory_attributes) or 0
-        # Another file system mounted inside frees nothing here, and a stale network mount can block the walk.
-        return None if mount_status & _DIR_MNTSTATUS_MNTPOINT else os.path.join(directory, name)
-    if object_type != _VREG or inode is None:
+        # Another file system mounted inside frees nothing here, and a stale network mount or an automount trigger can block the walk.
+        return None if mount_status & (_DIR_MNTSTATUS_MNTPOINT | _DIR_MNTSTATUS_TRIGGER) else path
+    if object_type != _VREG:
         return None
     link_count = take(_U32, _ATTR_FILE_LINKCOUNT, file_attributes)
     allocated = take(_OFF_T, _ATTR_FILE_ALLOCSIZE, file_attributes)
-    if link_count is None or allocated is None:
-        return _blocks_from_lstat(os.path.join(directory, name))
+    if inode is None or link_count is None or allocated is None:
+        return _blocks_from_lstat(path)
     unshared = take(_OFF_T, _ATTR_CMNEXT_PRIVATESIZE, extended)
     return _FileBlocks(
         inode=inode,
@@ -259,6 +261,16 @@ def _parse_bulk_entry(entries: bytes, offset: int, directory: str) -> str | _Fil
         allocated_bytes=allocated,
         unshared_bytes=allocated if unshared is None else unshared,
     )
+
+
+def _entry_from_lstat(path: str, device: int) -> str | _FileBlocks | None:
+    try:
+        status = os.lstat(path)
+    except OSError:
+        return None
+    if stat.S_ISDIR(status.st_mode):
+        return path if status.st_dev == device else None
+    return _blocks_from_lstat(path)
 
 
 _file_blocks: Callable[[str], _FileBlocks | None] = (
