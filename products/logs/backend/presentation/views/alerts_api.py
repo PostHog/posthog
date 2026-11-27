@@ -2316,6 +2316,9 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             # The logs row first, then the platform copy: an edit takes the two locks in that order, and the
             # opposite order deadlocks against it.
             alert = self._get_locked_alert()
+            # A reset restarts the checks, like turning the alert on.
+            (shown,) = _shown_from_copies([alert])
+            require_pipeline_log_access(team_id=alert.team_id, user=request.user, filters=shown.filters or {})
             previous_failures = alert.consecutive_failures
             if alert.platform_owned:
                 # The platform skips a broken alert, so the reset has to reach its copy. Its state decides,
