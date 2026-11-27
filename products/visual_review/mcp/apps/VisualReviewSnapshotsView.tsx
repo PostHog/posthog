@@ -48,6 +48,41 @@ function isTolerated(state: ActionState | undefined): boolean {
     return state?.succeededAs === 'tolerate'
 }
 
+function deciderName(snapshot: VisualReviewSnapshot): string {
+    const by = snapshot.decision?.by
+    return by?.first_name || by?.email?.split('@')[0] || 'someone'
+}
+
+function upperFirst(text: string): string {
+    return text.charAt(0).toUpperCase() + text.slice(1)
+}
+
+function decisionLine(snapshot: VisualReviewSnapshot): string | null {
+    const decision = snapshot.decision
+    if (!decision) {
+        return null
+    }
+    const who = decision.via === 'mcp' ? `an agent for ${deciderName(snapshot)}` : deciderName(snapshot)
+    const commit = decision.commit_sha.slice(0, 7)
+    if (decision.state === 'approved') {
+        return `Accepted by ${who} on ${commit}`
+    }
+    if (decision.state === 'rejected') {
+        return `Rejected by ${who}: ${decision.reason}`
+    }
+    return upperFirst(`${who} undid a decision on ${commit}`)
+}
+
+/** A person's reject or undo, which an agent through MCP cannot change. */
+function personDecisionReason(snapshot: VisualReviewSnapshot): string | null {
+    const decision = snapshot.decision
+    if (!decision || decision.via === 'mcp' || decision.state === 'approved') {
+        return null
+    }
+    const verb = decision.state === 'rejected' ? 'Rejected' : 'Undone'
+    return `${verb} by ${deciderName(snapshot)}. Open Visual Review to change it.`
+}
+
 function ArtifactImage({
     label,
     artifact,
@@ -107,7 +142,8 @@ function SnapshotRow({
                 <span className="text-sm truncate">{snapshot.identifier}</span>
             </div>
             <div className="flex items-center gap-2 text-xs text-muted-foreground shrink-0">
-                {isApproved(snapshot, actionState) && <Badge variant="success">Approved</Badge>}
+                {isApproved(snapshot, actionState) && <Badge variant="success">Accepted</Badge>}
+                {snapshot.review_state === 'rejected' && <Badge variant="destructive">Rejected</Badge>}
                 {isTolerated(actionState) && <Badge variant="default">Tolerated</Badge>}
                 {snapshot.result === 'changed' && <span>{formatDiffPct(snapshot.diff_percentage)}</span>}
             </div>
@@ -170,13 +206,21 @@ export function VisualReviewSnapshotsView({
 
     const selectedState = selected ? actionStates?.[selected.id] : undefined
     const isLoading = selectedState?.loadingAs != null
+    const blockedByPerson = selected ? personDecisionReason(selected) : null
     const approveDisabled =
         !onAction ||
         isLoading ||
+        blockedByPerson !== null ||
         isApproved(selected!, selectedState) ||
         selected!.result === 'unchanged' ||
         selected!.result === 'removed'
-    const tolerateDisabled = !onAction || isLoading || selected!.result !== 'changed' || isTolerated(selectedState)
+    const tolerateDisabled =
+        !onAction ||
+        isLoading ||
+        selected!.result !== 'changed' ||
+        selected!.review_state === 'rejected' ||
+        isTolerated(selectedState)
+    const selectedDecisionLine = selected ? decisionLine(selected) : null
 
     return (
         <div className="flex flex-col gap-3 p-4">
@@ -239,7 +283,7 @@ export function VisualReviewSnapshotsView({
                                             disabled={approveDisabled}
                                             onClick={() => handleAction('approve')}
                                         >
-                                            {selectedState?.loadingAs === 'approve' ? 'Working…' : 'Approve'}
+                                            {selectedState?.loadingAs === 'approve' ? 'Working…' : 'Accept'}
                                         </Button>
                                         <Button
                                             variant="outline"
@@ -252,14 +296,20 @@ export function VisualReviewSnapshotsView({
                                     </div>
                                 </div>
 
+                                {selectedDecisionLine && (
+                                    <span className="text-xs text-muted-foreground">{selectedDecisionLine}</span>
+                                )}
+                                {blockedByPerson && (
+                                    <span className="text-xs text-muted-foreground">{blockedByPerson}</span>
+                                )}
                                 {selectedState?.error && (
                                     <span className="text-xs text-destructive-foreground">{selectedState.error}</span>
                                 )}
                                 {selectedState?.succeededAs && (
                                     <span className="text-xs text-muted-foreground">
                                         {selectedState.succeededAs === 'approve'
-                                            ? 'Approved — baseline updated.'
-                                            : 'Tolerated — future runs ignore this variant.'}
+                                            ? 'Accepted. Finalize the run to pass the gate.'
+                                            : 'Tolerated. Future runs ignore this variant.'}
                                     </span>
                                 )}
 

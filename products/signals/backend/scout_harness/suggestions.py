@@ -148,6 +148,13 @@ class ScoutSuggestionItem(BaseModel):
             "or recent reports that make this scout worth running on THIS project."
         )
     )
+    goal: str = Field(
+        default="",
+        description=(
+            "One plain-language sentence, under 25 words: what the scout checks, how often, and what the "
+            "person gets from it. No event names, counts or links."
+        ),
+    )
     description: str = Field(
         default="",
         description="custom only: one or two sentences describing the signal or behavior the scout investigates.",
@@ -855,6 +862,7 @@ PostHog-authored scouts available to turn on (suggest these by exact name with k
 Produce {MIN_SUGGESTIONS_PER_BATCH}-{MAX_SUGGESTIONS_PER_BATCH} suggestions, best first:
 - Mix "canonical" picks (cheap, high-confidence "turn this on") with at least one or two "custom" drafts tailored to what you found (a specific funnel, a custom event, an error or latency spike, a churn, activation, or revenue signal), so the set is project-specific rather than a template list.
 - Every `why_here` must cite concrete evidence you actually saw: event names, insight or dashboard names, report titles, volumes. Never suggest something the project has no data for.
+- Every suggestion needs a `goal`: one sentence, under 25 words, that a person new to scouts understands. Say what the scout checks, how often, and what the person gets from it, for example "Checks each day whether failed logins are rising, and tells you which users are affected." Keep event names, counts and links out of it; those belong in `why_here`.
 - Do not suggest a scout that is already enabled, and set `gap` only when nothing in the fleet covers the same ground.
 - A custom draft needs a `skill_name` starting with `signals-scout-`, a one-line `description`, and a complete `draft_body` following the authoring-scouts skill: what to check, thresholds, what counts as a finding, what to ignore, how to dedupe against prior runs. Keep the `description` under {MAX_DESCRIPTION_CHARS} characters and the body under {MAX_DRAFT_BODY_CHARS}.
 - Leave Slack delivery out of `proposed_config`; the person choosing the suggestion picks the destination.
