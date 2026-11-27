@@ -916,6 +916,11 @@ CACHES["aeo_prompt_suggestions"] = {
 CACHES["posthog_support_drafts"] = {
     **CACHES["default"],
     "LOCATION": REDIS_URL,
+    "OPTIONS": {
+        **CACHES["default"]["OPTIONS"],
+        "SOCKET_CONNECT_TIMEOUT": REDIS_SOCKET_CONNECT_TIMEOUT_SECONDS,
+        "SOCKET_TIMEOUT": REDIS_SOCKET_TIMEOUT_SECONDS,
+    },
 }
 
 # Batch reservations and the transactional email throttles read and write throttle history here. A read from

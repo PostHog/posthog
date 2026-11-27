@@ -5,6 +5,8 @@ from posthog.enums import LabeledStrEnum
 
 MAX_SEND_ATTEMPTS = 4
 MAX_TICKETS_PER_TOPIC = 3
+WIDGET_MESSAGE_MAX_LENGTH = 10_000
+TICKET_NOTE_MAX_LENGTH = 1_000
 # Redirects to the person's own region
 SUPPORT_PANEL_URL = "https://app.posthog.com/home#panel=support"
 

@@ -71,6 +71,11 @@ class TestRequestLogSignalHandlers(SimpleTestCase):
                 "GET /api/projects/?Personal_Api_Key=<redacted>",
             ),
             ("repeated_param", "GET /e/?token=phc_a&token=phc_b", "GET /e/?token=<redacted>&token=<redacted>"),
+            (
+                "support_widget_session",
+                "GET /api/conversations/v1/widget/tickets?widget_session_id=0b8f0a52-6f43-4a8e-9d2c-3f1e6c8d7a10&limit=10",
+                "GET /api/conversations/v1/widget/tickets?widget_session_id=<redacted>&limit=10",
+            ),
             ("similar_name_kept", "GET /e/?token_type=bearer&tokens=3", "GET /e/?token_type=bearer&tokens=3"),
             ("name_without_value_kept", "GET /e/?token&limit=1", "GET /e/?token&limit=1"),
         ]

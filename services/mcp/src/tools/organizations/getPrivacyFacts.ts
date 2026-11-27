@@ -1,23 +1,15 @@
 import { z } from 'zod'
 
-import { findPostHogPermissionError, findRecoverableApiError, PostHogApiError } from '@/lib/errors'
+import { findPostHogPermissionError, findRecoverableApiError, isExpectedApiError, PostHogApiError } from '@/lib/errors'
 import { POSTHOG_EU_BASE_URL, POSTHOG_US_BASE_URL } from '@/lib/oauth-constants'
+import { getPostHogClient } from '@/lib/posthog'
 import type { Context, ToolBase } from '@/tools/types'
 
 // Answers "where is our data stored?" and similar privacy questions with the asking org's own
 // facts. PostHog-wide facts (subprocessors, hosting, security) stay on posthog.com and are only
 // linked here, so this file never goes stale when those pages change.
 
-const schema = z.object({
-    project_id: z
-        .number()
-        .int()
-        .positive()
-        .optional()
-        .describe('Project to read retention settings for. Omit it to use the active project.'),
-})
-
-type Params = z.infer<typeof schema>
+const schema = z.object({})
 
 /** Links only. The agent opens them before quoting anything from them. */
 export const PRIVACY_SOURCE_LINKS = {
@@ -38,6 +30,7 @@ type Denied =
     | { status: 'needs_org_access'; message: string }
     | { status: 'needs_admin'; message: string }
     | { status: 'unavailable'; message: string }
+    | { status: 'rate_limited'; retry_after_seconds: number | null; message: string }
     | { status: 'error'; message: string }
 
 export type Section<T> = ({ status: 'ok' } & T) | Denied
@@ -45,12 +38,16 @@ export type Section<T> = ({ status: 'ok' } & T) | Denied
 const ASK_ADMIN =
     'PostHog denied this read for the current user. Ask an organization admin or owner to look it up in PostHog for you.'
 
-class NoActiveOrganizationError extends Error {}
+class NoProjectOrganizationError extends Error {}
 
 /** Turn a failed read into a status the agent can relay, instead of failing the whole tool. */
 export function classifyReadError(error: unknown, adminOnlyNote?: string): Denied {
-    if (error instanceof NoActiveOrganizationError) {
-        return { status: 'unavailable', message: 'No active organization, so organization settings were not read.' }
+    if (error instanceof NoProjectOrganizationError) {
+        return {
+            status: 'unavailable',
+            message:
+                "Organization settings come from the active project's organization, which could not be read. The project section says why. If the project is wrong, call `switch-project`, then retry.",
+        }
     }
     const denied = findPostHogPermissionError(error)
     if (denied) {
@@ -72,16 +69,44 @@ export function classifyReadError(error: unknown, adminOnlyNote?: string): Denie
         return { status: 'needs_admin', message: adminOnlyNote ?? ASK_ADMIN }
     }
     const apiError = findRecoverableApiError(error)
+    if (apiError instanceof PostHogApiError && apiError.status === 429) {
+        const wait = apiError.retryAfterSeconds
+        return {
+            status: 'rate_limited',
+            retry_after_seconds: wait,
+            message:
+                wait !== null ? `Rate limited; retry after ${wait} seconds.` : 'Rate limited; wait before retrying.',
+        }
+    }
     if (apiError instanceof PostHogApiError && apiError.status === 404) {
         return { status: 'unavailable', message: 'This instance does not offer this read.' }
     }
     return { status: 'error', message: 'This read failed. Try again, or check it in PostHog.' }
 }
 
-async function readSection<T extends object>(read: () => Promise<T>, adminOnlyNote?: string): Promise<Section<T>> {
+async function readSection<T extends object>(
+    context: Context,
+    read: () => Promise<T>,
+    adminOnlyNote?: string
+): Promise<Section<T>> {
     try {
         return { status: 'ok' as const, ...(await read()) } as Section<T>
     } catch (error) {
+        if (!(error instanceof NoProjectOrganizationError) && !isExpectedApiError(error)) {
+            await context.stateManager
+                .getApiKey()
+                .then((apiKey) =>
+                    getPostHogClient().captureException(error, {
+                        properties: {
+                            tag: 'mcp',
+                            $exception_fingerprint: 'organization-privacy-facts-get',
+                            tool: 'organization-privacy-facts-get',
+                            suppress_analytics: apiKey.suppress_analytics === true,
+                        },
+                    })
+                )
+                .catch(() => undefined)
+        }
         return classifyReadError(error, adminOnlyNote)
     }
 }
@@ -114,7 +139,7 @@ type OrgResponse = {
     is_ai_data_processing_approved?: boolean | null
     is_ai_training_opted_in?: boolean | null
     default_anonymize_ips?: boolean
-    available_product_features?: Array<{ key: string; limit?: number | null }> | null
+    available_product_features?: Array<{ key: string; limit?: number | null; unit?: string | null }> | null
 }
 
 type SubscriptionResponse = {
@@ -122,7 +147,7 @@ type SubscriptionResponse = {
     subscription_level?: string | null
     has_active_subscription?: boolean
     startup_program_label?: string | null
-    trial?: unknown
+    trial?: { status?: 'active' | 'expired' | 'cancelled' | 'converted' } | null
 }
 
 type LegalDocument = { document_type: string; status: string; created_at: string }
@@ -130,6 +155,7 @@ type LegalDocument = { document_type: string; status: string; created_at: string
 type ProjectResponse = {
     id: number
     name: string
+    organization?: string | null
     api_host?: string | null
     anonymize_ips?: boolean
     session_recording_retention_period?: string | null
@@ -146,70 +172,74 @@ function latestOfType(docs: LegalDocument[], type: string): { status: string; cr
 }
 
 export const getPrivacyFactsHandler: ToolBase<typeof schema, Record<string, unknown>>['handler'] = async (
-    context: Context,
-    params: Params
+    context: Context
 ) => {
     const api = context.api
-    const projectId = params.project_id ? String(params.project_id) : await context.stateManager.getProjectId()
-    const orgId = await context.stateManager.getOrgID().catch(() => undefined)
+    const projectId = await context.stateManager.getProjectId()
+    const projectRead = api.request<ProjectResponse>({
+        method: 'GET',
+        path: `/api/projects/${encodeURIComponent(projectId)}/`,
+    })
+    const project = await readSection(context, async () => {
+        const p = await projectRead
+        return {
+            id: p.id,
+            name: p.name,
+            ingestion_host: p.api_host ?? null,
+            discard_client_ip: p.anonymize_ips ?? null,
+            session_recording_retention_period: p.session_recording_retention_period ?? null,
+            logs_retention_days: p.logs_settings?.retention_days ?? null,
+            ai_data_processing_approved: p.is_ai_data_processing_approved ?? null,
+        }
+    })
+    const orgId = await projectRead.then(
+        (p) => p.organization ?? undefined,
+        () => undefined
+    )
     const org = (path: string): string => `/api/organizations/${encodeURIComponent(String(orgId))}${path}`
 
     const noOrg = async (): Promise<never> => {
-        throw new NoActiveOrganizationError()
+        throw new NoProjectOrganizationError()
     }
 
-    const [project, organization, plan, legalDocuments, orgEventsRetention, projectEventsRetention] = await Promise.all(
-        [
-            readSection(async () => {
-                const p = await api.request<ProjectResponse>({
-                    method: 'GET',
-                    path: `/api/projects/${encodeURIComponent(projectId)}/`,
-                })
-                return {
-                    id: p.id,
-                    name: p.name,
-                    ingestion_host: p.api_host ?? null,
-                    discard_client_ip: p.anonymize_ips ?? null,
-                    session_recording_retention_period: p.session_recording_retention_period ?? null,
-                    logs_retention_days: p.logs_settings?.retention_days ?? null,
-                    ai_data_processing_approved: p.is_ai_data_processing_approved ?? null,
-                }
-            }),
-            readSection(async () => {
-                if (!orgId) {
-                    return noOrg()
-                }
-                const o = await api.request<OrgResponse>({ method: 'GET', path: org('/') })
-                return {
-                    id: o.id,
-                    name: o.name,
-                    membership_level: o.membership_level ?? null,
-                    has_signed_baa: o.has_signed_baa ?? null,
-                    ai_data_processing_approved: o.is_ai_data_processing_approved ?? null,
-                    ai_training_opted_in: o.is_ai_training_opted_in ?? null,
-                    default_discard_client_ip: o.default_anonymize_ips ?? null,
-                    plan_entitlements: (o.available_product_features ?? [])
-                        .filter((f) => ENTITLEMENT_KEYS.includes(f.key))
-                        .map((f) => ({ key: f.key, limit: f.limit ?? null })),
-                }
-            }),
-            readSection(async () => {
-                if (!orgId) {
-                    return noOrg()
-                }
-                const s = await api.request<SubscriptionResponse>({
-                    method: 'GET',
-                    path: org('/billing/subscription/'),
-                })
-                return {
-                    billing_plan: s.billing_plan ?? null,
-                    subscription_level: s.subscription_level ?? null,
-                    has_active_subscription: s.has_active_subscription ?? null,
-                    startup_program_label: s.startup_program_label ?? null,
-                    on_trial: Boolean(s.trial),
-                }
-            }),
-            readSection(async () => {
+    const [organization, plan, legalDocuments, orgEventsRetention, projectEventsRetention] = await Promise.all([
+        readSection(context, async () => {
+            if (!orgId) {
+                return noOrg()
+            }
+            const o = await api.request<OrgResponse>({ method: 'GET', path: org('/') })
+            return {
+                id: o.id,
+                name: o.name,
+                membership_level: o.membership_level ?? null,
+                has_signed_baa: o.has_signed_baa ?? null,
+                ai_data_processing_approved: o.is_ai_data_processing_approved ?? null,
+                ai_training_opted_in: o.is_ai_training_opted_in ?? null,
+                default_discard_client_ip: o.default_anonymize_ips ?? null,
+                plan_entitlements: (o.available_product_features ?? [])
+                    .filter((f) => ENTITLEMENT_KEYS.includes(f.key))
+                    .map((f) => ({ key: f.key, limit: f.limit ?? null, unit: f.unit ?? null })),
+            }
+        }),
+        readSection(context, async () => {
+            if (!orgId) {
+                return noOrg()
+            }
+            const s = await api.request<SubscriptionResponse>({
+                method: 'GET',
+                path: org('/billing/subscription/'),
+            })
+            return {
+                billing_plan: s.billing_plan ?? null,
+                subscription_level: s.subscription_level ?? null,
+                has_active_subscription: s.has_active_subscription ?? null,
+                startup_program_label: s.startup_program_label ?? null,
+                on_trial: s.trial?.status === 'active',
+            }
+        }),
+        readSection(
+            context,
+            async () => {
                 if (!orgId) {
                     return noOrg()
                 }
@@ -223,24 +253,25 @@ export const getPrivacyFactsHandler: ToolBase<typeof schema, Record<string, unkn
                     baa: latestOfType(docs, 'BAA'),
                     note: 'Lists only agreements generated in the PostHog app. An agreement signed another way (for example with an Enterprise contract) does not appear here, so null means "none generated in the app", not "no agreement".',
                 }
-            }, 'Only organization admins and owners can see legal documents such as the DPA. Ask one of them to check Settings > Legal documents in PostHog.'),
-            readSection(async () => {
-                if (!orgId) {
-                    return noOrg()
-                }
-                return await api.request<Record<string, unknown>>({
-                    method: 'GET',
-                    path: org('/events_retention_setting/'),
-                })
-            }),
-            readSection(async () =>
-                api.request<Record<string, unknown>>({
-                    method: 'GET',
-                    path: `/api/projects/${encodeURIComponent(projectId)}/events_retention/`,
-                })
-            ),
-        ]
-    )
+            },
+            'Only organization admins and owners can see legal documents such as the DPA. Ask one of them to check Settings > Legal documents in PostHog.'
+        ),
+        readSection(context, async () => {
+            if (!orgId) {
+                return noOrg()
+            }
+            return await api.request<Record<string, unknown>>({
+                method: 'GET',
+                path: org('/events_retention_setting/'),
+            })
+        }),
+        readSection(context, async () =>
+            api.request<Record<string, unknown>>({
+                method: 'GET',
+                path: `/api/projects/${encodeURIComponent(projectId)}/events_retention/`,
+            })
+        ),
+    ])
 
     const ingestionHost = project.status === 'ok' ? project.ingestion_host : null
     const regionFromProject = regionFromUrl(ingestionHost)

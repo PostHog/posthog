@@ -11,7 +11,6 @@ import uuid
 from typing import Any
 
 from django.conf import settings
-from django.utils.crypto import salted_hmac
 
 import requests
 import structlog
@@ -23,7 +22,6 @@ from posthog.utils import resolve_self_flags_team
 
 WIDGET_MESSAGE_PATH = "/api/conversations/v1/widget/message"
 WIDGET_TICKETS_PATH = "/api/conversations/v1/widget/tickets"
-# Newest first, so the new ticket is on this page unless the person sent this many more in the meantime.
 WIDGET_TICKETS_LOOKUP_LIMIT = 10
 WIDGET_REQUEST_TIMEOUT_SECONDS = 10
 WIDGET_TICKET_LOOKUP_TIMEOUT_SECONDS = 3
@@ -77,8 +75,12 @@ def _never_connected(error: requests.RequestException) -> bool:
 class PostHogSupportWidgetClient:
     def __init__(self, target: SupportWidgetTarget) -> None:
         self._target = target
+        self._widget_session_id = ""
 
     def send_ticket(self, user: User, message: str, *, via_mcp: bool) -> SentSupportTicket:
+        # Anyone holding a ticket's widget_session_id can read and reply on it, so each send gets a random one
+        # that opens only the ticket it creates.
+        self._widget_session_id = str(uuid.uuid4())
         payload = self._payload(user, message, via_mcp=via_mcp)
         try:
             response = requests.post(
@@ -114,10 +116,10 @@ class PostHogSupportWidgetClient:
             raise SupportTicketOutcomeUnknown("PostHog support sent an answer without a ticket.") from e
         return SentSupportTicket(ticket_id=ticket_id)
 
-    def ticket_number(self, user: User, ticket_id: str) -> int | None:
+    def ticket_number(self, ticket_id: str) -> int | None:
         # The send answer has no ticket number. The ticket exists either way, so a failed lookup only costs the number.
         params: dict[str, str | int] = {
-            "widget_session_id": _widget_session_id(user),
+            "widget_session_id": self._widget_session_id,
             "limit": WIDGET_TICKETS_LOOKUP_LIMIT,
         }
         try:
@@ -142,17 +144,9 @@ class PostHogSupportWidgetClient:
         payload: dict[str, Any] = {
             "message": message,
             "distinct_id": user.distinct_id,
-            "widget_session_id": _widget_session_id(user),
+            "widget_session_id": self._widget_session_id,
             "traits": {key: value for key, value in (("name", user.first_name), ("email", user.email)) if value},
         }
         if via_mcp:
             payload["session_context"] = {"posthog_mcp": True}
         return payload
-
-
-def _widget_session_id(user: User) -> str:
-    # Anyone holding a ticket's widget_session_id can read and reply on it, even after it is verified, so it
-    # must not be guessable. It stays the same for one person, so the widget's per-session rate limit applies
-    # per person rather than to everyone sending from these servers.
-    digest = salted_hmac("posthog_support.widget_session_id", str(user.uuid)).hexdigest()
-    return str(uuid.UUID(digest[:32]))

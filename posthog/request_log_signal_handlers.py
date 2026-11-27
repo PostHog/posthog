@@ -9,7 +9,7 @@ from django_structlog import signals
 
 _STARTED_AT_ATTR = "_structlog_started_at"
 
-CREDENTIAL_QUERY_PARAMS = frozenset({"personal_api_key", "token", "access_token", "api_key"})
+CREDENTIAL_QUERY_PARAMS = frozenset({"personal_api_key", "token", "access_token", "api_key", "widget_session_id"})
 _REDACTED = "<redacted>"
 
 

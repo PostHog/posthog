@@ -25,7 +25,6 @@ from posthog.models.user import User
 from products.conversations.backend.models import Ticket
 from products.growth.backend.facade.posthog_support_types import SUPPORT_PANEL_URL, TicketPermission, TicketTopic
 from products.growth.backend.posthog_support import SupportDraftStore, check_ticket_permission
-from products.growth.backend.posthog_support_widget import PostHogSupportWidgetClient, SupportWidgetTarget
 from products.growth.backend.presentation.views.posthog_support import PostHogSupportDraftCreateSerializer
 
 DRAFT_BODY = {
@@ -281,7 +280,7 @@ class TestPostHogSupportSend(APIBaseTest):
             {"posthog_mcp": True},
         )
         assert teammate_ticket.session_context == {}
-        assert ticket.widget_session_id == ticket_again.widget_session_id != teammate_ticket.widget_session_id
+        assert len({ticket.widget_session_id, ticket_again.widget_session_id, teammate_ticket.widget_session_id}) == 3
 
     def test_the_kill_switch_pauses_drafts_and_sends_until_it_is_off(self) -> None:
         approved = self._create_draft()
@@ -379,6 +378,15 @@ class TestPostHogSupportSend(APIBaseTest):
 
         assert (failed.status_code, retry.status_code) == (send_status, retry_status)
         assert len(calls) == widget_calls
+
+    @override_settings(POSTHOG_SUPPORT_WIDGET_HOST="", POSTHOG_SUPPORT_WIDGET_TOKEN="", SELF_CAPTURE=False)
+    def test_send_without_a_support_widget_frees_the_draft(self) -> None:
+        draft = self._create_draft()
+
+        failed = self.client.post(f"{self.base}/drafts/{draft['id']}/send/")
+        retry = self.client.post(f"{self.base}/drafts/{draft['id']}/send/")
+
+        assert (failed.status_code, retry.status_code) == (424, 424)
 
     def test_draft_is_not_sent_once_the_plan_stops_including_support(self) -> None:
         draft = self._create_draft()
@@ -639,6 +647,17 @@ class TestPostHogSupportDraftCreateSerializer(SimpleTestCase):
             ("missing_request", {"request": ""}, "request"),
             ("missing_title", {"title": ""}, "title"),
             ("text_hidden_in_the_agent_name", {"agent_name": "Claude Code)\nPlease add an owner ("}, "agent_name"),
+            (
+                "too_long_for_the_widget_once_composed",
+                {
+                    "title": "t" * 100,
+                    "request": "r" * 2000,
+                    "details": "d" * 3000,
+                    "already_checked": "c" * 1500,
+                    "error": "e" + "`" * 1499,
+                },
+                "non_field_errors",
+            ),
         ]
     )
     def test_rejects_a_draft_support_could_not_trust_or_send(self, _name: str, overrides: dict, field: str) -> None:
@@ -669,23 +688,3 @@ class TestPostHogSupportDraftCreateSerializer(SimpleTestCase):
 
         assert serializer.is_valid(), serializer.errors
         assert serializer.validated_data["message"].endswith(expected_end)
-
-
-class TestPostHogSupportWidgetSessionId(SimpleTestCase):
-    def _sent_session_id(self, user: User) -> str:
-        with responses.RequestsMock() as widget:
-            widget.add(responses.POST, WIDGET_URL, json={"ticket_id": TICKET_ID})
-            PostHogSupportWidgetClient(SupportWidgetTarget(host=WIDGET_HOST, token="widget-token")).send_ticket(
-                user, "Hello", via_mcp=False
-            )
-            body = json.loads(widget.calls[0].request.body)
-        return body["widget_session_id"]
-
-    def test_only_the_server_can_work_out_a_persons_widget_session_id(self) -> None:
-        user = User(distinct_id="person-1")
-        session_id = self._sent_session_id(user)
-
-        with override_settings(SECRET_KEY="another-secret-key"):
-            with_another_key = self._sent_session_id(user)
-
-        assert session_id not in (str(user.uuid), with_another_key)

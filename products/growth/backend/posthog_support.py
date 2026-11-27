@@ -346,8 +346,8 @@ def send_draft(user: User, team: Team, draft_id: str) -> SendOutcome:
 
     if not store.start_send(draft_id):
         return failed(SendFailure.ALREADY_SENDING)
-    client = PostHogSupportWidgetClient(resolve_support_widget_target())
     try:
+        client = PostHogSupportWidgetClient(resolve_support_widget_target())
         ticket = client.send_ticket(user, draft.outgoing_message(team), via_mcp=draft.drafted_via == DraftedVia.MCP)
     except SupportTicketNotSent:
         store.cancel_send(draft_id)
@@ -357,7 +357,7 @@ def send_draft(user: User, team: Team, draft_id: str) -> SendOutcome:
 
     # Recorded before the number lookup, so a request that dies during the lookup still leaves the ticket on record.
     store.record_sent(draft_id, draft.topic, ticket)
-    ticket_number = client.ticket_number(user, ticket.ticket_id)
+    ticket_number = client.ticket_number(ticket.ticket_id)
     if ticket_number is not None:
         ticket = SentSupportTicket(ticket_id=ticket.ticket_id, ticket_number=ticket_number)
         try:

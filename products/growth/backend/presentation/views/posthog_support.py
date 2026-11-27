@@ -35,6 +35,8 @@ from products.growth.backend.facade.posthog_support_types import (
     ANSWERED_FILING_REASONS,
     MAX_TICKETS_PER_TOPIC,
     SUPPORT_PANEL_URL,
+    TICKET_NOTE_MAX_LENGTH,
+    WIDGET_MESSAGE_MAX_LENGTH,
     DraftedVia,
     DraftRefusal,
     FilingReason,
@@ -60,8 +62,6 @@ class PostHogSupportErrorSerializer(serializers.Serializer):
     detail = serializers.CharField(help_text="What went wrong.")
 
 
-# The field caps add up to well under the support widget's 10,000-character message limit, with room
-# for the headings and the note the server appends, so a valid draft always sends.
 class PostHogSupportDraftCreateSerializer(serializers.Serializer):
     title = serializers.CharField(
         max_length=100,
@@ -151,6 +151,10 @@ class PostHogSupportDraftCreateSerializer(serializers.Serializer):
             already_checked=data.get("already_checked"),
             error=data.get("error"),
         )
+        if len(data["message"]) > WIDGET_MESSAGE_MAX_LENGTH - TICKET_NOTE_MAX_LENGTH:
+            raise serializers.ValidationError(
+                "This ticket is too long for PostHog support to receive. Shorten the details or the error, then draft it again."
+            )
         return data
 
 

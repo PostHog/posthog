@@ -1,8 +1,11 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { PostHogApiError, PostHogPermissionError } from '@/lib/errors'
+import { PostHogApiError, PostHogPermissionError, PostHogRateLimitError } from '@/lib/errors'
 import getPrivacyFactsTool, { classifyReadError, regionFromUrl } from '@/tools/organizations/getPrivacyFacts'
 import type { Context } from '@/tools/types'
+
+const captureException = vi.fn()
+vi.mock('@/lib/posthog', () => ({ getPostHogClient: () => ({ captureException }) }))
 
 type Responder = (path: string) => unknown
 
@@ -20,6 +23,7 @@ function createMockContext(respond: Responder, publicBaseUrl = 'https://us.posth
         stateManager: {
             getProjectId: async () => '2',
             getOrgID: async () => 'org-1',
+            getApiKey: async () => ({ suppress_analytics: false }),
         },
         env: {},
         sessionManager: {},
@@ -36,6 +40,7 @@ const happyPath: Responder = (path) => {
         return {
             id: 2,
             name: 'Prod',
+            organization: 'org-1',
             api_host: 'https://eu.i.posthog.com',
             anonymize_ips: true,
             session_recording_retention_period: '90d',
@@ -51,7 +56,7 @@ const happyPath: Responder = (path) => {
             has_signed_baa: false,
             customer_id: 'cus_secret',
             available_product_features: [
-                { key: 'product_analytics_data_retention', limit: 7 },
+                { key: 'product_analytics_data_retention', limit: 7, unit: 'years' },
                 { key: 'sso_enforcement', limit: null },
             ],
         }
@@ -72,18 +77,30 @@ const happyPath: Responder = (path) => {
 describe('organization-privacy-facts-get', () => {
     const tool = getPrivacyFactsTool()
 
+    beforeEach(() => {
+        captureException.mockClear()
+    })
+
     it('is registered under the expected tool name', () => {
         expect(tool.name).toBe('organization-privacy-facts-get')
     })
 
     it('returns the org facts, the region from the project ingestion host, and links', async () => {
-        const result = (await tool.handler(createMockContext(happyPath), {})) as any
+        const context = createMockContext(happyPath)
+        const result = (await tool.handler(context, { project_id: 99 } as any)) as any
 
+        const paths = vi.mocked(context.api.request).mock.calls.map(([options]) => options.path)
+        expect(paths.filter((path) => path.startsWith('/api/projects/'))).toEqual([
+            '/api/projects/2/',
+            '/api/projects/2/events_retention/',
+        ])
         expect(result.region).toMatchObject({ value: 'eu', basis: 'project_ingestion_host' })
         expect(result.plan).toMatchObject({ status: 'ok', billing_plan: 'enterprise' })
         expect(result.legal_documents).toMatchObject({ status: 'ok', dpa: { status: 'signed' }, baa: null })
         expect(result.project).toMatchObject({ status: 'ok', session_recording_retention_period: '90d' })
-        expect(result.organization.plan_entitlements).toEqual([{ key: 'product_analytics_data_retention', limit: 7 }])
+        expect(result.organization.plan_entitlements).toEqual([
+            { key: 'product_analytics_data_retention', limit: 7, unit: 'years' },
+        ])
         expect(result.sources.subprocessors).toBe('https://posthog.com/subprocessors')
 
         const serialized = JSON.stringify(result)
@@ -113,6 +130,83 @@ describe('organization-privacy-facts-get', () => {
         expect(result.region).toMatchObject({ value: 'eu', basis: 'mcp_api_host' })
         expect(result.project.status).toBe('needs_admin')
     })
+
+    it.each([
+        [{ status: 'active' }, true],
+        [{ status: 'expired' }, false],
+        [{ status: 'converted' }, false],
+        [null, false],
+    ])('reports trial %o as on_trial %s', async (trial, expected) => {
+        const respond: Responder = (path) =>
+            path.endsWith('/billing/subscription/') ? { billing_plan: 'paid', trial } : happyPath(path)
+
+        const result = (await tool.handler(createMockContext(respond), {})) as any
+
+        expect(result.plan.on_trial).toBe(expected)
+    })
+
+    it.each([
+        ['a 5xx', new PostHogApiError({ status: 502, statusText: 'Bad Gateway', body: '', url: '', method: 'GET' }), 1],
+        ['a bug in the handler', new TypeError('boom'), 1],
+        ['a 404', new PostHogApiError({ status: 404, statusText: 'Not Found', body: '', url: '', method: 'GET' }), 0],
+        ['a permission denial', denied('nope'), 0],
+    ])('captures %s in error tracking only when unexpected, and keeps the rest', async (_, error, captures) => {
+        const respond: Responder = (path) => (path.endsWith('/legal_documents/') ? error : happyPath(path))
+
+        const result = (await tool.handler(createMockContext(respond), {})) as any
+
+        expect(captureException.mock.calls).toEqual(
+            Array(captures).fill([
+                error,
+                {
+                    properties: {
+                        tag: 'mcp',
+                        $exception_fingerprint: 'organization-privacy-facts-get',
+                        tool: 'organization-privacy-facts-get',
+                        suppress_analytics: false,
+                    },
+                },
+            ])
+        )
+        expect(result.plan.status).toBe('ok')
+    })
+
+    it("reads organization facts from the project's organization, not a stale active organization", async () => {
+        const context = createMockContext(happyPath)
+        context.stateManager.getOrgID = async () => 'org-2'
+
+        const result = (await tool.handler(context, {})) as any
+
+        const paths = vi.mocked(context.api.request).mock.calls.map(([options]) => options.path)
+        const orgPaths = paths.filter((path) => path.startsWith('/api/organizations/'))
+        expect(orgPaths).toHaveLength(4)
+        expect(orgPaths.every((path) => path.startsWith('/api/organizations/org-1/'))).toBe(true)
+        expect(result.organization).toMatchObject({ status: 'ok', id: 'org-1' })
+    })
+
+    it.each([
+        ['cannot be read', denied('nope')],
+        ['has no organization', { id: 2, name: 'Prod' }],
+        ['is rate limited', new PostHogRateLimitError({ body: '', url: '', method: 'GET', retryAfterSeconds: 30 })],
+    ])('skips organization reads when the project %s', async (_, projectResponse) => {
+        const respond: Responder = (path) => (path === '/api/projects/2/' ? projectResponse : happyPath(path))
+        const context = createMockContext(respond)
+
+        const result = (await tool.handler(context, {})) as any
+
+        const paths = vi.mocked(context.api.request).mock.calls.map(([options]) => options.path)
+        expect(paths.some((path) => path.startsWith('/api/organizations/'))).toBe(false)
+        for (const section of [
+            result.organization,
+            result.plan,
+            result.legal_documents,
+            result.retention.organization_events,
+        ]) {
+            expect(section).toMatchObject({ status: 'unavailable', message: expect.stringContaining('switch-project') })
+        }
+        expect(result.retention.project_events.status).toBe('ok')
+        expect(captureException).not.toHaveBeenCalled()
+    })
 })
 
 describe('classifyReadError', () => {
@@ -131,6 +225,18 @@ describe('classifyReadError', () => {
     it('reports a 404 as unavailable', () => {
         const error = new PostHogApiError({ status: 404, statusText: 'Not Found', body: '', url: '', method: 'GET' })
         expect(classifyReadError(error).status).toBe('unavailable')
+    })
+
+    it.each([
+        [30, /retry after 30 seconds/],
+        [null, /wait before retrying/],
+    ])('reports a 429 with Retry-After %s as rate limited with the wait', (retryAfterSeconds, message) => {
+        const error = new PostHogRateLimitError({ body: '', url: '', method: 'GET', retryAfterSeconds })
+        expect(classifyReadError(error)).toMatchObject({
+            status: 'rate_limited',
+            retry_after_seconds: retryAfterSeconds,
+            message: expect.stringMatching(message),
+        })
     })
 })
 
