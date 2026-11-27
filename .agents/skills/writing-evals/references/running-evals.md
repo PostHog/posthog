@@ -199,9 +199,23 @@ Then set the box up once:
 3. For Modal, check `tailscale status` on the box. When the command is missing or the node is logged out, follow [remote setup with Modal](#remote-setup-with-modal-preferred) on the box. The login step is interactive, so ask the user to run it through `hogli devbox:ssh -n evals-a`.
 4. The box's node needs the `funnel` attribute and HTTPS certificates, as that section describes.
 
-`hogli devbox:clone --as <label>` copies a prepared box, including its eval databases and any secrets on it, so later boxes skip these steps.
+`hogli devbox:clone -n evals-a --as <label>` copies the prepared box, including its eval databases and any secrets on it, so later boxes skip steps 1 and 2.
+Keep `-n evals-a`: without a source, the command copies the default box instead.
 It asks for confirmation; pass `-y` only after the user agrees.
-Repeat the `tailscale status` check on a clone before its first Modal run.
+
+A clone also copies the source's Tailscale node identity, so both boxes would answer as the same node on the same Funnel hostname and steal each other's callbacks.
+`tailscale status` looks healthy on such a clone, so it does not show the problem.
+Before a clone's first Modal run, give it its own identity by removing the copied state and logging in again:
+
+```bash
+sudo systemctl stop tailscaled
+sudo rm /var/lib/tailscale/tailscaled.state
+sudo systemctl start tailscaled
+sudo tailscale up
+sudo tailscale set --operator="$USER"
+```
+
+Do not run `tailscale logout` on the clone, because the identity it would log out is the one the source box still uses.
 
 ### Lend credentials
 
