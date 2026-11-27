@@ -131,27 +131,32 @@ const DESCRIPTION_MODES: { mode: TileDescriptionMode; label: string }[] = [
     { mode: 'hidden', label: 'Hidden' },
 ]
 
-/** One exclusive group in the Show submenu, for the content tiles that have a description. */
+/** One exclusive group in the Show submenu, for the tiles and sections that have a description. */
 function descriptionChoices(
     menu: MenuHead,
     tiles: Pick<Tile, 'id' | 'panel'>[],
     disabledReason: string | null,
     onEdit: (edit: PresentationEdit) => void
 ): MenuAction[] {
-    const applies = tiles.flatMap(({ id, panel }) =>
-        !isSectionPanel(panel) && panel.description
-            ? [{ id, mode: panel.appearance?.description ?? 'icon', header: showsPart(panel, 'header') }]
-            : []
-    )
+    const applies = tiles.flatMap(({ id, panel }) => {
+        if (!panel.description) {
+            return []
+        }
+        // A section always shows its header.
+        const header = isSectionPanel(panel) || showsPart(panel, 'header')
+        return [{ id, mode: panel.appearance?.description ?? 'icon', header, section: isSectionPanel(panel) }]
+    })
     if (applies.length === 0) {
         return []
     }
     const ids = applies.map(({ id }) => id)
     // The description sits in the header, so no choice changes anything while the header is off.
     const headerOff = applies.every(({ header }) => !header) ? 'The header is off' : null
+    // A section's header keeps one height, so its description goes next to the title instead of below it.
+    const allSections = applies.every(({ section }) => section)
     return DESCRIPTION_MODES.map(({ mode, label }) => ({
         key: `description-${mode}`,
-        label,
+        label: mode === 'below' && allSections ? 'Next to the title' : label,
         section: 'Description',
         exclusive: true,
         dataAttr: `${menu.dataAttr}-description`,
