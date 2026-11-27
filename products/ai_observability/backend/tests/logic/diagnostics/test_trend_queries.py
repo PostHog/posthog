@@ -7,7 +7,11 @@ from parameterized import parameterized
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
-from products.ai_observability.backend.logic.diagnostics.trend_queries import trend_expression
+from products.ai_observability.backend.logic.diagnostics.trend_queries import (
+    failing_expression,
+    failure_rate_expression,
+    trend_expression,
+)
 from products.ai_observability.backend.logic.diagnostics.trends import Trend
 
 
@@ -40,3 +44,23 @@ class TestTrendExpressions(ClickhouseTestMixin, BaseTest):
         expr = trend_expression(ast.Constant(value=10), ast.Constant(value=None))
 
         assert Trend(self._select(expr)) == Trend.INCREASING
+
+    @parameterized.expand(
+        [
+            ("at_the_minimum_rate_and_results", 20, 1, True),
+            ("under_the_minimum_results", 19, 5, False),
+            ("under_the_minimum_rate", 100, 4, False),
+            ("no_captured_result", 0, 0, False),
+        ]
+    )
+    def test_failing(self, _name: str, results: int, failures: int, expected: bool) -> None:
+        rate = failure_rate_expression(ast.Constant(value=results), ast.Constant(value=failures))
+        expr = failing_expression(ast.Constant(value=results), rate)
+
+        assert bool(self._select(expr)) is expected
+
+    @parameterized.expand([("some_results", 40, 3, 0.075), ("no_results", 0, 0, None)])
+    def test_failure_rate(self, _name: str, results: int, failures: int, expected: float | None) -> None:
+        expr = failure_rate_expression(ast.Constant(value=results), ast.Constant(value=failures))
+
+        assert self._select(expr) == expected

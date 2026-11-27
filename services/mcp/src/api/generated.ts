@@ -130165,6 +130165,91 @@ export namespace Schemas {
       generated_at: string;
     }
 
+    export type ToolFailureState = typeof ToolFailureState[keyof typeof ToolFailureState];
+
+
+    export const ToolFailureState = {
+      Captured: 'captured',
+      NotCaptured: 'not_captured',
+    } as const;
+
+    export interface ToolListItem {
+      /** The tool's id, to read it on its own. */
+      key: string;
+      /** The tool's name, as generations call it. */
+      name: string;
+      /** How many times generations called the tool in the date range. */
+      calls: number;
+      /** How far calls moved from the period of the same length before the date range, such as `+40%` or `was 0`. Null when the range has no previous period. */
+      changeLabel: string | null;
+      /** Always `neutral`, as more calls are neither good nor bad. */
+      changeTone: TraceMetricChangeTone;
+      /** How many traces called the tool in the date range. */
+      traces: number;
+      /** The share of the tool's captured results that failed, from 0 to 1. Null when no result of the tool was captured in the date range. */
+      failureRate: number | null;
+      /** How many of the tool's captured results failed in the date range. Null when no result of the tool was captured. */
+      failures: number | null;
+      /** `captured` when results of the tool were captured in the date range, so failures can be counted, `not_captured` otherwise. */
+      failureState: ToolFailureState;
+      /** Whether enough of the tool's captured results failed to pass the failing thresholds. */
+      isFailing: boolean;
+      /** The share of calls made by a generation that called no other tool, from 0 to 1. */
+      onlyToolShare: number;
+      /** The latest call in the date range. */
+      lastSeen: string;
+      /** The calls in each bucket of `bucketStarts`. */
+      series: number[];
+    }
+
+    export interface ToolGroupDetail {
+      /** The tool as the tools list shows it. */
+      item: ToolListItem;
+      /** The start of each hour or day of the date range in the project's time zone, oldest first. */
+      bucketStarts: string[];
+      /** The calls in each bucket of the period of the same length before the date range, one per bucket of `bucketStarts` in the same position. When the period's bounds give it a bucket more, its last bucket is left out. Empty when the range has no previous period. */
+      previousSeries: number[];
+    }
+
+    export interface ToolListCounts {
+      /** How many tools the selection holds, ignoring the view. */
+      total: number;
+      /** How many of them are failing. */
+      failing: number;
+      /** The most calls of any one tool in the selection, ignoring the view, so every page can scale its rows against the same busiest tool. 0 when the selection holds none. */
+      maxCalls: number;
+    }
+
+    export type ToolOrder = typeof ToolOrder[keyof typeof ToolOrder];
+
+
+    export const ToolOrder = {
+      Calls: 'calls',
+      Change: 'change',
+      Traces: 'traces',
+      FailureRate: 'failure_rate',
+      LastSeen: 'last_seen',
+    } as const;
+
+    export interface ToolList {
+      /** How many tools the view holds. */
+      count: number;
+      /** The URL of the next page, or null on the last one. */
+      next: string | null;
+      /** The URL of the previous page, or null on the first one. */
+      previous: string | null;
+      /** A page of tools. */
+      results: ToolListItem[];
+      /** How many tools the selection holds, and how many of them are failing. */
+      counts: ToolListCounts;
+      /** The start of each hour or day of the date range in the project's time zone, oldest first. */
+      bucketStarts: string[];
+      /** Whether no generation called a tool from 30 days before the date range to its end. Sent on the first page only, and false on the others. */
+      nothingCaptured: boolean;
+      /** The order the tools are sorted by: the one the request asked for, or calls when it asked for none. */
+      order: ToolOrder;
+    }
+
     /**
      * Whether the current organization has each toolbar plan entitlement, keyed by feature name.
      */
@@ -141692,6 +141777,127 @@ export namespace Schemas {
      * When the session's first turn happened, as carried by links into it. Lets a session older than the AI events retention load from the shared events table.
      */
     timestamp_hint?: string;
+    };
+
+    export type AiObservabilityToolsListParams = {
+    /**
+     * Start of the date range, as an ISO 8601 date or datetime, a relative date such as -24h or -7d, or all for the past year. Defaults to seven days ago.
+     * @minLength 1
+     */
+    date_from?: string;
+    /**
+     * End of the date range, as an ISO 8601 date or datetime or a relative date. A date without a time includes that whole day. Defaults to now.
+     * @minLength 1
+     */
+    date_to?: string;
+    /**
+     * Whether to leave out events from the project's test accounts. Defaults to the project's own setting for filtering test accounts.
+     * @nullable
+     */
+    filter_test_accounts?: boolean | null;
+    /**
+     * Lists only tools from traces whose events belong to the group with this key. Send it with group_type_index.
+     * @minLength 1
+     * @maxLength 65536
+     */
+    group_key?: string;
+    /**
+     * The index of the group type that group_key belongs to, from 0 to 4. Send it with group_key.
+     * @minimum 0
+     * @maximum 4
+     */
+    group_type_index?: number;
+    /**
+     * How many tools a page holds, from 1 to 100. Defaults to 50.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * How many tools to skip before the page starts, from 0 to 16777115. Defaults to 0.
+     * @minimum 0
+     * @maximum 16777115
+     */
+    offset?: number;
+    /**
+     * Sorts the tools, largest first, by calls, by change from the previous period, by traces, by failure rate, or by the latest call. Tools with no captured result sort last by failure rate. Defaults to calls.
+     *
+     * * `calls` - Calls
+     * * `change` - Change
+     * * `traces` - Traces
+     * * `failure_rate` - Failure rate
+     * * `last_seen` - Last seen
+     * @minLength 1
+     */
+    order?: AiObservabilityToolsListOrder;
+    /**
+     * Up to 50 property filters as a JSON-encoded list. Tools are read from the traces where one event matches every filter. Supported types are event, event_metadata, person, session, group, cohort and element, plus hogql, data_warehouse and data_warehouse_person_property, which need the query:read scope.
+     */
+    properties?: string;
+    /**
+     * Text to look for in the tool name, ignoring case. It narrows the counts too. Leading and trailing spaces are ignored, and a blank value searches nothing.
+     * @maxLength 1000
+     */
+    search?: string;
+    /**
+     * Lists only the failing tools. The counts ignore it.
+     *
+     * * `failing` - Failing
+     * @minLength 1
+     */
+    view?: AiObservabilityToolsListView;
+    };
+
+    export type AiObservabilityToolsListOrder = typeof AiObservabilityToolsListOrder[keyof typeof AiObservabilityToolsListOrder];
+
+
+    export const AiObservabilityToolsListOrder = {
+      Calls: 'calls',
+      Change: 'change',
+      Traces: 'traces',
+      FailureRate: 'failure_rate',
+      LastSeen: 'last_seen',
+    } as const;
+
+    export type AiObservabilityToolsListView = typeof AiObservabilityToolsListView[keyof typeof AiObservabilityToolsListView];
+
+
+    export const AiObservabilityToolsListView = {
+      Failing: 'failing',
+    } as const;
+
+    export type AiObservabilityToolsRetrieveParams = {
+    /**
+     * Start of the date range, as an ISO 8601 date or datetime, a relative date such as -24h or -7d, or all for the past year. Defaults to seven days ago.
+     * @minLength 1
+     */
+    date_from?: string;
+    /**
+     * End of the date range, as an ISO 8601 date or datetime or a relative date. A date without a time includes that whole day. Defaults to now.
+     * @minLength 1
+     */
+    date_to?: string;
+    /**
+     * Whether to leave out events from the project's test accounts. Defaults to the project's own setting for filtering test accounts.
+     * @nullable
+     */
+    filter_test_accounts?: boolean | null;
+    /**
+     * Lists only tools from traces whose events belong to the group with this key. Send it with group_type_index.
+     * @minLength 1
+     * @maxLength 65536
+     */
+    group_key?: string;
+    /**
+     * The index of the group type that group_key belongs to, from 0 to 4. Send it with group_key.
+     * @minimum 0
+     * @maximum 4
+     */
+    group_type_index?: number;
+    /**
+     * Up to 50 property filters as a JSON-encoded list. Tools are read from the traces where one event matches every filter. Supported types are event, event_metadata, person, session, group, cohort and element, plus hogql, data_warehouse and data_warehouse_person_property, which need the query:read scope.
+     */
+    properties?: string;
     };
 
     export type AiObservabilityTracesListParams = {
