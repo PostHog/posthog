@@ -4,7 +4,6 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.generic.base import RedirectView
 
 from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerSplitView
-from two_factor.urls import urlpatterns as tf_urls
 
 from posthog.api import (
     api_not_found,
@@ -224,9 +223,8 @@ urlpatterns = [
         name="streamlit_bridge_query",
     ),
     path("api/", include(router.urls)),
-    # Override the tf_urls QRGeneratorView to use the cache-aware version (handles session race conditions)
+    # Cache-aware 2FA setup QR code view (handles session race conditions)
     path("account/two_factor/qrcode/", CacheAwareQRGeneratorView.as_view()),
-    path("", include(tf_urls)),
     opt_slash_path("api/user/prepare_toolbar_preloaded_flags", user.prepare_toolbar_preloaded_flags),
     opt_slash_path("api/user/get_toolbar_preloaded_flags", user.get_toolbar_preloaded_flags),
     opt_slash_path("api/user/toolbar_entitlements", user.get_toolbar_entitlements),

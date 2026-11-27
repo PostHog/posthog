@@ -230,7 +230,7 @@ def servicenow_source(
     base_url = _resolve_base_url(instance_url, team_id)
 
     if should_use_incremental_field:
-        cursor_field = incremental_field or "sys_updated_on"
+        cursor_field = incremental_field or endpoint_config.default_incremental_field
         last_value = _format_datetime(db_incremental_field_last_value)
         sort_field = cursor_field
     else:

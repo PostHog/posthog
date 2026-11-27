@@ -3,13 +3,14 @@ from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 
-from requests import Response
+from requests import HTTPError, Response
 
 from products.warehouse_sources.sources.sdk import (
     BearerTokenAuth,
     ClientConfig,
     Endpoint,
     EndpointResource,
+    JSONResponseCursorPaginator,
     PageNumberPaginator,
     Resource,
     RESTAPIConfig,
@@ -25,6 +26,7 @@ from products.warehouse_sources.sources.sdk import (
 from products.warehouse_sources.sources.wistia.settings import (
     ACCOUNT_STATS_HISTORY_START,
     ACCOUNT_STATS_WINDOW_DAYS,
+    MEDIA_STATS_WINDOW_DAYS,
     PAGE_SIZE,
     WISTIA_API_VERSION_HEADER,
     WISTIA_BASE_URL,
@@ -41,8 +43,11 @@ class WistiaResumeConfig:
     page: Optional[int] = None
     # Framework fan-out checkpoint: {"completed": [...], "current": ..., "child_state": ...}.
     fanout_state: Optional[dict[str, Any]] = None
-    # First day of the next account stats window, as YYYY-MM-DD.
+    # First day of the next stats window, as YYYY-MM-DD. For the per-media tables, the window
+    # belongs to `media_id`, the first media listed after `media_cursor`.
     window_start: Optional[str] = None
+    media_id: Optional[str] = None
+    media_cursor: Optional[str] = None
 
 
 class WistiaPageNumberPaginator(PageNumberPaginator):
@@ -59,6 +64,26 @@ class WistiaPageNumberPaginator(PageNumberPaginator):
     def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
         super().update_state(response, data)
         if self._has_next_page and data is not None and len(data) < self.page_size:
+            self._has_next_page = False
+
+
+class WistiaPageInfoPaginator(JSONResponseCursorPaginator):
+    """Cursor paginator for endpoints that return a `page_info` object.
+
+    `page_info.end_cursor` can still hold a value on the last page, so `has_next_page` decides
+    whether another page follows.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(cursor_path="page_info.end_cursor", cursor_param="cursor", raise_on_repeated_cursor=True)
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        super().update_state(response, data)
+        try:
+            page_info = response.json().get("page_info") or {}
+        except Exception:
+            page_info = {}
+        if not page_info.get("has_next_page"):
             self._has_next_page = False
 
 
@@ -201,6 +226,11 @@ def _fan_out_resource(
     if config.child_is_single_object:
         # One stats object per media: no pagination, and the body is a dict, not a list.
         child_endpoint["paginator"] = SinglePagePaginator()
+    elif config.child_data_selector is not None:
+        child_params["per_page"] = PAGE_SIZE
+        child_endpoint["paginator"] = WistiaPageInfoPaginator()
+        child_endpoint["data_selector"] = config.child_data_selector
+        child_endpoint["data_selector_required"] = True
     else:
         child_params.update({**config.params, "per_page": PAGE_SIZE})
         child_endpoint["paginator"] = WistiaPageNumberPaginator()
@@ -286,6 +316,108 @@ def _account_stats_rows(
             manager.safe_point()
 
 
+def _media_window_start(media: dict[str, Any], watermark: Optional[date]) -> date:
+    created = media.get("created")
+    # Stats days follow the account time zone, so a play can fall on the day before the UTC
+    # creation day.
+    start = _as_date(created) - timedelta(days=1) if created else ACCOUNT_STATS_HISTORY_START
+    if watermark is not None:
+        # The last synced day can still change, so read it again.
+        start = max(start, watermark)
+    return start
+
+
+def _media_pages(
+    client: RESTClient, parent_config: WistiaEndpointConfig, after: Optional[str]
+) -> Iterator[list[dict[str, Any]]]:
+    # Cursor pagination lists the media after a given media. Page numbers shift when media are
+    # deleted, so a resume by page number could read finished media again.
+    while True:
+        params: dict[str, Any] = {**parent_config.params, "per_page": PAGE_SIZE}
+        if after is None:
+            params["cursor[enabled]"] = 1
+        else:
+            params["cursor[after]"] = after
+        medias: list[dict[str, Any]] = []
+        for page in client.paginate(
+            path=parent_config.path, params=params, paginator=SinglePagePaginator(), data_selector_required=True
+        ):
+            medias.extend(page)
+        if medias:
+            yield medias
+        if len(medias) < PAGE_SIZE:
+            return
+        after = medias[-1]["cursor"]
+
+
+def _media_window_rows(
+    config: WistiaEndpointConfig,
+    api_token: str,
+    api_version: str,
+    manager: ResumableSourceManager[WistiaResumeConfig],
+    db_incremental_field_last_value: Optional[Any],
+) -> Iterator[list[dict[str, Any]]]:
+    assert config.parent is not None and config.parent_key is not None
+    parent_config = WISTIA_ENDPOINTS[config.parent]
+    client = RESTClient(
+        base_url=WISTIA_BASE_URL,
+        headers={WISTIA_API_VERSION_HEADER: api_version, "Accept": "application/json"},
+        auth=BearerTokenAuth(token=api_token),
+    )
+    today = datetime.now(UTC).date()
+    watermark = _as_date(db_incremental_field_last_value) if db_incremental_field_last_value is not None else None
+
+    after_cursor: Optional[str] = None
+    resume_media_id: Optional[str] = None
+    resume_window_start: Optional[date] = None
+    if manager.can_resume():
+        resume = manager.load_state()
+        if resume is not None and resume.media_id is not None:
+            after_cursor = resume.media_cursor
+            resume_media_id = resume.media_id
+            if resume.window_start is not None:
+                resume_window_start = date.fromisoformat(resume.window_start)
+
+    # `media_cursor` is the cursor of the last media whose rows are all written. A full refresh
+    # appends on resume, so the resume lists only the media after it.
+    previous_cursor = after_cursor
+    for medias in _media_pages(client, parent_config, after_cursor):
+        for media in medias:
+            media_id = media["hashed_id"]
+            start = _media_window_start(media, watermark)
+            if resume_media_id is not None:
+                # The saved media is listed first, unless it was deleted since the checkpoint.
+                if media_id == resume_media_id and resume_window_start is not None:
+                    start = resume_window_start
+                resume_media_id = None
+            while start <= today:
+                end = min(start + timedelta(days=MEDIA_STATS_WINDOW_DAYS - 1), today)
+                end_param = end + timedelta(days=1) if config.end_date_exclusive else end
+                rows: list[dict[str, Any]] = []
+                try:
+                    for window_page in client.paginate(
+                        path=config.path.format(parent_id=media_id),
+                        params={**config.params, "start_date": start.isoformat(), "end_date": end_param.isoformat()},
+                        paginator=SinglePagePaginator(),
+                        data_selector_required=True,
+                    ):
+                        rows.extend(window_page)
+                except HTTPError as e:
+                    # A media deleted between the media list and this request returns 404.
+                    if e.response is None or e.response.status_code != 404:
+                        raise
+                    end = today
+                start = end + timedelta(days=1)
+                manager.save_state(
+                    WistiaResumeConfig(media_cursor=previous_cursor, media_id=media_id, window_start=start.isoformat())
+                )
+                if rows:
+                    yield [{**row, config.parent_key: media_id} for row in rows]
+                else:
+                    manager.safe_point()
+            previous_cursor = media["cursor"]
+
+
 def wistia_source(
     api_token: str,
     api_version: str,
@@ -300,6 +432,10 @@ def wistia_source(
     items: Any
     if config.name == "account_stats_by_date":
         items = lambda: _account_stats_rows(
+            config, api_token, api_version, resumable_source_manager, db_incremental_field_last_value
+        )
+    elif config.media_date_windows:
+        items = lambda: _media_window_rows(
             config, api_token, api_version, resumable_source_manager, db_incremental_field_last_value
         )
     elif config.parent is not None:

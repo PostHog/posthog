@@ -1,6 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 import { fireEvent, waitFor, within } from '@testing-library/dom'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
@@ -217,10 +217,15 @@ export const Builder: Story = {
         fireEvent.change(canvas.getByLabelText('Component text'), {
             target: { value: '## Review notes\n\nAdded in the app builder.' },
         })
+        fireEvent.change(canvas.getByRole('slider', { name: 'Width' }), { target: { value: '5' } })
+        const height = canvas.getByRole('spinbutton', { name: 'Height' })
+        fireEvent.change(height, { target: { value: '240' } })
+        fireEvent.blur(height)
         const saveButton = canvasElement.querySelector('[data-attr="notebook-app-save"]')!
         await waitFor(() => expect(saveButton).toBeEnabled())
         fireEvent.click(saveButton)
         await waitFor(() => expect(saved.app_draft.blocks.at(-1)?.text).toContain('Review notes'))
+        expect(saved.app_draft.blocks.at(-1)).toMatchObject({ width: 5, height: 240 })
         expect(saved.app_published.blocks).toHaveLength(layout.blocks.length)
     },
 }
@@ -279,6 +284,7 @@ export const Published: Story = {
         expect(metric('222')).toBeVisible()
 
         const chart = app.getByRole('img', { name: /chart with 2 data series/i }).parentElement!
+        expect(chart.closest('.NotebookAppBuilder__slot')?.getBoundingClientRect().height).toBe(360)
         const { left, top, width, height } = chart.getBoundingClientRect()
         const lastWeek = { clientX: left + width * 0.8, clientY: top + height * 0.5 }
         fireEvent.mouseMove(chart, lastWeek)
@@ -299,6 +305,33 @@ export const Published: Story = {
         )
     },
 }
+export const SharedView: Story = {
+    beforeEach: () => {
+        saved.user_access_level = AccessControlLevel.Viewer
+    },
+    parameters: {
+        pageUrl: combineUrl(
+            urls.notebook(SHORT_ID),
+            { view: 'app' },
+            {
+                appView: { tab: 'details', inputs: { region: 'Europe', weeks: 2 } },
+            }
+        ).url,
+    },
+    play: async ({ canvasElement }) => {
+        await waitFor(() => expect(canvasElement.querySelector('[data-attr="notebook-app-builder"]')).toBeVisible(), {
+            timeout: 60000,
+        })
+        const app = within(canvasElement.querySelector<HTMLElement>('[data-attr="notebook-app-builder"]')!)
+        await waitFor(() =>
+            expect(app.getByRole('tab', { name: 'Data and methodology' })).toHaveAttribute('aria-selected', 'true')
+        )
+        await userEvent.click(app.getByRole('tab', { name: 'Overview' }))
+        await waitFor(() => expect(app.getByText('222', { exact: true })).toBeVisible(), { timeout: 60000 })
+        expect(app.getByRole('button', { name: 'Copy view link' })).toBeEnabled()
+    },
+}
+
 export const Notebook: Story = {
     parameters: { pageUrl: urls.notebook(SHORT_ID), testOptions: { waitForSelector: '.MarkdownNotebook' } },
     play: async ({ canvasElement }) => {
@@ -329,4 +362,19 @@ export const FlagDisabled: Story = {
         expect(canvasElement.querySelector('[data-attr="notebook-app-builder"]')).not.toBeInTheDocument()
     },
 }
-export const Narrow: Story = { parameters: { testOptions: { viewport: { width: 1000, height: 1200 } } } }
+export const Narrow: Story = {
+    beforeEach: () => {
+        saved.app_draft.blocks[0].width = 1
+    },
+    parameters: { testOptions: { viewport: { width: 1000, height: 1200 } } },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        const [actions] = await canvas.findAllByRole('button', { name: 'Component actions' }, { timeout: 60000 })
+        const card = actions.closest('.NotebookAppBuilder__slot')!.getBoundingClientRect()
+        expect(actions.getBoundingClientRect().left).toBeGreaterThanOrEqual(card.left)
+        expect(actions.getBoundingClientRect().right).toBeLessThanOrEqual(card.right)
+        await userEvent.click(actions)
+        await userEvent.click(await within(document.body).findByText('Edit component'))
+        expect(canvas.getByRole('slider', { name: 'Width' })).toHaveValue('1')
+    },
+}

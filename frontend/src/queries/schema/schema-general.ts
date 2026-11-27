@@ -4915,11 +4915,21 @@ export interface WebVitalsPathBreakdownQuery extends WebAnalyticsQueryBase<WebVi
     // This tuple represents a [good, poor] threshold, where values below good are good and values above poor are poor
     // Values in between the two values are the threshold for needs_improvements
     thresholds: [number, number]
+    /**
+     * Drop pages with fewer samples than this in the period, so a page with a handful of
+     * slow loads does not outrank a busy page with a real problem. No floor when omitted.
+     */
+    minSamples?: positive_integer
     /** Opt this specific query into the web vitals path breakdown precompute path. Requires the `web-analytics-precompute-toggle` PostHog feature flag to be on for the team's organization for the gate to pass. **/
     useWebAnalyticsPrecompute?: boolean
 }
 
-export type WebVitalsPathBreakdownResultItem = { path: string; value: number }
+export type WebVitalsPathBreakdownResultItem = {
+    path: string
+    value: number
+    /** Number of `$web_vitals` samples for this metric and page in the period. Unset when served from precomputed buckets. */
+    count?: integer
+}
 export type WebVitalsPathBreakdownResult = Record<WebVitalsMetricBand, WebVitalsPathBreakdownResultItem[]>
 
 // NOTE: The response is an array of results because pydantic requires it, but this will always have a single entry
@@ -7045,8 +7055,10 @@ export interface ExperimentQueryResponse {
  * leaves the object out.
  */
 export interface ExperimentWarehouseNativeRowsLeftOut {
-    /** Exposure rows whose variant is not one the flag serves, counted by the value seen. */
+    /** Exposure rows whose variant is not one the flag serves, counted by the value seen. At most the 50 most common values. */
     unknown_variants?: Record<string, integer>
+    /** Exposure rows whose variant is not one the flag serves, in total, including the values that `unknown_variants` leaves out. */
+    unknown_variant_rows?: integer
     /** Exposure rows with an empty entity_id. */
     empty_id?: integer
     /** Exposed entities with no row of the metric query that counted, by variant. */
@@ -7178,6 +7190,7 @@ export type ExperimentExposureHealthFindingCode =
     | 'unserved_variant_exposures'
     | 'events_billing_limit'
     | 'feature_flags_billing_limit'
+    | 'exposure_rows_left_out'
 
 export type ExperimentExposureHealthFindingSeverity = 'critical' | 'warning' | 'info'
 
@@ -7221,6 +7234,7 @@ export type ExperimentExposureHealthCheckKey =
     | 'unserved_variant_exposures'
     | 'events_billing_limit'
     | 'feature_flags_billing_limit'
+    | 'exposure_rows_left_out'
 
 export type ExperimentExposureHealthCheckStatus = 'passed' | 'finding' | 'not_applicable' | 'not_checked'
 
@@ -7237,6 +7251,9 @@ export type ExperimentExposureHealthValueKey =
     | 'kept_by_test_account_filter_percentage'
     | 'unserved_exposed_count'
     | 'unserved_exposed_percentage'
+    | 'left_out_row_count'
+    | 'unknown_variant_row_count'
+    | 'empty_id_row_count'
 
 export type ExperimentExposureHealthRuleSide = 'above' | 'below'
 

@@ -475,11 +475,11 @@ class RecordingDeletionsTool(ConsoleTool):
     group = "Data deletion"
     description = "The recording deletions of one team, followed in Temporal, and their deletion certificates."
 
+    subject = "team"
+
     def _team(self, request: HttpRequest) -> Team | None:
-        team_id = request.GET.get("team", "").strip()
-        if not (team_id.isascii() and team_id.isdigit()):
-            return None
-        return Team.objects.select_related("organization").filter(pk=int(team_id)).first()
+        team = self.subject_of(request)
+        return team if isinstance(team, Team) else None
 
     def page(self, request: HttpRequest) -> Page:
         team = self._team(request)

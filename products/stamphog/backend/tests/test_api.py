@@ -1,7 +1,7 @@
 import json
 import dataclasses
 from collections.abc import Callable
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -29,6 +29,8 @@ from posthog.models.utils import generate_random_token_personal, uuid7
 from products.access_control.backend.models.access_control import AccessControl
 from products.stamphog.backend.facade import contracts
 from products.stamphog.backend.facade.enums import (
+    BroadcastRequestSource,
+    BroadcastRequestStatus,
     ChannelResolutionSource,
     DigestRunStatus,
     ReviewMode,
@@ -39,6 +41,7 @@ from products.stamphog.backend.facade.enums import (
 from products.stamphog.backend.facade.github import StamphogGitHubError
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient
 from products.stamphog.backend.models import (
+    BroadcastRequest,
     DigestRun,
     PullRequest,
     ReviewRun,
@@ -47,7 +50,10 @@ from products.stamphog.backend.models import (
     StamphogInstallation,
     StamphogRepoConfig,
 )
-from products.stamphog.backend.presentation.serializers import CodeReviewApprovalRepositoryWriteSerializer
+from products.stamphog.backend.presentation.serializers import (
+    CodeReviewApprovalRepositoryWriteSerializer,
+    ReviewRequestSerializer,
+)
 from products.stamphog.backend.presentation.views import _INSTALL_STATE_SALT
 from products.stamphog.backend.tasks.tasks import process_pull_request_event
 from products.stamphog.backend.tests import fakes
@@ -58,6 +64,7 @@ _VIEWS = "products.stamphog.backend.presentation.views"
 _GITHUB_FACADE = "products.stamphog.backend.facade.github"
 _CLIENT = "products.stamphog.backend.logic.github_client.StamphogGitHubClient"
 _SWITCH_ON = {"review_on_clean_external_review": True}
+_BROADCAST_REQUESTS_ON = {"broadcast_enabled": True, "broadcast_slack_channel_id": "C0123456789"}
 
 
 def _install_state(team_id: int, user_id: int) -> str:
@@ -105,6 +112,7 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
             ("routing_mode", {"routing_mode": RoutingMode.FALLBACK}),
             ("routing_fork_labels", {"routing_fork_labels": {"team-alpha": "area: alpha"}}),
             ("review_on_clean_external_review", {"review_on_clean_external_review": True}),
+            ("broadcast_request_channel", _BROADCAST_REQUESTS_ON),
         ]
     )
     def test_member_cannot_change_a_review_gating_field(self, _name: str, payload: dict) -> None:
@@ -184,6 +192,7 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
             ("turns_reviewer_requests_on", {"routing_mode": RoutingMode.FALLBACK}),
             ("sets_fork_labels", {"routing_fork_labels": {"team-alpha": "area: alpha"}}),
             ("turns_clean_review_trigger_on", {"review_on_clean_external_review": True}),
+            ("turns_broadcast_requests_on", _BROADCAST_REQUESTS_ON),
         ]
     )
     def test_member_granted_manager_can_change_a_review_gating_field(self, _name: str, payload: dict) -> None:
@@ -632,6 +641,23 @@ def _repo_config_dto(*, enabled: bool, digest_enabled: bool) -> contracts.RepoCo
     )
 
 
+class TestReviewRequestSerializerValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("note_without_broadcast", {"note": "Touches billing."}, "note"),
+            ("note_too_long", {"allow_broadcast": True, "note": "x" * 201}, "note"),
+            ("broadcast_without_note", {"allow_broadcast": True}, None),
+            ("neither", {}, None),
+        ]
+    )
+    def test_note_rules(self, _name: str, extra: dict[str, Any], error_field: str | None) -> None:
+        serializer = ReviewRequestSerializer(data={"repository": "PostHog/posthog", "pr_number": 5, **extra})
+
+        assert serializer.is_valid() is (error_field is None), serializer.errors
+        if error_field is not None:
+            assert list(serializer.errors) == [error_field]
+
+
 class TestStamphogRepoConfigSerializerValidation(SimpleTestCase):
     @parameterized.expand(
         [
@@ -663,6 +689,55 @@ class TestStamphogRepoConfigSerializerValidation(SimpleTestCase):
         )
         assert serializer.is_valid(), serializer.errors
         assert serializer.validated_data["digest_enabled"] is False
+
+    @parameterized.expand(
+        [
+            ("create_without_channel", None, {"repository": "PostHog/posthog", "broadcast_enabled": True}, False),
+            ("create_with_channel", None, {"repository": "PostHog/posthog", **_BROADCAST_REQUESTS_ON}, True),
+            ("switch_on_without_stored_channel", (False, ""), {"broadcast_enabled": True}, False),
+            ("switch_on_with_stored_channel", (False, "C0123456789"), {"broadcast_enabled": True}, True),
+            ("clear_channel_while_on", (True, "C0123456789"), {"broadcast_slack_channel_id": " "}, False),
+            (
+                "clear_channel_and_switch_off",
+                (True, "C0123456789"),
+                {"broadcast_enabled": False, "broadcast_slack_channel_id": ""},
+                True,
+            ),
+        ]
+    )
+    def test_broadcast_requests_need_a_channel(
+        self, _name: str, stored: tuple[bool, str] | None, data: dict, expected_valid: bool
+    ) -> None:
+        # A request with no channel would be accepted and then never reach anybody.
+        current = None
+        if stored is not None:
+            current = dataclasses.replace(
+                _repo_config_dto(enabled=True, digest_enabled=False),
+                broadcast_enabled=stored[0],
+                broadcast_slack_channel_id=stored[1],
+            )
+        serializer = CodeReviewApprovalRepositoryWriteSerializer(
+            data=data, partial=current is not None, partial_update=current is not None, current=current
+        )
+
+        assert serializer.is_valid() is expected_valid, serializer.errors
+        if not expected_valid:
+            assert "broadcast_slack_channel_id" in serializer.errors
+
+    @parameterized.expand(
+        [
+            ("slack_channel_name", "#eng-reviews_2", True),
+            # The name goes into Slack and GitHub replies, where these would render as a mention or a link.
+            ("team_mention", "@org/team", False),
+            ("markdown_link", "[reviews](https://example.com)", False),
+        ]
+    )
+    def test_broadcast_channel_name_cannot_carry_markup(self, _name: str, name: str, expected_valid: bool) -> None:
+        serializer = CodeReviewApprovalRepositoryWriteSerializer(
+            data={"repository": "PostHog/posthog", "broadcast_slack_channel_name": name}
+        )
+
+        assert serializer.is_valid() is expected_valid, serializer.errors
 
     @parameterized.expand(
         [
@@ -937,8 +1012,13 @@ class TestReviewRequestAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         )["pull_request"]
         return {**pr, **overrides}
 
-    def _request(self) -> Any:
-        return self.client.post(self.url, {"repository": "posthog/posthog", "pr_number": 5}, format="json")
+    def _request(self, **extra: Any) -> Any:
+        return self.client.post(self.url, {"repository": "posthog/posthog", "pr_number": 5, **extra}, format="json")
+
+    def _turn_on_broadcast_requests(self) -> None:
+        StamphogRepoConfig.objects.unscoped().filter(id=self.repo_config.id).update(
+            broadcast_enabled=True, broadcast_slack_channel_id="C0123456789"
+        )
 
     def test_request_queues_a_manual_run_past_label_mode(self) -> None:
         response = self._request()
@@ -1190,6 +1270,94 @@ class TestReviewRequestAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert not ReviewRun.objects.unscoped().filter(team_id=self.team.id).exists()
         assert self.github.github_writes == []
 
+    def test_broadcast_request_is_refused_while_the_repository_has_it_off(self) -> None:
+        response = self._request(allow_broadcast=True)
+
+        assert response.status_code == status.HTTP_409_CONFLICT, response.content
+        assert response.json()["code"] == "broadcast_off"
+        assert not ReviewRun.objects.unscoped().filter(team_id=self.team.id).exists()
+        assert not BroadcastRequest.objects.unscoped().filter(team_id=self.team.id).exists()
+        assert self.github.request_priorities == []
+
+    def test_broadcast_request_is_made_once_and_shown_on_the_run_and_pull_request(self) -> None:
+        self._turn_on_broadcast_requests()
+        with (
+            patch("products.stamphog.backend.tasks.broadcast_requests.refresh_broadcast_request.delay") as refresh,
+            patch("products.stamphog.backend.logic.broadcast_requests.ph_scoped_capture") as scoped_capture,
+        ):
+            first = self._request(allow_broadcast=True, note="Touches billing.")
+            second = self._request(allow_broadcast=True, note="A second note.")
+
+        assert first.status_code == status.HTTP_201_CREATED, first.content
+        assert second.status_code == status.HTTP_200_OK, second.content
+        request = BroadcastRequest.objects.unscoped().get(team_id=self.team.id)
+        assert (request.status, request.head_sha, request.note) == (
+            BroadcastRequestStatus.PENDING,
+            "head1",
+            "Touches billing.",
+        )
+        assert (request.requested_by_user_id, request.requested_via) == (self.user.id, BroadcastRequestSource.API)
+        assert first.json()["broadcast_request"]["id"] == second.json()["broadcast_request"]["id"] == str(request.id)
+        assert second.json()["run"]["broadcast_request"]["note"] == "Touches billing."
+        assert (
+            refresh.call_args_list
+            == [call(team_id=self.team.id, broadcast_request_id=str(request.id), decided_head_sha="")] * 2
+        )
+        captured = scoped_capture.return_value.__enter__.return_value.call_args_list
+        assert [
+            (c.kwargs["event"], c.kwargs["properties"]["stamphog_broadcast_request_has_note"]) for c in captured
+        ] == [("stamphog_broadcast_request_created", True)]
+        # The note stays off the reviewer's context.
+        assert "Touches billing." not in json.dumps(ReviewRun.objects.unscoped().get(team_id=self.team.id).output)
+
+        runs = self.client.get(self.url).json()["results"]
+        pull_requests = self.client.get(f"/api/projects/{self.team.id}/code_review/approvals/pull_requests/").json()
+        assert (
+            runs[0]["broadcast_request"]["status"]
+            == pull_requests["results"][0]["broadcast_request"]["status"]
+            == "pending"
+        )
+
+    @parameterized.expand(
+        [
+            ("in_flight", ReviewRunStatus.REVIEWING, ReviewVerdict.NONE, False, BroadcastRequestStatus.PENDING),
+            ("gate_denial", ReviewRunStatus.GATED, ReviewVerdict.WAIT, True, BroadcastRequestStatus.OPEN),
+            ("engine_error", ReviewRunStatus.COMPLETED, ReviewVerdict.ERROR, True, BroadcastRequestStatus.OPEN),
+            (
+                "approved",
+                ReviewRunStatus.COMPLETED,
+                ReviewVerdict.APPROVED,
+                True,
+                BroadcastRequestStatus.STAMPHOG_APPROVED,
+            ),
+            # Nothing may wake a delivered WAIT, so the ask reviews the head again, and nobody is asked yet.
+            ("wait", ReviewRunStatus.COMPLETED, ReviewVerdict.WAIT, True, BroadcastRequestStatus.PENDING, True),
+        ]
+    )
+    def test_broadcast_request_starts_from_the_published_verdict_at_the_head(
+        self,
+        _name: str,
+        run_status: ReviewRunStatus,
+        verdict: ReviewVerdict,
+        posted: bool,
+        expected: BroadcastRequestStatus,
+        new_run: bool = False,
+    ) -> None:
+        run_id = self._request().json()["run"]["id"]
+        ReviewRun.objects.unscoped().filter(id=run_id).update(
+            status=run_status, verdict=verdict, verdict_posted_at=datetime(2026, 1, 5, tzinfo=UTC) if posted else None
+        )
+        self._turn_on_broadcast_requests()
+
+        response = self._request(allow_broadcast=True)
+        repeated = self._request(allow_broadcast=True)
+
+        assert response.status_code == (status.HTTP_201_CREATED if new_run else status.HTTP_200_OK), response.content
+        assert (response.json()["run"]["id"] != run_id) is new_run
+        assert response.json()["broadcast_request"]["status"] == expected
+        assert repeated.json()["broadcast_request"]["id"] == response.json()["broadcast_request"]["id"]
+        assert BroadcastRequest.objects.unscoped().filter(team_id=self.team.id).count() == 1
+
     def test_request_needs_the_write_scope(self) -> None:
         key_value = generate_random_token_personal()
         PersonalAPIKey.objects.create(
@@ -1336,6 +1504,9 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
             routing_mode=RoutingMode.ALWAYS,
             routing_fork_labels={"team-alpha": "area: alpha"},
             review_on_clean_external_review=True,
+            broadcast_enabled=True,
+            broadcast_slack_channel_id="C0123456789",
+            broadcast_slack_channel_name="reviews",
         )
         response = self.client.post(
             self.url, {"installation_id": "42", "code": "oauth-code", "state": self.state}, format="json"
@@ -1354,6 +1525,11 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert manual.routing_mode == RoutingMode.OFF
         assert manual.routing_fork_labels == {}
         assert manual.review_on_clean_external_review is False
+        assert (
+            manual.broadcast_enabled,
+            manual.broadcast_slack_channel_id,
+            manual.broadcast_slack_channel_name,
+        ) == (False, "", "")
 
     @patch(f"{_GITHUB_FACADE}.list_user_accessible_repositories", return_value=["PostHog/posthog"])
     @patch(f"{_VIEWS}.user_can_access_installation", return_value=True)

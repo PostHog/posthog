@@ -24,14 +24,15 @@ from products.aeo.backend.facade.contracts import (
     PromptSetMovers,
 )
 from products.aeo.backend.models import AEOCitationCheck, AEOPrompt
+from products.aeo.backend.page_urls import page_url_sql
 from products.aeo.backend.rankings import registrable_domain
 from products.aeo.backend.scope import NAMED_SCOPE_SQL, CheckScope, named_scope_sql_params, scope_filter
 from products.aeo.backend.window import CheckWindow
 
-# Answered checks that cite each URL on an own domain, in the current window and in the one before.
+# Answered checks that cite each page on an own domain, by its URL without tracking parameters, in the current window and in the one before.
 # Both tables are narrowed by team and time, so each side is read from its own window index.
 _OWN_PAGES_SQL = f"""
-    SELECT citation.url,
+    SELECT {page_url_sql("citation.url")},
         count(DISTINCT citation.citation_check_id) FILTER (WHERE citation.created_at >= %(window_start)s),
         count(DISTINCT citation.citation_check_id) FILTER (WHERE citation.created_at < %(window_start)s)
     FROM posthog_aeo_check_citation AS citation
@@ -43,7 +44,7 @@ _OWN_PAGES_SQL = f"""
         AND check_row.check_failed = false AND check_row.mode = 'web_search'
         AND {NAMED_SCOPE_SQL}
         AND citation.domain = ANY(%(own_domains)s) AND citation.url <> ''
-    GROUP BY citation.url
+    GROUP BY 1
 """
 
 

@@ -601,32 +601,60 @@ def noop_raise_if_github_rate_limited(*args: Any, **kwargs: Any) -> None:
 
 
 class FakeSlackClient:
-    """Records ``chat_postMessage`` calls; returns a Slack-shaped ``{"ok", "ts"}``.
+    """Records ``chat_postMessage`` and ``chat_update`` calls and answers in Slack's shape.
 
-    A channel in ``needs_join`` rejects the post with ``not_in_channel`` until ``conversations_join``
-    lands, which is what Slack does for a public channel the app was never invited to.
+    Each post gets its own ts, the first one ``1234.5678``. A channel in ``needs_join`` rejects the post with
+    ``not_in_channel`` until ``conversations_join`` lands, which is what Slack does for a public channel the
+    app was never invited to.
     """
 
     def __init__(
-        self, posted: list[dict[str, Any]], needs_join: set[str], joined: list[str], fail_thread_replies: bool
+        self,
+        posted: list[dict[str, Any]],
+        updated: list[dict[str, Any]],
+        needs_join: set[str],
+        joined: list[str],
+        fail_thread_replies: bool,
+        fail_permalinks: bool = False,
     ) -> None:
         self._posted = posted
+        self._updated = updated
         self._needs_join = needs_join
         self._joined = joined
         self._fail_thread_replies = fail_thread_replies
+        self._fail_permalinks = fail_permalinks
 
     def chat_postMessage(self, *, channel: str, blocks: list[dict], text: str, **kwargs: Any) -> dict[str, Any]:
         if channel in self._needs_join and channel not in self._joined:
             raise SlackApiError("not_in_channel", {"ok": False, "error": "not_in_channel"})
         thread_ts = kwargs.get("thread_ts")
-        self._posted.append({"channel": channel, "blocks": blocks, "text": text, "thread_ts": thread_ts})
+        ts = f"1234.{5678 + len(self._posted)}"
+        self._posted.append({"channel": channel, "blocks": blocks, "text": text, "thread_ts": thread_ts, "ts": ts})
         if thread_ts and self._fail_thread_replies:
             raise SlackApiError("msg_too_long", {"ok": False, "error": "msg_too_long"})
-        return {"ok": True, "ts": "1234.5678"}
+        return {"ok": True, "ts": ts}
+
+    def chat_update(self, *, channel: str, ts: str, blocks: list[dict], text: str, **kwargs: Any) -> dict[str, Any]:
+        if not any(post["channel"] == channel and post["ts"] == ts for post in self._posted):
+            raise SlackApiError("message_not_found", {"ok": False, "error": "message_not_found"})
+        self._updated.append({"channel": channel, "ts": ts, "blocks": blocks, "text": text})
+        return {"ok": True, "ts": ts}
+
+    def chat_getPermalink(self, *, channel: str, message_ts: str) -> dict[str, Any]:
+        if self._fail_permalinks:
+            raise SlackApiError("ratelimited", {"ok": False, "error": "ratelimited"})
+        if not any(post["channel"] == channel and post["ts"] == message_ts for post in self._posted):
+            raise SlackApiError("message_not_found", {"ok": False, "error": "message_not_found"})
+        return {"ok": True, "permalink": slack_permalink(channel, message_ts)}
 
     def conversations_join(self, *, channel: str) -> dict[str, Any]:
         self._joined.append(channel)
         return {"ok": True}
+
+
+def slack_permalink(channel: str, ts: str) -> str:
+    """The link the fake Slack gives for a posted message, on a workspace domain like Slack's own."""
+    return f"https://example.slack.com/archives/{channel}/p{ts.replace('.', '')}"
 
 
 class FakeSlackIntegration:
@@ -638,6 +666,7 @@ class FakeSlackIntegration:
     """
 
     posted_messages: list[dict[str, Any]] = []
+    updated_messages: list[dict[str, Any]] = []
     workspace_channels: list[dict[str, str]] = []
     # Channels the app has not been invited to, and the ones it joined by itself during the run.
     channels_needing_join: set[str] = set()
@@ -645,6 +674,8 @@ class FakeSlackIntegration:
     # Makes the threaded reply fail while the lead still succeeds, which is the only Slack failure
     # the digest is expected to swallow.
     fail_thread_replies: bool = False
+    # Makes every permalink lookup fail, as Slack does when it rate limits the call.
+    fail_permalinks: bool = False
 
     def __init__(self, integration: Any, *, source: str = "integration") -> None:
         self.integration = integration
@@ -653,9 +684,11 @@ class FakeSlackIntegration:
     def client(self) -> FakeSlackClient:
         return FakeSlackClient(
             FakeSlackIntegration.posted_messages,
+            FakeSlackIntegration.updated_messages,
             FakeSlackIntegration.channels_needing_join,
             FakeSlackIntegration.joined_channels,
             FakeSlackIntegration.fail_thread_replies,
+            FakeSlackIntegration.fail_permalinks,
         )
 
     def list_channels(self, should_include_private_channels: bool = False, authed_user: str = "") -> list[dict]:
@@ -672,10 +705,12 @@ class FakeSlackIntegration:
         cls, channels: list[dict[str, str]], *, needs_join: Iterable[str] = (), fail_thread_replies: bool = False
     ) -> None:
         cls.posted_messages = []
+        cls.updated_messages = []
         cls.workspace_channels = list(channels)
         cls.channels_needing_join = set(needs_join)
         cls.joined_channels = []
         cls.fail_thread_replies = fail_thread_replies
+        cls.fail_permalinks = False
 
 
 # --- Sandbox fake at the ``get_sandbox_class_for_backend`` seam ---

@@ -50,6 +50,7 @@ const evidence = (truth: TruthRecord[], judged: Partial<MeasureEvidence> = {}): 
     writer: [],
     queue: [],
     sampledFrom: FROM,
+    truthFrom: 0,
     drive: { startedAt: FROM, endedAt: FROM + 2 * MINUTE },
     steps: ramp,
     timeline: [],

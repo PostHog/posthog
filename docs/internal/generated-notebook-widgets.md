@@ -14,6 +14,8 @@ The estimate does not include separate failed or canceled generation jobs, or no
 
 ## Notebook apps and variables
 
+Drag the bottom-right corner of an app card to resize it. In **Component settings**, you can also adjust **Width** in grid columns and enter a **Height** in pixels. Clear the height to restore automatic sizing. Publishing includes these sizes in the app release.
+
 To filter on several values, add a **List of text** notebook variable, then bind an app input to it. Choose **Multi-select dropdown** and enter one option per line. The variable holds the selected strings, including an empty list when cleared. For a variable named `regions`, use `WHERE region IN {regions}` in a native SQL cell. To show all regions when the selection is empty, use `WHERE empty({regions}) OR region IN {regions}`. A Python cell receives `regions` as a list.
 
 Choose **Review and publish** to check the sources and default inputs against the draft layout. The preview lists missing sources, failed or stale calculations, and outputs still waiting to save. **Run all** refreshes the notebook's calculations. The preview checks them again after the notebook saves.
@@ -29,6 +31,8 @@ Generated code reads approved dataframe snapshots through `ph.readFrame`. It has
 SQL inputs read the completed query's cached rows, rather than only its saved preview. Follow `nextOffset` to read subsequent pages and check `truncated` before presenting totals. Reaching the SQL result-cache ceiling marks the frame as truncated; aggregate large datasets in the notebook before passing them to a widget. Expired SQL results require rerunning the source cell.
 
 Each visitor to a published app starts with its published defaults. Changing an input updates affected native HogQL outputs for that browser view using the visitor's query permissions. Selecting a point on a SQL line or bar chart can set the input named by its x-axis column. Turn off **Auto-update results** to apply several changes together. A failed refresh keeps the last successful outputs visible. Python, directly connected SQL, saved insights, and generated widgets retain their existing output or source bindings.
+
+Choose **Copy view link** in a published app to share its active tab and applied inputs. The link opens in the original project and uses the recipient’s permissions. Referenced inputs or tabs that have since been removed fall back to the current release.
 
 When you publish a SQL result, the app keeps up to 300 cached rows. Published results share an 8 MiB limit per release. If the original query cache expired before publication or a result exceeds the remaining space, the viewer shows the saved first page and labels it as partial. Reading these rows requires access to the notebook, queries, and any connected data source.
 

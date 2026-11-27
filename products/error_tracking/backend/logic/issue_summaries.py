@@ -504,7 +504,6 @@ def _generate_claimed(
             logger.warning("error_tracking_issue_summary_budget_unavailable", team_id=team_id, error=bucket_error)
             return IssueSummaryResult(outcome=IssueSummaryOutcome.RATE_LIMITED, summary=None)
 
-    # Only the Go gateway honours privacy mode, so the Python gateway fallback is never used.
     if resolve_ai_gateway_config() is None:
         refund(budget_key, budget)
         return IssueSummaryResult(outcome=IssueSummaryOutcome.GATEWAY_UNCONFIGURED, summary=None)

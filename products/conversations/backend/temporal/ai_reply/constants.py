@@ -139,9 +139,9 @@ BASE_DRAFT_SCOPES: list[str] = [
 # Django/ORM -- it's loaded inside the Temporal workflow sandbox via pipeline.py.
 DIAGNOSTIC_SCOPES_PRESET: Literal["read_only"] = "read_only"
 
-# Sandbox agent model for the draft step. Must be in the LLM gateway `conversations`
-# product allowlist (services/llm-gateway/src/llm_gateway/products/config.py) — support-reply
-# sandbox tasks route through that product via @posthog/agent's resolveGatewayProduct().
+# Sandbox agent model for the draft step. Must be in the `conversations` pin in
+# PRODUCT_ALLOWED_MODELS (products/tasks/backend/logic/services/gateway_model_pin.py): support-reply
+# sandbox tasks mint their gateway token for that product.
 DRAFT_MODEL = "claude-sonnet-5"
 DRAFT_RUNTIME_ADAPTER = "claude"
 

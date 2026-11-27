@@ -136,4 +136,5 @@ products/revenue_analytics/backend/views/test/test_mrr_views.py
 products/surveys/backend/api/test/test_survey.py
 products/dashboards/backend/tests/api/test_query_sharing.py
 products/surveys/backend/responses/test_linked.py
+products/web_analytics/backend/test/test_eval_seeders.py
 products/web_analytics/backend/test/test_heatmaps_api.py

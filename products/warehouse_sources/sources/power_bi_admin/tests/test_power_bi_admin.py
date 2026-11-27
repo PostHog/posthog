@@ -27,7 +27,7 @@ from products.warehouse_sources.sources.power_bi_admin.settings import (
     REFRESHABLES_PAGE_SIZE,
 )
 from products.warehouse_sources.sources.power_bi_admin.source import PowerBiAdminSource
-from products.warehouse_sources.sources.sdk import SourceResponse
+from products.warehouse_sources.sources.sdk import RetryableHTTPError, SourceResponse
 from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     RecordedRequest,
@@ -236,6 +236,27 @@ class TestPowerBiAdminClient:
                 raise AssertionError("expected the second 401 to raise")
 
         assert len(_api_requests(network.requests_log)) == 2
+
+    @parameterized.expand(
+        [
+            ("rate_limited", 429, RetryableHTTPError, "status=429"),
+            ("server_error", 503, RetryableHTTPError, "status=503"),
+            ("bad_request", 400, requests.HTTPError, "400 Client Error"),
+            ("forbidden", 403, requests.HTTPError, "403 Client Error: Forbidden for url: https://api.powerbi.com"),
+        ]
+    )
+    def test_error_status_raises_without_the_continuation_token(
+        self, _name: str, status: int, expected_error: type[Exception], expected_message: str
+    ) -> None:
+        token = "continuation-token-must-not-leak"
+        with scripted_network(_script(_body(status, text="nope"))):
+            client = PowerBiAdminClient(TENANT_ID, CLIENT_ID, CLIENT_SECRET, mock.MagicMock())
+            with pytest.raises(Exception) as raised:
+                client.get("/activityevents", params={"continuationToken": f"'{token}'"})
+
+        assert type(raised.value) is expected_error
+        assert expected_message in str(raised.value)
+        assert token not in str(raised.value)
 
 
 class TestActivityEvents:

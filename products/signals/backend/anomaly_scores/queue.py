@@ -250,6 +250,8 @@ class Selection:
     # Due train candidates that the train pass did not pick: soft ones still score with a stale model, hard ones do not.
     train_backlog_soft: int = 0
     train_backlog_hard: int = 0
+    # Active insights whose stored model was fit with older detector settings, and still scores with them.
+    older_version_models: int = 0
     # Active insights of the eligible teams, and how many of them have each reason. One insight can have several.
     active: int = 0
     active_reasons: dict[str, int] = dataclasses.field(default_factory=dict)
@@ -305,6 +307,8 @@ class ScorePassOrder:
     stale_order: list[int]
     # Every active insight with a current model, due or not.
     ready: set[int]
+    # Active insights with a model fit with older detector settings, to the train time of that model.
+    older_version: dict[int, datetime.datetime] = dataclasses.field(default_factory=dict)
 
 
 @frozen
@@ -972,6 +976,7 @@ def select_insights(
     score_order_ids: list[int] = []
     stale_order_ids: list[int] = []
     score_ready: set[int] = set()
+    older_version: dict[int, datetime.datetime] = {}
     score_picked: dict[int, RunPlan] = {}
     score_skipped = 0
     shards = config.fan_out().shards
@@ -979,6 +984,7 @@ def select_insights(
     if config.train_score_split:
         score_pass = _score_order(active_by_id, teams, config, now)
         score_order_ids, stale_order_ids, score_ready = score_pass.order, score_pass.stale_order, score_pass.ready
+        older_version = score_pass.older_version
         stale_reserve = min(len(stale_order_ids), _stale_reserve(score_cap))
         score_picked, score_skipped = walk(score_order_ids, ScoringRun.SCORE, score_cap - stale_reserve)
         # A spent score budget makes the walk load no plan. Plan the head of the order anyway, so that an
@@ -1052,8 +1058,18 @@ def select_insights(
         now,
     )[: min(config.first_train_insights_per_tick * shards, train_cap)]
     in_lane = set(lane)
+    rest = [insight_id for insight_id in _take_turns(team_orders, now) if insight_id not in in_lane]
+    # A model fit with older detector settings still scores, so its refit comes after the other train candidates.
+    # The oldest model goes first, so that no model passes `max_model_age_buckets` while it waits.
+    older_version_order = sorted(
+        (insight_id for insight_id in rest if insight_id in older_version), key=older_version.__getitem__
+    )
     # The lane leads the one walk of the pass, so it charges the same budgets and a slot it cannot fill goes to the rest.
-    train_order = [*lane, *(insight_id for insight_id in _take_turns(team_orders, now) if insight_id not in in_lane)]
+    train_order = [
+        *lane,
+        *(insight_id for insight_id in rest if insight_id not in older_version),
+        *older_version_order,
+    ]
     # A stale model plans as a train step here. With the split off, every pick charges the train budgets.
     train_picked, train_skipped = walk(train_order, ScoringRun.TRAIN, train_cap)
 
@@ -1098,6 +1114,7 @@ def select_insights(
         stale_candidates=len(stale_candidates),
         train_backlog_soft=sum(insight_id in stale_ready for insight_id in backlog),
         train_backlog_hard=sum(insight_id not in stale_ready for insight_id in backlog),
+        older_version_models=len(older_version),
         active=active,
         active_reasons=active_reasons,
         census=census,
@@ -1164,11 +1181,17 @@ def _score_order(
     team_orders: dict[int, list[int]] = {}
     stale_orders: dict[int, list[int]] = {}
     ready: set[int] = set()
+    older_version: dict[int, datetime.datetime] = {}
     for team_id in sorted({insight.team_id for insight in active_by_id.values()}):
         team = teams[team_id]
         team_insights = [insight for insight in active_by_id.values() if insight.team_id == team_id]
         scored = score_ready_by_insight(team, [insight.insight_id for insight in team_insights], config, now)
         ready.update(insight_id for insight_id, state in scored.items() if not state.stale_model)
+        older_version.update(
+            (insight_id, state.trained_at)
+            for insight_id, state in scored.items()
+            if state.older_version and state.trained_at is not None
+        )
         candidates = [
             (
                 scored[insight.insight_id].stale_model,
@@ -1188,4 +1211,9 @@ def _score_order(
                 now=now,
                 max_staleness=config.limits.max_backfill_buckets,
             )
-    return ScorePassOrder(order=_take_turns(team_orders, now), stale_order=_take_turns(stale_orders, now), ready=ready)
+    return ScorePassOrder(
+        order=_take_turns(team_orders, now),
+        stale_order=_take_turns(stale_orders, now),
+        ready=ready,
+        older_version=older_version,
+    )

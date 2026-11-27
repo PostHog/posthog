@@ -1448,27 +1448,24 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
             assert generate_template_bytecode(template, set(), function_type="destination"), template
 
     def test_template_globals_check_covers_every_function_type_and_input_shape(self):
-        # Every non-transformation type resolves its inputs against the same invocation globals, and a
-        # bad root inside a json input or a list fails the same way as a plain string.
         for function_type, template in (
             ("destination", {"headers": {"x-id": "{distinct_id}"}}),
             ("destination", ["ok", "{properties.foo}"]),
             ("source_webhook", "{distinct_id}"),
             ("internal_destination", "{timestamp}"),
+            ("destination", "{variables.total}"),
         ):
             with self.assertRaises(Exception) as ctx:
                 generate_template_bytecode(template, set(), function_type=function_type)
             assert "Variable not available in inputs" in str(ctx.exception), (function_type, template)
 
-        # Roots a specific path provides stay allowed everywhere, so a template valid on one path is
-        # never refused on another.
         for function_type, template in (
             ("source_webhook", "{request.body.distinct_id}"),
-            ("destination", "{variables.total}"),
             ("destination", "{groups.company.properties.name}"),
             ("transformation", "{arrayMap(a -> a, [1])}"),
         ):
             assert generate_template_bytecode(template, set(), function_type=function_type), (function_type, template)
+        assert generate_template_bytecode("{variables.total}", set(), function_type="destination", in_workflow=True)
 
     def test_destination_templates_refuse_a_python_only_callback(self):
         # max2 is in the Python standard library and not in the Node VM, so a template that passes it
@@ -1709,7 +1706,7 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         # (e.g. a tag literally named `zendesk/{variables.zendesk_ticketid}`).
         inputs_schema = [{"key": "tags", "type": "posthog_ticket_tags", "required": False}]
         inputs = {"tags": {"value": value}}
-        validated = validate_inputs(inputs_schema, inputs)
+        validated = validate_inputs(inputs_schema, inputs, context_extra={"in_workflow": True})
 
         bytecode = validated["tags"].get("bytecode")
         assert bytecode is not None, "tags input must have bytecode after the opt-in"

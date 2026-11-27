@@ -5,6 +5,7 @@ import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import {
@@ -19,6 +20,7 @@ import {
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { QuillSuggestionRow } from './QuillSuggestionRow'
 import { CAPABILITY_COPY } from './ReadinessHeader'
 import { SECTION_BY_KIND, SECTION_LABEL } from './sectionRouting'
 import { SuggestionIcon } from './SuggestionIcon'
@@ -40,17 +42,25 @@ const CTA_LABEL: Record<string, string> = {
     open_settings: 'Open settings',
 }
 
-/** Advice, never an apply button — the mapping is the workaround, retagging the ad URL
- * is the fix. */
-function UrlFixHint({ fix }: { fix: ApplyOp }): JSX.Element {
+function urlFixSnippet(fix: ApplyOp): string {
     const expectedSource = fix.expected_utm_source as string
     const expectedCampaign = fix.expected_utm_campaign as string
-    const snippet = [
+    return [
         expectedSource ? `utm_source=${expectedSource}` : null,
         expectedCampaign ? `utm_campaign=${expectedCampaign}` : null,
     ]
         .filter(Boolean)
         .join('&')
+}
+
+function copyUrlFixSnippet(snippet: string): void {
+    void copyToClipboard(snippet, 'UTM parameters')
+}
+
+/** Advice, never an apply button — the mapping is the workaround, retagging the ad URL
+ * is the fix. */
+function UrlFixHint({ fix }: { fix: ApplyOp }): JSX.Element {
+    const snippet = urlFixSnippet(fix)
 
     if (!snippet) {
         return (
@@ -64,7 +74,7 @@ function UrlFixHint({ fix }: { fix: ApplyOp }): JSX.Element {
         <div className="flex items-center gap-2 text-xs text-secondary">
             <span>Better fix — tag the ad URLs with</span>
             <code className="font-mono">{snippet}</code>
-            <LemonButton size="xsmall" type="tertiary" onClick={() => void copyToClipboard(snippet, 'UTM parameters')}>
+            <LemonButton size="xsmall" type="tertiary" onClick={() => copyUrlFixSnippet(snippet)}>
                 Copy
             </LemonButton>
         </div>
@@ -91,6 +101,7 @@ export function SuggestionRow({
         getAccessControlDisabledReason(AccessControlResourceType.MarketingAnalytics, AccessControlLevel.Editor)
     const { dismissSuggestion, restoreSuggestion } = useActions(setupPlanLogic)
     const { setSetupSection } = useActions(marketingAnalyticsLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const isApplying = applyingIds.includes(suggestion.id)
     const urlFix = findOp(suggestion.also_recommended, 'fix_platform_urls')
@@ -103,6 +114,26 @@ export function SuggestionRow({
     const ctaLabel = suggestion.apply && !settlesInTab ? (CTA_LABEL[suggestion.apply.op] ?? 'Review change') : null
     const sectionCta = !ctaLabel && section && section !== currentSection ? section : null
     const writesConfig = !!suggestion.apply && CONFIG_WRITE_OPS.has(suggestion.apply.op)
+
+    if (todayRailNav) {
+        const snippet = urlFix ? urlFixSnippet(urlFix) : null
+        return (
+            <QuillSuggestionRow
+                suggestion={suggestion}
+                isDismissed={isDismissed}
+                isApplying={isApplying}
+                ctaLabel={ctaLabel}
+                ctaDisabledReason={writesConfig ? editDisabledReason : undefined}
+                sectionCtaLabel={sectionCta ? SECTION_LABEL[sectionCta] : null}
+                urlFixSnippet={snippet}
+                onReview={() => onReview(suggestion)}
+                onSectionCta={() => sectionCta && setSetupSection(sectionCta)}
+                onCopyUrlFix={() => snippet && copyUrlFixSnippet(snippet)}
+                onDismiss={() => dismissSuggestion(suggestion.id)}
+                onRestore={() => restoreSuggestion(suggestion.id)}
+            />
+        )
+    }
 
     return (
         <div className="flex items-start gap-3 py-3 px-3 border-b last:border-b-0">

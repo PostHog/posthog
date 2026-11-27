@@ -87,7 +87,7 @@ import { JobQueue } from './services/job-queue/job-queue.interface'
 import { createFrequencyCapValkeyPool } from './services/messaging/frequency-cap-valkey-pool'
 import { HogInvocationResultsService } from './services/monitoring/hog-invocation-results.service'
 import { RateLimiterService } from './services/rate-limiter/rate-limiter.service'
-import { HogFunctionInvocationGlobals } from './types'
+import { CYCLOTRON_QUEUE_ROLES, HogFunctionInvocationGlobals } from './types'
 import { convertBatchHogFlowRequestToHogFunctionInvocationGlobals } from './utils'
 import { convertToHogFunctionFilterGlobal } from './utils/hog-function-filtering'
 
@@ -1416,7 +1416,14 @@ describe('Workflows E2E (postgres-v2)', () => {
         }
 
         beforeEach(() => {
-            matcher = new CdpHogflowSubscriptionMatcherConsumer({ ...hub }, deps)
+            matcher = new CdpHogflowSubscriptionMatcherConsumer(
+                {
+                    ...hub,
+                    CDP_HOGFLOW_SUBSCRIPTION_MATCHER_COMBINED_LOOKUP: true,
+                    CDP_HOGFLOW_SUBSCRIPTION_MATCHER_PREPARED_LOOKUPS: true,
+                },
+                deps
+            )
         })
 
         afterEach(async () => {
@@ -4963,6 +4970,7 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
         deps = createCdpConsumerDeps(hub, kafkaProducer)
         batchResolverProducer = new CyclotronV2Manager({
             pool: { dbUrl: CYCLOTRON_NODE_DB_URL, maxConnections: 5 },
+            ...CYCLOTRON_QUEUE_ROLES,
         })
         api = new CdpApi(
             hub,
@@ -5007,6 +5015,7 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
         const cyclotronWorker = new CyclotronV2Worker({
             pool: { dbUrl: CYCLOTRON_NODE_DB_URL, maxConnections: 10 },
             queueName: HOGFLOW_BATCH_RESOLVE_QUEUE,
+            fairDequeueQueues: CYCLOTRON_QUEUE_ROLES.fairDequeueQueues,
             pollDelayMs: 100,
             batchMaxSize: 1,
             heartbeatTimeoutMs: hub.CDP_HOG_FLOW_BATCH_AUDIENCE_FETCH_TIMEOUT_MS + 30_000,
