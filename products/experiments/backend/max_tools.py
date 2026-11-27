@@ -120,7 +120,9 @@ class CreateExperimentTool(MaxTool):
 
         @database_sync_to_async
         def create_experiment() -> Experiment:
-            existing_experiment = Experiment.objects.filter(team=self._team, name=name, deleted=False).first()
+            existing_experiment = (
+                Experiment.objects.on_exact_team(self._team.id).deleted_is_false().filter(name=name).first()
+            )
             if existing_experiment:
                 raise ValueError(f"An experiment with name '{name}' already exists")
 
@@ -136,7 +138,7 @@ class CreateExperimentTool(MaxTool):
                     f"Update the flag's variants, or create a new flag with the create_feature_flag tool."
                 )
 
-            existing_experiment_with_flag = Experiment.objects.filter(feature_flag=feature_flag, deleted=False).first()
+            existing_experiment_with_flag = Experiment.objects.on_flags([feature_flag.id]).deleted_is_false().first()
             if existing_experiment_with_flag:
                 raise ValueError(
                     f"Feature flag '{feature_flag_key}' is already used by experiment '{existing_experiment_with_flag.name}'"

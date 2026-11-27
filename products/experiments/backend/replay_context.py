@@ -10,6 +10,8 @@ the Experiment model.
 
 from collections.abc import Collection
 
+from django.db.models import QuerySet
+
 from rest_framework.exceptions import ValidationError
 
 from posthog.hogql import ast
@@ -46,7 +48,7 @@ def accessible_experiment_ids(
     nothing is filtered out then. Soft-deleted experiments stay in: a deleted experiment's
     historical data keeps the access level the experiment had, rather than opening up.
     """
-    queryset = Experiment.objects.filter(team_id=team_id)
+    queryset: QuerySet[Experiment] = Experiment.objects.for_team(team_id).including_deleted()
     if experiment_ids is not None:
         if not experiment_ids:
             return set()
@@ -59,14 +61,21 @@ def accessible_experiment_ids(
 def launched_experiment_ids(team_id: int, experiment_ids: Collection[int]) -> set[int]:
     """The ids in ``experiment_ids`` of live experiments in the team that have launched."""
     return set(
-        Experiment.objects.filter(
-            team_id=team_id, id__in=experiment_ids, deleted=False, start_date__isnull=False
-        ).values_list("id", flat=True)
+        Experiment.objects.for_team(team_id)
+        .deleted_is_false()
+        .filter(id__in=experiment_ids, start_date__isnull=False)
+        .values_list("id", flat=True)
     )
 
 
 def _live_experiment(team: Team, experiment_id: int) -> Experiment | None:
-    return Experiment.objects.filter(id=experiment_id, team=team, deleted=False).select_related("feature_flag").first()
+    return (
+        Experiment.objects.on_exact_team(team.id)
+        .deleted_is_false()
+        .filter(id=experiment_id)
+        .select_related("feature_flag")
+        .first()
+    )
 
 
 def session_attribution(linkage: ExperimentExposureLinkage, distinct_id: str) -> SessionAttribution | None:

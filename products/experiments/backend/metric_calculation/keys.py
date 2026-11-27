@@ -36,11 +36,16 @@ def _experiments_with_settings(
     left out."""
     if not team_id_by_experiment_id:
         return []
-    # The read spans teams by design. `team_id__in` and the team check on each row keep every id to the
-    # team that the caller named for it, but the IDOR rule only recognizes a single-team filter.
-    rows = Experiment.objects.filter(  # nosemgrep: idor-lookup-without-team
-        id__in=team_id_by_experiment_id, team_id__in=set(team_id_by_experiment_id.values())
-    ).select_related("team", "feature_flag")
+    # The read spans teams by design. `on_exact_teams` (a `team_id__in` filter) and the team check on each row keep
+    # every id to the team that the caller named for it, but the IDOR rule only recognizes a single-team filter.
+    rows = (
+        Experiment.objects.on_exact_teams(  # nosemgrep: idor-lookup-without-team
+            set(team_id_by_experiment_id.values())
+        )
+        .including_deleted()
+        .filter(id__in=team_id_by_experiment_id)
+        .select_related("team", "feature_flag")
+    )
     if prefetch_saved_metrics:
         rows = rows.prefetch_related(
             Prefetch(
@@ -129,7 +134,11 @@ def saved_metric_link_for_calculation_key(
     queues each of them under its own key. This tells the calculation which of them a queued key belongs to.
     """
     experiment = (
-        Experiment.objects.select_related("team", "feature_flag").filter(id=experiment_id, team_id=team_id).first()
+        Experiment.objects.for_team(team_id)
+        .including_deleted()
+        .select_related("team", "feature_flag")
+        .filter(id=experiment_id)
+        .first()
     )
     if experiment is None:
         return None
@@ -152,7 +161,11 @@ def metric_calculation_keys(experiment_id: int, *, team_id: int) -> MetricCalcul
     """The key of every addressable metric of one experiment, including metrics that cannot be scheduled.
     The maps are empty when the team has no experiment with this id."""
     experiment = (
-        Experiment.objects.select_related("team", "feature_flag").filter(id=experiment_id, team_id=team_id).first()
+        Experiment.objects.for_team(team_id)
+        .including_deleted()
+        .select_related("team", "feature_flag")
+        .filter(id=experiment_id)
+        .first()
     )
     if experiment is None:
         return MetricCalculationKeys(inline={}, saved={})

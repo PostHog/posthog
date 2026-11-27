@@ -148,7 +148,7 @@ class SetupContextProbe:
             context = build_setup_context(
                 team=team,
                 inputs=self.inputs,
-                experiments=Experiment.objects.filter(team_id=team.pk),
+                experiments=Experiment.objects.for_team(team.pk).including_deleted(),
                 saved_metrics=ExperimentSavedMetric.objects.filter(team_id=team.pk),
                 on_section=observe,
             )

@@ -115,9 +115,10 @@ def _get_experiment_regular_metrics_for_hour_sync(hour: int) -> list[ExperimentR
     close_old_connections()
 
     team_id_by_experiment_id = dict(
-        Experiment.objects.filter(
+        # `deleted_is_false` keeps the predicate of the partial index posthog_exp_running_start_idx.
+        Experiment.objects.deleted_is_false()
+        .filter(
             recalculation_hour_filter(hour),
-            deleted=False,
             status=Experiment.Status.RUNNING,
             start_date__gte=daily_calculation_start_cutoff(datetime.now(ZoneInfo("UTC"))),
         )
@@ -169,7 +170,7 @@ def _calculate_experiment_regular_metric_sync(
     )
 
     try:
-        experiment = Experiment.objects.get(id=experiment_id, deleted=False)
+        experiment = Experiment.objects.deleted_is_false().get(id=experiment_id)
     except Experiment.DoesNotExist:
         return ExperimentRegularMetricResult(
             experiment_id=experiment_id,
@@ -399,13 +400,15 @@ def _get_experiment_saved_metrics_for_hour_sync(hour: int) -> list[ExperimentSav
     close_old_connections()
 
     team_id_by_experiment_id = dict(
-        Experiment.objects.filter(
+        # `deleted_is_false` keeps the predicate of the partial index posthog_exp_running_start_idx.
+        Experiment.objects.deleted_is_false()
+        .filter(
             Exists(ExperimentToSavedMetric.objects.filter(experiment_id=OuterRef("id"))),
             recalculation_hour_filter(hour),
-            deleted=False,
             status=Experiment.Status.RUNNING,
             start_date__gte=daily_calculation_start_cutoff(datetime.now(ZoneInfo("UTC"))),
-        ).values_list("id", "team_id")
+        )
+        .values_list("id", "team_id")
     )
     experiment_metrics = [
         ExperimentSavedMetricInput(
@@ -449,7 +452,7 @@ def _calculate_experiment_saved_metric_sync(
     )
 
     try:
-        experiment = Experiment.objects.get(id=experiment_id, deleted=False)
+        experiment = Experiment.objects.deleted_is_false().get(id=experiment_id)
     except Experiment.DoesNotExist:
         return ExperimentSavedMetricResult(
             experiment_id=experiment_id,

@@ -2,6 +2,7 @@ from django.shortcuts import get_object_or_404
 from posthog.models import Notebook
 from products.approvals.backend.models import ChangeRequest
 from products.cohorts.backend.models.cohort import Cohort
+from products.experiments.backend.models.experiment import Experiment
 from products.product_analytics.backend.facade.models import Insight
 from products.actions.backend.models.action import Action
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -68,6 +69,71 @@ def safe_get_with_for_team(request, team_id):
 def not_user_input():
     # ruleid: idor-lookup-without-team
     return Cohort.objects.get(pk=123)
+
+
+# ============================================================
+# Named queryset scopes (ExperimentQuerySet)
+# ============================================================
+
+
+# ok: idor-taint-user-input-to-model-get
+def safe_get_with_on_exact_team(request, team_id):
+    experiment_id = request.GET.get("experiment_id")
+    # ok: idor-lookup-without-team
+    return Experiment.objects.on_exact_team(team_id).live().get(pk=experiment_id)
+
+
+# ok: idor-taint-user-input-to-model-get
+def safe_filter_with_in_project(request, project_id):
+    experiment_id = request.GET.get("experiment_id")
+    # ok: idor-lookup-without-team
+    return Experiment.objects.in_project(project_id).including_deleted().filter(id=experiment_id)
+
+
+def vulnerable_get_with_deleted_handling_only(request):
+    experiment_id = request.GET.get("experiment_id")
+    # ruleid: idor-taint-user-input-to-model-get, idor-lookup-without-team
+    return Experiment.objects.live().get(pk=experiment_id)
+
+
+def vulnerable_get_with_flag_only(request, feature_flag_id):
+    experiment_id = request.GET.get("experiment_id")
+    # ruleid: idor-taint-user-input-to-model-get, idor-lookup-without-team
+    return Experiment.objects.on_flags([feature_flag_id]).get(pk=experiment_id)
+
+
+# ok: idor-lookup-without-team
+experiment = Experiment.objects.on_exact_team(team_id).deleted_is_false().select_related("team").get(pk=experiment_id)
+
+# ok: idor-lookup-without-team
+experiments = Experiment.objects.in_project(project_id).live().filter(pk__in=experiment_ids)
+
+# ok: idor-lookup-without-team
+experiment = Experiment.objects.for_team(team_id).including_deleted().get(id=experiment_id)
+
+# ruleid: idor-lookup-without-team
+experiment = Experiment.objects.live().get(pk=experiment_id)
+
+# ruleid: idor-lookup-without-team
+experiment = Experiment.objects.including_deleted().filter(id=experiment_id)
+
+# ruleid: idor-lookup-without-team
+experiment = Experiment.objects.deleted_is_false().get(id=experiment_id)
+
+# ruleid: idor-lookup-without-team
+experiment = Experiment.objects.on_flags([feature_flag_id]).live().get(pk=experiment_id)
+
+# The rule accepts team_id= but not team_id__in=, so a read over several teams stays visible.
+# ruleid: idor-lookup-without-team
+experiments = Experiment.objects.on_exact_teams(team_ids).filter(id__in=experiment_ids)
+
+# The rule does not take an organization filter as the scope of a team-scoped model.
+# ruleid: idor-lookup-without-team
+experiment = Experiment.objects.in_organization(organization_id).get(pk=experiment_id)
+
+# A scope method later in the chain is not recognized, the same as for for_team().
+# ruleid: idor-lookup-without-team
+experiment = Experiment.objects.live().on_exact_team(team_id).get(pk=experiment_id)
 
 
 # ============================================================

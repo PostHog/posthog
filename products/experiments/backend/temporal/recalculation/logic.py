@@ -766,7 +766,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
 
     with team_scope(state.team_id, canonical=True):
         try:
-            experiment = Experiment.objects.get(id=experiment_id, deleted=False)
+            experiment = Experiment.objects.deleted_is_false().get(id=experiment_id)
         except Experiment.DoesNotExist:
             return _fail(
                 recalculation_id,
@@ -1093,7 +1093,7 @@ def _record_metric_out_of_time_failure_sync(failure: MetricOutOfTimeFailure) -> 
         ).exists():
             return
 
-        experiment = Experiment.objects.filter(id=failure.experiment_id, deleted=False).first()
+        experiment = Experiment.objects.deleted_is_false().filter(id=failure.experiment_id).first()
         calculation_config = (
             get_metric_calculation_config(experiment, failure.metric_uuid, key_version=failure.calculation_key_version)
             if experiment
@@ -1116,7 +1116,8 @@ def _record_metric_out_of_time_failure_sync(failure: MetricOutOfTimeFailure) -> 
             # The last attempt can write its result and die before it reports success, which Temporal sees as a
             # timeout. Its thread can also still be running. Take the result store's run-write locks, in its order,
             # so that no result write lands between this check and the two failure writes.
-            Experiment.objects.select_for_update(no_key=True).filter(id=experiment.id, team_id=state.team_id).exists()
+            experiments = Experiment.objects.for_team(state.team_id).including_deleted()
+            experiments.select_for_update(no_key=True).filter(id=experiment.id).exists()
             ExperimentMetricsRecalculation.objects.select_for_update().filter(id=failure.recalculation_id).exists()
             completed = results.has_completed(calculation_config, window=state.query_to)
             if not completed:

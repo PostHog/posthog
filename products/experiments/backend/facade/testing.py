@@ -83,7 +83,7 @@ def create_experiment(
     )
     if updated_at is not None:
         # updated_at is auto_now, so the insert overwrites it and only an update can backdate it.
-        Experiment.objects.filter(team_id=team_id, id=experiment.id).update(updated_at=updated_at)
+        Experiment.objects.for_team(team_id).including_deleted().filter(id=experiment.id).update(updated_at=updated_at)
     return experiment.id
 
 
@@ -93,7 +93,7 @@ acreate_experiment = sync_to_async(create_experiment)
 def update_experiment(*, team_id: int, experiment_id: int, **fields: Any) -> None:
     """Set fields on an experiment and save it, so the save signals fire as they do for a production
     write. `deleted=True` is a soft delete."""
-    experiment = Experiment.objects.get(team_id=team_id, id=experiment_id)
+    experiment = Experiment.objects.for_team(team_id).including_deleted().get(id=experiment_id)
     for field, value in fields.items():
         # setattr accepts any name, so a misspelled field would save nothing and pass silently.
         Experiment._meta.get_field(field)
@@ -103,12 +103,12 @@ def update_experiment(*, team_id: int, experiment_id: int, **fields: Any) -> Non
 
 def clear_experiment_status(*, team_id: int, experiment_id: int) -> None:
     """Set `status` to NULL, as on a row saved before the column existed. `save()` always sets it."""
-    Experiment.objects.filter(team_id=team_id, id=experiment_id).update(status=None)
+    Experiment.objects.for_team(team_id).including_deleted().filter(id=experiment_id).update(status=None)
 
 
 def delete_experiment(*, team_id: int, experiment_id: int) -> None:
     """Remove the experiment row, which fires the delete signals."""
-    Experiment.objects.get(team_id=team_id, id=experiment_id).delete()
+    Experiment.objects.for_team(team_id).including_deleted().get(id=experiment_id).delete()
 
 
 @contextmanager

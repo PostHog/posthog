@@ -1,10 +1,10 @@
-from posthog.models.utils import RootTeamManager, RootTeamMixin
+from posthog.models.utils import RootTeamMixin
 
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.models.experiment import Experiment, ExperimentManager, ExperimentQuerySet
 
 
-class WebExperimentManager(RootTeamManager):
-    def get_queryset(self):
+class WebExperimentManager(ExperimentManager["WebExperiment"]):
+    def get_queryset(self) -> ExperimentQuerySet["WebExperiment"]:
         return super().get_queryset().filter(type="web")
 
 

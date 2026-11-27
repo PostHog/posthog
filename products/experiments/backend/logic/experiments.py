@@ -82,7 +82,8 @@ def _query_params(values: Mapping[str, str | None]) -> dict[str, str]:
 
 def _experiments(team: Team) -> QuerySet[Experiment]:
     return (
-        Experiment.objects.filter(team__project_id=team.project_id)
+        Experiment.objects.in_project(team.project_id)
+        .including_deleted()
         .select_related("feature_flag", "created_by", "holdout__created_by")
         .prefetch_related(
             Prefetch(
@@ -114,8 +115,7 @@ def get_detail(*, team: Team, experiment_id: int, include_deleted: bool) -> Expe
 def get_handle(*, team: Team, experiment_id: int) -> Experiment | None:
     """The live experiment of the project with the id, with only the columns that `ExperimentHandle` reads."""
     return (
-        Experiment.objects.filter(team__project_id=team.project_id, pk=experiment_id)
-        .exclude(deleted=True)
+        _one_in_project(team, experiment_id, include_deleted=False)
         .select_related("feature_flag")
         .only(
             "id",
@@ -131,8 +131,8 @@ def get_handle(*, team: Team, experiment_id: int) -> Experiment | None:
 
 
 def _one_in_project(team: Team, experiment_id: int, *, include_deleted: bool) -> QuerySet[Experiment]:
-    queryset = Experiment.objects.filter(team__project_id=team.project_id, pk=experiment_id)
-    return queryset if include_deleted else queryset.exclude(deleted=True)
+    experiments = Experiment.objects.in_project(team.project_id).filter(pk=experiment_id)
+    return experiments.including_deleted() if include_deleted else experiments.live()
 
 
 def get_update_target(*, team: Team, experiment_id: int, include_deleted: bool) -> Experiment | None:
@@ -248,13 +248,12 @@ _REF_FIELDS = ("id", "team_id", "created_by_id")
 
 def list_refs(*, team: Team, filters: ExperimentListFilters) -> QuerySet[Experiment]:
     """Every experiment that the list shows for the filters, in the order of the list, with the columns of a ref."""
-    rows = Experiment.objects.filter(team__project_id=team.project_id)
+    rows = Experiment.objects.in_project(team.project_id).including_deleted()
     return strict_fetch(_apply_list_filters(team, rows, filters).only(*_REF_FIELDS))
 
 
 def _live_among(team: Team, experiment_ids: Collection[int]) -> QuerySet[Experiment]:
-    experiments = Experiment.objects.filter(team__project_id=team.project_id, pk__in=list(experiment_ids))
-    return experiments.exclude(deleted=True)
+    return Experiment.objects.in_project(team.project_id).live().filter(pk__in=list(experiment_ids))
 
 
 def refs_among(*, team: Team, experiment_ids: Collection[int]) -> QuerySet[Experiment]:

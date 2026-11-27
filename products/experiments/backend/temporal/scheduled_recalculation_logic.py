@@ -151,9 +151,11 @@ def find_scheduled_recalculation_candidates() -> ScheduledRecalculationSelection
     time_filter = recalculation_hour_filter(hour)
 
     rows = (
-        Experiment.objects.filter(
+        # `deleted_is_false` keeps the predicate of the partial index posthog_exp_running_start_idx, which this scan
+        # reads. `live` does not imply that predicate, so the planner could not use the index.
+        Experiment.objects.deleted_is_false()
+        .filter(
             time_filter,
-            deleted=False,
             status=Experiment.Status.RUNNING,
             # A paused experiment keeps status RUNNING and only deactivates its flag, so the stored
             # status alone would select one that collects no new data.

@@ -1,6 +1,7 @@
 from collections.abc import Callable, Collection, Sequence
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, Self
+from uuid import UUID
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
@@ -16,7 +17,7 @@ from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.tagged_items_relation import Taggable
-from posthog.models.utils import RootTeamManager, RootTeamMixin, UUIDModel
+from posthog.models.utils import RootTeamManager, RootTeamMixin, RootTeamQuerySet, UUIDModel
 
 from products.experiments.backend.facade.enums import LEGACY_METRIC_KINDS
 from products.feature_flags.backend.facade.filters import (
@@ -60,23 +61,91 @@ ExposureFreezeBlocker = (
 )
 
 
-class LiveExperimentManager(RootTeamManager):
-    """Experiments the API still shows, which is every row whose `deleted` is not true.
+class ExperimentQuerySet[ExperimentT: "Experiment"](RootTeamQuerySet[ExperimentT]):
+    """The named reads of experiment rows. A read picks one scope and says whether deleted rows count, so that the
+    meaning of a scope or of "live" changes in one place."""
+
+    def for_team(self, team_id: int) -> Self:
+        """The rows on the root team of the team's project: the parent of an environment, else the team itself.
+
+        This is the `team_id=` rewrite of `RootTeamQuerySet`, under the name that `TeamScopedManager` uses for the
+        same resolution. A row on another team of the project does not match.
+        """
+        return self.filter(team_id=team_id)
+
+    def on_exact_team(self, team_id: int) -> Self:
+        """The rows on this team only. The id of an environment does not resolve to the root team of its project.
+
+        The filter keyword is `team` and not `team_id`, because `RootTeamQuerySet.filter` rewrites only `team_id`.
+        """
+        return self.filter(team=team_id)
+
+    def on_exact_teams(self, team_ids: Collection[int]) -> Self:
+        """The rows on these teams only. No id resolves to the root team of its project."""
+        return self.filter(team_id__in=team_ids)
+
+    def in_project(self, project_id: int) -> Self:
+        """The rows on every team of the project."""
+        return self.filter(team__project_id=project_id)
+
+    def in_organization(self, organization_id: UUID) -> Self:
+        """The rows on every team of the organization."""
+        return self.filter(team__organization_id=organization_id)
+
+    def on_flags(self, feature_flag_ids: Collection[int]) -> Self:
+        """The rows on these feature flags, on any team. A flag belongs to one team, so ids from a team-scoped read
+        keep the result in that team."""
+        return self.filter(feature_flag_id__in=feature_flag_ids)
+
+    def live(self) -> Self:
+        """The rows that the experiments API still shows, which are the rows whose `deleted` is not true.
+
+        `deleted` is nullable, and `ExperimentService.filter_experiments_queryset` counts a NULL as live, so this
+        excludes true instead of keeping false.
+        """
+        return self.exclude(deleted=True)
+
+    def including_deleted(self) -> Self:
+        """Every row, deleted or not. It filters nothing, so that a chain which applies no deleted filter says so.
+
+        A later step can still filter the rows, as `ExperimentService.filter_experiments_queryset` does.
+        """
+        return self.all()
+
+    def deleted_is_false(self) -> Self:
+        """The rows whose `deleted` is false. Unlike `live`, this skips a row whose `deleted` is NULL."""
+        return self.filter(deleted=False)
+
+
+_ExperimentManagerBase = RootTeamManager.from_queryset(ExperimentQuerySet)
+
+
+class ExperimentManager[ExperimentT: "Experiment"](_ExperimentManagerBase[ExperimentT]):
+    """`from_queryset` copies the lookups of `ExperimentQuerySet` onto the manager, and each copy calls
+    `get_queryset`. `RootTeamManager.get_queryset` builds a `RootTeamQuerySet` by name and ignores the queryset
+    class that `from_queryset` sets, so the override here builds the `ExperimentQuerySet`.
+
+    The base is `RootTeamManager` because `RootTeamMixin` asks a custom manager to inherit it. The
+    project-scoped team rewriting comes from `RootTeamQuerySet`, which `ExperimentQuerySet` inherits.
+    """
+
+    def get_queryset(self) -> ExperimentQuerySet[ExperimentT]:
+        return ExperimentQuerySet[ExperimentT](self.model, using=self._db)
+
+
+class LiveExperimentManager(ExperimentManager["Experiment"]):
+    """Experiments the API still shows. See `ExperimentQuerySet.live`.
 
     This is a manager rather than a filter because the flag ownership table in
     `products/feature_flags/backend/ownership.py` reads each owning relation through a named
     manager, so only a manager can keep a deleted experiment out of it.
 
-    `deleted` is nullable, and `filter_experiments_queryset` counts a null as live, so this
-    excludes true instead of keeping false. An experiment a user can still open must keep its
-    flag, because that page is where the user unlinks it.
-
-    Inherits `RootTeamManager` because `RootTeamMixin` makes that the default manager, and a manager
-    on the model that does not inherit it would lose the project-scoped team rewriting.
+    An experiment a user can still open must keep its flag, because that page is where the user
+    unlinks it.
     """
 
-    def get_queryset(self):
-        return super().get_queryset().exclude(deleted=True)
+    def get_queryset(self) -> ExperimentQuerySet["Experiment"]:
+        return super().get_queryset().live()
 
 
 class Experiment(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.Model):
@@ -192,7 +261,7 @@ class Experiment(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixi
 
     # Django puts a locally declared manager first, so without this line `live_objects` becomes
     # the default manager and hides soft-deleted rows from readers such as restore.
-    objects = RootTeamManager()  # type: ignore[misc]
+    objects = ExperimentManager()  # type: ignore[misc]
     live_objects = LiveExperimentManager()
 
     class Meta:
@@ -421,7 +490,7 @@ class Experiment(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixi
 
     @classmethod
     def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> QuerySet["Experiment"]:
-        base_qs = cls.objects.filter(team=team).exclude(deleted=True)
+        base_qs = cls.objects.on_exact_team(team.id).live()
         return cls._filter_unfiled_queryset(base_qs, team, type="experiment", ref_field="id", surface=surface)
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
@@ -439,16 +508,17 @@ class Experiment(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixi
         )
 
 
-def _live_experiments() -> "QuerySet[Experiment]":
+def _live_experiments() -> ExperimentQuerySet["Experiment"]:
     """Single source of truth for the `has_experiment` predicate: a flag has a linked
     experiment iff a non-deleted Experiment row references it. The Rust flags service
     (rust/feature-flags/src/flags/feature_flag_list.rs) mirrors this in hand-written SQL,
-    so keep the two in lockstep.
+    so keep the two in lockstep. That SQL tests `deleted = false`, so this reads
+    `deleted_is_false` and not `live`.
     """
-    return Experiment.objects.filter(deleted=False)
+    return Experiment.objects.deleted_is_false()
 
 
-def live_experiments_for_flag(feature_flag_id: int) -> "QuerySet[Experiment]":
+def live_experiments_for_flag(feature_flag_id: int) -> ExperimentQuerySet["Experiment"]:
     return _live_experiments().filter(feature_flag_id=feature_flag_id)
 
 

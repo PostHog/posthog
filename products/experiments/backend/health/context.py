@@ -1053,7 +1053,7 @@ def _limit_end(score: float | None) -> datetime | None:
 def _other_experiments_on_flag(experiment: Experiment) -> tuple[ExperimentOnFlag, ...]:
     others = (
         live_experiments_for_flag(experiment.feature_flag_id)
-        .filter(team_id=experiment.team_id)
+        .for_team(experiment.team_id)
         .exclude(id=experiment.id)
         .values_list("start_date", "end_date", "archived", named=True)
     )

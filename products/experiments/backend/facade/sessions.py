@@ -76,12 +76,10 @@ def _to_session_experiments(items: list[session_context.ExperimentSessionContext
 
 
 def _experiment(project_id: int, experiment_id: int) -> Experiment | None:
-    # Scoped by project, as the experiments API scopes it. `RootTeamQuerySet` resolves a `team_id=` filter to one
-    # team, the parent team or the team itself, so it misses an experiment stored on another team of the project.
+    # Scoped by project, as the experiments API scopes it. `for_team` resolves to one team, the parent team or the
+    # team itself, so it misses an experiment stored on another team of the project.
     return (
-        Experiment.live_objects.filter(team__project_id=project_id, pk=experiment_id)
-        .select_related("feature_flag")
-        .first()
+        Experiment.objects.in_project(project_id).live().filter(pk=experiment_id).select_related("feature_flag").first()
     )
 
 

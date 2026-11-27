@@ -9,7 +9,9 @@ from products.feature_flags.backend.facade.rules import ExperimentRuleError
 def get_experiment_unfurl(*, team_id: int, experiment_id: int) -> ExperimentUnfurl | None:
     """What a link preview shows for an experiment of the team. None when the team has none with this id, or it is deleted."""
     experiment = (
-        Experiment.objects.filter(team_id=team_id, pk=experiment_id, deleted=False)
+        Experiment.objects.for_team(team_id)
+        .deleted_is_false()
+        .filter(pk=experiment_id)
         .select_related("feature_flag")
         .first()
     )

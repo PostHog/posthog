@@ -81,10 +81,9 @@ def colliding_id(*, team_id: int, name: str, exclude_saved_metric_id: int | None
 
 
 def linked_experiments(*, team_id: int, saved_metric_id: int, access: ListAccess | None) -> list[Experiment]:
-    experiments = Experiment.objects.filter(
+    experiments = Experiment.objects.deleted_is_false().filter(
         experimenttosavedmetric__saved_metric_id=saved_metric_id,
         experimenttosavedmetric__saved_metric__team_id=team_id,
-        deleted=False,
     )
     return list(visible_to(experiments.distinct(), access).order_by("-created_at"))
 

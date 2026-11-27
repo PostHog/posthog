@@ -27,23 +27,23 @@ def _with_relations(queryset: QuerySet[WebExperiment]) -> QuerySet[WebExperiment
 
 
 def list_page(*, project_id: int, page: PageRequest) -> Page[WebExperiment]:
-    # `deleted=False` also drops rows where `deleted` is NULL.
-    queryset = WebExperiment.objects.filter(deleted=False, team__project_id=project_id).order_by("-created_at", "-id")
+    queryset = WebExperiment.objects.in_project(project_id).deleted_is_false().order_by("-created_at", "-id")
     return select_page(strict_fetch(_with_relations(queryset)), page)
 
 
 def get(*, project_id: int, web_experiment_id: int) -> WebExperiment | None:
-    return _with_relations(WebExperiment.objects.filter(team__project_id=project_id, pk=web_experiment_id)).first()
+    return _with_relations(
+        WebExperiment.objects.in_project(project_id).including_deleted().filter(pk=web_experiment_id)
+    ).first()
 
 
 def list_for_toolbar(*, team_id: int) -> list[WebExperiment]:
-    # The root team queryset rewrites a `team_id` keyword filter so that an environment also matches the
-    # experiments of its project's root team, where web experiments are stored.
+    # `for_team` resolves an environment to the root team of its project, where web experiments are stored.
     return list(
         _with_relations(
-            WebExperiment.objects.filter(team_id=team_id)
+            WebExperiment.objects.for_team(team_id)
+            .live()
             .exclude(archived=True)
-            .exclude(deleted=True)
             .filter(status__in=[Experiment.Status.DRAFT, Experiment.Status.RUNNING])
         ).order_by("-created_at")
     )

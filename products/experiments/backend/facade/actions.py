@@ -41,8 +41,8 @@ def experiments_referencing_action(
 
     # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
     experiments = (
-        Experiment.objects.filter(team_id=team_id)
-        .exclude(deleted=True)
+        Experiment.objects.for_team(team_id)
+        .live()
         .select_related("created_by")
         .extra(where=[" OR ".join(exp_conditions)], params=[vars_json] * len(exp_conditions))
     )

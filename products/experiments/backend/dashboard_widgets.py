@@ -45,7 +45,9 @@ def list_widget_queryset(
     if created_by_id is not None:
         query_params["created_by_id"] = created_by_id
 
-    base_queryset = Experiment.objects.filter(team=team).select_related("created_by", "feature_flag")
+    base_queryset = (
+        Experiment.objects.on_exact_team(team.id).including_deleted().select_related("created_by", "feature_flag")
+    )
     service = ExperimentService(team=team, user=access.user if access is not None else None)
     queryset = service.filter_experiments_queryset(base_queryset, action="list", query_params=query_params)
     # Honor object-level experiment access controls, matching the REST list endpoint.
@@ -53,13 +55,18 @@ def list_widget_queryset(
 
 
 def has_accessible_experiments(team: Team, access: UserAccessControl | None) -> bool:
-    return _visible_to(access, Experiment.objects.filter(team=team, deleted=False)).exists()
+    return _visible_to(access, Experiment.objects.on_exact_team(team.id).deleted_is_false()).exists()
 
 
 def accessible_experiment(team: Team, access: UserAccessControl | None, experiment_id: int) -> Experiment | None:
     # Honor object-level experiment access controls, matching the REST endpoint. A user denied
     # access to a specific experiment must not see it (or its results) through the widget.
-    queryset = Experiment.objects.filter(id=experiment_id, team=team, deleted=False).select_related("feature_flag")
+    queryset = (
+        Experiment.objects.on_exact_team(team.id)
+        .deleted_is_false()
+        .filter(id=experiment_id)
+        .select_related("feature_flag")
+    )
     return _visible_to(access, queryset).first()
 
 

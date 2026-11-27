@@ -134,9 +134,11 @@ class ExperimentSummaryDataService:
         @database_sync_to_async(thread_sensitive=settings.TEST)
         def fetch_experiment():
             return (
-                Experiment.objects.select_related("feature_flag", "holdout", "team")
+                Experiment.objects.for_team(team_id)
+                .deleted_is_false()
+                .select_related("feature_flag", "holdout", "team")
                 .prefetch_related("experimenttosavedmetric_set__saved_metric")
-                .get(id=experiment_id, team_id=team_id, deleted=False)
+                .get(id=experiment_id)
             )
 
         try:

@@ -208,9 +208,11 @@ def _release_condition(
 
 def _load_experiment(team_id: int, experiment_id: int) -> Experiment:
     return (
-        Experiment.objects.select_related("team", "feature_flag")
+        Experiment.objects.for_team(team_id)
+        .including_deleted()
+        .select_related("team", "feature_flag")
         .prefetch_related("experimenttosavedmetric_set__saved_metric")
-        .get(id=experiment_id, team_id=team_id)
+        .get(id=experiment_id)
     )
 
 

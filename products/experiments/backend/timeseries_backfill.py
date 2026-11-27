@@ -128,9 +128,8 @@ def backfill_experiment_timeseries(recalculation_id: str, *, backfill_until: dat
             result = query_runner._calculate()
 
             with transaction.atomic():
-                Experiment.objects.select_for_update(no_key=True).filter(
-                    id=experiment.id, team_id=experiment.team_id
-                ).exists()
+                experiments = Experiment.objects.for_team(experiment.team_id).including_deleted()
+                experiments.select_for_update(no_key=True).filter(id=experiment.id).exists()
                 current_request = ExperimentTimeseriesRecalculation.objects.select_for_update().get(id=recalculation_id)
                 if current_request.status != ExperimentTimeseriesRecalculation.Status.IN_PROGRESS:
                     break

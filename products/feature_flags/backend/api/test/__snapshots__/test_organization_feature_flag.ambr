@@ -530,12 +530,12 @@
          "posthog_experiment"."start_date",
          "posthog_experiment"."end_date"
   FROM "posthog_experiment"
-  WHERE (NOT "posthog_experiment"."deleted"
-         AND "posthog_experiment"."feature_flag_id" IN (1,
-                                                        2,
-                                                        3,
-                                                        4,
-                                                        5 /* ... */))
+  WHERE ("posthog_experiment"."feature_flag_id" IN (1,
+                                                    2,
+                                                    3,
+                                                    4,
+                                                    5 /* ... */)
+         AND NOT "posthog_experiment"."deleted")
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.22
