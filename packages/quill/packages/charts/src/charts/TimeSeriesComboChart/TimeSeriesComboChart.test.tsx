@@ -286,6 +286,20 @@ describe('TimeSeriesComboChart', () => {
         expect(chart.yRightTicks().length).toBeGreaterThan(0)
     })
 
+    it('fires onDateRangeZoom with the dragged range', () => {
+        const onDateRangeZoom = jest.fn()
+        const { chart } = renderChart(
+            <TimeSeriesComboChart
+                series={BAR_AND_LINE}
+                labels={LABELS}
+                theme={THEME}
+                onDateRangeZoom={onDateRangeZoom}
+            />
+        )
+        chart.dragSelection(0, 2)
+        expect(onDateRangeZoom).toHaveBeenCalledWith({ startLabel: 'Mon', endLabel: 'Wed', startIndex: 0, endIndex: 2 })
+    })
+
     it('forwards children alongside built-in overlays', () => {
         const { container } = renderChart(
             <TimeSeriesComboChart series={BAR_AND_LINE} labels={LABELS} theme={THEME}>

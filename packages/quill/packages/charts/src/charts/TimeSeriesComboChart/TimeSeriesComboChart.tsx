@@ -7,6 +7,7 @@ import type {
     ChartLegendConfig,
     ChartTheme,
     ComboChartConfig,
+    DateRangeZoomData,
     PointClickData,
     SeriesType,
     Series,
@@ -74,6 +75,7 @@ export interface TimeSeriesComboChartProps<Meta = unknown> {
     config?: TimeSeriesComboChartConfig
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onPointClick?: (data: PointClickData<Meta>) => void
+    onDateRangeZoom?: (data: DateRangeZoomData) => void
     dataAttr?: string
     className?: string
     children?: React.ReactNode
@@ -90,6 +92,7 @@ export function TimeSeriesComboChart<Meta = unknown>({
     config,
     tooltip,
     onPointClick,
+    onDateRangeZoom,
     dataAttr,
     className,
     children,
@@ -182,6 +185,7 @@ export function TimeSeriesComboChart<Meta = unknown>({
                 theme={theme}
                 tooltip={tooltip}
                 onPointClick={onPointClick}
+                onDateRangeZoom={onDateRangeZoom}
                 className={className}
                 dataAttr={dataAttr}
                 onError={onError}

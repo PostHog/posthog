@@ -3,7 +3,7 @@ import { useMemo } from 'react'
 import { TimeSeriesBarChart, type TimeSeriesBarChartConfig } from '@posthog/quill-charts'
 
 import type { DataFrame } from '../../../../query/queryTypes'
-import { useTimeSeriesChart } from '../../data/useTimeSeriesChart'
+import { useTimeSeriesChart, useZoomToTimeRange } from '../../data/useTimeSeriesChart'
 import type { BarOptions } from './barSpec'
 
 export function BarViz({ frames, options }: { frames: DataFrame[]; options: BarOptions }): JSX.Element {
@@ -13,5 +13,6 @@ export function BarViz({ frames, options }: { frames: DataFrame[]; options: BarO
         (): TimeSeriesBarChartConfig => ({ ...baseConfig, barLayout: stacked ? 'stacked' : 'grouped' }),
         [baseConfig, stacked]
     )
-    return <TimeSeriesBarChart series={series} labels={labels} config={config} />
+    const onDateRangeZoom = useZoomToTimeRange(labels)
+    return <TimeSeriesBarChart series={series} labels={labels} config={config} onDateRangeZoom={onDateRangeZoom} />
 }

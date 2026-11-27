@@ -39,7 +39,6 @@ export function TimeRangePicker({
                 <DateTimePicker
                     value={toPickerValue(value ?? { from: ranges[0]?.from ?? 'now-7d', to: 'now' }, ranges, timezone)}
                     ranges={pickerRanges(ranges, timezone)}
-                    showTime={false}
                     onApply={(next) => {
                         onChange(fromPickerValue(next, ranges))
                         setOpen(false)
