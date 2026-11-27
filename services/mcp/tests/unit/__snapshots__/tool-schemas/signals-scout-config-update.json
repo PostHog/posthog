@@ -89,6 +89,54 @@
                     "description": "Whether this scout's reports appear in the shared inbox. Defaults to true. Set false to keep the reports this scout authors out of the inbox and its Slack notifications, for example for a digest scout read in Slack. Reports this scout only edits are not affected. An update that omits this key keeps the stored value.",
                     "type": "boolean"
                 },
+                "messages": {
+                    "description": "Routes the scout may message on, through `slack.integration_id`. Omit to keep, `[]` to clear.",
+                    "items": {
+                        "properties": {
+                            "key": {
+                                "description": "Slug the scout names to send on this route.",
+                                "maxLength": 64,
+                                "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+                                "type": "string"
+                            },
+                            "to": {
+                                "items": {
+                                    "properties": {
+                                        "channel": {
+                                            "description": "Slack channel ID, for `slack_channel`. Never a shared channel.",
+                                            "maxLength": 255,
+                                            "type": "string"
+                                        },
+                                        "type": {
+                                            "description": "* `slack_dm` - Slack direct message\n* `slack_channel` - Slack channel",
+                                            "enum": ["slack_dm", "slack_channel"],
+                                            "type": "string"
+                                        },
+                                        "user": {
+                                            "description": "Slack member ID, for `slack_dm`.",
+                                            "maxLength": 255,
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": ["type"],
+                                    "type": "object"
+                                },
+                                "maxItems": 5,
+                                "minItems": 1,
+                                "type": "array"
+                            },
+                            "when": {
+                                "description": "When the scout should send, shown in its run prompt.",
+                                "maxLength": 300,
+                                "type": "string"
+                            }
+                        },
+                        "required": ["key", "when", "to"],
+                        "type": "object"
+                    },
+                    "maxItems": 10,
+                    "type": "array"
+                },
                 "slack": {
                     "anyOf": [
                         {

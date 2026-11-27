@@ -55,7 +55,7 @@ function withPlaces(tiles: Tile[], placed: PlacedItem[]): Tile[] {
     const byId = new Map(placed.map((item) => [item.i, item]))
     return tiles.map((tile) => {
         const item = byId.get(tile.id)
-        return item ? { ...tile, place: { x: item.x, y: item.y, w: item.w, h: item.h } } : tile
+        return item ? { ...tile, place: { ...tile.place, x: item.x, y: item.y, w: item.w, h: item.h } } : tile
     })
 }
 

@@ -68,7 +68,7 @@ export const ContentAutopilotPromptAddModal = (): JSX.Element => {
                             value={text}
                             onChange={(event) => setText(event.target.value)}
                             rows={6}
-                            placeholder="What's the best open source session replay tool?"
+                            placeholder="What's the best scheduling software for a dental clinic?"
                             autoFocus
                             data-attr="content-autopilot-prompts-add-text"
                         />
@@ -83,7 +83,7 @@ export const ContentAutopilotPromptAddModal = (): JSX.Element => {
                             value={topic}
                             onChange={(event) => setTopic(event.target.value)}
                             maxLength={aeoPromptsBulkImportBodyPromptsItemTopicMax}
-                            placeholder="Session replay"
+                            placeholder="Scheduling software"
                         />
                         <FieldDescription>Optional. Groups the prompts in the overview and the list.</FieldDescription>
                     </Field>

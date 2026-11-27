@@ -17,16 +17,20 @@ from products.warehouse_sources.sources.sdk import (
 
 GOLDCAST_BASE_URL = "https://customapi.goldcast.io"
 
-# Broadcast rows carry live-stream and translation-session credentials. They have no analytics
-# value and would otherwise land in the warehouse in plain text.
-_BROADCAST_SECRET_FIELDS = (
-    "medialive_rtmp_input_details",
-    "youtube_stream_key",
-    "facebook_stream_key",
-    "custom_stream_key",
-    "external_rtmp_push_stream",
-    "wordly_session_key",
-)
+# Broadcast rows carry live-stream and translation-session credentials, and recording rows carry a
+# presigned download URL (plus its lifetime in seconds). They have no analytics value and would
+# otherwise land in the warehouse in plain text.
+_SECRET_FIELDS: dict[str, tuple[str, ...]] = {
+    "broadcasts": (
+        "medialive_rtmp_input_details",
+        "youtube_stream_key",
+        "facebook_stream_key",
+        "custom_stream_key",
+        "external_rtmp_push_stream",
+        "wordly_session_key",
+    ),
+    "recordings": ("signed_get_url", "expires_in"),
+}
 
 
 def _headers() -> dict[str, str]:
@@ -54,10 +58,13 @@ def _require_id(parent_name: str) -> Callable[[dict[str, Any]], dict[str, Any]]:
     return _check
 
 
-def _strip_broadcast_secrets(row: dict[str, Any]) -> dict[str, Any]:
-    for key in _BROADCAST_SECRET_FIELDS:
-        row.pop(key, None)
-    return row
+def _strip_fields(fields: tuple[str, ...]) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    def _strip(row: dict[str, Any]) -> dict[str, Any]:
+        for key in fields:
+            row.pop(key, None)
+        return row
+
+    return _strip
 
 
 def _parent_resource(parent_name: str) -> EndpointResource:
@@ -84,17 +91,19 @@ def _top_level_resource(config: GoldcastEndpointConfig) -> EndpointResource:
             "paginator": SinglePagePaginator(),
         },
     }
-    if config.name == "broadcasts":
-        resource["data_map"] = _strip_broadcast_secrets
+    if config.name in _SECRET_FIELDS:
+        resource["data_map"] = _strip_fields(_SECRET_FIELDS[config.name])
     return resource
 
 
 def _fan_out_resource(config: GoldcastEndpointConfig, parent_name: str) -> EndpointResource:
     # One request per parent id. `{<parent_field>}` is bound from the parent's `id` — in the URL path
-    # for most children, in a query string carried on the path template for `event_members`. The
-    # parent id is injected into each child row under `parent_field` to form the composite primary
-    # key (child ids are only unique per parent); for `event_members`, which already carries a
-    # possibly stale `event`, this re-stamps it to the parent id.
+    # for most children, in a query string carried on the path template for `event_members` and
+    # `booths`. The parent id is injected into each child row under `parent_field` to form the
+    # composite primary key (child ids are only unique per parent); for `event_members`, which
+    # already carries a possibly stale `event`, this re-stamps it to the parent id.
+    rename = rename_parent_fields(parent_name, {"id": config.parent_field})
+    strip = _strip_fields(_SECRET_FIELDS.get(config.name, ()))
     return {
         "name": config.name,
         "include_from_parent": ["id"],
@@ -106,7 +115,7 @@ def _fan_out_resource(config: GoldcastEndpointConfig, parent_name: str) -> Endpo
             # can 404. Skip it rather than failing the whole sync; any other error still raises.
             "response_actions": [{"status_code": 404, "action": "ignore"}],
         },
-        "data_map": rename_parent_fields(parent_name, {"id": config.parent_field}),
+        "data_map": lambda row: strip(rename(row)),
     }
 
 

@@ -14,6 +14,7 @@ import { nativeSourceDisplayLabel } from 'scenes/web-analytics/tabs/marketing-an
 
 import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
 
+import { marketingSourceConnectUrl } from '../components/marketingSourceConnectUrl'
 import { expandedSourceTypes, sourceConnectionGroupsLogic } from './sourceConnectionGroupsLogic'
 
 const HedgehogMoney = pngHoggie(moneyPng)
@@ -132,7 +133,7 @@ export function SourceSetupPanel({
         ) : null
 
     return (
-        <LemonCard hoverEffect={false} className="w-full mt-6 p-0 overflow-hidden">
+        <LemonCard hoverEffect={false} className="w-full p-0 overflow-hidden">
             <div className={compact ? 'p-4 space-y-3' : 'p-6 space-y-5'}>
                 {!compact && (state === 'scanning' || state === 'suggestions') && (
                     <LemonTag type="muted">7-day event scan</LemonTag>
@@ -225,7 +226,6 @@ export function SourceSetupPanel({
                                                                 connection.manageUrl ??
                                                                 urls.dataWarehouseSource(`managed-${connection.id}`)
                                                             }
-                                                            targetBlank
                                                             data-attr={manageSourceDataAttr}
                                                         >
                                                             Manage source
@@ -265,14 +265,12 @@ export function SourceSetupPanel({
                                             typeof suggestion.apply.kind === 'string' &&
                                             suggestion.apply.kind.length > 0 && (
                                                 <LemonButton
-                                                    type="primary"
+                                                    type="secondary"
                                                     size="small"
-                                                    to={urls.dataWarehouseSourceNew(
+                                                    to={marketingSourceConnectUrl(
                                                         suggestion.apply.kind,
-                                                        urls.marketingAnalyticsApp(),
-                                                        'Marketing analytics'
+                                                        'marketing_analytics_source_setup_panel'
                                                     )}
-                                                    targetBlank
                                                     data-attr="marketing-onboarding-connect-source"
                                                 >
                                                     Connect

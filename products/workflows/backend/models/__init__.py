@@ -1,3 +1,4 @@
+from .advent_calendar_answer import AdventCalendarAnswer
 from .hog_flow.hog_flow import HogFlow
 from .hog_flow.hog_flow_template import HogFlowTemplate
 from .hog_flow_batch_job import HogFlowBatchJob, HogFlowBatchJobAudienceMember
@@ -14,6 +15,7 @@ from .workflow_import import WorkflowImport
 from .workflow_proposal import WorkflowProposal
 
 __all__ = [
+    "AdventCalendarAnswer",
     "HogFlow",
     "HogFlowBatchJob",
     "HogFlowBatchJobAudienceMember",

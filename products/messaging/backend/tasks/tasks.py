@@ -1,5 +1,6 @@
 from uuid import UUID
 
+import posthoganalytics
 from celery import shared_task
 
 from posthog.scoping_audit import skip_team_scope_audit
@@ -41,4 +42,8 @@ def detect_code_email_source_task(team_id: int, key_id: str, attempt: int = 1) -
 @shared_task(ignore_result=True, name="products.messaging.backend.tasks.close_stale_provider_import_runs")
 def close_stale_provider_import_runs() -> None:
     """End import runs whose workflow is gone, so a vendor key never outlives its run."""
-    close_stale_runs()
+    try:
+        close_stale_runs()
+    finally:
+        # Each closed run reports how it finished, and the worker can exit before the client's background flush.
+        posthoganalytics.flush()

@@ -94,6 +94,14 @@ class TestBuildBaseParams:
         assert params["order"] == "last_update"
         assert params["direction"] == "asc"
 
+    @parameterized.expand([("leads",), ("spreadsheets",)])
+    def test_full_refresh_sorts_ascending_by_id(self, endpoint: str) -> None:
+        # noCRM defaults to `direction=desc`, which shifts offset pages when rows are added mid-sync.
+        params = _build_base_params(
+            NOCRM_ENDPOINTS[endpoint], should_use_incremental_field=False, db_incremental_field_last_value=None
+        )
+        assert params == {"order": "id", "direction": "asc"}
+
     @parameterized.expand([("users",), ("teams",), ("steps",), ("pipelines",), ("categories",), ("tags",), ("fields",)])
     def test_metadata_endpoints_send_no_order_or_filter(self, endpoint: str) -> None:
         # These endpoints don't document an `order` param, so we must not send one (nor a filter).
@@ -212,6 +220,7 @@ class TestFanout:
         [
             ("lead_action_histories", "/api/v2/leads", _LEADS_QUERY, "/api/v2/leads/{id}/action_histories", {}, True),
             ("lead_comments", "/api/v2/leads", _LEADS_QUERY, "/api/v2/leads/{id}/comments", {}, False),
+            ("lead_attachments", "/api/v2/leads", _LEADS_QUERY, "/api/v2/leads/{id}/attachments", {}, False),
             ("follow_ups", "/api/v2/users", {}, "/api/v2/follow_ups", {"status": ("todo,standby,done",)}, False),
         ]
     )
@@ -266,3 +275,53 @@ class TestFanout:
         assert {r["lead_id"] for r in result.rows} == {7}
         assert result.response is not None
         assert result.response.primary_keys == ["lead_id", "id"]
+
+    def test_spreadsheet_rows_are_read_from_each_list_detail(self) -> None:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/api/v2/spreadsheets":
+                return ScriptedResponse(json=[{"id": 31, "title": "List A"}, {"id": 32, "title": "List B"}])
+            if request.path == "/api/v2/spreadsheets/32":
+                return ScriptedResponse(status=404, json={"error": "record_not_found"})
+            return ScriptedResponse(
+                json={
+                    "id": 31,
+                    "title": "List A",
+                    "spreadsheet_rows": [
+                        {"id": 501, "lead_id": 77, "is_active": False, "content": ["Example Co", "a@example.com"]},
+                        {"id": 502, "lead_id": None, "is_active": True, "content": ["Sample Inc", None]},
+                    ],
+                }
+            )
+
+        result = _driver().run("spreadsheet_rows", respond)
+
+        assert result.raised is None
+        assert [(r["spreadsheet_id"], r["id"], r["lead_id"]) for r in result.rows] == [(31, 501, 77), (31, 502, None)]
+        assert all("title" not in r for r in result.rows)
+        parent_requests = [r for r in result.requests if r.path == "/api/v2/spreadsheets"]
+        assert parent_requests[0].query["order"] == ("id",)
+        assert parent_requests[0].query["direction"] == ("asc",)
+        child_requests = [r for r in result.requests if r.path != "/api/v2/spreadsheets"]
+        assert [r.path for r in child_requests] == ["/api/v2/spreadsheets/31", "/api/v2/spreadsheets/32"]
+        assert all("limit" not in r.query for r in child_requests)
+
+    @parameterized.expand(
+        [
+            ("missing_key", {"id": 31, "title": "List A"}, True),
+            ("empty_list", {"id": 31, "spreadsheet_rows": []}, False),
+        ]
+    )
+    def test_spreadsheet_rows_selector_must_be_present(self, _name: str, detail: dict, raises: bool) -> None:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/api/v2/spreadsheets":
+                return ScriptedResponse(json=[{"id": 31}])
+            return ScriptedResponse(json=detail)
+
+        result = _driver().run("spreadsheet_rows", respond)
+
+        assert result.rows == []
+        if raises:
+            assert isinstance(result.raised, ValueError)
+            assert "spreadsheet_rows" in str(result.raised)
+        else:
+            assert result.raised is None

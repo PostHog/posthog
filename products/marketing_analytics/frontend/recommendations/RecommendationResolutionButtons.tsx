@@ -25,7 +25,7 @@ export function RecommendationResolutionButtons({
                 </LemonTag>
                 <LemonButton
                     size="xsmall"
-                    type="tertiary"
+                    type="secondary"
                     loading={loading}
                     tooltip="Show this recommendation again for everyone in this project"
                     onClick={() => restoreRecommendation(recommendation)}
@@ -49,11 +49,11 @@ export function RecommendationResolutionButtons({
     }
 
     return (
-        <div className="flex flex-col items-end gap-0.5 whitespace-nowrap">
+        <div className="flex flex-col items-end gap-3 py-2 whitespace-nowrap">
             {recommendation.impactDirection !== 'keep' && (
                 <LemonButton
                     size="xsmall"
-                    type="tertiary"
+                    type="secondary"
                     loading={loading}
                     tooltip="Mark that you made this change. It stays hidden for everyone in this project until someone restores it."
                     onClick={() => resolveRecommendation(recommendation, 'applied')}
@@ -65,7 +65,7 @@ export function RecommendationResolutionButtons({
             )}
             <LemonButton
                 size="xsmall"
-                type="tertiary"
+                type="secondary"
                 loading={loading}
                 tooltip="Hide this recommendation for everyone in this project, for any date range, until someone restores it."
                 onClick={() => resolveRecommendation(recommendation, 'dismissed')}
