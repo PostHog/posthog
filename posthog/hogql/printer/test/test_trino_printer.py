@@ -8,7 +8,7 @@ from unittest import mock
 import duckdb
 from syrupy.assertion import SnapshotAssertion
 
-from posthog.schema import HogQLQueryModifiers
+from posthog.schema import CustomBotCondition, CustomBotField, CustomBotMatcher, CustomBotRule, HogQLQueryModifiers
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLDialect, HogQLQuerySettings
@@ -47,7 +47,7 @@ from posthog.hogql.transforms.trino.transpiler import TrinoTranspilerInput, tran
 from posthog.hogql.transforms.trino.validate import _SPECIAL_CALLS
 from posthog.hogql.trino_parameters import convert_pyformat_placeholders
 
-from posthog.schema_enums import PersonsOnEventsMode
+from posthog.schema_enums import FilterLogicalOperator, PersonsOnEventsMode
 
 
 def _trino_modifiers() -> HogQLQueryModifiers:
@@ -3004,6 +3004,7 @@ def test_prints_type_aware_and_search_rewrites(expression: str, expected: str) -
         ),
         ("percentile_cont(0.5) WITHIN GROUP (ORDER BY id)", "__hogql_percentile_values"),
         ("percentile_disc(0.5) WITHIN GROUP (ORDER BY id)", "greatest(CAST(ceil("),
+        ("isLikelyBot(properties.user_agent, properties.ip)", " IN (IPADDRESS '"),
     ],
 )
 def test_prints_live_parity_regressions(expression: str, expected: str) -> None:
@@ -3011,6 +3012,27 @@ def test_prints_live_parity_regressions(expression: str, expected: str) -> None:
         parse_select(f"SELECT {expression} FROM users"), _context_with_trino_table(), "trino"
     )
     assert expected in sql
+
+
+_OFFICE_CIDR_RULE = CustomBotRule(
+    id="1",
+    name="Office crawler",
+    combiner=FilterLogicalOperator.AND_,
+    items=[
+        CustomBotCondition(id="c1", key=CustomBotField.FIELD_IP, matcher=CustomBotMatcher.CIDR, pattern="192.0.2.0/24")
+    ],
+)
+
+
+@pytest.mark.parametrize("custom_rules", [[], [_OFFICE_CIDR_RULE]], ids=["built_in_rules", "custom_cidr_rule"])
+def test_prints_the_bot_ip_lookup_once(custom_rules: list[CustomBotRule]) -> None:
+    context = _context_with_trino_table()
+    context.modifiers.customBotDefinitions = custom_rules
+    sql, _ = prepare_and_print_ast(
+        parse_select("SELECT getBotName(properties.$raw_user_agent, properties.$ip) FROM users"), context, "trino"
+    )
+    last_built_in_network = re.findall(r"IPADDRESS '[^']+'", sql)[-1]
+    assert sql.count(last_built_in_network) == 1
 
 
 def test_preserves_legacy_clickhouse_array_reverse_sort_mapping() -> None:
