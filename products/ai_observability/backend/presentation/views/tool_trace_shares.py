@@ -9,13 +9,14 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from ...facade import diagnostics
 from ...facade.diagnostics_contracts import ToolTraceShareList
 from .diagnostics_resource import RANGE_TOO_LONG_RESPONSE, SCOPE_RESPONSE, DiagnosticsViewSet
+from .list_filters import MAX_SCOPE_TEXT_LENGTH
 from .tools import ToolSelectionQuerySerializer
 from .trace_resource import THROTTLED_RESPONSE
 
 
 class ToolTraceSharesRequestSerializer(serializers.Serializer):
     keys = serializers.ListField(
-        child=serializers.CharField(trim_whitespace=False),
+        child=serializers.CharField(trim_whitespace=False, max_length=MAX_SCOPE_TEXT_LENGTH),
         min_length=1,
         max_length=diagnostics.TOOL_TRACE_SHARES_MAX_KEYS,
         help_text=f"Up to {diagnostics.TOOL_TRACE_SHARES_MAX_KEYS} tool keys, as the tools list hands them out.",

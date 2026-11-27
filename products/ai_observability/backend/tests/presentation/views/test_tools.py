@@ -24,6 +24,7 @@ from products.ai_observability.backend.facade.diagnostics_contracts import (
     ToolTraceShare,
     ToolTraceShareList,
 )
+from products.ai_observability.backend.presentation.views.list_filters import MAX_SCOPE_TEXT_LENGTH
 
 from ...logic.diagnostics.test_tool_group_queries import _generation
 from ...logic.traces.test_trace_selection_queries import T0, seed
@@ -32,6 +33,7 @@ if TYPE_CHECKING:
     from rest_framework.response import _MonkeyPatchedResponse
 
 KEY = "ZmV0Y2hfcGFnZQ"
+LONGEST_KEY = "k" * MAX_SCOPE_TEXT_LENGTH
 STARTS = [datetime(2026, 9, 1, 9, tzinfo=UTC), datetime(2026, 9, 1, 10, tzinfo=UTC)]
 
 ITEM = ToolListItem(
@@ -175,7 +177,9 @@ class TestToolViews(APIBaseTest):
     def test_trace_shares_take_the_list_filters_and_the_keys(self) -> None:
         with self._facade() as facade:
             response = self._request(
-                "trace_shares", {"date_from": "2026-09-01T00:00:00Z", "group_key": "acme", "group_type_index": 1}
+                "trace_shares",
+                {"date_from": "2026-09-01T00:00:00Z", "group_key": "acme", "group_type_index": 1},
+                keys=[KEY, LONGEST_KEY],
             )
 
         assert (response.status_code, response.json()) == (200, {"items": [{"key": KEY, "traceShare": 0.45}]})
@@ -184,11 +188,13 @@ class TestToolViews(APIBaseTest):
             self.team,
             datetime(2026, 9, 1, tzinfo=UTC),
             api.TraceGroupScope(key="acme", type_index=1),
-            [KEY],
+            [KEY, LONGEST_KEY],
         )
 
-    @parameterized.expand([("none", []), ("over the cap", [KEY] * 101)])
-    def test_trace_shares_take_one_to_a_hundred_keys(self, _name: str, keys: list[str]) -> None:
+    @parameterized.expand(
+        [("none", []), ("over the cap", [KEY] * 101), ("a key too long", ["k" * (MAX_SCOPE_TEXT_LENGTH + 1)])]
+    )
+    def test_trace_shares_take_one_to_a_hundred_keys_of_bounded_length(self, _name: str, keys: list[str]) -> None:
         with self._facade():
             assert self._request("trace_shares", keys=keys).status_code == 400
 
@@ -212,7 +218,7 @@ class TestToolViews(APIBaseTest):
             ("unreadable window", "list", diagnostics.InvalidTraceWindowError("Out of range"), 400),
             ("malformed key", "retrieve", diagnostics.MalformedEntityKeyError(KEY), 400),
             ("unknown key", "retrieve", diagnostics.ToolNotFoundError(KEY), 404),
-            ("too heavy a trace count", "trace_shares", diagnostics.DiagnosticsRangeTooLongError(), 422),
+            ("too long a range", "trace_shares", diagnostics.DiagnosticsRangeTooLongError(), 422),
             ("malformed key", "trace_shares", diagnostics.MalformedEntityKeyError(KEY), 400),
         ]
     )

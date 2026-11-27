@@ -699,11 +699,13 @@ export const AiObservabilitySessionsPreviewsCreateBody = /* @__PURE__ */ zod.obj
  * in the body because a page of them does not fit in a query string. Send the filters of the list the keys came
  * from.
  */
+export const aiObservabilityToolsTraceSharesCreateBodyKeysItemMax = 65536
+
 export const aiObservabilityToolsTraceSharesCreateBodyKeysMax = 100
 
 export const AiObservabilityToolsTraceSharesCreateBody = /* @__PURE__ */ zod.object({
     keys: zod
-        .array(zod.string())
+        .array(zod.string().max(aiObservabilityToolsTraceSharesCreateBodyKeysItemMax))
         .min(1)
         .max(aiObservabilityToolsTraceSharesCreateBodyKeysMax)
         .describe('Up to 100 tool keys, as the tools list hands them out.'),

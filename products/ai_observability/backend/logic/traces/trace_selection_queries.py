@@ -47,6 +47,7 @@ from .trace_selection import (
 
 SELECTION_QUERY_NAME = "ai_traces_selection"
 SESSION_SELECTION_QUERY_NAME = "ai_session_traces_selection"
+TRACE_COUNT_QUERY_NAME = "ai_traces_count"
 BEFORE_QUERY_SUFFIX = "_before"
 AROUND_QUERY_SUFFIX = "_around"
 # Recency-ordered cap on the traces a search matches: older matches drop once a search hits more than this.
@@ -347,6 +348,13 @@ def grouped_traces(team: Team, selection: TraceSelection, extra: dict[str, ast.E
     assert isinstance(query, ast.SelectQuery)
     query.select.extend(ast.Alias(alias=name, expr=expr) for name, expr in extra.items())
     return query
+
+
+def load_trace_count(team: Team, user: User | None, selection: TraceSelection) -> int:
+    """How many traces the traces list holds for the selection, before its quick filter."""
+    query = parse_select("SELECT count() FROM {traces}", {"traces": grouped_traces(team, selection, {})})
+    [[count]] = execute_selection(team, user, selection, query, TRACE_COUNT_QUERY_NAME)
+    return count
 
 
 def _page_source(team: Team, selection: TraceSelection) -> ast.SelectQuery:

@@ -2171,6 +2171,7 @@ export interface ToolTraceSharesRequestApi {
      * Up to 100 tool keys, as the tools list hands them out.
      * @minItems 1
      * @maxItems 100
+     * @items.maxLength 65536
      */
     keys: string[]
 }
