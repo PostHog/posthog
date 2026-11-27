@@ -815,7 +815,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                                   eventName: m.eventName,
                                   eventUuid: m.eventUuid,
                                   eventTimestamp: m.eventTimestamp,
-                                  ...(m.nextMatch ? { next: m.nextMatch } : {}),
+                                  next: m.nextMatch ?? null,
                               }
                             : { kind: 'recheck' },
                     },
@@ -2458,7 +2458,7 @@ async function evaluateWaitWake(
     if (matches.length === 0) {
         return null
     }
-    return { kind: 'match', ...matches[0], ...(matches[1] ? { next: matches[1] } : {}) }
+    return { kind: 'match', ...matches[0], next: matches[1] ?? null }
 }
 
 // A later match fills a kept match's empty second slot, so a kept trigger event cannot hide it.

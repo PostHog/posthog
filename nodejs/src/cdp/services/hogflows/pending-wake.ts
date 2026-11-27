@@ -21,9 +21,9 @@ export type WaitMatchEvent = Pick<PendingWakeEntry, 'eventName' | 'eventUuid' | 
 // and whether that match lands depends only on whether the run parked first. It never ends the wait.
 export function matchNotFromTrigger(
     state: HogFlowInvocationContext,
-    ...matches: (WaitMatchEvent | undefined)[]
+    ...matches: (WaitMatchEvent | null | undefined)[]
 ): WaitMatchEvent | undefined {
-    return matches.find((m) => m && !(m.eventUuid && m.eventUuid === state.event?.uuid))
+    return matches.find((m): m is WaitMatchEvent => !!m && !(m.eventUuid && m.eventUuid === state.event?.uuid))
 }
 
 export function applyPendingWake(state: HogFlowInvocationContext, pendingWake: PendingWake | undefined): void {
@@ -33,7 +33,9 @@ export function applyPendingWake(state: HogFlowInvocationContext, pendingWake: P
         return
     }
     if (entry.kind === 'match') {
-        const match = matchNotFromTrigger(state, entry, entry.next)
+        // An entry with no `next` key comes from a matcher that never looks for a second match, so
+        // dropping its trigger event could lose a real one hidden behind it. It wakes as written.
+        const match = matchNotFromTrigger(state, entry, entry.next) ?? (entry.next === undefined ? entry : undefined)
         if (!match) {
             counterWaitWakeByTriggerEventIgnored.labels({ path: 'in_flight' }).inc()
             return
