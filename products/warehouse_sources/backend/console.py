@@ -115,6 +115,15 @@ def _temporal_url(path: str) -> str:
     return f"{settings.TEMPORAL_UI_HOST}/namespaces/{settings.TEMPORAL_NAMESPACE}/{path}"
 
 
+def _schema(request: HttpRequest, schema_id: UUID) -> StaffSchemaSummary | None:
+    # The breadcrumb, the page and its operations all read the same schema.
+    return ConsoleTool.once_per_request(request, ("schema", str(schema_id)), lambda: get_schema_for_staff(schema_id))
+
+
+def _source(request: HttpRequest, source_id: UUID) -> StaffSourceSummary | None:
+    return ConsoleTool.once_per_request(request, ("source", str(source_id)), lambda: get_source_for_staff(source_id))
+
+
 def _uuid_param(request: HttpRequest, name: str) -> UUID | None:
     try:
         return UUID(request.GET.get(name, "").strip())
@@ -449,7 +458,7 @@ def recreate_schedule(request: HttpRequest, form: forms.Form | None) -> HttpResp
 
 
 def reenable_schema(request: HttpRequest, form: forms.Form | None) -> HttpResponse | None:
-    schema = get_schema_for_staff(_schema_id(request))
+    schema = _schema(request, _schema_id(request))
     assert schema is not None, "The tool offers this operation only for an existing schema"
     result = reenable_schemas_for_staff(
         [SchemaReenableTarget(schema_id=schema.id, team_id=schema.team_id, auto_disabled_at=schema.auto_disabled_at)]
@@ -473,14 +482,14 @@ class WarehouseSourcesTool(ConsoleTool):
 
     def place(self, request: HttpRequest) -> ToolPlace | None:
         schema_id = _uuid_param(request, "schema")
-        schema = get_schema_for_staff(schema_id) if schema_id is not None else None
+        schema = _schema(request, schema_id) if schema_id is not None else None
         if schema is not None:
             source = RecordLink(label=f"{schema.source_type} source", href=_tool_url(source=str(schema.source_id)))
             return ToolPlace.under(
                 "team", schema.team_id, (source, RecordLink(label=schema.name, href=_tool_url(schema=str(schema.id))))
             )
         source_id = _uuid_param(request, "source")
-        found = get_source_for_staff(source_id) if source_id is not None else None
+        found = _source(request, source_id) if source_id is not None else None
         if found is None:
             return None
         return ToolPlace.under(
@@ -492,11 +501,11 @@ class WarehouseSourcesTool(ConsoleTool):
     def page(self, request: HttpRequest) -> Page:
         page_number = request.GET.get("page")
         schema_id = _uuid_param(request, "schema")
-        schema = get_schema_for_staff(schema_id) if schema_id is not None else None
+        schema = _schema(request, schema_id) if schema_id is not None else None
         if schema is not None:
             return SchemaPage.build(schema, page_number)
         source_id = _uuid_param(request, "source")
-        source = get_source_for_staff(source_id) if source_id is not None else None
+        source = _source(request, source_id) if source_id is not None else None
         if source is not None:
             return SourcePage.build(source, page_number)
         return Page(
@@ -511,7 +520,7 @@ class WarehouseSourcesTool(ConsoleTool):
 
     def operations(self, request: HttpRequest) -> list[ToolOperation]:
         schema_id = _uuid_param(request, "schema")
-        schema = get_schema_for_staff(schema_id) if schema_id is not None else None
+        schema = _schema(request, schema_id) if schema_id is not None else None
         if schema is None:
             return []
         partitioning = schema.partitioning
