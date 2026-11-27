@@ -82,7 +82,7 @@ import {
 
 const CLOUD_RUN_HOST_LABEL = 'run-host'
 const ALERTS_FILE = 'alerts.jsonl'
-const EDGE_HOSTS = ['ses', WEBHOOK_HOST]
+const EDGE_HOSTS = ['ses', 's3', WEBHOOK_HOST]
 
 export type TargetRun = Pick<JudgeOptions, 'truth' | 'fetchRetries' | 'residentBacklog'> & {
     probe: Pick<CyclotronProbe, 'unfinishedJobs' | 'runningJobs'>
@@ -798,6 +798,7 @@ export function createRunner(
                     steps,
                     timeline: valves.timeline(),
                     ...(opened.attachmentBudgets && { attachmentBudgets: opened.attachmentBudgets }),
+                    exits: environment.exits().slice(exitsBefore),
                 }
                 const measurements = measure(card.measure, evidence)
                 const admissions = admissionsOf(

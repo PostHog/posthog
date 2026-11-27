@@ -9,6 +9,7 @@ import type { Definition } from '../cards/definitions'
 import type { ObservationName } from '../environment/failover'
 import { ReplicaOf, nameOf } from '../environment/identity'
 import type { AttachmentBudget } from '../environment/roles'
+import type { RoleExit } from '../environment/supervisor'
 import type { QueueCounts } from '../probe/cyclotron-probe'
 import type { WriterSample } from '../probe/writer-probe'
 import type { ValveTimelineEntry } from '../valves/valves'
@@ -65,6 +66,7 @@ export type MeasureEvidence = Omit<JudgeEvidence, 'janitorResets' | 'boundary'> 
         horizonAt?: number
         converged?: boolean
         unsettled?: string
+        exits?: readonly RoleExit[]
     }
 
 export type MeasurementDefinition = Definition & {
@@ -129,16 +131,22 @@ export const roleCpuSeconds: MeasurementDefinition = {
 export const maxOf = (values: readonly number[]): number =>
     values.reduce((max, value) => Math.max(max, value), -Infinity)
 
+const EMAIL_WORKER: z.infer<typeof CdpRole> = 'cdp-cyclotron-worker-email'
+
+const emailWorkerOnly = (samples: readonly MetricSample[]): MetricSample[] =>
+    samples.filter(({ role }) => role === EMAIL_WORKER)
+
 const peakPerRole = (
     name: string,
     unit: string,
-    read: (sample: MetricSample) => number | undefined
+    read: (sample: MetricSample) => number | undefined,
+    rolesOf: (samples: readonly MetricSample[]) => readonly MetricSample[] = (samples) => samples
 ): MeasurementDefinition => ({
     name,
     params: z.object({}).strict(),
     unit,
     measure: ({ samples, missed }) =>
-        [...byRole(samples)].flatMap(([role, ofRole]) => {
+        [...byRole(rolesOf(samples))].flatMap(([role, ofRole]) => {
             const values = ofRole.flatMap((sample) => read(sample) ?? [])
             return values.length === 0 ? [] : [{ key: role, value: maxOf(values), ...completeness(role, missed) }]
         }),
@@ -151,13 +159,15 @@ export const roleHeapMaxBytes = peakPerRole('role_heap_max_bytes', 'bytes', ({ h
 export const attachmentSendsInFlightMax = peakPerRole(
     'attachment_sends_in_flight_max',
     'sends',
-    ({ attachments }) => attachments?.inFlight
+    ({ attachments }) => attachments?.inFlight,
+    emailWorkerOnly
 )
 
 export const attachmentReservedBytesMax = peakPerRole(
     'attachment_reserved_bytes_max',
     'bytes',
-    ({ attachments }) => attachments?.reservedBytes
+    ({ attachments }) => attachments?.reservedBytes,
+    emailWorkerOnly
 )
 
 const unbudgeted = (role: string, budgets: readonly AttachmentBudget[] | undefined): Measured | undefined => {
@@ -217,27 +227,22 @@ export const roleRestarts: MeasurementDefinition = {
     name: 'role_restarts',
     params: z.object({}).strict(),
     unit: 'restarts',
-    measure: ({ samples, missed }) =>
-        [...byRole(samples)].map(([role, ofRole]) => ({
+    measure: ({ samples, exits = [] }) =>
+        [...new Set([...samples, ...exits].map(({ role }) => role))].sort().map((role) => ({
             key: role,
-            value: replicasOf(ofRole).reduce(
-                (sum, ofReplica) => sum + new Set(ofReplica.map(({ startedAt }) => startedAt)).size - 1,
-                0
-            ),
-            ...completeness(role, missed),
+            value: exits.filter((exit) => exit.role === role && !exit.byValve).length,
         })),
 }
 
-const deferralReplicasOf = (samples: readonly MetricSample[]): MetricSample[][] =>
-    replicasOf(samples.filter(({ attachments }) => attachments !== undefined))
+type WithAttachments = MetricSample & { attachments: AttachmentGauges }
+
+const deferralReplicasOf = (samples: readonly MetricSample[]): WithAttachments[][] =>
+    replicasOf(emailWorkerOnly(samples).filter((sample): sample is WithAttachments => sample.attachments !== undefined))
 
 const deferredFor =
     (reason: string): Counter =>
     ({ attachments }) =>
         attachments?.deferrals[reason] ?? 0
-
-const deferredInTotal: Counter = ({ attachments }) =>
-    Object.values(attachments?.deferrals ?? {}).reduce((sum, tokens) => sum + tokens, 0)
 
 export const attachmentDeferrals: MeasurementDefinition = {
     name: 'attachment_deferrals',
@@ -245,7 +250,7 @@ export const attachmentDeferrals: MeasurementDefinition = {
     unit: 'tokens',
     measure: ({ samples, missed, sampledFrom }) => {
         const replicas = deferralReplicasOf(samples)
-        const reasons = [...new Set(replicas.flat().flatMap(({ attachments }) => Object.keys(attachments!.deferrals)))]
+        const reasons = [...new Set(replicas.flat().flatMap(({ attachments }) => Object.keys(attachments.deferrals)))]
         const incomplete = replicas.some((ofReplica) => lostIncrease(ofReplica, missed))
         return reasons.sort().map((reason) => ({
             key: reason,
@@ -255,39 +260,19 @@ export const attachmentDeferrals: MeasurementDefinition = {
     },
 }
 
-function risesOf(ofReplica: readonly MetricSample[], read: Counter, since: number): number[] {
-    return ofReplica.flatMap((sample, i) => {
-        const previous = ofReplica[i - 1]
-        const before =
-            previous?.startedAt === sample.startedAt ? read(previous) : sample.startedAt * 1000 >= since ? 0 : undefined
-        return before !== undefined && read(sample) > before ? [sample.at] : []
-    })
-}
-
-export const attachmentDeferralWindowS: MeasurementDefinition = {
-    name: 'attachment_deferral_window_s',
-    params: z.object({}).strict(),
-    unit: 's',
-    measure: ({ samples, sampledFrom, drive }) => {
-        const rises = deferralReplicasOf(samples)
-            .flatMap((ofReplica) => risesOf(ofReplica, deferredInTotal, sampledFrom))
-            .sort((a, b) => a - b)
-        return rises.length === 0
-            ? []
-            : [
-                  { key: 'first', value: seconds(rises[0] - drive.startedAt) },
-                  { key: 'last', value: seconds(rises.at(-1)! - drive.startedAt) },
-              ]
-    },
-}
+const sesSendsOf = (truth: MeasureEvidence['truth']): MeasureEvidence['truth'] =>
+    truth.filter(({ kind }) => kind === 'ses.send')
 
 export const sendsPerMessageMax: MeasurementDefinition = {
     name: 'sends_per_message_max',
     params: z.object({}).strict(),
     unit: 'sends',
-    measure: ({ truth }) => {
-        const accepted = acceptedDeliveriesOf(truth).map(({ accepted }) => accepted)
-        return accepted.length === 0 ? [] : [{ value: maxOf(accepted) }]
+    measure: ({ truth, unread, unsettled, converged }) => {
+        const accepted = acceptedDeliveriesOf(sesSendsOf(truth)).map(({ accepted }) => accepted)
+        const incomplete = unread !== undefined || unsettled !== undefined || converged === false
+        return accepted.length === 0
+            ? []
+            : [{ value: maxOf(accepted), ...(incomplete ? { incomplete: true as const } : {}) }]
     },
 }
 
@@ -302,24 +287,31 @@ const latencySummary = (prefix: string, sorted: number[]): Measured[] =>
               { key: `${prefix}max`, value: sorted.at(-1)! },
           ]
 
-type Latency = { offeredAt: number; withFiles: boolean; ms: number }
+type Latency = { offeredAt: number; withFiles: boolean; emailed: boolean; ms: number }
 
 function latenciesOf({ journal, truth }: Pick<MeasureEvidence, 'journal' | 'truth'>): Latency[] {
-    const firstAccepted = new Map<string, number>()
-    for (const { unitId, actionId, status, at } of [...truth].sort((a, b) => a.seq - b.seq)) {
+    const firstAccepted = new Map<string, { at: number; emailed: boolean }>()
+    for (const { kind, unitId, actionId, status, at } of [...truth].sort((a, b) => a.seq - b.seq)) {
         const key = unitId !== undefined && actionId !== undefined ? deliveryKey(unitId, actionId) : undefined
         if (key !== undefined && status >= 200 && status < 300 && !firstAccepted.has(key)) {
-            firstAccepted.set(key, Date.parse(at))
+            firstAccepted.set(key, { at: Date.parse(at), emailed: kind === 'ses.send' })
         }
     }
     return journal
         .filter(({ answer }) => answer.accepted)
         .flatMap(({ unitId, offeredAt, expect }) =>
             expect.deliveries.flatMap((actionId) => {
-                const deliveredAt = firstAccepted.get(deliveryKey(unitId, actionId))
-                return deliveredAt === undefined
+                const delivered = firstAccepted.get(deliveryKey(unitId, actionId))
+                return delivered === undefined
                     ? []
-                    : [{ offeredAt, withFiles: (expect.attachments?.length ?? 0) > 0, ms: deliveredAt - offeredAt }]
+                    : [
+                          {
+                              offeredAt,
+                              withFiles: (expect.attachments?.length ?? 0) > 0,
+                              emailed: delivered.emailed,
+                              ms: delivered.at - offeredAt,
+                          },
+                      ]
             })
         )
 }
@@ -335,12 +327,13 @@ export const deliveryLatencyMs: MeasurementDefinition = {
     unit: 'ms',
     measure: (evidence) => {
         const latencies = latenciesOf(evidence)
+        const emails = latencies.filter(({ emailed }) => emailed)
         return [
             ...latencySummary('', sortedMs(latencies)),
             ...(runsFiles(evidence)
                 ? [
-                      ...latencySummary('plain_', sortedMs(latencies.filter(({ withFiles }) => !withFiles))),
-                      ...latencySummary('files_', sortedMs(latencies.filter(({ withFiles }) => withFiles))),
+                      ...latencySummary('plain_', sortedMs(emails.filter(({ withFiles }) => !withFiles))),
+                      ...latencySummary('files_', sortedMs(emails.filter(({ withFiles }) => withFiles))),
                   ]
                 : []),
         ]
@@ -370,6 +363,7 @@ function stepLatencies(evidence: MeasureEvidence): { step: StepWindow; part: str
                   sorted: sortedMs(
                       latencies.filter(
                           (latency) =>
+                              latency.emailed &&
                               latency.withFiles === withFiles &&
                               latency.offeredAt >= step.from &&
                               latency.offeredAt < step.to
@@ -634,7 +628,7 @@ const bracketing = <T extends { at: number }>(series: readonly T[], phase: Phase
     return [...spanning(series, phase), ...(closing ? [closing] : [])]
 }
 
-const replicasOf = (samples: readonly MetricSample[]): MetricSample[][] => [
+const replicasOf = <T extends MetricSample>(samples: readonly T[]): T[][] => [
     ...Map.groupBy(byTime(samples), ({ role, replica }) => `${role}-${replica}`).values(),
 ]
 
@@ -887,7 +881,6 @@ export const MEASUREMENTS: MeasurementDefinition[] = [
     deliveryLatencyMs,
     sendsPerMessageMax,
     attachmentDeferrals,
-    attachmentDeferralWindowS,
     attachmentSendsInFlightMax,
     attachmentReservedBytesMax,
     attachmentBudgetBytes,

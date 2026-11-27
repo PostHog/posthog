@@ -12,14 +12,13 @@ import {
     TEMPLATE_SEND_TOKEN_CLAIMS,
     TransactionalEmailRequestSchema,
 } from '~/cdp/services/hogflows/transactional-email'
-import { MESSAGE_MAX_BYTES, estimateMessageBytes } from '~/cdp/services/messaging/message-estimate'
 import { PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
 import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
 import { parseJSON } from '~/common/utils/json-parse'
+import { waitForExpect } from '~/tests/helpers/expectations'
 
 import { UNIT_EMAIL_DOMAIN } from '../provider-edge'
 import {
-    FILE_BYTES_AT_LIMIT,
     OfferContext,
     REAL_CLOCK,
     SendClock,
@@ -287,11 +286,27 @@ describe('traffic', () => {
 
 const sha256Of = (bytes: Buffer): string => createHash('sha256').update(bytes).digest('hex')
 
-type FilesAnswers = { uploads: Answer[]; puts: number[]; send: Answer }
+const firstPutsAnswer = (first: Record<string, number>): ((sha256: string) => number) => {
+    const answered = new Set<string>()
+    return (sha256) => {
+        const status = answered.has(sha256) ? 200 : first[sha256]
+        answered.add(sha256)
+        return status
+    }
+}
+
+const checksumOf = (sha256: string): string => Buffer.from(sha256, 'hex').toString('base64')
+
+type FilesAnswers = {
+    uploads: Answer[]
+    puts: number[] | ((sha256: string) => number)
+    send: Answer
+    putsHeld?: Promise<void>
+}
 
 type FilesCdpApi = { url: string; received: { route: string; body: unknown }[]; close(): Promise<void> }
 
-function startFilesCdpApi({ uploads, puts, send }: FilesAnswers): Promise<FilesCdpApi> {
+function startFilesCdpApi({ uploads, puts, send, putsHeld }: FilesAnswers): Promise<FilesCdpApi> {
     const verifier = new ScopedServiceJwt(PosthogJwtAudience.WORKFLOWS_SEND_TRANSACTIONAL_EMAIL, SECRET)
     const received: FilesCdpApi['received'] = []
     let url = ''
@@ -300,7 +315,7 @@ function startFilesCdpApi({ uploads, puts, send }: FilesAnswers): Promise<FilesC
     const server = http.createServer((req, res) => {
         const chunks: Buffer[] = []
         req.on('data', (chunk: Buffer) => chunks.push(chunk))
-        req.on('end', () => {
+        req.on('end', async () => {
             const raw = Buffer.concat(chunks)
             const claims = req.headers.authorization
                 ? verifier.verify(String(req.headers.authorization).replace(/^Bearer /, ''))
@@ -309,8 +324,12 @@ function startFilesCdpApi({ uploads, puts, send }: FilesAnswers): Promise<FilesC
                 res.writeHead(status, { 'content-type': 'application/json' }).end(JSON.stringify(body))
             }
             if (req.method === 'PUT') {
-                received.push({ route: 'put', body: sha256Of(raw) })
-                reply({ status: next(puts, 'put'), body: {} })
+                const sha256 = sha256Of(raw)
+                const signed =
+                    req.url === `/files/${sha256}` && req.headers['x-amz-checksum-sha256'] === checksumOf(sha256)
+                received.push({ route: signed ? 'put' : 'unsigned put', body: sha256 })
+                await putsHeld
+                reply({ status: typeof puts === 'function' ? puts(sha256) : next(puts, 'put'), body: {} })
             } else if (req.url === `/api/projects/${UNIT.teamId}/transactional_email/attachments/uploads`) {
                 const body = parseJSON(raw.toString()) as { files: { sha256: string }[] }
                 received.push({
@@ -319,7 +338,7 @@ function startFilesCdpApi({ uploads, puts, send }: FilesAnswers): Promise<FilesC
                 })
                 const answer = next(uploads, 'uploads')
                 reply(
-                    answer.status === 200
+                    answer.status === 200 && Object.keys(answer.body).length === 0
                         ? {
                               status: 200,
                               body: {
@@ -328,7 +347,7 @@ function startFilesCdpApi({ uploads, puts, send }: FilesAnswers): Promise<FilesC
                                       status: 'upload',
                                       url: `${url}/files/${sha256}`,
                                       method: 'PUT',
-                                      headers: { 'x-amz-checksum-sha256': sha256 },
+                                      headers: { 'x-amz-checksum-sha256': checksumOf(sha256) },
                                   })),
                               },
                           }
@@ -347,7 +366,15 @@ function startFilesCdpApi({ uploads, puts, send }: FilesAnswers): Promise<FilesC
     return new Promise((resolve) =>
         server.listen(0, '127.0.0.1', () => {
             url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
-            resolve({ url, received, close: () => new Promise((closed) => server.close(() => closed())) })
+            resolve({
+                url,
+                received,
+                close: () =>
+                    new Promise((closed) => {
+                        server.closeAllConnections()
+                        server.close(() => closed())
+                    }),
+            })
         })
     )
 }
@@ -416,10 +443,50 @@ describe('transactional_email_files traffic', () => {
             [UPLOADED, ...PUTS, UPLOADED, ...PUTS, SENT],
         ],
         [
+            'uploads again once one put is refused and the other answers a 5xx, whatever order they land in',
+            FILES,
+            {
+                uploads: [{ status: 200, body: {} }],
+                puts: firstPutsAnswer({ [SHAS[0]]: 400, [SHAS[1]]: 503 }),
+                send: QUEUED,
+            },
+            { accepted: true, retries: 1, attachments: SHAS },
+            [UPLOADED, ...PUTS, UPLOADED, ...PUTS, SENT],
+        ],
+        [
             'journals a refused upload with its stage and sends nothing',
             FILES,
             { uploads: [{ status: 400, body: { error: 'message_too_large' } }], puts: [], send: QUEUED },
             { accepted: false, status: 400, outcome: 'uploads message_too_large', attachments: SHAS },
+            [UPLOADED],
+        ],
+        [
+            'journals an upload refusal without an error code as its stage alone',
+            FILES,
+            { uploads: [{ status: 400, body: { errors: [] } }], puts: [], send: QUEUED },
+            { accepted: false, status: 400, outcome: 'uploads', attachments: SHAS },
+            [UPLOADED],
+        ],
+        [
+            'journals an upload reply without slots as a transport error and sends nothing',
+            FILES,
+            { uploads: [{ status: 200, body: { slots: [] } }], puts: [], send: QUEUED },
+            {
+                accepted: false,
+                transportError: expect.stringMatching(/^uploads answered with no upload slots/),
+                attachments: SHAS,
+            },
+            [UPLOADED],
+        ],
+        [
+            'journals an upload reply that leaves a file without a slot as a transport error and sends nothing',
+            FILES,
+            { uploads: [{ status: 200, body: { files: [] } }], puts: [], send: QUEUED },
+            {
+                accepted: false,
+                transportError: 'uploads answered slots for 0 files where 2 were asked',
+                attachments: SHAS,
+            },
             [UPLOADED],
         ],
     ])('%s', async (_story, files, answers, expected, requests) => {
@@ -445,30 +512,45 @@ describe('transactional_email_files traffic', () => {
         expect(filesWorkflowShape(flow)).toEqual({ emailStep: expect.objectContaining({ type: 'function_email' }) })
     })
 
-    it('puts the file at the limit within the size cdp-api accepts, and within a block of it', () => {
-        expect(estimateMessageBytes([FILE_BYTES_AT_LIMIT])).toBeLessThanOrEqual(MESSAGE_MAX_BYTES)
-        expect(estimateMessageBytes([FILE_BYTES_AT_LIMIT + 32 * 1024])).toBeGreaterThan(MESSAGE_MAX_BYTES)
+    it('sends nothing to cdp-api once the run is interrupted while a put is pending', async () => {
+        let releasePuts = (): void => {}
+        const putsHeld = new Promise<void>((resolve) => (releasePuts = resolve))
+        const cdpApi = await startFilesCdpApi({
+            uploads: [{ status: 200, body: {} }],
+            puts: [200],
+            send: QUEUED,
+            putsHeld,
+        })
+        const abort = new AbortController()
+        try {
+            const offered = transactionalEmailFiles.offer(
+                { ...UNIT, files: FILES },
+                contextFor(cdpApi.url),
+                abort.signal
+            )
+            await waitForExpect(() => expect(cdpApi.received.filter(({ route }) => route === 'put')).toHaveLength(2))
+            abort.abort()
+            releasePuts()
+
+            await expect(offered).rejects.toMatchObject({ name: 'AbortError' })
+            expect(cdpApi.received.map(({ route }) => route)).toEqual(['uploads', 'put', 'put'])
+        } finally {
+            releasePuts()
+            await cdpApi.close()
+        }
+    })
+
+    it.each([1, 3, 5])('fills a file of %d bytes from its seed', (sizeBytes) => {
+        expect(fileBytes({ seed: 1, sizeBytes })).not.toEqual(fileBytes({ seed: 2, sizeBytes }))
     })
 
     const PROFILE = { ratePerSecond: 1, files: { share: 1, perSend: 2, sizes: [{ bytes: 1000, weight: 1 }] } }
 
-    it.each<[string, object, boolean, number[]]>([
-        ['draws perSend files from the sizes for a send that carries files', PROFILE, false, [1000, 1000]],
-        [
-            'draws no files for a send outside the share',
-            { ...PROFILE, files: { ...PROFILE.files, share: 0 } },
-            false,
-            [],
-        ],
-        [
-            'sends one file at the limit alone when a size draws the limit',
-            { ...PROFILE, files: { ...PROFILE.files, sizes: [{ bytes: 'limit', weight: 1 }] } },
-            false,
-            [FILE_BYTES_AT_LIMIT],
-        ],
-        ['sends one file at the limit for a burst unit', PROFILE, true, [FILE_BYTES_AT_LIMIT]],
-    ])('%s', (_story, profile, atLimit, sizes) => {
-        const draw = (): object[] => transactionalEmailFiles.filesOf!(new Chance(5), profile, atLimit)
+    it.each<[string, object, number[]]>([
+        ['draws perSend files from the sizes for a send that carries files', PROFILE, [1000, 1000]],
+        ['draws no files for a send outside the share', { ...PROFILE, files: { ...PROFILE.files, share: 0 } }, []],
+    ])('%s', (_story, profile, sizes) => {
+        const draw = (): object[] => transactionalEmailFiles.filesOf!(new Chance(5), profile)
 
         expect(draw().map((file) => (file as { sizeBytes: number }).sizeBytes)).toEqual(sizes)
         expect(draw()).toEqual(draw())

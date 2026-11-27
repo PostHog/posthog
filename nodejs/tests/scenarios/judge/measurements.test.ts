@@ -2,6 +2,7 @@ import http from 'http'
 import { AddressInfo } from 'net'
 import { Registry, collectDefaultMetrics } from 'prom-client'
 
+import type { RoleExit } from '../environment/supervisor'
 import type { WriterSample } from '../probe/writer-probe'
 import type { TruthRecord } from '../provider-edge'
 import type { ValveTimelineEntry } from '../valves/valves'
@@ -202,19 +203,30 @@ describe('measurements', () => {
         ])
     })
 
-    it.each([
-        ['role_heap_max_bytes', 'bytes', 700],
-        ['attachment_sends_in_flight_max', 'sends', 3],
-        ['attachment_reserved_bytes_max', 'bytes', 60_000_000],
-    ])('keeps the largest %s of each role that serves it', (name, unit, value) => {
+    it.each<[string, string, { key: string; value: number }[]]>([
+        [
+            'role_heap_max_bytes',
+            'bytes',
+            [
+                { key: ROLE, value: 700 },
+                { key: 'cdp-api', value: 900 },
+            ],
+        ],
+        ['attachment_sends_in_flight_max', 'sends', [{ key: ROLE, value: 3 }]],
+        ['attachment_reserved_bytes_max', 'bytes', [{ key: ROLE, value: 60_000_000 }]],
+    ])('keeps the largest %s of each role it reads', (name, unit, values) => {
         const samples = [
             withGauges(sample(0, -60, 1), 500, { inFlight: 1, reservedBytes: 20_000_000 }),
             withGauges(sample(5, -60, 1, 100, 1), 700, { inFlight: 3, reservedBytes: 60_000_000 }),
             withGauges(sample(10, 7, 1), 400, { inFlight: 0, reservedBytes: 0 }),
-            { ...sample(5, -60, 1), role: 'cdp-api' },
+            withGauges({ ...sample(5, -60, 1), role: 'cdp-api' }, 900),
         ]
 
-        expect(measure([{ name, params: {} }], evidence({ samples }))).toEqual([{ name, key: ROLE, value, unit }])
+        expect(
+            measure([{ name, params: {} }], evidence({ samples, missed: [{ role: 'cdp-api', replica: 0, at: FROM }] }))
+        ).toEqual(
+            values.map((value) => ({ name, unit, ...value, ...(value.key === 'cdp-api' && { incomplete: true }) }))
+        )
     })
 
     it.each<[string, MeasureEvidence['attachmentBudgets'], Omit<Measurement, 'unit'>[]]>([
@@ -270,8 +282,6 @@ describe('measurements', () => {
             [
                 { key: 'at_cap', value: 1 },
                 { key: 'over_budget', value: 5 },
-                { key: 'first', value: 10 },
-                { key: 'last', value: 15 },
             ],
         ],
         [
@@ -281,11 +291,7 @@ describe('measurements', () => {
                 withGauges(sample(5, -60, 1), 1, { deferrals: { over_budget: 4 } }),
                 withGauges(sample(10, 7, 1), 1, { deferrals: { over_budget: 2 } }),
             ],
-            [
-                { key: 'over_budget', value: 2, incomplete: true },
-                { key: 'first', value: 10 },
-                { key: 'last', value: 10 },
-            ],
+            [{ key: 'over_budget', value: 2, incomplete: true }],
         ],
         [
             'a process that never deferred',
@@ -295,30 +301,32 @@ describe('measurements', () => {
             ],
             [{ key: 'over_budget', value: 0 }],
         ],
-    ])('counts the deferral tokens by reason, and when they rose, for %s', (_story, samples, measured) => {
-        const names = ['attachment_deferrals', 'attachment_deferral_window_s']
+    ])('counts the deferral tokens by reason for %s', (_story, samples, measured) => {
+        const otherRole = { ...withGauges(sample(0, -60, 1), 1, { deferrals: { idle: 0 } }), role: 'cdp-api' }
 
         expect(
             measure(
-                names.map((name) => ({ name, params: {} })),
-                evidence({ samples })
+                [{ name: 'attachment_deferrals', params: {} }],
+                evidence({ samples: [...samples, otherRole], missed: [{ role: 'cdp-api', replica: 0, at: FROM }] })
             ).map(({ name: _name, unit: _unit, ...value }) => value)
         ).toEqual(measured)
     })
 
-    it('counts the restarts of each role across its replicas', () => {
-        const samples = [
-            sample(0, -60, 1),
-            sample(5, 3, 1),
-            sample(10, 8, 1),
-            sample(0, -60, 1, 100, 1),
-            sample(10, -60, 1, 100, 1),
-            { ...sample(5, -60, 1), role: 'cdp-api' },
-        ]
+    it('counts the exits of each role that no valve caused, across its replicas, even one no scrape saw', () => {
+        const exit = (role: string, replica: number, byValve: boolean): RoleExit => ({
+            role: role as RoleExit['role'],
+            replica,
+            at: new Date(FROM).toISOString(),
+            code: null,
+            signal: 'SIGKILL',
+            byValve,
+        })
+        const samples = [sample(0, -60, 1), sample(5, 3, 1), { ...sample(5, -60, 1), role: 'cdp-api' }]
+        const exits = [exit(ROLE, 0, false), exit(ROLE, 0, false), exit(ROLE, 1, false), exit('cdp-api', 0, true)]
 
-        expect(measure([{ name: 'role_restarts', params: {} }], evidence({ samples }))).toEqual([
-            { name: 'role_restarts', key: ROLE, value: 2, unit: 'restarts' },
+        expect(measure([{ name: 'role_restarts', params: {} }], evidence({ samples, exits }))).toEqual([
             { name: 'role_restarts', key: 'cdp-api', value: 0, unit: 'restarts' },
+            { name: 'role_restarts', key: ROLE, value: 3, unit: 'restarts' },
         ])
     })
 
@@ -336,20 +344,53 @@ describe('measurements', () => {
             record(31, 'run-a-refused', 10),
         ]
 
-        expect(
-            measure(
-                [
-                    { name: 'delivery_latency_ms', params: {} },
-                    { name: 'sends_per_message_max', params: {} },
-                ],
-                evidence({ journal, truth })
-            )
-        ).toEqual([
+        expect(measure([{ name: 'delivery_latency_ms', params: {} }], evidence({ journal, truth }))).toEqual([
             { name: 'delivery_latency_ms', key: 'p50', value: 1000, unit: 'ms' },
             { name: 'delivery_latency_ms', key: 'p95', value: 1900, unit: 'ms' },
             { name: 'delivery_latency_ms', key: 'max', value: 2000, unit: 'ms' },
-            { name: 'sends_per_message_max', value: 2, unit: 'sends' },
         ])
+    })
+
+    const webhook = (seq: number, unitId: string, status = 200): TruthRecord => ({
+        ...record(seq, unitId, 0, status),
+        kind: 'webhook',
+        actionId: 'webhook',
+    })
+
+    it.each<[string, TruthRecord[], Partial<MeasureEvidence>, object[]]>([
+        [
+            'counts only the accepted SES sends of one delivery, not its failed attempts or its webhook',
+            [
+                record(1, 'run-a-1', 0, 500),
+                record(2, 'run-a-1', 10, 503),
+                record(3, 'run-a-1', 20),
+                record(4, 'run-a-2', 0),
+                record(5, 'run-a-2', 10),
+                webhook(6, 'run-a-3'),
+                webhook(7, 'run-a-3'),
+                webhook(8, 'run-a-3'),
+            ],
+            {},
+            [{ value: 2 }],
+        ],
+        [
+            'marks the maximum incomplete when the last truth read failed',
+            [record(1, 'run-a-1', 0)],
+            { unread: 'the edge did not answer' },
+            [{ value: 1, incomplete: true }],
+        ],
+        [
+            'marks the maximum incomplete when the run did not converge',
+            [record(1, 'run-a-1', 0)],
+            { converged: false },
+            [{ value: 1, incomplete: true }],
+        ],
+    ])('sends_per_message_max %s', (_story, truth, partial, measured) => {
+        expect(
+            measure([{ name: 'sends_per_message_max', params: {} }], evidence({ truth, ...partial })).map(
+                ({ name: _name, unit: _unit, ...value }) => value
+            )
+        ).toEqual(measured)
     })
 
     it('splits the delivery times of plain sends from sends with files when the units say which they are', () => {
@@ -357,14 +398,20 @@ describe('measurements', () => {
             ...offered(unitId, 0),
             expect: { deliveries: ['email'], attachments },
         })
-        const journal = [sent('plain-1', []), sent('plain-2', []), sent('files-1', ['a1b2c3'])]
-        const truth = [record(1, 'plain-1', 100), record(2, 'plain-2', 300), record(3, 'files-1', 5000)]
+        const hooked: JournalEntry = { ...offered('hook-1', 0), expect: { deliveries: ['webhook'] } }
+        const journal = [sent('plain-1', []), sent('plain-2', []), sent('files-1', ['a1b2c3']), hooked]
+        const truth = [
+            record(1, 'plain-1', 100),
+            record(2, 'plain-2', 300),
+            record(3, 'files-1', 5000),
+            { ...webhook(4, 'hook-1'), at: new Date(FROM + 9000).toISOString() },
+        ]
 
         expect(measure([{ name: 'delivery_latency_ms', params: {} }], evidence({ journal, truth }))).toEqual(
             [
                 ['p50', 300],
-                ['p95', 5000],
-                ['max', 5000],
+                ['p95', 9000],
+                ['max', 9000],
                 ['plain_p50', 100],
                 ['plain_p95', 300],
                 ['plain_max', 300],

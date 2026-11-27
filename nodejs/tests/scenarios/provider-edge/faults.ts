@@ -358,9 +358,19 @@ export class FaultList {
         return rule && isWebhookAnswer(rule.answer) ? { name: rule.name, answer: rule.answer } : undefined
     }
 
-    takeS3(op: S3Op, hit: Hit): { name: string; answer: S3Answer } | undefined {
-        const rule = this.take({ channel: 's3', op }, hit)?.rule
-        return rule && isS3Answer(rule.answer) ? { name: rule.name, answer: rule.answer } : undefined
+    // The proxy reports when the fault really answers, through s3Answered: a paced request may carry no body to slow,
+    // and a client may hang up before its upload ends and the injected status goes out.
+    takeS3(op: S3Op, hit: Hit): { id: string; name: string; answer: S3Answer } | undefined {
+        const fault = this.take({ channel: 's3', op }, hit, { appliesNow: false })
+        return fault && isS3Answer(fault.rule.answer)
+            ? { id: fault.id, name: fault.rule.name, answer: fault.rule.answer }
+            : undefined
+    }
+
+    s3Answered(id: string): void {
+        if (!this.firstApplied.has(id)) {
+            this.firstApplied.set(id, Date.now())
+        }
     }
 
     refusePg(): string | undefined {
@@ -390,7 +400,12 @@ export class FaultList {
         this.faults = this.faults.filter((fault) => fault.until > now)
         const matching = this.faults.filter((fault) => matches(fault.rule, request))
         const throttles = matching.filter((fault) => 'perSecond' in fault.rule.dose)
-        const answering = [...throttles, ...matching.filter((fault) => !throttles.includes(fault))].find((fault) => {
+        const pacing = matching.filter((fault) => fault.rule.answer.kind === 's3-slow')
+        const answering = [
+            ...throttles,
+            ...matching.filter((fault) => !throttles.includes(fault) && !pacing.includes(fault)),
+            ...pacing,
+        ].find((fault) => {
             fault.matched += 1
             return doseTakes(fault, now, hit)
         })

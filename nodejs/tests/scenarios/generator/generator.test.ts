@@ -1093,37 +1093,25 @@ describe('drive', () => {
         expect([offeredIn(0), offeredIn(1000)]).toEqual(expected)
     })
 
-    it('adds units carrying one file at the limit on top of the base rate while a burst lasts', async () => {
+    it('journals the file hashes a unit expects SES to carry, whatever its intake answered', async () => {
         const traffic = 'transactional_email_files'
-        const plain = cardWith({ ratePerSecond: 2, driveFor: '2s', traffic })
+        const plain = cardWith({ ratePerSecond: 2, driveFor: '1s', traffic })
         const card: LoadedCard = {
             ...plain,
-            card: {
-                ...plain.card,
-                drive: {
-                    ...plain.card.drive,
-                    traffic: [{ name: traffic, params: { burst: { at: '1s', for: '1s', scale: 3 } } }],
-                },
-            },
             profile: {
                 ...plain.profile,
-                traffic: { [traffic]: { ratePerSecond: 2, files: { share: 0, sizes: [{ bytes: 1000, weight: 1 }] } } },
+                traffic: { [traffic]: { ratePerSecond: 2, files: { share: 1, sizes: [{ bytes: 1000, weight: 1 }] } } },
             },
         }
-        const startedAt = Date.now()
         const { driving, journal } = startDrive(card, ACKNOWLEDGED)
 
-        await jest.advanceTimersByTimeAsync(2000)
+        await jest.advanceTimersByTimeAsync(1000)
         await driving
 
-        const filesIn = (fromMs: number): number[] =>
-            journal
-                .filter(({ offeredAt }) => offeredAt - startedAt >= fromMs && offeredAt - startedAt < fromMs + 1000)
-                .map(({ expect }) => expect.attachments!.length)
-                .sort()
-        expect([filesIn(0), filesIn(1000)]).toEqual([
-            [0, 0],
-            [0, 0, 1, 1, 1, 1],
+        expect(journal.map(({ expect }) => expect.attachments)).toEqual([
+            [expect.stringMatching(/^[0-9a-f]{64}$/)],
+            [expect.stringMatching(/^[0-9a-f]{64}$/)],
         ])
+        expect(journal[0].expect.attachments).not.toEqual(journal[1].expect.attachments)
     })
 })

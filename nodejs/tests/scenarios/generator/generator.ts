@@ -10,7 +10,7 @@ import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { LoadedCard, stepsOf } from '../cards'
 import { pause } from '../duration'
 import type { FollowUpAnswer, Judge } from '../judge/judge'
-import { Burst, OfferAnswer, OfferContext, SENDER, TRAFFIC, TrafficKind } from './traffic'
+import { OfferAnswer, OfferContext, SENDER, TRAFFIC, TrafficKind } from './traffic'
 
 export type SeedState = { teamIds: number[]; flowIds: Record<string, Record<number, string>> }
 
@@ -114,37 +114,19 @@ export async function seed(
     return { teamIds, flowIds }
 }
 
-type Slot = { kind: TrafficKind; atMs: number; atLimit?: true }
-
-const evenly = (kind: TrafficKind, rate: number, fromMs: number, toMs: number, offsetMs = 0): Slot[] =>
-    Array.from({ length: Math.round((rate * Math.max(0, toMs - fromMs)) / 1000) }, (_, i) => ({
-        kind,
-        atMs: offsetMs + (i * 1000) / rate,
-    }))
-
-function burstSlots(kind: TrafficKind, burst: Burst, rate: number, fromMs: number, toMs: number): Slot[] {
-    const startMs = Math.max(fromMs, burst.fromMs)
-    const endMs = Math.min(toMs, burst.fromMs + burst.forMs)
-    return evenly(kind, rate * (burst.scale - 1), startMs, endMs, startMs - fromMs).map((slot) => ({
-        ...slot,
-        atLimit: true,
-    }))
-}
+type Slot = { kind: TrafficKind; atMs: number }
 
 function stepScheduleOf({ card, profile }: Pick<LoadedCard, 'card' | 'profile'>): Slot[][] {
-    const kinds = card.drive.traffic.map(({ name, params }) => {
+    const kinds = card.drive.traffic.map(({ name }) => {
         const kind = trafficKind(name)
-        const { ratePerSecond } = kind.profile.parse(profile.traffic[name])
-        return { name, kind, ratePerSecond, burst: kind.burstOf?.(params) }
+        return { name, kind, ratePerSecond: kind.profile.parse(profile.traffic[name]).ratePerSecond }
     })
     return stepsOf(card.drive).map(({ scale, fromMs, toMs, only }) =>
         kinds
-            .flatMap(({ name, kind, ratePerSecond, burst }) => {
+            .flatMap(({ name, kind, ratePerSecond }) => {
                 const rate = ratePerSecond * (only === undefined || only.includes(name) ? scale : 1)
-                return [
-                    ...evenly(kind, rate, fromMs, toMs),
-                    ...(burst ? burstSlots(kind, burst, rate, fromMs, toMs) : []),
-                ]
+                const units = Math.round((rate * (toMs - fromMs)) / 1000)
+                return Array.from({ length: units }, (_, i) => ({ kind, atMs: (i * 1000) / rate }))
             })
             .sort((a, b) => a.atMs - b.atMs)
     )
@@ -183,9 +165,9 @@ export async function drive(
     const stop = AbortSignal.any([signal, failed.signal])
     const halted = context.halt ? AbortSignal.any([stop, context.halt]) : stop
 
-    const offerUnit = (kind: TrafficKind, step: DrivenStep, atLimit: boolean): void => {
+    const offerUnit = (kind: TrafficKind, step: DrivenStep): void => {
         const teamId = chance.pickone(seeded.teamIds)
-        const files = kind.filesOf?.(chance, profile.traffic[kind.name], atLimit)
+        const files = kind.filesOf?.(chance, profile.traffic[kind.name])
         const flowIdOf = (key: string): string => {
             const flowId = seeded.flowIds[key]?.[teamId]
             if (flowId === undefined) {
@@ -251,7 +233,7 @@ export async function drive(
         late: (now: number) => boolean,
         sentAt: number[]
     ): Promise<void> => {
-        for (const { kind, atMs, atLimit } of slots) {
+        for (const { kind, atMs } of slots) {
             const waitMs = fromAt + atMs - Date.now()
             if (waitMs > 0) {
                 await untilAborted(elapse(waitMs), until)
@@ -259,7 +241,7 @@ export async function drive(
             if (until.aborted || late(Date.now())) {
                 return
             }
-            offerUnit(kind, step, atLimit === true)
+            offerUnit(kind, step)
             sentAt.push(fromAt + atMs)
         }
     }

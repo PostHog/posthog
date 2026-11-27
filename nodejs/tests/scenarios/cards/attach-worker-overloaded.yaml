@@ -55,7 +55,6 @@ measure:
     - name: delivery_latency_ms
     - name: sends_per_message_max
     - name: attachment_deferrals
-    - name: attachment_deferral_window_s
     - name: attachment_sends_in_flight_max
     - name: attachment_reserved_bytes_max
     - name: attachment_budget_bytes
