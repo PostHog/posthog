@@ -126,7 +126,7 @@ def build_remediation_configs(failing_partitions: list[dict]) -> list[dict]:
         "Identifies partitions with precision loss and produces remediation configs. "
         "Runs in dry-run mode by default (log-only, no automatic re-materialization)."
     ),
-    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+    tags={"owner": JobOwners.TEAM_ANALYTICS.value},
 )
 def web_analytics_watchdog(context: AssetExecutionContext, config: WatchdogConfig) -> dagster.MaterializeResult:
     team_id = config.team_id
@@ -303,7 +303,7 @@ web_analytics_watchdog_job = dagster.define_asset_job(
     name="web_analytics_watchdog_job",
     selection=["web_analytics_watchdog"],
     tags={
-        "owner": JobOwners.TEAM_WEB_ANALYTICS.value,
+        "owner": JobOwners.TEAM_ANALYTICS.value,
     },
 )
 
@@ -312,7 +312,7 @@ web_analytics_watchdog_job = dagster.define_asset_job(
     cron_schedule=WATCHDOG_CRON_SCHEDULE,
     job=web_analytics_watchdog_job,
     execution_timezone="UTC",
-    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+    tags={"owner": JobOwners.TEAM_ANALYTICS.value},
     default_status=dagster.DefaultScheduleStatus.STOPPED,
 )
 def web_analytics_watchdog_schedule(context: dagster.ScheduleEvaluationContext):

@@ -67,6 +67,8 @@ class DocusignEndpointConfig:
     # False for endpoints that return everything in one response and ignore `start_position` —
     # re-requesting with an advanced offset would replay the same rows forever.
     supports_pagination: bool = True
+    # The response body itself holds the `textCustomFields` and `listCustomFields` collections.
+    custom_fields_body: bool = False
 
 
 _ENVELOPE_INCREMENTAL_FIELDS: list[IncrementalField] = [
@@ -276,6 +278,69 @@ DOCUSIGN_ENDPOINTS: dict[str, DocusignEndpointConfig] = {
         # an invoice's balance changes when it is paid.
         date_filter_param="from_date",
         supports_pagination=False,
+    ),
+    "billing_payments": DocusignEndpointConfig(
+        name="billing_payments",
+        path="/billing_payments",
+        data_key="billingPayments",
+        primary_key=["paymentId"],
+        # Like billing_invoices: without from_date DocuSign returns only the last 365 days.
+        date_filter_param="from_date",
+        supports_pagination=False,
+    ),
+    "groups": DocusignEndpointConfig(
+        name="groups",
+        path="/groups",
+        data_key="groups",
+        primary_key=["groupId"],
+    ),
+    "group_users": DocusignEndpointConfig(
+        name="group_users",
+        path="/groups",
+        data_key="groups",
+        # A user can belong to many groups.
+        primary_key=["groupId", "userId"],
+        fan_out=DocusignFanOutConfig(
+            path="/groups/{parent_id}/users",
+            parent_id_key="groupId",
+            parent_id_column="groupId",
+            data_key="users",
+            paginated=True,
+            # A group deleted between the listing and its member request.
+            skip_statuses=(404,),
+        ),
+    ),
+    "signing_groups": DocusignEndpointConfig(
+        name="signing_groups",
+        path="/signing_groups",
+        data_key="groups",
+        primary_key=["signingGroupId"],
+        partition_key="created",
+        supports_pagination=False,
+    ),
+    "signing_group_users": DocusignEndpointConfig(
+        name="signing_group_users",
+        path="/signing_groups",
+        data_key="groups",
+        # Signing group members have no id of their own; the email is unique within a group.
+        primary_key=["signingGroupId", "email"],
+        supports_pagination=False,
+        fan_out=DocusignFanOutConfig(
+            path="/signing_groups/{parent_id}/users",
+            parent_id_key="signingGroupId",
+            parent_id_column="signingGroupId",
+            data_key="users",
+            skip_statuses=(404,),
+        ),
+    ),
+    "account_custom_fields": DocusignEndpointConfig(
+        name="account_custom_fields",
+        path="/custom_fields",
+        data_key="",
+        # Text and list custom fields are separate collections, so the type is part of the key.
+        primary_key=["customFieldType", "fieldId"],
+        supports_pagination=False,
+        custom_fields_body=True,
     ),
 }
 

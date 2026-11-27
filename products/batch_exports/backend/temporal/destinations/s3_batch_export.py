@@ -426,6 +426,7 @@ async def get_credentials_using_user_aws_role(
     duration: int = 3600,
     max_attempts: int = 5,
     delay: int | float = 1.0,
+    external_role_arn: str | None = None,
 ) -> AWSCredentials:
     """Attempt to obtain credentials assuming a user-provided AWS role.
 
@@ -447,10 +448,13 @@ async def get_credentials_using_user_aws_role(
         max_attempts: How many times to attempt to connect. Useful for tests as
             roles and/or policies may not be immediately available.
         delay: Initial delay in between connection attempts.
+        external_role_arn: The external-access role to assume first. Another use case passes its own
+            dedicated role here. Defaults to the batch exports role.
     """
-    external_role_arn = await asyncio.to_thread(
-        get_or_settings, "BATCH_EXPORT_S3_EXTERNAL_ROLE_ARN", CredentialsCaller.BATCH_EXPORTS
-    )
+    if external_role_arn is None:
+        external_role_arn = await asyncio.to_thread(
+            get_or_settings, "BATCH_EXPORT_S3_EXTERNAL_ROLE_ARN", CredentialsCaller.BATCH_EXPORTS
+        )
     if not external_role_arn:
         raise ExternalRoleArnNotConfiguredError()
 

@@ -7,14 +7,18 @@ from django.test import override_settings
 
 from parameterized import parameterized
 
+from posthog.redis import get_client as get_redis_client
+
 from products.cohorts.backend.cohort_enablement import (
     RealtimeLimitReached,
     RealtimeTurnOnRefused,
+    prepare_again,
     turn_realtime_off,
     turn_realtime_on,
 )
 from products.cohorts.backend.models.backfill import (
     CohortBackfillKind,
+    CohortBackfillRefusal,
     CohortBackfillRun,
     CohortBackfillRunCohort,
     CohortBackfillRunStatus,
@@ -22,6 +26,7 @@ from products.cohorts.backend.models.backfill import (
     CohortBackfillTrigger,
 )
 from products.cohorts.backend.models.cohort import Cohort, CohortType
+from products.cohorts.backend.models.dependencies import cohort_backfill_pending_key
 from products.cohorts.backend.models.team_access import (
     RealtimeCohortAccessPurpose,
     RealtimeCohortLevel,
@@ -134,6 +139,114 @@ class TestCohortEnablement(BaseTest):
         assert (already_on.realtime_enabled_at, already_on.last_backfill_events_at) == (STAMPED_AT, STAMPED_AT)
         readiness = resolve_realtime_readiness(cohorts)
         assert [readiness[each.id].state for each in cohorts] == [CohortRealtimeState.BUILDING] * 2
+
+    @parameterized.expand(
+        [
+            ("nothing_is_preparing_it", [PAGEVIEW_LEAF], {}, None, [CohortBackfillKind.BEHAVIORAL], "building"),
+            (
+                "events_stamped_and_person_properties_unprepared",
+                [PAGEVIEW_LEAF, PERSON_LEAF],
+                {"last_backfill_events_at": STAMPED_AT},
+                None,
+                [CohortBackfillKind.PERSON_PROPERTY],
+                "building",
+            ),
+            (
+                "events_seeding_and_person_properties_unprepared",
+                [PAGEVIEW_LEAF, PERSON_LEAF],
+                {},
+                CohortBackfillRunStatus.SEEDING,
+                [CohortBackfillKind.PERSON_PROPERTY],
+                "building",
+            ),
+            ("build_already_queued", [PAGEVIEW_LEAF], {}, "queued", [], "building"),
+            (
+                "run_blocked_on_an_operator",
+                [PAGEVIEW_LEAF],
+                {},
+                CohortBackfillRunStatus.BLOCKED,
+                RealtimeTurnOnRefused,
+                "needs_attention",
+            ),
+            (
+                "saves_trigger_no_builds_for_the_team",
+                [PAGEVIEW_LEAF],
+                {},
+                "no_trigger",
+                RealtimeTurnOnRefused,
+                "needs_attention",
+            ),
+            (
+                "criteria_look_back_further_than_the_plan_allows",
+                [PAGEVIEW_LEAF],
+                {},
+                "plan_history_shrank",
+                RealtimeTurnOnRefused,
+                "needs_attention",
+            ),
+            ("refused_as_too_large_for_its_criteria", [PAGEVIEW_LEAF], {}, "too_large", [], "needs_attention"),
+            (
+                "leaf_the_catalog_drops",
+                [{**PAGEVIEW_LEAF, "conditionHash": None}],
+                {},
+                None,
+                RealtimeTurnOnRefused,
+                "needs_attention",
+            ),
+        ]
+    )
+    def test_preparing_a_cohort_that_is_on_again(
+        self,
+        _name: str,
+        leaves: list[dict],
+        stamps: dict,
+        blocker: str | None,
+        expected: list[CohortBackfillKind] | type[Exception],
+        state_after: str,
+    ) -> None:
+        cohort = self._cohort(*leaves, realtime_enabled_at=STAMPED_AT, **stamps)
+        for kind in CohortBackfillKind:
+            self.addCleanup(get_redis_client().delete, cohort_backfill_pending_key(cohort.id, kind))
+        if blocker == "queued":
+            get_redis_client().set(
+                cohort_backfill_pending_key(cohort.id, CohortBackfillKind.BEHAVIORAL),
+                CohortBackfillTrigger.COHORT_CREATED,
+                ex=300,
+            )
+        elif blocker == "no_trigger":
+            RealtimeCohortTeamAccess.objects.filter(team=self.team).update(save_triggers_backfill=False)
+        elif blocker == "too_large":
+            CohortBackfillRefusal.objects.for_team(self.team.id).create(
+                team_id=self.team.id, cohort=cohort, shape_hash=cohort.behavioral_filters_shape_hash or "", message=""
+            )
+        elif blocker == "plan_history_shrank":
+            self.enterContext(self.settings(REALTIME_COHORT_DEFAULT_MAX_HISTORY_DAYS=6))
+        elif blocker is not None:
+            run = CohortBackfillRun.objects.for_team(self.team.id).create(
+                team_id=self.team.id,
+                cohort=cohort,
+                backfill_kind=CohortBackfillKind.BEHAVIORAL,
+                trigger_kind=CohortBackfillTrigger.COHORT_CREATED,
+                scope=CohortBackfillScope.COHORT,
+                status=blocker,
+                timezone="UTC",
+            )
+            CohortBackfillRunCohort.objects.for_team(self.team.id).create(
+                run=run, team_id=self.team.id, cohort=cohort, filters_shape_hash="shape", pinned_filters=cohort.filters
+            )
+
+        with (
+            mock.patch("posthog.tasks.calculate_cohort.trigger_cohort_backfill_run_task.apply_async") as enqueue,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            try:
+                outcome: list[CohortBackfillKind] | type[Exception] = prepare_again(self.team.id, cohort.id)
+            except RealtimeTurnOnRefused:
+                outcome = RealtimeTurnOnRefused
+
+        assert outcome == expected
+        assert enqueue.call_count == (len(expected) if isinstance(expected, list) else 0)
+        assert resolve_realtime_readiness([cohort])[cohort.id].state == state_after
 
     @parameterized.expand(
         [

@@ -186,7 +186,7 @@ const getSlackUserOptions = (slackUsers: SlackUserApi[]): LemonInputSelectOption
     })
 }
 
-function SlackIntegrationInactiveBanner({ message }: { message: string }): JSX.Element {
+export function SlackIntegrationInactiveBanner({ message }: { message: string }): JSX.Element {
     // Reconnecting overwrites the existing integration, which the API reserves for project admins
     // (`has_team_management_access`). Without this the banner would send a member through OAuth
     // only to have the write rejected at the end.

@@ -222,9 +222,21 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 "A column in this query doesn't exist in the data. Check the column names. "
                 "If the query uses a view, check that the view still matches its source table.",
             ),
-            ("unsupported_method", 1, "ClickHouse rejected the query with error UNSUPPORTED_METHOD."),
-            ("syntax_error", 62, "ClickHouse error while executing query."),
-            ("unknown_code", 999_999, "ClickHouse error while executing query."),
+            (
+                "unsupported_method",
+                1,
+                "This operation isn't supported here. Simplify the expression or use a different SQL function.",
+            ),
+            (
+                "syntax_error",
+                62,
+                "ClickHouse couldn't parse the SQL generated for this query. Contact support and include the error code SYNTAX_ERROR.",
+            ),
+            (
+                "unknown_code",
+                999_999,
+                "ClickHouse couldn't complete this query. Contact support and include the error code 999999.",
+            ),
             *[
                 (
                     storage_error,
@@ -597,9 +609,16 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query.dict()}).json()
             self.assertEqual(len(response["results"]), 2)
 
-    def test_safe_clickhouse_error_passed_through(self):
-        query = {"kind": "EventsQuery", "select": ["timestamp + 'string'"]}
-
+    @parameterized.expand(
+        [
+            (
+                {"kind": "EventsQuery", "select": ["timestamp + 'string'"]},
+                "`plus` cannot combine DateTime64 and String",
+            ),
+            ({"kind": "HogQLQuery", "query": "SELECT [1] > 7"}, "The > operator cannot compare Array"),
+        ]
+    )
+    def test_argument_type_error_names_the_operation(self, query: dict[str, object], detail: str) -> None:
         with time_machine.travel("2024-10-16 22:10:29.691212", tick=False):
             response_post = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query})
             self.assertEqual(response_post.status_code, status.HTTP_400_BAD_REQUEST)
@@ -608,10 +627,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response["type"], "validation_error")
             self.assertEqual(response["code"], "illegal_type_of_argument")
             self.assertEqual(response["attr"], None)
-            self.assertIn(
-                "Illegal types DateTime64(6, 'UTC') and String of arguments of function plus",
-                response["detail"],
-            )
+            self.assertIn(detail, response["detail"])
 
     def test_hogql_error_is_enriched_with_metadata(self):
         query = {"kind": "HogQLQuery", "query": "SELECT user_id FROM events LIMIT 1"}
@@ -1691,6 +1707,11 @@ class TestQueryRetrieve(APIBaseTest):
                 "then run the query again. If the problem continues, contact support.",
             ),
             (
+                "future_error",
+                "clickhouse_999999",
+                "ClickHouse couldn't complete this query. Contact support and include the error code 999999.",
+            ),
+            (
                 "internal_query_rejection",
                 "unknown_identifier",
                 "A column in this query doesn't exist in the data. Check the column names. "
@@ -2113,3 +2134,36 @@ class TestQueryCostHeaders(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == 429
         assert response["Retry-After"] == "5"
         assert not mock_capture.called
+
+
+class TestTracingQueryStatusRetrieval(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+    def _retrieve(self, headers: dict[str, str] | None = None, params: str = ""):
+        query_status = QueryStatus(id="q1", team_id=self.team.id, complete=True, labels=["tracing-spans"])
+        with patch("posthog.api.query.get_query_status", return_value=query_status):
+            return self.client.get(f"/api/projects/{self.team.id}/query/q1/{params}", headers=headers or {})
+
+    def test_a_span_result_is_not_readable_through_a_share_link(self):
+        AccessControl.objects.create(resource="tracing", team=self.team, access_level="viewer")
+        share = SharingConfiguration.objects.create(team=self.team, enabled=True)
+        self.client.logout()
+        assert self._retrieve(params=f"?sharing_access_token={share.access_token}").status_code == 403
+
+    @parameterized.expand([("none", 403), ("viewer", 200)])
+    def test_a_span_result_is_readable_only_with_tracing_access(self, access_level: str, expected: int):
+        AccessControl.objects.create(resource="tracing", team=self.team, access_level=access_level)
+        assert self._retrieve().status_code == expected
+
+    @parameterized.expand([(["query:read"], 403), (["query:read", "tracing:read"], 200)])
+    def test_a_span_result_needs_the_tracing_scope(self, scopes: list[str], expected: int):
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="spans", user=self.user, secure_value=hash_key_value(value), scopes=scopes)
+        assert self._retrieve({"Authorization": f"Bearer {value}"}).status_code == expected

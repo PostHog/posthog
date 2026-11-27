@@ -1,4 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
+
+import { ApiError } from 'lib/api-error'
 
 import { initKeaTests } from '~/test/init'
 
@@ -24,6 +27,15 @@ jest.mock('lib/components/AppMetrics/appMetricsLogic', () => ({
 const api = jest.requireMock('products/data_warehouse/frontend/generated/api')
 const wsApi = jest.requireMock('products/warehouse_sources/frontend/generated/api')
 const metrics = jest.requireMock('lib/components/AppMetrics/appMetricsLogic')
+
+type Settle = { resolve: (value: unknown) => void; reject: (error: unknown) => void }
+
+const response = (label: string): Record<string, unknown> => ({
+    labels: [label],
+    interval: 'day',
+    timezone: 'UTC',
+    series: [],
+})
 
 const issue = (overrides: Record<string, any> = {}): Record<string, any> => ({
     id: 'issue-1',
@@ -312,6 +324,62 @@ describe('pipelineOverviewSceneLogic', () => {
         expect(wsApi.externalDataSourcesList).toHaveBeenNthCalledWith(2, expect.anything(), { limit: 100, offset: 2 })
     })
 
+    it.each([
+        { outcome: 'succeeds', settle: (load: Settle): void => load.resolve(response('first')) },
+        { outcome: 'fails', settle: (load: Settle): void => load.reject(new ApiError('Too many queries', 429)) },
+    ])('keeps the newer window when an older destination load $outcome last', async ({ settle }) => {
+        logic.unmount()
+        wsApi.externalDataDestinationsList.mockResolvedValue({
+            results: [{ id: 'pg', name: 'Analytics Postgres', type: 'Postgres' }],
+        })
+        let firstLoad: Settle | undefined
+        let firstLoadSignal: AbortSignal | undefined
+        metrics.loadAppMetricsTimeSeries
+            .mockImplementationOnce((_request: unknown, _timezone: string, signal: AbortSignal) => {
+                firstLoadSignal = signal
+                return new Promise((resolve, reject) => (firstLoad = { resolve, reject }))
+            })
+            .mockResolvedValue(response('newer'))
+
+        initKeaTests()
+        logic = pipelineOverviewSceneLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadDestinationRowSeries'])
+        await expectLogic(logic, () => logic.actions.setWindow(30)).toDispatchActions([
+            'loadDestinationRowSeriesSuccess',
+        ])
+        expect(firstLoadSignal?.aborted).toBe(true)
+        settle(firstLoad!)
+        await expectLogic(logic).toFinishAllListeners()
+
+        await expectLogic(logic).toNotHaveDispatchedActions(['loadDestinationRowSeriesFailure'])
+        expect(logic.values.destinationRowSeries?.labels).toEqual(['newer'])
+    })
+
+    it('stops the other destination queries when one of them fails', async () => {
+        logic.unmount()
+        wsApi.externalDataDestinationsList.mockResolvedValue({
+            results: [
+                { id: 'pg', name: 'Analytics Postgres', type: 'Postgres' },
+                { id: 'bq', name: 'BigQuery', type: 'BigQuery' },
+            ],
+        })
+        let pendingSignal: AbortSignal | undefined
+        metrics.loadAppMetricsTimeSeries
+            .mockRejectedValueOnce(new ApiError('Too many queries', 429))
+            .mockImplementationOnce((_request: unknown, _timezone: string, signal: AbortSignal) => {
+                pendingSignal = signal
+                return new Promise(() => {})
+            })
+
+        initKeaTests()
+        logic = pipelineOverviewSceneLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadDestinationRowSeriesFailure'])
+
+        expect(pendingSignal?.aborted).toBe(true)
+    })
+
     it('gives the warehouse whatever the other destinations did not take', async () => {
         // Runs that resolve to the warehouse alone report no destination, so those rows only
         // exist in the schema-keyed total. Reading the warehouse series directly showed almost
@@ -345,5 +413,48 @@ describe('pipelineOverviewSceneLogic', () => {
         const byLabel = Object.fromEntries(logic.values.rowsByDestination.map((s: any) => [s.label, s.data]))
         expect(byLabel['PostHog warehouse']).toEqual([80, 80])
         expect(byLabel['Analytics Postgres']).toEqual([20, 20])
+    })
+
+    it.each([
+        // The body is empty on the denied sessions we see, so the error has a status and no code.
+        { refused: 'the warehouse', status: 403, denied: true },
+        { refused: 'the warehouse', status: 500, denied: false },
+        // A user can lack access to sources alone, and the rest of the scene still works for them.
+        { refused: 'the sources list', status: 403, denied: false },
+    ])('when $refused answers $status, denies the scene: $denied', async ({ refused, status, denied }) => {
+        logic.unmount()
+        const refusal = new ApiError(`Non-OK response (status ${status}: )`, status)
+        const requests =
+            refused === 'the warehouse'
+                ? [
+                      api.dataWarehouseJobStatsRetrieve,
+                      api.dataWarehouseTotalRowsStatsRetrieve,
+                      api.dataWarehouseDataHealthIssuesRetrieve,
+                      api.dataWarehouseCompletedActivityRetrieve,
+                      api.dataWarehouseRunningActivityRetrieve,
+                  ]
+                : [wsApi.externalDataSourcesList]
+        for (const request of requests) {
+            request.mockRejectedValue(refusal)
+        }
+        const captureException = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
+        // Only the poll is faked. `toFinishAllListeners` waits on real timeouts.
+        jest.useFakeTimers({ doNotFake: ['setTimeout', 'clearTimeout', 'setImmediate', 'nextTick', 'queueMicrotask'] })
+        try {
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.accessDenied).toBe(denied)
+            // The scene renders a warehouse refusal itself, so only the other failures are reported.
+            expect(captureException.mock.calls.length > 0).toBe(!denied)
+
+            api.dataWarehouseJobStatsRetrieve.mockClear()
+            jest.advanceTimersByTime(3 * 30_000)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(api.dataWarehouseJobStatsRetrieve).toHaveBeenCalledTimes(denied ? 0 : 3)
+        } finally {
+            jest.useRealTimers()
+            captureException.mockRestore()
+        }
     })
 })

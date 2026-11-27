@@ -1,11 +1,18 @@
 """Django app configuration for batch_exports."""
 
 from django.apps import AppConfig
+from django.conf import settings
 
 
 class BatchExportsConfig(AppConfig):
     name = "products.batch_exports.backend"
     label = "batch_exports"
+
+    @property
+    def hosts_temporal_code(self) -> bool:
+        # Core's Temporal loaders read this before they import facade/temporal.py, which imports
+        # every destination's vendor SDK.
+        return settings.BATCH_EXPORTS_ENABLED
 
     def ready(self) -> None:
         # The BatchExport activity-log receiver (handle_batch_export_change) used to wire in via the

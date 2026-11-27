@@ -9,6 +9,8 @@ from uuid import UUID
 from posthog.dataclasses import frozen
 
 from products.workflows.backend.facade.enums import (
+    AdventCalendarDay,
+    AdventCalendarOption,
     EmailDomainSetupRecordKind,
     EmailDomainSetupRecordStatus,
     EmailDomainSetupRecordType,
@@ -229,6 +231,16 @@ class AccountAudienceCustomPropertyFilter:
 
 AccountAssignmentStatus = Literal["all", "assigned", "unassigned"]
 
+SuggestionsScoutRunReason = Literal[
+    "first_run",
+    "backstop",
+    "opted_in",
+    "published",
+    "suggestion_resolved",
+    "sends_matured",
+    "conversions_settled",
+]
+
 
 @frozen
 class AccountAudienceFilters:
@@ -287,6 +299,8 @@ class AudienceSize:
     realtime_cohort_with_other_conditions: RealtimeAudienceCohort | None = None
     # Set when a sending rate limit can raise this audience's limit. None when no rate can.
     rate_limited: RateLimitedAudienceAllowance | None = None
+    # Keys of the project's test account filters the audience leaves out because they only apply to events.
+    skipped_test_account_filters: list[str] = field(default_factory=list)
 
 
 @frozen
@@ -355,6 +369,10 @@ class ContactsImportAccessLost(Exception):
 
 class ContactsCohortGone(Exception):
     """The cohort a list fills was deleted or isn't static anymore. Another try finds the same."""
+
+
+class ContactsPartMissing(Exception):
+    """A stored part of a contact list can't be read, so nothing may treat the list as complete."""
 
 
 class ContactsCleanupFailed(Exception):
@@ -434,9 +452,45 @@ class EmailInfrastructureHealth:
     """How the email every project in this region sends through PostHog fared, rounded for display."""
 
     emails_sent_at_least: int
-    delivery_rate: float
     bounce_rate: float
     complaint_rate: float
+
+
+@frozen
+class EmailSendingNextTier:
+    """What a project needs to do for the daily check to move it up one tier."""
+
+    emails_per_day: int
+    daily_target: int
+    days_required: int
+    days_reached: int
+    # The tier check does not promote a project before this, however much it sends.
+    not_before: datetime
+
+
+@frozen
+class EmailSendingRecentRates:
+    """The short window the daily check demotes on, next to the limits it holds the rates to."""
+
+    window_days: int
+    emails_sent: int
+    bounce_rate: float
+    complaint_rate: float
+    complaints: int
+    max_bounce_rate: float
+    max_complaint_rate: float
+    # The daily check's verdicts on these numbers, which also apply its minimum-volume rules.
+    bounces_within_limits: bool
+    complaints_within_limits: bool
+
+
+@frozen
+class EmailSendingAllowanceChange:
+    changed_at: datetime
+    previous_emails_per_day: int
+    emails_per_day: int
+    # The tier decision reason the change was logged with, or staff_set for a hand-set tier.
+    reason: str
 
 
 @frozen
@@ -451,6 +505,12 @@ class EmailSendingAllowance:
     enforced: bool
     # The largest batch a slow enough sending rate limit allows. None when no rate raises the cap.
     rate_limited_max_batch_audience: int | None = None
+    # None at the top tier and for a tier staff pinned, which the daily check never moves.
+    next_tier: EmailSendingNextTier | None = None
+    # None for a tier staff pinned, which the daily check never moves.
+    recent_rates: EmailSendingRecentRates | None = None
+    # Newest first.
+    recent_changes: tuple[EmailSendingAllowanceChange, ...] = ()
 
 
 class StaffPausedError(Exception):
@@ -782,6 +842,10 @@ class SuggestionsSample:
     reached: bool
     # Tracked sends (sent minus untracked) from the live version's busiest email step in the window.
     tracked_sends: int
+    # All sends, tracked or not, from the live version's busiest email step in the window.
+    sends: int
+    # A readable conversion goal lets untracked sends count toward the floor.
+    reads_conversion: bool
     required_sends: int
     version_live_since: datetime
 
@@ -827,6 +891,7 @@ class TransactionalEmailContent:
     message_category_id: UUID | None
     # Sends keep a placeholder instead of the body, and clicks drop the link's query string.
     sensitive: bool = False
+    click_tracking_enabled: bool | None = None
     # Empty values use the sender's own address, name and default reply-to.
     from_email: str = ""
     from_name: str = ""
@@ -1440,3 +1505,23 @@ class SandboxSenderStatus:
     display_name: str
     organization_blocked: bool
     adoption_enabled: bool
+
+
+@frozen
+class ConversionGoalBackfill:
+    workflows_read: int
+    revisions_read: int
+    goals_found: int
+
+
+@frozen
+class AdventCalendarShare:
+    option: AdventCalendarOption
+    share: int
+
+
+@frozen
+class AdventCalendarQuestionResult:
+    day: AdventCalendarDay
+    answer: AdventCalendarOption | None
+    shares: tuple[AdventCalendarShare, ...]

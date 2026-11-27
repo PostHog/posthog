@@ -7,8 +7,10 @@ from unittest import TestCase
 
 from django.utils import timezone
 
+from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 
+from posthog.errors import wrap_clickhouse_query_error
 from posthog.exceptions import ClickHouseClusterMemoryLimitExceeded
 from posthog.models.scoping import team_scope
 
@@ -38,6 +40,7 @@ from products.experiments.backend.health.test.factories import ENDED, RUNNING_CO
 from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
 from products.experiments.backend.metric_calculation.results import MetricResultStore
 from products.experiments.backend.models.experiment import Experiment, ExperimentMetricsRecalculation
+from products.experiments.backend.recalculation.payloads import RUN_ENTRY_CALCULATION_KEY
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 CODE = ExperimentHealthFindingCode.METRIC_CALCULATION_FAILED
@@ -216,6 +219,15 @@ class TestMetricCalculationFailed(TestCase):
             (
                 "type_mismatch",
                 _failure("DB::Exception: There is no supertype for types String, Float64", error_type="server_error"),
+                {},
+                ("settings", WARNING, "type_mismatch", "compares values of different types"),
+            ),
+            (
+                "formatted_no_common_type",
+                _failure(
+                    str(wrap_clickhouse_query_error(ServerException("database detail", code=386))),
+                    error_type="server_error",
+                ),
                 {},
                 ("settings", WARNING, "type_mismatch", "compares values of different types"),
             ),
@@ -588,6 +600,7 @@ class TestMetricCalculationFailedFromStoredRuns(BaseTest):
         created_at: datetime,
         metric_errors: dict[str, dict[str, Any]] | None = None,
         failed_rows: tuple[str, ...] = (),
+        failed_row_message: str = "Unable to resolve field: purchase. Did you mean: purchase_total?",
         completed_rows: tuple[str, ...] = (),
         completed_read_precomputed: bool = False,
     ) -> None:
@@ -612,7 +625,7 @@ class TestMetricCalculationFailedFromStoredRuns(BaseTest):
                         calculation_config,
                         window=query_to,
                         query_from=query_from,
-                        error_message="Unable to resolve field: purchase. Did you mean: purchase_total?",
+                        error_message=failed_row_message,
                         query_id=None,
                     )
                 else:
@@ -663,6 +676,45 @@ class TestMetricCalculationFailedFromStoredRuns(BaseTest):
         self.assertNotIn("metric_3", finding.evidence)
         self.assertNotIn("purchase_total", finding.detail + str(finding.evidence))
         self.assertIsNone(finding.evidence["metric_2_message"])
+
+    @parameterized.expand(
+        [
+            ("hidden_entry_with_a_failed_row_of_the_current_config", False, False, ("query_limit", "memory_limit")),
+            ("hidden_entry_after_the_metric_changed", False, True, ("unexpected_error", None)),
+            ("entry_of_the_current_config", True, False, ("busy", None)),
+        ]
+    )
+    def test_words_the_failure_from_the_failed_row_only_for_a_hidden_entry(
+        self, _name: str, with_calculation_key: bool, metric_changed: bool, expected: tuple[str, str | None]
+    ) -> None:
+        entry: dict[str, Any] = {
+            "step": "calculation",
+            "message": "Too many queries for this team",
+            "error_type": "server_error",
+            "retriable": False,
+        }
+        if with_calculation_key:
+            with team_scope(self.team.id):
+                calculation_config = get_metric_calculation_config(self.experiment, "primary")
+            assert calculation_config is not None
+            entry[RUN_ENTRY_CALCULATION_KEY] = calculation_config.calculation_key()
+        self._run(
+            status=ExperimentMetricsRecalculation.Status.FAILED,
+            created_at=timezone.now() - timedelta(hours=2),
+            metric_errors={"primary": entry},
+            failed_rows=("primary",),
+            failed_row_message="Code: 241. DB::Exception: Memory limit (for query) exceeded",
+        )
+        if metric_changed:
+            self.experiment.metrics = [
+                {**_mean("primary"), "source": {"kind": "EventsNode", "event": "checkout"}},
+                _mean("rejected"),
+            ]
+            self.experiment.save()
+
+        [finding] = [finding for finding in self._health().findings if finding.code == CODE]
+
+        self.assertEqual((finding.evidence["metric_1_failure"], finding.evidence["metric_1_error"]), expected)
 
     @parameterized.expand(
         [

@@ -41,6 +41,7 @@ from posthog.exceptions_capture import ambient_exception_properties, capture_exc
 from posthog.models import Organization, Team
 
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
+from products.business_knowledge.backend.facade.contracts import DocsPage
 
 from ee.hogai.mcp_tool import MCPToolResult
 from ee.hogai.tool_errors import MaxToolRetryableError
@@ -110,7 +111,7 @@ class TestMCPToolsAPI(APIBaseTest):
             response.json(),
             {
                 "success": False,
-                "content": "Tool failed: MaxToolRetryableError: Invalid connectionId: no direct-query-capable data source with this id in this team, or you don't have access to it.. You may retry with adjusted inputs.",
+                "content": "Tool failed: MaxToolRetryableError: Invalid connectionId: no direct-query-capable data source with this id in this team, or you don't have access to it. You may retry with adjusted inputs.",
                 "error_type": "internal",
                 "error_code": "hogql_error",
             },
@@ -313,7 +314,7 @@ class TestMCPToolsAPI(APIBaseTest):
             (
                 UserAccessControlError("insight", "viewer"),
                 "permission",
-                "Tool failed: MaxToolAccessDeniedError: The user does not have viewer access to access insights. Suggest the user to contact their project admin to request access..",
+                "Tool failed: MaxToolAccessDeniedError: The user does not have viewer access to access insights. Suggest the user to contact their project admin to request access.",
             ),
             (
                 ClickHouseQueryTimeOut("Query timed out"),
@@ -375,25 +376,25 @@ class TestMCPToolsAPI(APIBaseTest):
                 CHQueryErrorS3FileChangedDuringRead("Warehouse file changed while reading", code=499),
                 "api_5xx",
                 "Tool failed: MaxToolTransientError: Warehouse file changed while reading. You may retry this operation once without changes.",
-                error_code="s3_error",
+                error_code="s3_file_changed_during_read",
             ),
             param(
                 CHQueryErrorS3Error("Storage read failed", code=499),
                 "api_5xx",
-                "Tool failed: MaxToolTransientError: Code: 499.\nStorage read failed. You may retry this operation once without changes.",
+                "Tool failed: MaxToolTransientError: PostHog couldn't read from storage while running this query. Wait a few minutes, then run the query again. If the problem continues, contact support. You may retry this operation once without changes.",
                 error_code="s3_error",
             ),
             param(
                 InternalCHQueryError("Too many parts", code=252, code_name="caller-supplied-name"),
-                "internal",
-                "Tool failed: MaxToolRetryableError: Error executing query: There was an unknown error running this query: Code: 252.\nToo many parts. You may retry with adjusted inputs.",
+                "api_5xx",
+                "Tool failed: MaxToolTransientError: The database had a temporary problem while it ran this query. Wait a few minutes, then run the query again. If the problem continues, contact support. You may retry this operation once without changes.",
                 error_code="too_many_parts",
             ),
             param(
                 InternalCHQueryError("Unknown failure", code=99999, code_name="s3_error"),
                 "internal",
-                "Tool failed: MaxToolRetryableError: Error executing query: There was an unknown error running this query: Code: 99999.\nUnknown failure. You may retry with adjusted inputs.",
-                error_code="unknown_exception",
+                "Tool failed: MaxToolFatalError: ClickHouse couldn't complete this query. Contact support and include the error code 99999.",
+                error_code="clickhouse_99999",
             ),
             (
                 _wrapped_hogql_error(TableAccessDeniedError("restricted_table"), "Warehouse table access denied"),
@@ -468,8 +469,9 @@ class TestMCPToolsAPI(APIBaseTest):
                 None,
                 None,
                 "query_was_cancelled",
-                "Tool failed: MaxToolRetryableError: The query failed because of an internal error. You may retry with adjusted inputs.",
+                "Tool failed: MaxToolTransientError: The query was cancelled before it finished. Run it again if you still need the results. You may retry this operation once without changes.",
                 expected_error_code="query_was_cancelled",
+                expected_error_type="api_5xx",
             ),
             param(
                 "trino_unsupported",
@@ -502,10 +504,11 @@ class TestMCPToolsAPI(APIBaseTest):
                 None,
                 None,
                 "S3_ERROR",
-                "Tool failed: MaxToolRetryableError: PostHog couldn't read from storage while running this query. "
-                "Wait a few minutes, then run the query again. If the problem continues, contact support.. "
-                "You may retry with adjusted inputs.",
+                "Tool failed: MaxToolTransientError: PostHog couldn't read from storage while running this query. "
+                "Wait a few minutes, then run the query again. If the problem continues, contact support. "
+                "You may retry this operation once without changes.",
                 expected_error_code="s3_error",
+                expected_error_type="api_5xx",
             ),
             param(
                 "deferred_compatibility_rejection",
@@ -667,3 +670,28 @@ class TestDocsSearchAction(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
         self.assertIn("internal error", response.json()["content"].lower())
+
+    @parameterized.expand(
+        [
+            ("library_has_pages", [DocsPage(title="Feature flags", url="https://posthog.com/docs/flags", text="X")]),
+            ("library_has_nothing", []),
+        ]
+    )
+    @patch("products.posthog_ai.backend.api.mcp_tools._run_inkeep_docs_search", new_callable=AsyncMock)
+    @patch("ee.hogai.tools.search.search_docs_library", new_callable=AsyncMock)
+    def test_docs_search_uses_inkeep_only_when_the_docs_library_has_no_pages(
+        self, _name: str, library_pages: list[DocsPage], mock_library: AsyncMock, mock_inkeep: AsyncMock
+    ) -> None:
+        from django.test import override_settings
+
+        mock_library.return_value = library_pages
+        mock_inkeep.return_value = "Found 1 relevant documentation page(s):\n\n# From Inkeep\nURL: …\n\nDocs."
+
+        with override_settings(INKEEP_API_KEY="test-key"):
+            response = self.client.post(self.URL, {"query": "feature flags"}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        expected_title = "# Feature flags" if library_pages else "# From Inkeep"
+        self.assertIn(expected_title, response.json()["content"])
+        self.assertNotIn("<system_reminder>", response.json()["content"])
+        self.assertEqual(mock_inkeep.await_count, 0 if library_pages else 1)

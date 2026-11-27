@@ -51,9 +51,9 @@ class ListmonkSource(ResumableSource[ListmonkSourceConfig, ListmonkResumeConfig]
             name=ExternalDataSourceType.LISTMONK,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Listmonk",
-            caption="""Sync subscribers, lists, campaigns, bounces and daily campaign analytics from your Listmonk instance.
+            caption="""Sync subscribers, lists, campaigns, templates, bounces and daily campaign analytics from your Listmonk instance.
 
-Create an API user in Listmonk under **Admin > Users** and copy its token. Its role needs `subscribers:get_all`, `lists:get_all`, `campaigns:get_all`, `bounces:get` and `campaigns:get_analytics`. Incremental sync of subscribers also needs `subscribers:sql_query`.""",
+Create an API user in Listmonk under **Admin > Users** and copy its token. Its role needs `subscribers:get_all`, `lists:get_all`, `campaigns:get_all`, `templates:get`, `bounces:get` and `campaigns:get_analytics`. Incremental sync of subscribers also needs `subscribers:sql_query`.""",
             iconPath="/static/services/listmonk.png",
             docsUrl="https://posthog.com/docs/cdp/sources/listmonk",
             releaseStatus=ReleaseStatus.BETA,

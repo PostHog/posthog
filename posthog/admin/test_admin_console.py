@@ -1,5 +1,6 @@
 import re
 from collections.abc import Callable
+from contextlib import nullcontext
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from importlib import import_module
@@ -66,6 +67,8 @@ from posthog.admin.console.tools import (
     Notice,
     Page,
     Paging,
+    Progress,
+    ProgressPart,
     Row,
     Secret,
     Stat,
@@ -77,6 +80,8 @@ from posthog.admin.console.urls import moved_url_patterns
 from posthog.admin.console.user_panels import is_acting_as
 from posthog.admin.console.views import _offered_operations
 from posthog.csp_middleware import CSPMiddleware
+from posthog.helpers.impersonation import Impersonation
+from posthog.middleware import IMPERSONATION_READ_ONLY_SESSION_KEY, IMPERSONATION_REASON_SESSION_KEY
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.activity_logging.utils import activity_visibility_manager
 from posthog.models.data_deletion_request import DataDeletionRequest, RequestType
@@ -89,7 +94,7 @@ from posthog.models.project import Project
 from posthog.models.project_secret_api_key import RevokedTeamSecretToken
 from posthog.models.team.team import Team
 from posthog.models.tophog.queries import TopHogFilterOptions
-from posthog.models.user import User
+from posthog.models.user import User, UserType
 from posthog.models.utils import generate_random_token_personal, hash_key_value, mask_key_value
 from posthog.session.models import Session
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
@@ -452,6 +457,11 @@ class TestAdminConsoleContract(SimpleTestCase):
                 "table_row_missing_a_cell",
                 lambda: Page(blocks=(Table(columns=("Team", "Months"), rows=(Row(cells=(Cell(text="a"),)),)),)),
                 "1 cells for 2 columns",
+            ),
+            (
+                "progress_parts_over_the_total",
+                lambda: Progress(text="Done", total=3, parts=(ProgressPart(count=4, tone=Tone.SUCCESS),)),
+                "do not fit a total of 3",
             ),
             (
                 "decision_value_that_a_button_also_posts",
@@ -863,6 +873,32 @@ class TestAdminConsoleViews(BaseTest):
         for opened_page in opened_pages:
             assert opened_page in home, f"home misses {opened_page}, which was opened before"
 
+    @parameterized.expand(
+        [
+            ("everyone", "", {"user1@posthog.com", "alice@example.com", "bob@example.com"}),
+            ("part_of_an_email", "ALI", {"alice@example.com"}),
+            ("last_name", "smith", {"bob@example.com"}),
+            ("no_match", "nobody", set()),
+        ]
+    )
+    def test_organization_members_page_lists_only_that_organizations_members(
+        self, _name: str, search: str, expected_emails: set[str]
+    ) -> None:
+        User.objects.create_and_join(self.organization, "alice@example.com", None, first_name="Alice")
+        User.objects.create_and_join(self.organization, "bob@example.com", None, last_name="Smith")
+        other = Organization.objects.create(name="Another organization")
+        User.objects.create_and_join(other, "alice@other.example.com", None, first_name="Alice")
+        organization_page = self.client.get(f"/admin/console/organizations/{self.organization.pk}/").content.decode()
+        members_url = f"/admin/console/tools/organization-members/?organization={self.organization.pk}"
+        assert f'href="{members_url}"' in organization_page
+
+        response = self.client.get(
+            "/admin/console/tools/organization-members/", {"organization": str(self.organization.pk), "search": search}
+        )
+
+        table = next(block for block in response.context["page"].blocks if isinstance(block, Table))
+        assert {row.cells[0].text for row in table.rows if isinstance(row, Row)} == expected_emails
+
     @parameterized.expand([("team",), ("project",), ("user",)])
     def test_django_admin_page_points_moved_actions_to_registered_panels(self, record: str) -> None:
         obj = self._record(record)
@@ -922,10 +958,6 @@ class TestAdminConsoleViews(BaseTest):
 
         assert response.status_code == 302
         assert response["Location"] == expected + kept
-        if record == "user":
-            # Log in as user in Django admin prefills its reason from the ticket.
-            raw_record = f"/admin/posthog/user/{self.user.pk}/change/{kept}"
-            assert f'href="{raw_record}"' in self.client.get(response["Location"]).content.decode()
 
     @parameterized.expand(
         [
@@ -1780,6 +1812,68 @@ class TestAdminConsoleUserSignIn(BaseTest):
         assert response.status_code == 302
         assert not Session.objects.filter(session_key__in=target_keys).exists()
         assert Session.objects.filter(session_key=other_key).exists()
+
+
+class TestAdminConsoleLogInAsUser(BaseTest):
+    ticket = "https://support.example.com/tickets/42"
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.user.is_staff = True
+        self.user.save()
+        self.client.force_login(self.user)
+        self.target = User.objects.create_and_join(self.organization, "impersonation-target@example.com", None)
+        self.url = f"/admin/console/users/{self.target.pk}/log-in-as/log-in/"
+
+    @parameterized.expand([("read_only", {"read_only": "on"}, True), ("read_and_write", {}, False)])
+    def test_logging_in_starts_the_impersonation_in_the_chosen_mode(
+        self, _name: str, mode: dict[str, str], read_only: bool
+    ) -> None:
+        response = self.client.post(self.url, {"reason": "For ticket 42", **mode})
+
+        assert response.status_code == 302
+        assert response["Location"] == la_settings.LOGIN_REDIRECT
+        session = self.client.session
+        assert session[SESSION_KEY] == str(self.target.pk)
+        assert session.get(IMPERSONATION_READ_ONLY_SESSION_KEY, False) == read_only
+        assert session[IMPERSONATION_REASON_SESSION_KEY] == "For ticket 42"
+
+    @parameterized.expand(
+        [
+            ("blank_reason", {}, {"reason": " "}, False, 400),
+            ("staff_target", {"is_staff": True}, {"reason": "For ticket 42"}, False, 404),
+            ("service_account", {"type": UserType.SERVICE_ACCOUNT}, {"reason": "For ticket 42"}, False, 404),
+            ("target_turned_it_off", {"allow_impersonation": False}, {"reason": "For ticket 42"}, False, 404),
+            # CAN_LOGIN_AS still refuses when the panel offers the operation by mistake.
+            ("staff_target_offered_by_mistake", {"is_staff": True}, {"reason": "For ticket 42"}, True, 302),
+        ]
+    )
+    def test_refused_log_in_leaves_the_staff_session_alone(
+        self, _name: str, target_state: dict[str, bool | str], data: dict[str, str], offered: bool, expected_status: int
+    ) -> None:
+        User.objects.filter(pk=self.target.pk).update(**target_state)
+
+        if target_state.get("type") == UserType.SERVICE_ACCOUNT:
+            page = self.client.get(f"/admin/console/users/{self.target.pk}/")
+            self.assertContains(page, "Service accounts cannot use browser sessions")
+            self.assertNotContains(page, f'href="{self.url}"')
+
+        with patch.object(Impersonation, "refusal", return_value=None) if offered else nullcontext():
+            response = self.client.post(self.url, data)
+
+        assert response.status_code == expected_status
+        assert self.client.session[SESSION_KEY] == str(self.user.pk)
+
+    def test_a_support_ticket_fills_in_the_reason(self) -> None:
+        record_page = self.client.get(f"/admin/console/users/{self.target.pk}/", {"ticket": self.ticket})
+        operation_url = f"{self.url}?{urlencode({'ticket': self.ticket})}"
+        assert f'href="{escape(operation_url)}"' in record_page.content.decode()
+        assert operation_url in [link.href for link in record_page.context["record_links"]]
+
+        form = self.client.get(operation_url).context["form"]
+
+        assert form["reason"].value() == f"For ticket {self.ticket}"
+        assert form["read_only"].value() is True
 
 
 class _RefusesDeletionAdmin(admin.ModelAdmin):

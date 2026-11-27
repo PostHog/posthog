@@ -1,4 +1,5 @@
 import dataclasses
+from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 
@@ -8,10 +9,13 @@ from products.warehouse_sources.sources.ruddr.settings import (
     INCREMENTAL_FIELDS,
     INCREMENTAL_FILTER_PARAMS,
     RUDDR_ENDPOINTS,
+    RuddrEndpointConfig,
 )
 from products.warehouse_sources.sources.sdk import (
     BasePaginator,
+    BearerTokenAuth,
     RESTAPIConfig,
+    RESTClient,
     ResumableSourceManager,
     SourceResponse,
     make_tracked_session,
@@ -25,6 +29,7 @@ PAGE_SIZE = 100
 # Cheap endpoint used to confirm an API key is genuine. The key is workspace-wide, so one probe
 # validates access to every list endpoint.
 DEFAULT_PROBE_PATH = "/clients"
+MEMBERS_PATH = "/members"
 
 
 @dataclasses.dataclass(frozen=False)
@@ -33,6 +38,9 @@ class RuddrResumeConfig:
     # A crashed full-refresh sync resumes from the page after the last one yielded; merge dedupes on
     # `id`. `None` means start from the first page.
     cursor: str | None = None
+    # Member fan-out only: `cursor` fetches the members page being read, and these are the members
+    # of that page whose rows were already yielded.
+    completed_member_ids: list[str] = dataclasses.field(default_factory=list)
 
 
 class RuddrCursorPaginator(BasePaginator):
@@ -101,6 +109,52 @@ def incremental_filter_params(
     return {INCREMENTAL_FILTER_PARAMS[incremental_field]: _format_watermark(db_incremental_field_last_value)}
 
 
+def _member_fanout_rows(
+    api_key: str,
+    config: RuddrEndpointConfig,
+    resumable_source_manager: ResumableSourceManager[RuddrResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    client = RESTClient(base_url=RUDDR_BASE_URL, headers={"Accept": "application/json"}, auth=BearerTokenAuth(api_key))
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    page_cursor = resume.cursor if resume else None
+    # Full refresh appends without dedupe, so skip the members of the resumed page that were already read.
+    done = list(resume.completed_member_ids) if resume else []
+
+    for members in client.paginate(
+        path=MEMBERS_PATH,
+        params={"limit": PAGE_SIZE},
+        paginator=RuddrCursorPaginator(),
+        initial_paginator_state={"cursor": page_cursor} if page_cursor is not None else None,
+        data_selector="results",
+        data_selector_required=True,
+    ):
+        completed, done = done, []
+        for member in members:
+            member_id = member["id"]
+            if member_id in completed:
+                continue
+            rows: list[dict[str, Any]] = []
+            for page in client.paginate(
+                path=config.path,
+                params={"limit": PAGE_SIZE, "memberId": member_id},
+                paginator=RuddrCursorPaginator(),
+                data_selector="results",
+                data_selector_required=True,
+            ):
+                rows.extend({**row, "member_id": member_id} for row in page)
+            completed.append(member_id)
+            resumable_source_manager.save_state(
+                RuddrResumeConfig(cursor=page_cursor, completed_member_ids=list(completed))
+            )
+            if rows:
+                yield rows
+            else:
+                resumable_source_manager.safe_point()
+
+        if members:
+            page_cursor = members[-1]["id"]
+
+
 def ruddr_source(
     api_key: str,
     endpoint: str,
@@ -111,6 +165,15 @@ def ruddr_source(
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = RUDDR_ENDPOINTS[endpoint]
+    if config.member_fanout:
+        return SourceResponse(
+            name=endpoint,
+            items=lambda: _member_fanout_rows(api_key, config, resumable_source_manager),
+            primary_keys=config.primary_keys,
+            partition_count=1,
+            partition_size=1,
+        )
+
     params: dict[str, Any] = {
         "limit": PAGE_SIZE,
         **incremental_filter_params(endpoint, incremental_field, db_incremental_field_last_value),

@@ -67,20 +67,28 @@ class CheckMode(LabeledStrEnum):
 
 
 class CheckFrequency(LabeledStrEnum):
-    """How often an engine checks each prompt. Weekly checks spread the prompt set over the week."""
-
     DAILY = "daily", "Daily"
+    EVERY_3_DAYS = "every_3_days", "Every 72 hours"
     WEEKLY = "weekly", "Weekly"
 
 
 AEO_CITATION_TRACKING_FLAG = "aeo-citation-tracking"
+AI_VISIBILITY_ACCESS_FLAG = "web-analytics-content-autopilot"
+DEFAULT_MAX_ACTIVE_PROMPTS = 100
+PROMPT_LIMIT_ERROR_CODE = "prompt_limit_reached"
+
+OUT_OF_AI_CREDITS_MESSAGE = (
+    "Your organization reached its AI credit usage limit. "
+    "Increase the limits in Billing settings, or ask an org admin to do so."
+)
 PROMPT_TOPIC_MAX_LENGTH = 200
-# The window the page opens on, and so the one the stored results are kept ready for.
-DEFAULT_STATS_DAYS = 30
 PROMPT_VERSION_DESCRIPTION_MAX_LENGTH = 400
 MAX_RANKED_COMPETITORS = 10
 MAX_RANKED_DOMAINS = 20
 MAX_RANKED_PAGES = 20
+MAX_MOVERS = 5
+# One answer in a window would read as a rate of 0 or 100%, so a mover needs a few answers in each.
+MIN_MOVER_ANSWERS = 3
 
 
 class BrandedSegment(LabeledStrEnum):
@@ -296,6 +304,20 @@ class PromptSetTopicCounts(PromptSetCounts):
 
 
 @frozen
+class PromptSetEngineTopicCounts:
+    """Answered checks of one engine that ran with one topic in the window. A pair with no answer has no row."""
+
+    engine: str
+    topic: str
+    answers: int
+    mentioned: int
+
+    @property
+    def mention_rate(self) -> float:
+        return self.mentioned / self.answers
+
+
+@frozen
 class PromptSetDomain:
     """How many answers across the set cited a domain in the window."""
 
@@ -327,7 +349,7 @@ class PromptSetSearch:
 
 @frozen
 class PromptSetOverview:
-    """How the whole prompt set did over the last `days` days, against the `days` days before."""
+    """How the whole prompt set did from `window_from` to `window_to`, against the `days` days before."""
 
     days: int
     window_from: dt.date
@@ -347,6 +369,7 @@ class PromptSetOverview:
     engines: tuple[PromptSetEngineCounts, ...]
     daily: tuple[PromptDailyEngineStats, ...]
     topics: tuple[PromptSetTopicCounts, ...]
+    engine_topics: tuple[PromptSetEngineTopicCounts, ...]
     top_domains: tuple[PromptSetDomain, ...]
     top_searches: tuple[PromptSetSearch, ...]
 
@@ -403,6 +426,31 @@ class PromptNotFoundError(Exception):
     pass
 
 
+@frozen
+class PromptLimit:
+    max_active_prompts: int
+    active_prompts: int
+
+    @property
+    def remaining(self) -> int:
+        return max(0, self.max_active_prompts - self.active_prompts)
+
+
+class PromptLimitError(Exception):
+    def __init__(self, limit: PromptLimit, adding: int) -> None:
+        if limit.remaining == 0:
+            message = (
+                f"You're tracking {limit.active_prompts} prompts, and this project can track up to "
+                f"{limit.max_active_prompts}. Turn off some prompts first."
+            )
+        else:
+            message = (
+                f"This would turn on {adding} prompts, but only {limit.remaining} more fit in this project's limit "
+                f"of {limit.max_active_prompts} tracked prompts. Turn off some prompts first."
+            )
+        super().__init__(message)
+
+
 BRAND_NAME_MAX_LENGTH = 200
 KEYWORD_MAX_LENGTH = 100
 MAX_KEYWORDS_PER_TEAM = 200
@@ -426,6 +474,19 @@ class BrandStatus(LabeledStrEnum):
 class BrandSource(LabeledStrEnum):
     CITATIONS = "citations", "Citations"
     MANUAL = "manual", "Manual"
+
+
+class MentionKind(LabeledStrEnum):
+    """Which identifier of a brand an answer used. The first four are found in the answer text."""
+
+    NAME = "name", "Name"
+    ALIAS = "alias", "Alias"
+    DOMAIN_LABEL = "domain_label", "Domain label"
+    DOMAIN = "domain", "Domain"
+    URL = "url", "URL"
+    # Not in the text: the answer cites, or the engine retrieved, a page on the brand's domain.
+    CITATION = "citation", "Citation"
+    RETRIEVAL = "retrieval", "Retrieval"
 
 
 @frozen
@@ -484,6 +545,21 @@ class BrandNotFoundError(Exception):
     pass
 
 
+# "-90d" counts today too, so the longest relative range has 91 days.
+MAX_WINDOW_DAYS = 91
+# The window the page opens on, and so the one the stored results are kept ready for.
+DEFAULT_DATE_FROM = "-30d"
+KEYWORD_DEFAULT_DATE_FROM = "-7d"
+
+
+class InvalidDateRangeError(Exception):
+    """`date_from` or `date_to` cannot be read, or the range is too long. The message is safe to show the user."""
+
+    def __init__(self, field: str, message: str) -> None:
+        super().__init__(message)
+        self.field = field
+
+
 class BrandCreateError(Exception):
     """The brand cannot be added. The message is safe to show the user."""
 
@@ -518,6 +594,10 @@ class PromptUpdateError(Exception):
 
 class PromptTextConflictError(Exception):
     """The new text matches another prompt in the set. The message is safe to show the user."""
+
+
+class OutOfAICreditsError(Exception):
+    pass
 
 
 class PromptSuggestionError(Exception):
@@ -566,6 +646,19 @@ class SuggestionJobStatus(LabeledStrEnum):
     PENDING = "pending"
     COMPLETED = "completed"
     FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+MAX_SUGGESTED_COMPETITORS = 5
+
+
+@frozen
+class SuggestedCompetitor:
+    """A competitor the model named while it researched the site. `domain` is empty when a person gave only a name
+    and the model did not find its site."""
+
+    name: str
+    domain: str
 
 
 @frozen
@@ -573,6 +666,7 @@ class PromptSuggestionJob:
     id: str
     status: SuggestionJobStatus
     suggestions: tuple[PromptSuggestion, ...] = ()
+    competitors: tuple[SuggestedCompetitor, ...] = ()
     error: str = ""
 
 
@@ -628,8 +722,8 @@ class RankedPage:
 
 @frozen
 class PromptSetRankings:
-    """Brand visibility against competitors, and the domains and pages the engines cite, over the
-    last `days` days."""
+    """Brand visibility against competitors, and the domains and pages the engines cite, from
+    `window_from` to `window_to`."""
 
     days: int
     window_from: dt.date
@@ -643,6 +737,54 @@ class PromptSetRankings:
     daily: tuple[RankedBrandDay, ...]
     top_domains: tuple[RankedDomain, ...]
     top_pages: tuple[RankedPage, ...]
+
+
+@frozen
+class PromptMover:
+    """A prompt whose mention rate changed between the current window and the window before."""
+
+    prompt_id: str
+    prompt: str
+    topic: str
+    answers: int
+    mentioned: int
+    mention_rate: float
+    previous_answers: int
+    previous_mentioned: int
+    previous_mention_rate: float
+    change: float
+
+
+@frozen
+class PageMover:
+    """A page on an own domain whose citation rate changed between the current window and the window before."""
+
+    url: str
+    answers_citing: int
+    citation_rate: float
+    previous_answers_citing: int
+    previous_citation_rate: float
+    change: float
+
+
+@frozen
+class PromptSetMovers:
+    """The prompts and own pages that gained and lost the most between `window_from` to `window_to` and
+    the `days` days before."""
+
+    days: int
+    window_from: dt.date
+    window_to: dt.date
+    branded: BrandedSegment
+    engine: str | None
+    topic: str | None
+    answers: int
+    previous_answers: int
+    min_answers: int
+    prompt_gainers: tuple[PromptMover, ...]
+    prompt_losers: tuple[PromptMover, ...]
+    page_gainers: tuple[PageMover, ...]
+    page_losers: tuple[PageMover, ...]
 
 
 MAX_KEYWORD_MODIFIERS = 50
@@ -791,6 +933,7 @@ SETUP_PROMPT_COUNT = 20
 SETUP_KEYWORD_COUNT = 20
 # A project that already has this many active prompts or keywords keeps its own list, and setup skips the step.
 SETUP_ENOUGH_PROMPTS = 10
+SETUP_PROMPT_COUNT_MAX = 50
 SETUP_ENOUGH_KEYWORDS = 10
 SETUP_WEBSITE_DAYS = 7
 MAX_SETUP_WEBSITES = 5
@@ -814,12 +957,19 @@ class WebsiteCandidate:
 
 
 @frozen
+class EngineCheckCount:
+    engine: str
+    checks: int
+
+
+@frozen
 class SetupContext:
     """What PostHog already knows about the project, so setup can start from it."""
 
     websites: tuple[WebsiteCandidate, ...]
     own_domains: tuple[str, ...]
     active_prompts: int
+    max_active_prompts: int
     # Unarchived prompts that are turned off, which no run checks.
     paused_prompts: int
     keywords: int
@@ -828,14 +978,17 @@ class SetupContext:
     first_run_available: bool
     # The engines as the project runs them now, defaults included, for choosing which ones to track.
     engines: tuple[EngineSetting, ...]
-    # How many prompts setup asks for, so a client can show how many checks one run makes.
     prompt_target: int
+    prompt_count_max: int
     # The window, in days, of the pageview hosts among the websites.
     website_days: int
+    checks_running: bool = False
+    first_run_checks: tuple[EngineCheckCount, ...] = ()
 
 
 class SetupStep(LabeledStrEnum):
     BRAND = "brand"
+    RESEARCH = "research"
     PROMPTS = "prompts"
     KEYWORDS = "keywords"
     FIRST_RUN = "first_run"
@@ -855,6 +1008,7 @@ class SetupStepState:
     status: SetupStepStatus
     # How many prompts or keywords the step added.
     added: int = 0
+    requested: int = 0
     detail: str = ""
 
 
@@ -871,6 +1025,7 @@ class SetupRequest:
     only_first_run: bool = False
     # With only_first_run, turn on every paused prompt first, such as the ones a configure-only setup saved.
     activate_paused_prompts: bool = False
+    prompt_count: int = SETUP_PROMPT_COUNT
 
 
 @frozen

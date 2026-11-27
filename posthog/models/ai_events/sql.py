@@ -1,7 +1,7 @@
 from django.conf import settings
 
 from posthog.clickhouse.kafka_engine import CONSUMER_GROUP_AI_EVENTS, CONSUMER_GROUP_AI_EVENTS_WS, kafka_engine
-from posthog.clickhouse.table_engines import Distributed, MergeTreeEngine, ReplicationScheme
+from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_AI_EVENTS_JSON
 
 TABLE_BASE_NAME = "ai_events"
@@ -9,7 +9,7 @@ DATA_TABLE_NAME = f"sharded_{TABLE_BASE_NAME}"
 KAFKA_TABLE_NAME = f"kafka_{TABLE_BASE_NAME}_json"
 MV_NAME = f"{TABLE_BASE_NAME}_json_mv"
 
-SHARDING_KEY = "cityHash64(concat(toString(team_id), '-', trace_id, '-', toString(toDate(timestamp))))"
+SHARDING_KEY = "rand()"
 
 # Heavy AI properties that are stored in dedicated columns and stripped from the properties JSON
 # in the materialized view to avoid duplicating large data.
@@ -21,6 +21,14 @@ HEAVY_AI_PROPERTIES = [
     "$ai_output_state",
     "$ai_tools",
 ]
+
+
+# Clamped at both ends: a missing or malformed header can never make a row expire early, and no producer to the
+# topic can keep one longer than ingestion's own limit or push drop_date past what a Date holds.
+RETENTION_DAYS_FROM_KAFKA_HEADERS_SQL = (
+    "toInt16(least(greatest("
+    "toInt16OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt16(30)), 30), 365))"
+)
 
 
 def _strip_heavy_properties_sql(properties_col: str) -> str:
@@ -42,8 +50,9 @@ def _strip_heavy_properties_sql(properties_col: str) -> str:
 
 
 def AI_EVENTS_DATA_TABLE_ENGINE():
-    return MergeTreeEngine(
+    return ReplacingMergeTree(
         TABLE_BASE_NAME,
+        ver="_timestamp",
         replication_scheme=ReplicationScheme.SHARDED,
     )
 
@@ -174,7 +183,7 @@ def AI_EVENTS_DATA_TABLE_SQL():
         AI_EVENTS_TABLE_BASE_SQL
         + """
 PARTITION BY toYYYYMM(drop_date)
-ORDER BY (team_id, trace_id, timestamp)
+ORDER BY (team_id, trace_id, timestamp, uuid)
 TTL drop_date
 SETTINGS ttl_only_drop_parts = 1
 """
@@ -205,12 +214,12 @@ def KAFKA_AI_EVENTS_TABLE_SQL():
 
 
 def AI_EVENTS_MV_SQL(
-    target_table: str = TABLE_BASE_NAME,
+    target_table: str = DATA_TABLE_NAME,
     mv_name: str = MV_NAME,
     kafka_table: str = KAFKA_TABLE_NAME,
 ):
-    # AI events do not have a dedicated writable table today, so the MV
-    # writes straight to the distributed ai_events table.
+    # AI events have no writable table. The MV writes straight to sharded_ai_events,
+    # which is local on every ai_events node.
     # Use src.properties to avoid alias shadowing — the stripped_properties
     # alias is also called "properties", which would shadow the source column
     # if we didn't qualify with the table alias.
@@ -291,6 +300,9 @@ AS SELECT
     nullIf(JSONExtractRaw(src.properties, '$ai_output_state'), '') AS output_state,
     nullIf(JSONExtractRaw(src.properties, '$ai_tools'), '') AS tools,
 
+    -- Retention
+    {retention_days} AS retention_days,
+
     -- Kafka metadata
     _timestamp,
     _offset,
@@ -301,6 +313,7 @@ FROM {kafka_table} AS src
         target_table=target_table,
         kafka_table=kafka_table,
         stripped_properties=stripped_properties,
+        retention_days=RETENTION_DAYS_FROM_KAFKA_HEADERS_SQL,
     )
 
 

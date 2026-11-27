@@ -10,6 +10,7 @@ from django.test import override_settings
 from parameterized import parameterized
 
 from posthog.schema import (
+    CohortPropertyFilter,
     CompareFilter,
     CustomChannelCondition,
     CustomChannelField,
@@ -36,11 +37,13 @@ from posthog.schema import (
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import get_query_tag_value
 from posthog.errors import CHQueryErrorQueryWasCancelled
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryTimeOut
 from posthog.models.utils import uuid7
 from posthog.models.web_preaggregated.sql import WEB_BOUNCES_INSERT_SQL, WEB_STATS_INSERT_SQL
 
+from products.cohorts.backend.models.cohort import Cohort
 from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
 from products.web_analytics.backend.hogql_queries.stats_table_pre_aggregated import StatsTablePreAggregatedQueryBuilder
 from products.web_analytics.backend.hogql_queries.test.web_preaggregated_test_base import (
@@ -52,7 +55,12 @@ from products.web_analytics.backend.hogql_queries.web_dimensional_precompute imp
     ensure_web_bounces_dimensional_precomputed,
     ensure_web_stats_dimensional_precomputed,
 )
-from products.web_analytics.backend.hogql_queries.web_dimensional_read import ready_dimensional_job_ids
+from products.web_analytics.backend.hogql_queries.web_dimensional_read import (
+    DIMENSIONAL_INELIGIBLE_REASON_TAG,
+    WEB_ANALYTICS_QUERY_MODIFIERS_FLAG,
+    DimensionalIneligibleReason,
+    ready_dimensional_job_ids,
+)
 from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
 from products.web_analytics.backend.hogql_queries.web_page_directory import WebPageDirectoryQueryRunner
 
@@ -68,6 +76,8 @@ WINDOW_END = datetime(2024, 1, 3, tzinfo=UTC)
 
 LEGACY = HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=True)
 OPT_IN = WebAnalyticsQueryModifiers(useDimensionalTables=True)
+# The modifiers flag is on in these tests, which makes an unset request try the dimensional tables.
+OPT_OUT = WebAnalyticsQueryModifiers(useDimensionalTables=False)
 UNTAGGED_CHANNEL = HogQLQueryModifiers(
     customChannelTypeRules=[
         CustomChannelRule(
@@ -104,7 +114,7 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
             self.addCleanup(sync_execute, f"SYSTEM START TTL MERGES {table}")
         flag_patcher = patch(
             "products.web_analytics.backend.hogql_queries.web_dimensional_read.feature_enabled_or_false",
-            return_value=True,
+            side_effect=lambda key, *args, **kwargs: key == WEB_ANALYTICS_QUERY_MODIFIERS_FLAG,
         )
         flag_patcher.start()
         self.addCleanup(flag_patcher.stop)
@@ -220,6 +230,7 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
                 breakdownBy=breakdown,
                 limit=100,
                 includeBounceRate=include_bounce_rate,
+                webQueryModifiers=OPT_OUT,
             ),
             team=self.team,
         )
@@ -273,7 +284,7 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
     ):
         include_bounce_rate = expected_bounce_rates is not None
         v2_strategy, v2, v2_response = self._run(
-            breakdown, LEGACY, None, properties=properties, include_bounce_rate=include_bounce_rate
+            breakdown, LEGACY, OPT_OUT, properties=properties, include_bounce_rate=include_bounce_rate
         )
         # Only the request opt-in: the legacy modifier must not be needed to reach this path.
         dimensional_strategy, dimensional, dimensional_response = self._run(
@@ -335,18 +346,19 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
 
     @parameterized.expand(
         [
-            ("legacy_on_falls_back_to_v2", LEGACY, True),
-            ("legacy_off_falls_back_to_live", None, False),
+            ("legacy_on_falls_back_to_v2", LEGACY, "2024-01-01", "2024-01-03", True),
+            ("legacy_off_falls_back_to_live", None, "2024-01-01", "2024-01-03", False),
+            ("range_starts_before_the_oldest_job", None, "2023-12-31", "2024-01-02", False),
         ]
     )
-    def test_partial_coverage_does_not_read_dimensional(self, _name, modifiers, expect_v2):
+    def test_partial_coverage_does_not_read_dimensional(self, _name, modifiers, date_from, date_to, expect_v2):
         # Dimensional is precomputed for 2024-01-01 and 01-02 only (setUp). A window that
-        # also spans 2024-01-03 is only partially covered, so the job_id filter would
-        # silently drop the uncovered day. The runner must skip dimensional instead.
+        # also spans a day before or after those is only partially covered, so the job_id filter
+        # would silently drop the uncovered day. The runner must skip dimensional instead.
         runner = WebStatsTableQueryRunner(
             team=self.team,
             query=WebStatsTableQuery(
-                dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-03"),
+                dateRange=DateRange(date_from=date_from, date_to=date_to),
                 properties=[],
                 breakdownBy=WebStatsBreakdown.DEVICE_TYPE,
                 limit=100,
@@ -357,6 +369,7 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
         assert ready_dimensional_job_ids(runner, DIMENSIONAL_READ_TABLES) is None, (
             "partial coverage must not route to dimensional"
         )
+        assert get_query_tag_value(DIMENSIONAL_INELIGIBLE_REASON_TAG) == DimensionalIneligibleReason.NOT_READY
 
         runner.calculate()
         assert runner.used_preaggregated_tables is expect_v2
@@ -489,12 +502,57 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
             self.team.save()
         with override_settings(EVENTS_DATA_RETENTION_ENFORCED=retention_months is not None):
             opted_in_runner, opted_in = run(OPT_IN)
-            _live_runner, live = run(None)
+            _live_runner, live = run(OPT_OUT)
             assert ready_dimensional_job_ids(opted_in_runner, DIMENSIONAL_READ_TABLES) is None
 
         assert not opted_in_runner.used_preaggregated_tables
         assert opted_in == live
         assert self._counts(opted_in) == expected_counts
+
+    @parameterized.expand([("test_account_filters",), ("cohort_filter",), ("property_access_rules",)])
+    def test_guarded_query_stays_live(self, name):
+        properties: list = []
+        filter_test_accounts = False
+        access_rules = False
+        if name == "test_account_filters":
+            self.team.test_account_filters = [
+                {"key": "$host", "value": ["blog.example.com"], "operator": "is_not", "type": "event"}
+            ]
+            self.team.save()
+            filter_test_accounts = True
+        elif name == "cohort_filter":
+            cohort = Cohort.objects.create(team=self.team, is_static=True, name="user_a only")
+            cohort.insert_users_by_list(["user_a"])
+            properties = [CohortPropertyFilter(value=cohort.pk)]
+        else:
+            access_rules = True
+
+        def run(web_query_modifiers):
+            runner = WebStatsTableQueryRunner(
+                team=self.team,
+                query=WebStatsTableQuery(
+                    dateRange=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
+                    properties=properties,
+                    breakdownBy=WebStatsBreakdown.DEVICE_TYPE,
+                    filterTestAccounts=filter_test_accounts,
+                    includeBounceRate=True,
+                    limit=100,
+                    webQueryModifiers=web_query_modifiers,
+                ),
+            )
+            return runner, self._sort_results(runner.calculate().results)
+
+        with patch(
+            "products.web_analytics.backend.hogql_queries.web_dimensional_read.team_has_property_access_rules",
+            return_value=access_rules,
+        ):
+            opted_in_runner, opted_in = run(OPT_IN)
+        _live_runner, live = run(OPT_OUT)
+
+        assert not opted_in_runner.query_strategy().startswith("stats_table_dimensional")
+        assert opted_in == live
+        if name != "property_access_rules":
+            assert live != self._run_live(WebStatsBreakdown.DEVICE_TYPE, include_bounce_rate=True)
 
     @parameterized.expand(
         [
@@ -563,7 +621,7 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
             )
             return [(item.key, item.value) for item in overview_runner.calculate().results]
 
-        live = run(None)
+        live = run(OPT_OUT)
         with patch(
             f"products.web_analytics.backend.hogql_queries.web_dimensional_read.{builder_name}.get_query",
             side_effect=error,
@@ -579,18 +637,6 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
     @parameterized.expand(
         [
             ("no_filter", [], [3, 4, 3]),
-            # Like v2, the overview maps a page filter to the entry page. Only user_c's session has an entry
-            # page in this fixture, because the entry page comes from $current_url.
-            (
-                "pathname_exact",
-                [EventPropertyFilter(key="$pathname", value="/blog", operator=PropertyOperator.EXACT)],
-                [1, 1, 1],
-            ),
-            (
-                "pathname_contains",
-                [EventPropertyFilter(key="$pathname", value="blo", operator=PropertyOperator.ICONTAINS)],
-                [1, 1, 1],
-            ),
         ]
     )
     def test_overview_dimensional_matches_v2(self, _name, properties, expected_counts):
@@ -611,7 +657,7 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
                 response = runner.calculate()
             return [call.kwargs["query_type"] for call in mock_execute.call_args_list], response
 
-        v2_query_types, v2 = run(LEGACY, None)
+        v2_query_types, v2 = run(LEGACY, OPT_OUT)
         dimensional_query_types, dimensional = run(None, OPT_IN)
 
         assert v2_query_types == ["web_overview_preaggregated_query"]
@@ -644,7 +690,7 @@ class TestPageDirectoryDimensionalParity(WebAnalyticsPreAggregatedTestBase):
             self.addCleanup(sync_execute, f"SYSTEM START TTL MERGES {table}")
         flag_patcher = patch(
             "products.web_analytics.backend.hogql_queries.web_dimensional_read.feature_enabled_or_false",
-            return_value=True,
+            side_effect=lambda key, *args, **kwargs: key == WEB_ANALYTICS_QUERY_MODIFIERS_FLAG,
         )
         flag_patcher.start()
         self.addCleanup(flag_patcher.stop)
@@ -840,3 +886,196 @@ class TestPageDirectoryDimensionalParity(WebAnalyticsPreAggregatedTestBase):
     def test_directory_dimensional_timeout_does_not_rerun_live(self):
         with self._failing_dimensional_read(ClickHouseQueryTimeOut()), self.assertRaises(ClickHouseQueryTimeOut):
             self._run(OPT_IN)
+
+
+APP_HOST = "app.example.com"
+SITE_HOST = "example.com"
+# Explicit, so the live run stays live once enrolled teams read the dimensional tables by default.
+LIVE = WebAnalyticsQueryModifiers(useDimensionalTables=False)
+
+
+def _rounded(value: float | None) -> float | None:
+    # Live averages per session and dimensional divides two sums, so equal rates can differ in the last bits.
+    return round(value, 9) if value is not None else None
+
+
+def _host(value, operator=PropertyOperator.EXACT) -> EventPropertyFilter:
+    return EventPropertyFilter(key="$host", value=value, operator=operator)
+
+
+class _HostParityBase(WebAnalyticsPreAggregatedTestBase):
+    def setUp(self):
+        for table in ("sharded_web_stats_dimensional_preaggregated", "sharded_web_bounces_dimensional_preaggregated"):
+            sync_execute(f"SYSTEM STOP TTL MERGES {table}")
+            self.addCleanup(sync_execute, f"SYSTEM START TTL MERGES {table}")
+        flag_patcher = patch(
+            "products.web_analytics.backend.hogql_queries.web_dimensional_read.feature_enabled_or_false",
+            side_effect=lambda key, *args, **kwargs: key == WEB_ANALYTICS_QUERY_MODIFIERS_FLAG,
+        )
+        flag_patcher.start()
+        self.addCleanup(flag_patcher.stop)
+        super().setUp()
+
+    def _event(self, event: str, distinct_id: str, session: str, ts: str, host: str | None, path: str, **props) -> None:
+        url = {"$host": host, "$current_url": f"https://{host}{path}"} if host else {}
+        _create_event(
+            team=self.team,
+            event=event,
+            distinct_id=distinct_id,
+            timestamp=ts,
+            properties={"$session_id": session, "$pathname": path, **url, **props},
+        )
+
+    def _setup_test_data(self):
+        desktop = {"$device_type": "Desktop", "$browser": "Chrome", "$os": "Mac OS X"}
+        mobile = {"$device_type": "Mobile", "$browser": "Safari", "$os": "iOS"}
+        sessions = [str(uuid7("2024-01-01")) for _ in range(6)]
+        a, b, c, d, e, app = sessions
+        with time_machine.travel("2024-01-01T09:00:00Z", tick=False):
+            for did in ("user_a", "user_b", "user_c", "user_d", "user_e", "user_app"):
+                _create_person(team_id=self.team.pk, distinct_ids=[did])
+            self._event("$pageview", "user_a", a, "2024-01-01T10:00:00Z", SITE_HOST, "/", **desktop)
+            self._event("$pageview", "user_a", a, "2024-01-01T10:02:00Z", APP_HOST, "/dashboard", **desktop)
+            self._event("$pageview", "user_a", a, "2024-01-01T10:05:00Z", APP_HOST, "/settings", **desktop)
+            self._event("$pageview", "user_b", b, "2024-01-01T11:00:00Z", APP_HOST, "/dashboard", **mobile)
+            self._event("$pageview", "user_c", c, "2024-01-01T12:00:00Z", SITE_HOST, "/", **desktop)
+            self._event("$pageview", "user_c", c, "2024-01-01T12:03:00Z", SITE_HOST, "/pricing", **desktop)
+            self._event("$pageview", "user_d", d, "2024-01-01T13:00:00Z", SITE_HOST, "/blog", **mobile)
+            self._event("$pageview", "user_e", e, "2024-01-01T14:00:00Z", APP_HOST, "/login", **desktop)
+            self._event("$pageview", "user_e", e, "2024-01-01T14:02:00Z", SITE_HOST, "/pricing", **desktop)
+            # An app session: screens only, so it has no bounce value and no host.
+            self._event("$screen", "user_app", app, "2024-01-01T15:00:00Z", None, "", **mobile)
+            self._event("$screen", "user_app", app, "2024-01-01T15:01:00Z", None, "", **mobile)
+            flush_persons_and_events()
+
+        ensure_web_stats_dimensional_precomputed(self.team, WINDOW_START, WINDOW_END)
+        ensure_web_bounces_dimensional_precomputed(self.team, WINDOW_START, WINDOW_END)
+
+
+class TestOverviewDimensionalHostParity(_HostParityBase):
+    def _run(self, web_query_modifiers, properties, date_range, compare) -> tuple[list[str], dict]:
+        runner = WebOverviewQueryRunner(
+            team=self.team,
+            query=WebOverviewQuery(
+                dateRange=date_range,
+                properties=properties,
+                compareFilter=CompareFilter(compare=True) if compare else None,
+                webQueryModifiers=web_query_modifiers,
+            ),
+        )
+        with patch(
+            "products.web_analytics.backend.hogql_queries.web_overview.execute_hogql_query",
+            wraps=execute_hogql_query,
+        ) as mock_execute:
+            response = runner.calculate()
+        query_types = [call.kwargs["query_type"] for call in mock_execute.call_args_list]
+        tiles = {item.key: (_rounded(item.value), _rounded(item.previous)) for item in response.results}
+        return query_types, tiles
+
+    @parameterized.expand(
+        [
+            # visitors, views, sessions; bounce rate in percent, None when no session has a bounce value.
+            ("no_filter", [], (6, 11, 6, 40.0)),
+            ("exact_app_host", [_host(APP_HOST)], (3, 4, 3, 100 / 3)),
+            ("exact_site_host", [_host(SITE_HOST)], (4, 5, 4, 25.0)),
+            ("contains", [_host("app.", PropertyOperator.ICONTAINS)], (3, 4, 3, 100 / 3)),
+            ("is_not", [_host(APP_HOST, PropertyOperator.IS_NOT)], (5, 7, 5, 25.0)),
+            ("is_not_set_app_session", [_host(None, PropertyOperator.IS_NOT_SET)], (1, 2, 1, None)),
+            (
+                "host_and_device",
+                [_host(APP_HOST), EventPropertyFilter(key="$device_type", value="Desktop")],
+                (2, 3, 2, 0.0),
+            ),
+            ("no_matching_session", [_host("unknown.example.com")], (0, 0, 0, None)),
+        ]
+    )
+    def test_overview_dimensional_matches_live(self, _name, properties, expected):
+        date_range = DateRange(date_from=DATE_FROM, date_to=DATE_TO)
+        live_types, live = self._run(LIVE, properties, date_range, compare=False)
+        dimensional_types, dimensional = self._run(OPT_IN, properties, date_range, compare=False)
+
+        assert "web_overview_dimensional_query" not in live_types
+        assert dimensional_types == ["web_overview_dimensional_query"]
+        assert dimensional == live, f"{_name}\nlive={live}\ndimensional={dimensional}"
+        visitors, views, sessions, bounce_rate = expected
+        assert [dimensional[key][0] for key in ("visitors", "views", "sessions")] == [visitors, views, sessions]
+        assert dimensional["bounce rate"][0] == _rounded(bounce_rate)
+        if sessions == 0:
+            assert dimensional["session duration"][0] is None
+
+    def test_overview_previous_period_matches_live(self):
+        date_range = DateRange(date_from="2024-01-02", date_to="2024-01-02")
+        properties = [_host(APP_HOST)]
+        live_types, live = self._run(LIVE, properties, date_range, compare=True)
+        dimensional_types, dimensional = self._run(OPT_IN, properties, date_range, compare=True)
+
+        assert dimensional_types == ["web_overview_dimensional_query"]
+        assert dimensional == live, f"live={live}\ndimensional={dimensional}"
+        assert [dimensional[key][1] for key in ("visitors", "views", "sessions")] == [3, 4, 3]
+
+    @parameterized.expand(
+        [
+            ("entry_page", "/"),
+            ("page_viewed_after_entry", "/pricing"),
+        ]
+    )
+    def test_overview_page_filter_reads_live(self, _name, pathname):
+        date_range = DateRange(date_from=DATE_FROM, date_to=DATE_TO)
+        properties = [EventPropertyFilter(key="$pathname", value=pathname)]
+        _live_types, live = self._run(LIVE, properties, date_range, compare=False)
+        dimensional_types, dimensional = self._run(OPT_IN, properties, date_range, compare=False)
+
+        assert "web_overview_dimensional_query" not in dimensional_types
+        assert dimensional == live
+
+
+HOST_OPERATOR_CASES = [
+    ("no_filter", []),
+    ("exact_app_host", [_host(APP_HOST)]),
+    ("exact_site_host", [_host(SITE_HOST)]),
+    ("contains", [_host("app.", PropertyOperator.ICONTAINS)]),
+    ("is_not", [_host(APP_HOST, PropertyOperator.IS_NOT)]),
+    ("is_not_set_app_session", [_host(None, PropertyOperator.IS_NOT_SET)]),
+]
+
+
+class TestStatsTableDimensionalHostParity(_HostParityBase):
+    def _run(self, web_query_modifiers, breakdown: WebStatsBreakdown, properties) -> tuple[str, dict]:
+        runner = WebStatsTableQueryRunner(
+            team=self.team,
+            query=WebStatsTableQuery(
+                dateRange=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
+                properties=properties,
+                breakdownBy=breakdown,
+                includeBounceRate=True,
+                limit=100,
+                webQueryModifiers=web_query_modifiers,
+            ),
+        )
+        response = runner.calculate()
+        columns = response.columns or []
+        visitors, views, bounce_rate = (
+            columns.index(f"context.columns.{name}") for name in ("visitors", "views", "bounce_rate")
+        )
+        rows = {row[0]: (row[visitors][0], row[views][0], _rounded(row[bounce_rate][0])) for row in response.results}
+        return runner.query_strategy(), rows
+
+    @parameterized.expand(
+        [
+            (f"{breakdown.value}_{name}", breakdown, properties)
+            for breakdown in (
+                WebStatsBreakdown.INITIAL_CHANNEL_TYPE,
+                WebStatsBreakdown.DEVICE_TYPE,
+                WebStatsBreakdown.PAGE,
+                WebStatsBreakdown.INITIAL_PAGE,
+            )
+            for name, properties in HOST_OPERATOR_CASES
+        ]
+    )
+    def test_stats_breakdown_dimensional_matches_live(self, _name, breakdown, properties):
+        live_strategy, live = self._run(LIVE, breakdown, properties)
+        dimensional_strategy, dimensional = self._run(OPT_IN, breakdown, properties)
+
+        assert not live_strategy.startswith("stats_table_dimensional")
+        assert dimensional_strategy.startswith("stats_table_dimensional")
+        assert dimensional == live, f"{_name}\nlive={live}\ndimensional={dimensional}"

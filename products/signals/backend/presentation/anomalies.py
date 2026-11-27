@@ -30,10 +30,12 @@ from posthog.utils import relative_date_parse
 
 from products.signals.backend.facade import api as signals_facade
 from products.signals.backend.facade.api import (
+    VIEWED_WITHIN_DAYS,
     AnomalyDashboardNotFound,
     AnomalyGroupBy,
     AnomalyHistoryFilters,
     AnomalyInterval,
+    AnomalyJudgeKind,
     AnomalyOrder,
     AnomalySearchFilters,
     AnomalySeriesRef,
@@ -120,6 +122,16 @@ class AnomalySearchQuerySerializer(serializers.Serializer):
             "`group_by: insight`."
         ),
     )
+    viewed_within_days = serializers.ChoiceField(
+        choices=VIEWED_WITHIN_DAYS,
+        required=False,
+        help_text=(
+            "Only the insights the caller viewed in this many days: insights they opened, and insights on the "
+            "dashboards they opened, with the tiles those dashboards have now. Views count only in the web app, not "
+            "through the API or an MCP tool. Without it the search covers every insight in the project. When the "
+            "caller viewed no insight in the window, the search covers every insight and `viewed_scope_empty` is true."
+        ),
+    )
 
 
 class AnomalyInsightQuerySerializer(serializers.Serializer):
@@ -145,18 +157,46 @@ class AnomalyInsightQuerySerializer(serializers.Serializer):
     )
 
 
+# The AI judge's verdict on a flagged bucket. A project whose scoring has no AI judge gets null for both.
+def _anomaly_kind_field() -> serializers.ChoiceField:
+    return serializers.ChoiceField(
+        source="verdict.kind",
+        choices=AnomalyJudgeKind.choices,
+        allow_null=True,
+        help_text=(
+            "The kind of anomaly the AI judge saw in a flagged bucket. Null when the bucket is not flagged, when the "
+            "judge was not asked or gave no verdict, or when it named no kind."
+        ),
+    )
+
+
+def _anomaly_reason_field() -> serializers.CharField:
+    return serializers.CharField(
+        source="verdict.reason",
+        allow_null=True,
+        help_text=(
+            "Why the AI judge confirmed the flag, in its own words. It is model output, so show it as plain text. "
+            "Null when the bucket is not flagged, or when the judge was not asked or gave no verdict."
+        ),
+    )
+
+
 class AnomalyFlaggedPointSerializer(serializers.Serializer):
     bucket_start = ProjectDateTimeField(help_text="The start of the flagged bucket, in the project timezone.")
     value = serializers.FloatField(allow_null=True, help_text="The series value of the bucket at scoring time.")
     score = serializers.FloatField(
         allow_null=True, help_text="The detector score of the bucket. Compare it only with buckets of the same series."
     )
+    anomaly_kind = _anomaly_kind_field()
+    anomaly_reason = _anomaly_reason_field()
 
 
 class AnomalySeriesPointSerializer(serializers.Serializer):
     bucket_start = ProjectDateTimeField(help_text="The start of the scored bucket, in the project timezone.")
     value = serializers.FloatField(allow_null=True, help_text="The series value of the bucket at scoring time.")
     flag = serializers.BooleanField(help_text="Whether the detector flagged the bucket.")
+    anomaly_kind = _anomaly_kind_field()
+    anomaly_reason = _anomaly_reason_field()
 
 
 class AnomalySeriesRefSerializer(serializers.Serializer):
@@ -413,6 +453,19 @@ class AnomalySearchResponseSerializer(serializers.Serializer):
             "depend on `order`, `only_flagged` or the page. Null when no bucket in the range was scored."
         ),
     )
+    viewed_within_days = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "The `viewed_within_days` of the request. Null when it passed none, so the result covers every insight in "
+            "the project. When `viewed_scope_empty` is true, the result covers every insight too."
+        ),
+    )
+    viewed_scope_empty = serializers.BooleanField(
+        help_text=(
+            "True when the request passed `viewed_within_days` and the caller viewed no insight or dashboard with an "
+            "insight in that window, so the result covers every insight in the project instead."
+        )
+    )
 
 
 class AnomalyBucketSerializer(serializers.Serializer):
@@ -433,6 +486,8 @@ class AnomalyBucketSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Detector-specific values for the bucket. The keys depend on the detector.",
     )
+    anomaly_kind = _anomaly_kind_field()
+    anomaly_reason = _anomaly_reason_field()
 
 
 class AnomalyInsightSeriesSerializer(serializers.Serializer):
@@ -578,6 +633,7 @@ class AnomalyViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             offset=query["offset"],
             search=query.get("search") or None,
             include_points=query["include_points"],
+            viewed_within_days=query.get("viewed_within_days"),
         )
         try:
             result = signals_facade.search_anomalies(team=self.team, user=user, filters=filters, now=now)
@@ -595,6 +651,8 @@ class AnomalyViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             rows=len(result.series) + len(result.insights),
             insights_scored_in_range=result.insights_scored_in_range,
             series_capped=result.series_capped,
+            viewed_within_days=filters.viewed_within_days,
+            viewed_scope_empty=result.viewed_scope_empty,
         )
         return Response(
             AnomalySearchResponseSerializer(
@@ -616,6 +674,8 @@ class AnomalyViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "series_capped": result.series_capped,
                     "message": result.message,
                     "scored_through": result.scored_through,
+                    "viewed_within_days": filters.viewed_within_days,
+                    "viewed_scope_empty": result.viewed_scope_empty,
                 }
             ).data
         )

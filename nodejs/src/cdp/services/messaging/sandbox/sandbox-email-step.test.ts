@@ -1,4 +1,3 @@
-import { SESv2Client } from '@aws-sdk/client-sesv2'
 import { DateTime } from 'luxon'
 import { AddressInfo, Server, Socket, createServer } from 'net'
 
@@ -22,6 +21,7 @@ import { HogFlowExecutorService } from '../../hogflows/hogflow-executor.service'
 import { TeamWorkflowsConfigService } from '../../managers/team-workflows-config.service'
 import { RecipientPreferencesService } from '../recipient-preferences.service'
 import { RecipientTokensService } from '../recipient-tokens.service'
+import { createSandboxSesSender } from '../ses-transport'
 import { capturedAnalytics, capturedFor, sandboxEventsCapturedInMemory } from './_tests/captured-analytics'
 import { SES_REJECTED, SES_THROTTLE, SesReply } from './_tests/fake-ses-endpoint'
 import { SandboxFaults, useSandboxWorld } from './_tests/sandbox-world'
@@ -464,10 +464,9 @@ describe('SandboxEmailSendStep', () => {
         const roomy = { team: 100, recipient: 100 }
         const workingSes = world.sesClient
         world.sesClient = new SandboxSesClient(
-            new SESv2Client({
+            createSandboxSesSender({
                 region: 'us-east-1',
                 endpoint: 'http://127.0.0.1:1',
-                maxAttempts: 1,
                 credentials: () => new Promise<never>(() => {}),
             }),
             { configurationSet: 'sandbox-config-set', tenantName: 'sandbox-tenant', sendTimeoutMs: 500 }

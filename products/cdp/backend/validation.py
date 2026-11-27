@@ -33,6 +33,7 @@ from products.cdp.backend.filters import (
     RUNTIME_CONTRACT,
     TEMPLATE_CALLABLES,
     TEMPLATE_GLOBALS,
+    TEMPLATE_GLOBALS_WITHOUT_VARIABLES,
     collect_property_cohort_ids,
     compile_filters_bytecode,
     compile_filters_expr,
@@ -667,6 +668,7 @@ def generate_template_bytecode(
     function_type: Optional[str] = None,
     is_dwh_source: bool = False,
     validate_globals: bool = True,
+    in_workflow: bool = False,
 ) -> Any:
     """
     Clones an object, compiling any string values to bytecode templates
@@ -674,12 +676,16 @@ def generate_template_bytecode(
 
     if isinstance(obj, dict):
         return {
-            key: generate_template_bytecode(value, input_collector, function_type, is_dwh_source, validate_globals)
+            key: generate_template_bytecode(
+                value, input_collector, function_type, is_dwh_source, validate_globals, in_workflow
+            )
             for key, value in obj.items()
         }
     elif isinstance(obj, list):
         return [
-            generate_template_bytecode(item, input_collector, function_type, is_dwh_source, validate_globals)
+            generate_template_bytecode(
+                item, input_collector, function_type, is_dwh_source, validate_globals, in_workflow
+            )
             for item in obj
         ]
     elif isinstance(obj, str):
@@ -716,7 +722,11 @@ def generate_template_bytecode(
             # Every other type resolves its inputs against the invocation globals at run time. A save
             # that disables or deletes the function skips this, so a broken function can be turned off.
             template_validator = TemplateGlobalsValidator(
-                available_globals=TEMPLATE_GLOBALS, runtime_functions=TEMPLATE_CALLABLES, python_stl=False
+                available_globals=TEMPLATE_GLOBALS
+                if in_workflow or function_type == "source_webhook"
+                else TEMPLATE_GLOBALS_WITHOUT_VARIABLES,
+                runtime_functions=TEMPLATE_CALLABLES,
+                python_stl=False,
             )
             template_validator.check(node)
             if template_validator.invalid_globals:
@@ -972,6 +982,13 @@ class InputsItemSerializer(serializers.Serializer):
             if not isinstance(value, list) or not all(isinstance(v, int) and not isinstance(v, bool) for v in value):
                 raise serializers.ValidationError({"input": "Value must be a list of Integration IDs."})
             _validate_not_posthog_connection(value, self.context)
+        elif item_type == "integration_field":
+            # The pickers and the destination templates read this value as a string ID. API and MCP
+            # callers often send an account ID as a JSON number, so store it as a string instead of
+            # rejecting a request that worked before.
+            if isinstance(value, int) and not isinstance(value, bool):
+                value = str(value)
+                attrs["value"] = value
         elif item_type == "task_repository":
             repositories = [value] if isinstance(value, str) else value
             if (
@@ -1137,6 +1154,7 @@ class InputsItemSerializer(serializers.Serializer):
                                 function_type=function_type,
                                 is_dwh_source=is_dwh_source,
                                 validate_globals=self.context.get("function_will_be_enabled", True),
+                                in_workflow=self.context.get("in_workflow", False),
                             )
                             attrs["input_deps"] = list(input_collector)
                             attrs["bytecode_contract"] = RUNTIME_CONTRACT
@@ -1539,8 +1557,8 @@ COHORT_NOT_READY_CODE = "cohort_not_ready"
 def _cohort_not_ready_error(cohort: Cohort) -> serializers.ValidationError:
     if cohort.cohort_type == CohortType.REALTIME and not cohort.realtime_enabled and has_realtime_state(cohort):
         return serializers.ValidationError(
-            f"Realtime is off for cohort {cohort.pk}. Turn it on from the cohort's page, and workflows can use the "
-            "cohort once it finishes calculating.",
+            f"Realtime is off for cohort {cohort.pk}, so workflows can't use it. Open the cohort's page to turn "
+            "realtime on, or to see why it can't be turned on.",
             code=COHORT_NOT_READY_CODE,
         )
     readiness = resolve_realtime_readiness([cohort]).get(cohort.pk)
@@ -1674,11 +1692,6 @@ def compile_hog(
 
         if hog_type == "destination":
             supported_functions = CORE_SUPPORTED_FUNCTIONS | PRODUCT_ASYNC_FUNCTIONS
-        elif hog_type == "tagger":
-            # Taggers classify; they must not perform side effects, so we deliberately exclude
-            # CORE_SUPPORTED_FUNCTIONS (fetch, postHogCapture) and PRODUCT_ASYNC_FUNCTIONS.
-            # Stated explicitly so a future refactor can't silently widen the surface.
-            supported_functions = set()
         elif hog_type == "transformation_log":
             # Log transformations run synchronously per log record in the logs ingestion
             # hot path — no async functions (fetch, postHogCapture) can ever be allowed.

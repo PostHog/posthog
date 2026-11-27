@@ -7,6 +7,7 @@ import type {
   SignalReport,
   SignalReportSourceSuggestion,
 } from "@posthog/shared/types";
+import { AgentTextMarkdown } from "@posthog/ui/features/inbox/components/utils/AgentTextMarkdown";
 import { getSourceProductMeta } from "@posthog/ui/features/inbox/components/utils/source-product-icons";
 import { track } from "@posthog/ui/shell/analytics";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
@@ -100,7 +101,7 @@ export function ReportSourceSuggestionView({
         <span className="font-medium">{meta?.label ?? product}</span>
         <span>· Not set up in this project</span>
       </div>
-      <p className="m-0 text-foreground text-xs">{reason}</p>
+      <AgentTextMarkdown content={reason} className="text-foreground text-xs" />
       <Button
         // biome-ignore lint/a11y/useAnchorContent: Button renders its children inside the anchor.
         render={<a href={url} target="_blank" rel="noreferrer" />}

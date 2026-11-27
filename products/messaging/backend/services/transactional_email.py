@@ -39,6 +39,7 @@ from products.messaging.backend.facade.contracts import (
     BatchRecipient,
     BatchTooLarge,
     BatchUnavailable,
+    CategoryNotFound,
     CodeEmail,
     ContentTooLarge,
     DeliveryUnavailable,
@@ -203,7 +204,12 @@ def _observe_cdp_call(seconds: float) -> None:
 
 SANDBOX_FIELDS_UNSUPPORTED = (
     "This project has no verified sending domain, so this email would go out from the PostHog test sender, which "
-    "can't send `cc`, `bcc` or `attachments`. Remove those fields, or verify a sending domain at {setup_url}."
+    "can't send `cc`, `bcc`, `attachments` or reply headers. Remove those fields, or verify a sending domain at "
+    "{setup_url}."
+)
+SANDBOX_MARKETING_UNSUPPORTED = (
+    "This project has no verified sending domain, so this email would go out from the PostHog test sender, which "
+    "can't send marketing email. Verify a sending domain at {setup_url}, then send it again."
 )
 
 # The CDP service names the reason it refused a send in the body's `error`. A retry of the same request gets the
@@ -238,6 +244,10 @@ PIPELINE_REFUSALS: dict[str, tuple[type[TransactionalEmailError], str]] = {
         "so the email would bounce. Check the address for a typo.",
     ),
     "not_sendable": (TransactionalEmailPaused, "This email's workflow isn't active. Turn it back on to send."),
+    "category_not_found": (
+        CategoryNotFound,
+        "This email's category is deleted, and only a retry of an email already sent in it can name it.",
+    ),
     "invalid_request": (
         InvalidRequest,
         "The email pipeline couldn't accept a field of this email, so it wasn't sent. Check the addresses and "
@@ -425,6 +435,7 @@ def _content(template: MessageTemplate) -> TransactionalEmailContent:
         from_integration_id=sender.get("integrationId"),
         message_category_id=template.message_category_id,
         sensitive=template.sensitive,
+        click_tracking_enabled=template.click_tracking_enabled,
         from_email=sender.get("email") or "",
         from_name=sender.get("name") or "",
         reply_to=email.get("replyTo") or "",
@@ -878,6 +889,14 @@ def _accepted_send(team: Team, email: CodeEmail) -> tuple[dict[str, Any], SendWa
         accepted["bcc"] = list(email.bcc)
     if email.attachments:
         accepted["attachments"] = [_accepted_attachment(attachment) for attachment in email.attachments]
+    if email.reply_headers:
+        accepted["thread"] = {
+            "inReplyTo": email.reply_headers.in_reply_to,
+            "references": list(email.reply_headers.references),
+        }
+    if email.category:
+        archived = {"archived": True} if email.category.archived else {}
+        accepted["category"] = {"id": str(email.category.id), "type": email.category.type, **archived}
     return accepted, sandbox_warning
 
 
@@ -923,7 +942,8 @@ def _code_send_sender(team: Team, email: CodeEmail) -> tuple[dict[str, Any], Sen
         if field := _field_the_sandbox_sender_cannot_send(email):
             SANDBOX_FALLBACKS.labels(outcome="fields_unsupported").inc()
             setup_url = sending_domain_setup(team.id).setup_url
-            raise SandboxFieldsUnsupported(SANDBOX_FIELDS_UNSUPPORTED.format(setup_url=setup_url), attr=field) from e
+            message = SANDBOX_MARKETING_UNSUPPORTED if field == "category" else SANDBOX_FIELDS_UNSUPPORTED
+            raise SandboxFieldsUnsupported(message.format(setup_url=setup_url), attr=field) from e
         sandbox_sender_id = provision_sandbox_sender(team, None).id
         logger.info("transactional_email_sandbox_sender_fallback", team_id=team.id, key=email.key)
         return {"integrationId": sandbox_sender_id}, _sandbox_sender_warning(
@@ -933,7 +953,13 @@ def _code_send_sender(team: Team, email: CodeEmail) -> tuple[dict[str, Any], Sen
 
 
 def _field_the_sandbox_sender_cannot_send(email: CodeEmail) -> str | None:
-    fields = {"cc": email.cc, "bcc": email.bcc, "attachments": email.attachments}
+    fields = {
+        "cc": email.cc,
+        "bcc": email.bcc,
+        "attachments": email.attachments,
+        "reply_headers": email.reply_headers,
+        "category": email.category is not None and email.category.type == MessageCategoryType.MARKETING,
+    }
     return next((field for field, value in fields.items() if value), None)
 
 

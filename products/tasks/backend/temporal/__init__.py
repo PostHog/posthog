@@ -50,12 +50,15 @@ from .process_task.activities import (
     send_followup_to_sandbox,
     start_agent_server,
     start_dev_stack_preview,
+    switch_model_from_message,
     track_workflow_event,
     update_task_run_status,
     wait_dev_stack_preview,
 )
 from .process_task.activities.agent_egress import (
+    await_agent_egress_git,
     cleanup_agent_egress,
+    initialize_agent_egress_git_grant,
     prepare_agent_egress,
     probe_agent_egress,
     renew_agent_egress,
@@ -89,7 +92,9 @@ WORKFLOWS = [
 ]
 
 ACTIVITIES: list[ActivityDefinition] = [
+    await_agent_egress_git,
     prepare_agent_egress,
+    initialize_agent_egress_git_grant,
     renew_agent_egress,
     probe_agent_egress,
     cleanup_agent_egress,
@@ -115,6 +120,7 @@ ACTIVITIES: list[ActivityDefinition] = [
     create_resume_snapshot,
     persist_agent_memory,
     send_followup_to_sandbox,
+    switch_model_from_message,
     start_agent_server,
     launch_agent_server,
     await_agent_server_ready,

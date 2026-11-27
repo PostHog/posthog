@@ -18,6 +18,14 @@ def _columns(**extra: str) -> dict[str, str]:
     return {**_COMMON_COLUMNS, **extra}
 
 
+_CATEGORY_COLUMNS = {
+    "CATEGORY_ID": "Unique identifier for the category.",
+    "CATEGORY_NAME": "Name of the category.",
+    "ACTIVE": "Whether the category is active.",
+    "BACKGROUND_COLOR": "Hex color code used to show the category in Insightly.",
+}
+
+
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "Contacts": {
         "description": "People tracked in Insightly, with their contact details and relationships.",
@@ -311,6 +319,96 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             USE_STANDARD_PRICE="Whether the entry uses the price from the standard price book.",
             ACTIVE="Whether the price book entry is active.",
         ),
+    },
+    "Milestones": {
+        "description": "Project milestones, with their due dates and completion status.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "MILESTONE_ID": "Unique identifier for the milestone.",
+            "TITLE": "Title of the milestone.",
+            "PROJECT_ID": "ID of the project the milestone belongs to.",
+            "COMPLETED": "Whether the milestone is completed.",
+            "DUE_DATE": "Date the milestone is due.",
+            "COMPLETED_DATE_UTC": "UTC timestamp when the milestone was completed.",
+            "OWNER_USER_ID": "User ID of the milestone owner.",
+            "RESPONSIBLE_USER": "User ID of the user responsible for the milestone.",
+            "DATE_CREATED_UTC": "UTC timestamp when the milestone was created.",
+            "DATE_UPDATED_UTC": "UTC timestamp when the milestone was last modified (the incremental cursor).",
+        },
+    },
+    "OpportunityCategories": {
+        "description": "Opportunity categories defined for your Insightly account, referenced by CATEGORY_ID on opportunities.",
+        "docs_url": _DOCS_URL,
+        "columns": _CATEGORY_COLUMNS,
+    },
+    "ProjectCategories": {
+        "description": "Project categories defined for your Insightly account, referenced by CATEGORY_ID on projects.",
+        "docs_url": _DOCS_URL,
+        "columns": _CATEGORY_COLUMNS,
+    },
+    "TaskCategories": {
+        "description": "Task categories defined for your Insightly account, referenced by CATEGORY_ID on tasks.",
+        "docs_url": _DOCS_URL,
+        "columns": _CATEGORY_COLUMNS,
+    },
+    "Teams": {
+        "description": "Teams of Insightly users, including the anonymous teams Insightly creates for record permissions shared with individuals.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "TEAM_ID": "Unique identifier for the team.",
+            "TEAM_NAME": "Name of the team.",
+            "ANONYMOUS_TEAM": "Whether Insightly created the team for a record permission shared with individuals.",
+            "TEAMMEMBERS": "List of the team's members.",
+            "DATE_CREATED_UTC": "UTC timestamp when the team was created.",
+            "DATE_UPDATED_UTC": "UTC timestamp when the team was last modified.",
+        },
+    },
+    "TeamMembers": {
+        "description": "Team memberships, one row for each user in a team.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "PERMISSION_ID": "Unique identifier for the team membership.",
+            "TEAM_ID": "ID of the team.",
+            "MEMBER_USER_ID": "User ID of the team member.",
+        },
+    },
+    "Prospect": {
+        "description": "Marketing prospects, the people that Insightly Marketing tracks before they become leads or contacts.",
+        "docs_url": _DOCS_URL,
+        "columns": _columns(
+            PROSPECT_ID="Unique identifier for the prospect.",
+            LEAD_ID="ID of the lead the prospect is linked to, if any.",
+            CONTACT_ID="ID of the contact the prospect is linked to, if any.",
+            ORGANISATION_ID="ID of the organisation the prospect is linked to, if any.",
+            FIRST_NAME="Prospect's first name.",
+            LAST_NAME="Prospect's last name.",
+            EMAIL_ADDRESS="Prospect's email address.",
+            SCORE="Lead score of the prospect.",
+            GRADE="Grade of the prospect.",
+            OPTED_OUT="Whether the prospect opted out of marketing email.",
+            LAST_ACTIVITY_DATE_UTC="UTC timestamp of the prospect's last activity.",
+            LEAD_CONVERSION_DATE_UTC="UTC timestamp when the prospect was converted to a lead.",
+        ),
+    },
+    "MarketingVisits": {
+        "description": "Website visits by prospects, with the campaign and referrer that brought each visit.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "VISIT_ID": "Unique identifier for the visit.",
+            "PROSPECT_ID": "ID of the prospect who made the visit.",
+            "MKT_SOURCE": "Campaign source (utm_source) of the visit.",
+            "MKT_MEDIUM": "Campaign medium (utm_medium) of the visit.",
+            "MKT_TERM": "Campaign term (utm_term) of the visit.",
+            "MKT_CONTENT": "Campaign content (utm_content) of the visit.",
+            "MKT_NETWORK": "Ad network of the visit.",
+            "MKT_CLICKID": "Ad click ID of the visit.",
+            "PAGE_REFERRER": "Referrer URL of the first page view.",
+            "REFR_SOURCE": "Referring source of the visit.",
+            "REFR_MEDIUM": "Referring medium of the visit.",
+            "PAGE_VIEW_COUNT": "Number of page views in the visit.",
+            "FIRST_PAGE_VIEW_DATE_UTC": "UTC timestamp of the first page view in the visit.",
+            "LAST_PAGE_VIEW_DATE_UTC": "UTC timestamp of the last page view in the visit.",
+        },
     },
     "OpportunityStateHistory": {
         "description": "History of state changes (for example open, won, lost, abandoned) for each opportunity, with the reason given.",

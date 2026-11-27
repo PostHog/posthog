@@ -86,6 +86,11 @@ def _resolve_personal_mode(
         .values_list(column, flat=True)
         .first()
     )
+    return mode_from_stored(stored, mode_type, unset=unset, unknown=unknown)
+
+
+def mode_from_stored(stored: str | None, mode_type: type[_Mode], *, unset: _Mode, unknown: _Mode) -> _Mode:
+    """A stored column value as `mode_type`: `unset` for no value, `unknown` for a value it does not know."""
     if stored is None:
         return unset
     if stored in mode_type.values:
@@ -188,6 +193,34 @@ def set_auto_model_choice(slack_workspace_id: str, slack_user_id: str, enabled: 
         slack_workspace_id=slack_workspace_id,
         slack_user_id=slack_user_id,
         defaults={"auto_model_choice": enabled},
+    )
+
+
+def resolve_chatgpt_apps_enabled(slack_workspace_id: str, slack_user_id: str | None) -> bool:
+    """Whether Slack runs on this user's ChatGPT plan may use the apps connected to that plan.
+
+    Off until the user turns it on. People who join the user's threads talk to the same run,
+    so the apps would answer them with the plan owner's data.
+    """
+    if not slack_user_id:
+        return False
+
+    from products.slack_app.backend.models import SlackSettings
+
+    return bool(
+        SlackSettings.objects.filter(slack_workspace_id=slack_workspace_id, slack_user_id=slack_user_id)
+        .values_list("chatgpt_apps_enabled", flat=True)
+        .first()
+    )
+
+
+def set_chatgpt_apps_enabled(slack_workspace_id: str, slack_user_id: str, enabled: bool) -> None:
+    from products.slack_app.backend.models import SlackSettings
+
+    SlackSettings.objects.update_or_create(
+        slack_workspace_id=slack_workspace_id,
+        slack_user_id=slack_user_id,
+        defaults={"chatgpt_apps_enabled": enabled},
     )
 
 
@@ -384,7 +417,59 @@ def set_workspace_default_integration(slack_workspace_id: str, integration_id: i
     )
 
 
+def resolve_personal_default_integration_id(slack_workspace_id: str, slack_user_id: str) -> int | None:
+    """The integration this Slack user's own row routes mentions to. None means the workspace default applies."""
+    from products.slack_app.backend.models import SlackSettings
+
+    return (
+        SlackSettings.objects.filter(slack_workspace_id=slack_workspace_id, slack_user_id=slack_user_id)
+        .values_list("default_integration_id", flat=True)
+        .first()
+    )
+
+
+def set_personal_default_integration(slack_workspace_id: str, slack_user_id: str, integration_id: int | None) -> None:
+    """The caller checks that the person can open the target project."""
+    from products.slack_app.backend.models import SlackSettings
+
+    SlackSettings.objects.update_or_create(
+        slack_workspace_id=slack_workspace_id,
+        slack_user_id=slack_user_id,
+        defaults={"default_integration_id": integration_id},
+    )
+
+
+def resolve_external_channels_enabled(slack_workspace_id: str) -> bool:
+    """Whether PostHog may work in externally shared channels of this workspace.
+
+    An admin's choice wins. With no choice, a workspace where someone already approved an externally
+    shared channel stays on, so the people who use it today keep it, and every other workspace is off.
+    """
+    from products.slack_app.backend.models import SlackChannel, SlackSettings
+
+    stored = (
+        SlackSettings.objects.filter(slack_workspace_id=slack_workspace_id, slack_user_id__isnull=True)
+        .values_list("external_channels_enabled", flat=True)
+        .first()
+    )
+    if stored is not None:
+        return stored
+    return SlackChannel.objects.filter(slack_workspace_id=slack_workspace_id, approved_at__isnull=False).exists()
+
+
+def set_external_channels_enabled(slack_workspace_id: str, enabled: bool) -> None:
+    """The caller checks that the actor may change workspace settings."""
+    from products.slack_app.backend.models import SlackSettings
+
+    SlackSettings.objects.update_or_create(
+        slack_workspace_id=slack_workspace_id,
+        slack_user_id=None,
+        defaults={"external_channels_enabled": enabled},
+    )
+
+
 __all__ = [
+    "mode_from_stored",
     "ONBOARDING_VERSION",
     "OnboardingState",
     "parse_onboarding",
@@ -396,9 +481,11 @@ __all__ = [
     "update_onboarding",
     "AIPreferences",
     "resolve_auto_model_choice",
+    "resolve_chatgpt_apps_enabled",
     "resolve_channel_welcome_mode",
     "resolve_untagged_question_mode",
     "set_auto_model_choice",
+    "set_chatgpt_apps_enabled",
     "set_untagged_followup_mode",
     "set_untagged_question_mode",
     "set_channel_welcome_mode",

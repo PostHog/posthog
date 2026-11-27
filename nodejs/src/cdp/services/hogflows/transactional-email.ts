@@ -22,6 +22,11 @@ const CopyRecipientsSchema = z
     .readonly()
     .optional()
 
+const MessageIdSchema = z
+    .string()
+    .max(255)
+    .regex(/^<[!-;=?A-~]+@[!-;=?-~]+>$/)
+
 export const SES_UNSUPPORTED_ATTACHMENT_EXTENSIONS: ReadonlySet<string> = new Set([
     '.ade',
     '.adp',
@@ -200,7 +205,30 @@ export const AcceptedSendSchema = z
             .max(MAX_EMAIL_ATTACHMENTS)
             .readonly()
             .optional(),
+        thread: z
+            .object({ inReplyTo: MessageIdSchema, references: z.array(MessageIdSchema).max(100).readonly() })
+            .strict()
+            .readonly()
+            .optional(),
+        category: z
+            .object({
+                id: z.string().min(1),
+                type: z.enum(['marketing', 'transactional']),
+                archived: z.literal(true).optional(),
+            })
+            .strict()
+            .readonly()
+            .optional(),
     })
+    .strict()
+    .readonly()
+    .refine((send) => send.category?.type !== 'marketing' || !(send.cc?.length || send.bcc?.length), {
+        message: 'a marketing send cannot copy recipients with cc or bcc',
+        path: ['category'],
+    })
+
+export const BatchSendSchema = AcceptedSendSchema.unwrap()
+    .omit({ cc: true, bcc: true, attachments: true, thread: true })
     .strict()
     .readonly()
 
@@ -222,7 +250,22 @@ export const acceptedSendEmailFields = (
     ...(send?.cc && { cc: send.cc.join(', ') }),
     ...(send?.bcc && { bcc: send.bcc.join(', ') }),
     ...(send?.attachments && { attachments: send.attachments.map((file) => ({ ...file })) }),
+    ...(send?.thread && { thread: { inReplyTo: send.thread.inReplyTo, references: [...send.thread.references] } }),
 })
+
+export const withSendCategory = <Step extends { type: string; config: object }>(
+    step: Step,
+    send: Pick<AcceptedSend, 'category'> | undefined
+): Step => {
+    if (!send?.category || step.type !== 'function_email') {
+        return step
+    }
+    const { id, type } = send.category
+    return {
+        ...step,
+        config: { ...step.config, message_category_id: id, message_category_type: type, skip_frequency_cap: true },
+    }
+}
 
 const ScheduledAtSchema = z.string().datetime({ offset: true })
 
@@ -260,7 +303,6 @@ export const isRecipientFormatIssue = (issue: z.core.$ZodIssue): boolean =>
 
 export type TransactionalSendRefusal =
     | 'idempotency_key_reused'
-    | 'idempotency_unavailable'
     | 'intake_unavailable'
     | 'invalid_request'
     | 'not_sendable'
@@ -287,6 +329,7 @@ export type TransactionalEmailOutcome =
     | 'workflow_shape_not_supported'
     | 'attachment_not_uploaded'
     | 'message_too_large'
+    | 'category_not_found'
     | 'email_render_limit_exceeded'
     | 'utm_value_too_long'
     | 'email_body_too_many_tags'
@@ -295,8 +338,8 @@ export type TransactionalEmailOutcome =
 
 export const transactionalEmailRequestsTotal = new Counter({
     name: 'cdp_transactional_email_requests_total',
-    help: 'Requests from Django to run a transactional email, by outcome. Every outcome except `queued` means this request queued no email.',
-    labelNames: ['outcome'],
+    help: 'Answers to Django for a transactional email, by outcome and route: `single` counts a request, `batch` counts each recipient of a batch. It records the answer, not the delivery: after `intake_unavailable` or `error`, the email may still go out.',
+    labelNames: ['outcome', 'route'],
 })
 
 export const TRANSACTIONAL_EMAIL_STAGES = [
@@ -315,10 +358,12 @@ export type TransactionalEmailStage = (typeof TRANSACTIONAL_EMAIL_STAGES)[number
 
 export const transactionalEmailStageDurationMs = new Histogram({
     name: 'cdp_transactional_email_stage_duration_ms',
-    help: 'Milliseconds one transactional email request spends in each stage: auth (the JWT), validate (the body), load (the team and the workflow), build (the run and its idempotency fingerprint), idempotency (every Idempotency-Key call to Valkey), checks (suspension, pause, suppression, quota and MX), attachments (verifying the files and estimating the message, only for a send with files), queue_insert (the email queue insert), intake_produce (the produce to the intake topic and the wait for its ack, in intake async mode), metrics_flush (the hand-off of the result and status rows to the Kafka producer, without the wait for the broker), and total. A request records only the stages it reached, so a refusal shows in the stage that refused it.',
-    labelNames: ['stage'],
+    help: 'Milliseconds one transactional email request, or one batch (route `batch`), spends in each stage: auth (the JWT), validate (the body), load (the team and the workflow), build (the run and its idempotency fingerprint), idempotency (every Idempotency-Key call to Valkey), checks (suspension, pause, suppression, quota and MX), attachments (verifying the files and estimating the message, only for a send with files), queue_insert (the email queue insert), intake_produce (the produce to the intake topic and the wait for its ack, in intake async mode), metrics_flush (the hand-off of the result and status rows to the Kafka producer, without the wait for the broker), and total. A request records only the stages it reached, so a refusal shows in the stage that refused it.',
+    labelNames: ['stage', 'route'],
     buckets: [1, 2.5, 5, 10, 25, 50, 100, 250, 500, 1_000, 2_500, 5_000, 10_000],
 })
+
+export type TransactionalEmailRoute = 'single' | 'batch'
 
 // The stages of a request run back to back, so starting a stage ends the one before it. finish() records each stage
 // once, with its summed time, so a stage entered twice (idempotency) still counts as one observation per request.
@@ -326,6 +371,8 @@ export class TransactionalEmailStageTimer {
     private readonly startedAt = performance.now()
     private current: { stage: TransactionalEmailStage; startedAt: number } | null = null
     private readonly durations = new Map<TransactionalEmailStage, number>()
+
+    constructor(private readonly route: TransactionalEmailRoute = 'single') {}
 
     start(stage: TransactionalEmailStage): void {
         const now = performance.now()
@@ -337,9 +384,9 @@ export class TransactionalEmailStageTimer {
         const now = performance.now()
         this.endCurrent(now)
         for (const [stage, durationMs] of this.durations) {
-            transactionalEmailStageDurationMs.labels({ stage }).observe(durationMs)
+            transactionalEmailStageDurationMs.labels({ stage, route: this.route }).observe(durationMs)
         }
-        transactionalEmailStageDurationMs.labels({ stage: 'total' }).observe(now - this.startedAt)
+        transactionalEmailStageDurationMs.labels({ stage: 'total', route: this.route }).observe(now - this.startedAt)
     }
 
     private endCurrent(now: number): void {

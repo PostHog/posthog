@@ -8,7 +8,7 @@ from rest_framework.exceptions import PermissionDenied
 
 from posthog.dataclasses import frozen
 
-from products.data_modeling.backend.facade.flags import is_managed_viewset_enabled
+from products.data_modeling.backend.facade.api import managed_views_hidden, metric_nodes_hidden
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery, NodeType
 from products.warehouse_sources.backend.facade.api import allowed_table_ids
 
@@ -102,13 +102,13 @@ class MetricNodeVisibilityMixin:
         return visible
 
     def _metric_nodes_hidden(self) -> bool:
-        return not self.user_access_control.check_access_level_for_resource("data_catalog", required_level="viewer")
+        return metric_nodes_hidden(self.user_access_control)
 
     def _hidden_node_types(self) -> frozenset[str]:
         return frozenset({NodeType.METRIC}) if self._metric_nodes_hidden() else frozenset()
 
     def _managed_views_hidden(self) -> bool:
-        return not is_managed_viewset_enabled(self.team)
+        return managed_views_hidden(self.team)
 
     def _exclude_hidden_nodes(self, queryset: QuerySet) -> QuerySet:
         queryset = queryset.exclude(saved_query__deleted=True)

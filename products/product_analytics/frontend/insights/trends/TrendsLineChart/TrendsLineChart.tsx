@@ -468,6 +468,7 @@ export function TrendsLineChart({
             {insight.id ? (
                 <RequestedAnomalyScoreOverlay
                     insightId={insight.id}
+                    insightProps={insightProps}
                     dateFrom={insightData?.resolved_date_range?.date_from}
                     dateTo={insightData?.resolved_date_range?.date_to}
                     indexedResults={indexedResults}

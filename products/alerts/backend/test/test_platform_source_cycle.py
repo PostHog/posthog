@@ -729,14 +729,28 @@ class TestPlatformInsightEvaluation(APIBaseTest):
 
     @parameterized.expand(
         [
-            # name, was_firing, paged through, breaks, (incident_actions, sends_messages) or no delivery
-            ("platform_owned", False, None, False, ({}, True)),
-            ("platform_owned_resolve", True, None, False, None),
-            ("paged_firing", False, "hog_function", False, ({"": IncidentAction.TRIGGER}, True)),
-            ("paged_resolve", True, "hog_function", False, ({"": IncidentAction.RESOLVE}, False)),
-            ("paged_firing_that_breaks", True, "hog_function", True, ({}, True)),
-            ("paged_firing_with_no_row", False, "platform", False, ({"": IncidentAction.TRIGGER}, True)),
-            ("paged_resolve_with_no_row", True, "platform", False, ({"": IncidentAction.RESOLVE}, False)),
+            # name, was_firing, paged through, checks after the firing, (incident_actions, sends_messages) or no delivery
+            ("platform_owned", False, None, ("clear",), ({}, True)),
+            ("platform_owned_resolve", True, None, ("clear",), None),
+            ("paged_firing", False, "hog_function", ("clear",), ({"": IncidentAction.TRIGGER}, True)),
+            ("paged_resolve", True, "hog_function", ("clear",), ({"": IncidentAction.RESOLVE}, False)),
+            ("paged_firing_that_breaks", True, "hog_function", ("error",), ({}, True)),
+            (
+                "paged_firing_that_recovers_after_an_error",
+                True,
+                "hog_function",
+                ("unavailable", "clear"),
+                ({"": IncidentAction.RESOLVE}, False),
+            ),
+            (
+                "paged_firing_that_breaks_again_after_an_error",
+                True,
+                "hog_function",
+                ("unavailable", "breach"),
+                ({}, True),
+            ),
+            ("paged_firing_with_no_row", False, "platform", ("clear",), ({"": IncidentAction.TRIGGER}, True)),
+            ("paged_resolve_with_no_row", True, "platform", ("clear",), ({"": IncidentAction.RESOLVE}, False)),
         ]
     )
     def test_only_a_platform_owned_firing_failure_or_incident_edge_asks_for_a_delivery(
@@ -744,7 +758,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         _name: str,
         was_firing: bool,
         paged: str | None,
-        breaks: bool,
+        checks: tuple[str, ...],
         delivered: tuple[dict[str, IncidentAction], bool] | None,
     ) -> None:
         alert = self._alert()
@@ -788,12 +802,19 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             with team_scope(self.team.id):
                 platform_testing.set_due_at(configuration.id, CUTOFF - timedelta(minutes=1))
 
-        self._evaluate(
-            configuration,
-            result=AlertExtractionError("bad query shape")
-            if breaks
-            else AlertEvaluationResult(value=50.0, breaches=[] if was_firing else ["above 100"]),
-        )
+        results = {
+            "error": AlertExtractionError("bad query shape"),
+            "unavailable": AlertDataUnavailableError("not enough rows"),
+            "breach": AlertEvaluationResult(value=150.0, breaches=["above 100"]),
+            "clear": AlertEvaluationResult(value=50.0, breaches=[] if was_firing else ["above 100"]),
+        }
+        for index, check in enumerate(checks):
+            if index:
+                with team_scope(self.team.id):
+                    platform_testing.set_due_at(configuration.id, CUTOFF - timedelta(minutes=1))
+            checked, _ = self._evaluate(configuration, result=results[check])
+            assert checked is not None
+            record_outcomes(self.team.id, (checked,), CUTOFF)
 
         expected = (
             [
@@ -1429,6 +1450,15 @@ class TestPlatformInsightEvaluation(APIBaseTest):
                 "native",
             ),
             (
+                "an agent turned on after the move, which only the copy holds, waits for the agent's verdict",
+                _AGENT_ON,
+                PlatformAlertOwner.PLATFORM,
+                None,
+                0,
+                "all_firing_alerts",
+                "edited_on_the_copy",
+            ),
+            (
                 "a breakdown check with several firing values, which the agent never takes, signals each one",
                 _AGENT_ON,
                 PlatformAlertOwner.PLATFORM,
@@ -1506,6 +1536,11 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             configuration = self._copy(alert, owner=owner, grouping=grouping.to_stored())
         else:
             configuration = self._copy(alert, owner=owner)
+        if shape == "edited_on_the_copy":
+            # Edits of a moved alert reach only its copy, so its row still has the agent off.
+            AlertConfiguration.objects.filter(id=alert.id).update(
+                owner=owner, investigation_agent_enabled=False, detector_config=None
+            )
         with team_scope(self.team.id):
             if before == "firing":
                 platform_testing.start_firing(configuration.id, team_id=self.team.id, at=CUTOFF - timedelta(hours=1))
