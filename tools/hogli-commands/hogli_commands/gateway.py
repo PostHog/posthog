@@ -61,6 +61,24 @@ _LOCAL_HOSTNAMES = ("localhost", "127.0.0.1")
 def gateway_token(host: str, allow_any_host: bool, cap_usd: float | None, ttl: str | None, as_json: bool) -> None:
     host = host.rstrip("/") if allow_any_host else _allowed_host(host)
     ttl_seconds = _parse_ttl(ttl) if ttl else None
+    try:
+        minted = mint_token(host, cap_usd=cap_usd, ttl_seconds=ttl_seconds)
+    except posthog_auth.AuthError as error:
+        click.secho(error.message, fg="red", err=True)
+        raise SystemExit(error.exit_code)
+
+    if as_json:
+        click.echo(json.dumps(minted))
+        return
+    # Only the token goes to stdout, so `$(hogli gateway:token)` captures it alone.
+    click.echo(minted["token"])
+    click.echo(
+        f"\nThe token expires at {minted['expires_at']} and can spend up to ${minted['cap_usd']}.",
+        err=True,
+    )
+
+
+def mint_token(host: str, *, cap_usd: float | None, ttl_seconds: int | None) -> dict[str, Any]:
     verifier = secrets.token_urlsafe(64)
     challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
     state = secrets.token_urlsafe(24)
@@ -73,22 +91,8 @@ def gateway_token(host: str, allow_any_host: bool, cap_usd: float | None, ttl: s
     def approval_url(port: int) -> str:
         return f"{host}{_SETTINGS_PATH}?" + urlencode({**params, "cli_port": port})
 
-    try:
-        code = posthog_auth.approve_in_browser(approval_url, state=state)
-    except posthog_auth.AuthError as error:
-        click.secho(error.message, fg="red", err=True)
-        raise SystemExit(error.exit_code)
-
-    minted = _exchange(host, code=code, verifier=verifier)
-    if as_json:
-        click.echo(json.dumps(minted))
-        return
-    # Only the token goes to stdout, so `$(hogli gateway:token)` captures it alone.
-    click.echo(minted["token"])
-    click.echo(
-        f"\nThe token expires at {minted['expires_at']} and can spend up to ${minted['cap_usd']}.",
-        err=True,
-    )
+    code = posthog_auth.approve_in_browser(approval_url, state=state)
+    return _exchange(host, code=code, verifier=verifier)
 
 
 @click.command(name="gateway:status", help="Show how much budget a developer mode token has left.")
@@ -107,7 +111,7 @@ def gateway_token(host: str, allow_any_host: bool, cap_usd: float | None, ttl: s
 def gateway_status(host: str, allow_any_host: bool, as_json: bool) -> None:
     host = host.rstrip("/") if allow_any_host else _allowed_host(host)
     token = _find_token()
-    status = _post(host, _STATUS_PATH, {"token": token}, expected=200, action="token status lookup")
+    status = token_status(host, token)
     if as_json:
         click.echo(json.dumps(status))
         return
@@ -171,6 +175,10 @@ def _allowed_host(host: str) -> str:
         f"{host} is not an allowed host. Allowed values: {allowed}. Pass --allow-any-host to use another host.",
         param_hint="'--host'",
     )
+
+
+def token_status(host: str, token: str) -> dict[str, Any]:
+    return _post(host, _STATUS_PATH, {"token": token}, expected=200, action="token status lookup")
 
 
 def _exchange(host: str, *, code: str, verifier: str) -> dict[str, Any]:

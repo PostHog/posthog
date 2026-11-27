@@ -1280,6 +1280,9 @@ environment:
     sandbox:
         bin_script: sandbox
         description: Manage isolated dev sandboxes
+    tasks:setup:
+        click: hogli_commands.tasks_setup:tasks_setup
+        description: Configure your env files so local Tasks runs use Modal sandboxes (plans first, asks before writing)
     start:stripe:mock:
         bin_script: start-stripe-mock
         description: 'Start the local Stripe mock API server'
