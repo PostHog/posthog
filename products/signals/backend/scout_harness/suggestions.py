@@ -75,9 +75,6 @@ MAX_DRAFT_BODY_CHARS = 20_000
 # Read from `SignalScoutCreateSerializer.description` rather than restated: a longer one stores
 # fine but fails the create it is supposed to be ready for.
 MAX_DESCRIPTION_CHARS = SPEC_DESCRIPTION_MAX_LENGTH
-# The row shows the goal as one line of plain text. A longer one is cleared rather than kept, so
-# the row falls back to the description instead of showing a paragraph.
-MAX_GOAL_CHARS = 200
 
 # Resolves a suggestion run to the `signals_scout_suggestions` gateway product.
 SUGGESTIONS_AI_STAGE = "scout_suggestions"

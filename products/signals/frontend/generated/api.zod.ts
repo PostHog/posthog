@@ -234,6 +234,8 @@ export const SignalsMonitorPrCreateBody = /* @__PURE__ */ zod.object({
 export const signalsOnboardingCreateBodyScannerIdsMax = 100
 
 export const signalsOnboardingCreateBodySuggestionsItemGoalDefault = ``
+export const signalsOnboardingCreateBodySuggestionsItemGoalMax = 200
+
 export const signalsOnboardingCreateBodyActivationScoutsItemMax = 200
 
 export const signalsOnboardingCreateBodyActivationScoutsMax = 50
@@ -492,6 +494,7 @@ export const SignalsOnboardingCreateBody = /* @__PURE__ */ zod.object({
                 why_here: zod.string().describe('Project-specific evidence for this suggestion, in prose.'),
                 goal: zod
                     .string()
+                    .max(signalsOnboardingCreateBodySuggestionsItemGoalMax)
                     .default(signalsOnboardingCreateBodySuggestionsItemGoalDefault)
                     .describe(
                         'One plain sentence saying what the scout would do. Blank on batches stored before the field existed, so a client falls back to `description`, then to the first sentence of `why_here`.'
@@ -546,6 +549,8 @@ export const SignalsOnboardingCreateBody = /* @__PURE__ */ zod.object({
 export const signalsOnboardingCompleteCreateBodyScannerIdsMax = 100
 
 export const signalsOnboardingCompleteCreateBodySuggestionsItemGoalDefault = ``
+export const signalsOnboardingCompleteCreateBodySuggestionsItemGoalMax = 200
+
 export const signalsOnboardingCompleteCreateBodyActivationScoutsItemMax = 200
 
 export const signalsOnboardingCompleteCreateBodyActivationScoutsMax = 50
@@ -804,6 +809,7 @@ export const SignalsOnboardingCompleteCreateBody = /* @__PURE__ */ zod.object({
                 why_here: zod.string().describe('Project-specific evidence for this suggestion, in prose.'),
                 goal: zod
                     .string()
+                    .max(signalsOnboardingCompleteCreateBodySuggestionsItemGoalMax)
                     .default(signalsOnboardingCompleteCreateBodySuggestionsItemGoalDefault)
                     .describe(
                         'One plain sentence saying what the scout would do. Blank on batches stored before the field existed, so a client falls back to `description`, then to the first sentence of `why_here`.'

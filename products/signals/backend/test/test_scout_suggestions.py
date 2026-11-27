@@ -27,6 +27,7 @@ from posthog.sync import database_sync_to_async
 from posthog.test.cascade_delete import delete_skipping_empty_tables
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.signals.backend.constants import MAX_SCOUT_SUGGESTION_GOAL_CHARS
 from products.signals.backend.models import SignalScoutConfig, SignalScoutSuggestionSet, SignalSourceConfig
 from products.signals.backend.scout_chat import SCOUT_CHAT_TEMPLATES, SCOUT_REFINE_SUGGESTION_PROMPT
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY
@@ -34,7 +35,6 @@ from products.signals.backend.scout_harness.suggestions import (
     ACTIVITY_READ_MAX_ROWS,
     ACTIVITY_READ_MAX_ROWS_READ,
     MAX_DESCRIPTION_CHARS,
-    MAX_GOAL_CHARS,
     FleetContext,
     PlannedSuggestionRun,
     ScoutSuggestionBatch,
@@ -195,7 +195,7 @@ class TestValidateSuggestionItems(SimpleTestCase):
     @parameterized.expand(
         [
             ("trimmed", "  Checks each day whether errors are rising.  ", "Checks each day whether errors are rising."),
-            ("overlong_is_cleared", "x" * (MAX_GOAL_CHARS + 1), ""),
+            ("overlong_is_cleared", "x" * (MAX_SCOUT_SUGGESTION_GOAL_CHARS + 1), ""),
         ]
     )
     def test_keeps_the_item_whatever_its_goal(self, _name, goal, expected):

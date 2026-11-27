@@ -2,6 +2,8 @@ from django.db import models
 
 from rest_framework import serializers
 
+from products.signals.backend.constants import MAX_SCOUT_SUGGESTION_GOAL_CHARS
+
 
 class ScoutOrigin(models.TextChoices):
     CANONICAL = "canonical", "canonical"
@@ -45,6 +47,7 @@ class ScoutSuggestionItemSerializer(serializers.Serializer):
         required=False,
         allow_blank=True,
         default="",
+        max_length=MAX_SCOUT_SUGGESTION_GOAL_CHARS,
         help_text=(
             "One plain sentence saying what the scout would do. Blank on batches stored before the field "
             "existed, so a client falls back to `description`, then to the first sentence of `why_here`."
