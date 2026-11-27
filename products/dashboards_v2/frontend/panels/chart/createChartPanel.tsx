@@ -140,7 +140,7 @@ function withCsv(action: MenuAction, panel: ContentPanel<ChartConfig>): MenuActi
         const { onSelect, ...copy } = action
         return {
             ...copy,
-            label: 'Copy',
+            label: 'Copy as',
             submenu: [
                 {
                     key: 'png',
