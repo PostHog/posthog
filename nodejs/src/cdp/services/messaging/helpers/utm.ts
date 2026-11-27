@@ -22,8 +22,6 @@ export type WorkflowRunTag = {
     runId: string | null
     senderEmail: string
     siteUrl: string
-    // A sensitive email carries password resets and magic links. A query can be signed with a key we do not
-    // know, and a character reference may be one the tagger cannot decode, so such an href stays as written.
     queryFreeLinksOnly?: boolean
 }
 

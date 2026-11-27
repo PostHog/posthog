@@ -4982,6 +4982,30 @@ describe('EmailService', () => {
                 }
             )
 
+            it('tags a link of a sensitive email that only its UTM tags give a query', async () => {
+                const taggingService = createService({
+                    workflowRunLinkTagTeams: String(team.id),
+                    utmLinkScannerTeams: '*',
+                })
+                invocation.hogFunction.metadata = {
+                    tracking_enabled: true,
+                    sensitive: true,
+                    utm_tags_enabled: true,
+                    hog_flow_name: 'Reset',
+                    hog_flow_action_name: 'Email',
+                }
+                invocation.state.send = { tracking: { captureEngagement: true, clicks: true } }
+                invocation.queueParameters = createEmailParams({
+                    from: { integrationId: 1 },
+                    html: `<a href="${CLEAN_HREF}">b</a>`,
+                })
+                const result = await taggingService.executeSendEmail(invocation)
+                expect(result.error).toBeUndefined()
+                expect(ses.sent[0].html).toEqual(
+                    `<a href="${CLEAN_HREF}?ph_workflow_run=invocation-1&amp;utm_source=posthog&amp;utm_medium=email&amp;utm_campaign=Reset&amp;utm_content=Email" ses:tags="phl:0">b</a>`
+                )
+            })
+
             it('sends without any run id when the link tag lookup fails', async () => {
                 const teamConfigDb = await postgresThatDropsConnections(hub.DATABASE_URL, () => true)
                 const taggingService = createService(

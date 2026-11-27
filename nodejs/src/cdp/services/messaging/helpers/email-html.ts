@@ -45,7 +45,12 @@ export const utmTagsFor = (
 }
 
 export const tagEmailLinks = (html: string, utm: UtmTagging | null, runTag: WorkflowRunTag | null): string => {
-    const utmTagged = utm ? addUtmTagsToEmail(html, utm.tags, utm.siteUrl, utm.fixedScanner) : html
+    const addUtm = (value: string): string =>
+        utm ? addUtmTagsToEmail(value, utm.tags, utm.siteUrl, utm.fixedScanner) : value
+    if (runTag?.queryFreeLinksOnly) {
+        return addUtm(addWorkflowRunTagToEmail(html, runTag))
+    }
+    const utmTagged = addUtm(html)
     return runTag ? addWorkflowRunTagToEmail(utmTagged, runTag) : utmTagged
 }
 
