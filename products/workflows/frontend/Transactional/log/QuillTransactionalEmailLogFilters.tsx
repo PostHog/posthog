@@ -17,8 +17,9 @@ import {
 
 import type { EmailDeliveryStatusEnumApi } from 'products/messaging/frontend/generated/api.schemas'
 
-import { TransactionalEmailLogDateFilter } from './TransactionalEmailLogDateFilter'
 import { transactionalEmailLogLogic } from './transactionalEmailLogLogic'
+import { TransactionalLogChannelSubMenu } from './TransactionalLogChannelSubMenu'
+import { TransactionalLogDateFilter } from './TransactionalLogDateFilter'
 
 const ANY = 'any'
 
@@ -26,10 +27,12 @@ export function QuillTransactionalEmailLogFilters({
     emailOptions,
     statusOptions,
     reasonOptions,
+    channelFilter = false,
 }: {
     emailOptions?: readonly FilterOption[]
     statusOptions: readonly FilterOption<EmailDeliveryStatusEnumApi>[]
     reasonOptions?: readonly FilterOption[] | null
+    channelFilter?: boolean
 }): JSX.Element {
     const { filters, pageLoading } = useValues(transactionalEmailLogLogic)
     const { setFilters, refresh } = useActions(transactionalEmailLogLogic)
@@ -58,6 +61,7 @@ export function QuillTransactionalEmailLogFilters({
             <DropdownMenu>
                 <FilterMenuTrigger active={menuFiltersOn} dataAttr="transactional-email-log-filter-menu" />
                 <DropdownMenuContent align="start" className="min-w-64">
+                    {channelFilter && <TransactionalLogChannelSubMenu />}
                     {emailOptions && (
                         <FilterRadioSubMenu
                             label="Email"
@@ -93,7 +97,7 @@ export function QuillTransactionalEmailLogFilters({
                     />
                 </DropdownMenuContent>
             </DropdownMenu>
-            <TransactionalEmailLogDateFilter />
+            <TransactionalLogDateFilter dateFrom={filters.dateFrom} dateTo={filters.dateTo} onChange={setFilters} />
             <Button
                 variant="outline"
                 loading={pageLoading}
