@@ -105,11 +105,12 @@ export const errorFirstSeenLogic = kea<errorFirstSeenLogicType>([
                 diagnosticsTracking.readFailed({ kind: 'error', read: 'first_seen' })
             },
             loaded: actions.firstSeenLoaded,
-            request: async (keys, params) => {
+            request: async (keys, params, signal) => {
                 const { items, checkedFrom } = await aiObservabilityErrorsFirstSeenCreate(
                     String(ApiConfig.getCurrentProjectId()),
                     { keys },
-                    params
+                    params,
+                    { signal }
                 )
                 return items.map(({ key, firstSeen, isNew }) => [key, { firstSeen, checkedFrom, isNew }])
             },

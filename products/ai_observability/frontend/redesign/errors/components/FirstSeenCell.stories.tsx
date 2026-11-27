@@ -8,6 +8,7 @@ const meta: Meta<typeof FirstSeenCell> = {
     component: FirstSeenCell,
     parameters: { testOptions: { snapshotBrowsers: [] } },
     args: {
+        timezone: 'UTC',
         load: {
             status: 'ready',
             value: { firstSeen: '2026-09-02T08:30:00Z', checkedFrom: '2026-08-02', isNew: false },
