@@ -893,7 +893,10 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
 
         assert (impact["clicked"], impact["sessions"]) == (CLICKED_SENDS_PAST_ONE_BATCH, 3)
 
-    def test_counts_sessions_of_the_newest_clicked_sends_with_ties_broken_by_message_id(self, _flag):
+    @parameterized.expand([("past the limit", 1, 2, 1), ("at the limit", 2, 3, None)])
+    def test_counts_sessions_of_the_newest_clicked_sends_with_ties_broken_by_message_id(
+        self, _flag, _name, limit, sessions, capped_at
+    ):
         clicked = [("sent", 1, ""), ("delivered", 2, ""), ("clicked", 60, "")]
         dropped = self._send(30, "first@example.com", clicked, message_id="11111111-1111-4111-8111-111111111111")
         kept = self._send(30, "second@example.com", clicked, message_id="22222222-2222-4222-8222-222222222222")
@@ -902,10 +905,10 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         self._land("second", "kept-second-session", kept)
         flush_persons_and_events()
 
-        with patch("products.messaging.backend.services.transactional_email_log.MAX_RESULTS_RECIPIENTS", 1):
+        with patch("products.messaging.backend.services.transactional_email_log.MAX_RESULTS_RECIPIENTS", limit):
             impact = self._impact(date_from=(NOW - timedelta(days=1)).isoformat())
 
-        assert (impact["sessions"], impact["sessions_capped_at"]) == (2, 1)
+        assert (impact["sessions"], impact["sessions_capped_at"]) == (sessions, capped_at)
 
     def test_has_no_session_count_when_a_batch_fills_the_row_limit(self, _flag):
         clicked = [("sent", 1, ""), ("delivered", 2, ""), ("clicked", 60, "")]

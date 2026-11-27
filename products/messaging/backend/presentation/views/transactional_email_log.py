@@ -281,7 +281,7 @@ class TransactionalEmailImpactSerializer(serializers.Serializer):
     )
     sessions_capped_at = serializers.IntegerField(
         allow_null=True,
-        help_text="Set when more sends were clicked in the period than sessions reads: sessions then counts only the "
+        help_text="Set when the period has more clicked sends than sessions reads: sessions then counts only the "
         "newest this many clicked sends. Null when sessions covers every clicked send, or when sessions is null.",
     )
     link_tagging_enabled = serializers.BooleanField(

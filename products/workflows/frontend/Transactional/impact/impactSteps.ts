@@ -51,10 +51,10 @@ function sessionStep(impact: TransactionalEmailImpactApi, linkTagging: LinkTaggi
     }
 }
 
-function sessionNote(cappedAt: number | null): string {
-    return cappedAt === null
-        ? 'From sends with link tracking on'
-        : `From the latest ${humanFriendlyNumber(cappedAt)} clicked sends`
+function sessionNote(cappedAt: number | null | undefined): string {
+    return typeof cappedAt === 'number'
+        ? `From the latest ${humanFriendlyNumber(cappedAt)} clicked sends`
+        : 'From sends with link tracking on'
 }
 
 const TRACKING_OFF_DETAIL =

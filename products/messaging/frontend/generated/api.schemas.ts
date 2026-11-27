@@ -1772,7 +1772,7 @@ export interface TransactionalEmailImpactApi {
      */
     sessions: number | null
     /**
-     * Set when more sends were clicked in the period than sessions reads: sessions then counts only the newest this many clicked sends. Null when sessions covers every clicked send, or when sessions is null.
+     * Set when the period has more clicked sends than sessions reads: sessions then counts only the newest this many clicked sends. Null when sessions covers every clicked send, or when sessions is null.
      * @nullable
      */
     sessions_capped_at: number | null

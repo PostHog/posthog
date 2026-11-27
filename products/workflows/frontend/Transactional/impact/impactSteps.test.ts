@@ -146,6 +146,14 @@ describe('impactSteps', () => {
             'From the latest 10,000 clicked sends',
         ],
         [
+            'reads an answer without the cap field as uncapped',
+            { ...impact, sessions: 7, sessions_capped_at: undefined } as unknown as TransactionalEmailImpactApi,
+            'on',
+            7,
+            undefined,
+            'From sends with link tracking on',
+        ],
+        [
             'says why when the count is missing',
             impact,
             'on',
