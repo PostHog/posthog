@@ -63,14 +63,21 @@ describe('AdventCalendarScene', () => {
         unmount()
     })
 
-    it('leaves a visitor who navigated on during the flag load where they went', async () => {
+    it.each([
+        ['another scene', urls.insights(), /\/insights$/],
+        [
+            'the calendar written another way',
+            urls.workflowsAdventCalendar().replace('advent', '%61dvent'),
+            /\/workflows$/,
+        ],
+    ])('settles a visitor who moved to %s during the flag load', async (_, destination, expected) => {
         const { unmount } = render(<AdventCalendarScene />)
         setCalendarFlag(false)
-        act(() => router.actions.push(urls.insights()))
+        act(() => router.actions.push(destination))
 
         await finishFlagLoad('loaded')
 
-        expect(pathname()).toMatch(/\/insights$/)
+        expect(pathname()).toMatch(expected)
         unmount()
     })
 

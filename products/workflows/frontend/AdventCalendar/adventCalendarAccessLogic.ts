@@ -38,6 +38,14 @@ export type adventCalendarAccessLogicType = MakeLogicType<
     adventCalendarAccessLogicMeta
 >
 
+const calendarRoute = (pathname: string): string => {
+    try {
+        return decodeURI(pathname).replace(/\/+$/, '')
+    } catch {
+        return pathname
+    }
+}
+
 export const adventCalendarAccessLogic = kea<adventCalendarAccessLogicType>([
     path(['products', 'workflows', 'frontend', 'AdventCalendar', 'adventCalendarAccessLogic']),
     connect(() => ({
@@ -62,7 +70,8 @@ export const adventCalendarAccessLogic = kea<adventCalendarAccessLogicType>([
     }),
     listeners(({ values, cache }) => ({
         leaveWithoutCalendar: async (_, breakpoint) => {
-            const stillOnCalendar = (): boolean => router.values.location.pathname === cache.calendarPath
+            const stillOnCalendar = (): boolean =>
+                calendarRoute(router.values.location.pathname) === calendarRoute(cache.calendarPath)
             if (!stillOnCalendar()) {
                 return
             }
