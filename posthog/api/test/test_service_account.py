@@ -4,9 +4,12 @@ from unittest.mock import patch
 from parameterized import parameterized
 
 from posthog.models import Organization, OrganizationMembership, PersonalAPIKey, User
+from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
 from posthog.models.user import UserType
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.service_accounts.emails import generated_service_account_email
+
+from products.access_control.backend.models.role import Role, RoleMembership
 
 
 class TestServiceAccountAPI(APIBaseTest):
@@ -22,6 +25,9 @@ class TestServiceAccountAPI(APIBaseTest):
         )
 
     def test_create_generates_identity_and_member_access(self) -> None:
+        role = Role.objects.create(organization=self.organization, name="Default role")
+        self.organization.default_role_id = role.id
+        self.organization.save(update_fields=["default_role_id"])
         response = self.client.post(self.url, {"name": "Deploy bot"})
         assert response.status_code == 201, response.json()
         account = User.objects.get(uuid=response.json()["id"])
@@ -32,6 +38,8 @@ class TestServiceAccountAPI(APIBaseTest):
         assert not account.is_staff
         assert not account.allow_impersonation
         assert account.is_active
+        assert not RoleMembership.objects.filter(user=account).exists()
+        assert not FileSystemShortcut.objects.filter(user=account).exists()
         assert account.current_organization_id == self.organization.id
         assert list(account.organization_memberships.values_list("organization_id", "level")) == [
             (self.organization.id, OrganizationMembership.Level.MEMBER)

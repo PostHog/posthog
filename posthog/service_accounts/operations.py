@@ -27,10 +27,13 @@ def create_service_account(organization: Organization, *, name: str) -> Organiza
             uuid=user_uuid,
             type=UserType.SERVICE_ACCOUNT,
             allow_impersonation=False,
+            current_organization=organization,
         )
         user.set_unusable_password()
         user.save(update_fields=["password"])
-        return user.join(organization=organization, level=OrganizationMembership.Level.MEMBER)
+        return OrganizationMembership.objects.create(
+            user=user, organization=organization, level=OrganizationMembership.Level.MEMBER
+        )
 
 
 def rename_service_account(organization: Organization, account_id: UUID, *, name: str) -> OrganizationMembership:
