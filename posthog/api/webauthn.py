@@ -301,7 +301,7 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
             request.session["reauth"] = "true" if was_authenticated_before_login_attempt else "false"
             request.session.save()
 
-            report_user_logged_in(verified_user, social_provider="passkey")
+            report_user_logged_in(verified_user, request=request, social_provider="passkey")
 
             return Response({"success": True})
 

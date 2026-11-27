@@ -132,8 +132,12 @@ export const ADVENT_TIPS: Record<number, AdventTip> = {
         link: { label: 'Open the handbook', url: 'https://posthog.com/handbook' },
     },
     9: {
-        kind: 'Just for fun',
-        text: 'Hedgehogs are mostly active at night. They look for insects and other small prey after dark.',
+        kind: 'Workflows tip',
+        text: 'You can send transactional emails from your code with PostHog. Sends, opens, and clicks arrive as events, with no extra tracking to set up.',
+        link: {
+            label: 'Transactional emails docs',
+            url: 'https://posthog.com/docs/workflows/transactional-emails',
+        },
     },
     10: { kind: 'Just for fun', text: 'Whatever you picked, the formatter has the last word.' },
     11: {
