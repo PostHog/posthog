@@ -136,7 +136,6 @@ core-package-surface	posthog.ingress.verify.sns_signature.is_valid_sns_url	produ
 drives	customer_analytics:backend/hogql_queries/	posthog.api.test.test_sharing	query-kind(AccountsQuery)	1
 drives	error_tracking:backend/hogql_queries/	products.product_analytics.backend.tests.api.test_insight_query	query-kind(ErrorTrackingQuery)	1
 drives	metrics:backend/hogql_queries/	posthog.tasks.alerts.test.test_metrics_alerts	query-kind(MetricsQuery)	1
-drives	product_analytics:backend/hogql_queries/	posthog.api.test.dashboards.test_dashboard	query-kind(TrendsQuery)	6
 drives	product_analytics:backend/hogql_queries/	posthog.api.test.test_alert_15_minute_interval	query-kind(TrendsQuery)	1
 drives	product_analytics:backend/hogql_queries/	posthog.api.test.test_alert_real_time_interval	query-kind(TrendsQuery)	1
 drives	product_analytics:backend/hogql_queries/	posthog.hogql.database.schema.test.test_persons	name(TrendsQueryRunner)	2
@@ -158,6 +157,7 @@ drives	product_analytics:backend/hogql_queries/	products.actions.backend.tests.a
 drives	product_analytics:backend/hogql_queries/	products.alerts.backend.tests.api.test_alert	query-kind(TrendsQuery)	1
 drives	product_analytics:backend/hogql_queries/	products.analytics_platform.backend.lazy_computation.tests.test_lazy_computation_executor	name(TrendsQueryRunner)	2
 drives	product_analytics:backend/hogql_queries/	products.cohorts.backend.models.test.test_util	query-kind(TrendsQuery)	1
+drives	product_analytics:backend/hogql_queries/	products.dashboards.backend.tests.api.test_dashboard	query-kind(TrendsQuery)	6
 drives	product_analytics:backend/hogql_queries/	products.dashboards.backend.tests.api.test_dashboard_templates	query-kind(TrendsQuery)	2
 drives	product_analytics:backend/hogql_queries/	products.dashboards.backend.tests.api.test_run_insights	query-kind(TrendsQuery)	1
 drives	product_analytics:backend/hogql_queries/	products.data_catalog.backend.tests.test_execution	query-kind(TrendsQuery)	2
@@ -182,7 +182,6 @@ drives	product_analytics:backend/hogql_queries/	products.web_analytics.backend.h
 drives	product_analytics:backend/hogql_queries/	products.web_analytics.backend.hogql_queries.test.test_web_trends_lazy_precompute	query-kind(TrendsQuery)	1
 drives	product_analytics:backend/hogql_queries/	products.web_analytics.backend.hogql_queries.test.test_web_vitals_timeseries_lazy_precompute	name(TrendsQueryRunner)	1
 drives	product_analytics:backend/hogql_queries/	products.web_analytics.backend.hogql_queries.test.test_web_vitals_timeseries_lazy_precompute	query-kind(TrendsQuery)	1
-drives	web_analytics:backend/hogql_queries/	posthog.api.test.dashboards.test_dashboard	query-kind(TrendsQuery)	6
 drives	web_analytics:backend/hogql_queries/	posthog.api.test.test_alert_15_minute_interval	query-kind(TrendsQuery)	1
 drives	web_analytics:backend/hogql_queries/	posthog.api.test.test_alert_real_time_interval	query-kind(TrendsQuery)	1
 drives	web_analytics:backend/hogql_queries/	posthog.hogql.database.schema.test.test_persons	query-kind(TrendsQuery)	1
@@ -210,6 +209,7 @@ drives	web_analytics:backend/hogql_queries/	posthog.tasks.alerts.test.test_trend
 drives	web_analytics:backend/hogql_queries/	products.actions.backend.tests.api.test_action	query-kind(TrendsQuery)	9
 drives	web_analytics:backend/hogql_queries/	products.alerts.backend.tests.api.test_alert	query-kind(TrendsQuery)	1
 drives	web_analytics:backend/hogql_queries/	products.cohorts.backend.models.test.test_util	query-kind(TrendsQuery)	1
+drives	web_analytics:backend/hogql_queries/	products.dashboards.backend.tests.api.test_dashboard	query-kind(TrendsQuery)	6
 drives	web_analytics:backend/hogql_queries/	products.dashboards.backend.tests.api.test_dashboard_templates	query-kind(TrendsQuery)	2
 drives	web_analytics:backend/hogql_queries/	products.dashboards.backend.tests.api.test_run_insights	query-kind(TrendsQuery)	1
 drives	web_analytics:backend/hogql_queries/	products.data_catalog.backend.tests.test_execution	query-kind(TrendsQuery)	2
