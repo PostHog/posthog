@@ -23,7 +23,7 @@ from posthog.hogql.errors import ImpossibleASTError
 from posthog.hogql.escape_sql import escape_trino_identifier, escape_trino_string
 from posthog.hogql.functions import find_hogql_aggregation
 from posthog.hogql.printer.postgres import PostgresPrinter
-from posthog.hogql.printer.trino_date_arithmetic import DateOffset, date_offset
+from posthog.hogql.printer.trino_date_arithmetic import DateOffset, date_moved_by_whole_days, date_offset
 from posthog.hogql.printer.trino_functions import (
     TRINO_AGGREGATE_COMBINATORS,
     TRINO_ARRAY_INSERT_AGGREGATES,
@@ -1692,6 +1692,9 @@ class TrinoPrinter(PostgresPrinter):
             return replace(
                 offset.date_type, nullable=offset.date_type.nullable or bool(amount_type and amount_type.nullable)
             )
+        moved_date_type = date_moved_by_whole_days(node, resolve_type=self._resolve_type)
+        if moved_date_type is not None:
+            return moved_date_type
         if isinstance(node, ast.Call) and node.name.lower() in _DATE_FUNCTIONS and node.args:
             argument_type = self._resolve_type(node.args[0])
             return ast.DateType(nullable=argument_type is None or argument_type.nullable)
