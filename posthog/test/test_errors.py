@@ -98,6 +98,30 @@ class TestWrapClickhouseQueryError:
                 "Expected: Date[32] or DateTime[64], got: UInt8",
                 "The 2nd argument to `dateDiff` has type UInt8. Use a date or date-time value.",
             ),
+            (
+                "date_argument_with_type_parameters",
+                "A value of illegal type was provided as 2nd argument 'startdate' to function 'dateDiff'. "
+                "Expected: Date[32] or DateTime[64], got: Array(Date)",
+                "The 2nd argument to `dateDiff` has type Array. Use a date or date-time value.",
+            ),
+            (
+                "validated_argument",
+                "A value of illegal type was provided as 1st argument 'private_arg' to function 'trimBoth'. "
+                "Expected: String or FixedString, got: Date32",
+                "The 1st argument to `trim` has type Date32. Convert it to String or FixedString.",
+            ),
+            (
+                "validated_argument_with_unlisted_expected_type",
+                "A value of illegal type was provided as 1st argument 'private_arg' to function 'arrayStringConcat'. "
+                "Expected: Enum8('private' = 1), got: String",
+                "The 1st argument to `arrayStringConcat` has type String. Convert it to a type the function accepts.",
+            ),
+            (
+                "validated_argument_with_type_parameters",
+                "A value of illegal type was provided as 1st argument 'private_arg' to function 'trimBoth'. "
+                "Expected: String or FixedString, got: Array(String)",
+                "Check the argument types for `trim`. Cast each argument to a type the function accepts.",
+            ),
         ]
     )
     def test_argument_type_error_identifies_the_expression(self, _case: str, diagnostic: str, expected: str) -> None:
@@ -115,6 +139,10 @@ class TestWrapClickhouseQueryError:
         [
             ("Illegal type Secretthing of argument of function privateFn",),
             ("Unexpected argument: In scope SELECT 'Illegal type String of argument of function length'",),
+            (
+                "A value of illegal type was provided as 1st argument 'private_arg' to function 'privateFn'. "
+                "Expected: String, got: Int64",
+            ),
         ]
     )
     def test_unrecognized_type_and_function_use_fixed_guidance(self, diagnostic: str) -> None:
