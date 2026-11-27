@@ -15,7 +15,7 @@ from zoneinfo import ZoneInfo
 
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, HogQLGlobalSettings
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
@@ -748,26 +748,34 @@ def _count_sessions(team: Team, user: User | None, workflow_id: str, period: _Pe
     return len(sessions)
 
 
-def _sessions_in_batch(team: Team, user: User | None, message_ids: list[str], period: _Period) -> set[str]:
+def tagged_landing(message_ids: list[str]) -> ast.Expr:
     # The email worker tags each link on the sender's own domain with ph_workflow_run=<invocation id>, and the
     # invocation id is the send's message id.
+    return parse_expr(
+        """
+        event = '$pageview'
+        AND $session_id != ''
+        AND position(properties.$current_url, 'ph_workflow_run=') > 0
+        AND extractURLParameter(properties.$current_url, 'ph_workflow_run') IN {message_ids}
+        """,
+        placeholders={"message_ids": ast.Constant(value=message_ids)},
+    )
+
+
+def _sessions_in_batch(team: Team, user: User | None, message_ids: list[str], period: _Period) -> set[str]:
     response = execute_hogql_query(
         """
         SELECT DISTINCT $session_id
         FROM events
-        WHERE event = '$pageview'
-          AND timestamp >= {start} AND timestamp < {end}
-          AND $session_id != ''
-          AND position(properties.$current_url, 'ph_workflow_run=') > 0
-          AND extractURLParameter(properties.$current_url, 'ph_workflow_run') IN {message_ids}
+        WHERE {tagged_landing} AND timestamp >= {start} AND timestamp < {end}
         LIMIT {limit}
         """,
         team=team,
         user=user,
         placeholders={
+            "tagged_landing": tagged_landing(message_ids),
             "start": ast.Constant(value=period.start),
             "end": ast.Constant(value=period.end + timedelta(days=IMPACT_WINDOW_DAYS)),
-            "message_ids": ast.Constant(value=message_ids),
             "limit": ast.Constant(value=MAX_SELECT_RETURNED_ROWS),
         },
         query_type="transactional_email_impact_sessions",

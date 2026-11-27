@@ -29,7 +29,8 @@ from products.messaging.backend.facade.contracts import (
     TransactionalEmailSendActivity,
 )
 from products.messaging.backend.models.email_status_sql import EMAIL_STATUS_TTL_DAYS
-from products.messaging.backend.services.transactional_email_log import get_transactional_email
+from products.messaging.backend.services.transactional_email_log import get_transactional_email, tagged_landing
+from products.workflows.backend.facade.api import is_email_workflow_run_link_tag_enabled
 from products.workflows.backend.facade.contracts import WorkflowViewAccess
 
 ACTIVITY_WINDOW_DAYS = 7
@@ -40,7 +41,6 @@ MAX_OWN_EVENTS = 200
 MAX_LANDINGS = 100
 CLICK_EVENT = "$workflows_email_link_clicked"
 OWN_EVENTS = ("$workflows_email_sent", "$workflows_email_delivered", "$workflows_email_opened", CLICK_EVENT)
-SAME_CLICK = timedelta(seconds=1)
 LANDING_BEFORE_CLICK = timedelta(minutes=2)
 LANDING_AFTER_CLICK = timedelta(minutes=30)
 SESSION_SPAN = timedelta(days=1)
@@ -309,37 +309,32 @@ def _clicks(
     click_times = [event.at for event in detail.timeline if event.kind == EmailLogEventKind.CLICKED]
     if not click_times:
         return []
-    unmatched = [event for event in own_events if event.event == CLICK_EVENT]
+    click_events: dict[datetime, list[_OwnEvent]] = {}
+    for event in own_events:
+        if event.event == CLICK_EVENT:
+            click_events.setdefault(event.timestamp, []).append(event)
+    events = [click_events[at].pop(0) if click_events.get(at) else None for at in click_times]
+    links = [event.link_url if event else None for event in events]
+    sending_domain = detail.entry.sending_domain
     sessions = _sessions_by_click(
         click_times,
+        links,
+        [_is_off_site(link_url, sending_domain) for link_url in links],
         _landings(team, user, detail.entry.message_id, click_times[0], click_times[-1]),
     )
-    link_tagging_enabled = team.workflows_config.email_workflow_run_link_tag_enabled
-    clicks = []
-    for index, at in enumerate(click_times):
-        event = _take_click_event(at, unmatched)
-        link_url = event.link_url if event else None
-        session = sessions.get(index)
-        clicks.append(
-            TransactionalEmailClick(
-                at=at,
-                link_url=link_url,
-                event_uuid=event.uuid if event else None,
-                session=session,
-                no_session_reason=None
-                if session
-                else _no_session_reason(link_url, link_tagging_enabled, detail.entry.sending_domain),
-            )
+    link_tagging_enabled = is_email_workflow_run_link_tag_enabled(team_id=team.id)
+    return [
+        TransactionalEmailClick(
+            at=at,
+            link_url=link_url,
+            event_uuid=event.uuid if event else None,
+            session=sessions.get(index),
+            no_session_reason=None
+            if index in sessions
+            else _no_session_reason(link_url, link_tagging_enabled, sending_domain),
         )
-    return clicks
-
-
-def _take_click_event(at: datetime, unmatched: list[_OwnEvent]) -> _OwnEvent | None:
-    closest = min(unmatched, key=lambda event: abs(event.timestamp - at), default=None)
-    if closest is None or abs(closest.timestamp - at) > SAME_CLICK:
-        return None
-    unmatched.remove(closest)
-    return closest
+        for index, (at, event, link_url) in enumerate(zip(click_times, events, links))
+    ]
 
 
 def _landings(
@@ -357,11 +352,7 @@ def _landings(
             argMin(properties.$browser, timestamp),
             argMin(properties.$geoip_city_name, timestamp)
         FROM events
-        WHERE event = '$pageview'
-          AND timestamp >= {start} AND timestamp < {end}
-          AND $session_id != ''
-          AND position(properties.$current_url, 'ph_workflow_run=') > 0
-          AND extractURLParameter(properties.$current_url, 'ph_workflow_run') = {message_id}
+        WHERE {tagged_landing} AND timestamp >= {start} AND timestamp < {end}
         GROUP BY $session_id
         ORDER BY landed_at
         LIMIT {limit}
@@ -369,7 +360,7 @@ def _landings(
         team=team,
         user=user,
         placeholders={
-            "message_id": ast.Constant(value=message_id),
+            "tagged_landing": tagged_landing([message_id]),
             "start": ast.Constant(value=start),
             "end": ast.Constant(value=end),
             "limit": ast.Constant(value=MAX_LANDINGS),
@@ -420,25 +411,49 @@ def _session_stats(
 
 
 def _sessions_by_click(
-    click_times: list[datetime], landings: list[TransactionalEmailClickSession]
+    click_times: list[datetime],
+    links: list[str | None],
+    off_site: list[bool],
+    landings: list[TransactionalEmailClickSession],
 ) -> dict[int, TransactionalEmailClickSession]:
     sessions: dict[int, TransactionalEmailClickSession] = {}
     for landing in landings:
-        index = max(
-            (index for index, at in enumerate(click_times) if at <= landing.landed_at + LANDING_BEFORE_CLICK),
-            default=None,
-        )
-        if index is None or index in sessions or landing.landed_at > click_times[index] + LANDING_AFTER_CLICK:
-            continue
-        sessions[index] = landing
+        candidates = [
+            index
+            for index, at in enumerate(click_times)
+            if index not in sessions
+            and not off_site[index]
+            and at <= landing.landed_at + LANDING_BEFORE_CLICK
+            and landing.landed_at <= at + LANDING_AFTER_CLICK
+        ]
+        same_page = [index for index in candidates if _lands_on(links[index], landing.landing_url)]
+        if same_page:
+            sessions[same_page[-1]] = landing
+        elif len(candidates) == 1:
+            sessions[candidates[0]] = landing
     return sessions
+
+
+def _lands_on(link_url: str | None, landing_url: str) -> bool:
+    if not link_url:
+        return False
+    link, landing = urlparse(link_url), urlparse(landing_url)
+    if (link.hostname or "").lower() != (landing.hostname or "").lower():
+        return False
+    return not link.path or link.path.rstrip("/") == landing.path.rstrip("/")
+
+
+def _is_off_site(link_url: str | None, sending_domain: str) -> bool:
+    link_host = urlparse(link_url).hostname if link_url else None
+    return bool(
+        link_host and sending_domain and organizational_domain(link_host) != organizational_domain(sending_domain)
+    )
 
 
 def _no_session_reason(
     link_url: str | None, link_tagging_enabled: bool, sending_domain: str
 ) -> EmailClickNoSessionReason:
-    link_host = urlparse(link_url).hostname if link_url else None
-    if link_host and sending_domain and organizational_domain(link_host) != organizational_domain(sending_domain):
+    if _is_off_site(link_url, sending_domain):
         return EmailClickNoSessionReason.OFF_SITE
     if not link_tagging_enabled:
         return EmailClickNoSessionReason.LINK_TAGGING_OFF
