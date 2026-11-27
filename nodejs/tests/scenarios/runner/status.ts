@@ -4,7 +4,7 @@ import type { RoleExit } from '../environment/supervisor'
 import type { DriveSummary } from '../generator/generator'
 import { BarResult, unsourced } from '../judge/bars'
 import { atLeastOnce, bouncedSuppressed, noLoss } from '../judge/invariants'
-import { type Convergence, type InvariantResult } from '../judge/judge'
+import { type Convergence, type InvariantResult, feedbackInFlightReasonOf } from '../judge/judge'
 import { Baseline, DriveWindow, MIN_BASELINE_SECONDS } from '../judge/measurements'
 import { type Ramp, ratesReasonOf } from '../judge/ramp'
 import type { WriterSample } from '../probe/writer-probe'
@@ -245,6 +245,17 @@ function withRamp(
           }
 }
 
+const unnamedFeedbackInFlightOf = ({
+    convergence,
+    invariants,
+}: Pick<Verdict, 'convergence' | 'invariants'>): string[] => {
+    if (convergence.feedbackInFlight === undefined) {
+        return []
+    }
+    const reason = feedbackInFlightReasonOf(convergence.feedbackInFlight)
+    return invariants.some(({ unjudged }) => unjudged === reason) ? [] : [reason]
+}
+
 function judgedOf(verdict: Verdict): { status: Status; statusReason: string } {
     if (!verdict.ramp) {
         return unrampedStatusOf(verdict)
@@ -256,7 +267,7 @@ function judgedOf(verdict: Verdict): { status: Status; statusReason: string } {
         lost: failed('at_least_once'),
         duplicates: failed('duplicate_sends'),
     })
-    const { unread, ...read } = convergence
+    const { unread, feedbackInFlight: _feedbackInFlight, ...read } = convergence
     const rampJudgesConvergence =
         convergence.unfinishedJobs !== 0 ||
         invariants.some(({ name, crossedBy }) => name === 'at_least_once' && crossedBy !== undefined)
@@ -282,6 +293,7 @@ function judgedOf(verdict: Verdict): { status: Status; statusReason: string } {
               : { ...unramped, statusReason: [unramped.statusReason, ...recorded].join('; ') }
     const notJudged = [
         ...unjudgedPastBreak.map(({ name, unjudged }) => `${name} was not judged: ${unjudged}`),
+        ...unnamedFeedbackInFlightOf(verdict),
         ...verdict.bars.filter(unsourced).map(({ name, unjudged }) => `${name} was not judged: ${unjudged}`),
         ...(unread === undefined ? [] : [unreadReasonOf(unread)]),
     ]
@@ -348,6 +360,7 @@ function unrampedStatusOf({
             unjudged === undefined ? [] : [`${name} was not judged: ${unjudged}`]
         ),
         ...(convergence.unread === undefined ? [] : [unreadReasonOf(convergence.unread)]),
+        ...unnamedFeedbackInFlightOf({ convergence, invariants }),
     ]
     const failures = [
         ...notConvergedOf(convergence),
