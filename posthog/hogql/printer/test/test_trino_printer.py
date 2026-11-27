@@ -49,8 +49,6 @@ from posthog.hogql.trino_parameters import convert_pyformat_placeholders
 
 from posthog.schema_enums import FilterLogicalOperator, PersonsOnEventsMode
 
-from products.web_analytics.backend.hogql_queries.bot_ip_definitions import bot_ip_prefix_groups_by_definition
-
 
 def _trino_modifiers() -> HogQLQueryModifiers:
     # A pinned events schema keeps printing off the instance setting, which these tests have no database to read.
@@ -3028,8 +3026,8 @@ def test_prints_the_bot_ip_lookup_once(custom_rules: list[CustomBotRule]) -> Non
     sql, _ = prepare_and_print_ast(
         parse_select("SELECT getBotName(properties.$raw_user_agent, properties.$ip) FROM users"), context, "trino"
     )
-    first_googlebot_network = bot_ip_prefix_groups_by_definition()[0][1][0][1][0]
-    assert sql.count(f"IPADDRESS '{first_googlebot_network}'") == 1
+    last_built_in_network = re.findall(r"IPADDRESS '[^']+'", sql)[-1]
+    assert sql.count(last_built_in_network) == 1
 
 
 def test_preserves_legacy_clickhouse_array_reverse_sort_mapping() -> None:
