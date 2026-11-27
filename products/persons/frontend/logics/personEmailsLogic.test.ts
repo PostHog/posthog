@@ -143,7 +143,7 @@ describe('personEmailsLogic', () => {
     it('says what each recent email led to, looking each one up by its message ID', async () => {
         await open(true)
 
-        expect(searches.sort()).toEqual([CLICKED, OPENED, NO_OPEN, BOUNCED, WORKFLOW].sort())
+        expect(searches.sort()).toEqual([CLICKED, OPENED, NO_OPEN, BOUNCED, WORKFLOW, OLD].sort())
         expect(lookupsInOrder()).toEqual(['clicked', 'opened', 'delivered', 'bounced', 'not_logged', 'not_logged'])
         expect(logic.values.outcomeColumnShown).toBe(true)
     })

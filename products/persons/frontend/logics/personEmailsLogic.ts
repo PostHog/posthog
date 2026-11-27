@@ -28,9 +28,6 @@ export function isEmailOutcome(lookup: EmailLookup): lookup is EmailOutcome {
 }
 
 function emailOutcome(send: TransactionalEmailLogEntryApi): EmailOutcome {
-    if (send.status === 'complained') {
-        return send.status
-    }
     return send.clicked ? 'clicked' : send.opened ? 'opened' : send.status
 }
 
@@ -97,9 +94,6 @@ export interface personEmailsLogicActions {
         id: string
         lookup: EmailLookup
     }
-    stopLookups: () => {
-        value: true
-    }
     waitToOpen: (asset: MessageAsset) => {
         asset: MessageAsset
     }
@@ -110,7 +104,7 @@ export interface personEmailsLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         outcomesShown: (featureFlags: FeatureFlagsSet) => boolean
-        outcomeColumnShown: (outcomesShown: any, lookups: any) => boolean
+        outcomeColumnShown: (outcomesShown: boolean, lookups: Record<string, EmailLookup> | null) => boolean
     }
 }
 
@@ -128,7 +122,6 @@ export const personEmailsLogic = kea<personEmailsLogicType>([
     connect(() => ({ values: [featureFlagLogic, ['featureFlags']], actions: [featureFlagLogic, ['setFeatureFlags']] })),
     actions({
         lookUpOutcomes: (emails: MessageAsset[]) => ({ emails }),
-        stopLookups: true,
         setLookup: (id: string, lookup: EmailLookup) => ({ id, lookup }),
         openEmail: (asset: MessageAsset) => ({ asset }),
         waitToOpen: (asset: MessageAsset) => ({ asset }),
@@ -155,7 +148,6 @@ export const personEmailsLogic = kea<personEmailsLogicType>([
             {
                 lookUpOutcomes: (_, { emails }) =>
                     Object.fromEntries(emails.map((email) => [email.invocation_id, 'looking' as const])),
-                stopLookups: () => null,
                 setLookup: (state, { id, lookup }) => (state ? { ...state, [id]: lookup } : state),
             },
         ],
@@ -165,7 +157,6 @@ export const personEmailsLogic = kea<personEmailsLogicType>([
                 waitToOpen: (_, { asset }) => asset,
                 openSendPage: () => null,
                 preview: () => null,
-                stopLookups: () => null,
             },
         ],
         previewed: [
@@ -190,15 +181,6 @@ export const personEmailsLogic = kea<personEmailsLogicType>([
         ],
     }),
     listeners(({ actions, values, props, cache }) => {
-        const lookUpIfShown = (): void => {
-            if (!values.outcomesShown) {
-                if (values.lookups) {
-                    actions.stopLookups()
-                }
-            } else if (!values.lookups && !values.emailsLoading && values.emails.length) {
-                actions.lookUpOutcomes(values.emails)
-            }
-        }
         const open = (asset: MessageAsset): void => {
             const lookup = values.outcomesShown ? values.lookups?.[asset.invocation_id] : undefined
             if (lookup === 'looking') {
@@ -215,16 +197,14 @@ export const personEmailsLogic = kea<personEmailsLogicType>([
                     actions.lookUpOutcomes(emails)
                 }
             },
-            setFeatureFlags: lookUpIfShown,
+            setFeatureFlags: () => {
+                if (values.outcomesShown && !values.lookups && !values.emailsLoading && values.emails.length) {
+                    actions.lookUpOutcomes(values.emails)
+                }
+            },
             lookUpOutcomes: async ({ emails }, breakpoint) => {
                 const oldest = dayjs.utc().subtract(LOG_RETENTION_DAYS, 'day')
-                const queue = emails
-                    .filter((email) => dayjs.utc(email.sent_at).isAfter(oldest))
-                    .map((email) => email.invocation_id)
-                const tooOld = emails.filter((email) => !queue.includes(email.invocation_id))
-                for (const email of tooOld) {
-                    actions.setLookup(email.invocation_id, 'not_logged')
-                }
+                const queue = emails.map((email) => email.invocation_id)
                 const lookUpNext = async (): Promise<void> => {
                     for (let id = queue.shift(); id; id = queue.shift()) {
                         let lookup: EmailLookup
@@ -252,11 +232,6 @@ export const personEmailsLogic = kea<personEmailsLogicType>([
             setLookup: ({ id }) => {
                 if (values.waitingToOpen?.invocation_id === id) {
                     open(values.waitingToOpen)
-                }
-            },
-            stopLookups: () => {
-                if (values.previewed === null && values.waitingToOpen) {
-                    actions.preview(values.waitingToOpen)
                 }
             },
             openSendPage: ({ id }) => router.actions.push(urls.transactionalEmailLogEntry(id)),
