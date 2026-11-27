@@ -83,10 +83,17 @@ function longRows(frames: DataFrame[]): Cell[][] {
     return [named ? ['series', ...names] : names, ...rows]
 }
 
-/** A chart's frames as CSV text: a header row, then the rows a person would expect to see in a spreadsheet. */
-export function framesToCsv(frames: DataFrame[]): string {
+/**
+ * A chart's frames as CSV text: a header row, then the rows a person would expect to see in a spreadsheet. Pass `\t`
+ * for text pasted into a spreadsheet, which splits cells on tabs, so a tab inside a value is quoted.
+ */
+export function framesToCsv(frames: DataFrame[], delimiter: ',' | '\t' = ','): string {
     const withFields = frames.filter((frame) => frame.fields.length > 0)
     const joinable = withFields.length > 0 && withFields.every((frame) => keyFieldOf(frame) && !hasRepeatedKeys(frame))
-    // A cell that starts with `=` would run as a formula when the file opens in a spreadsheet.
-    return Papa.unparse(joinable ? wideRows(withFields) : longRows(withFields), { escapeFormulae: true })
+    // A cell that starts with `=` would run as a formula when the file opens in a spreadsheet. Papa's own pattern
+    // needs the whole value on one line, so a value with a line break would slip past it.
+    return Papa.unparse(joinable ? wideRows(withFields) : longRows(withFields), {
+        delimiter,
+        escapeFormulae: /^[=+\-@\t\r]/,
+    })
 }
