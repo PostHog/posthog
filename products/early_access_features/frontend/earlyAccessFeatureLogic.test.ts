@@ -1,8 +1,13 @@
 import { MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
 
+import '@testing-library/jest-dom'
+
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 /* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper, not a React hook */
 import { expectLogic } from 'kea-test-utils'
+import { createElement } from 'react'
+import { ToastContainer, toast } from 'react-toastify'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -54,6 +59,10 @@ describe('earlyAccessFeatureLogic', () => {
     })
 
     afterEach(() => {
+        act(() => {
+            toast.dismiss()
+        })
+        cleanup()
         logic?.unmount()
     })
 
@@ -118,17 +127,34 @@ describe('earlyAccessFeatureLogic', () => {
     })
 
     it.each([
-        { from: EarlyAccessFeatureStage.Beta, to: EarlyAccessFeatureStage.GeneralAvailability, offered: true },
-        { from: EarlyAccessFeatureStage.Beta, to: EarlyAccessFeatureStage.Alpha, offered: false },
+        {
+            from: EarlyAccessFeatureStage.Beta,
+            to: EarlyAccessFeatureStage.GeneralAvailability,
+            earlierToast: false,
+            offered: true,
+        },
+        {
+            from: EarlyAccessFeatureStage.Beta,
+            to: EarlyAccessFeatureStage.GeneralAvailability,
+            earlierToast: true,
+            offered: true,
+        },
+        { from: EarlyAccessFeatureStage.Beta, to: EarlyAccessFeatureStage.Alpha, earlierToast: false, offered: false },
     ])(
-        'offers to email opted-in users only on reaching general availability: $from to $to',
-        async ({ from, to, offered }) => {
-            const success = jest.spyOn(lemonToast, 'success')
+        'offers to email opted-in users only on reaching general availability: $from to $to, earlier save toast $earlierToast',
+        async ({ from, to, earlierToast, offered }) => {
             jest.spyOn(messageAudience, 'messageAudienceAccessDisabledReason').mockReturnValue(null)
             useMocks({
                 get: { '/api/projects/:team_id/early_access_feature/:id': mockFeature({ stage: from }) },
                 patch: { '/api/projects/:team_id/early_access_feature/:id': () => [200, mockFeature({ stage: to })] },
             })
+            render(createElement(ToastContainer))
+            if (earlierToast) {
+                act(() => {
+                    lemonToast.success('Early access feature saved')
+                })
+                await screen.findByText('Early access feature saved')
+            }
             logic = earlyAccessFeatureLogic({ id: 'abc-123' })
             logic.mount()
             await expectLogic(logic).toDispatchActions(['loadEarlyAccessFeatureSuccess'])
@@ -137,8 +163,10 @@ describe('earlyAccessFeatureLogic', () => {
                 logic.actions.saveEarlyAccessFeature({ ...logic.values.earlyAccessFeature, stage: to })
             }).toDispatchActions(['saveEarlyAccessFeatureSuccess'])
 
-            const button = success.mock.calls.find(([message]) => message === 'Early access feature saved')?.[1]?.button
-            expect(button?.label).toBe(offered ? 'Email opted-in users' : undefined)
+            await waitFor(() =>
+                expect(screen.getAllByText('Early access feature saved')).toHaveLength(earlierToast ? 2 : 1)
+            )
+            expect(screen.queryByText('Email opted-in users') !== null).toBe(offered)
             jest.restoreAllMocks()
         }
     )
