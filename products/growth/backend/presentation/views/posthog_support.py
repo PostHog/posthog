@@ -21,7 +21,7 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import MCP_TRANSPORT_EVENT_SOURCES, get_event_source, report_user_action, sanitize_header_value
 from posthog.models.user import User
-from posthog.permissions import PostHogFeatureFlagPermission
+from posthog.permissions import posthog_feature_flag_enabled
 from posthog.rate_limit import PostHogSupportDraftCreateThrottle
 
 from products.growth.backend.facade.posthog_support import (
@@ -180,6 +180,13 @@ class PostHogSupportSentTicketSerializer(serializers.Serializer):
 
 
 COMMUNITY_URL = "https://posthog.com/forum"
+PAUSED_DETAIL = (
+    "Nothing was sent to PostHog support, because PostHog has paused support tickets from agents for now. "
+    f"Tell the person to try again later, or to ask in the support panel at {SUPPORT_PANEL_URL} if their plan "
+    "includes support."
+)
+KILL_SWITCH_FLAG = "posthog-support-tickets-disabled"
+
 COMMUNITY_SUPPORT = (
     f"community support is available at {COMMUNITY_URL}. The forum is public, so leave out personal data and secrets."
 )
@@ -254,9 +261,18 @@ SEND_FAILURE_RESPONSES: dict[SendFailure, tuple[str, int]] = {
 class PostHogSupportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "posthog_support"
     scope_object_write_actions = ["create_draft", "send_draft"]
-    permission_classes = [PostHogFeatureFlagPermission]
-    posthog_feature_flag = {"mcp-posthog-support-tickets": ["create_draft", "send_draft"]}
     pagination_class = None
+
+    def _paused(self) -> Response | None:
+        if not posthog_feature_flag_enabled(
+            KILL_SWITCH_FLAG,
+            str(self._user.distinct_id or self._user.uuid),
+            organization_id=self.team.organization_id,
+            team_id=self.team_id,
+            only_evaluate_locally=True,
+        ):
+            return None
+        return Response({"detail": PAUSED_DETAIL}, status=status.HTTP_403_FORBIDDEN)
 
     def check_throttles(self, request: Request) -> None:
         if self.action == "create_draft":
@@ -329,6 +345,8 @@ class PostHogSupportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(methods=["POST"], detail=False, url_path="drafts")
     def create_draft(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        if paused := self._paused():
+            return paused
         data = request.validated_data
         topic = TicketTopic(data["topic"])
         mcp_session_id = _mcp_id(request.headers.get("X-Posthog-Mcp-Session-Id"))
@@ -390,6 +408,8 @@ class PostHogSupportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(methods=["POST"], detail=False, url_path=rf"drafts/(?P<draft_id>{DRAFT_ID_PATTERN})/send")
     def send_draft(self, request: ValidatedRequest, draft_id: str, *args: Any, **kwargs: Any) -> Response:
+        if paused := self._paused():
+            return paused
         try:
             ticket = send_support_ticket(user_id=self._user.pk, team_id=self.team_id, draft_id=draft_id)
         except SupportTicketSendFailed as failed:

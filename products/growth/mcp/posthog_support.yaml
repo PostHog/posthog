@@ -25,7 +25,6 @@ tools:
             and did the lookups it asks for. Each field is one part of the ticket. Afterwards, show the person the full
             message in the chat and follow next_step: when can_send is true, ask whether to send it, and otherwise give
             them what next_step says.
-        feature_flag: mcp-posthog-support-tickets
     posthog-support-draft-send:
         operation: posthog_support_drafts_send_create
         enabled: true
@@ -41,4 +40,3 @@ tools:
             wait for a yes to that one. A draft becomes at most one ticket: calling again returns the same ticket.
             Afterwards, first give them the ticket number when the response has one, and tell them to log in and watch
             the support panel in the right-hand sidebar of PostHog for replies, at https://app.posthog.com/home#panel=support.
-        feature_flag: mcp-posthog-support-tickets

@@ -12,8 +12,7 @@ from products.growth.backend.facade.posthog_support_types import (
     TicketTopic,
 )
 
-# Callers must already have checked that the user may act in the team and applied the feature flag (and,
-# for drafts, the draft throttle), as the viewset does.
+# Callers must already have checked that the user may act in the team, and throttled drafts, as the viewset does.
 
 
 class SupportDraftRefused(Exception):

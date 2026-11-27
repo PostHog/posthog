@@ -7,7 +7,7 @@ A ticket without it gets a reply asking for each missing item.
 When the person would rather keep the events and remove only some properties, tell them before you write anything.
 Support usually cannot do that, so ask whether they want the events deleted instead, and write the ticket only if they do.
 
-There are two routes ([docs](https://posthog.com/docs/privacy/data-storage#deleting-specific-events)):
+There are two routes ([docs](https://posthog.com/docs/privacy/data-storage#deleting-specific-events)). On the free plan, offer only the first, and only for a privacy or security reason. Don't mention self-serve event deletion there:
 
 - **Support runs the deletion.** The ticket needs everything below, including the query and its count.
 - **Support turns on self-serve event deletion** for the person's organization, so they file their own requests, in the PostHog app (project settings, "Deletion requests") or through the data deletion requests API. Both stay off until support turns them on. Organization admins and owners can use it, and so can members who are given access. A project can have up to 5 requests in progress, and PostHog reviews each one before any events are deleted. No MCP tool files these requests, so you can't file one for them.
@@ -21,7 +21,7 @@ There are two routes ([docs](https://posthog.com/docs/privacy/data-storage#delet
 
 Use the first route for any other one-off event deletion, and when you aren't sure. Neither route deletes events on a schedule. If one query can't select the events, give a query and a count for each part.
 
-When the second route fits, always tell the person they can ask for it, in the app and the API, and what it can and can't delete. Say in **Request** which route they want.
+On any plan but the free plan, when the second route fits, always tell the person they can ask for it, in the app and the API, and what it can and can't delete. Say in **Request** which route they want.
 A ticket asking to turn it on needs the region, the project, the reason, who is asking, and what they want to delete. Add the query and count when they have them, and say that they ask for event deletion to be turned on, and not for support to run the deletion.
 Never say that event deletion is turned on, or that it will be.
 

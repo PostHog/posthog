@@ -15,6 +15,8 @@ from django.core.cache import caches
 from django.utils import timezone
 
 from dateutil.relativedelta import relativedelta
+from django_redis.exceptions import ConnectionInterrupted
+from redis.exceptions import RedisError
 
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.dataclasses import frozen
@@ -358,5 +360,9 @@ def send_draft(user: User, team: Team, draft_id: str) -> SendOutcome:
     ticket_number = client.ticket_number(user, ticket.ticket_id)
     if ticket_number is not None:
         ticket = SentSupportTicket(ticket_id=ticket.ticket_id, ticket_number=ticket_number)
-        store.record_ticket_number(draft_id, ticket)
+        try:
+            store.record_ticket_number(draft_id, ticket)
+        except (ConnectionInterrupted, RedisError) as e:
+            # The ticket exists and is on record, so a replay only loses the number.
+            capture_exception(e)
     return SendOutcome(draft=draft, ticket=ticket)

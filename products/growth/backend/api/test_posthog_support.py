@@ -12,6 +12,7 @@ from django.utils import timezone
 
 import requests
 import responses
+from django_redis.exceptions import ConnectionInterrupted
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -42,7 +43,6 @@ class TestPostHogSupportAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.base = f"/api/projects/{self.team.id}/posthog_support"
-        self.enterContext(patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True))
 
     def _create_draft(self) -> dict:
         response = self.client.post(f"{self.base}/drafts/", DRAFT_BODY, format="json")
@@ -114,17 +114,6 @@ class TestPostHogSupportAPI(APIBaseTest):
         assert "leave out personal data and secrets" in response.json()["detail"]
         assert set(response.json()) == {"detail"}
 
-    @parameterized.expand(["drafts/", "drafts/0b6f0a52-6f43-4a8e-9d2c-3f1e6c8d7a10/send/"])
-    def test_needs_the_feature_flag(self, path: str) -> None:
-        def all_flags_but_this_one(flag: str, *_args: Any, **_kwargs: Any) -> bool:
-            return flag != "mcp-posthog-support-tickets"
-
-        with patch("posthog.permissions.posthog_feature_flag_enabled", side_effect=all_flags_but_this_one):
-            response = self.client.post(f"{self.base}/{path}", DRAFT_BODY, format="json")
-
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert response.json()["code"] == "feature_flag_required"
-
 
 WIDGET_HOST = "https://support.example.com"
 WIDGET_URL = f"{WIDGET_HOST}/api/conversations/v1/widget/message"
@@ -144,7 +133,6 @@ class TestPostHogSupportSend(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.base = f"/api/projects/{self.team.id}/posthog_support"
-        self.enterContext(patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True))
         self.client.logout()
         self.token = self.create_personal_api_key_with_scopes(["posthog_support:write"])
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {self.token}")
@@ -235,7 +223,9 @@ class TestPostHogSupportSend(APIBaseTest):
         self.team.save()
         widget_client = APIClient()
 
-        def post_to_the_real_widget(url: str, json: dict, headers: dict, timeout: int) -> requests.Response:
+        def post_to_the_real_widget(
+            url: str, json: dict, headers: dict, timeout: int, allow_redirects: bool
+        ) -> requests.Response:
             answer = widget_client.post(
                 url.removeprefix(WIDGET_HOST),
                 json,
@@ -248,7 +238,9 @@ class TestPostHogSupportSend(APIBaseTest):
             response._content = answer.content
             return response
 
-        def get_from_the_real_widget(url: str, params: dict, headers: dict, timeout: int) -> requests.Response:
+        def get_from_the_real_widget(
+            url: str, params: dict, headers: dict, timeout: int, allow_redirects: bool
+        ) -> requests.Response:
             answer = widget_client.get(
                 url.removeprefix(WIDGET_HOST),
                 params,
@@ -288,6 +280,72 @@ class TestPostHogSupportSend(APIBaseTest):
         )
         assert teammate_ticket.session_context == {}
         assert ticket.widget_session_id == ticket_again.widget_session_id != teammate_ticket.widget_session_id
+
+    def test_the_kill_switch_pauses_drafts_and_sends_until_it_is_off(self) -> None:
+        approved = self._create_draft()
+
+        def only_the_kill_switch(flag: str, *_args: Any, **_kwargs: Any) -> bool:
+            return flag == "posthog-support-tickets-disabled"
+
+        with responses.RequestsMock(assert_all_requests_are_fired=False) as widget:
+            widget.add(responses.POST, WIDGET_URL, json={"ticket_id": TICKET_ID})
+            widget.add(responses.GET, WIDGET_TICKETS_URL, json=TICKET_LIST)
+            with patch(
+                "products.growth.backend.presentation.views.posthog_support.posthog_feature_flag_enabled",
+                side_effect=only_the_kill_switch,
+            ):
+                drafted = self.client.post(f"{self.base}/drafts/", DRAFT_BODY, format="json")
+                sends = [self.client.post(f"{self.base}/drafts/{approved['id']}/send/") for _ in range(4)]
+            calls_while_paused = len(widget.calls)
+            sent_after = self.client.post(f"{self.base}/drafts/{approved['id']}/send/")
+
+        assert [response.status_code for response in (drafted, *sends)] == [status.HTTP_403_FORBIDDEN] * 5
+        assert all("paused" in response.json()["detail"] for response in (drafted, *sends))
+        assert calls_while_paused == 0
+        assert (sent_after.status_code, sent_after.json()["ticket_id"]) == (200, TICKET_ID)
+
+    @parameterized.expand(["drafts/", "drafts/0b6f0a52-6f43-4a8e-9d2c-3f1e6c8d7a10/send/"])
+    def test_a_key_without_the_support_scope_is_refused(self, path: str) -> None:
+        token = self.create_personal_api_key_with_scopes(["feature_flag:write"])
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        response = self.client.post(f"{self.base}/{path}", DRAFT_BODY, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_ticket_number_lookup_does_not_follow_a_redirect(self) -> None:
+        elsewhere = "https://elsewhere.example.com/tickets"
+        with responses.RequestsMock(assert_all_requests_are_fired=False) as widget:
+            widget.add(responses.POST, WIDGET_URL, json={"ticket_id": TICKET_ID})
+            widget.add(responses.GET, WIDGET_TICKETS_URL, status=302, headers={"Location": elsewhere})
+            widget.add(responses.GET, elsewhere, json=TICKET_LIST)
+            sent = self.client.post(f"{self.base}/drafts/{self._create_draft()['id']}/send/")
+            urls = [call.request.url.split("?")[0] for call in widget.calls]
+
+        assert (sent.status_code, sent.json()["ticket_number"]) == (200, None)
+        assert urls == [WIDGET_URL, WIDGET_TICKETS_URL]
+
+    def test_send_does_not_follow_a_redirect(self) -> None:
+        elsewhere = "https://elsewhere.example.com/message"
+        with responses.RequestsMock(assert_all_requests_are_fired=False) as widget:
+            widget.add(responses.POST, WIDGET_URL, status=307, headers={"Location": elsewhere})
+            widget.add(responses.POST, elsewhere, json={"ticket_id": TICKET_ID})
+            sent = self.client.post(f"{self.base}/drafts/{self._create_draft()['id']}/send/")
+            urls = [call.request.url for call in widget.calls]
+
+        assert sent.status_code == status.HTTP_409_CONFLICT
+        assert urls == [WIDGET_URL]
+
+    def test_send_succeeds_when_saving_the_ticket_number_fails(self) -> None:
+        self.enterContext(
+            patch.object(SupportDraftStore, "record_ticket_number", side_effect=ConnectionInterrupted(None))
+        )
+        with responses.RequestsMock() as widget:
+            widget.add(responses.POST, WIDGET_URL, json={"ticket_id": TICKET_ID})
+            widget.add(responses.GET, WIDGET_TICKETS_URL, json=TICKET_LIST)
+            sent = self.client.post(f"{self.base}/drafts/{self._create_draft()['id']}/send/")
+
+        assert (sent.status_code, sent.json()["ticket_id"], sent.json()["ticket_number"]) == (200, TICKET_ID, 42)
 
     @parameterized.expand(
         [

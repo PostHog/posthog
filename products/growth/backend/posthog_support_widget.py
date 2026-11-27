@@ -90,6 +90,8 @@ class PostHogSupportWidgetClient:
                     "Origin": settings.SITE_URL,
                 },
                 timeout=WIDGET_REQUEST_TIMEOUT_SECONDS,
+                # A 307 or 308 could resend the body, session id included, to another host.
+                allow_redirects=False,
             )
         except requests.RequestException as e:
             # The exception text holds the URL, so log only its type.
@@ -103,7 +105,7 @@ class PostHogSupportWidgetClient:
         if 400 <= response.status_code < 500:
             logger.warning("posthog_support_widget_refused", status=response.status_code)
             raise SupportTicketNotSent("PostHog support refused the ticket.")
-        if not response.ok:
+        if response.status_code >= 300:
             logger.warning("posthog_support_widget_failed", status=response.status_code)
             raise SupportTicketOutcomeUnknown("PostHog support failed while it handled the ticket.")
         try:
@@ -113,14 +115,15 @@ class PostHogSupportWidgetClient:
         return SentSupportTicket(ticket_id=ticket_id)
 
     def ticket_number(self, user: User, ticket_id: str) -> int | None:
-        # The widget's send answer has no ticket number, but its ticket list for the session does. The ticket
-        # exists either way, so a failed lookup only costs the person the number.
+        # The send answer has no ticket number. The ticket exists either way, so a failed lookup only costs the number.
         try:
             response = requests.get(
                 f"{self._target.host}{WIDGET_TICKETS_PATH}",
                 params={"widget_session_id": _widget_session_id(user), "limit": WIDGET_TICKETS_LOOKUP_LIMIT},
                 headers={"X-Conversations-Token": self._target.token, "Origin": settings.SITE_URL},
                 timeout=WIDGET_TICKET_LOOKUP_TIMEOUT_SECONDS,
+                # The query string holds the session id, which a redirect could hand to another host.
+                allow_redirects=False,
             )
             numbers = {str(ticket["id"]): ticket["ticket_number"] for ticket in response.json()["results"]}
         except (requests.RequestException, ValueError, KeyError, TypeError) as e:

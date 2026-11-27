@@ -24,6 +24,7 @@ Speak for yourself: say what you know in your own words, without saying it comes
 
 File a ticket only when the whole ticket is about privacy, security, compliance, data retention, data deletion, a DPA, a BAA, or billing.
 For every topic except billing, load `answering-privacy-questions` first: it finds the docs answer and says which questions need staff.
+Where PostHog tools run through `exec`, `posthog:posthog-support-draft-create` is not in your own tool list: run `info posthog-support-draft-create` before you decide it is missing. Without it, follow **Without the draft tool** below.
 
 For anything else, don't write or draft a ticket, even when the person asks for a human. Don't write one for them to paste either.
 Answer what the docs answer, then say where they can ask:
@@ -134,7 +135,7 @@ Cut these:
 
 ## 3. Draft it, and send it only on a yes
 
-When `posthog:posthog-support-draft-create` is in your tool list, draft the ticket with it:
+When you have `posthog:posthog-support-draft-create`, directly or through `exec`, draft the ticket with it:
 
 - Each part of the ticket is one field, without its heading: `title`, `request`, `details`, `already_checked` and `error`.
 - Set `topic` to what the whole ticket is about. Support sees it, and the server refuses `other`.
@@ -160,7 +161,7 @@ Then show the person the full ticket, and follow the `next_step` the draft retur
 
 Never say a ticket was filed before the send returns a `ticket_id`, and do not promise a response time.
 
-Without the draft tool, they paste the ticket into the support widget in the right-hand sidebar of PostHog, which attaches their project and session to it.
+**Without the draft tool,** their key or connection may lack the `posthog_support:write` scope. Once they add it, draft with the tool. Until then, on a paid plan, a trial that includes support, or in an organization under 3 months old, give them the ticket to paste into the support widget in the right-hand sidebar of PostHog, which attaches their project and session to it. On the free plan, the scope is their only route from here for billing or a deletion for a privacy or security reason, so never point those to the forum.
 Either way, say which details or links you could not find, so they can add them before the ticket is sent.
 
 ## Before you hand it over, check

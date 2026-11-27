@@ -202,6 +202,7 @@ class TestWorkloadTrustPolicyAPI(APIBaseTest):
             ("unknown_scope", {"scopes": ["not_a_thing:read"]}, "scopes"),
             ("privileged_scope", {"scopes": ["llm_gateway:read"]}, "scopes"),
             ("credential_scope", {"scopes": ["project:write"]}, "scopes"),
+            ("support_ticket_scope", {"scopes": ["posthog_support:write"]}, "scopes"),
             ("own_policy_scope", {"scopes": ["workload_trust_policy:read"]}, "scopes"),
             ("agent_run_scope", {"scopes": ["task:write"]}, "scopes"),
             ("training_run_scope", {"scopes": ["autoresearch:write"]}, "scopes"),
