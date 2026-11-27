@@ -1033,6 +1033,7 @@ QualysVmdr,api_server username password gateway_server,,,,,qualys-vmdr
 Quay,,,,,,quay
 QuickBooks,,,,,,quick-books
 Quo,api_key,,,,,quo
+R2DataCatalog,account_id bucket_name api_token catalog_uri,,,,,r2-data-catalog
 RB2B,,,,,,rb2b
 RDStationMarketing,,,,,,rd-station-marketing
 RKICovid,,,,history_days,,rki-covid

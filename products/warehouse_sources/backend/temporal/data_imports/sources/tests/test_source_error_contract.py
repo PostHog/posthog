@@ -140,6 +140,7 @@ NOT_CHECKABLE: dict[str, str] = {
     "PlanetScalePostgres": "driver",
     "Postgres": "driver",
     "ProofpointTap": "no-request",
+    "R2DataCatalog": "schemas",
     "RedditAds": "database",
     "Redshift": "driver",
     "SFTP": "schemas",

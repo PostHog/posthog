@@ -1044,6 +1044,7 @@ CREDENTIAL_AUTH_TYPES: Mapping[str, str] = {
     "quay": "credentials",
     "quick-books": "credentials",
     "quo": "token",
+    "r2-data-catalog": "credentials",
     "railway": "token",
     "railz": "credentials",
     "rainforest-pay": "credentials",
