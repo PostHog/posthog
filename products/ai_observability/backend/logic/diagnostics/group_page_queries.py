@@ -110,3 +110,12 @@ def since_lookback(team: Team, selection: TraceSelection) -> ast.Expr:
         "{counted} AND timestamp >= {start}",
         placeholders={"counted": counted_events(team, widened), "start": ast.Constant(value=lookback.window.start)},
     )
+
+
+def page_of(sorted_groups: ast.Expr, page: PageRequest) -> ast.Expr:
+    """The page's own groups of the groups a page read sorts, so that a deep page returns no more rows than a first
+    one."""
+    return ast.Call(
+        name="arraySlice",
+        args=[sorted_groups, ast.Constant(value=page.offset + 1), ast.Constant(value=page.limit)],
+    )
