@@ -449,7 +449,12 @@ class ConsoleTool:
     def subject_of(self, request: "HttpRequest") -> "Model | None":
         if self.subject is None:
             return None
-        return RECORD_TYPES[self.subject].find(request.GET.get(self.subject, ""))
+        # The breadcrumb, page() and live() each ask for the record, so one request looks it up once.
+        found: dict[tuple[str, str], Model | None] = request.__dict__.setdefault("console_subjects", {})
+        key = (self.subject, request.GET.get(self.subject, ""))
+        if key not in found:
+            found[key] = RECORD_TYPES[self.subject].find(key[1])
+        return found[key]
 
     @classmethod
     def url_for(cls, obj: "Model") -> str:

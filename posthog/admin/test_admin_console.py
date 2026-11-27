@@ -1151,6 +1151,16 @@ class TestAdminConsoleViews(BaseTest):
         else:
             assert crumbs == [] and "/admin/console/tools/#tools-infrastructure" in response.content.decode()
 
+    def test_a_tool_looks_its_record_up_once_per_request(self) -> None:
+        tool = type("TeamReport", (_Tool,), {"subject": "team"})()
+        request = RequestFactory().get(tool.url_for(self.team))
+
+        with CaptureQueriesContext(connection) as queries:
+            first, second = tool.subject_of(request), tool.subject_of(request)
+
+        assert first == second == self.team
+        assert len(queries) == 1
+
     def test_a_decision_runs_its_operation_in_one_click_and_returns_to_the_next_item(self) -> None:
         _DecidingTool.decided = []
         with patch.object(console, "get_tool", return_value=_DecidingTool()):
