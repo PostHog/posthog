@@ -804,13 +804,14 @@ WAREHOUSE_SOURCE_CATALOG_CACHE_CONFIG = {
 }
 CACHES["warehouse_source_catalog"] = WAREHOUSE_SOURCE_CATALOG_CACHE_CONFIG
 
-CACHES["workflows_email_infrastructure_health"] = {
+WORKFLOWS_EMAIL_INFRASTRUCTURE_HEALTH_CACHE_CONFIG = {
     **CACHES["default"],
     "OPTIONS": {
         **CACHES["default"]["OPTIONS"],
         "SERIALIZER": "django_redis.serializers.json.JSONSerializer",
     },
 }
+CACHES["workflows_email_infrastructure_health"] = WORKFLOWS_EMAIL_INFRASTRUCTURE_HEALTH_CACHE_CONFIG
 
 # Authorization cache reads must use the writer. Reading membership versions and values from
 # different replicas can otherwise make a revoked membership appear valid after invalidation.

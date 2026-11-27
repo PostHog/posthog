@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 from django.core.cache import cache, caches
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -19,6 +19,7 @@ from posthog.models import Team
 from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
+from posthog.settings.data_stores import WORKFLOWS_EMAIL_INFRASTRUCTURE_HEALTH_CACHE_CONFIG
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.workflows.backend.models import HogFlow, HogFlowBatchJob
@@ -37,13 +38,12 @@ def _locally_evaluated_flag(released: bool):
     return feature_enabled
 
 
-def _json_only_redis_cache() -> dict:
+def _shipped_redis_cache() -> dict:
     return {
         **settings.CACHES,
         "workflows_email_infrastructure_health": {
-            "BACKEND": "django_redis.cache.RedisCache",
+            **WORKFLOWS_EMAIL_INFRASTRUCTURE_HEALTH_CACHE_CONFIG,
             "LOCATION": settings.REDIS_URL,
-            "OPTIONS": {"SERIALIZER": "django_redis.serializers.json.JSONSerializer"},
             "KEY_PREFIX": f"test-{uuid.uuid4()}",
         },
     }
@@ -142,7 +142,7 @@ class TestEmailReputationAPI(APIBaseTest):
     def test_reputation_shows_the_sending_infrastructure_health_without_its_exact_volume(
         self, _name: str, failing_metrics: set[str]
     ):
-        with override_settings(CACHES=_json_only_redis_cache()), FakeSesEndpoint().installed() as ses:
+        with override_settings(CACHES=_shipped_redis_cache()), FakeSesEndpoint().installed() as ses:
             ses.failing_metrics.update(failing_metrics)
             ses.account_metrics.update(
                 {
@@ -845,3 +845,10 @@ class TestEmailReputationAccessControl(APIBaseTest):
         assert data["reputation"] is None
         assert data["isps"] == []
         assert [row["hog_flow_id"] for row in data["workflows"]] == [str(flow.id)]
+
+
+class TestEmailInfrastructureHealthCache(SimpleTestCase):
+    def test_the_shipped_cache_refuses_a_value_json_cannot_encode(self):
+        with override_settings(CACHES=_shipped_redis_cache()):
+            with pytest.raises(TypeError):
+                caches["workflows_email_infrastructure_health"].set("probe", {"rates": {0.01, 0.02}})

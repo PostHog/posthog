@@ -385,9 +385,8 @@ def _private_infrastructure_health(
     emails_sent: int, bounce_rate: float, complaint_rate: float
 ) -> EmailInfrastructureHealth | None:
     """
-    The exact send volume stays private, so it is cut to a lower bound, and an account too small
-    for the band to hide its total shows nothing. Each rate rounds towards the worse reading, so
-    rounding never flatters the infrastructure.
+    The exact send volume stays private, so it is cut to a lower bound. Each rate rounds towards
+    the worse reading, so rounding never flatters the infrastructure.
     """
     if emails_sent < INFRASTRUCTURE_HEALTH_MIN_SENDS:
         return None
