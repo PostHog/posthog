@@ -1338,6 +1338,12 @@ describe('cloud controller', () => {
         ['AWS::RDS::DBClusterAutomatedBackup', '', () => undefined, () => undefined],
         ['AWS::RDS::DBClusterSnapshot', '', () => undefined, () => undefined],
         [
+            'AWS::EC2::Snapshot',
+            ', even when a tag anyone can set names a lifecycle policy',
+            (fake) => fake.hostVolumeSnapshots.push({ 'dlm:managed': 'true' }),
+            () => undefined,
+        ],
+        [
             'AWS::RDS::DBClusterAutomatedBackup',
             ', even when the run cannot read the live cluster',
             (fake) => fake.failWhen('describe-db-clusters', () => fake.schedules.size > 0),
@@ -1359,6 +1365,23 @@ describe('cloud controller', () => {
         await expect(main(['cleanup', profilePath(), leasedRunId()], controller)).resolves.toBe(2)
 
         expect(cloud.schedules.size).toBe(2)
+    })
+
+    it.each([
+        ['AWS Backup', { 'aws:backup:source-resource': 'vol-0' }],
+        ['Data Lifecycle Manager', { 'aws:dlm:lifecycle-policy-id': 'policy-0', 'dlm:managed': 'true' }],
+    ])('judges a run whose host volume %s snapshotted, and names the snapshot', async (maker, tags) => {
+        const { controller } = prepare({ env: api.credentials })
+        cloud.hostVolumeSnapshots.push(tags)
+
+        await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(0)
+
+        const [snapshot] = cloud.billable()
+        expect(snapshot).toMatch(/^AWS::EC2::Snapshot snap-/)
+        expect(err.join('\n')).toContain(`- ${snapshot}: made outside the run, by ${maker}`)
+        expect(cloud.schedules.size).toBe(0)
+        expect(released(leasedRunId())).toBe(1)
+        expect(published()).toMatchObject({ status: 'passed', teardown_clean: true, teardown_leftovers: [] })
     })
 
     it('changes nothing on a second cleanup of a torn-down run', async () => {
