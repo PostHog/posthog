@@ -8,7 +8,7 @@ import dataclasses
 from collections.abc import Callable, Iterator, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, date, datetime, timedelta
-from typing import IO, Any
+from typing import IO, Any, cast
 from urllib.parse import quote, urlsplit
 
 import numpy as np
@@ -795,7 +795,7 @@ def _align_array(array: pa.Array, iceberg_type: Any) -> pa.Array:
         return array.cast(target)
     kind = iceberg_type.get("type")
     if kind == "struct" and pa.types.is_struct(array.type):
-        struct_array: pa.StructArray = array  # type: ignore[assignment]
+        struct_array = cast(pa.StructArray, array)
         arrow_fields = [array.type.field(i) for i in range(array.type.num_fields)]
         children = struct_array.flatten()
         aligned: list[pa.Array] = []
@@ -810,7 +810,7 @@ def _align_array(array: pa.Array, iceberg_type: Any) -> pa.Array:
             names.append(str(child["name"]))
         return pa.StructArray.from_arrays(aligned, names=names, mask=array.is_null())
     if kind == "list" and (pa.types.is_list(array.type) or pa.types.is_large_list(array.type)):
-        list_array: pa.ListArray = array  # type: ignore[assignment]
+        list_array = cast(pa.ListArray, array)
         values = _align_array(list_array.values, iceberg_type.get("element"))
         return type(list_array).from_arrays(list_array.offsets, values, mask=array.is_null())
     return array
