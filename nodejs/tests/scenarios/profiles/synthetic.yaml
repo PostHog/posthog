@@ -9,7 +9,7 @@ traffic:
     bounce_followup:
         ratePerSecond: 0.5
 settings: {}
-terminationGrace: 30s
+terminationGrace: 45s
 backlog:
     teams: 4
     jobs:

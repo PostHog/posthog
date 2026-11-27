@@ -1,4 +1,4 @@
-id: email-worker-terminated-past-grace
+id: email-worker-terminated-past-deadline
 version: 1
 clock: real
 profile: synthetic
@@ -15,15 +15,14 @@ drive:
 valves:
     - valve: role.terminate
       target: cdp-cyclotron-worker-email
-      dose:
-          grace: 10s
+      dose: {}
       at: 197s
       when:
           name: edge_accepted
           params:
               channel: ses
               share: 0.5
-      for: 25s
+      for: 40s
 convergeWithin: 4m
 invariants:
     - name: at_least_once
