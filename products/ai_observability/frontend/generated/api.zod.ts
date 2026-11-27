@@ -1060,6 +1060,18 @@ export const EvaluationRunsCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Create the evaluation from the suggestion, enabled, and run it on recent data. Safe to repeat.
+ */
+export const EvaluationSuggestionsAcceptCreateBody = /* @__PURE__ */ zod.object({
+    provider_key_id: zod
+        .uuid()
+        .nullish()
+        .describe(
+            'For an LLM judge, the judge_key_id from accept_estimate, so accept pins the key the person confirmed.'
+        ),
+})
+
+/**
  * Hide the suggestion. The same suggestion stays hidden for 90 days.
  */
 export const EvaluationSuggestionsDismissCreateBody = /* @__PURE__ */ zod.object({

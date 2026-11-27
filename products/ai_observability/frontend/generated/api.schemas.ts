@@ -3548,6 +3548,14 @@ export interface EvalSuggestionListApi {
     results: EvalSuggestionApi[]
 }
 
+export interface EvalSuggestionAcceptRequestApi {
+    /**
+     * For an LLM judge, the judge_key_id from accept_estimate, so accept pins the key the person confirmed.
+     * @nullable
+     */
+    provider_key_id?: string | null
+}
+
 export interface EvalSuggestionAcceptApi {
     /** The accepted suggestion. */
     suggestion: EvalSuggestionApi
@@ -3602,6 +3610,11 @@ export interface EvalSuggestionEstimateApi {
      * @nullable
      */
     judge_model: string | null
+    /**
+     * Id of judge_key_name. Pass it to accept so the judge runs on this key.
+     * @nullable
+     */
+    judge_key_id: string | null
     /**
      * Provider key accept pins: a working key for the provider the judge was drafted on, else the one most of the project's judges use. Null for Hog checks, and when no key works.
      * @nullable

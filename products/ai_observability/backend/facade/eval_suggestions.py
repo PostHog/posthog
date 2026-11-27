@@ -62,17 +62,26 @@ def estimate_eval_suggestion_accept(
         window_start=estimate.window_start,
         window_end=estimate.window_end,
         judge_model=estimate.judge_model,
+        judge_key_id=estimate.judge_key_id,
         judge_key_name=estimate.judge_key_name,
         estimated_cost_usd=estimate.estimated_cost_usd,
     )
 
 
 def accept_eval_suggestion(
-    team: Team, access: UserAccessControl | None, suggestion_id: UUID, serializer_context: dict[str, Any]
+    team: Team,
+    access: UserAccessControl | None,
+    suggestion_id: UUID,
+    serializer_context: dict[str, Any],
+    provider_key_id: UUID | None = None,
 ) -> contracts.EvalSuggestionAccepted:
     _find_eval_suggestion(team, access, suggestion_id)
     result = eval_suggestion_accept.accept(
-        str(suggestion_id), team=team, request=serializer_context["request"], serializer_context=serializer_context
+        str(suggestion_id),
+        team=team,
+        request=serializer_context["request"],
+        serializer_context=serializer_context,
+        provider_key_id=provider_key_id,
     )
     return contracts.EvalSuggestionAccepted(
         suggestion=_to_eval_suggestion(result.suggestion),

@@ -469,6 +469,34 @@ class TestEvalSuggestionsApi(APIBaseTest):
 
         assert estimate["judge_key_name"] == expected
 
+    @parameterized.expand(
+        [
+            ("the_confirmed_key_still_works", LLMProviderKey.State.OK, 200),
+            ("it_broke_since", LLMProviderKey.State.INVALID, 400),
+        ]
+    )
+    @patch(f"{BACKFILLS_MODULE}.connect_with_deadline")
+    @patch(f"{ACCEPT_MODULE}.count_backfill_candidates", return_value=BackfillScope(to_evaluate=0, already_judged=0))
+    def test_accept_pins_the_key_the_estimate_named(
+        self, _name: str, state: str, expected_status: int, _count: MagicMock, connect: MagicMock
+    ) -> None:
+        connect.return_value = _temporal_client()
+        self._judge_key()
+        confirmed = LLMProviderKey.objects.create(
+            team=self.team, provider="anthropic", name="Confirmed key", state=state, encrypted_config={"api_key": "sk"}
+        )
+        suggestion = self._suggestion(EvalSuggestionKind.NEW_LLM_JUDGE, draft=JUDGE_DRAFT)
+
+        response = self.client.post(
+            f"{self.url}/{suggestion.id}/accept/", {"provider_key_id": str(confirmed.id)}, format="json"
+        )
+
+        assert response.status_code == expected_status, response.json()
+        if expected_status == 200:
+            evaluation = Evaluation.objects.get(id=response.json()["evaluation_id"])
+            assert evaluation.model_configuration is not None
+            assert evaluation.model_configuration.provider_key_id == confirmed.id
+
     @parameterized.expand([("untouched", False, True), ("edited_after_the_run", True, False)])
     def test_retrieve_says_whether_a_fix_still_applies(self, _name: str, edited: bool, applies: bool) -> None:
         target = _evaluation(self.team)

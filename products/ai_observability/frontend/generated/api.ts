@@ -64,6 +64,7 @@ import type {
     DatasetsRetentionRetrieveParams,
     DatasetsRevisionsListParams,
     EvalSuggestionAcceptApi,
+    EvalSuggestionAcceptRequestApi,
     EvalSuggestionApi,
     EvalSuggestionDismissApi,
     EvalSuggestionEstimateApi,
@@ -2392,11 +2393,14 @@ export const getEvaluationSuggestionsAcceptCreateUrl = (projectId: string, id: s
 export const evaluationSuggestionsAcceptCreate = async (
     projectId: string,
     id: string,
+    evalSuggestionAcceptRequestApi?: EvalSuggestionAcceptRequestApi,
     options?: RequestInit
 ): Promise<EvalSuggestionAcceptApi> => {
     return apiMutator<EvalSuggestionAcceptApi>(getEvaluationSuggestionsAcceptCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(evalSuggestionAcceptRequestApi),
     })
 }
 

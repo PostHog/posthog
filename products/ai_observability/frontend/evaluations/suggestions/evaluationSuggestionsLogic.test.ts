@@ -190,6 +190,7 @@ describe('evaluationSuggestionsLogic', () => {
                     window_start: '2026-10-31T00:00:00Z',
                     window_end: '2026-11-01T00:00:00Z',
                     judge_model: judgeModel,
+                    judge_key_id: judgeModel ? 'key-1' : null,
                     judge_key_name: judgeModel ? 'OpenAI' : null,
                     estimated_cost_usd: 0.02,
                 },

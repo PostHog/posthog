@@ -320,7 +320,10 @@ export const evaluationSuggestionsLogic = kea<evaluationSuggestionsLogicType>([
         acceptSuggestion: async ({ suggestion }, breakpoint) => {
             let accepted
             try {
-                accepted = await api.evaluationSuggestionsAcceptCreate(String(values.currentTeamId), suggestion.id)
+                // A judge pins the key the confirm step named, not whichever key wins by the time accept runs.
+                accepted = await api.evaluationSuggestionsAcceptCreate(String(values.currentTeamId), suggestion.id, {
+                    provider_key_id: values.evalSuggestionEstimate?.judge_key_id ?? null,
+                })
             } catch (error) {
                 breakpoint()
                 const message = evaluationErrorMessage(error, "Couldn't add the eval. Try again.")

@@ -1181,6 +1181,7 @@ class EvalSuggestionAcceptEstimate:
     window_start: datetime | None
     window_end: datetime | None
     judge_model: str | None
+    judge_key_id: UUID | None
     judge_key_name: str | None
     estimated_cost_usd: float | None
 
