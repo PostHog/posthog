@@ -287,43 +287,85 @@ class TestPerApplicationEndpoints:
         ]
         assert child_requests == expected_child_requests
         assert len(result.requests) == 2 + len(expected_child_requests)
+        # The last pair of a page that has a next page stages that next page.
         assert result.saved_states == [
-            SmartRecruitersResumeConfig(candidate_page_id=None, pair_index=1),
-            SmartRecruitersResumeConfig(candidate_page_id=None, pair_index=2),
-            SmartRecruitersResumeConfig(candidate_page_id="c2", pair_index=1),
+            SmartRecruitersResumeConfig(candidate_page_id=None, last_candidate_id="C1", last_job_id="J1"),
+            SmartRecruitersResumeConfig(candidate_page_id="c2"),
+            SmartRecruitersResumeConfig(candidate_page_id="c2", last_candidate_id="C3", last_job_id="J3"),
+        ]
+        assert result.requests[0].headers["x-smarttoken"] == "sr-key"
+
+    @parameterized.expand(
+        [
+            ("after_the_saved_pair", [_page([_candidate("C3", "J3", "J4")])], "J3", ["J4"]),
+            # The saved pair is gone from the page, so the page is read again from its start.
+            ("saved_pair_is_gone", [_page([_candidate("C3", "J4", "J5")])], "J3", ["J4", "J5"]),
+            (
+                "saved_pair_was_the_last_on_its_page",
+                [_page([_candidate("C3", "J3")], nextPageId="c3"), _page([_candidate("C4", "J4")])],
+                "J3",
+                ["J4"],
+            ),
+        ]
+    )
+    def test_resumes_after_the_saved_pair_of_the_saved_candidate_page(
+        self, _name: str, candidate_pages: list[ScriptedResponse], last_job_id: str, expected_job_ids: list[str]
+    ) -> None:
+        result = _driver().run(
+            "reviews",
+            route(
+                {
+                    "/candidates": candidate_pages,
+                    "/reviews": [ScriptedResponse(json=[]) for _ in expected_job_ids],
+                }
+            ),
+            resume_state=SmartRecruitersResumeConfig(
+                candidate_page_id="c2", last_candidate_id="C3", last_job_id=last_job_id
+            ),
+        )
+
+        assert result.raised is None
+        candidate_requests = [request for request in result.requests if request.path == "/candidates"]
+        assert candidate_requests[0].param("pageId") == "c2"
+        review_requests = [request for request in result.requests if request.path != "/candidates"]
+        assert [request.param("jobId") for request in review_requests] == expected_job_ids
+
+    def test_checkpoints_candidate_pages_with_no_applications(self) -> None:
+        result = _driver().run(
+            "reviews",
+            route(
+                {
+                    "/candidates": [
+                        _page([_candidate("C1")], nextPageId="c2"),
+                        _page([_candidate("C2")], nextPageId="c3"),
+                        _page([_candidate("C3", "J3")]),
+                    ],
+                    "/reviews": [ScriptedResponse(json=[{"id": "r3", "candidateId": "C3", "jobId": "J3"}])],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert result.rows == [{"id": "r3", "candidateId": "C3", "jobId": "J3"}]
+        assert result.committed_states[:2] == [
+            SmartRecruitersResumeConfig(candidate_page_id="c2"),
+            SmartRecruitersResumeConfig(candidate_page_id="c3"),
         ]
 
-    def test_resumes_at_the_saved_pair_of_the_saved_candidate_page(self) -> None:
+    @parameterized.expand([(301,), (302,)])
+    def test_does_not_follow_a_redirect_with_the_api_key(self, status: int) -> None:
         result = _driver().run(
             "reviews",
             route(
                 {
-                    "/candidates": [_page([_candidate("C3", "J3", "J4")])],
-                    "/reviews": [ScriptedResponse(json=[{"id": "r4", "candidateId": "C3", "jobId": "J4"}])],
+                    "/candidates": [
+                        ScriptedResponse(status=status, headers={"Location": "https://elsewhere.example/candidates"})
+                    ]
                 }
             ),
-            resume_state=SmartRecruitersResumeConfig(candidate_page_id="c2", pair_index=1),
         )
 
-        assert result.raised is None
-        assert result.rows == [{"id": "r4", "candidateId": "C3", "jobId": "J4"}]
-        assert result.paths == ["/candidates", "/reviews-api/v201910/reviews"]
-        assert result.params("pageId") == ["c2", None]
-        assert result.params("jobId") == [None, "J4"]
-
-    def test_resume_past_the_last_pair_of_a_page_moves_to_the_next_page(self) -> None:
-        result = _driver().run(
-            "reviews",
-            route(
-                {
-                    "/candidates": [_page([_candidate("C3", "J3")], nextPageId="c3"), _page([_candidate("C4", "J4")])],
-                    "/reviews": [ScriptedResponse(json=[{"id": "r4", "candidateId": "C4", "jobId": "J4"}])],
-                }
-            ),
-            resume_state=SmartRecruitersResumeConfig(candidate_page_id="c2", pair_index=1),
-        )
-
-        assert result.raised is None
-        assert result.rows == [{"id": "r4", "candidateId": "C4", "jobId": "J4"}]
-        assert result.params("pageId") == ["c2", "c3", None]
-        assert result.params("jobId") == [None, None, "J4"]
+        assert result.rows == []
+        assert len(result.requests) == 1
+        assert isinstance(result.raised, ValueError)
+        assert "refusing to follow" in str(result.raised)

@@ -42,10 +42,11 @@ class SmartRecruitersResumeConfig:
     completed: list[str] | None = None
     current: str | None = None
     child_state: dict[str, Any] | None = None
-    # Per-application endpoints resume by candidate page (None for the first page) and the index of
-    # the next (candidate, job) pair on it.
+    # Per-application endpoints resume by candidate page (None for the first page) and the last
+    # (candidate, job) pair read on it (None when no pair on the page is read yet).
     candidate_page_id: str | None = None
-    pair_index: int | None = None
+    last_candidate_id: str | None = None
+    last_job_id: str | None = None
 
 
 def format_updated_after(value: Any) -> str:
@@ -271,16 +272,20 @@ def _per_application_source(
         base_url=BASE_URL,
         headers={"Accept": "application/json"},
         auth=APIKeyAuth(api_key=api_key, name="X-SmartToken", location="header"),
+        # The key rides in a custom header, which `requests` does not strip on a redirect.
+        allow_redirects=False,
     )
     # A candidate or application deleted between the listing and its child request has nothing to read.
     skip_deleted = create_response_hooks([{"status_code": 404, "action": "ignore"}])
 
     page_id: Optional[str] = None
-    start = 0
+    last_pair: Optional[ApplicationPair] = None
     if resumable_source_manager.can_resume():
         resume = resumable_source_manager.load_state()
-        if resume is not None and resume.pair_index is not None:
-            page_id, start = resume.candidate_page_id, resume.pair_index
+        if resume is not None and (resume.candidate_page_id is not None or resume.last_candidate_id is not None):
+            page_id = resume.candidate_page_id
+            if resume.last_candidate_id is not None and resume.last_job_id is not None:
+                last_pair = ApplicationPair(candidate_id=resume.last_candidate_id, job_id=resume.last_job_id)
 
     next_page: dict[str, Optional[str]] = {"cursor": None}
 
@@ -296,20 +301,31 @@ def _per_application_source(
         page_state_hook=capture_next_page,
     ):
         pairs = _application_pairs(candidates)
+        next_page_id = next_page["cursor"]
+        # The page can change between attempts, so a resume finds the last read pair by identity. When
+        # that pair is gone, the page is read again from its start rather than risk skipping a pair.
+        start = pairs.index(last_pair) + 1 if last_pair is not None and last_pair in pairs else 0
+        if start >= len(pairs) and next_page_id is not None:
+            resumable_source_manager.save_state(SmartRecruitersResumeConfig(candidate_page_id=next_page_id))
+            resumable_source_manager.safe_point()
+
         for index in range(start, len(pairs)):
             rows = _application_rows(client, config, pairs[index], skip_deleted)
-            resumable_source_manager.save_state(
-                SmartRecruitersResumeConfig(candidate_page_id=page_id, pair_index=index + 1)
-            )
+            if index == len(pairs) - 1 and next_page_id is not None:
+                state = SmartRecruitersResumeConfig(candidate_page_id=next_page_id)
+            else:
+                state = SmartRecruitersResumeConfig(
+                    candidate_page_id=page_id,
+                    last_candidate_id=pairs[index].candidate_id,
+                    last_job_id=pairs[index].job_id,
+                )
+            resumable_source_manager.save_state(state)
             if rows:
                 yield rows
             else:
                 resumable_source_manager.safe_point()
 
-        # The staged state still points at this page, past its last pair, so a resume reads this page
-        # again and skips to the next one.
-        resumable_source_manager.safe_point()
-        page_id, start = next_page["cursor"], 0
+        page_id, last_pair = next_page_id, None
 
 
 def smartrecruiters_source(
