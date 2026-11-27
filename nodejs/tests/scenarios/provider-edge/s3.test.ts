@@ -11,7 +11,7 @@ import {
 import { InFlightRegistry, requireAdmission } from '~/cdp/services/messaging/in-flight-registry'
 import { FetchResponse, internalFetch } from '~/common/utils/request'
 
-import { CardFault, ruleOf } from './faults'
+import { CardFault, heldAnswerRule, ruleOf } from './faults'
 
 jest.setTimeout(30000)
 
@@ -117,6 +117,20 @@ describe('the edge in front of the attachment store', () => {
 
         expect(loaded).toBeInstanceOf(AttachmentStoreUnavailableError)
         expect(await load(uploaded)).toEqual(uploaded.bytes)
+    })
+
+    test('holds one download for edge_accepted, says the store took it, and passes uploads and the next download', async () => {
+        const uploaded = file()
+        const hold = edge.hold(heldAnswerRule({ channel: 's3' }))
+        await upload(uploaded)
+
+        const held = load(uploaded, AbortSignal.timeout(CALL_TIMEOUT_MS)).catch((error: unknown) => error)
+        const accepted = await hold.accepted!(AbortSignal.timeout(10_000))
+
+        expect(accepted).toBe(true)
+        expect(await held).toBeInstanceOf(AttachmentStoreUnavailableError)
+        expect(await load(uploaded)).toEqual(uploaded.bytes)
+        await hold.release()
     })
 
     test.each([

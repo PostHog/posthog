@@ -1,0 +1,61 @@
+id: attach-s3-slow-upload
+version: 1
+clock: real
+profile: attachments
+seed: 22
+setup:
+    teams: 1
+drive:
+    for: 150s
+    traffic:
+        - name: event_email
+        - name: transactional_email_files
+valves:
+    - valve: s3.slow
+      target: s3
+      dose:
+          bytesPerSecond: 2000000
+          op: put
+      at: 30s
+      for: 90s
+    - valve: ses.status
+      target: ses
+      dose:
+          code: 503
+          count: 3
+      at: 70s
+      for: 10s
+    - valve: ses.ambiguous
+      target: ses
+      dose:
+          accepted: true
+          count: 3
+      at: 85s
+      for: 10s
+    - valve: ses.throttle
+      target: ses
+      dose:
+          rate: 1
+      at: 100s
+      for: 10s
+convergeWithin: 4m
+invariants:
+    - name: at_least_once
+    - name: duplicate_sends
+    - name: refused_at_intake
+    - name: attachments_intact
+gates:
+    duplicate_sends: 0
+    refused_at_intake: 0
+measure:
+    - name: role_cpu_seconds
+    - name: role_rss_max_bytes
+    - name: role_heap_max_bytes
+    - name: role_restarts
+    - name: delivery_latency_ms
+    - name: sends_per_message_max
+    - name: attachment_deferrals
+    - name: attachment_deferral_window_s
+    - name: attachment_sends_in_flight_max
+    - name: attachment_reserved_bytes_max
+unpaired: an S3 fault can end a send for good, so it judges no no_loss, and --pair would end both runs unjudged

@@ -1,0 +1,17 @@
+name: attachments
+traffic:
+    event_email:
+        ratePerSecond: 1
+    transactional_email_files:
+        ratePerSecond: 2
+        files:
+            share: 0.5
+            perSend: 2
+            sizes:
+                - bytes: 200000
+                  weight: 5
+                - bytes: 4000000
+                  weight: 3
+                - bytes: limit
+                  weight: 2
+settings: {}

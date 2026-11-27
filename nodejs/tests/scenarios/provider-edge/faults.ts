@@ -206,11 +206,16 @@ export function ruleOf(fault: CardFault): FaultRule {
     }
 }
 
-export const heldAnswerRule = (share?: number): FaultRule => ({
-    name: 'edge.accepted',
-    answer: { kind: 'hold-answer' },
-    dose: share === undefined ? { count: 1 } : { share },
-})
+export const heldAnswerRule = (
+    boundary: { channel: 'ses'; share?: number } | { channel: 's3' } = { channel: 'ses' }
+): FaultRule =>
+    boundary.channel === 's3'
+        ? { name: 'edge.accepted', answer: { kind: 's3-stall' }, match: { op: 'get' }, dose: { count: 1 } }
+        : {
+              name: 'edge.accepted',
+              answer: { kind: 'hold-answer' },
+              dose: boundary.share === undefined ? { count: 1 } : { share: boundary.share },
+          }
 
 type ActiveFault = {
     id: string

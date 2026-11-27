@@ -1,0 +1,46 @@
+id: attach-killed-mid-ses-call
+version: 1
+clock: real
+profile: attachments
+seed: 27
+seedable: true
+setup:
+    teams: 1
+drive:
+    for: 227s
+    warmUp: 160s
+    traffic:
+        - name: transactional_email_files
+valves:
+    - valve: role.kill
+      target: cdp-cyclotron-worker-email
+      dose: {}
+      at: 197s
+      when:
+          name: edge_accepted
+          params:
+              channel: ses
+              share: 0.5
+      for: 1s
+convergeWithin: 4m
+invariants:
+    - name: at_least_once
+    - name: duplicate_sends
+    - name: refused_at_intake
+    - name: no_loss
+    - name: attachments_intact
+gates:
+    duplicate_sends: 0
+    refused_at_intake: 0
+measure:
+    - name: role_cpu_seconds
+    - name: role_rss_max_bytes
+    - name: role_heap_max_bytes
+    - name: role_restarts
+    - name: delivery_latency_ms
+    - name: sends_per_message_max
+    - name: attachment_deferrals
+    - name: attachment_deferral_window_s
+    - name: attachment_sends_in_flight_max
+    - name: attachment_reserved_bytes_max
+pair: true

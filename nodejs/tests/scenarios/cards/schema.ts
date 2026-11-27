@@ -39,7 +39,10 @@ export const RunningOnQueue = z
 export const EdgeAccepted = z
     .object({
         name: z.literal('edge_accepted'),
-        params: z.object({ channel: z.literal('ses'), share: z.number().gt(0).max(1).optional() }).strict(),
+        params: z.discriminatedUnion('channel', [
+            z.object({ channel: z.literal('ses'), share: z.number().gt(0).max(1).optional() }).strict(),
+            z.object({ channel: z.literal('s3') }).strict(),
+        ]),
     })
     .strict()
 
