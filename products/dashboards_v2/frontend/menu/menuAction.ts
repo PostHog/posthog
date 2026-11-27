@@ -1,7 +1,7 @@
 type MenuActionBase = {
     /**
      * Stable, so a panel type's `menuActions` or a host's `tileActions`, `tilePlacementActions` and `dashboardActions` can
-     * find an action by it. Built in for a content tile: `download`, `copy`, `parts`, `background-color`, `description`, plus a chart's
+     * find an action by it. Built in for a content tile: `download`, `copy`, `parts`, `background-color`, plus a chart's
      * `chart-type` and `chart-options`. Built in for a section: `rename`, `download`, `copy`, `auto-layout`, `parts`, `background-color`. Built
      * in for where a tile sits: `slideshow`, `move`, `add-to-tab`, `duplicate`, `remove`, and `duplicate` and `remove` for a section. Built in for the
      * dashboard: `download`, `copy`, `tab-appearance`, `allow-filters`.
@@ -25,6 +25,8 @@ type MenuActionBase = {
     group?: MenuGroup
     /** Set on a submenu's entries to split them under headings, such as `Image` and `Data`. One heading alone is not shown. */
     section?: string
+    /** Set on every entry of a section whose entries are exclusive choices. They show as radio items, with `checked` on the current one. */
+    exclusive?: boolean
     /** Makes a picture of what the tile holds, so a tile's menu disables it while the tile is still loading. */
     needsLoaded?: boolean
     /** Picking it leaves the menu open, for a choice someone may want to compare with the next one. */

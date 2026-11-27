@@ -4,7 +4,7 @@ import { everyTile } from '../../dashboard/document/tileTree'
 import { type PresentationEdit, applyPresentationEdit } from '../../dashboard/edits/presentationEdits'
 import type { MenuAction } from '../../menu/menuAction'
 import { DEFAULT_PANELS } from '../../panels/defaultPanels'
-import { backgroundColorAction, descriptionAction, showAction } from './appearanceActions'
+import { backgroundColorAction, showAction } from './appearanceActions'
 
 const text = (id: string): Tile => ({
     id,
@@ -84,19 +84,19 @@ describe('showAction', () => {
         const start = text('a')
         const described = { ...start, panel: { ...start.panel, description: 'What it counts' } }
         let board: Dashboard = { version: 2, title: 'Test', tabs: [{ id: 'tab', title: 'Tab', tiles: [described] }] }
-        const menu = { key: 'description', label: 'Description', dataAttr: 'description' }
-        const pick = (mode: string): MenuAction => {
-            const action = descriptionAction(menu, [findTile(board, 'a')!], null, (edit: PresentationEdit) => {
+        const menu = { key: 'parts', label: 'Show', dataAttr: 'parts' }
+        const choices = (tile: Tile): MenuAction[] =>
+            showAction(menu, [tile], DEFAULT_PANELS, null, (edit: PresentationEdit) => {
                 board = applyPresentationEdit(board, edit)
-            })
-            return action!.submenu!.find((item) => item.key === mode)!
-        }
+            })!.submenu!.filter((item) => item.section === 'Description')
+        const pick = (mode: string): MenuAction =>
+            choices(findTile(board, 'a')!).find((item) => item.key === `description-${mode}`)!
 
         expect(pick('icon').checked).toBe(true)
         pick('below').onSelect!()
         expect(pick('below').checked).toBe(true)
         pick('icon').onSelect!()
         expect(findTile(board, 'a')?.panel.appearance).not.toHaveProperty('description')
-        expect(descriptionAction(menu, [start], null, () => {})).toBeNull()
+        expect(choices(start)).toEqual([])
     })
 })
