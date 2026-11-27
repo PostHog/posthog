@@ -1,15 +1,12 @@
 from collections.abc import Callable, Iterator
-from concurrent.futures import ThreadPoolExecutor
 from contextlib import AbstractContextManager, contextmanager, nullcontext
 from datetime import datetime
 from typing import Any
-from uuid import uuid4
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
-from django.conf import settings
 from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
@@ -19,10 +16,8 @@ from posthog.schema import TrendsQuery
 
 from posthog.caching.insight_result import InsightResult
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.client.connection import default_client
-from posthog.clickhouse.query_tagging import get_query_tags, tags_context
+from posthog.clickhouse.query_tagging import tags_context
 from posthog.errors import CHQueryErrorQueryWasCancelled
-from posthog.test.waiting import wait_until
 
 from products.alerts.backend.evaluation.dispatcher import check_alert_for_insight
 from products.alerts.backend.evaluation.query_slot import QuerySlotFull
@@ -36,7 +31,7 @@ from products.alerts.backend.evaluation.series_values_shadow import (
     effective_trends_runner,
 )
 from products.alerts.backend.models.alert import AlertConfiguration, Threshold
-from products.alerts.backend.platform_source_cycle import QUERY_ID_PREFIX, stop_insight_queries
+from products.alerts.backend.platform_source_cycle import QUERY_ID_PREFIX
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
 from products.product_analytics.backend.facade.contracts import PrecomputedSeriesValues
 from products.product_analytics.backend.facade.models import Insight
@@ -209,7 +204,8 @@ class TestSeriesValuesShadowForAlerts(ClickhouseTestMixin, APIBaseTest):
             live = check_alert_for_insight(alert)
             assert self._jobs() == 0
 
-            cold, cold_properties = self._shadowed_check(alert)
+            with tags_context(team_id=self.team.pk, client_query_id=f"{QUERY_ID_PREFIX}{alert.pk}:1"):
+                cold, cold_properties = self._shadowed_check(alert)
             jobs_after_build = self._jobs()
             warm, warm_properties = self._shadowed_check(alert)
 
@@ -315,61 +311,6 @@ class TestSeriesValuesShadowForAlerts(ClickhouseTestMixin, APIBaseTest):
 
         assert held_when_the_shadow_query_starts == [True]
         assert slots_held == []
-
-    def test_attempt_cleanup_stops_a_running_shadow_insert_without_retrying_or_changing_the_live_verdict(self) -> None:
-        alert = self._alert(detector=None)
-        live = check_alert_for_insight(alert)
-        team_id = self.team.pk
-        attempt = f"{uuid4()}:1"
-        requester = f"{QUERY_ID_PREFIX}{attempt}"
-        inserts: list[str | None] = []
-
-        def stop_when_running() -> None:
-            def insert_running() -> bool:
-                return bool(
-                    sync_execute(
-                        "SELECT count() FROM system.processes WHERE query_kind = 'Insert' AND position(query_id, %(id)s) > 0",
-                        {"id": requester},
-                    )[0][0]
-                )
-
-            wait_until(insert_running, timeout=10, message="the alert's tagged INSERT did not reach ClickHouse")
-            stop_insight_queries(team_id, str(alert.pk), [attempt])
-
-        def execute(sql: str, *args: Any, **kwargs: Any) -> Any:
-            if not sql.lstrip().startswith("INSERT"):
-                return sync_execute(sql, *args, **kwargs)
-            inserts.append(get_query_tags().client_query_id)
-            assert len(inserts) == 1
-            with ThreadPoolExecutor(max_workers=1) as pool:
-                cleanup = pool.submit(stop_when_running)
-                try:
-                    # A small test dataset would finish before cleanup could discover the INSERT.
-                    return sync_execute(
-                        "INSERT INTO FUNCTION null('number UInt64') SELECT number FROM numbers(100) "
-                        "WHERE sleepEachRow(0.2) = 0 SETTINGS max_block_size = 1"
-                    )
-                finally:
-                    cleanup.result(timeout=15)
-
-        with (
-            tags_context(team_id=team_id, client_query_id=requester),
-            patch(
-                "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.sync_execute",
-                side_effect=execute,
-            ),
-            patch(
-                "posthog.clickhouse.cancel.default_client",
-                side_effect=lambda **kwargs: default_client(**{**kwargs, "host": settings.CLICKHOUSE_HOST}),
-            ),
-        ):
-            result, properties = self._shadowed_check(alert)
-
-        assert result == live
-        assert (properties["outcome"], properties["reason"]) == ("unavailable", "query_cancelled")
-        (insert,) = inserts
-        job_ids = PreaggregationJob.objects.filter(team_id=team_id).values_list("pk", flat=True)
-        assert insert in {f"{job_id}_{requester}" for job_id in job_ids}
 
     def test_a_full_query_pool_skips_the_comparison(self) -> None:
         alert = self._alert(detector=None)

@@ -14,7 +14,6 @@ from posthog.schema import TrendsQuery
 from posthog.hogql.constants import HogQLGlobalSettings
 
 from posthog.caching.insight_result import InsightResult
-from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.dataclasses import frozen
 from posthog.errors import CHQueryErrorQueryWasCancelled
 from posthog.event_usage import groups
@@ -156,8 +155,7 @@ class ShadowComparisonRequest:
                 # may watch another one, and a match on the first would say nothing about it.
                 comparison = ShadowComparison(outcome="unavailable", reason="multiple_series")
             elif not attempt_outlasts(SHADOW_BUILD_BUDGET_SECONDS + SHADOW_ATTEMPT_MARGIN_SECONDS):
-                # The build runs before the check is recorded. An attempt that ends during the build loses
-                # the live result even if cleanup stops its INSERT.
+                # A shared build can outlive its caller. Leave enough time to record the live result.
                 comparison = ShadowComparison(outcome="unavailable", reason="attempt_out_of_time")
             else:
                 comparison = self._compare_in(query_slot, live)
@@ -198,11 +196,7 @@ class ShadowComparisonRequest:
                 runner = effective_trends_runner(
                     self.alert.team, self.query, self.filters_override, self.alert.created_by
                 )
-                precomputed = precomputed_series_values(
-                    runner,
-                    wait_timeout_seconds=SHADOW_BUILD_BUDGET_SECONDS,
-                    requester_query_id=get_query_tags().client_query_id,
-                )
+                precomputed = precomputed_series_values(runner, wait_timeout_seconds=SHADOW_BUILD_BUDGET_SECONDS)
         except QuerySlotFull:
             return ShadowComparison(outcome="unavailable", reason="no_query_slot")
         return compare_precomputed_values(precomputed, live)

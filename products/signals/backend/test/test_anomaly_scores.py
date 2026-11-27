@@ -29,7 +29,6 @@ from posthog.schema import (
 
 from posthog.hogql.constants import INSIGHT_QUERY_FANOUT_CONCURRENCY
 
-from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.interval_specs import interval_spec
 from posthog.models import Team
 from posthog.tasks.alerts.detectors.registry import get_detector
@@ -279,27 +278,6 @@ class TestScoreInsight(SimpleTestCase):
         )
 
         assert metric == line
-
-    def test_a_failed_series_cancels_the_queries_of_its_fetch(self) -> None:
-        insight = _insight([EventsNode(event="visit"), EventsNode(event="signup")])
-        team = Team(id=7, timezone="UTC")
-        with (
-            patch("products.signals.backend.anomaly_scores.scoring.TrendsQueryRunner") as runner,
-            patch("products.signals.backend.anomaly_scores.scoring.cancel_queries_started_for") as cancel,
-        ):
-            runner.return_value.series = [object(), object()]
-
-            def fail(**_kwargs: Any) -> None:
-                query_id = get_query_tags().client_query_id
-                assert query_id and query_id.startswith("anomaly_scoring_")
-                error = RuntimeError("series failed")
-                runner.return_value.on_series_error(error)
-                cancel.assert_called_once_with(team.pk, query_id)
-                raise error
-
-            runner.return_value.run.side_effect = fail
-            with pytest.raises(RuntimeError, match="series failed"):
-                score_insight(insight, team, now=datetime(2026, 1, 10, tzinfo=UTC))
 
     @parameterized.expand([("one_query", 1), ("one_full_wave", 10), ("two_waves", 11), ("many_waves", 120)])
     def test_every_query_wave_of_an_insight_stops_before_the_activity_timeout(self, _name: str, queries: int) -> None:
