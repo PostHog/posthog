@@ -3,7 +3,12 @@ from typing import cast
 from products.warehouse_sources.sources.peec_ai._config import PeecAISourceConfig
 from products.warehouse_sources.sources.peec_ai.canonical_descriptions import CANONICAL_DESCRIPTIONS
 from products.warehouse_sources.sources.peec_ai.peec_ai import PeecAIResumeConfig, peec_ai_source, validate_credentials
-from products.warehouse_sources.sources.peec_ai.settings import AUTH_ERRORS, ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.sources.peec_ai.settings import (
+    AUTH_ERRORS,
+    ENDPOINTS,
+    INCREMENTAL_FIELDS,
+    INCREMENTAL_LOOKBACK_SECONDS,
+)
 from products.warehouse_sources.sources.sdk import (
     CanonicalDescriptions,
     DataWarehouseSourceCategory,
@@ -48,7 +53,8 @@ class PeecAISource(ResumableSource[PeecAISourceConfig, PeecAIResumeConfig]):
             caption=(
                 "Create a key in [Peec AI API keys](https://app.peec.ai/api-keys). "
                 "Use a project key, or enter a project ID with a company key. "
-                "Your Peec AI plan must include API access. The start date applies to chats."
+                "Your Peec AI plan must include API access. "
+                "The start date applies to chats, reports, products, and search queries."
             ),
             fields=cast(
                 list[FieldType],
@@ -92,7 +98,13 @@ class PeecAISource(ResumableSource[PeecAISourceConfig, PeecAIResumeConfig]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only={"chats"})
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            merge_only=INCREMENTAL_FIELDS.keys(),
+            default_incremental_lookback_seconds=INCREMENTAL_LOOKBACK_SECONDS,
+        )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         return CANONICAL_DESCRIPTIONS

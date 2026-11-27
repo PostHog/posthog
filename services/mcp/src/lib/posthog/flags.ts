@@ -21,7 +21,11 @@ export type FlagValue = boolean | string | undefined
 
 export type EvaluatedFlags = Record<string, FlagValue>
 
-export type FlagEvaluation = { flags: EvaluatedFlags; payloads: Record<string, unknown> }
+export type FlagEvaluation = {
+    flags: EvaluatedFlags
+    payloads: Record<string, unknown>
+    reportExposure?: (flagKey: string) => void
+}
 
 export async function evaluateFeatureFlags(
     flagKeys: string[],
@@ -34,15 +38,28 @@ export async function evaluateFeatureFlags(
 
     const client = getPostHogClient()
     const hasGroups = groups && Object.keys(groups).length > 0
-    const evaluation = await client.getAllFlagsAndPayloads(distinctId, {
+    const snapshot = await client.evaluateFlags(distinctId, {
         flagKeys,
         ...(hasGroups ? { groups } : {}),
     })
-    const result: EvaluatedFlags = {}
+    const flags: EvaluatedFlags = {}
+    const payloads: Record<string, unknown> = {}
     for (const key of flagKeys) {
-        result[key] = evaluation.featureFlags?.[key] as FlagValue
+        const value = snapshot.getFlag(key, { sendFeatureFlagEvents: false })
+        flags[key] = value
+        const payload = snapshot.getFlagPayload(key)
+        const hasPayload = payload !== undefined && payload !== null && payload !== ''
+        if (value !== undefined && value !== false && hasPayload) {
+            payloads[key] = payload
+        }
     }
-    return { flags: result, payloads: evaluation.featureFlagPayloads ?? {} }
+    return {
+        flags,
+        payloads,
+        reportExposure: (flagKey) => {
+            snapshot.getFlag(flagKey, { sendFeatureFlagEvents: true })
+        },
+    }
 }
 
 // Env var (or Cloudflare var) holding a JSON object of flag overrides, e.g.

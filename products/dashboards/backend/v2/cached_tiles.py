@@ -7,8 +7,6 @@ from collections.abc import Callable, Collection, Hashable, Iterator, Sequence
 from contextlib import contextmanager
 from typing import Any
 
-from django.db.models import TextChoices
-
 import structlog
 
 from posthog.api.services.query import PlannedQuery
@@ -16,16 +14,11 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.query_cache import prefetched_entries
 
+from products.dashboards.backend.facade.contracts import CachedTileResult
+from products.dashboards.backend.facade.enums import CachedTileStatus
 from products.dashboards.backend.v2.first_load import shared_tile_work
 
 logger = structlog.get_logger(__name__)
-
-
-class CachedTileStatus(TextChoices):
-    HIT = "hit", "Hit"
-    MISS = "miss", "Miss"
-    FORBIDDEN = "forbidden", "Forbidden"
-    NOT_FOUND = "not_found", "Not found"
 
 
 def read_cached_tiles(
@@ -38,7 +31,7 @@ def read_cached_tiles(
     plan_tile: Callable[[int], PlannedQuery | None],
     serialize_tile: Callable[[int], dict[str, Any]],
     context: dict[str, Any],
-) -> list[dict[str, Any]]:
+) -> list[CachedTileResult]:
     """One entry per requested tile ID, in request order, from one batched cache read and without running a query.
     Every reader of cached tiles goes through here, so they serve the same hits to the same people.
     The caller looks the tiles up and checks access. `plan_tile` and `serialize_tile` run the caller's serializer,
@@ -49,22 +42,22 @@ def read_cached_tiles(
 
     with planned_cache_reads(team=team, user=user, keys=readable_tile_ids, plan=plan_tile) as planned:
         context["planned_queries"] = planned
-        results: list[dict[str, Any]] = []
+        results: list[CachedTileResult] = []
         # The serializer outlives the request in insight_result's lru_cache, so its context must not keep every
         # planned runner, and with it every tile's raw results, alive after this request.
         try:
             for tile_id in tile_ids:
                 if tile_id not in found_tile_ids:
-                    results.append({"id": tile_id, "status": CachedTileStatus.NOT_FOUND})
+                    results.append(CachedTileResult(id=tile_id, status=CachedTileStatus.NOT_FOUND))
                     continue
                 if tile_id in forbidden_tile_ids:
-                    results.append({"id": tile_id, "status": CachedTileStatus.FORBIDDEN})
+                    results.append(CachedTileResult(id=tile_id, status=CachedTileStatus.FORBIDDEN))
                     continue
                 insight_data = serialize_tile(tile_id)
                 if not insight_data.get("is_cached"):
-                    results.append({"id": tile_id, "status": CachedTileStatus.MISS})
+                    results.append(CachedTileResult(id=tile_id, status=CachedTileStatus.MISS))
                     continue
-                results.append({"id": tile_id, "status": CachedTileStatus.HIT, "insight": insight_data})
+                results.append(CachedTileResult(id=tile_id, status=CachedTileStatus.HIT, insight=insight_data))
         finally:
             context.pop("planned_queries", None)
     return results
