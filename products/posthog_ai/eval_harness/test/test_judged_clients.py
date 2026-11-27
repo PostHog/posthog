@@ -4,9 +4,12 @@ from typing import Any
 import pytest
 
 import httpx
+import posthoganalytics.ai.openai
 from openai import AsyncOpenAI, OpenAIError
+from posthoganalytics import Posthog
 
 from products.posthog_ai.eval_harness.scorers import judged
+from products.posthog_ai.eval_harness.scorers.tracing import TracedScorer, create_traced_scorer_clients
 
 
 @pytest.mark.asyncio
@@ -84,9 +87,10 @@ async def test_judges_use_direct_provider_without_braintrust_fallback(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("traced", [False, True])
 @pytest.mark.parametrize("choice, expected_score", [("yes", 1.0), ("no", 0.0)])
 async def test_gpt6_judges_answer_through_the_responses_api(
-    monkeypatch: pytest.MonkeyPatch, choice: str, expected_score: float
+    monkeypatch: pytest.MonkeyPatch, choice: str, expected_score: float, traced: bool
 ) -> None:
     monkeypatch.setenv("OPENAI_API_KEY", "test-openai-key")
     monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
@@ -119,18 +123,41 @@ async def test_gpt6_judges_answer_through_the_responses_api(
         "AsyncOpenAI",
         lambda: AsyncOpenAI(http_client=httpx.AsyncClient(transport=httpx.MockTransport(respond))),
     )
+    traced_openai = posthoganalytics.ai.openai.AsyncOpenAI
+    monkeypatch.setattr(
+        posthoganalytics.ai.openai,
+        "AsyncOpenAI",
+        lambda posthog_client: traced_openai(
+            posthog_client=posthog_client, http_client=httpx.AsyncClient(transport=httpx.MockTransport(respond))
+        ),
+    )
+    generations: list[dict[str, Any]] = []
+    posthog_client = Posthog("phc_test", host="http://localhost", sync_mode=True)
+    monkeypatch.setattr(posthog_client, "capture_ai", lambda **kwargs: generations.append(kwargs))
 
     class PreparedJudge(judged.JudgedScorer):
         def _prepare(self, output: Any, expected: Any) -> dict[str, Any]:
             return {"output": output}
 
-    scorer = PreparedJudge(
+    judge = PreparedJudge(
         name="judge", prompt_template="{{output}}", choice_scores={"yes": 1.0, "no": 0.0}, model="gpt-6.2-sol"
     )
+    run_metadata = {"agent_model": "claude-test", "trials": 1, "git_sha": "abc123", "git_dirty": False}
+    scorer: Any = (
+        TracedScorer(
+            judge,
+            create_traced_scorer_clients(posthog_client),
+            {"experiment_id": "exp-1", "experiment_name": "ns/suite", "run_metadata": run_metadata},
+            {},
+        )
+        if traced
+        else judge
+    )
 
-    score = await scorer.eval_async("Synthetic answer")
+    score = await scorer.eval_async("Synthetic answer", metadata={"trial_id": "trial-1"})
 
     assert score.score == expected_score, score.metadata
+    assert len(generations) == (1 if traced else 0)
     assert [request.url for request in requests] == ["https://api.openai.com/v1/responses"]
     body = json.loads(requests[0].content)
     assert [tool["name"] for tool in body["tools"]] == ["select_choice"]

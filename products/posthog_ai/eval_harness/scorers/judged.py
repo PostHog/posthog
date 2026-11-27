@@ -43,7 +43,7 @@ GRADED_ALIGNMENT_CHOICE_SCORES = {
 JUDGE_MODEL = "gpt-5.4"
 
 
-def _needs_responses_api(model: str) -> bool:
+def needs_responses_api(model: str) -> bool:
     """Whether a judge model must go through the Responses API, which Autoevals uses only for `gpt-5` models.
 
     A judge answers with a function tool call. `gpt-6` models refuse function tools on chat completions unless
@@ -52,14 +52,19 @@ def _needs_responses_api(model: str) -> bool:
     return model.startswith("gpt-6")
 
 
-def _responses_completion(client: AsyncOpenAI) -> Callable[..., Awaitable[dict[str, Any]]]:
+def responses_completion(client: AsyncOpenAI) -> Callable[..., Awaitable[dict[str, Any]]]:
     """A chat completions request sent to the Responses API, answered in the chat completions shape.
 
     It maps the request as Autoevals does for `gpt-5` models, so both paths send the same judge request.
     """
 
     async def complete(**kwargs: Any) -> dict[str, Any]:
-        request: dict[str, Any] = {"model": kwargs["model"], "input": kwargs["messages"]}
+        # A traced client's tracing arguments pass through, so the call is still traced.
+        request: dict[str, Any] = {
+            "model": kwargs["model"],
+            "input": kwargs["messages"],
+            **{key: value for key, value in kwargs.items() if key.startswith("posthog_")},
+        }
         if tools := kwargs.get("tools"):
             request["tools"] = [{"type": "function", **tool["function"]} for tool in tools]
             request["tool_choice"] = "required"
@@ -95,9 +100,9 @@ class LocalLLMClassifier(AsyncOnlyScorerMixin, LLMClassifier):
                 is_async=True,
                 RateLimitError=RateLimitError,
             )
-            if _needs_responses_api(scorer.model):
+            if needs_responses_api(scorer.model):
                 # LLMClient replaces the `complete` it is given with its own router, so set it after construction.
-                scorer.client.complete = _responses_completion(client)
+                scorer.client.complete = responses_completion(client)
             return await LLMClassifier._run_eval_async(scorer, output, expected, **kwargs)
 
 
