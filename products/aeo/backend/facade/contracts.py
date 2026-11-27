@@ -82,6 +82,7 @@ OUT_OF_AI_CREDITS_MESSAGE = (
     "Increase the limits in Billing settings, or ask an org admin to do so."
 )
 PROMPT_TOPIC_MAX_LENGTH = 200
+MAX_TOPIC_PROMPT_IDS = 500
 PROMPT_VERSION_DESCRIPTION_MAX_LENGTH = 400
 MAX_RANKED_COMPETITORS = 10
 MAX_RANKED_DOMAINS = 20
@@ -138,6 +139,14 @@ class Prompt:
 class PromptTopic:
     topic: str
     prompts: int
+
+
+@frozen
+class PromptTopicChange:
+    """What a topic edit rewrote: the prompts that now carry the new topic, and the past checks relabeled with them."""
+
+    prompts: int
+    checks: int
 
 
 @frozen
@@ -594,6 +603,18 @@ class PromptUpdateError(Exception):
 
 class PromptTextConflictError(Exception):
     """The new text matches another prompt in the set. The message is safe to show the user."""
+
+
+class PromptTopicNotFoundError(Exception):
+    """No prompt in the set has the topic. The message is safe to show the user."""
+
+
+class PromptTopicError(Exception):
+    """The topic edit is not valid. The message is safe to show the user."""
+
+
+class PromptTopicConflictError(Exception):
+    """The new topic name is taken by another topic. The message is safe to show the user."""
 
 
 class OutOfAICreditsError(Exception):

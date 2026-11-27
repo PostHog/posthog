@@ -51,6 +51,10 @@ from products.aeo.backend.facade.api import (
     list_prompt_topics,
     list_prompt_versions,
     list_prompts,
+    merge_prompt_topics,
+    remove_prompt_topic,
+    rename_prompt_topic,
+    set_prompts_topic,
     start_prompt_suggestions,
     update_brand,
     update_engine_setting,
@@ -67,6 +71,7 @@ from products.aeo.backend.facade.contracts import (
     MAX_RANKED_DOMAINS,
     MAX_RANKED_PAGES,
     MAX_SUGGESTED_COMPETITORS,
+    MAX_TOPIC_PROMPT_IDS,
     MAX_WINDOW_DAYS,
     MIN_MOVER_ANSWERS,
     PROMPT_LIMIT_ERROR_CODE,
@@ -121,6 +126,10 @@ from products.aeo.backend.facade.contracts import (
     PromptSuggestionRequest,
     PromptTextConflictError,
     PromptTopic,
+    PromptTopicChange,
+    PromptTopicConflictError,
+    PromptTopicError,
+    PromptTopicNotFoundError,
     PromptUpdate,
     PromptUpdateError,
     PromptVersion,
@@ -206,6 +215,18 @@ EXTERNAL_VISIBILITY_HELP = (
     "Share of answers (0-100) that mention the brand for this prompt, as reported by the tool the prompt set "
     "came from. Kept to benchmark against our own citation rate."
 )
+
+
+@contextmanager
+def topic_errors() -> Iterator[None]:
+    try:
+        yield
+    except PromptTopicNotFoundError as error:
+        raise NotFound(str(error))
+    except PromptTopicError as error:
+        raise ValidationError(str(error))
+    except PromptTopicConflictError as error:
+        raise Conflict(str(error))
 
 
 class AEOPromptChecksPagination(PrecountedLimitOffsetPagination):
@@ -330,6 +351,60 @@ class AEOPromptTopicSerializer(DataclassSerializer):
         extra_kwargs = {
             "topic": {"help_text": "Topic name. Empty for prompts that have no topic."},
             "prompts": {"help_text": "How many prompts in the set have this topic."},
+        }
+
+
+def topic_name_field(help_text: str) -> serializers.CharField:
+    return serializers.CharField(max_length=PROMPT_TOPIC_MAX_LENGTH, help_text=help_text)
+
+
+class AEOPromptTopicRenameRequestSerializer(serializers.Serializer):
+    topic = topic_name_field("The topic to rename, as listed by GET aeo_prompts/topics/. Letter case is ignored.")
+    new_topic = topic_name_field(
+        "The new name. It may differ from the old one only in letter case, to fix its spelling. Fails with 409 "
+        "when another topic already has the name: merge the two instead."
+    )
+
+
+class AEOPromptTopicMergeRequestSerializer(serializers.Serializer):
+    topic = topic_name_field("The topic to merge away. Its prompts move to 'into_topic'. Letter case is ignored.")
+    into_topic = topic_name_field(
+        "The topic to keep, as listed by GET aeo_prompts/topics/. It keeps its current spelling. Letter case is ignored."
+    )
+
+
+class AEOPromptTopicRemoveRequestSerializer(serializers.Serializer):
+    topic = topic_name_field(
+        "The topic to remove. Its prompts are kept and are left with no topic. Letter case is ignored."
+    )
+
+
+class AEOPromptBulkSetTopicRequestSerializer(serializers.Serializer):
+    prompt_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        min_length=1,
+        max_length=MAX_TOPIC_PROMPT_IDS,
+        help_text=f"Ids of the prompts to change, from GET aeo_prompts/. At most {MAX_TOPIC_PROMPT_IDS}. Archived prompts are refused.",
+    )
+    topic = serializers.CharField(
+        allow_blank=True,
+        max_length=PROMPT_TOPIC_MAX_LENGTH,
+        help_text=(
+            "The topic to set. A name that matches an existing topic in another letter case takes that topic's "
+            "spelling. An empty string removes the topic."
+        ),
+    )
+
+
+class AEOPromptTopicChangeSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = PromptTopicChange
+        ref_name = "AEOPromptTopicChange"
+        extra_kwargs = {
+            "prompts": {"help_text": "How many prompts now have the new topic, archived prompts included."},
+            "checks": {
+                "help_text": "How many past checks were relabeled with the new topic. Always 0 when setting a topic on chosen prompts, because their past checks keep the topic they ran with."
+            },
         }
 
 
@@ -1398,7 +1473,16 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
         "suggestion",
     ]
     # suggest saves nothing, but it spends model credits, so it needs write access.
-    scope_object_write_actions = ["partial_update", "destroy", "bulk_import", "suggest"]
+    scope_object_write_actions = [
+        "partial_update",
+        "destroy",
+        "bulk_import",
+        "suggest",
+        "topics_rename",
+        "topics_merge",
+        "topics_remove",
+        "bulk_set_topic",
+    ]
     pagination_class = PrecountedLimitOffsetPagination
 
     def dangerously_get_permissions(self) -> list[BasePermission]:
@@ -1720,13 +1804,93 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
     @validated_request(
         operation_id="aeo_prompts_topics",
         summary="List AEO prompt topics",
-        description="Lists the topics in the project's AEO prompt set, with the number of prompts in each.",
+        description="Lists the topics in the project's AEO prompt set, with the number of prompts in each. Archived prompts are not counted, and a topic only archived prompts have is left out.",
         responses={200: OpenApiResponse(response=AEOPromptTopicSerializer(many=True))},
         tags=["web_analytics"],
     )
     @action(detail=False, methods=["get"], pagination_class=None)
     def topics(self, request: Request, **kwargs: Any) -> Response:
         return Response(AEOPromptTopicSerializer(list_prompt_topics(self.team_id), many=True).data)
+
+    @validated_request(
+        request_serializer=AEOPromptTopicRenameRequestSerializer,
+        operation_id="aeo_prompts_topics_rename",
+        summary="Rename an AEO prompt topic",
+        description="Renames a topic on every prompt that has it, archived prompts included, and on the past checks that ran with it, so the reports show its history under the new name. Prompt versions don't change.",
+        responses={
+            200: OpenApiResponse(response=AEOPromptTopicChangeSerializer),
+            400: OpenApiResponse(description="A topic name is empty."),
+            404: OpenApiResponse(description="No prompt has the topic."),
+            409: OpenApiResponse(description="Another topic already has the new name. Merge the two instead."),
+        },
+        tags=["web_analytics"],
+    )
+    @action(detail=False, methods=["post"], url_path="topics/rename")
+    def topics_rename(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        data = request.validated_data
+        with topic_errors():
+            change = rename_prompt_topic(self.team_id, data["topic"], data["new_topic"])
+        return Response(AEOPromptTopicChangeSerializer(change).data)
+
+    @validated_request(
+        request_serializer=AEOPromptTopicMergeRequestSerializer,
+        operation_id="aeo_prompts_topics_merge",
+        summary="Merge two AEO prompt topics",
+        description="Moves every prompt of one topic, archived prompts included, to another topic, along with the past checks that ran with it. The first topic is gone afterwards. Prompt versions don't change.",
+        responses={
+            200: OpenApiResponse(response=AEOPromptTopicChangeSerializer),
+            400: OpenApiResponse(description="A topic name is empty, or both name the same topic."),
+            404: OpenApiResponse(description="No prompt has one of the topics."),
+        },
+        tags=["web_analytics"],
+    )
+    @action(detail=False, methods=["post"], url_path="topics/merge")
+    def topics_merge(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        data = request.validated_data
+        with topic_errors():
+            change = merge_prompt_topics(self.team_id, data["topic"], data["into_topic"])
+        return Response(AEOPromptTopicChangeSerializer(change).data)
+
+    @validated_request(
+        request_serializer=AEOPromptTopicRemoveRequestSerializer,
+        operation_id="aeo_prompts_topics_remove",
+        summary="Remove an AEO prompt topic",
+        description="Removes a topic from every prompt that has it, archived prompts included, and from the past checks that ran with it. The prompts are kept and have no topic afterwards. Prompt versions don't change.",
+        responses={
+            200: OpenApiResponse(response=AEOPromptTopicChangeSerializer),
+            400: OpenApiResponse(description="The topic name is empty."),
+            404: OpenApiResponse(description="No prompt has the topic."),
+        },
+        tags=["web_analytics"],
+    )
+    @action(detail=False, methods=["post"], url_path="topics/remove")
+    def topics_remove(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        with topic_errors():
+            change = remove_prompt_topic(self.team_id, request.validated_data["topic"])
+        return Response(AEOPromptTopicChangeSerializer(change).data)
+
+    @validated_request(
+        request_serializer=AEOPromptBulkSetTopicRequestSerializer,
+        operation_id="aeo_prompts_bulk_set_topic",
+        summary="Set the topic of several AEO prompts",
+        description="Sets one topic on the chosen prompts, or removes their topic. Their past checks keep the topic they ran with, as when one prompt's topic changes. Prompt versions don't change. Nothing is saved when a prompt is missing or archived.",
+        responses={
+            200: OpenApiResponse(response=AEOPromptTopicChangeSerializer),
+            400: OpenApiResponse(description="A prompt is archived. Restore it first."),
+            404: OpenApiResponse(description="A prompt is not in the project's prompt set."),
+        },
+        tags=["web_analytics"],
+    )
+    @action(detail=False, methods=["post"])
+    def bulk_set_topic(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        data = request.validated_data
+        try:
+            change = set_prompts_topic(self.team_id, data["prompt_ids"], data["topic"])
+        except PromptNotFoundError:
+            raise NotFound()
+        except PromptUpdateError as error:
+            raise ValidationError(str(error))
+        return Response(AEOPromptTopicChangeSerializer(change).data)
 
     @validated_request(
         request_serializer=AEOPromptBulkImportRequestSerializer,

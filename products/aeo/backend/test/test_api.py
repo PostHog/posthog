@@ -392,6 +392,113 @@ class TestAEOPromptAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json() == [{"topic": "", "prompts": 1}, {"topic": "Replay", "prompts": 2}]
 
+    def _topic_fixture(self) -> dict[str, str]:
+        ids = self._import_prompts(
+            [
+                {"prompt": "a?", "topic": "Pricing"},
+                {"prompt": "b?", "topic": "pricing"},
+                {"prompt": "c?", "topic": "Plans"},
+                {"prompt": "d?"},
+            ]
+        )
+        self._record_check(ids["a?"], "exa-answer", minutes_ago=10)
+        self._record_check(ids["c?"], "exa-answer", minutes_ago=10)
+        self.client.delete(f"{self.url}{ids['b?']}/")
+        return ids
+
+    def _topics_now(self) -> tuple[dict[str, str], list[str]]:
+        prompts = dict(AEOPrompt.objects.for_team(self.team.id).values_list("prompt", "topic"))
+        checks = sorted(AEOCitationCheck.objects.for_team(self.team.id).values_list("prompt_topic", flat=True))
+        return prompts, checks
+
+    @parameterized.expand(
+        [
+            ("rename", "topics/rename/", {"topic": "PRICING", "new_topic": " Cost "}, "Cost"),
+            ("rename_letter_case", "topics/rename/", {"topic": "pricing", "new_topic": "PRICING"}, "PRICING"),
+            ("merge_keeps_the_target_spelling", "topics/merge/", {"topic": "pricing", "into_topic": "plans"}, "Plans"),
+            ("remove", "topics/remove/", {"topic": "Pricing"}, ""),
+        ]
+    )
+    def test_topic_edits_relabel_every_prompt_and_past_check_of_the_topic(
+        self, _name: str, path: str, body: dict, expected: str
+    ) -> None:
+        create_own_brand(self.team, "example.com")
+        self._topic_fixture()
+        assert {row["topic"] for row in self.client.get(f"{self.url}overview/").json()["topics"]} == {
+            "",
+            "Plans",
+            "Pricing",
+        }
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(f"{self.url}{path}", body, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json() == {"prompts": 2, "checks": 1}
+        prompts, checks = self._topics_now()
+        assert prompts == {"a?": expected, "b?": expected, "c?": "Plans", "d?": ""}
+        assert checks == sorted([expected, "Plans"])
+        # The topic is not part of a version, so the edit leaves every prompt on its first and only version.
+        assert set(AEOPrompt.objects.for_team(self.team.id).values_list("current_version", flat=True)) == {1}
+        assert AEOPromptVersion.objects.for_team(self.team.id).count() == 4
+        # The overview reads a stored result, so a missing bump would still show the old topic here.
+        assert {row["topic"] for row in self.client.get(f"{self.url}overview/").json()["topics"]} == {
+            "",
+            "Plans",
+            expected,
+        }
+
+    @parameterized.expand(
+        [
+            ("rename_onto_another_topic", "topics/rename/", {"topic": "Pricing", "new_topic": "plans"}, 409),
+            ("rename_a_missing_topic", "topics/rename/", {"topic": "Support", "new_topic": "Help"}, 404),
+            ("rename_to_blank", "topics/rename/", {"topic": "Pricing", "new_topic": "   "}, 400),
+            ("merge_into_itself", "topics/merge/", {"topic": "Pricing", "into_topic": "PRICING"}, 400),
+            ("merge_into_a_missing_topic", "topics/merge/", {"topic": "Pricing", "into_topic": "Support"}, 404),
+            ("remove_a_missing_topic", "topics/remove/", {"topic": "Support"}, 404),
+            ("remove_no_topic", "topics/remove/", {"topic": ""}, 400),
+        ]
+    )
+    def test_refused_topic_edits_change_nothing(self, _name: str, path: str, body: dict, expected: int) -> None:
+        self._topic_fixture()
+        before = self._topics_now()
+
+        response = self.client.post(f"{self.url}{path}", body, format="json")
+
+        assert response.status_code == expected, response.json()
+        assert self._topics_now() == before
+
+    def test_bulk_set_topic_changes_only_the_chosen_prompts(self) -> None:
+        ids = self._topic_fixture()
+
+        response = self.client.post(
+            f"{self.url}bulk_set_topic/", {"prompt_ids": [ids["a?"], ids["d?"]], "topic": " PLANS "}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json() == {"prompts": 2, "checks": 0}
+        prompts, checks = self._topics_now()
+        # A new spelling of an existing topic joins it, and the past checks keep the topic they ran with.
+        assert prompts == {"a?": "Plans", "b?": "pricing", "c?": "Plans", "d?": "Plans"}
+        assert checks == ["Plans", "Pricing"]
+        assert AEOPromptVersion.objects.for_team(self.team.id).count() == 4
+
+        self.client.post(f"{self.url}bulk_set_topic/", {"prompt_ids": [ids["a?"]], "topic": ""}, format="json")
+        assert self._topics_now()[0]["a?"] == ""
+
+    @parameterized.expand([("archived_prompt", "b?", 400), ("prompt_of_another_project", None, 404)])
+    def test_bulk_set_topic_refuses_the_whole_request(self, _name: str, other: str | None, expected: int) -> None:
+        ids = self._topic_fixture()
+        before = self._topics_now()
+        other_id = ids[other] if other else str(uuid.uuid4())
+
+        response = self.client.post(
+            f"{self.url}bulk_set_topic/", {"prompt_ids": [ids["a?"], other_id], "topic": "Support"}, format="json"
+        )
+
+        assert response.status_code == expected, response.json()
+        assert self._topics_now() == before
+
     def test_list_returns_the_latest_check_per_engine(self) -> None:
         create_own_brand(self.team, "example.com")
         prompts = [{"prompt": "checked?", "topic": "a"}, {"prompt": "never checked?", "topic": "b"}]
@@ -1745,11 +1852,15 @@ class TestAEOPromptAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("write_scope", ["web_analytics:write"], status.HTTP_200_OK),
-            ("read_scope_only", ["web_analytics:read"], status.HTTP_403_FORBIDDEN),
+            ("write_scope", "bulk_import/", ["web_analytics:write"], status.HTTP_200_OK),
+            ("read_scope_only", "bulk_import/", ["web_analytics:read"], status.HTTP_403_FORBIDDEN),
+            ("topic_rename_read_scope_only", "topics/rename/", ["web_analytics:read"], status.HTTP_403_FORBIDDEN),
+            ("topic_merge_read_scope_only", "topics/merge/", ["web_analytics:read"], status.HTTP_403_FORBIDDEN),
+            ("topic_remove_read_scope_only", "topics/remove/", ["web_analytics:read"], status.HTTP_403_FORBIDDEN),
+            ("set_topic_read_scope_only", "bulk_set_topic/", ["web_analytics:read"], status.HTTP_403_FORBIDDEN),
         ]
     )
-    def test_bulk_import_with_a_personal_api_key(self, _name: str, scopes: list[str], expected: int) -> None:
+    def test_writes_with_a_personal_api_key(self, _name: str, path: str, scopes: list[str], expected: int) -> None:
         # Session auth skips scope checks, so only a scoped key catches a custom action left out of the write actions.
         value = generate_random_token_personal()
         PersonalAPIKey.objects.create(
@@ -1758,7 +1869,7 @@ class TestAEOPromptAPI(APIBaseTest):
         self.client.logout()
 
         response = self.client.post(
-            f"{self.url}bulk_import/",
+            f"{self.url}{path}",
             {"prompts": [{"prompt": "Best session replay tool?"}]},
             format="json",
             headers={"authorization": f"Bearer {value}"},
