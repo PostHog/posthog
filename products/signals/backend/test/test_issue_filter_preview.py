@@ -2,6 +2,7 @@ import json
 from datetime import timedelta
 from uuid import uuid4
 
+import time_machine
 from posthog.test.base import ClickhouseTestMixin, NonAtomicAPIBaseTest
 from unittest.mock import patch
 
@@ -9,10 +10,15 @@ from django.utils import timezone
 
 from faker import Faker
 
+from posthog.hogql.property_access_types import RestrictedProperty
+
 from posthog.clickhouse.client import sync_execute
+from posthog.models import User
 from posthog.models.scoping import team_scope
 
 from products.error_tracking.backend.facade.contracts import LifecycleFilterOutcome
+from products.event_definitions.backend.facade.enums import PropertyDefinitionType
+from products.signals.backend.issue_filter_preview import PreviewSignal, preview_issue_filters
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportPullRequest, SignalSpend
 from products.signals.backend.signal_metadata import EMBEDDING_MODEL
 
@@ -38,6 +44,53 @@ class TestIssueFilterPreview(ClickhouseTestMixin, NonAtomicAPIBaseTest):
         assert body["status"] == "ok"
         assert [row["source_type"] for row in body["results"]] == ["issue_spiking"]
         assert body["results"][0]["passing_count"] == body["results"][0]["excluded_count"] == 0
+
+    def test_cache_expires_and_keeps_filters_and_transition_types_separate(self):
+        now = timezone.now()
+        signal = PreviewSignal(
+            timestamp=now, signal_id=str(uuid4()), source_type="issue_spiking", issue_id=str(uuid4()), report_id=""
+        )
+        with (
+            time_machine.travel(now, tick=False) as clock,
+            patch("products.signals.backend.issue_filter_preview.recent_signals", return_value=[]) as history,
+        ):
+            initial = preview_issue_filters(self.team, self.user, {}, "issue_spiking")
+            assert initial["status"] == "ok"
+            assert initial["results"][0]["passing_count"] == 0
+            history.return_value = [signal]
+            assert (
+                preview_issue_filters(self.team, self.user, {"properties": [], "bytecode": []}, "issue_spiking")
+                == initial
+            )
+
+            all_types = preview_issue_filters(self.team, self.user, {})
+            assert sum(row["passing_count"] for row in all_types["results"]) == 1
+            candidate = {"properties": [{"key": "severity", "operator": "is_set"}]}
+            filtered = preview_issue_filters(self.team, self.user, candidate, "issue_spiking")
+            assert filtered["results"][0]["unavailable_count"] == 1
+            teammate = User.objects.create_and_join(self.organization, "teammate@example.com", None)
+            assert preview_issue_filters(self.team, teammate, {}, "issue_spiking")["results"][0]["passing_count"] == 1
+
+            clock.shift(timedelta(seconds=61))
+            refreshed = preview_issue_filters(self.team, self.user, {}, "issue_spiking")
+            assert refreshed["results"][0]["passing_count"] == 1
+
+    def test_permission_change_blocks_a_cached_filter(self):
+        candidate = {"properties": [{"key": "severity", "operator": "is_set"}]}
+        assert preview_issue_filters(self.team, self.user, candidate)["status"] == "ok"
+        restricted = RestrictedProperty(name="severity", property_type=PropertyDefinitionType.EVENT)
+        with patch(
+            "products.signals.backend.issue_filter_preview.access.get_restricted_properties_with_group_type_index_for_team",
+            return_value={restricted},
+        ):
+            denied = preview_issue_filters(self.team, self.user, candidate)
+        assert denied["status"] == "access_denied"
+        assert denied["results"] == []
+
+    def test_failed_replay_can_be_retried_immediately(self):
+        with patch("products.signals.backend.issue_filter_preview.recent_signals", side_effect=TimeoutError):
+            assert preview_issue_filters(self.team, self.user, {}, "issue_reopened")["status"] == "query_failed"
+        assert preview_issue_filters(self.team, self.user, {}, "issue_reopened")["status"] == "ok"
 
     def test_reports_follow_only_excluded_transitions(self):
         now = timezone.now()

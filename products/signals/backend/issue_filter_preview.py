@@ -1,3 +1,4 @@
+import json
 from collections.abc import Iterator
 from datetime import datetime, timedelta
 from itertools import batched
@@ -15,6 +16,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.dataclasses import frozen
 from posthog.models import Team, User
+from posthog.utils import generate_cache_key, get_safe_cache, safe_cache_add
 
 from products.access_control.backend.facade import api as access
 from products.error_tracking.backend.facade import alerts
@@ -27,6 +29,7 @@ from products.signals.backend.source_filters import SourceFilterPreviewStatus as
 logger = structlog.get_logger(__name__)
 SAMPLE_SIZE = 5
 PAGE_SIZE = 500
+PREVIEW_CACHE_TTL_SECONDS = 60
 
 
 @frozen
@@ -152,11 +155,23 @@ def preview_issue_filters(team: Team, user: User, issue_filters: object, source_
         return {"status": Status.ACCESS_DENIED, "error": "A filter property is restricted.", "results": []}
 
     types = [source_type] if source_type else sorted(kind for _, kind in ISSUE_FILTER_SOURCES)
+    cache_key = generate_cache_key(
+        team.pk,
+        json.dumps(
+            ["signals:issue-filter-preview:v1", user.pk, types, compiled], sort_keys=True, separators=(",", ":")
+        ),
+    )
+    cached = get_safe_cache(cache_key)
+    if isinstance(cached, dict):
+        return cached
     try:
-        return _replay_window(team, compiled, types)
+        preview = _replay_window(team, compiled, types)
     except Exception:
         logger.exception("signals.issue_filter_preview.query_failed", team_id=team.pk)
         return {"status": Status.QUERY_FAILED, "error": "Could not read the preview. Try again.", "results": []}
+    if preview["status"] == Status.OK:
+        safe_cache_add(cache_key, preview, timeout=PREVIEW_CACHE_TTL_SECONDS)
+    return preview
 
 
 def _replay_window(team: Team, compiled: dict, types: list[str]) -> dict:
