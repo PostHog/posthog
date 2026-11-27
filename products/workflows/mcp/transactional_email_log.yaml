@@ -23,9 +23,9 @@ tools:
             most 50 events before and 100 after, and has_more_before or has_more_after is true when it left some out.
             sessions lists each session once, and started_after_send is true when the person started it after the email.
             Pass a session_id to the session recording tools to watch it. The lists are empty when the send named no
-            distinct ID. Pass expand to get the element each autocaptured click happened on. clicks lists each click
-            on the email's links with its link_url and the session it started, matched by the run tag on the landing
-            page; no_session_reason says why a click has none. email_events lists the send's own engagement events.
+            distinct ID. Pass expand to get the element each autocaptured click happened on. clicks lists each click on
+            the email's links with its link_url and the session it started, matched by the run tag on the landing page;
+            no_session_reason says why a click has none. email_events lists the send's own engagement events.
         feature_flag: workflows-transactional-email-api
         response:
             strip_nulls: true
