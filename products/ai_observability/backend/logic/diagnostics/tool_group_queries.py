@@ -34,6 +34,7 @@ from .trends import series_of
 TOOLS_PAGE_QUERY_NAME = "ai_diagnostics_tools_page"
 TOOL_GROUP_QUERY_NAME = "ai_diagnostics_tool_group"
 TOOLS_CAPTURED_QUERY_NAME = "ai_diagnostics_tools_captured"
+TOOL_TRACES_QUERY_NAME = "ai_diagnostics_tool_traces"
 
 # Each value is ascending in the page's sort, so a descending order negates its value.
 _ORDER_KEYS: dict[ToolOrder, tuple[str, ...]] = {
@@ -330,6 +331,24 @@ def load_tool_group(team: Team, user: User | None, selection: TraceSelection, na
         if previous is not None
         else (),
     )
+
+
+def load_tool_traces(team: Team, user: User | None, selection: TraceSelection, names: Sequence[str]) -> dict[str, int]:
+    """How many of the range's traces call each of `names`. A name no generation in the range calls has no entry."""
+    if not names:
+        return {}
+    named = ast.CompareOperation(
+        op=ast.CompareOperationOp.In, left=ast.Field(chain=["name"]), right=ast.Constant(value=list(names))
+    )
+    query = parse_select(
+        "SELECT name, {traces} FROM {events} GROUP BY name",
+        placeholders={
+            "traces": _traces(),
+            "events": _tool_events(team, selection, None, named),
+        },
+    )
+    results = execute_selection(team, user, selection, query, TOOL_TRACES_QUERY_NAME, list_time_limit=False)
+    return {name: traces for name, traces in results if traces}
 
 
 def has_any_tool_call(team: Team, user: User | None, selection: TraceSelection) -> bool:

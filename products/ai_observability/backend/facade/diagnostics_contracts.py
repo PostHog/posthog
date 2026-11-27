@@ -214,3 +214,17 @@ class ToolGroupDetail(Contract):
         "of `bucketStarts` in the same position. When the period's bounds give it a bucket more, its last bucket is "
         "left out. Empty when the range has no previous period."
     )
+
+
+class ToolTraceShare(Contract):
+    key: str = Field(description="The tool's id, as requested.")
+    trace_share: float = Field(
+        description="The share of the date range's traces that called the tool, from 0 to 1. 0 when the range has "
+        "no trace or no trace called the tool. The range's trace count can be a few minutes old."
+    )
+
+
+class ToolTraceShareList(Contract):
+    items: list[ToolTraceShare] = Field(
+        description="One item per requested key, once each, in the order first requested."
+    )

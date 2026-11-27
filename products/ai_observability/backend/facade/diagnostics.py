@@ -22,14 +22,29 @@ from ..logic.diagnostics.error_groups import (
     ErrorView as ErrorView,
     first_seen_in_range,
 )
-from ..logic.diagnostics.tool_group_queries import ToolPageRead, has_any_tool_call, load_tool_group, load_tool_page
+from ..logic.diagnostics.tool_group_queries import (
+    ToolPageRead,
+    has_any_tool_call,
+    load_tool_group,
+    load_tool_page,
+    load_tool_traces,
+)
 from ..logic.diagnostics.tool_groups import (
     ToolView as ToolView,
     tool_item,
+    trace_share,
 )
 from ..logic.diagnostics.trends import change_label, error_change_tone, paired_with_range
 from ..logic.traces.lookback import has_no_lookback, seen_before
-from ..logic.traces.trace_metrics import bucket_size_for, bucket_starts, has_too_many_buckets, zoned_selection
+from ..logic.traces.trace_metrics import (
+    bucket_size_for,
+    bucket_starts,
+    has_no_previous_window,
+    has_too_many_buckets,
+    zoned_selection,
+)
+from ..logic.traces.trace_metrics_queries import TraceMetricsTooHeavyError, load_trace_metrics
+from ..logic.traces.trace_metrics_store import cached_trace_metrics
 from ..logic.traces.trace_selection import (
     InvalidTraceWindowError as InvalidTraceWindowError,
     TraceSelection,
@@ -49,11 +64,14 @@ from .diagnostics_contracts import (
     ToolListCounts,
     ToolOrder as ToolOrder,
     ToolPage as ToolPage,
+    ToolTraceShare,
+    ToolTraceShareList,
 )
 
 DIAGNOSTICS_PAGE_MAX_LIMIT: Final = 100
 # The errors list asks when each error of a page was first seen, so one request takes a page of keys.
 ERROR_FIRST_SEEN_MAX_KEYS: Final = DIAGNOSTICS_PAGE_MAX_LIMIT
+TOOL_TRACE_SHARES_MAX_KEYS: Final = DIAGNOSTICS_PAGE_MAX_LIMIT
 
 
 class DiagnosticsRangeTooLongError(Exception):
@@ -65,6 +83,10 @@ class ErrorNotFoundError(Exception):
 
 
 class ErrorFirstSeenTooManyKeysError(ValueError):
+    pass
+
+
+class ToolTraceSharesTooManyKeysError(ValueError):
     pass
 
 
@@ -190,6 +212,44 @@ def _readable(team: Team, selection: TraceSelection) -> TraceSelection:
     if has_no_lookback(zoned.window):
         raise InvalidTraceWindowError("The date range is outside the dates that can be read")
     return zoned
+
+
+def load_tool_trace_shares(
+    team: Team, user: User | None, selection: TraceSelection, keys: Sequence[str]
+) -> ToolTraceShareList:
+    """The share of the range's traces that call each tool, one entry per distinct key in request order. The range's
+    trace count comes from the trace metrics cache, so it can be as old as the cache allows. Raises
+    `ToolTraceSharesTooManyKeysError` past `TOOL_TRACE_SHARES_MAX_KEYS` keys, `MalformedEntityKeyError`,
+    `DiagnosticsRangeTooLongError` when the trace metrics read is too heavy, and the range errors of
+    `load_error_list`."""
+    requested = list(dict.fromkeys(keys))
+    if len(requested) > TOOL_TRACE_SHARES_MAX_KEYS:
+        raise ToolTraceSharesTooManyKeysError(f"Send at most {TOOL_TRACE_SHARES_MAX_KEYS} keys.")
+    names = {key: decode_entity_key(key) for key in requested}
+    zoned = _readable(team, selection)
+    total_traces = _range_traces(team, user, zoned)
+    traces = load_tool_traces(team, user, zoned, list(names.values()))
+    return ToolTraceShareList(
+        items=[
+            ToolTraceShare(key=key, trace_share=trace_share(traces.get(name, 0), total_traces))
+            for key, name in names.items()
+        ]
+    )
+
+
+def _range_traces(team: Team, user: User | None, zoned: TraceSelection) -> int:
+    size = bucket_size_for(zoned.window)
+    if has_no_previous_window(zoned.window):
+        raise InvalidTraceWindowError("The date range is outside the dates that can be read")
+    try:
+        rows = (
+            cached_trace_metrics(team, user, zoned, size)
+            if user is not None
+            else load_trace_metrics(team, None, zoned, size)
+        )
+    except TraceMetricsTooHeavyError as error:
+        raise DiagnosticsRangeTooLongError() from error
+    return rows.current.traces
 
 
 def _to_error_page(read: ErrorPageRead, nothing_captured: bool) -> ErrorPage:
