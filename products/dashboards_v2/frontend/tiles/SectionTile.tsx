@@ -16,7 +16,6 @@ import {
     Card,
     CardContent,
     CardHeader,
-    CardTitle,
     Input,
 } from '@posthog/quill'
 
@@ -123,16 +122,13 @@ export function SectionTile({
                         />
                         <SectionCount count={panel.tiles.length} />
                         {description && descriptionMode === 'icon' && <DescriptionInfo description={description} />}
-                        {description && (
-                            <span
-                                className={clsx(
-                                    descriptionMode === 'icon' && DESCRIPTION_IMAGE_ONLY_CLASS,
-                                    'TileGrid__text min-w-0 shrink-[100] truncate text-xs text-muted-foreground'
-                                )}
-                                title={description}
-                            >
+                        {description && descriptionMode === 'icon' && (
+                            <span className={clsx(DESCRIPTION_IMAGE_ONLY_CLASS, DESCRIPTION_TEXT)}>{description}</span>
+                        )}
+                        {description && descriptionMode === 'below' && (
+                            <DescriptionInfo description={description} className={clsx(DESCRIPTION_TEXT, 'text-left')}>
                                 {description}
-                            </span>
+                            </DescriptionInfo>
                         )}
                     </SectionHeader>
                     {!collapsed && (
@@ -184,6 +180,9 @@ export function Section({
 
 // A long title stops here, so the count, the description and the actions keep their room in the header.
 const TITLE_MAX_WIDTH = 'max-w-96'
+
+// It starts from no width and takes what the title and count leave, so a long description never cuts the title short.
+const DESCRIPTION_TEXT = 'TileGrid__text min-w-0 flex-1 basis-0 truncate text-xs text-muted-foreground'
 
 /** The section's title bar, which is also what the section is dragged by. */
 export function SectionHeader({ actions, children }: { actions?: ReactNode; children: ReactNode }): JSX.Element {
@@ -253,9 +252,13 @@ export function SectionTitle({
         )
     } else {
         label = (
-            <CardTitle className={clsx('TileGrid__text truncate', TITLE_MAX_WIDTH)} title={title}>
+            // A tap opens the whole title, because a touch screen has no hover to show what the header cuts off.
+            <DescriptionInfo
+                description={title}
+                className={clsx('quill-card__title TileGrid__text truncate text-left', TITLE_MAX_WIDTH)}
+            >
                 {title}
-            </CardTitle>
+            </DescriptionInfo>
         )
     }
 
