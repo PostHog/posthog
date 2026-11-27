@@ -355,29 +355,40 @@ describe('adventCalendarLogic', () => {
         expect(logic.values.pollShares).toEqual(shares)
     })
 
-    it('keeps the shares of a saved answer when the results the calendar loaded first arrive later', async () => {
-        let release = (): void => {}
-        const api = calendarApi(
-            {},
-            resultsOf({ ...DAY_TWO_ANSWERED, answer: null }),
-            new Promise((done) => (release = done))
-        )
-        useMocks(api.mocks)
-        logic.unmount()
-        logic = adventCalendarLogic()
-        logic.mount()
-        await waitFor(() => expect(api.reads).toEqual([1]))
-        useMocks(calendarApi().mocks)
-        logic.actions.activateDoor('door-1')
-        logic.actions.finishReveal()
+    it.each<[string, object]>([
+        ['without the answer', { ...DAY_TWO_ANSWERED, answer: null }],
+        [
+            'with the answer at older shares',
+            {
+                ...DAY_TWO_ANSWERED,
+                shares: [
+                    { option: 'james', share: 50 },
+                    { option: 'tim', share: 50 },
+                ],
+            },
+        ],
+    ])(
+        'keeps the shares of a saved answer when the results the calendar loaded first arrive later %s',
+        async (_, lateQuestion) => {
+            let release = (): void => {}
+            const api = calendarApi({}, resultsOf(lateQuestion), new Promise((done) => (release = done)))
+            useMocks(api.mocks)
+            logic.unmount()
+            logic = adventCalendarLogic()
+            logic.mount()
+            await waitFor(() => expect(api.reads).toEqual([1]))
+            useMocks(calendarApi().mocks)
+            logic.actions.activateDoor('door-1')
+            logic.actions.finishReveal()
 
-        logic.actions.answerDoor('door-2', 'tim')
-        await waitFor(() => expect(logic.values.pollShares).toEqual({ 2: { james: 38, tim: 62 } }))
-        release()
-        await expectLogic(logic).toFinishAllListeners()
+            logic.actions.answerDoor('door-2', 'tim')
+            await waitFor(() => expect(logic.values.pollShares).toEqual({ 2: { james: 38, tim: 62 } }))
+            release()
+            await expectLogic(logic).toFinishAllListeners()
 
-        expect(logic.values.pollShares).toEqual({ 2: { james: 38, tim: 62 } })
-    })
+            expect(logic.values.pollShares).toEqual({ 2: { james: 38, tim: 62 } })
+        }
+    )
 
     it.each(['before', 'after'])(
         'shows the shares of both answers when the server reply to the first is held %s it saves the answer',

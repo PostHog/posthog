@@ -86,7 +86,8 @@ async function resultsOrNull(request: Promise<AdventCalendarResultsApi>): Promis
 
 function mergeResults(
     current: AdventCalendarResultsApi | null,
-    next: AdventCalendarResultsApi | null
+    next: AdventCalendarResultsApi | null,
+    keepAnswered: boolean
 ): AdventCalendarResultsApi | null {
     if (!current?.questions || !next?.questions) {
         return next ?? current
@@ -96,7 +97,7 @@ function mergeResults(
         ...next,
         questions: next.questions.map((question) => {
             const answered = known.get(question.day)
-            return !question.answer && answered?.answer ? answered : question
+            return answered?.answer && (keepAnswered || !question.answer) ? answered : question
         }),
     }
 }
@@ -330,21 +331,26 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
         share: true,
         preloadImages: true,
     }),
-    loaders(({ values }) => {
+    loaders(({ values, cache }) => {
+        // A results read that an answer's save resolved during holds shares older than the ones that save
+        // returned, so the answered questions already in the state win over it.
         const mergedResults = async (
-            request: Promise<AdventCalendarResultsApi>
+            request: Promise<AdventCalendarResultsApi>,
+            isAnswer: boolean
         ): Promise<AdventCalendarResultsApi | null> => {
+            const savesBefore = cache.answerSaves ?? 0
             const results = await resultsOrNull(request)
-            return mergeResults(values.pollResults, results)
+            cache.answerSaves = (cache.answerSaves ?? 0) + (isAnswer ? 1 : 0)
+            return mergeResults(values.pollResults, results, !isAnswer && cache.answerSaves !== savesBefore)
         }
         return {
             pollResults: [
                 null as AdventCalendarResultsApi | null,
                 {
                     loadPollResults: async () =>
-                        mergedResults(api.workflowAdventCalendarResults(String(values.currentProjectId))),
+                        mergedResults(api.workflowAdventCalendarResults(String(values.currentProjectId)), false),
                     savePollAnswer: async (answer: AdventCalendarAnswerApi) =>
-                        mergedResults(api.workflowAdventCalendarAnswer(String(values.currentProjectId), answer)),
+                        mergedResults(api.workflowAdventCalendarAnswer(String(values.currentProjectId), answer), true),
                 },
             ],
         }
