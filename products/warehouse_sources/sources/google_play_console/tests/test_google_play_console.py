@@ -529,7 +529,6 @@ def test_unknown_app_stops_the_sync_with_package_name_copy(schema_name: str) -> 
 @pytest.mark.parametrize(
     "status, expected_copy",
     [
-        (429, "limiting requests"),
         (500, "on Google's side"),
         (502, "on Google's side"),
         (503, "on Google's side"),
@@ -557,6 +556,33 @@ def test_metric_set_transient_error_stays_retryable_with_vendor_copy(status: int
         if error_message_matches(error, [pattern])
     ]
     assert messages and expected_copy in messages[0]
+
+
+def test_metric_set_429_exhausts_the_in_process_retry_and_stays_retryable() -> None:
+    # Unlike a 500/502/503, a single 429 never reaches this far: `GooglePlayConsoleClient.request`
+    # retries it in-process first (`@vendor_retry`), so the script has to exhaust that budget (5
+    # tries) before the wrapped RetryableHTTPError reaches the activity.
+    with mock.patch(f"{MODULE}._today", return_value=TODAY):
+        result = _run(
+            "crash_rate",
+            [
+                ScriptedResponse(json=_freshness(dt.date(2024, 3, 2))),
+                *[ScriptedResponse(status=429, body=b'{"error": {"status": "RESOURCE_EXHAUSTED"}}') for _ in range(5)],
+            ],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=dt.date(2024, 3, 1),
+        )
+
+    source = GooglePlayConsoleSource()
+    error = str(result.raised)
+    assert not error_message_matches(error, source.get_non_retryable_errors().keys())
+    assert error_message_matches(error, source.get_retryable_errors())
+    messages = [
+        message
+        for pattern, message in source.get_retry_exhausted_errors().items()
+        if error_message_matches(error, [pattern])
+    ]
+    assert messages and "limiting requests" in messages[0]
 
 
 def test_metric_set_query_follows_pagination_until_the_token_runs_out() -> None:
