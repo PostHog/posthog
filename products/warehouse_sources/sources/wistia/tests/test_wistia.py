@@ -318,6 +318,16 @@ class TestWebinarRegistrations:
             ("w2", "v1"),
         ]
 
+    def test_a_cursor_that_does_not_advance_fails_the_sync(self) -> None:
+        stuck = ScriptedResponse(
+            json={"registrations": [{"visitor_key": "v1"}], "page_info": {"has_next_page": True, "end_cursor": "same"}}
+        )
+        result = _driver().run("webinar_registrations", [_page([{"hashed_id": "w1"}]), stuck, stuck, stuck])
+
+        assert isinstance(result.raised, ValueError)
+        assert "not advancing" in str(result.raised)
+        assert len(result.requests) == 3
+
 
 def _media_window_answer(request: RecordedRequest) -> ScriptedResponse:
     if request.path == "/modern/medias":

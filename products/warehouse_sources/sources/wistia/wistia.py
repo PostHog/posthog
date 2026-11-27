@@ -74,7 +74,7 @@ class WistiaPageInfoPaginator(JSONResponseCursorPaginator):
     """
 
     def __init__(self) -> None:
-        super().__init__(cursor_path="page_info.end_cursor", cursor_param="cursor")
+        super().__init__(cursor_path="page_info.end_cursor", cursor_param="cursor", raise_on_repeated_cursor=True)
 
     def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
         super().update_state(response, data)
