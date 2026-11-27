@@ -6,7 +6,7 @@ import { JWT, PosthogJwtAudience, makeOptionalJwt } from './jwt-utils'
 const DEFAULT_TTL_SECONDS = 5 * 60
 
 // jsonwebtoken tolerates this much clock skew between minter and verifier.
-const CLOCK_TOLERANCE_SECONDS = 30
+export const CLOCK_TOLERANCE_SECONDS = 30
 
 /**
  * One service-to-service auth relationship, Node side. The Python counterpart is
