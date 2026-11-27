@@ -9,9 +9,89 @@ import pyarrow as pa
 from parameterized import parameterized
 
 from products.warehouse_sources.sources.sdk.internals import table_from_py_list
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver
 from products.warehouse_sources.sources.vapi import vapi
+from products.warehouse_sources.sources.vapi._config import VapiSourceConfig
 from products.warehouse_sources.sources.vapi.settings import VAPI_VERSION_V1, VAPI_VERSION_V2
+from products.warehouse_sources.sources.vapi.source import VapiSource
 from products.warehouse_sources.sources.vapi.vapi import VapiResumeConfig, _format_datetime_param, get_rows, vapi_source
+
+
+class TestAddedEndpoints:
+    @parameterized.expand(
+        [
+            ("empty", []),
+            (
+                "daily_totals",
+                [
+                    {
+                        "date": "2026-01-01",
+                        "callCount": 2,
+                        "totalCost": 0.5,
+                        "totalDuration": 90,
+                        "totalMinutesUsed": 1.5,
+                    },
+                    {"date": "2026-01-02", "callCount": 0, "totalCost": 0, "totalDuration": 0, "totalMinutesUsed": 0},
+                ],
+            ),
+        ]
+    )
+    def test_analytics_posts_history_query_and_extracts_daily_rows(
+        self, _name: str, rows: list[dict[str, Any]]
+    ) -> None:
+        result = SourceDriver(VapiSource(), VapiSourceConfig(api_key="test-key")).run(
+            "analytics",
+            [ScriptedResponse(json=[{"name": "daily_calls", "timeRange": {"step": "day"}, "result": rows}])],
+        )
+
+        assert result.raised is None
+        assert [row for table in result.items for row in table.to_pylist()] == rows
+        assert result.paths == ["/analytics"]
+        assert result.requests[0].method == "POST"
+        assert result.requests[0].json() == {
+            "queries": [
+                {
+                    "name": "daily_calls",
+                    "table": "call",
+                    "timeRange": {"start": "1970-01-01T00:00:00.000Z", "step": "day", "timezone": "UTC"},
+                    "operations": [
+                        {"operation": "count", "column": "id", "alias": "callCount"},
+                        {"operation": "sum", "column": "cost", "alias": "totalCost"},
+                        {"operation": "sum", "column": "duration", "alias": "totalDuration"},
+                        {"operation": "sum", "column": "minutesUsed", "alias": "totalMinutesUsed"},
+                    ],
+                }
+            ]
+        }
+        assert result.saved_states == []
+
+    @parameterized.expand([("v1", VAPI_VERSION_V1), ("v2", VAPI_VERSION_V2)])
+    def test_structured_outputs_follow_page_metadata(self, _name: str, api_version: str) -> None:
+        result = SourceDriver(VapiSource(), VapiSourceConfig(api_key="test-key")).run(
+            "structured_outputs",
+            [
+                ScriptedResponse(
+                    json={
+                        "results": [{"id": "output-1", "name": "Category", "createdAt": "2026-01-01T00:00:00.000Z"}],
+                        "metadata": {"hasNextPage": True},
+                    }
+                ),
+                ScriptedResponse(
+                    json={
+                        "results": [{"id": "output-2", "name": "Rating", "createdAt": "2026-01-02T00:00:00.000Z"}],
+                        "metadata": {"hasNextPage": False},
+                    }
+                ),
+            ],
+            api_version=api_version,
+        )
+
+        assert result.raised is None
+        assert [row["id"] for table in result.items for row in table.to_pylist()] == ["output-1", "output-2"]
+        assert result.paths == ["/structured-output", "/structured-output"]
+        assert result.params("page") == ["1", "2"]
+        assert result.params("sortBy") == ["createdAt", "createdAt"]
+        assert result.params("sortOrder") == ["ASC", "ASC"]
 
 
 class TestFormatDatetimeParam:

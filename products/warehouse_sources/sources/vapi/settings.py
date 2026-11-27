@@ -156,6 +156,19 @@ VAPI_ENDPOINTS: dict[str, VapiEndpointConfig] = {
         path="/eval/run",
         pagination="page",
     ),
+    "analytics": VapiEndpointConfig(
+        name="analytics",
+        path="/analytics",
+        pagination="none",
+        partition_key=None,
+        primary_keys=["date"],
+        should_sync_default=False,
+    ),
+    "structured_outputs": VapiEndpointConfig(
+        name="structured_outputs",
+        path="/structured-output",
+        pagination="page",
+    ),
 }
 
 ENDPOINTS = tuple(VAPI_ENDPOINTS.keys())

@@ -97,8 +97,17 @@ def _make_session(api_key: str) -> requests.Session:
     wait=wait_exponential_jitter(initial=1, max=30),
     reraise=True,
 )
-def _fetch(session: requests.Session, url: str, logger: FilteringBoundLogger) -> Any:
-    response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
+def _fetch(
+    session: requests.Session,
+    url: str,
+    logger: FilteringBoundLogger,
+    json_body: dict[str, Any] | None = None,
+) -> Any:
+    response = (
+        session.post(url, json=json_body, timeout=REQUEST_TIMEOUT_SECONDS)
+        if json_body is not None
+        else session.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
+    )
 
     if response.status_code == 429 or response.status_code >= 500:
         raise VapiRetryableError(f"Vapi API error (retryable): status={response.status_code}, url={url}")
@@ -229,6 +238,34 @@ def get_rows(
     session = _make_session(api_key)
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
 
+    if endpoint == "analytics":
+        data = _fetch(
+            session,
+            f"{VAPI_BASE_URL}{config.path}",
+            logger,
+            json_body={
+                "queries": [
+                    {
+                        "name": "daily_calls",
+                        "table": "call",
+                        # The API defaults to seven days, so request all available history explicitly.
+                        "timeRange": {"start": "1970-01-01T00:00:00.000Z", "step": "day", "timezone": "UTC"},
+                        "operations": [
+                            {"operation": "count", "column": "id", "alias": "callCount"},
+                            {"operation": "sum", "column": "cost", "alias": "totalCost"},
+                            {"operation": "sum", "column": "duration", "alias": "totalDuration"},
+                            {"operation": "sum", "column": "minutesUsed", "alias": "totalMinutesUsed"},
+                        ],
+                    }
+                ]
+            },
+        )
+        for query in data:
+            batcher.batch(query["result"])
+            yield from _drain(batcher, resumable_source_manager, save_resume_state=False)
+        yield from _drain(batcher, resumable_source_manager, save_resume_state=False, include_incomplete_chunk=True)
+        return
+
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     resume_cursor = resume.created_at_cursor if resume is not None else None
 
@@ -323,7 +360,7 @@ def vapi_source(
         primary_keys=config.primary_keys,
         # created_at_cursor endpoints return newest-first, so the pipeline must track the
         # earliest/latest watermarks the Stripe way; page endpoints are requested ascending.
-        sort_mode="desc" if config.pagination == "created_at_cursor" else "asc",
+        sort_mode=None if endpoint == "analytics" else "desc" if config.pagination == "created_at_cursor" else "asc",
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if config.partition_key else None,
