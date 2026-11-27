@@ -543,6 +543,37 @@ describe('statusOf', () => {
             'the ramp ran to its last step, but lost 2 of 360 deliveries (0.56%): 2 in the 2x step; sent 1 duplicate of 357 deliveries (0.28%): 1 in the 1x step',
         ],
         [
+            'a ramp that ran to its ceiling with a confirmed duplicate while SES feedback was still in flight',
+            {
+                convergence: { converged: true, unfinishedJobs: 0, unrecorded: [], tookMs: 1000, feedbackInFlight: 2 },
+                invariants: [
+                    { name: 'duplicate_sends', passed: false, observed: 1, unitIds: ['run-3'], crossedBy: 'run-3' },
+                    { ...UNJUDGED, unjudged: IN_FLIGHT },
+                ],
+                ramp: {
+                    end: 'ceiling',
+                    sustainedScale: 1,
+                    reason: 'every step held up to the 1x ceiling',
+                    rates: [
+                        {
+                            index: 0,
+                            scale: 1,
+                            expected: 120,
+                            lost: 0,
+                            lossRate: 0,
+                            sent: 120,
+                            duplicates: 1,
+                            duplicateRate: 1 / 120,
+                            refused: 0,
+                            refusedRate: 0,
+                        },
+                    ],
+                },
+            },
+            'failed',
+            `the ramp ran to its last step, but sent 1 duplicate of 120 deliveries (0.83%): 1 in the 1x step; no_loss was not judged: ${IN_FLIGHT}`,
+        ],
+        [
             'a ramp that ran to its ceiling with duplicates the janitor resets allow',
             {
                 ramp: {

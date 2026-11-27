@@ -244,7 +244,7 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
         const deadline = new AbortController()
         await Promise.race([
             Promise.allSettled(posting),
-            sleep(until - Date.now(), undefined, { signal: deadline.signal }).catch(() => undefined),
+            sleep(until - performance.now(), undefined, { signal: deadline.signal }).catch(() => undefined),
         ])
         deadline.abort()
     }
@@ -393,8 +393,8 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
             return
         }
         if (req.method === 'GET' && url.pathname === '/_truth/head') {
-            const until = Date.now() + headWaitOf(url.searchParams.get('waitMs'))
-            while (posting.size > 0 && Date.now() < until) {
+            const until = performance.now() + headWaitOf(url.searchParams.get('waitMs'))
+            while (posting.size > 0 && performance.now() < until) {
                 await postedOrDeadline(until)
             }
         }
