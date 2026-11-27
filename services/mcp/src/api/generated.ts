@@ -43169,15 +43169,17 @@ export namespace Schemas {
 
     /**
      * * `off_site` - The link goes outside the sending domain, so it carries no run tag
+     * * `sensitive` - A sensitive email's links carry no run tag
      * * `link_tagging_off` - The project doesn't tag email links
      * * `link_unknown` - No click event recorded the link
-     * * `not_found` - No visit with this send's run tag
+     * * `not_found` - No visit with this send's run tag could be tied to the click
      */
     export type EmailClickNoSessionReasonEnum = typeof EmailClickNoSessionReasonEnum[keyof typeof EmailClickNoSessionReasonEnum];
 
 
     export const EmailClickNoSessionReasonEnum = {
       OffSite: 'off_site',
+      Sensitive: 'sensitive',
       LinkTaggingOff: 'link_tagging_off',
       LinkUnknown: 'link_unknown',
       NotFound: 'not_found',
@@ -130656,7 +130658,7 @@ export namespace Schemas {
       /** When the recipient clicked. */
       at: string;
       /**
-         * The link that was clicked. Only its origin for a sensitive email. Null when the project doesn't capture email engagement events, or the send named no distinct ID.
+         * The link that was clicked, with no path for a sensitive email. Null when the project doesn't capture email engagement events, or the send named no distinct ID.
          * @nullable
          */
       link_url: string | null;
@@ -130670,9 +130672,10 @@ export namespace Schemas {
       /** Why no session was found: `off_site` when the link goes outside the sending domain, `link_tagging_off` when the project doesn't tag email links, `link_unknown` when no click event recorded the link, and `not_found` when no page view carried this send's run tag. Null when a session was found.
        *
        * * `off_site` - The link goes outside the sending domain, so it carries no run tag
+       * * `sensitive` - A sensitive email's links carry no run tag
        * * `link_tagging_off` - The project doesn't tag email links
        * * `link_unknown` - No click event recorded the link
-       * * `not_found` - No visit with this send's run tag */
+       * * `not_found` - No visit with this send's run tag could be tied to the click */
       no_session_reason: EmailClickNoSessionReasonEnum | null;
     }
 
