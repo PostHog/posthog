@@ -9,6 +9,7 @@ import { initKeaTests } from '~/test/init'
 import { UserType } from '~/types'
 
 import { adventCalendarLogic } from './adventCalendarLogic'
+import { AdventDoorCard } from './AdventDoorCard'
 import { AdventShareButton } from './AdventShareButton'
 import { AdventStage } from './AdventStage'
 
@@ -67,6 +68,44 @@ describe('AdventStage', () => {
         expect(reach()).toEqual({ doors: true, share: true })
 
         unmount()
+        logic.unmount()
+    })
+
+    it('lays out a locked door card the same in the top and bottom rows, with the weekday and date on single lines', () => {
+        const logic = adventCalendarLogic()
+        logic.mount()
+        const noop = (): void => {}
+        const cardOf = (day: number): HTMLElement => {
+            const door = logic.values.graph.doors.find((candidate) => candidate.day === day)!
+            const { container } = render(
+                <AdventDoorCard
+                    door={door}
+                    face={{ left: 500, top: door.row === 2 ? 600 : 100, size: 56, zoom: 1 }}
+                    stage={{ width: 1200, height: 720 }}
+                    isOpen
+                    isPinned={false}
+                    onPin={noop}
+                    onAnswer={noop}
+                    onTipClick={noop}
+                    onClose={noop}
+                    onMouseEnter={noop}
+                    onMouseLeave={noop}
+                />
+            )
+            return container.querySelector<HTMLElement>('[data-attr="advent-door-card"]')!
+        }
+        const layout = (card: HTMLElement): string[] => [
+            card.className,
+            ...Array.from(card.querySelectorAll('*')).map((node) => node.getAttribute('class') ?? node.tagName),
+        ]
+        const top = cardOf(4)
+        const bottom = cardOf(21)
+
+        expect(logic.values.graph.doors.find((door) => door.day === 21)?.row).toBe(2)
+        expect(layout(bottom)).toEqual(layout(top))
+        expect(bottom.textContent).toBe('21MondayCoffee or teaOpens December 21.')
+        expect(top.textContent).toBe('4FridayLockedOpens December 4.')
+
         logic.unmount()
     })
 
