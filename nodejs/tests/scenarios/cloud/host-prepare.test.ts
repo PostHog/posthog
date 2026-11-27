@@ -69,7 +69,7 @@ async function onPostgres<T>(url: string, work: (client: Client) => Promise<T>):
     }
 }
 
-it('refuses an alert bundle when its shipped rules do not match the manifest', () => {
+it('refuses an alert bundle when its shipped rules do not match the manifest, and leaves the card no writer', () => {
     const root = mkdtempSync(path.join(os.tmpdir(), 'scenario-alert-prepare-'))
     try {
         const input = path.join(root, 'input')
@@ -78,6 +78,8 @@ it('refuses an alert bundle when its shipped rules do not match the manifest', (
         mkdirSync(bin)
         mkdirSync(path.join(input, 'alerts'), { recursive: true })
         writeFileSync(path.join(bin, 'aws'), '#!/bin/sh\n[ "$1 $2" = "s3 cp" ]\n', { mode: 0o755 })
+        mkdirSync(path.join(root, 'writer'))
+        writeFileSync(path.join(root, 'writer', 'url'), 'postgres://a@earlier.example.com:5432/cyclotron_node\n')
         writeFileSync(path.join(input, 'alerts/rules.yaml'), 'groups: []\n')
         writeFileSync(path.join(input, 'alerts/labels.yaml'), 'labels: {}\n')
         writeFileSync(
@@ -99,6 +101,7 @@ it('refuses an alert bundle when its shipped rules do not match the manifest', (
 
         expect(result.status).toBe(1)
         expect(readFileSync(path.join(root, 'prepare.log'), 'utf8')).toContain('alerts/rules.yaml: FAILED')
+        expect(existsSync(path.join(root, 'writer', 'url'))).toBe(false)
     } finally {
         rmSync(root, { recursive: true, force: true })
     }
