@@ -7323,6 +7323,7 @@ export namespace Schemas {
             | undefined;
     };
     export type WebVitalsPathBreakdownResultItem = {
+        count?: (number | null) | undefined;
         path: string;
         value: number;
     };
@@ -8542,6 +8543,7 @@ export namespace Schemas {
         interval?: (IntervalType | null) | undefined;
         kind?: string | undefined;
         metric: WebVitalsMetric;
+        minSamples?: (number | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         orderBy?:
             | (Array<
