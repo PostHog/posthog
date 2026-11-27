@@ -503,28 +503,33 @@ const recentBaselineOf = (baseline: Phase): Phase | undefined =>
         ? undefined
         : { from: Math.max(baseline.from, baseline.to - ENVELOPE_MS), to: baseline.to }
 
+// A valve never ends on a whole minute, so the last window takes the remainder rather than leaving it a sliver.
 function windowsOf(phase: Phase): Phase[] {
     const windows: Phase[] = []
     for (let from = phase.from; from < phase.to; from += SERIES_WINDOW_MS) {
-        windows.push({ from, to: Math.min(from + SERIES_WINDOW_MS, phase.to) })
+        const last = phase.to - from < 2 * SERIES_WINDOW_MS
+        windows.push({ from, to: last ? phase.to : from + SERIES_WINDOW_MS })
+        if (last) {
+            break
+        }
     }
     return windows
 }
 
 function seriesOver(
     { drive, timeline }: Pick<MeasureEvidence, 'drive' | 'timeline'>,
-    p99: (window: Phase, final: boolean) => WindowP99
+    p99: (window: Phase, final: boolean, baseline: boolean) => WindowP99
 ): Series | undefined {
     const { baseline, valve } = phasesOf(drive, timeline)
     const recent = recentBaselineOf(baseline)
     if (valve === undefined || recent === undefined) {
         return undefined
     }
-    const reference = p99(recent, false)
+    const reference = p99(recent, false, true)
     const usable = reference.value !== null && reference.clean && !reference.censored
     const bar = usable ? RECOVERY_BAR_MULTIPLE * reference.value! : null
     const points = windowsOf(valve).map((window): SeriesPoint => {
-        const { value, clean, censored, incomplete } = p99(window, window.to === valve.to)
+        const { value, clean, censored, incomplete } = p99(window, window.to === valve.to, false)
         return {
             offsetS: seconds(window.from - valve.from),
             value,
@@ -559,20 +564,25 @@ function recoveryOf({ bar, points }: Series): Measured {
 }
 
 function writeLatencySeries({ writer, drive, timeline }: MeasureEvidence): Series | undefined {
-    return seriesOver({ drive, timeline }, (window) => {
-        const probed = writer.filter(({ at }) => within(window, at))
-        const committed = probed
+    const ends = writer.map(committedAt).sort((a, b) => a - b)
+    return seriesOver({ drive, timeline }, (window, _final, baseline) => {
+        const ended = writer.filter((sample) => within(window, committedAt(sample)))
+        const committed = ended
             .filter(({ ok }) => ok)
             .map(({ latencyMs }) => latencyMs)
             .sort((a, b) => a - b)
+        // A failed attempt still in flight leaves every minute it spans unhealthy, but the baseline stops at T0.
+        const failed = baseline
+            ? ended.some(({ ok }) => !ok)
+            : writer.some((sample) => !sample.ok && sample.at < window.to && committedAt(sample) >= window.from)
         // A silence that a minute boundary splits counts whole in both minutes, so take the probes either side.
-        const previous = writer.findLast(({ at }) => at < window.from)?.at ?? window.from
-        const next = writer.find(({ at }) => at >= window.to)?.at ?? window.to
-        const bounds = [previous, ...probed.map(({ at }) => at), next]
+        const previous = ends.findLast((at) => at < window.from) ?? window.from
+        const next = ends.find((at) => at >= window.to) ?? window.to
+        const bounds = [previous, ...ends.filter((at) => within(window, at)), next]
         const silent = bounds.some((at, i) => i > 0 && at - bounds[i - 1] > WRITER_PROBE_GAP_MS)
         return {
             value: committed.length === 0 ? null : nearestRank(committed, 0.99),
-            clean: !silent && probed.every(({ ok }) => ok),
+            clean: !silent && !failed,
             ...(silent ? { incomplete: true as const } : {}),
         }
     })

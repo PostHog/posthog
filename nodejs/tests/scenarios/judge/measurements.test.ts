@@ -21,7 +21,6 @@ import {
     sampleOf,
     startSampler,
 } from './measurements'
-import { Buckets, p99Of, worstP99Of } from './pickups'
 
 const FROM = Date.parse('2026-01-05T10:00:00.000Z')
 const ROLE = 'cdp-cyclotron-worker-email'
@@ -458,13 +457,17 @@ describe('measurements', () => {
         )
     })
 
-    const latencyWriter = (latency: (second: number) => number | 'failed'): WriterSample[] =>
+    type Latency = number | 'failed' | { failedAfterMs: number }
+
+    const latencyWriter = (latency: (second: number) => Latency): WriterSample[] =>
         everySecondOf(0, 1500).map((second): WriterSample => {
             const ms = latency(second)
             const at = { at: atS(second), monoMs: second * 1000 }
             return ms === 'failed'
                 ? { ...at, latencyMs: 0, ok: false, sqlstate: '57P01' }
-                : { ...at, latencyMs: ms, ok: true, inRecovery: false }
+                : typeof ms === 'object'
+                  ? { ...at, latencyMs: ms.failedAfterMs, ok: false, sqlstate: '57014' }
+                  : { ...at, latencyMs: ms, ok: true, inRecovery: false }
         })
 
     const THREE_MINUTE_VALVE: ValveTimelineEntry[] = [{ ...VALVE, releasedAt: isoAt(880) }]
@@ -472,7 +475,7 @@ describe('measurements', () => {
     it.each<
         [
             string,
-            (second: number) => number | 'failed',
+            (second: number) => Latency,
             ValveTimelineEntry[],
             Omit<Measurement, 'name' | 'unit'>[],
             ((second: number) => boolean)?,
@@ -544,6 +547,59 @@ describe('measurements', () => {
                 { key: 'recovery_seconds', value: 120 },
             ],
             (second) => !between(752, 768)(second),
+        ],
+        [
+            'counts a probe that fails after a minute boundary in both minutes it overlaps',
+            (second) => (between(700, 758)(second) ? 400 : second === 759 ? { failedAfterMs: 2000 } : 10),
+            THREE_MINUTE_VALVE,
+            [
+                { key: 'baseline', value: 10 },
+                { key: 'bar', value: 20 },
+                { key: 't0', value: 400 },
+                { key: 't60', value: 10 },
+                { key: 't120', value: 10 },
+                { key: 'recovery_seconds', value: 120 },
+            ],
+        ],
+        [
+            'keeps a probe that fails after T0 out of the baseline and counts it in the first valve minute',
+            (second) => (second === 699 ? { failedAfterMs: 2000 } : 10),
+            THREE_MINUTE_VALVE,
+            [
+                { key: 'baseline', value: 10 },
+                { key: 'bar', value: 20 },
+                { key: 't0', value: 10 },
+                { key: 't60', value: 10 },
+                { key: 't120', value: 10 },
+                { key: 'recovery_seconds', value: 60 },
+            ],
+        ],
+        [
+            'folds a sub-second remainder into the last minute, so an empty remainder censors nothing',
+            (second) => (between(700, 759)(second) ? 400 : 10),
+            [{ ...VALVE, releasedAt: isoAt(880.5) }],
+            [
+                { key: 'baseline', value: 10 },
+                { key: 'bar', value: 20 },
+                { key: 't0', value: 400 },
+                { key: 't60', value: 10 },
+                { key: 't120', value: 10 },
+                { key: 'recovery_seconds', value: 60 },
+            ],
+            (second) => second !== 880,
+        ],
+        [
+            'reads a slow last minute as not recovered, though one fast probe lands in its sub-second remainder',
+            (second) => (between(700, 879)(second) ? 400 : 10),
+            [{ ...VALVE, releasedAt: isoAt(880.5) }],
+            [
+                { key: 'baseline', value: 10 },
+                { key: 'bar', value: 20 },
+                { key: 't0', value: 400 },
+                { key: 't60', value: 400 },
+                { key: 't120', value: 400 },
+                { key: 'recovery_seconds', value: null, censored: true },
+            ],
         ],
         [
             'keeps the minutes of a valve whose baseline had a failed probe, with no bar and no recovery',
@@ -830,28 +886,82 @@ describe('measurements', () => {
         ])
     })
 
-    it('bounds the last minute p99 at or above the p99 of any share of the closing pickups that falls inside it', () => {
-        let seed = 7
-        const random = (below: number): number => {
-            seed = (seed * 1_103_515_245 + 12_345) % 2 ** 31
-            return seed % below
+    it('never reads the last minute pickup p99 under the p99 of any share of the closing pickups that falls inside it', () => {
+        const p99Bound = ([fast, slow, past]: number[]): number => {
+            const rank = Math.ceil(0.99 * (fast + slow + past))
+            return rank <= fast ? 0.5 : rank <= fast + slow ? 5 : Infinity
         }
-        const cumulated = ([fast, slow, past]: number[]): Buckets => ({
-            '0.5': fast,
-            '5': fast + slow,
-            '+Inf': fast + slow + past,
-        })
-        for (let i = 0; i < 2000; i++) {
-            const inside = [random(200), random(4), random(2)]
-            const closing = [random(200), random(4), random(2)]
-            const share = closing.map((count) => random(count + 1))
-            if (inside.every((count) => count === 0)) {
-                continue
+        const upTo = (count: number): number[] => Array.from({ length: count + 1 }, (_, i) => i)
+        const combinations = (...choices: number[][]): number[][] =>
+            choices.reduce<number[][]>((sets, options) => sets.flatMap((set) => options.map((n) => [...set, n])), [[]])
+        for (const inside of combinations([0, 1, 98, 99, 100], [0, 1, 2], [0, 1])) {
+            for (const closing of combinations([0, 1, 100], [0, 1, 2], [0, 1])) {
+                const total = [0, 0, 0]
+                const samples = everySecondOf(2, 1497, 5).map((second): MetricSample => {
+                    const picked =
+                        second === 872
+                            ? inside
+                            : second === 882
+                              ? closing
+                              : between(822, 877)(second)
+                                ? [0, 0, 0]
+                                : [10, 0, 0]
+                    picked.forEach((count, bucket) => (total[bucket] += count))
+                    const [fast, slow, past] = total
+                    return {
+                        ...sample(second, 0, 1),
+                        role: HOGFLOW,
+                        lateness: { hogflow: { '0.5': fast, '5': fast + slow, '+Inf': fast + slow + past } },
+                    }
+                })
+                const worst = Math.max(
+                    ...combinations(...closing.map(upTo))
+                        .map((share) => inside.map((count, bucket) => count + share[bucket]))
+                        .filter((counts) => counts.some((count) => count > 0))
+                        .map(p99Bound)
+                )
+                const last = measure(
+                    [{ name: 'pickup_p99_seconds', params: {} }],
+                    evidence({ samples, drive: DRIVE, timeline: THREE_MINUTE_VALVE })
+                ).find(({ key }) => key === 'hogflow_t120')!
+                expect({ inside, closing, holds: last.censored === true || last.value! >= worst }).toEqual({
+                    inside,
+                    closing,
+                    holds: true,
+                })
             }
-            const actual = p99Of(cumulated(inside.map((count, bucket) => count + share[bucket])))
-            const bound = worstP99Of(cumulated(inside), cumulated(closing))
-            expect(bound.value).toBeGreaterThanOrEqual(actual.value)
-            expect(bound.beyond || !actual.beyond).toBe(true)
+        }
+    })
+
+    it('never recovers writes in a minute that a failed probe overlaps, and keeps a probe that fails after T0 out of the baseline', () => {
+        const names = ['write_latency_p99_ms', 'write_latency_recovery_seconds']
+        for (const boundaryS of [700, 760, 820]) {
+            for (const startOffsetMs of [-2500, -1500, -500, 500]) {
+                for (const failedAfterMs of [500, 1500, 2000]) {
+                    const at = atS(boundaryS) + startOffsetMs
+                    const endedAt = at + failedAfterMs
+                    if (endedAt < atS(700)) {
+                        continue
+                    }
+                    const failed: WriterSample = { at, monoMs: at - FROM, ok: false, latencyMs: failedAfterMs }
+                    const measured = measure(
+                        names.map((name) => ({ name, params: {} })),
+                        evidence({
+                            writer: [...latencyWriter(() => 10), failed].sort((a, b) => a.at - b.at),
+                            drive: DRIVE,
+                            timeline: THREE_MINUTE_VALVE,
+                        })
+                    )
+                    const lastOverlappedS = Math.floor((endedAt - atS(700)) / 60_000) * 60
+                    const recovery = measured.find(({ name }) => name === names[1])!.value
+                    expect({
+                        at: new Date(at).toISOString(),
+                        failedAfterMs,
+                        bar: measured.find(({ key }) => key === 'bar')!.value,
+                        recoveredAfterIt: recovery === null || recovery > lastOverlappedS,
+                    }).toEqual({ at: new Date(at).toISOString(), failedAfterMs, bar: 20, recoveredAfterIt: true })
+                }
+            }
         }
     })
 
