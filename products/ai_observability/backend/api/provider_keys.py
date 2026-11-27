@@ -271,6 +271,10 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
         # would leak through all three, so drop it before anything stores or echoes the value.
         return strip_userinfo(value)
 
+    def validate_azure_endpoint(self, value: str) -> str:
+        # Shown to every project member through `azure_endpoint_display`, so drop any credential typed into it.
+        return strip_userinfo(value)
+
     def validate_provider(self, value: str) -> str:
         # `validate` below branches on the incoming provider while `update` branches on the stored
         # one. Letting the two disagree would strand `encrypted_config` on a key that now claims a

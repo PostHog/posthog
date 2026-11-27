@@ -501,7 +501,12 @@ class TestEvalSuggestionsApi(APIBaseTest):
         connect.return_value = _temporal_client()
         self._judge_key()
         confirmed = LLMProviderKey.objects.create(
-            team=self.team, provider="anthropic", name="Confirmed key", state=state, encrypted_config={"api_key": "sk"}
+            team=self.team,
+            provider="anthropic",
+            name="Confirmed key",
+            shared=True,
+            state=state,
+            encrypted_config={"api_key": "sk"},
         )
         suggestion = self._suggestion(EvalSuggestionKind.NEW_LLM_JUDGE, draft=JUDGE_DRAFT)
 

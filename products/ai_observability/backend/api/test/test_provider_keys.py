@@ -871,8 +871,15 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
             api_version="2024-10-21",
         )
 
+    # The endpoint is shown to every project member, so a credential typed into it is dropped.
+    @parameterized.expand(
+        [
+            ("plain", "https://contoso.services.ai.azure.com/"),
+            ("with_credential", "https://u:secret@contoso.services.ai.azure.com/"),
+        ]
+    )
     @patch("products.ai_observability.backend.api.provider_keys.validate_provider_key")
-    def test_can_create_anthropic_key_on_microsoft_foundry(self, mock_validate):
+    def test_can_create_anthropic_key_on_microsoft_foundry(self, _name: str, endpoint: str, mock_validate: Mock):
         mock_validate.return_value = (LLMProviderKey.State.OK, None)
 
         response = self.client.post(
@@ -881,7 +888,7 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
                 "provider": "anthropic",
                 "name": "Foundry Claude",
                 "api_key": "foundry-hex-123",
-                "azure_endpoint": "https://contoso.services.ai.azure.com/",
+                "azure_endpoint": endpoint,
             },
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
