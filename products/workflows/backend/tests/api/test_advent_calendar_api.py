@@ -1,5 +1,7 @@
+from datetime import UTC, datetime
 from typing import Any
 
+import time_machine
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import patch
 
@@ -17,9 +19,9 @@ from posthog.models.instance_setting import override_instance_config
 from posthog.rate_limit import is_rate_limit_enabled
 from posthog.test.lagging_redis_reader import lagging_reader_caches, unique_key_prefix
 
-from products.workflows.backend.facade.advent_calendar import answer_advent_calendar
+from products.workflows.backend.facade.advent_calendar import answer_advent_calendar, open_advent_calendar_door
 from products.workflows.backend.facade.enums import AdventCalendarDay, AdventCalendarOption
-from products.workflows.backend.models import AdventCalendarAnswer
+from products.workflows.backend.models import AdventCalendarAnswer, AdventCalendarDoorOpen
 
 
 class TestAdventCalendarAPI(APIBaseTest):
@@ -41,6 +43,14 @@ class TestAdventCalendarAPI(APIBaseTest):
     def _answer_as(self, user: User, team: Team, day: int, option: str) -> Any:
         self.client.force_login(user)
         response = self.client.post(self._url(team, "answer"), {"day": day, "option": option})
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        return response.json()
+
+    def _open_door_as(self, user: User, day: int, hoggy: str, utc_offset_minutes: int) -> Any:
+        self.client.force_login(user)
+        response = self.client.post(
+            self._url(self.team, "open"), {"day": day, "hoggy": hoggy, "utc_offset_minutes": utc_offset_minutes}
+        )
         assert response.status_code == status.HTTP_200_OK, response.json()
         return response.json()
 
@@ -84,15 +94,17 @@ class TestAdventCalendarAPI(APIBaseTest):
             "shares": [{"option": "coffee", "share": 0}, {"option": "tea", "share": 0}],
         }
 
-    def test_answers_of_deleted_accounts_leave_the_tally(self) -> None:
+    def test_answers_and_door_opens_of_deleted_accounts_are_removed(self) -> None:
         leaver = User.objects.create_and_join(self.organization, "leaver@example.com", "password")
         self._answer_as(leaver, self.team, 18, "no")
+        self._open_door_as(leaver, 18, "hoggy-santa", 60)
         self._answer_as(self.user, self.team, 18, "yes")
         leaver.organization_memberships.all().delete()
         self.client.force_login(leaver)
 
         def vote_lands_during_the_deletion(sender: type, instance: User, **kwargs: Any) -> None:
             AdventCalendarAnswer.objects.create(user_id=instance.id, day=21, option="tea")
+            AdventCalendarDoorOpen.objects.create(user_id=instance.id, day=21, hoggy="hoggy-elf", utc_offset_minutes=0)
 
         pre_delete.connect(vote_lands_during_the_deletion, sender=User, dispatch_uid="advent_test_vote_during_deletion")
         self.addCleanup(pre_delete.disconnect, sender=User, dispatch_uid="advent_test_vote_during_deletion")
@@ -101,6 +113,7 @@ class TestAdventCalendarAPI(APIBaseTest):
 
         assert deletion.status_code == status.HTTP_204_NO_CONTENT
         assert not AdventCalendarAnswer.objects.filter(user_id=leaver.id).exists()
+        assert not AdventCalendarDoorOpen.objects.filter(user_id=leaver.id).exists()
         day_18 = next(question for question in self._results() if question["day"] == 18)
         assert day_18["shares"] == [{"option": "yes", "share": 100}, {"option": "no", "share": 0}]
 
@@ -116,6 +129,37 @@ class TestAdventCalendarAPI(APIBaseTest):
             "shares": [{"option": "dark", "share": 100}, {"option": "light", "share": 0}],
         }
 
+    def test_the_first_open_of_a_door_stores_the_server_time_and_a_repeat_keeps_it(self) -> None:
+        with time_machine.travel(datetime(2026, 12, 3, 7, 30, tzinfo=UTC), tick=False) as traveller:
+            first = self._open_door_as(self.user, 3, "hoggy-santa", -300)
+            traveller.shift(86400)
+            repeat = self._open_door_as(self.user, 3, "hoggy-elf", 60)
+            other_day = self._open_door_as(self.user, 4, "hoggy-elf", 60)
+
+        assert first == {"day": 3, "opened_at": "2026-12-03T07:30:00Z"}
+        assert repeat == first
+        assert other_day == {"day": 4, "opened_at": "2026-12-04T07:30:00Z"}
+        stored = AdventCalendarDoorOpen.objects.get(user_id=self.user.id, day=3)
+        assert (stored.hoggy, stored.utc_offset_minutes) == ("hoggy-santa", -300)
+
+    @parameterized.expand(
+        [
+            ("day_before_the_first", {"day": 0, "hoggy": "hoggy-santa", "utc_offset_minutes": 0}),
+            ("day_after_the_last", {"day": 25, "hoggy": "hoggy-santa", "utc_offset_minutes": 0}),
+            ("uppercase_hoggy", {"day": 1, "hoggy": "Hoggy", "utc_offset_minutes": 0}),
+            ("hoggy_with_a_path", {"day": 1, "hoggy": "../hoggy", "utc_offset_minutes": 0}),
+            ("hoggy_too_long", {"day": 1, "hoggy": "h" * 65, "utc_offset_minutes": 0}),
+            ("offset_west_of_utc_minus_12", {"day": 1, "hoggy": "hoggy-santa", "utc_offset_minutes": -721}),
+            ("offset_east_of_utc_plus_14", {"day": 1, "hoggy": "hoggy-santa", "utc_offset_minutes": 841}),
+            ("missing_offset", {"day": 1, "hoggy": "hoggy-santa"}),
+        ]
+    )
+    def test_open_rejects_a_door_hoggy_or_offset_out_of_range(self, _name: str, body: dict[str, Any]) -> None:
+        response = self.client.post(self._url(self.team, "open"), body)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert not AdventCalendarDoorOpen.objects.exists()
+
     @parameterized.expand(
         [
             ("day_without_a_question", {"day": 3, "option": "yes"}),
@@ -130,15 +174,20 @@ class TestAdventCalendarAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert not AdventCalendarAnswer.objects.exists()
 
-    def test_people_outside_the_advent_calendar_rollout_can_neither_answer_nor_read(self) -> None:
+    def test_people_outside_the_advent_calendar_rollout_can_neither_answer_open_nor_read(self) -> None:
         self.client.force_login(self.outsider)
 
         answer = self.client.post(self._url(self.team, "answer"), {"day": 2, "option": "tim"})
         results = self.client.get(self._url(self.team, "results"))
+        door = self.client.post(
+            self._url(self.team, "open"), {"day": 2, "hoggy": "hoggy-santa", "utc_offset_minutes": 0}
+        )
 
         assert answer.status_code == status.HTTP_403_FORBIDDEN
         assert results.status_code == status.HTTP_403_FORBIDDEN
+        assert door.status_code == status.HTTP_403_FORBIDDEN
         assert not AdventCalendarAnswer.objects.exists()
+        assert not AdventCalendarDoorOpen.objects.exists()
         self._results()
 
     def test_each_signed_in_person_has_their_own_request_budget_even_with_api_rate_limits_off(self) -> None:
@@ -175,3 +224,7 @@ class TestAdventCalendarAnswers(BaseTest):
         answer_advent_calendar(self.user.id + 1000, AdventCalendarDay.COFFEE_OR_TEA, AdventCalendarOption.TEA)
 
         assert not AdventCalendarAnswer.objects.exists()
+
+    def test_a_door_opened_by_an_account_deleted_meanwhile_stores_nothing(self) -> None:
+        assert open_advent_calendar_door(self.user.id + 1000, 7, "hoggy-santa", 0) is None
+        assert not AdventCalendarDoorOpen.objects.exists()

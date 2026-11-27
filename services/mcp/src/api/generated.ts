@@ -14370,6 +14370,34 @@ export namespace Schemas {
       option: AdventCalendarOptionEnum;
     }
 
+    export interface AdventCalendarDoorOpen {
+      /** The calendar day of the door. */
+      day: number;
+      /** When the server stored the person's first open of this door. Opening it again keeps this time. */
+      opened_at: string;
+    }
+
+    export interface AdventCalendarDoorOpenRequest {
+      /**
+         * The calendar day of the door, 1 to 24.
+         * @minimum 1
+         * @maximum 24
+         */
+      day: number;
+      /**
+         * The slug of the hoggy the door showed: lowercase letters, digits and hyphens, at most 64 characters.
+         * @maxLength 64
+         * @pattern ^[a-z0-9-]+$
+         */
+      hoggy: string;
+      /**
+         * The browser's offset from UTC in minutes, east positive, from -720 to 840. A later rule uses it to tell which local day the person opened the door on.
+         * @minimum -720
+         * @maximum 840
+         */
+      utc_offset_minutes: number;
+    }
+
     export interface AdventCalendarShare {
       /** One option of the question.
        *

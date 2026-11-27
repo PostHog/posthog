@@ -1719,6 +1719,7 @@ rules:
                           (?x)(
                               AccountAuditCredential
                               |AdventCalendarAnswer
+                              |AdventCalendarDoorOpen
                               |CommunitySkillVote
                               |GitHubInstallRequest
                               |IdentityProviderEmailVerification
@@ -1778,6 +1779,7 @@ rules:
                     (?x)(
                         AccountAuditCredential
                         |AdventCalendarAnswer
+                        |AdventCalendarDoorOpen
                         |CommunitySkillVote
                         |GitHubInstallRequest
                         |IdentityProviderEmailVerification
