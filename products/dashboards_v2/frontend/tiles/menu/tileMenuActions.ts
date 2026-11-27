@@ -200,6 +200,13 @@ export function useSectionActions(id: string, panel: SectionPanel, onStartRename
     const { panels, disabledReasonFor, onEdit, tileActions } = useDashboard()
     const imageEntries = useTileImageActions(id)
     const show = showAction(TILE_SHOW, [{ id, panel }], panels, disabledReasonFor('setTilesAppearance'), onEdit)
+    const backgroundColor = backgroundColorAction(
+        TILE_BACKGROUND_COLOR,
+        [{ id, panel }],
+        panels,
+        disabledReasonFor('setTilesAppearance'),
+        onEdit
+    )
     const actions: MenuAction[] = [
         {
             key: 'rename',
@@ -211,6 +218,7 @@ export function useSectionActions(id: string, panel: SectionPanel, onStartRename
         ...imageEntries,
         autoLayoutAction(id, disabledReasonFor('autoLayout'), onEdit),
         ...(show ? [show] : []),
+        ...(backgroundColor ? [backgroundColor] : []),
     ]
     return tileActions ? tileActions(actions, { id, panel }) : actions
 }

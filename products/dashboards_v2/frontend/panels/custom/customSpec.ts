@@ -25,6 +25,8 @@ export type CustomContent = {
     movable?: boolean
     /** Adds Duplicate to the tile's menu. Left out, a person cannot copy the tile. */
     duplicable?: boolean
+    /** Adds Background to the tile's menu, whatever `menuActions` returns. Left out, a person cannot tint the tile. */
+    backgroundColor?: boolean
     keepMounted?: boolean
     /** Gets the tile's built-in actions and returns the ones to show. Left out, the tile's menu has none of them. */
     menuActions?: (actions: MenuAction[], context: PanelMenuContext<CustomConfig>) => MenuAction[]
