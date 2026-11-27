@@ -626,6 +626,27 @@ describe('measurements', () => {
             (second) => !between(881, 919)(second),
         ],
         [
+            'reads recovery when a timer wakes late before a slow probe under the bar in the remainder',
+            (second) =>
+                second < 700
+                    ? 1050
+                    : second === 879
+                      ? { startsLateMs: 885, latencyMs: 1 }
+                      : second === 880
+                        ? { startsLateMs: 890, latencyMs: 1999 }
+                        : 10,
+            [{ ...VALVE, releasedAt: isoAt(885.39) }],
+            [
+                { key: 'baseline', value: 1050 },
+                { key: 'bar', value: 2100 },
+                { key: 't0', value: 1050 },
+                { key: 't60', value: 10 },
+                { key: 't120', value: 10 },
+                { key: 'recovery_seconds', value: 0 },
+            ],
+            (second) => second !== 881 && second !== 882,
+        ],
+        [
             'leaves recovery unknown when a write in the remainder after the last whole minute is slow',
             (second) => (second === 915 ? 400 : 10),
             [{ ...VALVE, releasedAt: isoAt(920.5) }],
@@ -1018,6 +1039,42 @@ describe('measurements', () => {
                 { key: 'hogflow_baseline', value: null, censored: true },
                 { key: 'hogflow_bar', value: null, censored: true },
                 { key: 'hogflow_t0', value: 5, censored: true },
+                { key: 'hogflow_t60', value: 0.5, censored: true },
+                { key: 'hogflow_t120', value: 0.5, censored: true },
+                { key: 'hogflow_recovery_seconds', value: null, censored: true, unmeasured: SPLIT_SCRAPES },
+            ],
+        ],
+        [
+            'censors the baseline when one replica has no scrape fetched before T0',
+            [
+                ...pickedWith(() => [10, 0]),
+                ...pickedWith(() => [10, 0], { replica: 1 }).map(({ fetchedAt, ...scrape }) =>
+                    scrape.at < atS(700) ? scrape : { ...scrape, fetchedAt }
+                ),
+            ],
+            [
+                { key: 'hogflow_baseline', value: null, censored: true },
+                { key: 'hogflow_bar', value: null, censored: true },
+                { key: 'hogflow_t0', value: 0.5 },
+                { key: 'hogflow_t60', value: 0.5 },
+                { key: 'hogflow_t120', value: 0.5 },
+                { key: 'hogflow_recovery_seconds', value: null, censored: true, unmeasured: SPLIT_SCRAPES },
+            ],
+        ],
+        [
+            'censors the whole series when a counter drops in the baseline, though another replica went unscraped there',
+            [
+                ...pickedWith(() => [0, 0], { replica: 1 }).filter(({ at }) => at < atS(105) || at > atS(685)),
+                ...pickedWith(() => [10, 0]).map((scrape) =>
+                    scrape.at === atS(652)
+                        ? { ...scrape, lateness: { hogflow: { '0.5': 0, '5': 0, '+Inf': 0 } } }
+                        : scrape
+                ),
+            ],
+            [
+                { key: 'hogflow_baseline', value: null, censored: true },
+                { key: 'hogflow_bar', value: null, censored: true },
+                { key: 'hogflow_t0', value: 0.5, censored: true },
                 { key: 'hogflow_t60', value: 0.5, censored: true },
                 { key: 'hogflow_t120', value: 0.5, censored: true },
                 { key: 'hogflow_recovery_seconds', value: null, censored: true, unmeasured: SPLIT_SCRAPES },

@@ -490,7 +490,7 @@ export function baselineOf({
 export const RECOVERY_BAR_MULTIPLE = 2
 const SERIES_WINDOW_MS = 60_000
 const WRITER_PROBE_GAP_MS = 10_000
-const WRITER_PROBE_SPACING_MS = 3_000
+const WRITER_PROBE_LONGEST_SPACING_MS = 4_000
 
 type WindowP99 = { value: number | null; clean: boolean; censored?: true; incomplete?: true; reset?: true }
 
@@ -607,13 +607,13 @@ function pickupSeries({ samples, drive, timeline }: MeasureEvidence): [string, S
                 straddlesEnd: final,
                 ...(baseline ? { fetchedBefore: window.to } : {}),
             })
+            if (pickups.reset) {
+                return { value: null, clean: false, censored: true, incomplete: true, reset: true }
+            }
             if ('unread' in pickups) {
                 return { value: null, clean: false, incomplete: true }
             }
             const unobserved = pickups.unobservedTail ? { incomplete: true as const } : {}
-            if (pickups.reset) {
-                return { value: null, clean: false, censored: true, incomplete: true, reset: true }
-            }
             const closing = pickups.closing[queue] ?? {}
             const buckets = withoutBuckets(pickups.picked[queue] ?? {}, closing)
             if ((buckets['+Inf'] ?? 0) === 0) {
@@ -736,7 +736,8 @@ export const RECOVERY_MEASUREMENTS: MeasurementDefinition[] = [
                 to,
             ]
             const unsampled =
-                settled < to && remainder.some((at, i) => i > 0 && at - remainder[i - 1] > WRITER_PROBE_SPACING_MS)
+                settled < to &&
+                remainder.some((at, i) => i > 0 && at - remainder[i - 1] > WRITER_PROBE_LONGEST_SPACING_MS)
             return [
                 recoveryOf(
                     series,

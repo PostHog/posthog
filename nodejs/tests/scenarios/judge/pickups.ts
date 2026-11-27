@@ -36,7 +36,7 @@ export function pickupsBetween(
     { straddlesEnd = true, fetchedBefore }: { straddlesEnd?: boolean; fetchedBefore?: number } = {}
 ):
     | { picked: Record<string, Buckets>; closing: Record<string, Buckets>; unobservedTail?: true; reset?: true }
-    | { unread: string } {
+    | { unread: string; reset?: true } {
     const picked: Record<string, Buckets> = {}
     const closing: Record<string, Buckets> = {}
     let unobservedTail = false
@@ -45,18 +45,22 @@ export function pickupsBetween(
     if (unscraped) {
         return { unread: `no metrics from ${unscraped}` }
     }
-    const workers = samples.filter(
-        ({ role, fetchedAt }) =>
-            roles.includes(role) && (fetchedBefore === undefined || (fetchedAt ?? Infinity) < fetchedBefore)
-    )
+    let unread: string | undefined
+    const workers = samples.filter(({ role }) => roles.includes(role))
     for (const [worker, series] of Map.groupBy(workers, ({ role, replica }) => `${role}-${replica}`)) {
-        const sorted = [...series].sort((a, b) => a.at - b.at)
+        const sorted = series
+            .filter(({ fetchedAt }) => fetchedBefore === undefined || (fetchedAt ?? Infinity) < fetchedBefore)
+            .sort((a, b) => a.at - b.at)
         const first = sorted.findLastIndex(({ at }) => at <= from)
         const inside = sorted.slice(Math.max(first, 0)).filter(({ at }) => at <= to)
         const bounds = [...inside.map(({ at }) => at), to]
         const gap = bounds.findIndex((at, i) => i > 0 && at - bounds[i - 1] > SCRAPE_GAP_MS)
         if (first < 0 || gap > 0) {
-            return { unread: `no metrics from ${worker} after ${iso(first < 0 ? from : bounds[gap - 1])}` }
+            unread ??= `no metrics from ${worker} after ${iso(first < 0 ? from : bounds[gap - 1])}`
+            reset ||= inside.some(
+                (sample, i) => i > 0 && (sample.startedAt !== inside[i - 1].startedAt || dropped(inside[i - 1], sample))
+            )
+            continue
         }
         // A scrape interval that straddles the step's end counts in both steps, so late pickups at a step's tail
         // never pass into the next step's larger volume unjudged.
@@ -75,6 +79,9 @@ export function pickupsBetween(
                 add(closing, sample.lateness, before)
             }
         })
+    }
+    if (unread !== undefined) {
+        return reset ? { unread, reset: true } : { unread }
     }
     return {
         picked,
