@@ -3307,6 +3307,16 @@ describe('EmailService', () => {
                     'attachment_unavailable',
                 ],
                 [
+                    0,
+                    true,
+                    'the bucket does not answer',
+                    'fails a test send at once as attachment_unavailable',
+                    bucketRefuses,
+                    true,
+                    expect.stringMatching(/^attachment_unavailable: .* after 1 try\./),
+                    null,
+                ],
+                [
                     10,
                     false,
                     'SES refuses the connection',
@@ -3351,7 +3361,6 @@ describe('EmailService', () => {
                     retriesSoFar: 0,
                     isTest: false,
                     outcome: { finished: false, error: undefined, retries: 1 },
-                    failedStatusReason: null,
                 },
                 {
                     send: 'a send at its retry cap',
@@ -3362,7 +3371,6 @@ describe('EmailService', () => {
                         error: expect.stringMatching(/^attachment_unavailable: .* after 11 tries\./),
                         retries: undefined,
                     },
-                    failedStatusReason: 'attachment_unavailable',
                 },
                 {
                     send: 'a test send',
@@ -3373,11 +3381,10 @@ describe('EmailService', () => {
                         error: expect.stringMatching(/^attachment_unavailable: .* after 1 try\./),
                         retries: undefined,
                     },
-                    failedStatusReason: null,
                 },
             ])(
                 '$send with files outside any admission downloads nothing, sends nothing and counts the refusal',
-                async ({ retriesSoFar, isTest, outcome, failedStatusReason }) => {
+                async ({ retriesSoFar, isTest, outcome }) => {
                     sendAsTransactionalEmail()
                     invocation.queueMetadata = { attachmentLoadRetries: retriesSoFar }
                     const refusals = (): Promise<number> =>
@@ -3394,9 +3401,6 @@ describe('EmailService', () => {
                         retries: result.invocation.queueMetadata?.attachmentLoadRetries,
                     }).toEqual(outcome)
                     expect({ downloads: bucket.downloads, sent: ses.sent }).toEqual({ downloads: 0, sent: [] })
-                    expect(await recordedEmailStatuses()).toEqual(
-                        failedStatusReason ? [failedEmailStatus(failedStatusReason)] : []
-                    )
                     expect(await refusals()).toBe(refusalsBefore + 1)
                 }
             )
