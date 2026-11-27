@@ -171,6 +171,13 @@ describe('HogInvocationResultsService', () => {
             ['a sensitive email', true, {}, noMessageData],
             ['an ordinary push', false, {}, messageData, 'function_push'],
             ['a sensitive push', true, {}, noMessageData, 'function_push'],
+            [
+                'a transactional push its step does not mark sensitive',
+                false,
+                { event: { event: '$transactional_push' } },
+                noMessageData,
+                'function_push',
+            ],
             ['a recovery stub of a sensitive run', undefined, { sensitive: true }, noMessageData],
             [
                 'a recovery stub of an unstamped transactional run',
