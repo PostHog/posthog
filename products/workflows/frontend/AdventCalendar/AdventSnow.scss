@@ -1,6 +1,3 @@
-// Each flake is a track as tall as the stage, so the fall can move it by 100% of its own height. A
-// container unit or a var() inside keyframes makes the browser resolve the keyframes again on every
-// frame the page renders, for each of the flakes.
 .AdventSnow__flake {
     top: 0;
     height: 100%;
