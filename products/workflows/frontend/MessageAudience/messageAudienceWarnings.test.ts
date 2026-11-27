@@ -256,13 +256,13 @@ describe('loadMessageAudienceWarnings', () => {
         }
     })
 
-    it('reads the senders and the test sender of the selected environment', async () => {
+    it('reads the senders, the suspension and the test sender of the selected environment', async () => {
         const teamId = ApiConfig.getCurrentTeamId()
         try {
             ApiConfig.setCurrentTeamId(teamId + 1)
-            jest.mocked(hogFlowsEmailSendingSuspensionRetrieve).mockResolvedValue({
-                email_sending_suspended: false,
-            } as never)
+            jest.mocked(hogFlowsEmailSendingSuspensionRetrieve).mockImplementation(
+                async (id) => ({ email_sending_suspended: id !== String(teamId + 1) }) as never
+            )
             jest.mocked(workflowEmailSandboxStatus).mockImplementation(
                 async (id) => (id === String(teamId + 1) ? testSender : noTestSender) as never
             )

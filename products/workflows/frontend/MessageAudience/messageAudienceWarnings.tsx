@@ -95,7 +95,7 @@ export async function loadMessageAudienceWarnings(
     const cohortIds = destination === 'broadcast' ? audienceCohortIds(audience.properties) : []
     const testSender = offerTestSender ? withinTimeout(workflowEmailSandboxStatus(teamId)) : Promise.resolve(null)
     const [suspension, integrations, cohorts] = await Promise.all([
-        withinTimeout(hogFlowsEmailSendingSuspensionRetrieve(projectId)),
+        withinTimeout(hogFlowsEmailSendingSuspensionRetrieve(teamId)),
         withinTimeout(integrationsList(teamId, { kind: 'email' })),
         Promise.all(
             cohortIds.map((id) =>
