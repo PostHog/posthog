@@ -45,6 +45,10 @@ AGENT_MODEL = "zai-org/glm-5.3-flash"
 AGENT_RUNTIME_ADAPTER = "claude"
 # Below the activity's timeout, so a slow run ends as a failure the code sees instead of a cancelled activity.
 AGENT_POLL_SECONDS = 8 * 60
+# The agent only reads Slack and answers, so it needs a fraction of the default 4 CPU / 16 GB box. A backend that
+# reserves the whole box bills for all of it.
+AGENT_CPU_CORES = 2
+AGENT_MEMORY_GB = 4
 
 PROMPTS_DIR = Path(__file__).parent / "prompts"
 
@@ -202,7 +206,9 @@ async def _ask_agent(
         mcp_credential_owner_id=owner_id,
         # The loop connector snapshot: the run mounts the person's Slack MCP and none of their other connections.
         before_task_dispatch=lambda _run_id: {
-            "config_snapshot": {"connectors": {"mcp_installation_ids": [installation_id]}}
+            "config_snapshot": {"connectors": {"mcp_installation_ids": [installation_id]}},
+            "sandbox_cpu_cores": AGENT_CPU_CORES,
+            "sandbox_memory_gb": AGENT_MEMORY_GB,
         },
         output_schema=DailyFocusAgentOutput.model_json_schema(),
     )

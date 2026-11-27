@@ -159,7 +159,12 @@ def test_the_agent_run_sends_one_dm_and_mounts_only_the_slack_mcp(answer, expect
 
     assert first == expected
     dispatch_state = start.call_args.kwargs["before_task_dispatch"]("run-id")
-    assert dispatch_state == {"config_snapshot": {"connectors": {"mcp_installation_ids": ["slack-installation"]}}}
+    # Only the Slack MCP, on a small box instead of the default 4 CPU / 16 GB.
+    assert dispatch_state == {
+        "config_snapshot": {"connectors": {"mcp_installation_ids": ["slack-installation"]}},
+        "sandbox_cpu_cores": 2,
+        "sandbox_memory_gb": 4,
+    }
     assert start.call_args.kwargs["context"].model == "zai-org/glm-5.3-flash"
     posts = bot.return_value.client.chat_postMessage.call_args_list
     if expected == "sent":
