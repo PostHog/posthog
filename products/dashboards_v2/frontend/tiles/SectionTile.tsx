@@ -142,9 +142,6 @@ export function SectionTile({
                             onDraftChange={setDraft}
                         />
                         {description && descriptionMode === 'icon' && <DescriptionInfo description={description} />}
-                        {/* An open section shows its tiles, so the count only says something once it is closed. It
-                            comes after the icon, so the icon stays where it is when the count appears. */}
-                        {collapsed && <SectionCount count={panel.tiles.length} />}
                         {description && descriptionMode === 'icon' && (
                             <span className={clsx(DESCRIPTION_IMAGE_ONLY_CLASS, DESCRIPTION_TEXT)}>{description}</span>
                         )}
@@ -196,10 +193,10 @@ export function Section({
     )
 }
 
-// A long title stops here, so the count, the description and the actions keep their room in the header.
+// A long title stops here, so the description and the actions keep their room in the header.
 const TITLE_MAX_WIDTH = 'max-w-96'
 
-// It starts from no width and takes what the title and count leave, so a long description never cuts the title short.
+// It starts from no width and takes what the title leaves, so a long description never cuts the title short.
 const DESCRIPTION_TEXT = 'TileGrid__text min-w-0 flex-1 basis-0 truncate text-xs text-muted-foreground'
 
 /** The section's title bar, which is also what the section is dragged by. */
@@ -310,11 +307,6 @@ export function SectionTitle({
             {label}
         </div>
     )
-}
-
-export function SectionCount({ count }: { count: number }): JSX.Element {
-    // The title's text size, so the digits sit on the title's baseline. A smaller size centered beside it sits higher.
-    return <span className="shrink-0 text-sm text-muted-foreground tabular-nums">{count}</span>
 }
 
 export function SectionBody({ emptyLabel, children }: { emptyLabel: string | null; children: ReactNode }): JSX.Element {
