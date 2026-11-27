@@ -10,13 +10,13 @@ from ...facade import diagnostics
 from ...facade.diagnostics_contracts import ErrorFirstSeenList
 from .diagnostics_resource import DiagnosticsViewSet
 from .errors import RANGE_TOO_LONG_RESPONSE
-from .list_filters import TraceDateRangeQuerySerializer
+from .list_filters import MAX_SCOPE_TEXT_LENGTH, TraceDateRangeQuerySerializer
 from .trace_resource import THROTTLED_RESPONSE
 
 
 class ErrorFirstSeenRequestSerializer(serializers.Serializer):
     keys = serializers.ListField(
-        child=serializers.CharField(trim_whitespace=False),
+        child=serializers.CharField(trim_whitespace=False, max_length=MAX_SCOPE_TEXT_LENGTH),
         min_length=1,
         max_length=diagnostics.ERROR_FIRST_SEEN_MAX_KEYS,
         help_text=f"Up to {diagnostics.ERROR_FIRST_SEEN_MAX_KEYS} error keys, as the errors list hands them out.",

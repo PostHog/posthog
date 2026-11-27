@@ -321,6 +321,7 @@ export interface ErrorFirstSeenRequestApi {
      * Up to 100 error keys, as the errors list hands them out.
      * @minItems 1
      * @maxItems 100
+     * @items.maxLength 65536
      */
     keys: string[]
 }

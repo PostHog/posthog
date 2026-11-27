@@ -29,6 +29,7 @@ from products.ai_observability.backend.facade.diagnostics_contracts import (
     ErrorTrend,
 )
 from products.ai_observability.backend.presentation.views import diagnostics_resource
+from products.ai_observability.backend.presentation.views.list_filters import MAX_SCOPE_TEXT_LENGTH
 
 from ...logic.diagnostics.test_error_group_queries import _flagged
 from ...logic.traces.test_trace_selection_queries import T0, seed
@@ -38,6 +39,7 @@ if TYPE_CHECKING:
     from rest_framework.response import _MonkeyPatchedResponse
 
 KEY = "VGltZWQgb3V0"
+LONGEST_KEY = "k" * MAX_SCOPE_TEXT_LENGTH
 STARTS = [datetime(2026, 9, 1, 9, tzinfo=UTC), datetime(2026, 9, 1, 10, tzinfo=UTC)]
 CUSTOM_EXPRESSION = json.dumps([{"type": "hogql", "key": "properties.$ai_model = 'gpt-test'"}])
 
@@ -225,6 +227,7 @@ class TestErrorViews(APIBaseTest):
                     "group_key": "acme",
                     "group_type_index": 1,
                 },
+                keys=[KEY, LONGEST_KEY],
             )
 
         assert response.status_code == 200, response.json()
@@ -235,7 +238,7 @@ class TestErrorViews(APIBaseTest):
             (),
             None,
         )
-        assert keys == [KEY]
+        assert keys == [KEY, LONGEST_KEY]
 
     @parameterized.expand(
         [
@@ -254,8 +257,10 @@ class TestErrorViews(APIBaseTest):
         with self._facade():
             assert self._request(endpoint, params).status_code == 400
 
-    @parameterized.expand([("none", []), ("over the cap", [KEY] * 101)])
-    def test_first_seen_takes_one_to_a_hundred_keys(self, _name: str, keys: list[str]) -> None:
+    @parameterized.expand(
+        [("none", []), ("over the cap", [KEY] * 101), ("a key too long", ["k" * (MAX_SCOPE_TEXT_LENGTH + 1)])]
+    )
+    def test_first_seen_takes_one_to_a_hundred_keys_of_bounded_length(self, _name: str, keys: list[str]) -> None:
         with self._facade():
             assert self._request("first_seen", keys=keys).status_code == 400
 
