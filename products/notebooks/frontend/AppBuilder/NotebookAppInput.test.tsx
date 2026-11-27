@@ -49,3 +49,26 @@ it('explains how to recover unavailable published query options', () => {
     )
     expect(screen.getByRole('status').textContent).toContain('Refresh results')
 })
+
+it.each(['string', 'list'] as const)(
+    'excludes query values from autocapture in the %s control and its portal',
+    async (type) => {
+        const { container, unmount } = render(
+            <NotebookAppQueryChoicesContext.Provider value={() => ({ values: ['Alpha', 'Bravo'], partial: false })}>
+                <NotebookAppInput
+                    block={{ id: 'region', tab_id: 'overview', kind: 'input', input_kind: 'query_select' }}
+                    variable={{ name: 'region', type, value: type === 'list' ? ['Alpha'] : 'Alpha' }}
+                    disabled={false}
+                    onChange={jest.fn()}
+                />
+            </NotebookAppQueryChoicesContext.Provider>
+        )
+        const control = within(container)
+        const selected = control.getByText('Alpha')
+        expect(selected.closest('.ph-no-capture')).toBeTruthy()
+        await userEvent.click(control.getByLabelText('region'))
+        const option = await screen.findByText('Bravo')
+        expect(option.closest('.ph-no-capture')).toBeTruthy()
+        unmount()
+    }
+)

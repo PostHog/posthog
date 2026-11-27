@@ -11,6 +11,7 @@ export function NotebookVariableListInput({
     id,
     value,
     options,
+    maskValues,
     disabled,
     size,
     onChange,
@@ -18,6 +19,7 @@ export function NotebookVariableListInput({
     id: string
     value: NotebookVariableValue
     options?: string[]
+    maskValues?: boolean
     disabled: boolean
     size?: 'small'
     onChange: (value: string[]) => void
@@ -27,6 +29,8 @@ export function NotebookVariableListInput({
         <div>
             <LemonInputSelect
                 id={id}
+                className={maskValues ? 'ph-no-capture' : undefined}
+                popoverClassName={maskValues ? 'ph-no-capture' : undefined}
                 mode="multiple"
                 fullWidth
                 size={size}

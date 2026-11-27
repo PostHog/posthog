@@ -47,6 +47,7 @@ export function NotebookAppInput({
                     id={id}
                     value={variable.value}
                     options={options}
+                    maskValues={block.input_kind === 'query_select'}
                     disabled={disabled}
                     onChange={onChange}
                 />
@@ -56,6 +57,8 @@ export function NotebookAppInput({
                     fullWidth
                     value={String(variable.value ?? '')}
                     disabled={disabled}
+                    className={block.input_kind === 'query_select' ? 'ph-no-capture' : undefined}
+                    menu={block.input_kind === 'query_select' ? { className: 'ph-no-capture' } : undefined}
                     options={options.map((value) => ({ value, label: value }))}
                     onChange={(value) => onChange(coerceNotebookVariableValue(variable.type, value))}
                 />
