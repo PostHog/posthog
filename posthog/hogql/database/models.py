@@ -268,6 +268,9 @@ class Table(FieldOrTable):
     # When True, a persons join from this table applies personIdPushdown when the modifier is unset.
     person_id_pushdown_default: bool = False
     workload: Optional[Workload] = None
+    # Keys of the `FieldTraverser`s that `SELECT *` returns. Each one resolves through its join, so `SELECT *`
+    # pays for that join on every query. `get_asterisk()` leaves out all other traversers.
+    asterisk_traversers: list[str] = []
     model_config = ConfigDict(extra="forbid")
 
     def has_field(self, name: str | int) -> bool:
@@ -306,7 +309,9 @@ class Table(FieldOrTable):
         for key, field_ in self.fields.items():
             if key in fields_to_avoid:
                 continue
-            if isinstance(field_, Table) or isinstance(field_, LazyJoin) or isinstance(field_, FieldTraverser):
+            if isinstance(field_, FieldTraverser) and key in self.asterisk_traversers:
+                asterisk[key] = field_
+            elif isinstance(field_, Table) or isinstance(field_, LazyJoin) or isinstance(field_, FieldTraverser):
                 pass  # ignore virtual tables and columns for now
             elif isinstance(field_, DatabaseField):
                 if not field_.hidden:  # Skip over hidden field
