@@ -5,14 +5,12 @@ from posthog.api.services.query import logger
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import default_client
 from posthog.settings import CLICKHOUSE_DATABASE
+from posthog.utils import UUID_REGEX
 
 # The pooled clients run with an effectively unbounded send/receive timeout, so a kill issued through them
 # would hold the caller's thread for as long as a stalled node stays silent. A kill is cleanup and its
 # statements carry their own max_execution_time, so its sockets get a short bound instead.
 _SEND_RECEIVE_TIMEOUT_SECONDS = 15
-
-
-_UUID_PATTERN = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 
 
 def _lookup_hosts() -> dict[str, str]:
@@ -22,6 +20,15 @@ def _lookup_hosts() -> dict[str, str]:
     if events_host:
         clusters[settings.CLICKHOUSE_EVENTS_CLUSTER] = events_host
     return clusters
+
+
+def _kill_query_on_host(host: str, query_id: str) -> list[tuple[object, ...]]:
+    with default_client(host=host, send_receive_timeout=_SEND_RECEIVE_TIMEOUT_SECONDS) as client:
+        return sync_execute(
+            "KILL QUERY WHERE query_id=%(query_id)s SETTINGS max_execution_time = 5",
+            {"query_id": query_id},
+            sync_client=client,
+        )
 
 
 def cancel_query_on_cluster(team_id: int, client_query_id: str) -> None:
@@ -44,7 +51,8 @@ def cancel_query_on_cluster(team_id: int, client_query_id: str) -> None:
                     {"cluster": cluster, "client_query_id": f"{team_id}_{client_query_id}"},
                     sync_client=client,
                 )
-            initiator_host, query_id = result[0] if (result and len(result[0]) == 2) else (None, None)
+            if result and len(result[0]) == 2:
+                initiator_host, query_id = result[0]
         except Exception as e:
             logger.info("Failed to find initiator host for query %s: %s", client_query_id, e)
             statsd.incr("clickhouse.query.cancellation.no_initiator_host", tags={"team_id": team_id})
@@ -53,12 +61,7 @@ def cancel_query_on_cluster(team_id: int, client_query_id: str) -> None:
 
     if initiator_host:
         logger.debug("Found initiator host %s for query %s, cancelling query on host", initiator_host, client_query_id)
-        with default_client(host=initiator_host, send_receive_timeout=_SEND_RECEIVE_TIMEOUT_SECONDS) as client:
-            result = sync_execute(
-                "KILL QUERY WHERE query_id=%(query_id)s SETTINGS max_execution_time = 5",
-                {"query_id": query_id},
-                sync_client=client,
-            )
+        result = _kill_query_on_host(initiator_host, query_id)
         logger.info("Cancelled query %s for team %s, result: %s", client_query_id, team_id, result)
         statsd.incr("clickhouse.query.cancellation.ok", tags={"team_id": team_id})
     elif settings.CLICKHOUSE_FALLBACK_CANCEL_QUERY_ON_CLUSTER:
@@ -107,7 +110,7 @@ def cancel_queries_started_for(team_id: int, client_query_id: str) -> None:
                     """,
                     {
                         "cluster": cluster,
-                        "start": f"^{team_id}_({_UUID_PATTERN}_)?",
+                        "start": f"^{team_id}_({UUID_REGEX}_)?",
                         "client_query_id": client_query_id,
                         "end": "_[A-Za-z0-9]{8}$",
                     },
@@ -119,12 +122,7 @@ def cancel_queries_started_for(team_id: int, client_query_id: str) -> None:
             continue
         for host, query_id in running:
             try:
-                with default_client(host=host, send_receive_timeout=_SEND_RECEIVE_TIMEOUT_SECONDS) as client:
-                    sync_execute(
-                        "KILL QUERY WHERE query_id=%(query_id)s SETTINGS max_execution_time = 5",
-                        {"query_id": query_id},
-                        sync_client=client,
-                    )
+                _kill_query_on_host(host, query_id)
             except Exception as e:
                 # A host that became unreachable since the lookup must not leave the queries on the other hosts
                 # running.
