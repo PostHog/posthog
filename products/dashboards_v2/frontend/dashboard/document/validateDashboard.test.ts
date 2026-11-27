@@ -128,7 +128,7 @@ describe('validateDashboard', () => {
             expected: [{ path: 'tabs[0].tiles[0].panel.config.query', message: expect.any(String) }],
         },
         {
-            name: 'a metrics query that is not a MetricsQuery node',
+            name: 'a query node with no kind',
             document: withTiles([
                 {
                     id: 'a',
@@ -136,7 +136,7 @@ describe('validateDashboard', () => {
                     panel: {
                         type: 'chart',
                         config: {
-                            query: { language: 'metrics', query: { kind: 'TrendsQuery' } },
+                            query: { language: 'query', query: { series: [] } },
                             viz: { type: 'line' },
                         },
                     },
