@@ -14,7 +14,7 @@ import type { ValveTimelineEntry } from '../valves/valves'
 import { CounterReading, counterDrift } from './drift'
 import { deliveryKey } from './invariants'
 import type { JudgeEvidence } from './invariants'
-import { SCRAPE_GAP_MS, WORKER_OF, p99Of, pickupsBetween } from './pickups'
+import { SCRAPE_GAP_MS, WORKER_OF, p99Of, pickupsBetween, withoutBuckets, worstP99Of } from './pickups'
 
 export type MetricSample = {
     role: string
@@ -589,12 +589,13 @@ function pickupSeries({ samples, drive, timeline }: MeasureEvidence): [string, S
             if ('unread' in pickups) {
                 return { value: null, clean: false, incomplete: true }
             }
-            const buckets = pickups.picked[queue] ?? {}
+            const closing = pickups.closing[queue] ?? {}
+            const buckets = withoutBuckets(pickups.picked[queue] ?? {}, closing)
             if ((buckets['+Inf'] ?? 0) === 0) {
                 return { value: null, clean: false }
             }
             // The value is the bound of the histogram bucket that holds the p99, so the bar compares bucket bounds.
-            const { value, beyond } = p99Of(buckets)
+            const { value, beyond } = pickups.unobservedTail ? p99Of(buckets) : worstP99Of(buckets, closing)
             return {
                 value,
                 clean: !beyond && !pickups.unobservedTail,
