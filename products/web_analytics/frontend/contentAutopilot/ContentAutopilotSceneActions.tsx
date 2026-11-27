@@ -7,15 +7,14 @@ import { ContentAutopilotPromptsActions } from './ContentAutopilotPromptsActions
 
 /** The open AI visibility tab's actions, for the scene header. */
 export const ContentAutopilotSceneActions = (): JSX.Element | null => {
-    const { workspaceTab, onboardingOpen } = useValues(contentAutopilotLogic)
+    const { workspaceTab } = useValues(contentAutopilotLogic)
     const { promptId } = useValues(contentAutopilotPromptDetailLogic)
 
-    const actions =
-        promptId || onboardingOpen ? null : workspaceTab === 'prompts' ? (
-            <ContentAutopilotPromptsActions />
-        ) : workspaceTab === 'keywords' ? (
-            <ContentAutopilotKeywordsActions />
-        ) : null
+    const actions = promptId ? null : workspaceTab === 'prompts' ? (
+        <ContentAutopilotPromptsActions />
+    ) : workspaceTab === 'keywords' ? (
+        <ContentAutopilotKeywordsActions />
+    ) : null
 
     // The scene header sits outside the AI visibility root, so it scopes quill's tokens itself.
     return actions ? (

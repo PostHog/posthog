@@ -40,6 +40,7 @@ from products.dashboards.backend.constants import (
     MAX_WIDGET_RESULT_LIMIT,
     MAX_WIDGETS_BATCH_SIZE,
 )
+from products.dashboards.backend.models.dashboard_widget import DashboardWidget
 from products.dashboards.backend.presentation import widget_openapi_serializers as widget_openapi_serializers_module
 from products.dashboards.backend.presentation.pydantic_openapi import pydantic_model_to_openapi_components
 from products.dashboards.backend.widget_catalog import WIDGET_CATALOG
@@ -1412,6 +1413,26 @@ class TestDashboardRunWidgets(APIBaseTest):
         body = self._run(other_id, [tile_id])
 
         self.assertEqual(body["results"][0]["error"], "Tile not found or is not a widget tile.")
+
+    def test_reports_a_widget_type_that_is_no_longer_registered(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
+        _, dashboard_json = self.dashboard_api.create_widget_tile(dashboard_id)
+        tile = dashboard_json["tiles"][0]
+        DashboardWidget.objects.for_team(self.team.id).filter(id=tile["widget"]["id"]).update(widget_type="metrics")
+
+        body = self._run(dashboard_id, [tile["id"]])
+
+        self.assertEqual(
+            body["results"],
+            [
+                {
+                    "tile_id": tile["id"],
+                    "widget_type": "metrics",
+                    "result": None,
+                    "error": "Unknown widget type: metrics",
+                }
+            ],
+        )
 
     def test_run_widgets_denies_without_product_access(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})

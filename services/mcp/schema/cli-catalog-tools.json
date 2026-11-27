@@ -3148,6 +3148,11 @@
                     "csv": false
                 },
                 {
+                    "param": "current_prompts",
+                    "key": "current_prompts",
+                    "csv": false
+                },
+                {
                     "param": "date_from",
                     "key": "date_from",
                     "csv": false
@@ -3203,6 +3208,11 @@
                 {
                     "param": "branded",
                     "key": "branded",
+                    "csv": false
+                },
+                {
+                    "param": "current_prompts",
+                    "key": "current_prompts",
                     "csv": false
                 },
                 {
@@ -3504,6 +3514,38 @@
             "validators": []
         }
     },
+    "aeo-setup-cancel": {
+        "name": "aeo-setup-cancel",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/aeo_setup/{id}/cancel/",
+            "pathParams": ["id"],
+            "fallbacks": [],
+            "query": null,
+            "body": null,
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
     "aeo-setup-context-get": {
         "name": "aeo-setup-context-get",
         "kind": "http",
@@ -3568,6 +3610,38 @@
             "validators": []
         }
     },
+    "aeo-setup-reset": {
+        "name": "aeo-setup-reset",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/aeo_setup/reset/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": null,
+            "body": null,
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
     "aeo-setup-start": {
         "name": "aeo-setup-start",
         "kind": "http",
@@ -3608,8 +3682,44 @@
                 {
                     "param": "activate_paused_prompts",
                     "key": "activate_paused_prompts"
+                },
+                {
+                    "param": "prompt_count",
+                    "key": "prompt_count"
                 }
             ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "aeo-setup-stop-checks": {
+        "name": "aeo-setup-stop-checks",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/aeo_setup/stop_checks/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": null,
+            "body": null,
             "injectBody": {},
             "softDelete": null,
             "transformBody": false
@@ -7571,6 +7681,10 @@
                 {
                     "param": "source_record",
                     "key": "source_record"
+                },
+                {
+                    "param": "entry_attempt_id",
+                    "key": "entry_attempt_id"
                 },
                 {
                     "param": "trigger_masking",
@@ -45288,6 +45402,59 @@
             "validators": []
         }
     },
+    "scout-send-message": {
+        "name": "scout-send-message",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/signals/scout/runs/{run_id}/send_message/",
+            "pathParams": ["run_id"],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "route",
+                    "key": "route"
+                },
+                {
+                    "param": "report_id",
+                    "key": "report_id"
+                },
+                {
+                    "param": "title",
+                    "key": "title"
+                },
+                {
+                    "param": "body",
+                    "key": "body"
+                },
+                {
+                    "param": "dedupe_key",
+                    "key": "dedupe_key"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
     "scout-trial-archive": {
         "name": "scout-trial-archive",
         "kind": "http",
@@ -57449,6 +57616,10 @@
                 {
                     "param": "source_record",
                     "key": "source_record"
+                },
+                {
+                    "param": "entry_attempt_id",
+                    "key": "entry_attempt_id"
                 },
                 {
                     "param": "trigger_masking",

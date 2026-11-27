@@ -170,6 +170,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/data-management/warehouse-properties': ['WarehouseProperties', 'warehouseProperties'],
     '/data-management/warehouse-properties/:tab': ['WarehouseProperties', 'warehouseProperties'],
     '/dashboard-v2': ['DashboardV2', 'dashboardV2'],
+    '/dashboard-v2/:uid': ['DashboardV2', 'dashboardV2'],
     '/data-catalog': ['DataCatalog', 'dataCatalog'],
     '/data-catalog/metrics/:name': ['DataCatalogMetric', 'dataCatalogMetric'],
     '/data-catalog/new-metric': ['DataCatalogNewMetric', 'dataCatalogNewMetric'],
@@ -389,6 +390,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/heatmaps/:id': ['Heatmap', 'heatmap'],
     '/wizard/runs': ['WizardRuns', 'wizardRuns'],
     '/workflows': ['Workflows', 'workflows'],
+    '/workflows/advent': ['WorkflowsAdventCalendar', 'workflowsAdventCalendar'],
     '/workflows/:tab': ['Workflows', 'workflows'],
     '/workflows/channels/email/:id': ['WorkflowsEmailDomain', 'workflowsEmailDomain'],
     '/workflows/:id/:tab': ['Workflow', 'workflowTab'],
@@ -1430,6 +1432,7 @@ export const productConfiguration: Record<string, any> = {
     TransactionalCodeEmail: { name: 'Transactional', iconType: 'transactional', projectBased: true },
     TransactionalPush: { name: 'Transactional', iconType: 'transactional', projectBased: true },
     WorkflowsEmailDomain: { name: 'Workflows', iconType: 'workflows', projectBased: true },
+    WorkflowsAdventCalendar: { name: 'Advent calendar', iconType: 'workflows', projectBased: true },
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -1646,7 +1649,7 @@ export const productUrls = {
     dashboardSubscription: (id: string | number, subscriptionId: string): string =>
         `/dashboard/${id}/subscriptions/${subscriptionId}`,
     sharedDashboard: (shareToken: string): string => `/shared_dashboard/${shareToken}`,
-    dashboardV2: (): string => '/dashboard-v2',
+    dashboardV2: (uid?: string): string => (uid ? `/dashboard-v2/${encodeURIComponent(uid)}` : '/dashboard-v2'),
     dataCatalog: (tab?: string): string => `/data-catalog${tab ? `?tab=${tab}` : ''}`,
     dataCatalogNewMetric: (): string => '/data-catalog/new-metric',
     dataCatalogMetric: (name: string, tab?: 'definition' | 'data-quality' | 'lineage' | 'usage'): string =>
@@ -2167,6 +2170,7 @@ export const productUrls = {
     workflow: (id: string, tab: string): string => `/workflows/${id}/${tab}`,
     workflowNew: (): string => '/workflows/new/workflow',
     workflowsEmailDomain: (id: string | number): string => `/workflows/channels/email/${id}`,
+    workflowsAdventCalendar: (): string => '/workflows/advent',
     workflowsLibraryMessage: (id: string): string => `/workflows/library/messages/${id}`,
     workflowsLibraryTemplate: (id?: string): string => `/workflows/library/templates/${id}`,
     workflowsLibraryTemplateNew: (): string => '/workflows/library/templates/new',
@@ -2645,6 +2649,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'TransactionalCodeEmail',
             'TransactionalPush',
             'WorkflowsEmailDomain',
+            'WorkflowsAdventCalendar',
         ],
     },
     {
@@ -3528,6 +3533,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'TransactionalCodeEmail',
             'TransactionalPush',
             'WorkflowsEmailDomain',
+            'WorkflowsAdventCalendar',
         ],
     },
     {
@@ -3653,6 +3659,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'TransactionalCodeEmail',
             'TransactionalPush',
             'WorkflowsEmailDomain',
+            'WorkflowsAdventCalendar',
         ],
     },
 ]

@@ -14,12 +14,13 @@ export const ContentAutopilotKpiStat = ({
     delta,
     onClick,
     'data-attr': dataAttr,
-}: KpiCardContent & {
-    label: string
-    description: string
-    onClick?: () => void
-    'data-attr': string
-}): JSX.Element => (
+}: Pick<KpiCardContent, 'value'> &
+    Partial<Pick<KpiCardContent, 'note' | 'delta'>> & {
+        label: string
+        description: string
+        onClick?: () => void
+        'data-attr': string
+    }): JSX.Element => (
     <div className="min-w-0">
         <Tooltip>
             <TooltipTrigger
@@ -49,7 +50,9 @@ export const ContentAutopilotKpiStat = ({
                     <MetricValue className="text-2xl font-semibold" translate="no">
                         {value}
                     </MetricValue>
-                    <MetricSubtitle className="text-xs text-muted-foreground opacity-100">{note}</MetricSubtitle>
+                    {note ? (
+                        <MetricSubtitle className="text-xs text-muted-foreground opacity-100">{note}</MetricSubtitle>
+                    ) : null}
                 </Metric>
             </TooltipTrigger>
             <TooltipContent side="bottom" className="max-w-80">

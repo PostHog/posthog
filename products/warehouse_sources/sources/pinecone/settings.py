@@ -18,9 +18,12 @@ class PineconeEndpoint:
     partition_mode: "PartitionMode"
     paginated: bool = False
     cursor_param: str = "paginationToken"
-    # Fan-out tables are read from each parent's own data plane host and keyed by the parent's name.
-    parent: Literal["indexes", "assistants"] | None = None
+    # Fan-out tables are keyed by the parent's `parent_field`, stored as `parent_key` on each row.
+    parent: Literal["indexes", "assistants", "backup_schedules"] | None = None
     parent_key: str | None = None
+    parent_field: str = "name"
+    # Data plane children are read from each parent's own host; control plane children from BASE_URL.
+    data_plane: bool = True
 
 
 ENDPOINTS: dict[str, PineconeEndpoint] = {
@@ -46,6 +49,37 @@ ENDPOINTS: dict[str, PineconeEndpoint] = {
         partition_key="restore_job_id",
         partition_mode="md5",
         paginated=True,
+    ),
+    "conversion_jobs": PineconeEndpoint(
+        path="/conversion-jobs",
+        data_selector="data",
+        primary_key="conversion_job_id",
+        partition_key="created_at",
+        partition_mode="datetime",
+        paginated=True,
+    ),
+    "backup_schedules": PineconeEndpoint(
+        path="/indexes/{index_name}/backup-schedules",
+        data_selector="data",
+        primary_key="schedule_id",
+        partition_key="created_at",
+        partition_mode="datetime",
+        paginated=True,
+        parent="indexes",
+        parent_key="index_name",
+        data_plane=False,
+    ),
+    "backup_schedule_history": PineconeEndpoint(
+        path="/backup-schedules/{schedule_id}/history",
+        data_selector="data",
+        primary_key="backup_id",
+        partition_key="created_at",
+        partition_mode="datetime",
+        paginated=True,
+        parent="backup_schedules",
+        parent_key="schedule_id",
+        parent_field="schedule_id",
+        data_plane=False,
     ),
     "namespaces": PineconeEndpoint(
         path="/namespaces",

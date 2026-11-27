@@ -238,4 +238,5 @@ export const productScenes: Record<string, () => Promise<any>> = {
     TransactionalCodeEmail: () => import('../../products/workflows/frontend/Transactional/code/CodeEmailScene'),
     TransactionalPush: () => import('../../products/workflows/frontend/Transactional/push/TransactionalPushScene'),
     WorkflowsEmailDomain: () => import('../../products/workflows/frontend/Channels/EmailDomain/EmailDomainScene'),
+    WorkflowsAdventCalendar: () => import('../../products/workflows/frontend/AdventCalendar/AdventCalendarScene'),
 }

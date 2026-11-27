@@ -45,25 +45,25 @@ if (not inputs.bypass_signature_check) {
 
   let headerParts := splitByString(',', signatureHeader)
   let timestamp := null
-  let v1Signature := null
+  let v1Signatures := []
 
   for (let _, part in headerParts) {
       let trimmed := trim(part)
-      if (trimmed like 't=%') {
+      if (startsWith(trimmed, 't=')) {
           let tParts := splitByString('=', trimmed, 2)
           if (length(tParts) = 2) {
               timestamp := tParts[2]
           }
       }
-      if (trimmed like 'v1=%') {
+      if (startsWith(trimmed, 'v1=')) {
           let v1Parts := splitByString('=', trimmed, 2)
           if (length(v1Parts) = 2) {
-              v1Signature := v1Parts[2]
+              v1Signatures := arrayPushBack(v1Signatures, v1Parts[2])
           }
       }
   }
 
-  if (empty(timestamp) or empty(v1Signature)) {
+  if (empty(timestamp) or empty(v1Signatures)) {
       return {
         'httpResponse': {
           'status': 400,
@@ -75,7 +75,7 @@ if (not inputs.bypass_signature_check) {
   let signedPayload := concat(timestamp, '.', body)
   let computedSignature := sha256HmacChainHex([inputs.signing_secret, signedPayload])
 
-  if (computedSignature != v1Signature) {
+  if (not has(v1Signatures, computedSignature)) {
       return {
         'httpResponse': {
           'status': 400,

@@ -13,6 +13,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
+import { todayShellLogic } from '~/layout/today/todayShellLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -388,6 +389,20 @@ describe('inboxSceneLogic routing', () => {
             router.actions.push(firstPath)
             router.actions.push(urls.inbox('scouts'))
             expect(logic.values.scoutsInAutomate).toBe(inAutomate)
+        })
+
+        it.each([
+            { opened: 'from the Home pane', pane: 'home', homePane: true },
+            { opened: 'from the Products pane', pane: 'products', homePane: false },
+        ] as const)('drops the inbox tabs only when opened $opened', ({ pane, homePane }) => {
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
+                [FEATURE_FLAGS.TODAY_HOME_PANE]: true,
+            })
+            mountLogic()
+            router.actions.push(urls.inbox('reports'))
+            todayShellLogic.actions.pickPane(pane)
+            expect(logic.values.todayHomePane).toBe(homePane)
         })
 
         it.each([

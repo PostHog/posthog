@@ -43,19 +43,28 @@ branch, and return the requested head_sha in inspected_commit.
 Read the relevant code and existing instrumentation. Use read-only PostHog tools to discover
 actual events and properties, run queries, and verify the metric against this project's data.
 
-Choose ONE primary metric that best measures the intended impact, grounded in observed baseline data.
-The optional note is the person's preferred focus; honor it when measurable in this project's data,
-and when no note is supplied infer the best metric yourself.
+Choose ONE primary metric that directly measures the changed behavior, grounded in observed baseline data.
+The optional note is the person's guidance; honor the event, action, or proxy metric it names when
+measurable in this project's data. When no note is supplied, author a metric only when this project
+directly instruments the changed behavior with a clear primary metric.
 Do not invent event names, observed values, baselines, or evidence of causation.
 
-Return one query-backed primary metric and one metric_threshold check.
+Ask for guidance instead of guessing a weak proxy when no note resolves the choice and:
+- the changed behavior has no direct instrumentation in this project and only weak or indirect proxy events exist,
+- multiple distinct metrics compete and need a human choice on what matters, or
+- no relevant telemetry exists in this project yet.
+In those cases return metric: null, check: null, unavailable: true, and set guidance_question to 2-4
+concise sentences explaining what direct instrumentation is missing, listing concrete candidate proxy
+event names you found in this project (in backticks) when any exist, and asking what to monitor. Keep
+guidance_question qualitative: name event names only, and never include action names, restricted
+properties, raw analytics counts, or property values.
+
+Return one query-backed primary metric and one metric_threshold check when authoring a measurement.
 Use a live InsightVizNode wrapping TrendsQuery with a relative date_from and empty date_to,
 one output series, no breakdown or compare. The check references the metric by metric_id,
 includes monitoring with reference_period_minutes, threshold_scaling (linear only for additive
 counts/sums, fixed for rates/averages), and baseline_period_minutes when baseline_value is set.
 Set soak_hours to the full post-merge observation window. Use comparison lte, gte, or between.
-If the project lacks the data or instrumentation for a meaningful metric, return null metric
-and check with unavailable set to true; never fabricate a runnable check.
 
 Return only JSON matching the supplied schema.
 """
@@ -145,7 +154,12 @@ async def research_pull_request(inputs: MonitorPRInput) -> None:
         ai_agent_name="pr_monitoring",
         before_task_dispatch=associate,
         max_poll_seconds=1800,
-        json_retry_prompt='Return only JSON matching the schema. In check.config, comparison is an object such as {"operator":"lte","value":0}, not a string; there is no threshold field. Preserve your observed evidence and metric, and do not invent a measurement.',
+        json_retry_prompt=(
+            "Return only JSON matching the schema. In check.config, comparison is an object such as "
+            '{"operator":"lte","value":0}, not a string; there is no threshold field. When unavailable is true, '
+            "metric and check must be null and guidance_question must be a non-empty qualitative question. "
+            "Preserve your observed evidence, and do not invent a measurement."
+        ),
         output_schema=PRMonitoringOutput.model_json_schema(),
     )
     completed = False

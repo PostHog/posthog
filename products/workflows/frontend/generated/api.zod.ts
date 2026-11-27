@@ -593,6 +593,10 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
             .describe(
                 "The record another product's entry point started this workflow from, as '<kind>:<id>'. Set only when creating a workflow. Filter the list with `?source_record=`."
             ),
+        entry_attempt_id: zod
+            .uuid()
+            .nullish()
+            .describe('The call-to-action impression this workflow started from. Set only when creating a workflow.'),
         trigger_masking: zod
             .union([
                 zod.object({
@@ -3011,6 +3015,10 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod
             .describe(
                 "The record another product's entry point started this workflow from, as '<kind>:<id>'. Set only when creating a workflow. Filter the list with `?source_record=`."
             ),
+        entry_attempt_id: zod
+            .uuid()
+            .nullish()
+            .describe('The call-to-action impression this workflow started from. Set only when creating a workflow.'),
         trigger_masking: zod
             .union([
                 zod.object({
@@ -3489,6 +3497,28 @@ export const PushTokenImportsCreateBody = /* @__PURE__ */ zod.object({
         .default(pushTokenImportsCreateBodyCreateMissingPersonsDefault)
         .describe(
             'Create a person for a distinct ID that has none. Off by default, so devices of unknown people are listed as failed and can be imported later with new persons.'
+        ),
+})
+
+/**
+ * How people answer the questions of the Workflows advent calendar.
+ */
+export const WorkflowAdventCalendarAnswerBody = /* @__PURE__ */ zod.object({
+    day: zod
+        .union([zod.literal(2), zod.literal(5), zod.literal(10), zod.literal(13), zod.literal(18), zod.literal(21)])
+        .describe(
+            '\* `2` - Favorite founder\n\* `5` - Pineapple on pizza\n\* `10` - Tabs or spaces\n\* `13` - Dark or light mode\n\* `18` - Ship on a Friday\n\* `21` - Coffee or tea'
+        )
+        .describe(
+            'The calendar day of the question the person answers.\n\n\* `2` - Favorite founder\n\* `5` - Pineapple on pizza\n\* `10` - Tabs or spaces\n\* `13` - Dark or light mode\n\* `18` - Ship on a Friday\n\* `21` - Coffee or tea'
+        ),
+    option: zod
+        .enum(['james', 'tim', 'yes', 'no', 'tabs', 'spaces', 'dark', 'light', 'coffee', 'tea'])
+        .describe(
+            '\* `james` - James\n\* `tim` - Tim\n\* `yes` - Yes\n\* `no` - No\n\* `tabs` - Tabs\n\* `spaces` - Spaces\n\* `dark` - Dark mode\n\* `light` - Light mode\n\* `coffee` - Coffee\n\* `tea` - Tea'
+        )
+        .describe(
+            "The option the person picks. It must be one of the two options of that day's question.\n\n\* `james` - James\n\* `tim` - Tim\n\* `yes` - Yes\n\* `no` - No\n\* `tabs` - Tabs\n\* `spaces` - Spaces\n\* `dark` - Dark mode\n\* `light` - Light mode\n\* `coffee` - Coffee\n\* `tea` - Tea"
         ),
 })
 

@@ -124,6 +124,7 @@ from products.signals.backend.scout_harness.lifecycle_lock import (
     resolve_auth_kind,
     user_holds_scout_lifecycle_claim,
 )
+from products.signals.backend.scout_harness.message_routes import scout_send_message_enabled
 from products.signals.backend.scout_harness.precheck import (
     dry_run_scout_precheck,
     resolve_effective_precheck,
@@ -184,6 +185,8 @@ from products.signals.backend.scout_harness.serializers import (
     ScratchpadEntrySerializer,
     SearchMemoryQuerySerializer,
     SearchRecentRunsQuerySerializer,
+    SendScoutMessageRequestSerializer,
+    SendScoutMessageResponseSerializer,
     SignalScoutConfigCreateSerializer,
     SignalScoutConfigListQuerySerializer,
     SignalScoutConfigSerializer,
@@ -239,6 +242,7 @@ from products.signals.backend.scout_harness.tools.lighthouse import (
     execute_lighthouse_audit,
     prepare_lighthouse_audit,
 )
+from products.signals.backend.scout_harness.tools.messages import InvalidMessageError, send_message_sync
 from products.signals.backend.scout_harness.tools.notes import (
     DEFAULT_NOTES_LIST_LIMIT,
     InvalidNoteError,
@@ -1587,6 +1591,89 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(
             RecordStructuredOutputResponseSerializer(
                 {"recorded_count": result.recorded_count, "record_ids": result.record_ids}
+            ).data,
+            status=status.HTTP_200_OK,
+        )
+
+    @validated_request(
+        request_serializer=SendScoutMessageRequestSerializer,
+        parameters=[_RUN_ID_PATH_PARAMETER],
+        responses={
+            200: OpenApiResponse(
+                response=SendScoutMessageResponseSerializer,
+                description=(
+                    "The call was accepted. `outcome` says whether the message was queued, replaced a queued "
+                    "message, or was refused as a duplicate or over the scout's limit."
+                ),
+            ),
+            400: OpenApiResponse(
+                description=(
+                    "The run is not in progress, the route is unknown, the report is missing, not in this project "
+                    "or not written or edited by this run, the report is not surfaced, the safety judge rejected the "
+                    "title or body, or a field is malformed. "
+                    "The message says what to fix."
+                )
+            ),
+            404: OpenApiResponse(description="Run not found for this project, or scout messaging is off."),
+        },
+        summary="Send a message through an owner-set route",
+        description=(
+            "Ask to message a person or channel through one of the scout config's routes "
+            "(`output_destinations.messages`). Name the route `key`, never a recipient. Outside a dry run the "
+            "message must point at a report this run wrote or edited. Nothing is posted during the run: the "
+            "message is queued and sent when the run ends, and a second call with the same route and "
+            "`dedupe_key` replaces it. A scout sends at most 5 messages in any 24 hours, and a route and key "
+            "sent in the last 30 days is refused as a duplicate."
+        ),
+        operation_id="signals_scout_send_message",
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="send_message",
+        required_scopes=["signal_scout_internal:write"],
+        pagination_class=None,
+    )
+    def send_message(self, request: Request, **kwargs) -> Response:
+        run_id = _parse_run_id_or_404(kwargs)
+
+        run = (
+            SignalScoutRun.objects.select_related("scout_config", "task_run", "team")
+            .filter(team_id=_canonical_team_id(self), id=run_id)
+            .first()
+        )
+        if run is None:
+            raise exceptions.NotFound()
+        bound_task_id = _sandbox_bound_task_id(request)
+        if bound_task_id is not None and bound_task_id != run.task_run.task_id:
+            raise exceptions.NotFound()
+        if not scout_send_message_enabled(run.team):
+            raise exceptions.NotFound()
+        if run.task_run.status != tasks_facade.TaskRunStatus.IN_PROGRESS:
+            raise exceptions.ValidationError(
+                {"status": f"Messages can only be sent from in-progress runs (current: {run.task_run.status})."}
+            )
+        data = request.validated_data
+        try:
+            # `run.team` is the canonical team the run was resolved on, as in `emit_report`.
+            result = send_message_sync(
+                team=run.team,
+                run=run,
+                route_key=data["route"],
+                report_id=data.get("report_id") or None,
+                title=data["title"],
+                body=data["body"],
+                dedupe_key=data["dedupe_key"],
+            )
+        except InvalidMessageError as exc:
+            raise exceptions.ValidationError({"detail": str(exc)})
+        return Response(
+            SendScoutMessageResponseSerializer(
+                {
+                    "outcome": str(result.outcome),
+                    "message_id": result.message_id,
+                    "recent_dedupe_keys": list(result.recent_dedupe_keys),
+                }
             ).data,
             status=status.HTTP_200_OK,
         )
@@ -3803,7 +3890,9 @@ class SignalScoutConfigViewSet(ScoutTrialConfigMixin, TeamAndOrgViewSetMixin, vi
         if action in {"create", "trial", "trial_result"}:
             return ["signal_scout:write", "llm_skill:write"]
         if action == "partial_update" and (
-            self._sets_structured_output_schema(request) or self._sets_custom_image(request)
+            self._sets_structured_output_schema(request)
+            or self._sets_custom_image(request)
+            or self._sets_message_routes(request)
         ):
             return ["signal_scout:write", "llm_skill:write"]
         # Running a scout drives spend, so a bare trigger is a config write. A trigger carrying a
@@ -3819,6 +3908,16 @@ class SignalScoutConfigViewSet(ScoutTrialConfigMixin, TeamAndOrgViewSetMixin, vi
     def _sets_structured_output_schema(request: Request) -> bool:
         data = request.data
         return isinstance(data, dict) and data.get("structured_output_schema") is not None
+
+    @staticmethod
+    def _sets_message_routes(request: Request) -> bool:
+        # A route's `when` is rendered verbatim into the run prompt, and a route decides who the scout
+        # can message, so setting routes is skill-authoring-level steering. Clearing them is not.
+        # The raw value decides, not the route parser: the serializer coerces entries the parser skips
+        # (a numeric `key` becomes a valid slug), so a parsed check would let those through ungated.
+        data = request.data
+        destinations = data.get("output_destinations") if isinstance(data, dict) else None
+        return isinstance(destinations, dict) and bool(destinations.get("messages"))
 
     @staticmethod
     def _sets_custom_image(request: Request) -> bool:
@@ -3843,6 +3942,13 @@ class SignalScoutConfigViewSet(ScoutTrialConfigMixin, TeamAndOrgViewSetMixin, vi
             raise exceptions.PermissionDenied(
                 "Setting structured_output_schema requires editor access to skills, since the schema "
                 "is read verbatim by the scout agent."
+            )
+
+    def _assert_can_set_message_routes(self) -> None:
+        if not self._has_skill_editor_access():
+            raise exceptions.PermissionDenied(
+                "Setting message routes requires editor access to skills, since the scout agent reads each "
+                "route's condition verbatim and the route decides who it can message."
             )
 
     def _assert_can_select_custom_image(self) -> None:
@@ -4073,6 +4179,8 @@ class SignalScoutConfigViewSet(ScoutTrialConfigMixin, TeamAndOrgViewSetMixin, vi
             self._assert_can_author_structured_output_schema()
         if self._sets_custom_image(request):
             self._assert_can_select_custom_image()
+        if self._sets_message_routes(request):
+            self._assert_can_set_message_routes()
         config_id = _parse_run_id_or_404(kwargs)
         repositories_checked = _precheck_scout_repositories(request, team=team, config_id=config_id)
         # The row stays locked from the grant comparison to the save. A whole-config resend that
