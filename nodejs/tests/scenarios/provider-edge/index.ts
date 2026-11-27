@@ -221,7 +221,9 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
             postInBackground(() => sendFeedback(feedback, accepted, ['hardBounce'], correlation.unitId, fault.name))
         } else if (plan && feedback && accepted.configurationSet !== undefined) {
             const events = plan.eventsOfNextSend(accepted.tracked !== false)
-            postInBackground(() => sendFeedback(feedback, accepted, events, correlation.unitId))
+            if (events.length > 0) {
+                postInBackground(() => sendFeedback(feedback, accepted, events, correlation.unitId))
+            }
         }
         const reply = { status: 200, body: { MessageId: messageId } }
         if (fault?.answer.kind === 'hold-answer') {
@@ -238,16 +240,13 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
         void posted.finally(() => posting.delete(posted))
     }
 
-    const feedbackLanded = async (waitMs: number): Promise<void> => {
-        const until = Date.now() + waitMs
-        while (posting.size > 0 && Date.now() < until) {
-            const deadline = new AbortController()
-            await Promise.race([
-                Promise.allSettled(posting),
-                sleep(until - Date.now(), undefined, { signal: deadline.signal }).catch(() => undefined),
-            ])
-            deadline.abort()
-        }
+    const postedOrDeadline = async (until: number): Promise<void> => {
+        const deadline = new AbortController()
+        await Promise.race([
+            Promise.allSettled(posting),
+            sleep(until - Date.now(), undefined, { signal: deadline.signal }).catch(() => undefined),
+        ])
+        deadline.abort()
     }
 
     const sendFeedback = async (
@@ -394,7 +393,10 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
             return
         }
         if (req.method === 'GET' && url.pathname === '/_truth/head') {
-            await feedbackLanded(headWaitOf(url.searchParams.get('waitMs')))
+            const until = Date.now() + headWaitOf(url.searchParams.get('waitMs'))
+            while (posting.size > 0 && Date.now() < until) {
+                await postedOrDeadline(until)
+            }
         }
         const reply = route(req, url, body)
         if (reply === 'drop-connection') {
