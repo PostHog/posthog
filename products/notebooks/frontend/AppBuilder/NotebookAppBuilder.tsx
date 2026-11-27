@@ -24,6 +24,7 @@ import { NotebookAppInspector } from './NotebookAppInspector'
 import { notebookAppLogic } from './notebookAppLogic'
 import { NotebookAppPalette } from './NotebookAppPalette'
 import { NotebookAppPublicationChecks } from './NotebookAppPublicationChecks'
+import { NotebookAppRefreshPanel } from './NotebookAppRefreshPanel'
 import PublishedNotebookApp from './PublishedNotebookApp'
 
 export function NotebookAppBuilder({ shortId }: { shortId: string }): JSX.Element {
@@ -229,6 +230,9 @@ export function NotebookAppBuilder({ shortId }: { shortId: string }): JSX.Elemen
                     </LemonMenu>
                 </div>
             </div>
+            {editing && savedNotebook.app_published && (
+                <NotebookAppRefreshPanel shortId={shortId} revision={savedNotebook.app_revision ?? 0} editable />
+            )}
             {error && (
                 <LemonBanner type="error" className="mb-4">
                     {error}

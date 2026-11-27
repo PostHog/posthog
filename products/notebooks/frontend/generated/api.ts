@@ -15,8 +15,11 @@ import type {
     NotebookAppDraftComputeRequestApi,
     NotebookAppDraftQueryRequestApi,
     NotebookAppLayoutApi,
+    NotebookAppRefreshOutputsApi,
+    NotebookAppRefreshStatusApi,
     NotebookAppReleaseApi,
     NotebookAppReleaseReviewApi,
+    NotebookAppScheduleSettingsApi,
     NotebookAppViewerQueryApi,
     NotebookAppViewerRequestApi,
     NotebookCollabPresenceApi,
@@ -577,6 +580,63 @@ export const notebooksAppQueriesCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(notebookAppViewerRequestApi),
+    })
+}
+
+export const getNotebooksAppRefreshOutputsRetrieveUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/app_refresh_outputs/`
+}
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksAppRefreshOutputsRetrieve = async (
+    projectId: string,
+    shortId: string,
+    options?: RequestInit
+): Promise<NotebookAppRefreshOutputsApi> => {
+    return apiMutator<NotebookAppRefreshOutputsApi>(getNotebooksAppRefreshOutputsRetrieveUrl(projectId, shortId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getNotebooksAppRefreshScheduleCreateUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/app_refresh_schedule/`
+}
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksAppRefreshScheduleCreate = async (
+    projectId: string,
+    shortId: string,
+    notebookAppScheduleSettingsApi: NotebookAppScheduleSettingsApi,
+    options?: RequestInit
+): Promise<NotebookAppRefreshStatusApi> => {
+    return apiMutator<NotebookAppRefreshStatusApi>(getNotebooksAppRefreshScheduleCreateUrl(projectId, shortId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(notebookAppScheduleSettingsApi),
+    })
+}
+
+export const getNotebooksAppRefreshStatusRetrieveUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/app_refresh_status/`
+}
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksAppRefreshStatusRetrieve = async (
+    projectId: string,
+    shortId: string,
+    options?: RequestInit
+): Promise<NotebookAppRefreshStatusApi> => {
+    return apiMutator<NotebookAppRefreshStatusApi>(getNotebooksAppRefreshStatusRetrieveUrl(projectId, shortId), {
+        ...options,
+        method: 'GET',
     })
 }
 

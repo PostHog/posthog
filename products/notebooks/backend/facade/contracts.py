@@ -15,6 +15,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
+from pydantic import JsonValue
 from pydantic.dataclasses import dataclass
 
 
@@ -251,3 +252,34 @@ class AccountNotebook:
     created_by: NotebookUserInfo | None = None
     tags: list[str] = field(default_factory=list)
     last_modified_by: NotebookUserInfo | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class AppRefreshHistory:
+    revision: int
+    due_at: datetime
+    finished_at: datetime | None
+    status: str
+    detail: str
+    output_count: int
+
+
+@dataclass(frozen=True, kw_only=True)
+class AppRefreshStatus:
+    published_revision: int
+    enabled: bool
+    history: list[AppRefreshHistory]
+    revision: int | None = None
+    interval_minutes: int | None = None
+    freshness_minutes: int | None = None
+    next_due_at: datetime | None = None
+    last_success_at: datetime | None = None
+    stale: bool | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class AppRefreshedOutput:
+    results: list[list[JsonValue]]
+    columns: list[str] | None = None
+    types: list[list[str]] | None = None
+    hasMore: bool | None = None

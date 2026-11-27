@@ -1031,6 +1031,68 @@ export interface NotebookAppViewerRequestApi {
     variables: NotebookVariableApi[]
 }
 
+export interface NotebookAppRefreshedOutputApi {
+    /** @nullable */
+    columns?: string[] | null
+    results: unknown[][]
+    /** @nullable */
+    types?: string[][] | null
+    /** @nullable */
+    hasMore?: boolean | null
+}
+
+export type NotebookAppRefreshOutputsApiOutputs = { [key: string]: NotebookAppRefreshedOutputApi }
+
+export interface NotebookAppRefreshOutputsApi {
+    revision: number
+    outputs: NotebookAppRefreshOutputsApiOutputs
+}
+
+export interface NotebookAppScheduleSettingsApi {
+    /**
+     * Published revision to refresh.
+     * @minimum 0
+     */
+    revision: number
+    /** Whether this schedule runs. */
+    enabled: boolean
+    /**
+     * Minutes between scheduled refreshes.
+     * @minimum 60
+     * @maximum 10080
+     */
+    interval_minutes?: number
+    /**
+     * Maximum acceptable result age, in minutes.
+     * @minimum 60
+     * @maximum 43200
+     */
+    freshness_minutes?: number
+}
+
+export interface NotebookAppRefreshHistoryApi {
+    revision: number
+    due_at: string
+    /** @nullable */
+    finished_at: string | null
+    status: string
+    detail: string
+    output_count: number
+}
+
+export interface NotebookAppRefreshStatusApi {
+    published_revision: number
+    enabled: boolean
+    revision?: number
+    interval_minutes?: number
+    freshness_minutes?: number
+    next_due_at?: string
+    /** @nullable */
+    last_success_at?: string | null
+    stale?: boolean
+    history: NotebookAppRefreshHistoryApi[]
+}
+
 export interface NotebookAppReleaseApi {
     revision: number
     /** @nullable */
