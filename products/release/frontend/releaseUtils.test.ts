@@ -1,9 +1,17 @@
+import type { FileSystemEntry } from '~/queries/schema/schema-general'
+
 import type { EarlyAccessFeatureApi } from 'products/early_access_features/frontend/generated/api.schemas'
 import type { FeatureFlagApi } from 'products/feature_flags/frontend/generated/api.schemas'
 import type { SendCalendarFlowApi } from 'products/workflows/frontend/generated/api.schemas'
 
 import type { ReleaseDTOApi } from './generated/api.schemas'
-import { LinkCandidate, buildReleaseIndex, buildReleaseRow, rankLinkSuggestions } from './releaseUtils'
+import {
+    LinkCandidate,
+    buildReleaseIndex,
+    buildReleaseRow,
+    rankLinkSuggestions,
+    releaseSidebarEntryName,
+} from './releaseUtils'
 
 const FLAG = {
     id: 1,
@@ -16,7 +24,11 @@ const FLAG = {
     experiment_set: [],
 } as unknown as FeatureFlagApi
 
-function row(hasHiddenFlags: boolean, flags: FeatureFlagApi[] = [FLAG]): ReturnType<typeof buildReleaseRow> {
+function row(
+    hasHiddenFlags: boolean,
+    flags: FeatureFlagApi[] = [FLAG],
+    surveyIds: string[] = []
+): ReturnType<typeof buildReleaseRow> {
     const release = {
         id: 'release-1',
         name: 'Quiet theme',
@@ -25,15 +37,18 @@ function row(hasHiddenFlags: boolean, flags: FeatureFlagApi[] = [FLAG]): ReturnT
         feature_flag_ids: flags.map((flag) => flag.id),
         has_hidden_flags: hasHiddenFlags,
         broadcast_ids: [],
-        survey_ids: [],
+        survey_ids: surveyIds,
         insight_ids: [],
+        metric_insight_ids: [],
+        metric_goals: [],
         insights: [],
+        surveys: [],
         broadcasts: [],
         created_at: '2026-10-02T00:00:00Z',
     } as ReleaseDTOApi
-    const index = buildReleaseIndex([FLAG], [], [], [], {
+    const index = buildReleaseIndex(flags, [], [], [], {
         complete: true,
-        resolvedFlagIds: [FLAG.id],
+        resolvedFlagIds: flags.map((flag) => flag.id),
         unknownFlagIds: [],
     })
     return buildReleaseRow(release, index)
@@ -66,6 +81,12 @@ const LAUNCH_SEND = {
 } as unknown as SendCalendarFlowApi
 
 describe('buildReleaseRow', () => {
+    it('marks a flag without an end date as ongoing', () => {
+        const result = row(false)
+
+        expect(result.spans.find((span) => span.kind === 'flag')?.ongoing).toBe(true)
+    })
+
     it('shows the sends of a linked broadcast and stops suggesting one', () => {
         const release = {
             id: 'release-1',
@@ -77,7 +98,10 @@ describe('buildReleaseRow', () => {
             broadcast_ids: [LAUNCH_SEND.id],
             survey_ids: [],
             insight_ids: [],
+            metric_insight_ids: [],
+            metric_goals: [],
             insights: [],
+            surveys: [],
             broadcasts: [{ id: LAUNCH_SEND.id, name: 'Launch email', status: 'active', recent_sends: [] }],
             created_at: '2026-10-02T00:00:00Z',
         } as ReleaseDTOApi
@@ -125,7 +149,10 @@ describe('buildReleaseRow', () => {
             broadcast_ids: [],
             survey_ids: [],
             insight_ids: [],
+            metric_insight_ids: [],
+            metric_goals: [],
             insights: [],
+            surveys: [],
             broadcasts: [],
             created_at: '2026-10-02T00:00:00Z',
         } as ReleaseDTOApi
@@ -154,7 +181,10 @@ describe('buildReleaseRow', () => {
             broadcast_ids: [],
             survey_ids: [],
             insight_ids: [],
+            metric_insight_ids: [],
+            metric_goals: [],
             insights: [],
+            surveys: [],
             broadcasts: [],
             created_at: '2026-10-02T00:00:00Z',
         } as ReleaseDTOApi
@@ -178,6 +208,26 @@ describe('buildReleaseRow', () => {
         expect(result.needsDecision).toBe(needsDecision)
     })
 
+    const PARTIAL = {
+        ...FLAG,
+        filters: { groups: [{ properties: [], rollout_percentage: 50 }] },
+    } as unknown as FeatureFlagApi
+    const ARCHIVED = { ...FLAG, active: false, archived: true } as unknown as FeatureFlagApi
+
+    it.each([
+        ['behind a flag', [PARTIAL], [], 'flag', ['experiment', 'early-access', 'survey']],
+        ['behind a flag with a linked survey', [PARTIAL], ['survey-1'], 'flag', ['experiment', 'early-access']],
+        ['rolled out', [FLAG], [], 'released', ['broadcast', 'survey']],
+        ['rolled out with a linked survey', [FLAG], ['survey-1'], 'released', ['broadcast']],
+        ['planned', [], [], 'planned', []],
+        ['ended', [ARCHIVED], [], 'ended', []],
+    ])('suggests ideas that fit the stage when %s', (_name, flags, surveyIds, stage, ideas) => {
+        const result = row(false, flags, surveyIds)
+
+        expect(result.stage).toBe(stage)
+        expect(result.suggestions.map((suggestion) => suggestion.key)).toEqual(ideas)
+    })
+
     it('counts only flags open to all users toward the flags that reach everyone', () => {
         const targeted = {
             ...FLAG,
@@ -195,7 +245,10 @@ describe('buildReleaseRow', () => {
             broadcast_ids: [],
             survey_ids: [],
             insight_ids: [],
+            metric_insight_ids: [],
+            metric_goals: [],
             insights: [],
+            surveys: [],
             broadcasts: [],
             created_at: '2026-10-02T00:00:00Z',
         } as ReleaseDTOApi
@@ -239,5 +292,20 @@ describe('rankLinkSuggestions', () => {
 
     it('suggests nothing when the release name has no meaningful words', () => {
         expect(rankLinkSuggestions('New release', [candidate('flag', 'new-release')])).toEqual([])
+    })
+})
+
+describe('releaseSidebarEntryName', () => {
+    it('uses the current visible release name instead of a saved pin name', () => {
+        const pinnedRelease = {
+            type: 'release',
+            ref: 'release-1',
+            path: 'Previously visible flag name',
+        } as FileSystemEntry
+
+        expect(
+            releaseSidebarEntryName(pinnedRelease, new Map([['release-1', { name: 'Release of a restricted flag' }]]))
+        ).toBe('Release of a restricted flag')
+        expect(releaseSidebarEntryName(pinnedRelease, new Map())).toBeNull()
     })
 })

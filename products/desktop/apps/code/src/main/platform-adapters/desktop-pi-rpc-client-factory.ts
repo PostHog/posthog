@@ -6,13 +6,8 @@ import {
   createRuntimeMcpServers,
   type PiRpcClient,
 } from "@posthog/agent/pi/rpc-client";
-import { getLlmGatewayUrl } from "@posthog/agent/posthog-api";
 import { ROOT_LOGGER, type RootLogger } from "@posthog/di/logger";
-import {
-  type CloudRegion,
-  getCloudUrlFromRegion,
-  type McpServerConnection,
-} from "@posthog/shared";
+import type { McpServerConnection } from "@posthog/shared";
 import { buildPosthogScopedPropertyHeaderRecord } from "@posthog/shared/posthog-property-headers";
 import type {
   TaskContext,
@@ -52,7 +47,7 @@ export class DesktopPiRpcClientFactory implements PiRpcClientFactory {
     private readonly mcpServerSource: McpServerConnectionSource,
     @inject(AGENT_MCP_APPS) private readonly mcpApps: AgentMcpApps,
     @inject(ROOT_LOGGER) private readonly rootLogger: RootLogger,
-    // Required: an unbound source would silently keep Pi on legacy.
+    // Required: without a source Pi cannot reach a model.
     @inject(GATEWAY_CREDENTIAL_SOURCE)
     private readonly gatewaySource: GatewayCredentialSource,
   ) {}
@@ -73,7 +68,7 @@ export class DesktopPiRpcClientFactory implements PiRpcClientFactory {
     // Four independent round-trips: proxy URL, auth proxy, MCP config, wiki mount.
     const [baseUrl, enrichmentApiUrl, mcpConfiguration, contextWikiPath] =
       await Promise.all([
-        this.getProxyUrl(credentials.region, projectId, input.taskContext),
+        this.getProxyUrl(projectId, input.taskContext),
         this.authProxy.start(access.apiHost),
         this.mcpServerSource.getMcpRuntimeConfiguration(),
         this.mountContextWiki(projectId),
@@ -163,14 +158,12 @@ export class DesktopPiRpcClientFactory implements PiRpcClientFactory {
   }
 
   private async getProxyUrl(
-    region: CloudRegion,
     projectId: number,
     { taskId, taskRunId }: Pick<TaskContextInput, "taskId" | "taskRunId">,
   ): Promise<string> {
     const { proxyUrl } = await resolveGatewayProxy({
       authProxy: this.authProxy,
       source: this.gatewaySource,
-      legacyGatewayUrl: getLlmGatewayUrl(getCloudUrlFromRegion(region)),
       projectId,
       headers: buildPosthogScopedPropertyHeaderRecord(
         {

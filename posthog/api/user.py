@@ -43,7 +43,6 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from social_django.models import UserSocialAuth
 from two_factor.forms import TOTPDeviceForm
 from two_factor.utils import default_device
 
@@ -55,6 +54,7 @@ from posthog.api.notification_settings import validate_notification_settings
 from posthog.api.oauth.toolbar_service import (
     ToolbarOAuthError,
     ToolbarOAuthState,
+    ToolbarOAuthStateReplayError,
     build_authorization_url,
     build_toolbar_oauth_state,
     get_or_create_toolbar_oauth_application,
@@ -63,6 +63,7 @@ from posthog.api.oauth.toolbar_service import (
     refresh_tokens,
     validate_and_consume_toolbar_oauth_state,
 )
+from posthog.api.oauth.toolbar_views import redirect_to_toolbar_oauth_error
 from posthog.api.organization import OrganizationSerializer
 from posthog.api.services.flags_service import get_flags_from_service
 from posthog.api.shared import OrganizationBasicSerializer, OrganizationNotificationLockSerializer, TeamBasicSerializer
@@ -109,6 +110,7 @@ from posthog.helpers.two_factor_session import (
     normalize_verification_code,
     set_two_factor_verified_in_session,
 )
+from posthog.helpers.user_email_change import UserEmailChange
 from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, resolve_login_organization
 from posthog.ip_restrictions import get_ip_blocked_organization_ids
 from posthog.middleware import (
@@ -136,6 +138,7 @@ from posthog.permissions import (
     credential_admits_team,
     get_authenticator_scoped_team_ids,
     get_request_reachable_organization_ids,
+    organization_refuses_personal_api_key,
 )
 from posthog.rate_limit import (
     OnboardingSkipThrottle,
@@ -167,9 +170,11 @@ from posthog.tasks.email import (
     send_two_factor_auth_enabled_email,
 )
 from posthog.user_permissions import UserPermissions
-from posthog.utils import get_safe_cache, render_template, safe_cache_set
+from posthog.utils import get_safe_cache, safe_cache_set
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.dashboards.backend.facade.api import find_dashboard_team_id
 from products.notifications.backend.facade.api import NotificationType
 
@@ -946,14 +951,25 @@ class UserSerializer(serializers.ModelSerializer):
 
         # `/api/users/@me/` has no tenant target, so `APIScopePermission` leaves a credential confined to
         # some organizations free to read the user's current project and organization in any other one.
-        if data.get("team") is not None and not credential_admits_team(
+        current_team_outside_reach = data.get("team") is not None and not credential_admits_team(
             request, data["team"]["id"], data["team"]["organization"]
-        ):
+        )
+        if current_team_outside_reach:
             data["team"] = None
         if data.get("organization") is not None and not credential_admits_organization(
             request, data["organization"]["id"]
         ):
             data["organization"] = None
+        # Clients such as the setup agent take `team` as the project to work in. A credential that reaches
+        # one project names that project without doubt. With several, any pick could send a client's
+        # writes to a project the user did not choose, so `team` stays null.
+        if (
+            current_team_outside_reach
+            and request is not None
+            and (sole_team := self._sole_reachable_team(instance, request)) is not None
+        ):
+            data["team"] = TeamBasicSerializer(sole_team, context=self.context).data
+            data["organization"] = OrganizationSerializer(sole_team.organization, context=self.context).data
         scoped_teams = get_authenticator_scoped_team_ids(getattr(request, "successful_authenticator", None))
         if scoped_teams and (organization := data.get("organization")) is not None:
             organization["teams"] = [team for team in organization.get("teams") or [] if team["id"] in scoped_teams]
@@ -974,6 +990,42 @@ class UserSerializer(serializers.ModelSerializer):
                 data["shortcut_position"] = ShortcutPosition.ABOVE.value
 
         return data
+
+    def _sole_reachable_team(self, user: User, request: Request) -> Team | None:
+        reachable_organizations = get_request_reachable_organization_ids(request)
+        if reachable_organizations is None:
+            return None
+        candidates = Team.objects.filter(organization_id__in=reachable_organizations)
+        scoped_teams = get_authenticator_scoped_team_ids(getattr(request, "successful_authenticator", None))
+        if scoped_teams:
+            candidates = candidates.filter(id__in=scoped_teams)
+        blocked_organizations = get_ip_blocked_organization_ids(request)
+        if blocked_organizations:
+            candidates = candidates.exclude(organization_id__in=blocked_organizations)
+
+        user_permissions = self.context.get("user_permissions")
+        if not isinstance(user_permissions, UserPermissions) or user_permissions.user != user:
+            user_permissions = UserPermissions(user)
+        # `/api/users/@me/` skips the organization gates that every route of the named project applies, so a
+        # project those gates refuse must not be named here either.
+        organization_admits: dict[str, bool] = {}
+        sole_team: Team | None = None
+        for team in candidates.select_related("organization").order_by("id"):
+            organization_id = str(team.organization_id)
+            if organization_id not in organization_admits:
+                organization_admits[organization_id] = not (
+                    OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(user.email, team.organization)
+                    or organization_refuses_personal_api_key(request, team.organization)
+                )
+            if (
+                not organization_admits[organization_id]
+                or user_permissions.team(team).effective_membership_level is None
+            ):
+                continue
+            if sole_team is not None:
+                return None
+            sole_team = team
+        return sole_team
 
 
 class ScenePersonalisationSerializer(serializers.ModelSerializer):
@@ -1335,7 +1387,7 @@ class UserViewSet(
         user_uuid = body.validated_data["uuid"]
 
         try:
-            user: Optional[User] = User.objects.filter(is_active=True).get(uuid=user_uuid)
+            user: Optional[User] = User.objects.humans().filter(is_active=True).get(uuid=user_uuid)
         except (User.DoesNotExist, ValidationError):
             user = None
 
@@ -1373,26 +1425,19 @@ class UserViewSet(
             # `pending_email` holds whatever case the change was staged in.
             new_email = EmailNormalizer.normalize(user.pending_email)
             # Anyone can claim the address while the change waits for this code.
-            taken = (
-                EmailValidationHelper.user_exists_with_stripped_alias(new_email, exclude_user_id=user.pk)
-                or EmailValidationHelper.user_exists_with_gmail_canonical(new_email, exclude_user_id=user.pk)
-                or EmailLookupHandler.users_matching_email(new_email, User.objects.all()).exclude(pk=user.pk).exists()
-            )
-            if taken:
+            change = UserEmailChange(user=user, new_email=new_email)
+            if change.is_taken():
                 refuse_pending_email_promotion()
             try:
                 with transaction.atomic():
-                    user.email = EmailNormalizer.normalize(new_email)
-                    user.pending_email = None
-                    user.save(update_fields=["email", "pending_email"])
-                    # Delete social auth so the old external identity can't keep logging in.
-                    UserSocialAuth.objects.filter(user=user).delete()
+                    # ImpersonationBlockedPathsMiddleware refuses this request during impersonation, so this
+                    # session belongs to the user and is the one that confirmed the code.
+                    change.apply(keep_session_key=request.session.session_key)
             except IntegrityError:
                 # A row that appeared since the check above reaches this write.
                 user.refresh_from_db()
                 refuse_pending_email_promotion()
             send_email_change_emails.delay(datetime.now(UTC).isoformat(), user.first_name, old_email, user.email)
-            revoke_other_sessions_for_request(request, user)
 
         user.is_email_verified = True
         user.save()
@@ -1828,7 +1873,11 @@ class UserViewSet(
 
 def _user_can_access_toolbar(user: User, team: Team) -> bool:
     """Whether the user is allowed to launch the toolbar for this team."""
-    return UserAccessControl(user, team=team).check_access_level_for_resource("toolbar", "viewer")
+    return authorization.check(
+        resource=Resource(type=ResourceType.TOOLBAR, project_id=team.pk),
+        action=Action.VIEW,
+        subject=Subject(user_id=user.pk),
+    )
 
 
 @require_http_methods(["GET"])
@@ -1874,21 +1923,11 @@ def toolbar_oauth_authorize(request):
         )
     except ToolbarOAuthError as exc:
         if exc.code == "forbidden_app_url":
-            parsed_redirect = urllib.parse.urlparse(redirect_url)
-            hostname = parsed_redirect.hostname or redirect_url
-            return render_template(
-                "toolbar_oauth_error.html",
+            return redirect_to_toolbar_oauth_error(
                 request,
-                context={
-                    "error_title": "Domain not authorized",
-                    "error_message": "The toolbar cannot authenticate on this domain because it is not in your project's authorized URLs.",
-                    "error_detail": (
-                        f"The hostname {hostname} needs to be added to your project's "
-                        "authorized URLs before the toolbar can be used on this site."
-                    ),
-                    "error_code": "403",
-                    "settings_url": f"{settings.SITE_URL}/settings/project-toolbar#authorized-urls",
-                },
+                title="Domain not authorized",
+                message="The toolbar cannot authenticate on this domain because it is not in your project's authorized URLs.",
+                unauthorized_url=redirect_url,
                 status_code=exc.status_code,
             )
         return HttpResponse(exc.detail, status=exc.status_code)
@@ -1946,9 +1985,24 @@ def toolbar_oauth_callback(request):
             signed_state=state,
             request_user=request.user,
             request_team=team,
+            code=code,
         )
         oauth_app = get_or_create_toolbar_oauth_application(user=request.user)
     except ToolbarOAuthError as exc:
+        # A refused state never sends the code to the toolbar, so remove the grant before anyone can redeem it. A
+        # replay with the code that claimed the state is the exception: the first callback may have sent it already.
+        if not isinstance(exc, ToolbarOAuthStateReplayError):
+            OAuthGrant.objects.filter(
+                code=code, user=request.user, application__name=settings.TOOLBAR_OAUTH_APPLICATION_NAME
+            ).delete()
+        if exc.code == "invalid_state":
+            # The state lives a few minutes, and a sign-in prompt on the way can outlast it. Say how to start over.
+            return redirect_to_toolbar_oauth_error(
+                request,
+                title="This toolbar sign-in expired",
+                message="Open the toolbar from your site again to start a new sign-in.",
+                status_code=exc.status_code,
+            )
         return HttpResponse(exc.detail, status=exc.status_code)
 
     # The first-party auto-approval path issues this grant with an org-wide
@@ -1972,7 +2026,12 @@ def toolbar_oauth_callback(request):
     base_url = urllib.parse.urlunparse(parsed._replace(fragment=""))
     quoted_code = urllib.parse.quote(code, safe="")
     quoted_client_id = urllib.parse.quote(oauth_app.client_id, safe="")
-    toolbar_param = f"__posthog_toolbar=code:{quoted_code},client_id:{quoted_client_id}"
+    # The toolbar builds every API path from these ids. The grant above is scoped to this team, so they name the only
+    # project its token can reach. Older toolbar builds read up to client_id and ignore the rest.
+    toolbar_param = (
+        f"__posthog_toolbar=code:{quoted_code},client_id:{quoted_client_id},"
+        f"team_id:{team.id},project_id:{team.project_id}"
+    )
     if original_fragment:
         # SPA hash routes (e.g. `#/login`) treat the entire post-`#` substring
         # as the path, so `&` would make the auth params part of the route and
@@ -2210,31 +2269,17 @@ def redirect_to_site(request):
 
     if not unparsed_hostname_in_allowed_url_list(team.app_urls, app_url):
         REDIRECT_TO_SITE_FAILED_COUNTER.inc()
-        try:
-            hostname = urllib.parse.urlparse(app_url).hostname or app_url
-        except ValueError:
-            # A URL too malformed to parse is still a rejection, so report it back as typed
-            # rather than failing the request with a 500.
-            hostname = app_url
         logger.error(
             "can_only_redirect_to_permitted_domain",
             permitted_domains=team.app_urls,
             app_url=app_url,
             team_id=team.id,
         )
-        return render_template(
-            "toolbar_oauth_error.html",
+        return redirect_to_toolbar_oauth_error(
             request,
-            context={
-                "error_title": "Domain not authorized",
-                "error_message": "The toolbar cannot load on this domain because it is not in your project's authorized URLs.",
-                "error_detail": (
-                    f"The hostname {hostname} needs to be added to your project's "
-                    "authorized URLs before the toolbar can be used on this site."
-                ),
-                "error_code": "403",
-                "settings_url": f"{settings.SITE_URL}/settings/project-toolbar#authorized-urls",
-            },
+            title="Domain not authorized",
+            message="The toolbar cannot load on this domain because it is not in your project's authorized URLs.",
+            unauthorized_url=app_url,
             status_code=403,
         )
 
@@ -2274,6 +2319,9 @@ def redirect_to_site(request):
 
 @session_auth_required
 def redirect_to_website(request):
+    if is_impersonated(request):
+        return JsonResponse({"detail": "End impersonation before signing in to posthog.com."}, status=403)
+
     team = request.user.team
     app_url = request.GET.get("appUrl") or (team.app_urls and team.app_urls[0])
 

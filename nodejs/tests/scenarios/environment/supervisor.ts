@@ -21,6 +21,7 @@ export type RoleExit = RoleId & {
     signal: string | null
     byValve: boolean
     error?: string
+    relaunchedAt?: string
 }
 
 export type SupervisorOptions = {
@@ -45,7 +46,6 @@ export function createSupervisor(options: SupervisorOptions): Supervisor {
     const restarts = new Set<NodeJS.Timeout>()
     const recorded: RoleExit[] = []
     const killedByValve = new WeakSet<ChildProcess>()
-    const freezes = new Map<number, number>()
     let stopping = false
 
     const runningChild = (id: RoleId): ChildProcess & { pid: number } => {
@@ -56,11 +56,11 @@ export function createSupervisor(options: SupervisorOptions): Supervisor {
         return child as ChildProcess & { pid: number }
     }
 
-    const relaunchLater = (spec: RoleSpec): void => {
+    const relaunchLater = (spec: RoleSpec, exit: RoleExit): void => {
         const restart = setTimeout(() => {
             restarts.delete(restart)
             if (!stopping) {
-                launch(spec)
+                launch(spec).once('spawn', () => (exit.relaunchedAt = new Date().toISOString()))
             }
         }, options.restartBackoffMs)
         restarts.add(restart)
@@ -84,7 +84,7 @@ export function createSupervisor(options: SupervisorOptions): Supervisor {
             if (stopping || child.pid !== undefined) {
                 return
             }
-            recorded.push({
+            const exit: RoleExit = {
                 role: spec.role,
                 replica: spec.replica,
                 at: new Date().toISOString(),
@@ -92,8 +92,9 @@ export function createSupervisor(options: SupervisorOptions): Supervisor {
                 signal: null,
                 byValve: false,
                 error: error.message,
-            })
-            relaunchLater(spec)
+            }
+            recorded.push(exit)
+            relaunchLater(spec, exit)
         })
         child.once('exit', (code, signal) => {
             if (children.get(name) === child) {
@@ -103,15 +104,16 @@ export function createSupervisor(options: SupervisorOptions): Supervisor {
                 return
             }
             void terminate({ groups: child.pid ? [child.pid] : [], pids: [] }, 0)
-            recorded.push({
+            const exit: RoleExit = {
                 role: spec.role,
                 replica: spec.replica,
                 at: new Date().toISOString(),
                 code,
                 signal,
                 byValve: killedByValve.has(child) && signal === 'SIGKILL',
-            })
-            relaunchLater(spec)
+            }
+            recorded.push(exit)
+            relaunchLater(spec, exit)
         })
         return child
     }
@@ -159,8 +161,6 @@ export function createSupervisor(options: SupervisorOptions): Supervisor {
         freeze(id, withinMs) {
             const { pid } = runningChild(id)
             process.kill(-pid, 'SIGSTOP')
-            freezes.set(pid, (freezes.get(pid) ?? 0) + 1)
-            let released = false
             return {
                 observed: async () => {
                     const deadline = Date.now() + withinMs
@@ -173,16 +173,7 @@ export function createSupervisor(options: SupervisorOptions): Supervisor {
                     return true
                 },
                 release: () => {
-                    if (!released) {
-                        released = true
-                        const left = freezes.get(pid)! - 1
-                        if (left > 0) {
-                            freezes.set(pid, left)
-                        } else {
-                            freezes.delete(pid)
-                            signal(-pid, 'SIGCONT')
-                        }
-                    }
+                    signal(-pid, 'SIGCONT')
                     return Promise.resolve()
                 },
             }

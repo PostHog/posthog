@@ -24,13 +24,7 @@ import posthoganalytics
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
-from posthog.llm.gateway_client import (
-    Product,
-    build_anthropic_client,
-    get_llm_client,
-    resolve_ai_gateway_config,
-    team_distinct_id,
-)
+from posthog.llm.gateway_client import Product, build_anthropic_client, team_distinct_id
 from posthog.models import Team
 
 DEFAULT_ENRICHMENT_MODEL = "claude-haiku-4-5"
@@ -140,13 +134,13 @@ class TruncatedCompletionError(ValueError):
 
 @frozen
 class _Completion:
-    """One model reply, normalised across the two request shapes."""
+    """One model reply."""
 
     text: str
     usage: dict[str, Any]
     truncated: bool
-    # The ceiling this leg sent, for the truncation message. None when the provider applied its own.
-    max_output_tokens: int | None = None
+    # The ceiling this call sent, for the truncation message.
+    max_output_tokens: int
 
 
 class _MessagesClient:
@@ -176,37 +170,6 @@ class _MessagesClient:
         )
 
 
-class _ChatClient:
-    """OpenAI Chat Completions, the shape the Python gateway has always served this product."""
-
-    def __init__(self, client: Any) -> None:
-        self._client = client
-
-    def complete(
-        self, *, model: str, prompt: str, temperature: float, team_id: int, max_output_tokens: int = MAX_OUTPUT_TOKENS
-    ) -> _Completion:
-        # No max_tokens: this leg lets the provider apply its own ceiling, and the bounded ask list
-        # already keeps the reply to one response.
-        response = self._client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=temperature,
-            response_format={"type": "json_object"},
-            user=team_distinct_id(team_id),
-        )
-        choice = response.choices[0]
-        usage_obj = getattr(response, "usage", None)
-        return _Completion(
-            text=choice.message.content or "",
-            usage=_usage(
-                model,
-                getattr(usage_obj, "prompt_tokens", None),
-                getattr(usage_obj, "completion_tokens", None),
-            ),
-            truncated=getattr(choice, "finish_reason", None) == "length",
-        )
-
-
 def _usage(model: str, prompt_tokens: int | None, completion_tokens: int | None) -> dict[str, Any]:
     """Token counts under the OpenAI key names the enrichment analytics events already carry."""
     return {
@@ -225,21 +188,16 @@ def _messages_text(response: Any) -> str:
     return "".join(getattr(block, "text", None) or "" for block in blocks if getattr(block, "type", None) == "text")
 
 
-def build_enrichment_client(product: Product, team_id: int) -> _MessagesClient | _ChatClient:
-    """Client for one enrichment call, on whichever shape the resolved gateway serves.
+def build_enrichment_client(product: Product, team_id: int) -> _MessagesClient:
+    """Client for one enrichment call.
 
-    The Go ai-gateway plans Claude models only under Anthropic's native Messages shape, so the cutover
-    sends Messages there. The Python gateway keeps receiving Chat Completions, which is what this
-    product has always sent it, so clearing `AI_GATEWAY_URL` restores the previous wire behaviour rather
-    than falling back onto a route the product has never exercised.
+    The Go ai-gateway plans Claude models only under Anthropic's native Messages shape.
     """
-    if resolve_ai_gateway_config():
-        # The Messages `metadata.user_id` goes upstream to the provider; capture identity comes from
-        # the X-PostHog-Distinct-Id header this sets, so without it the team is not attributed.
-        return _MessagesClient(
-            build_anthropic_client(product, ai_product=product, team_id=team_id, distinct_id=team_distinct_id(team_id))
-        )
-    return _ChatClient(get_llm_client(product=product, team_id=team_id))
+    # The Messages `metadata.user_id` goes upstream to the provider; capture identity comes from
+    # the X-PostHog-Distinct-Id header this sets, so without it the team is not attributed.
+    return _MessagesClient(
+        build_anthropic_client(ai_product=product, team_id=team_id, distinct_id=team_distinct_id(team_id))
+    )
 
 
 def generate_json_completion(
@@ -249,7 +207,7 @@ def generate_json_completion(
     prompt: str,
     model: str = DEFAULT_ENRICHMENT_MODEL,
     temperature: float = 0.2,
-    client: "_MessagesClient | _ChatClient | None" = None,
+    client: "_MessagesClient | None" = None,
     max_output_tokens: int = MAX_OUTPUT_TOKENS,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Call the LLM for a JSON reply. Returns `(parsed_payload, usage)` — usage carries model + tokens.
@@ -266,8 +224,7 @@ def generate_json_completion(
     if completion.truncated:
         # Terminal even when the fragment parses: the view consumer stores its enrichment hash on
         # any non-exception return, so a partial column set latches and no later run retries.
-        ceiling = f"{completion.max_output_tokens}-token" if completion.max_output_tokens else "provider-default"
-        raise TruncatedCompletionError(f"model response hit the {ceiling} output ceiling")
+        raise TruncatedCompletionError(f"model response hit the {completion.max_output_tokens}-token output ceiling")
     parsed = extract_json_object(completion.text)
     if parsed is None:
         # Surface as an LLM failure (caught by the caller → "partial") rather than silently

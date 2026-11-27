@@ -42,10 +42,15 @@ from posthog.clickhouse.query_tagging import tag_queries
 from posthog.exceptions import InsufficientScope
 from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
 from posthog.models.integration import posthog_connect_base_url
-from posthog.oauth_provenance import SANDBOX_ORIGIN_HEADER, is_sandbox_origin_request
+from posthog.oauth_provenance import (
+    ID_JAG_ORIGIN_HEADER,
+    SANDBOX_ORIGIN_HEADER,
+    is_id_jag_origin_request,
+    is_sandbox_origin_request,
+)
 from posthog.permissions import DenyWorkloadAccessToken, get_authenticator_scopes
 from posthog.rate_limit import PostHogConnectionForwardThrottle
-from posthog.scopes import scopes_covered_by_legacy_fallback
+from posthog.scopes.checks import scopes_covered_by_legacy_fallback
 
 logger = structlog.get_logger(__name__)
 
@@ -250,6 +255,7 @@ def _forward_through_connection(
     data: Any = None,
     mcp_origin: bool = False,
     sandbox_origin: bool = False,
+    id_jag_origin: bool = False,
 ) -> ForwardResult:
     """Replay one request against the connected project, injecting the connection's token.
 
@@ -262,6 +268,8 @@ def _forward_through_connection(
     headers = {"Authorization": f"Bearer {token}", CONNECTION_MARKER_HEADER: "1"}
     if sandbox_origin:
         headers[SANDBOX_ORIGIN_HEADER] = "1"
+    if id_jag_origin:
+        headers[ID_JAG_ORIGIN_HEADER] = "1"
     if mcp_origin:
         headers["User-Agent"] = f"posthog-connection; {MCP_USER_AGENT_MARKER}"
     return _send_to_target(
@@ -371,6 +379,10 @@ class PostHogConnectionTargetSerializer(serializers.Serializer):
     organization_name = serializers.CharField(help_text="Name of the organization the connected project belongs to.")
     region = serializers.CharField(help_text="Cloud region the connected project lives in, e.g. `US` or `EU`.")
     base_url = serializers.CharField(help_text="Base URL requests through this connection are sent to.")
+    granted_scopes = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="API scopes the user granted to this connection, e.g. `insight:read`. Empty when they are not known.",
+    )
 
 
 class PostHogConnectionTargetErrorSerializer(serializers.Serializer):
@@ -438,6 +450,7 @@ class PostHogConnectionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             data=payload.get("data"),
             mcp_origin=is_mcp_request(request),
             sandbox_origin=is_sandbox_origin_request(request),
+            id_jag_origin=is_id_jag_origin_request(request),
         )
         body = {"status": result.status, "data": result.data}
         # A failure on this side is mirrored as the outer status too, so a caller that only reads the
@@ -519,6 +532,7 @@ class PostHogConnectionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "organization_name": project.organization_name,
             "region": (integration.config.get("region") or "").upper(),
             "base_url": base_url,
+            "granted_scopes": sorted(integration.config.get("granted_scopes") or []),
         }
         try:
             cache.set(cache_key, payload, timeout=CONNECTION_TARGET_CACHE_SECONDS)

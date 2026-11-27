@@ -13,6 +13,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.experiments.backend.experiment_service import ExperimentService
+from products.experiments.backend.health.skips import NOT_ON_FLAG_RULE
 from products.experiments.backend.metric_calculation.config import ExperimentCalculationSettings
 from products.experiments.backend.models.experiment import (
     Experiment,
@@ -412,6 +413,17 @@ class TestRuleLinkedLaunch(RuleLinkedExperimentTestCase):
         assert experiment.end_date is not None
         assert experiment.feature_flag_rule_snapshot == snapshot
         assert (flag.filters, flag.version, flag.active) == stored
+
+    def test_health_reports_every_check_as_not_checked(self) -> None:
+        experiment = self._launched()
+
+        response = self.client.get(f"{self.url}{experiment.id}/health/")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["findings"] == []
+        assert {(check["status"], check["reason"]) for check in response.json()["checks"]} == {
+            ("not_checked", NOT_ON_FLAG_RULE)
+        }
 
 
 class TestRuleLinkedRefusals(RuleLinkedExperimentTestCase):

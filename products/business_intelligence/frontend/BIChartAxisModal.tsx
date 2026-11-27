@@ -2,9 +2,9 @@ import { useState } from 'react'
 
 import { LemonButton, LemonInput, LemonLabel, LemonModal, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 
-import { ChartSettings, YAxisSettings } from '~/queries/schema/schema-general'
+import { ChartAxis } from 'lib/charts/ChartAxisControls'
 
-import { BIChartAxis } from './BIChartAxisControls'
+import { ChartSettings, YAxisSettings } from '~/queries/schema/schema-general'
 
 export function BIChartAxisModal({
     axis,
@@ -12,7 +12,7 @@ export function BIChartAxisModal({
     onSave,
     onClose,
 }: {
-    axis: BIChartAxis
+    axis: ChartAxis
     settings: ChartSettings
     onSave: (settings: ChartSettings) => void
     onClose: () => void

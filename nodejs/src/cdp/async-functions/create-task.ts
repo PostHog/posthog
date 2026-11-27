@@ -48,7 +48,7 @@ registerAsyncFunction('postHogCreateTask', {
 
         // Derived from the step's own output variables, so the author declares the fields once.
         const action = hogFlow.actions?.find((candidate) => candidate.id === context.invocation.state.actionId)
-        const outputFields = buildWorkflowTaskOutputFields(action?.output_variable, hogFlow.variables)
+        const outputRequest = buildWorkflowTaskOutputFields(action?.output_variable, hogFlow.variables)
 
         result.invocation.queueParameters = CyclotronInvocationQueueParametersFetchSchema.parse({
             type: 'fetch',
@@ -61,7 +61,7 @@ registerAsyncFunction('postHogCreateTask', {
             body: JSON.stringify({
                 ...payload,
                 idempotency_key: idempotencyKey,
-                ...(outputFields ? { output_fields: outputFields } : {}),
+                ...outputRequest,
             }),
         })
     },

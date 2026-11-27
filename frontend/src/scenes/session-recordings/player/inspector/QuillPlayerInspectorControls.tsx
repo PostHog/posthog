@@ -29,6 +29,7 @@ import {
 } from '@posthog/quill'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
 import { IconUnverifiedEvent } from 'lib/lemon-ui/icons'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -70,6 +71,7 @@ export function QuillPlayerInspectorControls(): JSX.Element {
     const { setSearchQuery, setMiniFilter, setMiniFilters } = useActions(miniFiltersLogic)
     const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const floatingContainer = useFloatingContainer()
 
     const sharing = (logicProps.mode ?? SessionRecordingPlayerMode.Standard) === SessionRecordingPlayerMode.Sharing
     const itemCount = (type: FilterableInspectorListItemTypes): number => allItemsByItemType[type]?.length ?? 0
@@ -231,7 +233,7 @@ export function QuillPlayerInspectorControls(): JSX.Element {
                                 >
                                     <IconChevronDown />
                                 </DropdownMenuTrigger>
-                                <DropdownMenuContent align="start">
+                                <DropdownMenuContent align="start" container={floatingContainer ?? undefined}>
                                     {subFiltersFor(type).map((filter) => (
                                         <DropdownMenuCheckboxItem
                                             key={filter.key}
@@ -278,7 +280,7 @@ export function QuillPlayerInspectorControls(): JSX.Element {
                             <IconLive />
                             Logs
                         </PopoverTrigger>
-                        <PopoverContent align="end" className="w-auto p-0">
+                        <PopoverContent align="end" className="w-auto p-0" container={floatingContainer ?? undefined}>
                             <SessionLogsUnavailableNotice sessionId={logicProps.sessionRecordingId} />
                         </PopoverContent>
                     </Popover>

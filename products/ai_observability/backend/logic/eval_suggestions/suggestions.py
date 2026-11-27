@@ -33,6 +33,7 @@ from .eligibility import (
     queue_first_visit_run,
     record_visit,
     release_first_visit_run,
+    suggestions_turned_off,
 )
 
 logger = structlog.get_logger(__name__)
@@ -61,12 +62,16 @@ def applies(suggestion: EvalSuggestion) -> bool:
     return target is not None and not target.deleted and target.updated_at <= suggestion.run.created_at
 
 
-def visible_suggestions(team_id: int, access: UserAccessControl | None) -> QuerySet[EvalSuggestion]:
+def visible_suggestions(team: Team, access: UserAccessControl | None) -> QuerySet[EvalSuggestion]:
     """The team's suggestions, without those that name an evaluation the user cannot read.
 
-    `access` is None for service credentials, which see every suggestion.
+    `access` is None for service credentials, which see every suggestion of an organization in the rollout.
     """
+    team_id = team.pk
     suggestions = EvalSuggestion.objects.for_team(team_id)
+    # A shadow organization's runs publish cards that staff review, and nobody in the organization reads them.
+    if not is_enabled_for_organization(str(team.organization_id)):
+        return suggestions.none()
     if access is None:
         return suggestions
     # Runs read every event property as the project, and a card's filters, headline and evidence can carry
@@ -82,9 +87,9 @@ def visible_suggestions(team_id: int, access: UserAccessControl | None) -> Query
     )
 
 
-def find_suggestion(team_id: int, access: UserAccessControl | None, suggestion_id: uuid.UUID) -> EvalSuggestion | None:
+def find_suggestion(team: Team, access: UserAccessControl | None, suggestion_id: uuid.UUID) -> EvalSuggestion | None:
     return (
-        visible_suggestions(team_id, access)
+        visible_suggestions(team, access)
         .select_related("run", "target_evaluation", "similar_evaluation")
         .filter(id=suggestion_id)
         .first()
@@ -98,7 +103,7 @@ def latest_suggestions(
 
     A running run counts as pending for `pending_window`, the longest its workflow can take.
     """
-    if not is_enabled_for_organization(str(team.organization_id)):
+    if not is_enabled_for_organization(str(team.organization_id)) or suggestions_turned_off(team):
         return LatestSuggestions(run=None, pending=False, suggestions=[])
     record_visit(team)
     runs = EvalSuggestionRun.objects.for_team(team.pk)
@@ -117,7 +122,7 @@ def latest_suggestions(
             # The list still answers. The claim holds for the day, so the next day's visit tries again.
             logger.exception("llma.eval_suggestions_first_visit_start_failed", team_id=team.pk)
     results = (
-        visible_suggestions(team.pk, access)
+        visible_suggestions(team, access)
         .filter(run=latest, status=EvalSuggestionStatus.PROPOSED)
         .exclude(STALE_FIX)
         .select_related("run", "target_evaluation", "similar_evaluation")

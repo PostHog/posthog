@@ -303,6 +303,8 @@ For v2, use the encrypted reader for index entries. For v3, read the Parquet col
 Then fetch selected recording blocks to inspect their JSON-LD payloads.
 Legacy v1 indexes retain their pseudonymized identifiers and daily partitions.
 
+The v4 dataset has no separate evaluation index. Its [block index](#block-index) counts each block's JSON-LD events and lists their root types, so a reader selects sessions by the folded columns, then reads their blocks for the payloads and pairs each event with the latest full snapshot before it in the same window.
+
 ### Deletion worker isolation
 
 The deletion task uses the `ai_research_privacy` Celery queue.
@@ -358,7 +360,7 @@ include    = percentage < AI_RESEARCH_V4_SAMPLE_PERCENTAGE
 ```
 
 - A percentage of 100 or more includes every session, and 0 or less includes none. The default is 0.
-- The gate is the same function as the session feature recorder's rollout gate, so at the same percentage the two lanes select the same sessions.
+- The gate depends only on the session ID, so every recorder process gives a session the same verdict.
 - Capture keys every replay message with the session ID, so the recorder applies the gate to the Kafka key before it reads the payload.
 - Capture keeps the session ID as the SDK sent it. The replay lanes lower-case an ID with the UUID shape (8-4-4-4-12 hex digits), so the gate does too, and every casing of one session gets the same verdict.
 - Raising the percentage keeps every session that a lower percentage includes.
@@ -418,20 +420,20 @@ UpdateItem  SET deleted = :true, expires_at = if_not_exists(expires_at, :expiry)
 
 Nothing in v4 is kept for good. Each kind of data has a fixed lifetime, and a deletion only makes data unreadable sooner.
 
-| Data                           | Where                                                            | Lifetime                                                                                                                                                                          | Removed by                    |
-| ------------------------------ | ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
-| Session blocks                 | `rrweb-v4` `blocks/`                                             | 30 days after the write                                                                                                                                                           | S3 expiration                 |
-| Block and image index          | `rrweb-v4` `index/`                                              | 30 days after the write                                                                                                                                                           | S3 expiration                 |
-| Inline image packs             | `images-v4` `images/packs/`                                      | 38 days after the write                                                                                                                                                           | S3 expiration                 |
-| Fetched images                 | `images-v4` `images/url/`                                        | 38 days after the last write. The fetcher copies an image onto itself when a job refers to it and the copy is more than 7 days old                                                | S3 expiration                 |
-| Fetched fonts                  | `images-v4` `fonts/url/`                                         | The same as fetched images                                                                                                                                                        | S3 expiration                 |
-| Team month and session keys    | `ai-research-replay-v4-keys`                                     | Until the start of the fifth month after `key_month`                                                                                                                              | DynamoDB TTL                  |
-| Tombstones                     | `ai-research-replay-v4-keys`                                     | The same expiry as the row they replace                                                                                                                                           | DynamoDB TTL                  |
-| Fetch history and robots cache | `ai-research-v4-image-fetch-history`                             | URL history: 8 days after the end of its month or its last write, whichever is later, and a public font's history until its next fetch. Robots and tdmrep cache: at least 30 days | DynamoDB TTL                  |
-| Index records                  | Kafka `ai_research_v4_index`                                     | 7 days                                                                                                                                                                            | Topic retention               |
-| Fetch jobs, with raw URLs      | Kafka `ai_research_v4_image_fetch`, its retry topics and its DLQ | 24 hours                                                                                                                                                                          | Topic retention               |
-| Seen and blocked sessions      | `ai-research-v4` Redis, `@posthog/ai-research-v4/`               | The main lane's expiry, or earlier under memory pressure                                                                                                                          | Redis expiry and LRU eviction |
-| Held keys                      | Recorder and fetcher memory                                      | 5 minutes for a session row, one hour for a team month row                                                                                                                        | Cache expiry                  |
+| Data                           | Where                                                            | Lifetime                                                                                                                                                                           | Removed by                    |
+| ------------------------------ | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
+| Session blocks                 | `rrweb-v4` `blocks/`                                             | 30 days after the write                                                                                                                                                            | S3 expiration                 |
+| Block and image index          | `rrweb-v4` `index/`                                              | 30 days after the write                                                                                                                                                            | S3 expiration                 |
+| Inline image packs             | `images-v4` `images/packs/`                                      | 38 days after the write                                                                                                                                                            | S3 expiration                 |
+| Fetched images                 | `images-v4` `images/url/`                                        | 38 days after the last write. When a job refers to an image whose copy is more than 7 days old, the fetcher copies it onto itself, or writes a packed copy's frame into a new pack | S3 expiration                 |
+| Fetched fonts                  | `images-v4` `fonts/url/`                                         | The same as fetched images                                                                                                                                                         | S3 expiration                 |
+| Team month and session keys    | `ai-research-replay-v4-keys`                                     | Until the start of the fifth month after `key_month`                                                                                                                               | DynamoDB TTL                  |
+| Tombstones                     | `ai-research-replay-v4-keys`                                     | The same expiry as the row they replace                                                                                                                                            | DynamoDB TTL                  |
+| Fetch history and robots cache | `ai-research-v4-image-fetch-history`                             | URL history: 8 days after the end of its month or its last write, whichever is later, and a public font's history until its next fetch. Robots and tdmrep cache: at least 30 days  | DynamoDB TTL                  |
+| Index records                  | Kafka `ai_research_v4_index`                                     | 7 days                                                                                                                                                                             | Topic retention               |
+| Fetch jobs, with raw URLs      | Kafka `ai_research_v4_image_fetch`, its retry topics and its DLQ | 24 hours                                                                                                                                                                           | Topic retention               |
+| Seen and blocked sessions      | `ai-research-v4` Redis, `@posthog/ai-research-v4/`               | The main lane's expiry, or earlier under memory pressure                                                                                                                           | Redis expiry and LRU eviction |
+| Held keys                      | Recorder and fetcher memory                                      | 5 minutes for a session row, one hour for a team month row                                                                                                                         | Cache expiry                  |
 
 - S3 expiration counts from the time an object was written, rounds up to the next midnight UTC and can run late, so plan for objects to stay for up to 2 days more.
 - Blocks expire by write time, not by session start, so a session whose blocks span several write days loses its first blocks first. Nothing marks the rest as partial, and `cold_start` does not cover it. Readers that need whole sessions follow the rule in [Block index](#block-index).
@@ -505,7 +507,7 @@ The recorder streams each block into the encoder. Read a block as a stream: a Br
 ### Layout
 
 Every prefix that the recorder writes is partitioned by the UTC day of the write.
-Fetched images and fonts are partitioned by the key month of their reference. A public font file has no month.
+Fetched images and fonts are partitioned by the key month of their reference. A public font file has no month. Packs of fetched images are partitioned by the UTC day of the write.
 
 | Bucket      | Prefix                                        | Contents                                                                                   |
 | ----------- | --------------------------------------------- | ------------------------------------------------------------------------------------------ |
@@ -517,6 +519,7 @@ Fetched images and fonts are partitioned by the key month of their reference. A 
 | `rrweb-v4`  | `index/_recorder_watermarks/dt={day}/`        | JSON, one object per input Kafka partition: how far the recorder is complete               |
 | `images-v4` | `images/packs/dt={day}/{team_id}/`            | One object per recorder flush, team and key month: sealed images, each found by byte range |
 | `images-v4` | `images/url/month={YYYY-MM}/{team_id}/{hash}` | One sealed fetched image per URL reference                                                 |
+| `images-v4` | `images/url/packs/dt={day}/{team_id}/`        | One object per fetcher pack and team: sealed fetched images, each found by byte range      |
 | `images-v4` | `fonts/url/month={YYYY-MM}/{team_id}/{hash}`  | One sealed fetched font per font URL reference                                             |
 | `images-v4` | `fonts/url/public/{hash}`                     | One unsealed font file per public font reference, for every team                           |
 
@@ -562,7 +565,7 @@ A reader that needs whole sessions selects them by the start time in the session
 A session row is a fold over its block rows: sort them by `first_ts_ms`, then merge each into the result in order.
 Counts sum, times take the minimum or maximum, flags take the logical or, `host` takes the first value and the viewport takes the one with the highest `viewport_ts_ms`.
 The DOM sizes `dom_nodes` and `dom_text_chars` and `max_written_event_bytes` take the maximum, because they describe a state or a single event, not an amount.
-`url_fingerprints` and `window_ids` take the ordered union, capped at 10 and 32 entries. A session at the cap has that many or more.
+`url_fingerprints`, `window_ids` and `json_ld_root_types` take the ordered union, capped at 10, 32 and `MAX_JSON_LD_ROOT_TYPES` entries. A session at the cap has that many or more.
 The [surfacing](#surfacing-features) sums add, its two maxima take the maximum, and its three sets take the union with no cap.
 The flush columns describe a row, not a session, so the fold does not carry them.
 `events_before_first_full_snapshot` sums, because the recorder stops counting it once the session has a decoded full snapshot.
@@ -583,10 +586,11 @@ This holds for the blocks that one recorder process inspected. After a rebalance
 | Playability | `full_snapshots`, `events_before_first_full_snapshot`, `orphan_mutations`, `max_gap_ms`, `dom_nodes`, `dom_text_chars`, `remote_stylesheets`, `inline_stylesheets`, `iframes`, `canvases`, `videos`, `shadow_roots`, `cold_start`, `node_cap_reached`, `decode_failures`, `unread_reason`, `window_ids` |
 | Activity    | `active_ms`, `clicks`, `mouse_interactions`, `rage_clicks`, `dead_clicks`, `keypresses`, `scrolls`, `mouse_moves`, `touches`, `touch_moves`, `selections`, `media_events`, `viewport_resizes`, `navigations`, `console_errors`, `console_warnings`, `network_requests`, `network_failures`              |
 | Context     | `viewport_width`, `viewport_height`, `viewport_ts_ms` (the time of the viewport event), `touch_input`                                                                                                                                                                                                   |
-| Images      | `images_extracted`, `image_bytes`, `images_inline`, `image_urls`                                                                                                                                                                                                                                        |
+| Images      | `images_extracted`, `image_bytes`, `images_inline`, `image_urls`, `image_ref_sketch`                                                                                                                                                                                                                    |
 | Moments     | `moments`: a list of `{kind, window_id, ts_ms, event_index}` for full snapshots, navigations, clicks and large DOM changes, and `moments_truncated`                                                                                                                                                     |
+| JSON-LD     | `json_ld_events`, `json_ld_root_types`                                                                                                                                                                                                                                                                  |
 | Sealed      | `urls`: the visited URLs as a sealed index value, `urls_truncated`, and `url_fingerprints`                                                                                                                                                                                                              |
-| Surfacing   | The `surfacing_` columns: what ingestion's surfacing feature recorder records for the block as one batch. See [Surfacing features](#surfacing-features)                                                                                                                                                 |
+| Surfacing   | The `surfacing_` columns: the surfacing features of the block's events. See [Surfacing features](#surfacing-features)                                                                                                                                                                                   |
 
 - `full_snapshots` counts only snapshots that decoded.
 - `events_before_first_full_snapshot` counts the session's events before its first decoded full snapshot.
@@ -594,12 +598,14 @@ This holds for the blocks that one recorder process inspected. After a rebalance
 - `navigations` counts URL changes from Meta events and from posthog-js `$url_changed` events, so single-page apps count too.
 - `node_cap_reached` is true when the recorder could not check a window for orphan mutations: the window passed the node cap, a snapshot or mutation did not decode, the window was evicted and came back, or the recorder dropped the session's DOM state to stay within its memory budget.
 - `images_inline` counts the SVG data URIs that stay inline in the block. An image that becomes a marker counts in no column.
+- `image_ref_sketch` is a HyperLogLog sketch of the distinct image references in the block that can have bytes: the inline images the recorder stored, and the remote image URLs the URL policy accepted, which the fetcher may store. Font URLs do not count. It holds the sketch's 64 registers that are not zero, each as `register * 64 + rank`: the register is the top 6 bits of the first 8 bytes of the reference's SHA-256, read big-endian, and the rank is one more than the leading zeros of the other 58 bits. The union of rows is the largest rank of each register, so a fold of blocks, sessions or a team's sessions counts each image once, where `images_extracted` and `image_urls` count it again in each message. `DistinctSketch` in `replay-core-v4` reads, merges and estimates it, with a standard error of about 13%. A row from a recorder before the column holds null.
 - `byte_size` counts the event bytes as they arrived. `written_jsonl_bytes` counts the block's lines as the recorder wrote them, after it expanded compressed values and removed images, and before Brotli. `max_written_event_bytes` is the longest of those lines. Use these two for memory and size limits.
 - `mouse_interactions` counts every mouse interaction event, of every type. `clicks` counts only clicks. `touch_moves` counts touch move events; `touches` also counts touch starts and ends.
 - `decode_failures` counts, once per event, a compressed value that did not decompress or that the decode budget skipped, a full snapshot the recorder could not decode or walk, a mutation that did not decode or held a node too deep to walk, and a style sheet rule whose compressed value failed. A message that did not read at all reaches no block, so this column does not count it. A block with failures has activity and DOM columns that can be too low.
 - `unread_reason` names why the recorder could not read a block in full, and is null otherwise. A session row keeps the reason of its first such block. A reader must not treat the URLs of such a block as checked.
 - `moments` are hints for where to look, not checked baselines. A `full_snapshot` moment means the recorder decoded that snapshot. `full_snapshot_undecoded` marks an event tagged as a full snapshot that it did not decode. The list keeps the first 256 moments, and `moments_truncated` is true when it dropped more.
 - `window_ids` lists the distinct window IDs of the block's events, the same IDs as in `moments`.
+- `json_ld_events` counts posthog-js's `$json_ld` custom events, each the schema.org JSON-LD of a page. `json_ld_root_types` lists the distinct `@type`s of the events' roots and their `@graph` items, with a `https://schema.org/` prefix removed. The recorder reads the payload before any scrub and the column is not sealed, so it reads only a payload whose every root names the schema.org `@context`, as the replay anonymizer requires, and keeps only the types in `json_ld_types.txt` of `replay-core-v4`, the known types of the JSON-LD contract that posthog-js and the anonymizer share. It keeps at most 20 types of each entity and `MAX_JSON_LD_ROOT_TYPES` of a block, in the order the block first saw them. An event whose payload the recorder cannot read counts and adds no types. The payload stays in the block. Both columns are null in a row from a recorder that predates them, and absent from files written before them.
 - `urls` holds at most 100 page URLs of up to 2 KiB each and 32 KiB in all. `urls_truncated` is true when the recorder left pages out.
 - `url_fingerprints` holds up to 10 distinct page URLs of the block as the first 16 hexadecimal characters of an HMAC-SHA256 of the URL. The key is derived from the session key with HKDF-SHA256, empty salt and info `ml-url-fingerprint-key`, so fingerprints can be compared only within one session. They count distinct URLs, where `navigations` counts URL changes.
 - `cold_start` is true when the recorder first sees a session after it started, for example after a partition rebalance, or after it dropped the session's DOM state to stay within its memory budget. Its playability columns then describe only the part of the session the recorder saw.
@@ -607,25 +613,25 @@ This holds for the blocks that one recorder process inspected. After a rebalance
 #### Surfacing features
 
 The `surfacing_` columns let a sampler score whole sessions with the surfacing booster without opening a block.
-Each block row holds what ingestion's `SessionFeatureRecorder` (`session-feature-recorder.ts`) records for one batch, and the recorder computes it with the same definitions.
-Its state starts again at each block, as ingestion's does at each batch: a block is one session's events from one Kafka partition in one recorder flush, as a batch is.
-After the prefix, each column has the name of the `session_replay_features` column it matches, with a unit for the sums that are not counts.
-A session's values are the fold of its block rows, as `_AGGREGATED_STATS_FRAGMENT` (`posthog/temporal/session_replay/surfacing_scoring_sweep/sql.py`) folds the batch rows, and `fold_session` in `replay-core-v4` implements it.
+Each block row holds the surfacing features of the block's events.
+Their state starts again at each block: a block is one session's events from one Kafka partition in one recorder flush.
+After the prefix, each column has the name of a feature, with a unit for the sums that are not counts.
+A session's values are the fold of its block rows, and `fold_session` in `replay-core-v4` implements it.
 
 | Kind   | Columns                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Counts | `INT32`: `surfacing_{name}_count` for the 31 counters of `session_replay_features`, from `event_count` to `selection_copy_count`, and `surfacing_{token}_path_visit_count` for the 14 path tokens, where `404` is `not_found`                                                                                                                                                                                                                                                                                                           |
+| Counts | `INT32`: `surfacing_{name}_count` for the 31 counters, from `event_count` to `selection_copy_count`, and `surfacing_{token}_path_visit_count` for the 14 path tokens, where `404` is `not_found`                                                                                                                                                                                                                                                                                                                                        |
 | Sums   | `INT64`: `surfacing_mouse_sum_x_millipx`, `surfacing_mouse_sum_y_millipx`, `surfacing_mouse_sum_x_squared_px2`, `surfacing_mouse_sum_y_squared_px2`, `surfacing_mouse_distance_traveled_millipx`, `surfacing_mouse_velocity_sum_px_per_s`, `surfacing_mouse_velocity_sum_of_squares_px2_per_s2`, `surfacing_total_scroll_magnitude_millipx`, `surfacing_inter_action_gap_sum_ms`, `surfacing_inter_action_gap_sum_of_squares_ms2`, `surfacing_network_request_duration_sum_us`, `surfacing_network_request_duration_sum_of_squares_ms2` |
 | Maxima | `INT64`: `surfacing_max_scroll_y_millipx`, `surfacing_max_idle_gap_ms`                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | Sets   | `surfacing_visited_url_fingerprints` (`UTF8`), `surfacing_click_target_ids` and `surfacing_form_field_ids` (`INT64`)                                                                                                                                                                                                                                                                                                                                                                                                                    |
 
-- Ingestion stores a float sum as a double. The index stores it as an integer in the unit at the end of its name, rounded once per block, so that a fold is exact in any order. `millipx` is 1/1000 of a pixel and `us` is a microsecond. Ingestion's mouse velocity is in pixels per millisecond, so `surfacing_mouse_velocity_sum_px_per_s` is 1000 times its sum and `surfacing_mouse_velocity_sum_of_squares_px2_per_s2` 1000000 times its sum of squares.
-- The sets hold distinct values, sorted. The click targets and form fields are rrweb node IDs. The visited pages are fingerprints in the format of `url_fingerprints`, under the same key: ingestion stores an md5 of each URL instead. Each set keeps the first 1000 values of a block, as ingestion keeps 1000 per batch. The sweep counts a set with `uniqCombinedMerge(12)`, and the length of the folded set is the exact count.
+- The index stores a float sum as an integer in the unit at the end of its name, rounded once per block, so that a fold is exact in any order. `millipx` is 1/1000 of a pixel and `us` is a microsecond. Mouse velocity is in pixels per millisecond, so `surfacing_mouse_velocity_sum_px_per_s` is 1000 times its sum and `surfacing_mouse_velocity_sum_of_squares_px2_per_s2` 1000000 times its sum of squares.
+- The sets hold distinct values, sorted. The click targets and form fields are rrweb node IDs. The visited pages are fingerprints in the format of `url_fingerprints`, under the same key. Each set keeps the first 1000 values of a block, and the length of the folded set is the exact count.
 - A page URL is the trimmed `data.href`, or else `data.payload.href`, of any event, as `hrefFrom` in `rrweb-types.ts` reads it. The path token counts compare the segments of its path with a fixed list of words, so they hold no other part of a URL.
-- The recorder skips an event without a positive timestamp, which ingestion's parse step drops before its recorder. The booster's rates divide by the session duration, which a sampler takes from `first_ts_ms` and `last_ts_ms`. Those also count events with a timestamp of zero or less.
-- The columns are null in a row from a recorder that predates them, and absent from files written before them. A sampler falls back to the session's live score for such a session.
-- Ingestion corrects the event times of a message by the sender's clock skew, rounded to 5 minutes, and the recorder does not. A block whose messages got different corrections can therefore differ in its time-based values.
-- A field of an unexpected JSON type counts as missing, where JavaScript can coerce it or produce NaN, for example a mouse position without coordinates. Ingestion's parse step lets such fields through.
+- The recorder skips an event without a positive timestamp. The booster's rates divide by the session duration, which a sampler takes from `first_ts_ms` and `last_ts_ms`. Those also count events with a timestamp of zero or less.
+- The columns are null in a row from a recorder that predates them, and absent from files written before them.
+- The recorder does not correct event times for the sender's clock skew.
+- A field of an unexpected JSON type counts as missing, for example a mouse position without coordinates.
 
 #### Watermark files
 
@@ -726,16 +732,17 @@ Some limits apply:
 
 ### Image index
 
-`index/images/` has one row per inline image in a pack: `team_id`, `key_month`, `image_ref`, `pack_s3_key`, `byte_start`, `byte_end`, `mime` and `byte_size`.
+`index/images/` has one row per image in a pack, inline or fetched: `team_id`, `key_month`, `image_ref`, `pack_s3_key`, `byte_start`, `byte_end`, `mime` and `byte_size`.
 
 - Each frame in a pack is sealed under the team month key of its session's key month, as a fetched image is. A session deletion therefore does not make inline images unreadable (see [Deletion](#deletion)).
 - `image_ref` uses the team month image content key, so the same image has the same reference in every session of the team month. A pack holds one frame per distinct reference, so an image that two sessions show in one flush is stored once. A later flush stores it again.
-- A reader resolves an image of a block by (`team_id`, `image_ref`) and opens it with the team month key of `key_month`.
+- A reader resolves an image of a block by (`team_id`, `image_ref`) in the image index of the block's write day, and opens it with the team month key of `key_month`.
+- A fetched image (`imageurl:v4:`) in a pack has a row in the image index of each write day whose blocks refer to it, as [Packed fetched images](#packed-fetched-images) says. Its frame is sealed as a fetched image, with the `image-url` context.
 - The sink writes [watermark files](#watermark-files) for this index too, under `index/images/_watermarks/`.
 
 ### Remote images
 
-The recorder sends each remote image URL that the URL policy accepts to the `ai_research_v4_image_fetch` topic in the v3 job shape, keyed by registrable domain. The job carries the reference that replaces the URL in the block.
+The recorder sends each remote image URL that the URL policy accepts to the `ai_research_v4_image_fetch` topic in the v3 job shape, keyed by registrable domain. The job carries the reference that replaces the URL in the block, and `writeDays`, the write day of the flush's blocks.
 It collects URLs from image sources, the kept candidate of each `srcset`, SVG image links, CSS `url(...)` values and attribute mutations, and skips hidden or 1×1 images as v3 does. Unlike v3, it also collects CSS custom properties and relative CSS URLs, and fetches one `image-set()` candidate of a stored type.
 The topics hold jobs for 24 hours, because jobs carry raw URLs.
 The v4 image fetcher is its own copy of the v3 fetcher under `ai-research/image-fetch-v4/`, with the v3 fetch policy, its own consumer groups and its own `AI_RESEARCH_V4_IMAGE_FETCH_*` settings. It shares no code or table with v3.
@@ -747,8 +754,8 @@ The response must have one of these media types and bytes of that format: a sign
 The fetcher keeps a crawl history per URL reference, so per team and month, in its own DynamoDB table `ai-research-v4-image-fetch-history`, with the v3 fetch interval and conditional requests. The table also holds its robots.txt and tdmrep cache:
 
 - The first job for a reference fetches the image from its origin.
-- A later job before the v3 refetch time does not contact the origin. When the stored copy is more than 7 days old, the fetcher copies it onto itself. Otherwise it drops the job.
-- A job after the v3 refetch time sends a conditional request with the stored `ETag` or `Last-Modified`. A `304` refreshes the stored copy by a copy onto itself, and a `200` replaces it.
+- A later job before the v3 refetch time does not contact the origin. When the stored copy is more than 7 days old, the fetcher refreshes it: it copies the object onto itself, or writes a packed copy's frame into a new pack. Otherwise it drops the job.
+- A job after the v3 refetch time sends a conditional request with the stored `ETag` or `Last-Modified`. A `304` refreshes the stored copy, and a `200` replaces it.
 - The history item expires 8 days after the end of its month, as v3 history does, or 8 days after its last write when that is later. A reference carries its session's key month, and a session can still write after that month ends.
 - An item that does not parse, for example one that a newer build wrote, reads as a miss. The fetcher counts it and fetches the image again.
 - The history holds no URL in plaintext. It binds the stored validators to an HMAC of the response URL under the team month URL key, and sends them only when the job's URL has the same HMAC.
@@ -762,13 +769,33 @@ The fetcher drops a job whose team month row is missing, expired or deleted. A p
 Each recorder pod sends a reference at most once per UTC day. When `AI_RESEARCH_V4_IMAGE_FETCH_HISTORY_TABLE` is set, the recorder also reads the fetcher's history, as the v3 mirror did:
 
 - It reads only the image and font references of the flush that it did not send or mark that day, each one once. The read starts with the flush and runs while the flush seals its blocks.
-- It does not send a job that the fetcher would still drop at the end of the day. That is a job before the refetch time of its reference, when the reference has no stored copy or a stored copy less than 7 days old. It marks that reference as sent for the day.
+- It does not send a job that the fetcher would still drop at the end of the day. That is a job before the refetch time of its reference, when the reference has no stored copy or a stored copy less than 7 days old. It marks that reference as sent for the day, once the flush has handed its index rows to the producer.
+- When that stored copy is in a pack, it sends an image index row for the copy with the flush's own index rows, so the day's image index lists the image.
 - It sends every other job, so the fetcher still refreshes each stored copy within its interval.
 - It parses a history row with the same code as the fetcher. A row that the fetcher reads as a miss is a miss for the recorder too.
 - A read that fails or takes more than 5 seconds checks nothing, and its jobs go out. The read does not retry a failed request.
-- `ai_research_v4_recorder_image_fetch_history_total` counts the references it read by `outcome`: `fresh` (marked), `due` (a refresh or refetch is due today), `absent`, `invalid` and `error`.
+- `ai_research_v4_recorder_image_fetch_history_total` counts the references it read by `outcome`: `fresh` (marked), `fresh_packed` (marked, with a row for the packed copy), `due` (a refresh or refetch is due today), `absent`, `invalid` and `error`.
 
 `replay_core_v4::fetch_history` holds the drop rule, the 7-day refresh interval and the row parser. The recorder calls it directly, and the fetcher calls it through `@posthog/ai-research-v4-native`.
+
+#### Packed fetched images
+
+With `AI_RESEARCH_V4_IMAGE_FETCH_PACK_IMAGES` on, the fetcher stores a team's fetched images in packs, one S3 object for many images, instead of one object per reference. It is off by default.
+
+- The fetcher collects each team's sealed frames for `AI_RESEARCH_V4_IMAGE_FETCH_PACK_LINGER_MS`, then writes them as one object under `images/url/packs/dt={day}/{team_id}/`. A pack holds one team's frames only. Each frame is sealed exactly as a fetched image stored alone.
+- For each packed image it sends one image index row to `ai_research_v4_index` per day in the job's `writeDays`, with that day as `ml-write-day`. A publish resolves only after the pack is stored and its rows are delivered, so the crawl history never names a pack before the index can.
+- It packs an image only when every row arrives at least an hour before its write day ends. A reader takes a write day's index once the recorder's watermark files cover it, and those files cover every row delivered before they were written. It stores every other image as the one object of its reference: a job with no `writeDays`, a job whose day ends within the hour, and every font.
+- The crawl history item records the copy's place in `pack`: `key`, `byteStart`, `byteEnd`, `mime`, `byteSize` and `storedAtMs`. The pack names the stored copy only while its `storedAtMs` equals the item's. A build that does not know `pack` keeps the field when it stores a copy elsewhere, and that copy then gets a new `storedAtMs`.
+- A job for a packed copy that needs no refresh gets rows for its `writeDays`. If those rows would be late, or the job has no `writeDays`, the fetcher writes the copy's frame as the one object of its reference instead.
+
+A reader finds a fetched image as follows:
+
+1. Look up (`team_id`, `image_ref`) in the image index of the write days of the session's blocks, as for an inline image.
+2. If no row lists it, read `images/url/month={key_month}/{team_id}/{hash}`.
+
+Both copies open with the `image-url` context. Every image fetched before packing, and every image the fetcher does not pack, is found by step 2.
+
+Turn packing on only after every reader does step 1, and after the recorder that sends `writeDays` and writes rows for packed copies is deployed. To turn it off, clear the setting: the fetcher then stores each image alone and refreshes each packed copy by writing it alone, so every stored copy is out of a pack within the 7-day refresh interval.
 
 #### Limits per domain and frontier backlog
 

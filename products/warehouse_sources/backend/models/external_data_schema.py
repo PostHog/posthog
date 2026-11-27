@@ -289,6 +289,11 @@ CDC_SNAPSHOT_LANE_KEY = "cdc_snapshot_lane"
 FAILURE_STREAK_KEY = "failure_streak"
 FAILURE_STREAK_RUNS_KEY = "runs"
 FAILURE_STREAK_LAST_FAILED_AT_KEY = "last_failed_at"
+# Set by a manual sync so its run skips the gap. The next failed run rewrites the streak without it.
+FAILURE_STREAK_MANUAL_RUN_KEY = "manual_run_requested"
+# In `sync_type_config`: when someone last asked for a sync of this schema, failing or not. A run that
+# would stand down because it has nothing to do goes ahead while no full run has finished since.
+MANUAL_RUN_REQUESTED_AT_KEY = "manual_run_requested_at"
 
 
 # Set when a user chooses history for an incremental schema. `cdc_table_mode` alone is not enough,
@@ -333,6 +338,9 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
     )
     status = models.CharField(max_length=400, null=True, blank=True)
     last_synced_at = models.DateTimeField(null=True, blank=True)
+    # Start of the last successful run, including one that found no new rows. `last_synced_at` stays
+    # put on such a run because it is also the signals watermark, so staleness reads this instead.
+    last_checked_at = models.DateTimeField(null=True, blank=True)
     sync_type = models.CharField(max_length=128, choices=SyncType.choices, null=True, blank=True)
     # User-managed vendor API version override for this schema. NULL (the norm) means the schema
     # syncs on its source's pinned version; a value here wins over the source pin. Deliberately
@@ -573,6 +581,11 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
             return None
         return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
+    @property
+    def manual_run_requested(self) -> bool:
+        """Whether someone asked for a sync since the streak's last failed run."""
+        return self._failure_streak.get(FAILURE_STREAK_MANUAL_RUN_KEY) is True
+
     def note_failed_run(self, failed_at: datetime) -> None:
         """Add one failed run to the streak, in memory.
 
@@ -681,14 +694,38 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
         return stamped if stamped.tzinfo is not None else None
 
     @property
-    def last_run_at(self) -> datetime | None:
-        """When a sync last ran, whether or not it moved any rows.
+    def manual_sync_pending(self) -> bool:
+        """Whether someone asked for a sync that no full run has finished since."""
+        raw = (self.sync_type_config or {}).get(MANUAL_RUN_REQUESTED_AT_KEY)
+        try:
+            requested = datetime.fromisoformat(raw) if isinstance(raw, str) else None
+        except ValueError:
+            return False
+        if requested is None or requested.tzinfo is None:
+            return False
+        last_full_run = self.last_full_run
+        return last_full_run is None or requested > last_full_run
 
-        A run that extracts nothing advances only `last_full_run_at`, because `last_synced_at` is
-        also the signals watermark. A fast return does the reverse, so neither stamp is enough alone.
+    @property
+    def last_run_at(self) -> datetime | None:
+        """Roughly when a sync last ran, whether or not it moved any rows, for staleness checks.
+
+        `last_checked_at` covers every successful run. The older stamps cover rows whose last run
+        predates that column.
         """
-        stamps = [stamp for stamp in (self.last_synced_at, self.last_full_run) if stamp is not None]
+        stamps = [
+            stamp for stamp in (self.last_checked_at, self.last_synced_at, self.last_full_run) if stamp is not None
+        ]
         return max(stamps) if stamps else None
+
+    @property
+    def last_check_started_at(self) -> datetime | None:
+        """Start of the last successful run, the value readers see as `last_checked_at`.
+
+        Falls back to `last_synced_at`, a start time too, and never to `last_full_run_at`: that one
+        is a completion time, so it would make a run that loaded rows look like a later empty one.
+        """
+        return self.last_checked_at or self.last_synced_at
 
     @property
     def incremental_field_lookback_seconds(self) -> int | None:
@@ -1951,6 +1988,10 @@ def update_should_sync(
         schema.save()
 
     if not schema.source.supports_scheduled_sync:
+        # A direct query source gets no import schedule, but some older ones still carry one. A disable
+        # must pause it, or the schedule keeps running imports for a schema that is turned off.
+        if should_sync is False and external_data_workflow_exists(schema_id):
+            pause_external_data_schedule(schema_id)
         return schema
 
     schedule_exists = external_data_workflow_exists(schema_id)
@@ -2031,6 +2072,91 @@ def update_sync_type_config_keys(
             update_fields.append("next_full_refresh_at")
         schema.save(update_fields=update_fields, skip_activity_log=True)
         return config
+
+
+def request_manual_runs(schema_ids: Iterable[str | uuid.UUID], team_id: int) -> None:
+    """Let the next run of each schema go ahead instead of standing down.
+
+    A run of a schema that keeps failing stands down until its gap has passed, and a run of a CDC table
+    with nothing to load stands down too. Someone asking for a sync has usually just changed something,
+    and a run that stands down creates no job, so their sync would show as Running with nothing behind it.
+    """
+    requested_at = timezone.now().isoformat()
+
+    def _mark(config: dict[str, Any]) -> None:
+        config[MANUAL_RUN_REQUESTED_AT_KEY] = requested_at
+        streak = config.get(FAILURE_STREAK_KEY)
+        if isinstance(streak, dict):
+            streak[FAILURE_STREAK_MANUAL_RUN_KEY] = True
+
+    # One short transaction per schema. Holding a single row lock at a time cannot deadlock with the
+    # writers that lock a source and then its schemas.
+    for schema_id in ExternalDataSchema.objects.filter(id__in=list(schema_ids), team_id=team_id).values_list(
+        "id", flat=True
+    ):
+        update_sync_type_config_keys(schema_id, team_id, mutate=_mark)
+
+
+def persist_schema_metadata(
+    schema: "ExternalDataSchema",
+    *,
+    schema_metadata: dict[str, Any],
+    detected_primary_keys: list[str] | None = None,
+) -> list[str]:
+    """Store discovered `schema_metadata` on a schema row, plus `detected_primary_keys` when the row
+    has no primary key yet, and drop `enabled_columns` the source no longer has. Returns the dropped
+    column names and refreshes `schema` in place.
+
+    Only these keys are merged, under the row lock, because syncs write other `sync_type_config`
+    keys (CDC positions, watermarks) at the same time. Scheduled discovery calls this for every
+    table of a source, so a row whose stored values already match is not written.
+    """
+    # Function-local because the `common.sql` package pulls dlt, temporalio and pyarrow into `django.setup()`.
+    from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.metadata import (  # noqa: PLC0415
+        extract_available_column_names,
+    )
+    from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.projection import (  # noqa: PLC0415
+        PrunedColumns,
+        compute_projected_columns,
+        prune_enabled_columns,
+    )
+
+    available_names = extract_available_column_names(schema_metadata)
+
+    def _prune(row: ExternalDataSchema) -> PrunedColumns:
+        pruned = prune_enabled_columns(row.enabled_columns, available_names)
+        # A selection pruned to nothing projects as `SELECT *` and reads the columns the user left out. The
+        # read always projects the incremental field it is given, but not a stored primary key: some sources
+        # detect keys live and can find none. Unless the incremental field keeps the projection, keep the
+        # stale selection so the next read fails on the dropped column.
+        incremental_field = row.incremental_field if row.should_use_incremental_field else None
+        if pruned.removed and compute_projected_columns(pruned.kept, None, incremental_field) is None:
+            return PrunedColumns(kept=row.enabled_columns, removed=[])
+        return pruned
+
+    stored = schema.sync_type_config if isinstance(schema.sync_type_config, dict) else {}
+    if (
+        stored.get("schema_metadata") == schema_metadata
+        and (not detected_primary_keys or stored.get("primary_key_columns"))
+        and not _prune(schema).removed
+    ):
+        return []
+
+    def _merge(config: dict[str, Any]) -> None:
+        config["schema_metadata"] = schema_metadata
+        # Never replace a stored key, such as an explicit override chosen at source creation.
+        if detected_primary_keys and not config.get("primary_key_columns"):
+            config["primary_key_columns"] = detected_primary_keys
+
+    with transaction.atomic():
+        locked = ExternalDataSchema.objects.select_for_update().get(id=schema.id, team_id=schema.team_id)
+        pruned = _prune(locked)
+        if pruned.removed:
+            locked.enabled_columns = pruned.kept
+            locked.save(update_fields=["enabled_columns", "updated_at"])
+        schema.sync_type_config = update_sync_type_config_keys(schema.id, schema.team_id, mutate=_merge)
+    schema.enabled_columns = locked.enabled_columns
+    return pruned.removed
 
 
 def save_repartition_checkpoint_if_claimed(
@@ -2382,6 +2508,23 @@ def get_all_schemas_for_source_id(source_id: str, team_id: int):
 class DirectSchemaReconciliation:
     active_schemas: list[ExternalDataSchema]
     stale_schemas: list[ExternalDataSchema]
+
+
+def get_undeleted_schemas_with_tables(source_id: str | uuid.UUID, team_id: int) -> list[ExternalDataSchema]:
+    """A source's schemas that are not deleted, with their linked table loaded in the same query."""
+    return list(
+        ExternalDataSchema.objects.filter(team_id=team_id, source_id=source_id, deleted=False).select_related("table")
+    )
+
+
+def source_has_column_restricted_schemas(source_id: str | uuid.UUID, team_id: int) -> bool:
+    """Whether the column picker hides columns on any table of this source."""
+    # `deleted` is nullable and the live catalog treats NULL as active, so exclude only True.
+    return (
+        ExternalDataSchema.objects.filter(team_id=team_id, source_id=source_id, enabled_columns__isnull=False)
+        .exclude(deleted=True)
+        .exists()
+    )
 
 
 def get_schemas_for_direct_reconciliation(

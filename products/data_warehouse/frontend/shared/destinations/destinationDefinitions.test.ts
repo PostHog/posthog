@@ -125,6 +125,20 @@ describe('warehouse destination definitions', () => {
             expect(errors.host).toEqual(needsHost ? 'This field is required' : undefined)
         })
 
+        it.each([
+            ['my_db', false],
+            ['db-1.v2$', false],
+            ['my db', true],
+            ['db;drop', true],
+        ])('MotherDuck database %j is checked against the allowed characters', (database, rejected) => {
+            const errors = validateDestinationFields(WAREHOUSE_DESTINATIONS.MotherDuck, {
+                isNew: true,
+                formValues: { database },
+            })
+
+            expect(!!errors.database).toEqual(rejected)
+        })
+
         it('treats a whitespace-only value as missing', () => {
             const errors = validateDestinationFields(WAREHOUSE_DESTINATIONS.BigQuery, {
                 isNew: true,

@@ -98,10 +98,10 @@ describe('<ProjectSecretAPIKeys />', () => {
         {
             description: 'as a toast when it names no field',
             attr: null,
-            detail: 'You can only have 50 project secret API keys. Remove an existing key before creating a new one.',
+            detail: 'You can only have 100 project secret API keys. Remove an existing key before creating a new one.',
             expectedManualErrors: {},
             expectedToasts: [
-                ['You can only have 50 project secret API keys. Remove an existing key before creating a new one.'],
+                ['You can only have 100 project secret API keys. Remove an existing key before creating a new one.'],
             ],
         },
     ])('shows a server error $description', async ({ attr, detail, expectedManualErrors, expectedToasts }) => {
@@ -123,6 +123,19 @@ describe('<ProjectSecretAPIKeys />', () => {
 
         expect(logic.values.editingKeyManualErrors).toEqual({})
         expect(logic.values.editingKeyHasErrors).toBe(false)
+    })
+
+    it('offers AI observability, dataset, and evaluation scopes on project keys', () => {
+        for (const key of ['llm_analytics', 'dataset', 'evaluation']) {
+            expect(logic.values.filteredScopes.find((row) => row.key === key)).toMatchObject({ disabledActions: [] })
+        }
+        expect(logic.values.filteredScopes.find((row) => row.key === 'llm_analytics')?.label).toBe('AI observability')
+        expect(logic.values.filteredScopes.find((row) => row.key === 'dataset')?.info).toBe(
+            'Datasets, their items, revisions, and retention.'
+        )
+        expect(logic.values.filteredScopes.find((row) => row.key === 'evaluation')?.info).toBe(
+            'Offline experiments, their items, and results.'
+        )
     })
 
     it('names the recipient preference row and says it cannot send email', () => {

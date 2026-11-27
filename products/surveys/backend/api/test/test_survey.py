@@ -35,7 +35,12 @@ from posthog.test.persons import create_person
 from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.facade.testing import create_action
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
-from products.cohorts.backend.models.cohort import Cohort
+from products.cohorts.backend.models.cohort import Cohort, CohortType
+from products.cohorts.backend.models.team_access import (
+    RealtimeCohortAccessPurpose,
+    RealtimeCohortLevel,
+    RealtimeCohortTeamAccess,
+)
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.facade.models import Insight
 from products.product_tours.backend.models import ProductTour
@@ -49,6 +54,7 @@ from products.surveys.backend.api.survey import (
     nh3_clean_with_allow_list,
     normalize_survey_appearance,
 )
+from products.surveys.backend.facade.api import existing_survey_ids
 from products.surveys.backend.models import MAX_ITERATION_COUNT, Survey, SurveyResponseArchive
 
 
@@ -1334,10 +1340,12 @@ class TestSurvey(APIBaseTest):
             ANY,
             "feature flag created",
             {
+                "feature_flag_id": ff_instance.id,
                 "groups_count": 1,
                 "has_variants": False,
                 "variants_count": 0,
                 "has_rollout_percentage": True,
+                "condition_rollout_percentages": [100],
                 "has_filters": True,
                 "filter_count": 2,
                 "created_at": ff_instance.created_at,
@@ -1832,6 +1840,73 @@ class TestSurvey(APIBaseTest):
                 "To show the survey after someone does an event, add an event trigger to the survey's display conditions. "
                 "To keep this audience, duplicate the cohort as a static cohort and target that."
             ),
+            "attr": None,
+        }
+
+    @parameterized.expand(
+        [
+            (
+                "realtime_off",
+                None,
+                "Realtime is off for cohort 'Weekly visitors', so surveys can't target it. Open the cohort's page to "
+                "turn realtime on, or to see why it can't be turned on.",
+            ),
+            (
+                "realtime_not_ready",
+                datetime(2026, 1, 1, tzinfo=UTC),
+                "Cohort 'Weekly visitors' isn't ready for surveys yet. Preparing a cohort usually takes under 30 "
+                "minutes. Open the cohort to see whether PostHog is still preparing it, and try again once it shows "
+                "as realtime.",
+            ),
+        ]
+    )
+    def test_survey_targeting_a_realtime_cohort_that_can_become_targetable_is_refused_without_static_copy_advice(
+        self, _name: str, realtime_enabled_at: datetime | None, expected_detail: str
+    ):
+        RealtimeCohortTeamAccess.objects.create(
+            team=self.team,
+            level=RealtimeCohortLevel.SERVING,
+            purpose=RealtimeCohortAccessPurpose.BETA,
+        )
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Weekly visitors",
+            cohort_type=CohortType.REALTIME,
+            realtime_enabled_at=realtime_enabled_at,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "$pageview",
+                            "event_type": "events",
+                            "time_value": 1,
+                            "time_interval": "week",
+                            "value": "performed_event",
+                            "type": "behavioral",
+                        }
+                    ],
+                }
+            },
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "survey on a realtime cohort",
+                "type": "popover",
+                "targeting_flag_filters": {
+                    "groups": [{"properties": [{"key": "id", "value": cohort.pk, "operator": "in", "type": "cohort"}]}]
+                },
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "realtime_cohort_not_ready",
+            "detail": expected_detail,
             "attr": None,
         }
 
@@ -3235,6 +3310,9 @@ class TestSurvey(APIBaseTest):
         results = response.json()["results"]
         assert len(results) == 1
         assert results[0]["id"] == str(regular_survey.id)
+        assert existing_survey_ids([regular_survey.id, product_tour_survey.id], team_id=self.team.id) == {
+            regular_survey.id
+        }
 
     def test_updating_survey_name_validates(self):
         survey_with_targeting = self.client.post(

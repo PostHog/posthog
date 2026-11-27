@@ -26,15 +26,15 @@ _COMPILED_KEYS = ("bytecode", "input_deps", "bytecode_contract")
 _CATEGORY_TYPES = ("marketing", "transactional")
 _TEMPLATING = ("hog", "liquid")
 
-ADOPTION_UNAVAILABLE = "The sandbox sender isn't available for this organization. Choose a verified email sender."
-INVALID_ACTION_ID = "A sandbox email step ID can only use letters, numbers, '-' and '_', up to 128 characters."
+ADOPTION_UNAVAILABLE = "The PostHog test sender isn't available for this organization. Choose a verified email sender."
+INVALID_ACTION_ID = "A PostHog test sender step ID can only use letters, numbers, '-' and '_', up to 128 characters."
 
 
 def valid_sandbox_action_id(action_id: Any) -> bool:
     return isinstance(action_id, str) and bool(_ACTION_ID.match(action_id))
 
 
-RUNTIME_UNAVAILABLE = "The sandbox sender can't send from workflows yet. Save this workflow as a draft, or choose a verified email sender."
+RUNTIME_UNAVAILABLE = "The PostHog test sender can't send from workflows yet. Save this workflow as a draft, or choose a verified email sender."
 
 
 def require_sandbox_runtime(actions: Any) -> None:
@@ -60,7 +60,7 @@ def validate_sandbox_email_action(
 
     config = action.get("config")
     if not isinstance(config, dict):
-        raise ValidationError({"config": "A sandbox email step needs a config object."})
+        raise ValidationError({"config": "A PostHog test sender step needs a config object."})
     _reject_unknown_keys(config, _CONFIG_KEYS)
 
     category_type = config.get("message_category_type")
@@ -72,7 +72,7 @@ def validate_sandbox_email_action(
 
     inputs = config.get("inputs")
     if not isinstance(inputs, dict) or not isinstance(inputs.get("email"), dict):
-        raise ValidationError({"config": "A sandbox email step needs an 'inputs.email' object."})
+        raise ValidationError({"config": "A PostHog test sender step needs an 'inputs.email' object."})
     _reject_unknown_keys(inputs, _INPUT_KEYS)
 
     envelope = {key: value for key, value in inputs["email"].items() if key not in _COMPILED_KEYS}
@@ -83,7 +83,7 @@ def validate_sandbox_email_action(
 
     value = envelope.get("value")
     if not isinstance(value, dict):
-        raise ValidationError({"config": "The sandbox email needs a 'value' object."})
+        raise ValidationError({"config": "The PostHog test sender email needs a 'value' object."})
     _validate_email_value(value, require_complete=require_complete)
     html = value.get("html")
     if isinstance(html, str) and html and html_wrap_design_needs_refresh(html, value.get("design")):
@@ -100,7 +100,7 @@ def _reject_unknown_keys(obj: dict[str, Any], allowed: frozenset[str]) -> None:
     unknown = sorted(key for key in obj if key not in allowed)
     if unknown:
         listed = ", ".join(f"'{key}'" for key in unknown)
-        raise ValidationError({"config": f"A sandbox email step can't set {listed}."})
+        raise ValidationError({"config": f"A PostHog test sender step can't set {listed}."})
 
 
 def _validate_email_value(value: dict[str, Any], *, require_complete: bool) -> None:

@@ -1,6 +1,8 @@
+import time
 from datetime import UTC, date, datetime, timedelta, timezone
 from typing import Any
 
+import pytest
 import time_machine
 from unittest.mock import MagicMock
 
@@ -18,7 +20,16 @@ from products.warehouse_sources.sources.render.render import (
 )
 from products.warehouse_sources.sources.render.settings import RENDER_ENDPOINTS, RenderEndpointConfig
 from products.warehouse_sources.sources.render.source import RenderSource
-from products.warehouse_sources.sources.sdk.testing import DriveResult, Script, ScriptedResponse, SourceDriver, always
+from products.warehouse_sources.sources.sdk.testing import (
+    DriveResult,
+    Script,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    error_message_matches,
+)
+
+_FROZEN_NOW = datetime(2026, 11, 25, 12, 0, 0, tzinfo=UTC)
 
 
 def _driver(owner_id: str | None = "tea-123") -> SourceDriver:
@@ -486,6 +497,29 @@ class TestFetchPage:
         result = _run("owners", always(ScriptedResponse(status=status_code, json={"message": "unavailable"})))
 
         assert isinstance(result.raised, RenderRetryableError)
+        # `RenderSource.get_retryable_errors()` must keep matching the exception `_fetch_page` actually
+        # raises, so an exhausted 429/5xx stays a warning instead of reporting to error tracking.
+        assert error_message_matches(str(result.raised), RenderSource().get_retryable_errors())
+
+    @parameterized.expand(
+        [
+            ("delay_seconds", "45", 45.0),
+            ("epoch_seconds", str(int(_FROZEN_NOW.timestamp()) + 30), 30.0),
+        ]
+    )
+    def test_rate_limit_waits_until_the_window_resets(self, _name: str, reset: str, expected_wait: float) -> None:
+        sent_at: list[float] = []
+
+        def rate_limited(_request: Any) -> ScriptedResponse:
+            sent_at.append(time.monotonic())
+            return ScriptedResponse(status=429, json={"message": "rate limited"}, headers={"Ratelimit-Reset": reset})
+
+        with time_machine.travel(_FROZEN_NOW, tick=False):
+            result = _run("owners", rate_limited)
+
+        assert isinstance(result.raised, RenderRetryableError)
+        gaps = [later - earlier for earlier, later in zip(sent_at, sent_at[1:])]
+        assert gaps == [pytest.approx(expected_wait, abs=1)] * 4
 
     def test_auth_error_raises_without_retry(self) -> None:
         result = _run("owners", [ScriptedResponse(status=401, json={"message": "Unauthorized"})])

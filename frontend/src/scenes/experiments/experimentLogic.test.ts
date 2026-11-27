@@ -25,6 +25,7 @@ import {
     MultivariateFlagVariant,
 } from '~/types'
 
+import { experimentExposuresWindowLogic } from 'products/experiments/frontend/exposures/experimentExposuresWindowLogic'
 import type {
     ExperimentHealthApi,
     ExperimentHealthCheckResultApi,
@@ -318,16 +319,19 @@ describe('experimentLogic', () => {
         })
 
         it.each([
-            ['ends at the latest run window', terminalRun('completed', {}), '2024-03-01T12:00:00Z'],
+            ['ends at the latest run window', terminalRun('completed', {}), '2024-03-01T12:00:00Z', false],
             [
                 'ends at the earlier window a rejected run keeps',
                 terminalRun('failed', {
                     'metric-uuid': { error_type: 'recalculation_window_too_long', retriable: false },
                 }),
                 '2024-03-01T12:00:00Z',
+                false,
             ],
-            ['evaluates at now without a run', null, null],
-        ])('%s', async (_, latestRun, expectedAsOf) => {
+            ['evaluates at now without a run', null, null, false],
+            ['waits for the latest run on a page load', terminalRun('completed', {}), '2024-03-01T12:00:00Z', true],
+            ['evaluates at now on a page load without a run', null, null, true],
+        ])('%s', async (_, latestRun, expectedAsOf, pageLoad) => {
             const exposureQueries: Record<string, any>[] = []
             useMocks({
                 get: {
@@ -336,11 +340,12 @@ describe('experimentLogic', () => {
                 },
                 post: {
                     '/api/environments/:team/query/:kind': async ({ params, request }) => {
-                        if (params.kind === NodeKind.ExperimentExposureQuery) {
-                            const body = (await request.json()) as { query: Record<string, any> }
-                            exposureQueries.push(body.query)
+                        if (params.kind !== NodeKind.ExperimentExposureQuery) {
+                            return [200, {}]
                         }
-                        return [200, {}]
+                        const body = (await request.json()) as { query: Record<string, any> }
+                        exposureQueries.push(body.query)
+                        return [200, { as_of: body.query.as_of }]
                     },
                     '/api/projects/:team_id/experiments/:id/metrics_recalculation/': () => [
                         201,
@@ -348,15 +353,29 @@ describe('experimentLogic', () => {
                     ],
                 },
             })
-            logic.actions.setExperiment(experiment)
-            const metricsLogic = experimentMetricsLogic({ experiment })
-            metricsLogic.mount()
-            await expectLogic(metricsLogic).toDispatchActions(['loadLatestRecalculation', 'setRecalculationLoading'])
+            const pageLogic = experimentLogic({ experimentId: experiment.id })
+            const unmountPageLogic = pageLogic.mount()
+            pageLogic.actions.setExperiment(experiment)
+            let unmount: () => void
+            if (pageLoad) {
+                // The page asks for the exposures before the metrics tab mounts the window logic.
+                const loaded = pageLogic.asyncActions.loadExposures()
+                unmount = experimentExposuresWindowLogic({ experiment }).mount()
+                await loaded
+            } else {
+                const metricsLogic = experimentMetricsLogic({ experiment })
+                unmount = metricsLogic.mount()
+                await expectLogic(metricsLogic).toDispatchActions([
+                    'loadLatestRecalculation',
+                    'setRecalculationLoading',
+                ])
+                await pageLogic.asyncActions.loadExposures()
+            }
 
-            await logic.asyncActions.loadExposures()
-
-            expect(exposureQueries.at(-1)?.as_of).toEqual(expectedAsOf)
-            metricsLogic.unmount()
+            expect(exposureQueries.map((query) => query.as_of)).toEqual([expectedAsOf])
+            expect(pageLogic.values.exposures).toEqual({ as_of: expectedAsOf })
+            unmount()
+            unmountPageLogic()
         })
     })
 

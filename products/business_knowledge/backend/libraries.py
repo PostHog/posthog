@@ -382,6 +382,11 @@ def library_repo_names(team_id: int, library_id: UUID) -> set[str]:
     )
 
 
+def library_has_source(team_id: int, library_id: UUID, source_id: UUID) -> bool:
+    team_id = resolve_effective_team_id(team_id)
+    return KnowledgeLibrarySource.objects.filter(team_id=team_id, library_id=library_id, source_id=source_id).exists()
+
+
 def project_allowed_repos(team: Team) -> set[str]:
     """Repos any environment of this project still allows. Used when one environment's allowlist changes."""
     canonical_id = team.parent_team_id or team.id

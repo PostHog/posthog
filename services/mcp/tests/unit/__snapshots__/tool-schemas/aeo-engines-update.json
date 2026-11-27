@@ -6,8 +6,8 @@
             "type": "boolean"
         },
         "frequency": {
-            "description": "'daily' or 'weekly'. Weekly checks each prompt once a week and costs a seventh as much.\n\n* `daily` - Daily\n* `weekly` - Weekly",
-            "enum": ["daily", "weekly"],
+            "description": "'daily' or 'weekly'. Weekly checks each prompt once a week and costs a seventh as much.\n\n* `daily` - Daily\n* `every_3_days` - Every 72 hours\n* `weekly` - Weekly",
+            "enum": ["daily", "every_3_days", "weekly"],
             "type": "string"
         },
         "id": {

@@ -29,6 +29,11 @@
         "params": [],
         "scope": "project"
     },
+    "agentTranscript": {
+        "template": "/agent-transcript",
+        "params": [],
+        "scope": "project"
+    },
     "agenticAccountMismatch": {
         "template": "/agentic/account-mismatch",
         "params": [],
@@ -169,16 +174,6 @@
         "params": [],
         "scope": "project"
     },
-    "aiObservabilityTag": {
-        "template": "/ai-evals/taggers/{id}",
-        "params": ["id"],
-        "scope": "project"
-    },
-    "aiObservabilityTags": {
-        "template": "/ai-evals/taggers",
-        "params": [],
-        "scope": "project"
-    },
     "aiObservabilityTools": {
         "template": "/ai-observability/tools",
         "params": [],
@@ -226,11 +221,6 @@
     },
     "analyticsMine": {
         "template": "/analytics/mine",
-        "params": [],
-        "scope": "project"
-    },
-    "analyticsProductHome": {
-        "template": "/analytics/product-analytics",
         "params": [],
         "scope": "project"
     },
@@ -349,6 +339,16 @@
         "params": [],
         "scope": "project"
     },
+    "businessKnowledgeLibraries": {
+        "template": "/business-knowledge/libraries",
+        "params": [],
+        "scope": "project"
+    },
+    "businessKnowledgeLibrary": {
+        "template": "/business-knowledge/libraries/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
     "businessKnowledgePlayground": {
         "template": "/business-knowledge/playground",
         "params": [],
@@ -362,6 +362,11 @@
     "businessKnowledgeSource": {
         "template": "/business-knowledge/{id}",
         "params": ["id"],
+        "scope": "project"
+    },
+    "businessKnowledgeUsage": {
+        "template": "/business-knowledge/usage",
+        "params": [],
         "scope": "project"
     },
     "canvas": {
@@ -587,6 +592,11 @@
     "dashboardTile": {
         "template": "/dashboard/{id}/tiles/{tileId}",
         "params": ["id", "tileId"],
+        "scope": "project"
+    },
+    "dashboardV2": {
+        "template": "/dashboard-v2",
+        "params": [],
         "scope": "project"
     },
     "dashboards": {
@@ -1204,6 +1214,11 @@
         "params": [],
         "scope": "project"
     },
+    "logsSavedView": {
+        "template": "/logs",
+        "params": [],
+        "scope": "project"
+    },
     "managedMigration": {
         "template": "/managed_migrations",
         "params": [],
@@ -1266,6 +1281,16 @@
     },
     "mcpAnalyticsToolQuality": {
         "template": "/mcp-analytics/tool-quality",
+        "params": [],
+        "scope": "project"
+    },
+    "mcpAnalyticsUser": {
+        "template": "/mcp-analytics/users/{distinctId}",
+        "params": ["distinctId"],
+        "scope": "project"
+    },
+    "mcpAnalyticsUsers": {
+        "template": "/mcp-analytics/users",
         "params": [],
         "scope": "project"
     },
@@ -1332,6 +1357,11 @@
     "notebooks": {
         "template": "/notebooks",
         "params": [],
+        "scope": "project"
+    },
+    "oauthApplication": {
+        "template": "/settings/organization-oauth-apps/{id}",
+        "params": ["id"],
         "scope": "project"
     },
     "oauthAuthorize": {
@@ -1502,6 +1532,11 @@
     "release": {
         "template": "/releases/{id}",
         "params": ["id"],
+        "scope": "project"
+    },
+    "releaseCalendar": {
+        "template": "/releases/calendar",
+        "params": [],
         "scope": "project"
     },
     "releaseList": {
@@ -1699,23 +1734,8 @@
         "params": [],
         "scope": "project"
     },
-    "stamphog": {
-        "template": "/stamphog",
-        "params": [],
-        "scope": "project"
-    },
     "stamphogCallback": {
         "template": "/stamphog/install/callback",
-        "params": [],
-        "scope": "project"
-    },
-    "stamphogDigests": {
-        "template": "/stamphog/digests",
-        "params": [],
-        "scope": "project"
-    },
-    "stamphogRuns": {
-        "template": "/stamphog/runs",
         "params": [],
         "scope": "project"
     },
@@ -1806,6 +1826,11 @@
     },
     "surveys": {
         "template": "/surveys",
+        "params": [],
+        "scope": "project"
+    },
+    "tagDefinitions": {
+        "template": "/data-management/tags",
         "params": [],
         "scope": "project"
     },

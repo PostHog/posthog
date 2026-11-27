@@ -37,6 +37,9 @@ OBJECT_STORAGE_ERROR_TRACKING_SOURCE_MAPS_FOLDER = os.getenv(
 OBJECT_STORAGE_S3_QUERY_CACHE_FOLDER = os.getenv("OBJECT_STORAGE_S3_QUERY_CACHE_FOLDER", "query_cache")
 OBJECT_STORAGE_TASKS_FOLDER = os.getenv("OBJECT_STORAGE_TASKS_FOLDER", "tasks")
 OBJECT_STORAGE_LEGAL_DOCUMENTS_FOLDER = os.getenv("OBJECT_STORAGE_LEGAL_DOCUMENTS_FOLDER", "legal_documents")
+# A bucket lifecycle rule deletes everything under this prefix after TRANSCRIPT_RETENTION_DAYS
+# (products/agent_transcripts/backend/facade/contracts.py). Changing the prefix needs the rule moved too.
+OBJECT_STORAGE_AGENT_TRANSCRIPTS_FOLDER = os.getenv("OBJECT_STORAGE_AGENT_TRANSCRIPTS_FOLDER", "agent_transcripts")
 OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET = os.getenv("OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET", "posthog")
 
 # Endpoint the ClickHouse *cluster* uses to reach the frames bucket for that INSERT — which is
@@ -111,7 +114,7 @@ INBOX_RANKING_TRAINING_HOLDOUT_DAYS = get_from_env("INBOX_RANKING_TRAINING_HOLDO
 # that passed the promotion gate. 0 turns the step off, and promotion is then only the manual
 # `inbox_ranking_promote_job`. A valid `interval_days` in the `inbox-ranking-auto-promotion` flag
 # payload takes precedence over this value.
-INBOX_RANKING_AUTO_PROMOTE_INTERVAL_DAYS = get_from_env("INBOX_RANKING_AUTO_PROMOTE_INTERVAL_DAYS", 3, type_cast=int)
+INBOX_RANKING_AUTO_PROMOTE_INTERVAL_DAYS = get_from_env("INBOX_RANKING_AUTO_PROMOTE_INTERVAL_DAYS", 1, type_cast=int)
 # Labels refresh sensor (products/signals/dags/inbox_ranking/dataset): how many stale labels
 # partitions one hourly tick rewrites after a FEATURE_SCHEMA_VERSION bump, newest first.
 INBOX_RANKING_LABELS_REFRESH_MAX_RUNS = get_from_env("INBOX_RANKING_LABELS_REFRESH_MAX_RUNS", 6, type_cast=int)

@@ -81,7 +81,7 @@ export const DataCatalogMetricsListQueryParams = () => zod.object({
         .string()
         .optional()
         .describe(
-            "Find metrics for a measure instead of reading the whole catalog. Send the user's words, the likely metric name, and the spelled-out form of an acronym, separated by commas, such as 'mrr, monthly recurring revenue'. Results come best match first, 10 by default, and match_reason says why each one matched. Words match by stem in the name, display name, description, and definition. Synonyms do not match unless the metric's text contains them."
+            "Find metrics for a measure instead of reading the whole catalog. Send the user's words, the likely metric name, and the spelled-out form of an acronym, separated by commas, such as 'mrr, monthly recurring revenue'. Results come best match first, 20 by default, and match_reason says why each one matched. Words match by stem in the name, display name, description, and definition. Synonyms do not match unless the metric's text contains them."
         ),
     status: zod.string().optional().describe('Only metrics with this review status.'),
 })
@@ -389,9 +389,6 @@ export const dataCatalogRelationshipProposalsCreateBodyJoiningTableKeyMax = 400
 
 export const dataCatalogRelationshipProposalsCreateBodyFieldNameMax = 400
 
-export const dataCatalogRelationshipProposalsCreateBodyConfidenceMin = 0
-export const dataCatalogRelationshipProposalsCreateBodyConfidenceMax = 1
-
 export const DataCatalogRelationshipProposalsCreateBody = () => zod.object({
     source_table_name: zod
         .string()
@@ -414,12 +411,6 @@ export const DataCatalogRelationshipProposalsCreateBody = () => zod.object({
         .max(dataCatalogRelationshipProposalsCreateBodyFieldNameMax)
         .describe('Accessor the join adds to the source table.'),
     configuration: zod.unknown().optional().describe('Extra join configuration, e.g. a field mapping.'),
-    confidence: zod
-        .number()
-        .min(dataCatalogRelationshipProposalsCreateBodyConfidenceMin)
-        .max(dataCatalogRelationshipProposalsCreateBodyConfidenceMax)
-        .nullish()
-        .describe('Discovery confidence in this join, 0-1.'),
     reasoning: zod.string().optional().describe('Why this join is proposed.'),
     evidence: zod.unknown().optional().describe('Sampling evidence: match rates, sample values.'),
 })

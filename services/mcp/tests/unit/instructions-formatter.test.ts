@@ -301,6 +301,53 @@ describe('InstructionsFormatter', () => {
         })
     })
 
+    describe('metric catalog gating', () => {
+        const formatter = new InstructionsFormatter()
+        const surfaces = [
+            {
+                surface: 'tools instructions',
+                render: (ctx: InstructionsContext) => formatter.buildToolsInstructions(ctx),
+            },
+            {
+                surface: 'exec command reference',
+                render: (ctx: InstructionsContext) => formatter.buildExecCommandReference(ctx),
+            },
+            {
+                surface: 'Claude exec command reference',
+                render: (ctx: InstructionsContext) =>
+                    formatter.buildCompactExecCommandReference(ctx, { claudeChat: true }),
+            },
+        ]
+
+        it.each(
+            surfaces.flatMap(({ surface, render }) => [
+                { surface, render, name: 'unread catalog', catalog: undefined, empty: false },
+                { surface, render, name: 'saved metrics', catalog: { hasMetrics: true }, empty: false },
+                { surface, render, name: 'no saved metrics', catalog: { hasMetrics: false }, empty: true },
+            ])
+        )('$surface: $name', ({ surface, render, catalog, empty }) => {
+            const result = render({ ...fullCtx, metricCatalog: catalog })
+
+            expect(/`metric-list` first|call metric-list|with `metric-list` before/.test(result)).toBe(!empty)
+            expect(
+                result.includes(
+                    'This project has no saved metrics, so skip `metric-list`, even where a skill says to call it first.'
+                )
+            ).toBe(empty)
+            const offersToSave = surface !== 'Claude exec command reference' || empty
+            expect(result.includes('Offer to save a reusable settled measure as a proposed metric')).toBe(offersToSave)
+            if (empty) {
+                expect(result).toContain('"governed catalog consulted: no match"')
+                expect(result).toContain(
+                    'If you save one in this session or switch projects, use `metric-list` from then on.'
+                )
+            }
+            expect(result.includes('Run `learn analytics` before writing SQL or joins')).toBe(
+                surface === 'Claude exec command reference'
+            )
+        })
+    })
+
     describe('replay vision guidance', () => {
         const visionTools = ['vision-scanners-inline-scan', 'vision-requests-create', 'vision-requests-get']
         it.each([
@@ -320,20 +367,50 @@ describe('InstructionsFormatter', () => {
         })
     })
 
+    describe('endpoints routing guidance', () => {
+        it.each([
+            { name: 'endpoint-create', extra: ['endpoint-create'], expected: true },
+            { name: 'no endpoint tools', extra: [], expected: false },
+        ])('routes code use cases to endpoints only when the roster carries $name', ({ extra, expected }) => {
+            const tools = [
+                ...realisticTools.filter(({ name }) => name !== 'endpoint-create'),
+                ...extra.map((name) => ({ name, category: 'Endpoints' })),
+            ]
+            const formatter = new InstructionsFormatter()
+            for (const rendered of [
+                formatter.buildToolsInstructions({ ...fullCtx, tools }),
+                formatter.buildExecCommandReference({ ...fullCtx, tools }),
+            ]) {
+                expect(rendered.includes('Create it with `endpoint-create` only after they agree')).toBe(expected)
+                expect(rendered.includes('{endpoints_routing}')).toBe(false)
+            }
+        })
+    })
+
     describe('inbox-first guidance', () => {
         it.each([
-            { name: 'tools mode', exec: false, claim: true, list: 'the `inbox-reports-list` tool' },
-            { name: 'exec mode', exec: true, claim: true, list: '`call inbox-reports-list <json_input>`' },
+            { name: 'tools mode', mode: 'tools', claim: true, list: 'the `inbox-reports-list` tool' },
+            { name: 'exec mode', mode: 'exec', claim: true, list: '`call inbox-reports-list <json_input>`' },
             {
                 name: 'exec mode without claim',
-                exec: true,
+                mode: 'exec',
                 claim: false,
                 list: '`call inbox-reports-list <json_input>`',
             },
-        ])('renders the section in $name', ({ exec, claim, list }) => {
+            {
+                name: 'the compact exec reference',
+                mode: 'compact',
+                claim: true,
+                list: '`call inbox-reports-list <json_input>`',
+            },
+        ] as const)('renders the section in $name', ({ mode, claim, list }) => {
             const ctx = { ...fullCtx, inboxFirstEnabled: true, inboxClaimEnabled: claim }
             const formatter = new InstructionsFormatter()
-            const rendered = exec ? formatter.buildExecCommandReference(ctx) : formatter.buildToolsInstructions(ctx)
+            const rendered = {
+                tools: () => formatter.buildToolsInstructions(ctx),
+                exec: () => formatter.buildExecCommandReference(ctx),
+                compact: () => formatter.buildCompactExecCommandReference(ctx),
+            }[mode]()
 
             expect(rendered).toContain('### Existing Inbox reports')
             expect(rendered).toContain(`Look for a report with ${list}`)
@@ -342,11 +419,19 @@ describe('InstructionsFormatter', () => {
             expect(rendered).not.toMatch(/\{inbox_/)
         })
 
+        it('omits the section from the claude.ai exec schema', () => {
+            const ctx = { ...fullCtx, inboxFirstEnabled: true, inboxClaimEnabled: true }
+            const rendered = new InstructionsFormatter().buildCompactExecCommandReference(ctx, { claudeChat: true })
+
+            expect(rendered).not.toContain('Existing Inbox reports')
+        })
+
         it('omits the section when it is not enabled', () => {
             const formatter = new InstructionsFormatter()
             for (const rendered of [
                 formatter.buildToolsInstructions(fullCtx),
                 formatter.buildExecCommandReference(fullCtx),
+                formatter.buildCompactExecCommandReference(fullCtx),
                 formatter.buildExecToolDescription({ skillsEnabled: true, docsSearchEnabled: true }),
             ]) {
                 expect(rendered).not.toContain('Existing Inbox reports')
@@ -426,10 +511,51 @@ describe('InstructionsFormatter', () => {
         })
     })
 
+    describe('cli exec guidance with skills', () => {
+        it('serves catalog trust and entity search from the sql guide instead of analytics', () => {
+            const guides = new InstructionsFormatter().buildExecLearnGuides({ ...fullCtx, cliLearnLayout: true })
+            const content = (id: string): string => guides.find((guide) => guide.id === id)?.content ?? ''
+
+            expect(
+                ['#### Catalog trust signals', '#### Searching for existing entities'].map((heading) => [
+                    content('analytics').includes(heading),
+                    content('sql').includes(heading),
+                ])
+            ).toEqual([
+                [false, true],
+                [false, true],
+            ])
+        })
+
+        it('keeps the query-tool routing inline', () => {
+            const result = new InstructionsFormatter().buildCompactExecCommandReference(
+                { ...fullCtx, renderUiEnabled: false, cliLearnLayout: true },
+                { skillsEnabled: true }
+            )
+
+            expect(result).toContain(
+                '"How many / how much / over time / compare periods" -> `metric-list` first, then `query-trends`'
+            )
+        })
+
+        it('shows the skill search before the analytics guide', () => {
+            const result = new InstructionsFormatter().buildCompactExecCommandReference(
+                { ...fullCtx, renderUiEnabled: false },
+                { skillsEnabled: true }
+            )
+
+            const skillSearch = result.indexOf('learn -s \\"weekly active users\\"')
+            expect([skillSearch > -1, skillSearch < result.indexOf('"command":"learn analytics"')]).toEqual([
+                true,
+                true,
+            ])
+        })
+    })
+
     describe('Claude web/desktop exec guidance', () => {
         it('keeps routine guidance inline and advertises optional topics', () => {
             const formatter = new InstructionsFormatter()
-            const result = formatter.buildClaudeExecCommandReference(fullCtx)
+            const result = formatter.buildCompactExecCommandReference(fullCtx, { claudeChat: true })
 
             // Skills off is the shipped default: the reference must carry no skill syntax.
             expect(result).not.toContain('(posthog|project):<skill>')
@@ -437,7 +563,7 @@ describe('InstructionsFormatter', () => {
 
             expect(result).toContain('**LEARN FIRST: HARD REQUIREMENT**')
             expect(result).toContain('learn <topic...> - load one or more learning topics')
-            expect(result).toContain('Topics are cumulative.')
+            expect(result).toContain('load only the topics this task needs')
             expect(result).toContain('User: create pageviews visualization')
             expect(result).toContain(
                 "Assistant: This needs analytics and visualization guidance, so I'll load both first."
@@ -473,7 +599,10 @@ describe('InstructionsFormatter', () => {
 
         it('advertises skill syntax inside the schema budget only when skills are enabled', () => {
             const formatter = new InstructionsFormatter()
-            const result = formatter.buildClaudeExecCommandReference(fullCtx, { skillsEnabled: true })
+            const result = formatter.buildCompactExecCommandReference(fullCtx, {
+                claudeChat: true,
+                skillsEnabled: true,
+            })
 
             expect(result).toContain('**SKILLS FIRST: HARD REQUIREMENT**')
             expect(result).toContain('(posthog|project):<skill> [path...]')
@@ -485,7 +614,8 @@ describe('InstructionsFormatter', () => {
 
         it('keeps URL patterns inline when learn is unavailable', () => {
             const formatter = new InstructionsFormatter()
-            const result = formatter.buildClaudeExecCommandReference(fullCtx, {
+            const result = formatter.buildCompactExecCommandReference(fullCtx, {
+                claudeChat: true,
                 learnEnabled: false,
                 skillsEnabled: false,
             })
@@ -495,25 +625,54 @@ describe('InstructionsFormatter', () => {
             expect(result).not.toContain('learn <topic...>')
         })
 
-        it('adds the full skills-first routing to the uncapped reference only when enabled', () => {
+        // Coding agents are the ones that clone the PostHog repo for answers, so they keep
+        // the full routing paragraph that Claude chat's schema cap cannot afford.
+        it('adds the full skills-first routing to the uncapped cli reference only when enabled', () => {
             const formatter = new InstructionsFormatter()
-            const off = formatter.buildExecCommandReference(fullCtx)
-            const on = formatter.buildExecCommandReference(fullCtx, { learnEnabled: true })
+            const off = formatter.buildCompactExecCommandReference(fullCtx)
+            const on = formatter.buildCompactExecCommandReference(fullCtx, { skillsEnabled: true })
 
             expect(off).not.toContain('SKILLS FIRST')
             expect(on).toContain('**SKILLS FIRST: HARD REQUIREMENT**')
             expect(on).toContain('never clone, grep, or web-search PostHog internals')
         })
 
+        // Claude Code and Codex cannot mount `render-ui`, and read the domain index from
+        // `instructions` or `search`, so neither belongs in their reference.
+        it('keeps visualization steps and the domain index out of a cli reference without render-ui', () => {
+            const result = new InstructionsFormatter().buildCompactExecCommandReference({
+                ...fullCtx,
+                renderUiEnabled: false,
+            })
+
+            expect(result).toContain('posthog:exec({"command":"learn analytics"})')
+            expect(result).not.toContain('visualization')
+            expect(result).not.toContain('render-ui')
+            expect(result).not.toContain(buildToolDomainsCompact(realisticTools))
+            expect(result).not.toMatch(/\{[a-z_]+\}/)
+        })
+
         it('builds optional learning topics from their full guidance', () => {
             const formatter = new InstructionsFormatter()
-            const entries = formatter.buildClaudeExecLearnGuides(fullCtx)
+            const entries = formatter.buildExecLearnGuides(fullCtx)
             const analytics = entries.find((entry) => entry.id === 'analytics')
 
-            expect(entries.map(({ id }) => id)).toEqual(['analytics', 'visualizations', 'urls', 'feedback'])
+            expect(entries.map(({ id }) => id)).toEqual([
+                'analytics',
+                'artifacts',
+                'examples',
+                'hogql',
+                'hogql-tables',
+                'visualizations',
+                'urls',
+                'feedback',
+            ])
             expect(analytics?.content).toContain('### Retrieving data')
-            expect(analytics?.content).toContain('### Examples')
             expect(analytics?.content).toContain('- `query-trends` — time series')
+            expect(analytics?.content).not.toContain('### Where an analysis lands')
+            expect(analytics?.content).not.toContain('### Examples')
+            expect(entries.find((entry) => entry.id === 'artifacts')?.content).toContain('### Where an analysis lands')
+            expect(entries.find((entry) => entry.id === 'examples')?.content).toContain('### Examples')
             expect(entries.find((entry) => entry.id === 'visualizations')?.content).toContain(
                 '### Rendering visualizations'
             )
@@ -530,12 +689,16 @@ describe('InstructionsFormatter', () => {
                 renderUiEnabled: false,
             }
 
-            expect(formatter.buildClaudeExecLearnGuides(ctx).map((entry) => entry.id)).toEqual([
+            expect(formatter.buildExecLearnGuides(ctx).map((entry) => entry.id)).toEqual([
                 'analytics',
+                'artifacts',
+                'examples',
+                'hogql',
+                'hogql-tables',
                 'urls',
                 'feedback',
             ])
-            const result = formatter.buildClaudeExecCommandReference(ctx)
+            const result = formatter.buildCompactExecCommandReference(ctx, { claudeChat: true })
             expect(result).toContain('- analytics:')
             expect(result).not.toContain('- visualizations:')
             expect(result).toContain('- urls:')
@@ -591,7 +754,7 @@ describe('InstructionsFormatter', () => {
             {
                 name: 'analytics learn topic content',
                 render: (formatter, ctx) =>
-                    formatter.buildClaudeExecLearnGuides(ctx).find((entry) => entry.id === 'analytics')!.content,
+                    formatter.buildExecLearnGuides(ctx).find((entry) => entry.id === 'analytics')!.content,
                 mustPrecede: ['### Retrieving data', '#### Schema-first workflow'],
             },
             {
@@ -616,9 +779,7 @@ describe('InstructionsFormatter', () => {
 
         it('advertises governed metrics in the analytics topic description', () => {
             const formatter = new InstructionsFormatter()
-            const analyticsEntry = formatter
-                .buildClaudeExecLearnGuides(fullCtx)
-                .find((entry) => entry.id === 'analytics')!
+            const analyticsEntry = formatter.buildExecLearnGuides(fullCtx).find((entry) => entry.id === 'analytics')!
             expect(analyticsEntry.description).toContain('governed metrics')
         })
     })
@@ -633,9 +794,9 @@ describe('InstructionsFormatter', () => {
                 render: (formatter, ctx) => formatter.buildToolsInstructions(ctx),
             },
             {
-                name: 'analytics learn topic content',
+                name: 'artifacts learn topic content',
                 render: (formatter, ctx) =>
-                    formatter.buildClaudeExecLearnGuides(ctx).find((entry) => entry.id === 'analytics')!.content,
+                    formatter.buildExecLearnGuides(ctx).find((entry) => entry.id === 'artifacts')!.content,
             },
             {
                 name: 'buildExecCommandReference',
@@ -707,19 +868,18 @@ describe('InstructionsFormatter', () => {
             { name: 'tools', render: (f, ctx) => f.buildToolsInstructions(ctx), inline: true },
             { name: 'exec', render: (f, ctx) => f.buildExecCommandReference(ctx), inline: true },
             {
-                name: 'Claude analytics guide',
-                render: (f, ctx) =>
-                    f.buildClaudeExecLearnGuides(ctx).find((entry) => entry.id === 'analytics')!.content,
+                name: 'Claude activity guide',
+                render: (f, ctx) => f.buildExecLearnGuides(ctx).find((entry) => entry.id === 'activity')?.content ?? '',
                 inline: true,
             },
             {
                 name: 'Claude without guides',
-                render: (f, ctx) => f.buildClaudeExecCommandReference(ctx, { learnEnabled: false }),
+                render: (f, ctx) => f.buildCompactExecCommandReference(ctx, { claudeChat: true, learnEnabled: false }),
                 inline: true,
             },
             {
                 name: 'Claude with guides',
-                render: (f, ctx) => f.buildClaudeExecCommandReference(ctx),
+                render: (f, ctx) => f.buildCompactExecCommandReference(ctx, { claudeChat: true }),
                 inline: false,
             },
         ]

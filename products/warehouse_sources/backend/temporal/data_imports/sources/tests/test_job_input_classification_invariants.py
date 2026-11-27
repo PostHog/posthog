@@ -16,7 +16,6 @@ from products.warehouse_sources.backend.facade.source_config import (
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.job_input_classification import (
     ACCOUNT_SELECTOR_FLAG_FIELD_TYPES,
-    CLASSIFICATION_AUDIT_PATH,
     SELECT_OPTION_KEY,
     SYNC_SETTING_FIELD_TYPES,
     JobInputKind,
@@ -25,7 +24,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.job
     field_kind,
     is_runtime_key,
     merge_job_inputs,
-    render_classification_audit,
     split_job_inputs,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
@@ -195,10 +193,3 @@ def test_reference_options_keep_their_whole_value_in_the_reference_part(source_t
                 assert split.references == {name: value}
             else:
                 assert split.connection == {name: value}
-
-
-def test_classification_audit_is_up_to_date() -> None:
-    assert CLASSIFICATION_AUDIT_PATH.read_text() == render_classification_audit(), (
-        "The source field classification audit is out of date. "
-        "Run `python manage.py generate_source_field_classification` and commit the result."
-    )

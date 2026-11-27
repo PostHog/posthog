@@ -188,7 +188,9 @@ class TestSpendRecovery(BaseTest):
             patch(
                 "products.tasks.backend.logic.services.gateway_usage._fetch_gateway_cost",
                 new_callable=AsyncMock,
-                return_value=GatewayRequestCost(model="example", provider="example", cost_microusd=123),
+                return_value=GatewayRequestCost(
+                    model="example", provider="example", cost_microusd=123, standard_cost_microusd=123
+                ),
             ),
             patch("products.signals.backend.spend.submit_signal_metadata_updates", new_callable=AsyncMock),
         ):
@@ -270,7 +272,9 @@ class TestSpendRecovery(BaseTest):
             assert fetch.call_count == RECOVERY_SOURCE_LIMIT
             publish.assert_not_awaited()
             fetch.reset_mock()
-            fetch.return_value = GatewayRequestCost(model="example", provider="example", cost_microusd=123)
+            fetch.return_value = GatewayRequestCost(
+                model="example", provider="example", cost_microusd=61, standard_cost_microusd=123
+            )
             recover_spend(self.team.id, str(spend.id))
             assert fetch.call_args_list[0].args[0] == f"request-{RECOVERY_SOURCE_LIMIT:02}"
             recover_spend(self.team.id, str(spend.id))
@@ -302,7 +306,9 @@ class TestSpendRecovery(BaseTest):
             patch(
                 "products.tasks.backend.logic.services.gateway_usage._fetch_gateway_cost",
                 new_callable=AsyncMock,
-                return_value=GatewayRequestCost(model="example", provider="example", cost_microusd=20),
+                return_value=GatewayRequestCost(
+                    model="example", provider="example", cost_microusd=20, standard_cost_microusd=20
+                ),
             ),
             patch("products.signals.backend.spend.submit_signal_metadata_updates", new_callable=AsyncMock),
             patch("products.signals.backend.spend_recovery.recover_spend.apply_async") as dispatch,

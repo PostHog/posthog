@@ -3,10 +3,10 @@ import re
 import json
 import asyncio
 import dataclasses
-from collections.abc import AsyncGenerator, Iterable
+from collections.abc import AsyncGenerator, Iterable, Mapping
 from datetime import datetime
 from time import perf_counter
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, NoReturn, cast
 from urllib.parse import parse_qs, quote, urlparse
 from uuid import UUID, uuid4
 
@@ -30,6 +30,7 @@ from rest_framework.exceptions import (
     NotFound,
     ParseError,
     PermissionDenied,
+    Throttled,
     ValidationError,
 )
 from rest_framework.parsers import BaseParser
@@ -50,7 +51,7 @@ from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentic
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.event_usage import groups
 from posthog.middleware import is_read_only_impersonation
-from posthog.models import User
+from posthog.models import Team, User
 from posthog.models.integration.codex import CodexAuthError, CodexReauthRequired
 from posthog.permissions import (
     APIScopePermission,
@@ -76,6 +77,7 @@ from products.exports.backend.facade.api import render_png_export
 
 if TYPE_CHECKING:
     from products.exports.backend.facade.api import ExportedAsset
+
 from products.tasks.backend.facade import (
     access as tasks_access,
     agent_run_starts as tasks_agent_run_starts,
@@ -100,6 +102,7 @@ from products.tasks.backend.facade.client_provenance import (
 )
 from products.tasks.backend.facade.compute_quota import ComputeBillingLimitExceeded
 from products.tasks.backend.facade.contracts import TaskAnalysisError, TaskRunLogAppendUnserialized
+from products.tasks.backend.facade.desktop_gateway import posthog_code_plan
 from products.tasks.backend.facade.metrics import (
     StreamConnectionOutcome,
     StreamTokenRoute,
@@ -114,7 +117,12 @@ from products.tasks.backend.facade.metrics import (
     observe_stream_resume_gap,
     observe_stream_token_routed,
 )
-from products.tasks.backend.facade.model_catalogue import TASK_RUN_GATEWAY_PRODUCT, available_model_choices
+from products.tasks.backend.facade.model_catalogue import (
+    FREE_TIER_PIN_KEY,
+    TASK_RUN_GATEWAY_PRODUCT,
+    plan_model_choices,
+)
+from products.tasks.backend.facade.model_override import RunModelSelection, with_prompt_model_switch
 from products.tasks.backend.facade.profiles import find_task_profile, public_profile_for_origin
 from products.tasks.backend.facade.run_config import (
     WARMABLE_ORIGIN_PRODUCTS,
@@ -376,9 +384,6 @@ def _parse_backlog(log_content: str) -> tuple[list[dict], TaskRunStreamBacklogIn
     return entries, TaskRunStreamBacklogIndex(entries)
 
 
-TASK_RUN_ARTIFACT_UPLOAD_EXPIRATION_SECONDS = 60 * 60
-
-
 TASK_RUN_ARTIFACT_UPLOAD_FORM_OVERHEAD_BYTES = 64 * 1024
 TASKS_MCP_AGENT_RUN_START_FLAG = "tasks-mcp-agent-run-start"
 
@@ -392,6 +397,21 @@ def _task_done_response() -> Response:
         TaskRunErrorResponseSerializer({"error": str(tasks_facade.TaskDoneError())}).data,
         status=status.HTTP_409_CONFLICT,
     )
+
+
+def _run_in_progress_response() -> Response:
+    return Response(
+        TaskRunErrorResponseSerializer({"error": str(tasks_facade.TaskRunAlreadyLiveError())}).data,
+        status=status.HTTP_409_CONFLICT,
+    )
+
+
+def _wake_refusal_response(code: str | None) -> Response | None:
+    if code == "task_done":
+        return _task_done_response()
+    if code == "run_in_progress":
+        return _run_in_progress_response()
+    return None
 
 
 def _is_internal_debug_team(team_id: int | None) -> bool:
@@ -483,6 +503,9 @@ def _requests_signal_report_origin(data: dict) -> bool:
     return profile is not None and profile.origin_product == "signal_report"
 
 
+_REPORT_RUN_REFUSING_THROTTLE_ATTR = "report_task_run_refusing_throttle"
+
+
 class _SignalReportTaskThrottle(UserRateThrottle):
     """Rate-limits only signal-report task creation and sandbox warming on the shared endpoints.
 
@@ -495,17 +518,58 @@ class _SignalReportTaskThrottle(UserRateThrottle):
         data = request.data
         if not isinstance(data, dict) or not _requests_signal_report_origin(data):
             return True
+        self.num_requests = self.limit_for(request, view)
         return super().allow_request(request, view)
 
+    def limit_for(self, request: Request, view: APIView) -> int | None:
+        return self.num_requests
 
-class SignalReportTaskCreateBurstThrottle(_SignalReportTaskThrottle):
+
+class _SignalReportTaskCreateThrottle(_SignalReportTaskThrottle):
+    """Shares its scopes and its limit with the signals report actions run throttle.
+
+    A run started from the inbox and one started from the API spend one per-user budget. The rate sets only
+    the window; the number comes from the `signal-report-task-limits` flag payload on each request.
+    """
+
+    window: str
+
+    def allow_request(self, request: Request, view: APIView) -> bool:
+        if super().allow_request(request, view):
+            return True
+        # DRF checks every window before it refuses, so the view can name the one with the longest wait.
+        refusing = getattr(request, _REPORT_RUN_REFUSING_THROTTLE_ATTR, None)
+        if refusing is None or (self.wait() or 0) > (refusing.wait() or 0):
+            setattr(request, _REPORT_RUN_REFUSING_THROTTLE_ATTR, self)
+        return False
+
+    def limit_for(self, request: Request, view: APIView) -> int | None:
+        from products.signals.backend.facade.report_task_limits import (  # noqa: PLC0415 — cross-product read kept off the api import path
+            ReportTaskRunWindow,
+            resolve_report_task_run_limits,
+        )
+
+        team = getattr(view, "team", None)
+        user_uuid = getattr(request.user, "uuid", None)
+        limits = resolve_report_task_run_limits(
+            user_uuid=str(user_uuid) if user_uuid else None,
+            team_id=getattr(team, "id", None),
+            parent_team_id=getattr(team, "parent_team_id", None),
+            organization_id=str(team.organization_id) if team is not None else None,
+        )
+        return limits.for_window(ReportTaskRunWindow(self.window))
+
+
+class SignalReportTaskCreateBurstThrottle(_SignalReportTaskCreateThrottle):
     scope = "signal_report_task_create_burst"
     rate = "20/hour"
+    window = "hour"
 
 
-class SignalReportTaskCreateSustainedThrottle(_SignalReportTaskThrottle):
+class SignalReportTaskCreateSustainedThrottle(_SignalReportTaskCreateThrottle):
     scope = "signal_report_task_create_day"
     rate = "50/day"
+    window = "day"
 
 
 class SignalReportTaskWarmBurstThrottle(_SignalReportTaskThrottle):
@@ -525,6 +589,25 @@ SANDBOX_AGENT_RUN_START_BUDGETS: tuple[tuple[str, Budget], ...] = (
 
 
 @extend_schema(tags=["tasks"])
+def _with_first_message_model(data: Mapping[str, Any], *, team: Team, user: User) -> dict[str, Any]:
+    """A copy of a new run's request data, on the model its first message asks for."""
+    message = data.get("pending_user_message")
+    if not isinstance(message, str):
+        return dict(data)
+    selection = RunModelSelection(
+        runtime_adapter=data.get("runtime_adapter"),
+        model=data.get("model"),
+        reasoning_effort=data.get("reasoning_effort"),
+        initial_permission_mode=data.get("initial_permission_mode"),
+    )
+    switched = with_prompt_model_switch(message, selection, team=team, user=user)
+    # Only the changed fields go back, so a field the request left out stays out.
+    changes = {
+        field: value for field, value in dataclasses.asdict(switched).items() if getattr(selection, field) != value
+    }
+    return {**data, **changes}
+
+
 class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
     API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
@@ -557,6 +640,18 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         elif action == "warm":
             throttles += [SignalReportTaskWarmBurstThrottle(), SignalReportTaskWarmSustainedThrottle()]
         return throttles
+
+    def throttled(self, request: Request, wait: float) -> NoReturn:
+        refusing = getattr(request, _REPORT_RUN_REFUSING_THROTTLE_ATTR, None)
+        if refusing is not None:
+            from products.signals.backend.facade.report_task_limits import (  # noqa: PLC0415 — cross-product read kept off the api import path
+                ReportTaskRunWindow,
+                report_task_run_refused,
+            )
+
+            detail = report_task_run_refused(ReportTaskRunWindow(refusing.window), refusing.num_requests)
+            raise Throttled(wait=wait, detail=detail)
+        super().throttled(request, wait)
 
     def _user_id(self) -> int | None:
         return getattr(self.request.user, "id", None)
@@ -983,6 +1078,14 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 run_error = create_result.run_error
                 run_started = not run_error
             else:
+                if (
+                    origin_product == tasks_facade.TaskOriginProduct.POSTHOG_AI
+                    and validated_data.get("runtime") != tasks_facade.TaskRuntime.PI
+                ):
+                    # Before warm matching, so a sandbox booted on the picked model is not reused for another.
+                    validated_data = _with_first_message_model(
+                        validated_data, team=self.team, user=cast(User, request.user)
+                    )
                 task = tasks_facade.create_task(
                     self.team_id,
                     self._user_id(),
@@ -1228,14 +1331,14 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         summary="List available models",
         description=(
             "Return the models a task run may use, with the reasoning efforts each one supports. "
-            "Derived from the live LLM gateway catalogue, so a newly released model appears without a client change. "
-            "An empty list means the gateway is unreachable — clients should fall back to their own default rather "
-            "than treating it as 'no models exist'."
+            "Read from the PostHog model catalog, narrowed to the models a PostHog Code token may call. "
+            "Each model is marked with whether the project's plan allows it."
         ),
     )
     @action(detail=False, methods=["get"], url_path="models", required_scopes=["task:read"])
     def models(self, request, **kwargs):
-        choices = available_model_choices(TASK_RUN_GATEWAY_PRODUCT)
+        plan_pin = FREE_TIER_PIN_KEY if posthog_code_plan(self.team) == "free" else TASK_RUN_GATEWAY_PRODUCT
+        choices = plan_model_choices(TASK_RUN_GATEWAY_PRODUCT, plan_pin)
         return Response(ModelCatalogueResponseSerializer({"models": choices}).data)
 
     @extend_schema(request=TaskPinRequestSerializer, responses={200: TaskPinResponseSerializer})
@@ -1543,7 +1646,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             self.team_id,
             self._user_id(),
             artifacts=request.validated_data["artifacts"],
-            upload_expiration_seconds=TASK_RUN_ARTIFACT_UPLOAD_EXPIRATION_SECONDS,
+            upload_expiration_seconds=tasks_facade.TASK_RUN_ARTIFACT_UPLOAD_EXPIRATION_SECONDS,
         )
         if result is None:
             raise NotFound()
@@ -1625,7 +1728,10 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 ),
             ),
             404: OpenApiResponse(description="Task not found"),
-            409: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="The task is done"),
+            409: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer,
+                description="The task is done, or it already has a run in progress",
+            ),
             503: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
                 description=(
@@ -1705,6 +1811,14 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             ReportTaskCapExceeded,
         )
 
+        validated_data = request.validated_data
+        if validated_data.get("pending_user_message") and (
+            (visible := tasks_facade.task_control_runtime_and_origin(pk, self.team_id, self._user_id())) is not None
+            and visible.origin_product == tasks_facade.TaskOriginProduct.POSTHOG_AI
+            and visible.runtime != tasks_facade.TaskRuntime.PI
+        ):
+            validated_data = _with_first_message_model(validated_data, team=self.team, user=cast(User, request.user))
+
         run_started = False
         try:
             result = tasks_facade.run_task(
@@ -1712,7 +1826,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 self.team_id,
                 self._user_id(),
                 validated_data={
-                    **request.validated_data,
+                    **validated_data,
                     **sandbox_run_data,
                     "client_platform": "mobile"
                     if request.headers.get("X-PostHog-Client-Platform") == "mobile"
@@ -2059,8 +2173,8 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             if error.missing_artifact_ids is not None:
                 body["missing_artifact_ids"] = error.missing_artifact_ids
             return Response(body, status=status.HTTP_400_BAD_REQUEST)
-        if error.code == "task_done":
-            return _task_done_response()
+        if (refusal := _wake_refusal_response(error.code)) is not None:
+            return refusal
         return Response(
             {"type": "validation_error", "code": error.code, "detail": error.detail, "attr": error.attr},
             status=status.HTTP_400_BAD_REQUEST,
@@ -2178,6 +2292,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     # request/response schema via @validated_request / @extend_schema.
     serializer_class = TaskRunDetailSerializer
     _authorized_task_id: str | None = None
+    _sent_by_run_sandbox: bool = False
 
     def initial(self, request: Request, *args: object, **kwargs: object) -> None:
         super().initial(request, *args, **kwargs)
@@ -2208,6 +2323,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 "budget_guard",
                 "benjamin_version",
                 "agent_version",
+                "upstream_turn_retry",
             }:
                 return False
         return True
@@ -2346,13 +2462,14 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 UUID(run_id)
             except (ValueError, TypeError):
                 raise NotFound("Task run not found")
-        if not run_context.is_sandbox_run_request(
+        self._sent_by_run_sandbox = run_context.is_sandbox_run_request(
             request=self.request,
             team_id=self.team_id,
             task_id=task_id,
             run_id=run_id,
             include_resume_sources=is_read_only,
-        ) and not run_context.may_read_task_run_context(
+        )
+        if not self._sent_by_run_sandbox and not run_context.may_read_task_run_context(
             request=self.request, team_id=self.team_id, task_id=task_id, run_id=run_id
         ):
             raise PermissionDenied("The analytics data in this task run is not available to you.")
@@ -2424,8 +2541,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def _validation_error_response(self, error: tasks_contracts.TaskRunValidationError) -> Response:
         if error.kind == "detail":
             return Response({"detail": error.detail}, status=status.HTTP_400_BAD_REQUEST)
-        if error.code == "task_done":
-            return _task_done_response()
+        if (refusal := _wake_refusal_response(error.code)) is not None:
+            return refusal
         return Response(
             {"type": "validation_error", "code": error.code, "detail": error.detail, "attr": error.attr},
             status=status.HTTP_400_BAD_REQUEST,
@@ -2440,7 +2557,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 response=TaskRunErrorResponseSerializer,
                 description="PostHog Desktop access is required, or Pi cloud runtime is disabled",
             ),
-            409: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="The task is done"),
+            409: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer,
+                description="The task is done, or it already has a run in progress",
+            ),
             429: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer, description="Team is over its posthog_code usage limit"
             ),
@@ -2775,13 +2895,54 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         entries = request.validated_data["entries"]
         with timer("s3_append"):
-            run = tasks_facade.append_task_run_log(pk, task_id, self.team_id, entries=entries)
+            run = tasks_facade.append_task_run_log(
+                pk,
+                task_id,
+                self.team_id,
+                entries=entries,
+                sent_by_run_sandbox=self._sent_by_run_sandbox,
+            )
         if run is None:
             raise NotFound()
 
         response = Response(TaskRunDetailSerializer(run).data)
         response["Server-Timing"] = timer.to_header_string()
         return response
+
+    @extend_schema(
+        request=None,
+        responses={
+            204: OpenApiResponse(description="Heartbeat recorded"),
+            404: OpenApiResponse(description="Run not found"),
+            409: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="The run cannot take heartbeats"),
+        },
+        summary="Record a local run heartbeat",
+        description=(
+            "Tell the server that a local run is still alive. The client that drives a local run calls "
+            "this about every 5 minutes while it holds the run open. A heartbeat reopens a local run that "
+            "the server had completed. Cloud runs report their own heartbeats, so this endpoint refuses "
+            "them, along with failed and cancelled runs and runs of a finished task."
+        ),
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="heartbeat",
+        required_scopes=["task:write"],
+    )
+    def heartbeat(self, request, pk=None, **kwargs):
+        task_id = self._ensure_task_accessible()
+        outcome = tasks_facade.record_local_task_run_heartbeat(pk, task_id, self.team_id)
+        if outcome == "not_found":
+            raise NotFound()
+        if outcome == "not_live_local":
+            return Response(
+                TaskRunErrorResponseSerializer(
+                    {"error": "This run can no longer take heartbeats. Start a new run to keep working."}
+                ).data,
+                status=status.HTTP_409_CONFLICT,
+            )
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(
         request=None,
@@ -3147,7 +3308,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             task_id,
             self.team_id,
             artifacts=request.validated_data["artifacts"],
-            upload_expiration_seconds=TASK_RUN_ARTIFACT_UPLOAD_EXPIRATION_SECONDS,
+            upload_expiration_seconds=tasks_facade.TASK_RUN_ARTIFACT_UPLOAD_EXPIRATION_SECONDS,
             form_overhead_bytes=TASK_RUN_ARTIFACT_UPLOAD_FORM_OVERHEAD_BYTES,
         )
         if prepared is None and ok:
@@ -3954,6 +4115,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 return compute_quota_limit_response(error.reason)
             except tasks_facade.TaskDoneError:
                 return _task_done_response()
+            except tasks_facade.TaskRunAlreadyLiveError:
+                return _run_in_progress_response()
             except Exception:
                 logger.warning("Failed to queue user message for task run %s", pk)
                 return Response(
@@ -4396,7 +4559,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 response=TaskRunErrorResponseSerializer,
                 description="PostHog Desktop access is required, or Pi cloud runtime is disabled",
             ),
-            409: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="The task is done"),
+            409: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer,
+                description="The task is done, or it already has a run in progress",
+            ),
             429: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer, description="Team is over its posthog_code usage limit"
             ),
@@ -4433,8 +4599,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         outcome, run, _ = tasks_facade.resume_task_run_in_cloud(pk, task_id, self.team_id, self._user_id())
         if outcome == "not_found":
             raise NotFound()
-        if outcome == "task_done":
-            return _task_done_response()
+        if (refusal := _wake_refusal_response(outcome)) is not None:
+            return refusal
         if outcome == "already_active":
             return Response(
                 TaskRunErrorResponseSerializer({"error": "Run is already active in cloud"}).data,
@@ -4574,13 +4740,13 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # the generator, after SSE admission, off the event loop.
         thin_tail = run_stream_thin_tail(stream_info.state) and not start_latest
         backlog_serve_after: int | None = None
-        backlog_log_urls: list[str] = []
+        backlog_logs: list[tasks_facade.TaskRunLog] = []
         if thin_tail:
             if not last_event_id:
                 backlog_serve_after = -1
             else:
                 backlog_serve_after = parse_log_cursor(last_event_id)
-            backlog_log_urls = tasks_facade.get_task_run_log_urls(pk, task_id, self.team_id) or []
+            backlog_logs = tasks_facade.get_task_run_logs(pk, task_id, self.team_id) or []
 
         async def async_stream() -> AsyncGenerator[bytes]:
             redis_stream = TaskRunRedisStream(stream_key, use_dedicated_stream)
@@ -4630,9 +4796,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     backlog_reserved = 0
                     try:
                         try:
-                            backlog_bytes = await asyncio.to_thread(
-                                tasks_facade.get_task_run_log_size, backlog_log_urls
-                            )
+                            backlog_bytes = await asyncio.to_thread(tasks_facade.get_task_run_log_size, backlog_logs)
                             observe_stream_backlog_bytes(origin_product, backlog_bytes)
                             backlog_oversized = backlog_bytes > settings.TASK_RUN_STREAM_BACKLOG_MAX_BYTES
                             if backlog_oversized:
@@ -4661,7 +4825,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                             else:
                                 backlog_reserved = backlog_bytes
                                 log_content = await asyncio.to_thread(
-                                    tasks_facade.read_task_run_log_content, backlog_log_urls
+                                    tasks_facade.read_task_run_log_content, backlog_logs
                                 )
                             backlog_entries, backlog_index = await asyncio.to_thread(_parse_backlog, log_content)
                             del log_content

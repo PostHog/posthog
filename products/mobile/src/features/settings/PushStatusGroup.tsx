@@ -38,14 +38,6 @@ function statusLabel(push: PushState): string {
     }
 }
 
-function shortToken(token: string): string {
-    const inner = /^ExponentPushToken\[(.+)\]$/.exec(token)?.[1]
-    if (!inner || inner.length <= 12) {
-        return token
-    }
-    return `ExponentPushToken[${inner.slice(0, 6)}…${inner.slice(-4)}]`
-}
-
 export function PushStatusGroup(): ReactElement {
     const styles = useStyles()
     const colors = useColors()
@@ -73,26 +65,18 @@ export function PushStatusGroup(): ReactElement {
 
     return (
         <SettingsGroup
-            title="Notifications"
+            title="This device"
             footer={
-                push.error && push.permission === 'granted' ? `Couldn't register this device. ${push.error}` : undefined
+                push.error && push.permission === 'granted' ? "Couldn't turn on notifications. Try again." : undefined
             }
             testID="settings-push"
         >
             <SettingsRow
-                label="Push notifications"
+                label="Notifications"
                 value={busy ? undefined : statusLabel(push)}
                 accessory={busy ? <ActivityIndicator color={colors.ink} /> : undefined}
                 testID="settings-push-status"
             />
-            {push.token ? (
-                <SettingsRow
-                    label="This device"
-                    value={shortToken(push.token)}
-                    monoValue
-                    testID="settings-push-token"
-                />
-            ) : null}
             {canEnable && push.permission !== 'unavailable' ? (
                 <View style={styles.actionRow}>
                     <Pressable44

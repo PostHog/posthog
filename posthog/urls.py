@@ -27,7 +27,7 @@ from posthog.api.github_callback.views import github_oauth_callback, github_setu
 from posthog.api.integration_connect import integration_connect_redirect
 from posthog.api.livestream import LivestreamAuthorizationView
 from posthog.api.oauth.connected_apps import ConnectedAppsViewSet
-from posthog.api.oauth.toolbar_views import authorize_and_redirect
+from posthog.api.oauth.toolbar_views import authorize_and_redirect, toolbar_oauth_error
 from posthog.api.scim import views as scim_views
 from posthog.api.sdk_health import sdk_health
 from posthog.api.two_factor_qrcode import CacheAwareQRGeneratorView
@@ -35,6 +35,7 @@ from posthog.ee_urls import ee_urlpatterns
 from posthog.frontend_views import app_context, device_approval_page, home, home_with_region_redirect
 from posthog.ingress.github.provider import build_github_provider
 from posthog.ingress.linear.provider import build_linear_provider
+from posthog.ingress.slack.provider import PROVISIONING_REVIEW_INTERACTIVITY_APP, build_slack_interactivity_provider
 from posthog.ingress.views import build_webhook_view
 from posthog.mobile_app_links import android_asset_links, apple_app_site_association
 from posthog.oauth2_urls import urlpatterns as oauth2_urls
@@ -98,7 +99,6 @@ from .views import (
     render_query,
     replay_player_frame,
     robots_txt,
-    security_txt,
     stats,
 )
 
@@ -171,6 +171,31 @@ urlpatterns = [
         name="scim_resource_types",
     ),
     path("scim/v2/<str:scim_slug>/Schemas", csrf_exempt(scim_views.SCIMSchemasView.as_view()), name="scim_schemas"),
+    # Same SCIM resources without the tenant slug in the path: the bearer token alone identifies the
+    # IdP config. Both shapes are supported permanently; the slugged URLs stay the canonical ones.
+    path("scim/v2/Users", csrf_exempt(scim_views.SCIMUsersView.as_view()), name="scim_users_token"),
+    path(
+        "scim/v2/Users/<int:user_id>",
+        csrf_exempt(scim_views.SCIMUserDetailView.as_view()),
+        name="scim_user_detail_token",
+    ),
+    path("scim/v2/Groups", csrf_exempt(scim_views.SCIMGroupsView.as_view()), name="scim_groups_token"),
+    path(
+        "scim/v2/Groups/<uuid:group_id>",
+        csrf_exempt(scim_views.SCIMGroupDetailView.as_view()),
+        name="scim_group_detail_token",
+    ),
+    path(
+        "scim/v2/ServiceProviderConfig",
+        csrf_exempt(scim_views.SCIMServiceProviderConfigView.as_view()),
+        name="scim_service_provider_config_token",
+    ),
+    path(
+        "scim/v2/ResourceTypes",
+        csrf_exempt(scim_views.SCIMResourceTypesView.as_view()),
+        name="scim_resource_types_token",
+    ),
+    path("scim/v2/Schemas", csrf_exempt(scim_views.SCIMSchemasView.as_view()), name="scim_schemas_token"),
     # api
     path("api/unsubscribe", unsubscribe.unsubscribe),
     path("api/alerts/github", github.SecretAlert.as_view()),
@@ -180,7 +205,7 @@ urlpatterns = [
     path("api/sdk_health/", sdk_health),
     path("api/cli/catalog.json", cli_catalog),
     # Conversations serves its widget and channel API from backend/api/, which its routes module
-    # may not import (import-linter contract "routes must only import presentation"), so the mount
+    # may not import (hoglint rule `presentation-uses-facade`), so the mount
     # stays here until those views move into presentation/.
     path("api/conversations/", include("products.conversations.backend.api.urls")),
     # Routes the security hub calls from outside the cluster (auth: scoped service JWT)
@@ -209,6 +234,7 @@ urlpatterns = [
     path("toolbar_oauth/authorize/", login_required(user.toolbar_oauth_authorize)),
     path("toolbar_oauth/callback", user.toolbar_oauth_callback),
     path("toolbar_oauth/check", user.toolbar_oauth_check),
+    path("toolbar_oauth/error", login_required(toolbar_oauth_error)),
     opt_slash_path("api/user/redirect_to_site", user.redirect_to_site),
     opt_slash_path("api/user/redirect_to_website", user.redirect_to_website),
     opt_slash_path("api/early_access_features", early_access_features),
@@ -263,10 +289,6 @@ urlpatterns = [
     path(
         "api/projects/<str:team_id>/internal/hog_flows/user_blast_radius",
         csrf_exempt(hog_flow.InternalHogFlowViewSet.as_view({"post": "internal_user_blast_radius"})),
-    ),
-    path(
-        "api/projects/<str:team_id>/internal/hog_flows/user_blast_radius_persons",
-        csrf_exempt(hog_flow.InternalHogFlowViewSet.as_view({"post": "internal_user_blast_radius_persons"})),
     ),
     path(
         "api/projects/<str:team_id>/internal/hog_flows/account_audience",
@@ -352,7 +374,11 @@ urlpatterns = [
     # Without these, the catch-all route answers with the app's HTML page, which agents read as a broken catalog
     opt_slash_path("ai-catalog.json", not_found),
     opt_slash_path(".well-known/ai-catalog.json", not_found),
-    opt_slash_path(".well-known/security.txt", security_txt),
+    # posthog.com keeps the one maintained copy, so the contact and expiry date cannot go stale here.
+    opt_slash_path(
+        ".well-known/security.txt",
+        RedirectView.as_view(url="https://posthog.com/.well-known/security.txt", permanent=True),
+    ),
     opt_slash_path(".well-known/http-message-signatures-directory", http_message_signatures_directory),
     opt_slash_path(".well-known/apple-app-site-association", apple_app_site_association),
     opt_slash_path(".well-known/assetlinks.json", android_asset_links),
@@ -386,6 +412,15 @@ urlpatterns = [
     opt_slash_path("webhooks/github", github_app_webhook),
     # Linear App webhook. It stays in core for the same reason: the Linear integration is shared.
     opt_slash_path("webhooks/linear", build_webhook_view(build_linear_provider("posthog"))),
+    opt_slash_path(
+        "webhooks/provisioning-reviews/slack/interactivity",
+        build_webhook_view(
+            build_slack_interactivity_provider(
+                secret_getter=lambda: settings.PROVISIONING_REVIEW_SLACK_SIGNING_SECRET,
+                app=PROVISIONING_REVIEW_INTERACTIVITY_APP,
+            )
+        ),
+    ),
     # Message preferences
     path("messaging-preferences/<str:token>/", preferences_page, name="message_preferences"),
     opt_slash_path("messaging-preferences/update", update_preferences, name="message_preferences_update"),

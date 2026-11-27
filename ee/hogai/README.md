@@ -70,10 +70,10 @@ You'll need to set [env vars](https://posthog.slack.com/docs/TSS5W8YQZ/F08UU1LJF
    }
    ```
 
-For an example, see `ee/hogai/tools`:
+For examples, see:
 
-- `execute_sql` – SQL generation and execution.
-- `upsert_dashboard` – creating and editing dashboards.
+- `ee/hogai/tools/execute_sql` – SQL generation and execution.
+- `upsert_dashboard` in `products/dashboards/backend/max_tools.py` – creating and editing dashboards.
 
 ### Mounting
 
@@ -138,7 +138,7 @@ def get_required_resource_access(self):
 
 2. Update `TOOLS_WITHOUT_ACCESS_CONTROL` in `ee/hogai/test/test_tool.py` to remove your tool from the exempt list.
 
-Supported resources: see `APIScopeObject` in `posthog/scopes.py` (e.g., `feature_flag`, `dashboard`, `insight`, `experiment`, `survey`)
+Supported resources: see `APIScopeObject` in `posthog/scopes/catalog.py` (e.g., `feature_flag`, `dashboard`, `insight`, `experiment`, `survey`)
 Access levels: `none`, `viewer`, `editor`, `manager`
 
 #### Object-level access control

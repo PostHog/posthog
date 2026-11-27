@@ -159,6 +159,12 @@ COUNTER_FLAG_NAMES = {
 }
 
 
+def usage_counter_window(day_start: datetime) -> DayRange:
+    # Counter reads keep rows before `end`, and ClickHouse parameters drop microseconds.
+    # An end of 23:59:59.999999 renders as 23:59:59 and loses the last second of the day.
+    return DayRange(start=day_start, end=day_start + timedelta(days=1))
+
+
 def validate_usage_record_window(period: DayRange) -> None:
     if period.start.tzinfo is None or period.end.tzinfo is None:
         raise ValueError("Usage record windows must be timezone-aware")
@@ -384,6 +390,7 @@ class UsageCounterService:
                 counter.value: sandbox_compute.credits,
                 "teams_with_sandbox_compute_cpu_millicore_seconds_in_period": sandbox_compute.cpu_millicore_seconds,
                 "teams_with_sandbox_compute_memory_mib_seconds_in_period": sandbox_compute.memory_mib_seconds,
+                "teams_with_ai_compute_credits_used_in_period": sandbox_compute.ai_credits,
             }
         return {counter.value: self.get_legacy(counter, plan.period.start, plan.period.end, caller=plan.caller)}
 

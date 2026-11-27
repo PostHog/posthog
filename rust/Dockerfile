@@ -109,6 +109,20 @@ RUN --mount=type=secret,id=posthog_upload_symbols_cli_api_key \
         echo "WARNING: native symbol upload failed for $BIN; panics from this build may not symbolicate" >&2; \
     fi
 
+FROM debian:bookworm-slim AS deploy-requirements
+
+# The deploy requirements manifest of this image (tools/deploy-requirements), for the
+# deploy-time check in bin/deploy-requirements-check.
+# SQLX_DATABASES comes from the image's sqlx_databases entry in .github/rust-images.yml.
+ARG SQLX_DATABASES=""
+WORKDIR /src
+COPY persons_migrations ./persons_migrations
+COPY behavioral_cohorts_migrations ./behavioral_cohorts_migrations
+COPY cyclotron-node-migrations ./cyclotron-node-migrations
+COPY flags_read_store_migrations ./flags_read_store_migrations
+COPY bin/write-deploy-requirements ./write-deploy-requirements
+RUN sh ./write-deploy-requirements "$SQLX_DATABASES" /schema-requirements.json /src
+
 FROM debian:bookworm-slim AS runtime
 
 # AWS RDS global CA bundle — all root and intermediate CAs for TLS verification.
@@ -141,6 +155,7 @@ WORKDIR /app
 
 USER nobody
 
+COPY --from=deploy-requirements /schema-requirements.json /app/schema-requirements.json
 COPY --from=builder /app/target/release/$BIN /usr/local/bin
 ENTRYPOINT ["/bin/sh", "-c", "/usr/local/bin/$BIN"]
 

@@ -42,7 +42,9 @@ use personhog_leader::fencing::{
 };
 use personhog_leader::inflight::InflightTracker;
 use personhog_leader::migration::SealDuty;
-use personhog_leader::pg::{validate_table_name, LifecycleTables, PgFallback};
+use personhog_leader::pg::{
+    validate_table_name, LifecycleTables, PgFallback, STATEMENT_TIMEOUT_MS,
+};
 use personhog_leader::recovery::{ChangelogRecovery, RecoveryConfig};
 use personhog_leader::service::{sweep_idle_locks, PersonHogLeaderService, PropertySizeLimits};
 use personhog_leader::settle::{prune_and_settle_tick, retired_topic};
@@ -73,6 +75,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     config
         .validate_shutdown_budgets()
         .expect("Invalid shutdown configuration");
+    config
+        .validate_cache_fill()
+        .expect("Invalid cache fill configuration");
     validate_table_name(&config.fallback_table).expect("Invalid FALLBACK_TABLE");
     validate_table_name(&config.lifecycle_op_table).expect("Invalid LIFECYCLE_OP_TABLE");
     validate_table_name(&config.lifecycle_op_person_table)
@@ -226,6 +231,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 WRITE_PATH_LATENCY_BUCKETS_MS,
             ),
             (
+                Matcher::Full("personhog_leader_pg_fallback_duration_ms".into()),
+                WRITE_PATH_LATENCY_BUCKETS_MS,
+            ),
+            (
                 Matcher::Full("personhog_leader_fenced_producer_window_ms".into()),
                 WRITE_PATH_LATENCY_BUCKETS_MS,
             ),
@@ -317,14 +326,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             max_connections: config.fallback_pg_max_connections,
             min_connections: config.fallback_pg_min_connections,
             pool_name: Some("personhog-leader-fallback".to_string()),
-            statement_timeout_ms: Some(5_000),
+            statement_timeout_ms: Some(STATEMENT_TIMEOUT_MS),
             ..Default::default()
         };
+        let mut options = common_database::pool_options(pool_config);
+        if let Some(min_idle) = config.fallback_pg_ping_idle_after() {
+            tracing::info!(
+                ?min_idle,
+                "Pinging fallback connections only after an idle period"
+            );
+            options = common_database::install_idle_ping(options, min_idle);
+        }
         let fallback = PgFallback {
-            pool: common_database::get_pool_with_config(
-                &config.fallback_database_url,
-                pool_config,
-            )?,
+            pool: options.connect_lazy(&config.fallback_database_url)?,
             table: config.fallback_table.clone(),
             lifecycle: LifecycleTables::new(
                 &config.lifecycle_op_table,
@@ -579,7 +593,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Arc::clone(&fenced),
         Arc::clone(&authority),
         Arc::clone(&emitted_versions),
-    );
+    )
+    .with_fill(config.cache_fill(), config.cache_fill_schedule());
     let advertise_address =
         personhog_leader::config::derive_advertise_address(&config.grpc_address, &config.pod_ip)
             .expect("Invalid advertise address configuration");

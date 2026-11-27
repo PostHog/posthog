@@ -1,7 +1,6 @@
-"""Cross-product write helpers for event definitions."""
+"""Placeholder event definitions, created before ingestion sees the events."""
 
 from collections.abc import Sequence
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast
 
 from django.apps import apps
@@ -9,16 +8,11 @@ from django.apps import apps
 from posthog.models import Team
 from posthog.settings import EE_AVAILABLE
 
+from products.event_definitions.backend.facade.contracts import PlaceholderEventDefinition
 from products.event_definitions.backend.models import EventDefinition, effective_project_id_expr
 
 if TYPE_CHECKING:
     from ee.models.event_definition import EnterpriseEventDefinition
-
-
-@dataclass(frozen=True)
-class PlaceholderEventDefinition:
-    name: str
-    description: str | None = None
 
 
 def create_placeholder_event_definitions(*, team_id: int, definitions: Sequence[PlaceholderEventDefinition]) -> None:

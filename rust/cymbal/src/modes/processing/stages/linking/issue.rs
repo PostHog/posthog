@@ -9,7 +9,7 @@ use uuid::Uuid;
 use crate::core::types::notification::SeveritySource;
 use crate::{
     app_context::AppContext,
-    error::UnhandledError,
+    error::{contain_failure, UnhandledError},
     issue_resolution::{
         infer_issue_severity, send_fingerprint_issue_state, send_issue_created_notification,
         send_issue_reopened_notification, Issue, IssueFingerprintOverride,
@@ -17,6 +17,7 @@ use crate::{
     metric_consts::{ISSUE_CREATED, ISSUE_LINKER_OPERATOR},
     modes::processing::rules::assignment::{try_assignment_rules, Assignment},
     modes::processing::rules::severity::try_severity_rules,
+    modes::processing::team_db_slots::acquire_connection,
     stages::linking::LinkingStage,
     teams::TeamManager,
     types::{
@@ -71,7 +72,7 @@ impl IssueLinker {
     ) -> Result<PipelineItem<Linked>, UnhandledError> {
         match item {
             Err(error) => Ok(Err(error)),
-            Ok(input) => self.link(input, ctx).await.map(Ok),
+            Ok(input) => contain_failure(self.name(), self.link(input, ctx).await),
         }
     }
 
@@ -191,11 +192,6 @@ async fn load_and_maybe_reopen(
         return Ok(None);
     };
 
-    if !issue.maybe_reopen(&mut *conn).await? {
-        return Ok(Some(issue));
-    }
-
-    // Reopened — mirror the side effects from `resolve_issue`'s fast-path reopen branch.
     let event_timestamp =
         parse_datetime_assuming_utc(event_properties.timestamp()).unwrap_or_else(|e| {
             debug!(
@@ -204,12 +200,12 @@ async fn load_and_maybe_reopen(
             );
             Utc::now()
         });
-    let assignment =
-        process_event_assignment(&mut conn, &context.team_manager, &issue, event_properties)
-            .await?;
-    // We don't carry a per-fingerprint `first_seen` through this path (we loaded by id,
-    // not by fingerprint), so fall back to the issue's creation time the same way
-    // `resolve_issue` already does when the join returns no first_seen.
+    let Some(assignment) =
+        reopen_with_assignment(context, &mut conn, &mut issue, event_properties).await?
+    else {
+        return Ok(Some(issue));
+    };
+    // Reopened — mirror the side effects from `resolve_issue`'s fast-path reopen branch.
     send_fingerprint_issue_state(
         context,
         &issue,
@@ -244,20 +240,24 @@ async fn resolve_issue(
     let team_id = event_properties.team_id();
     let fingerprint = event_properties.fingerprint().value().to_string();
 
-    let mut conn = context.posthog_pool.acquire().await?;
+    // This runs only on an issue-cache miss, and once per fingerprint in a batch, so the team's
+    // slot count follows its new fingerprints and not its event volume. Grouping refills the cache
+    // only for automatic fingerprints, so a known client or grouping-rule fingerprint lands here
+    // again after its cache entry expires.
+    let mut conn = acquire_connection(
+        context.team_db_slots.as_deref(),
+        &context.posthog_pool,
+        team_id,
+    )
+    .await?;
     // Fast path - just fetch the issue directly, and then reopen it if needed
     let existing_issue = Issue::load_by_fingerprint(&mut *conn, team_id, &fingerprint).await?;
     if let Some(result) = existing_issue {
         let (mut issue, fingerprint_first_seen) = result.into_issue();
-        if issue.maybe_reopen(&mut *conn).await? {
-            let first_seen_for_state = fingerprint_first_seen.unwrap_or(issue.created_at);
-            let assignment = process_event_assignment(
-                &mut conn,
-                &context.team_manager,
-                &issue,
-                event_properties,
-            )
-            .await?;
+        let first_seen_for_state = fingerprint_first_seen.unwrap_or(issue.created_at);
+        if let Some(assignment) =
+            reopen_with_assignment(context, &mut conn, &mut issue, event_properties).await?
+        {
             send_fingerprint_issue_state(
                 context,
                 &issue,
@@ -336,15 +336,10 @@ async fn resolve_issue(
         }
 
         // Since we just loaded an issue, check if it needs to be reopened
-        if issue.maybe_reopen(&mut *conn).await? {
-            let first_seen_for_state = fingerprint_first_seen.unwrap_or(issue.created_at);
-            let assignment = process_event_assignment(
-                &mut conn,
-                &context.team_manager,
-                &issue,
-                event_properties,
-            )
-            .await?;
+        let first_seen_for_state = fingerprint_first_seen.unwrap_or(issue.created_at);
+        if let Some(assignment) =
+            reopen_with_assignment(context, &mut conn, &mut issue, event_properties).await?
+        {
             send_fingerprint_issue_state(
                 context,
                 &issue,
@@ -437,6 +432,28 @@ async fn process_event_severity(
         .apply_initial_severity(severity.to_string(), connection)
         .await?;
     Ok(true)
+}
+
+/// Returns the assignment when the issue was reopened, and None when it was not.
+async fn reopen_with_assignment(
+    context: &AppContext,
+    conn: &mut PgConnection,
+    issue: &mut Issue,
+    event_properties: &ExceptionEvent<Fingerprinted>,
+) -> Result<Option<Option<Assignment>>, UnhandledError> {
+    // Most events land on an active issue, and those must not pay for a transaction.
+    if !issue.can_reopen() {
+        return Ok(None);
+    }
+    let mut txn = Acquire::begin(&mut *conn).await?;
+    if issue.reopen(&mut *txn).await?.is_none() {
+        txn.rollback().await?;
+        return Ok(None);
+    }
+    let assignment =
+        process_event_assignment(&mut txn, &context.team_manager, issue, event_properties).await?;
+    txn.commit().await?;
+    Ok(Some(assignment))
 }
 
 async fn process_event_assignment(

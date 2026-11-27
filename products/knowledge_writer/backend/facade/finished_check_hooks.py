@@ -13,6 +13,7 @@ class FinishedDocsCheck:
     status: IntakeStatus
     failure_reason: MergeCheckFailure | None
     pull_request_url: str | None
+    reason: str = ""
 
 
 FinishedDocsCheckHook = Callable[[FinishedDocsCheck], None]

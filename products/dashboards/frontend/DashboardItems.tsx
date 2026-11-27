@@ -43,6 +43,7 @@ import { DashboardTileSectionBand } from 'products/dashboards/frontend/component
 import { TileGroupTakeOutDropZone } from 'products/dashboards/frontend/components/TileGroupTakeOutDropZone'
 import { getDashboardTileSpacingGap } from 'products/dashboards/frontend/dashboardCustomization'
 import { type LayoutGesturePerformance, LayoutGestureMonitor } from 'products/dashboards/frontend/dashboardPerformance'
+import { dashboardResultFilterLogic } from 'products/dashboards/frontend/dashboardResultFilterLogic'
 import { getGroupTitlesByTileId, hasTileDecorations } from 'products/dashboards/frontend/dashboardTileGroups'
 import { type DashboardSection, getSectionGroupKey } from 'products/dashboards/frontend/dashboardTileSections'
 import { useCarryTile } from 'products/dashboards/frontend/useCarryTile'
@@ -66,19 +67,35 @@ interface DashboardItemsProps {
 
 type DashboardWidgetItemProps = React.ComponentProps<typeof DashboardWidgetItem>
 
+function gridTilePropEqual(key: string, prevValue: unknown, nextValue: unknown): boolean {
+    return (
+        key === 'children' || (key === 'style' ? objectsEqual(prevValue, nextValue) : Object.is(prevValue, nextValue))
+    )
+}
+
 /**
  * Shallow prop compare, except: `style` by value (react-grid-layout rebuilds it every drag/resize mousemove even
  * for tiles that haven't moved) and `children` ignored (the RGL-injected resize handles, recreated each render
  * with identical content). Lets untouched tiles skip re-rendering during gestures.
  */
 function gridTilePropsEqual(prevProps: Record<string, any>, nextProps: Record<string, any>): boolean {
-    return [...new Set([...Object.keys(prevProps), ...Object.keys(nextProps)])].every(
-        (key) =>
-            key === 'children' ||
-            (key === 'style'
-                ? objectsEqual(prevProps.style, nextProps.style)
-                : Object.is(prevProps[key], nextProps[key]))
-    )
+    for (const key in prevProps) {
+        if (Object.hasOwn(prevProps, key) && !gridTilePropEqual(key, prevProps[key], nextProps[key])) {
+            return false
+        }
+    }
+
+    for (const key in nextProps) {
+        if (
+            Object.hasOwn(nextProps, key) &&
+            !Object.hasOwn(prevProps, key) &&
+            !gridTilePropEqual(key, prevProps[key], nextProps[key])
+        ) {
+            return false
+        }
+    }
+
+    return true
 }
 
 const MemoizedDashboardTextItem = memo(DashboardTextItem, gridTilePropsEqual) as typeof DashboardTextItem
@@ -105,6 +122,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         tiles,
         layouts,
         placement,
+        isPreview,
         isRefreshingQueued,
         isRefreshing,
         highlightedInsightId,
@@ -142,6 +160,13 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     const canCrossFilter = placement === DashboardPlacement.Dashboard && !isSharedView()
     useMountedLogic(
         biDashboardCrossFilterLogic({
+            dashboardId: dashboard?.id ?? 0,
+            tiles: canCrossFilter ? (tiles ?? []) : [],
+            loadQueue: queryLoadQueue,
+        })
+    )
+    useMountedLogic(
+        dashboardResultFilterLogic({
             dashboardId: dashboard?.id ?? 0,
             tiles: canCrossFilter ? (tiles ?? []) : [],
             loadQueue: queryLoadQueue,
@@ -190,12 +215,13 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     const { push } = useActions(router)
     const { data: surveyLinkedInsights, loading: surveyLinkedInsightsLoading } = useSurveyLinkedInsights({
         // Dashboard pages hide the survey suggestion in compact headers; notebook embeds also use this component and can show it.
-        skip: placement === DashboardPlacement.Dashboard,
+        skip: placement === DashboardPlacement.Dashboard || isPreview,
     })
 
-    const bestSurveyOpportunityFunnel = surveyLinkedInsightsLoading
-        ? null
-        : getBestSurveyOpportunityFunnel(tiles || [], surveyLinkedInsights)
+    const bestSurveyOpportunityFunnel =
+        surveyLinkedInsightsLoading || isPreview
+            ? null
+            : getBestSurveyOpportunityFunnel(tiles || [], surveyLinkedInsights)
     const retryFailedDashboardTile = isSharedView()
         ? undefined
         : () => loadDashboard({ action: DashboardLoadAction.Update })

@@ -34,6 +34,9 @@ import { brandingForProduct } from 'scenes/welcome/productBranding'
 import { membersLogic } from '~/models/membersLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { OnboardingStepKey, TeamPublicType, TeamType, UserType } from '~/types'
+import type { OrganizationType, PreflightStatus } from '~/types'
+
+import type { ProxyRecordApi } from 'products/platform_features/frontend/generated/api.schemas'
 
 import { EventIngestionRestrictionDetails } from './EventIngestionRestrictionDetails'
 import { OrganizationMemberNoticeMessage } from './OrganizationMemberNoticeMessage'
@@ -290,18 +293,18 @@ export interface projectNoticeLogicMeta {
             warehouseSetupStatus: ProductSetupStatus
         }
         postHogNoticeVariant: (
-            currentOrganization: null | import('~/types').OrganizationType,
+            currentOrganization: OrganizationType | null,
             projectData: {
                 currentTeam: TeamPublicType | TeamType | null
                 warehouseSetupStatus: ProductSetupStatus
             },
-            preflight: null | import('~/types').PreflightStatus,
+            preflight: PreflightStatus | null,
             isCloudOrDev: boolean | undefined,
             user: UserType | null,
             memberCount: number,
             internetConnectionIssue: boolean,
             hasProjectNoticeRestriction: boolean,
-            proxyRecords: import('products/platform_features/frontend/generated/api.schemas').ProxyRecordApi[] | null,
+            proxyRecords: ProxyRecordApi[] | null,
             effectiveBillingAlert: BillingAlertConfig | null,
             currentLocation: {
                 hash: string
@@ -330,7 +333,7 @@ export interface projectNoticeLogicMeta {
             projectNoticeVariant: ProjectNoticeVariant | null,
             effectiveBillingAlert: BillingAlertConfig | null,
             projectNoticeDismissKey: string | null,
-            currentOrganization: null | import('~/types').OrganizationType,
+            currentOrganization: OrganizationType | null,
             user: UserType | null,
             canAccessBilling: boolean,
             currentLocation: {
@@ -521,8 +524,8 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                     proxyRecords !== null &&
                     proxyRecords.length === 0 &&
                     // ...and only once the checker has confirmed there's no self-managed proxy
-                    // routing events. While it's still null (not yet checked) we hold the nudge
-                    // back to avoid flashing it at DIY-proxy users before detection resolves.
+                    // routing events. While it's still null (not yet checked, or no $pageview
+                    // traffic to judge, as in a mobile-only project) we hold the nudge back.
                     hasReverseProxy === false
                 ) {
                     return 'missing_reverse_proxy'

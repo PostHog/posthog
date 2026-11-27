@@ -22,4 +22,7 @@ def hogql_functions() -> list[str]:
     def _is_if_combinator(name: str) -> bool:
         return name.endswith("If") and name[:-2] in all_names
 
-    return sorted((n for n in all_names if not _is_if_combinator(n)), key=str.lower)
+    # Names that differ only in case (MD5, md5) tie under str.lower and would keep set order, which
+    # changes with the hash seed. The rendered skills must be byte-identical across builds, because
+    # the eval sandbox image is cached by their content.
+    return sorted((n for n in all_names if not _is_if_combinator(n)), key=lambda name: (name.lower(), name))

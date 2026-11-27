@@ -158,7 +158,7 @@ Without a user, warehouse access control denies every warehouse table and view, 
    Cache warming runs as the insight's creator, on the assumption that their access is the one most viewers of that insight share.
    Warming without access control would more often end in a cache miss.
 
-3. **Trusted internal job with no user at all:** pass `bypass_warehouse_access_control=True` explicitly. Materialization workflows (`posthog/temporal/data_modeling/`), insight cache warming, ducklake compilation (`posthog/ducklake/client.py`), and the web analytics team digest and team achievements sweep (`products/web_analytics/backend/weekly_digest.py`, `products/web_analytics/backend/achievements/evaluators.py`) use this path. Add a bypass only when the job has no acting user and its output has a separate access boundary.
+3. **Trusted internal job with no user at all:** pass `bypass_warehouse_access_control=True` explicitly. Materialization workflows (`products/data_modeling/backend/temporal/`), insight cache warming, ducklake compilation (`posthog/ducklake/client.py`), and the web analytics team digest (`products/web_analytics/backend/weekly_digest.py`) use this path. Add a bypass only when the job has no acting user and its output has a separate access boundary.
 
 ```python
 # Background materialization job: no user exists, so bypass explicitly.
@@ -180,7 +180,7 @@ Data Modeling materialized views are project-owned. Refreshes do not run as `cre
 Hides sensitive event, person, and group properties (e.g. `email`) from query results.
 Rules live in the `PropertyAccessControl` model (`products/access_control/backend/models/property_access_control.py`).
 
-Property access control is a paid feature, available on the Scale and Enterprise plans: it needs the `PROPERTY_ACCESS_CONTROL` entitlement, and without it resolution short-circuits to no restrictions.
+Property access control is a paid feature, available on the Enterprise plan: it needs the `PROPERTY_ACCESS_CONTROL` entitlement, and without it resolution short-circuits to no restrictions.
 Rules that target a role also need the `ROLE_BASED_ACCESS` entitlement. Without it the resolver loads no roles for the user, so role rules are skipped.
 
 ### Enforcement: masking, not errors
@@ -288,6 +288,15 @@ Two things keep cache hit rates high:
 
 1. **Feature gate:** if the organization doesn't have `AvailableFeature.ACCESS_CONTROL`, no resource/object restrictions exist, so nothing is added and the cache isn't partitioned by user at all.
 2. **Scoped to queried tables:** `queried_access_controlled_resources()` (`posthog/hogql_queries/access_controlled_resources.py`) parses the query and returns only the access-controlled scopes it actually reads. Tables whose visibility depends on another scoped table add that dependency too. For example, `system.customer_tasks` adds `account` because its row predicate reads `system.accounts`. A plain **events or persons query shares one cache entry across all users**.
+
+Queries containing `matchesInsight` conservatively partition on all access-control scopes.
+Function detection parses HogQL expression fields, including quoted function names, and ignores literal property values and request metadata.
+It includes effective query modifiers and enabled project test-account filters, including those used by nested queries.
+HogQLX query tags also partition on every scope because their expanded queries and saved filters are absent from the outer table scan.
+Unknown resource sets still partition project keys by their readable scopes and real users by effective permissions, including default denials without explicit access-control rows.
+The actor-query payload can reference resources through source filters, actions, or cohorts that the outer table scan does not expand.
+This applies to raw HogQL and structured insight queries, including actor queries.
+Saved action steps and cohort definitions reject insight selections and embedded query tags because their definitions are absent from the calling query's cache fingerprint.
 
 When a run has no user but does read access-controlled resources, the fingerprint uses `restricted_resources: ["*"]` so it can never collide with a real user's cache, and synthetic principals partition on their readable scopes so a narrow token can't reuse a broader token's cached rows.
 

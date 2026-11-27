@@ -300,6 +300,89 @@ query RepositoryReports($login: String!, $vcsProvider: VCSProvider!, $name: Stri
     }
 }"""
 
+REPOSITORY_TARGETS_QUERY = """
+query RepositoryTargets($login: String!, $vcsProvider: VCSProvider!, $name: String!, $pageSize: Int!, $cursor: String) {
+    repository(login: $login, vcsProvider: $vcsProvider, name: $name) {
+        id
+        name
+        targets(first: $pageSize, after: $cursor) {
+            pageInfo { hasNextPage endCursor }
+            edges { node {
+                id
+                ecosystem
+                packageManager
+                manifestPath
+                lockfilePath
+                source
+                isActivated
+            } }
+        }
+    }
+}"""
+
+IGNORE_RULES_QUERY = """
+query RepositoryIgnoreRules($login: String!, $vcsProvider: VCSProvider!, $name: String!, $pageSize: Int!, $cursor: String) {
+    repository(login: $login, vcsProvider: $vcsProvider, name: $name) {
+        id
+        name
+        ignoreRules(first: $pageSize, after: $cursor) {
+            pageInfo { hasNextPage endCursor }
+            edges { node {
+                id
+                createdAt
+                level
+                type
+                filePath
+                globPattern
+                issue {
+                    shortcode
+                    title
+                    category
+                    severity
+                    analyzer { shortcode }
+                }
+            } }
+        }
+    }
+}"""
+
+SUPPRESSED_ISSUES_QUERY = """
+query SuppressedIssues($login: String!, $vcsProvider: VCSProvider!, $pageSize: Int!, $cursor: String) {
+    account(login: $login, vcsProvider: $vcsProvider) {
+        suppressedIssues(first: $pageSize, after: $cursor) {
+            pageInfo { hasNextPage endCursor }
+            edges { node {
+                id
+                createdAt
+                issue {
+                    shortcode
+                    title
+                    category
+                    severity
+                    analyzer { shortcode }
+                }
+                user { id email firstName lastName }
+            } }
+        }
+    }
+}"""
+
+TEAM_MEMBERS_QUERY = """
+query TeamMembers($login: String!, $vcsProvider: VCSProvider!, $pageSize: Int!, $cursor: String) {
+    account(login: $login, vcsProvider: $vcsProvider) {
+        members(first: $pageSize, after: $cursor) {
+            pageInfo { hasNextPage endCursor }
+            edges { node {
+                id
+                role
+                isOwner
+                joinedAt
+                user { id email firstName lastName }
+            } }
+        }
+    }
+}"""
+
 # Create-time credential probe: `viewer` confirms the token is genuine, `account`
 # confirms the configured login/provider is reachable with it.
 VALIDATE_QUERY = """
@@ -315,6 +398,8 @@ CONNECTION_QUERIES: dict[str, str] = {
     "issues": ISSUES_QUERY,
     "issue_occurrences": ISSUE_OCCURRENCES_QUERY,
     "vulnerability_occurrences": VULNERABILITY_OCCURRENCES_QUERY,
+    "repository_targets": REPOSITORY_TARGETS_QUERY,
+    "ignore_rules": IGNORE_RULES_QUERY,
 }
 
 PER_REPOSITORY_QUERIES: dict[str, str] = {
@@ -324,4 +409,10 @@ PER_REPOSITORY_QUERIES: dict[str, str] = {
 
 ROOT_CONNECTION_QUERIES: dict[str, str] = {
     "analyzers": ANALYZERS_QUERY,
+}
+
+ACCOUNT_CONNECTION_QUERIES: dict[str, str] = {
+    "repositories": REPOSITORIES_QUERY,
+    "suppressed_issues": SUPPRESSED_ISSUES_QUERY,
+    "team_members": TEAM_MEMBERS_QUERY,
 }

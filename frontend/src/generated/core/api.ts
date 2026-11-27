@@ -65,6 +65,7 @@ import type {
     OrganizationInviteDelegateApi,
     OrganizationNotificationLockBulkUpdateApi,
     OrganizationNotificationMemberApi,
+    OrganizationOAuthApplicationDetailApi,
     OrganizationsProjectsEventIngestionRestrictionsListParams,
     OrganizationsProjectsListParams,
     PaginatedCIMDVerificationTokenListApi,
@@ -80,11 +81,13 @@ import type {
     PaginatedProjectBackwardCompatBasicListApi,
     PaginatedProjectSecretAPIKeyListApi,
     PaginatedSCIMRequestLogApi,
+    PaginatedTagDefinitionListApi,
     PaginatedUploadedMediaListApi,
     PaginatedUserGitHubIntegrationListResponseListApi,
     PaginatedUserListApi,
     PaginatedWorkloadTrustPolicyListApi,
     PaginatedWorkloadTrustPolicyRequestListApi,
+    PartnerReviewNoteApi,
     PatchedCIMDVerificationTokenUpdateApi,
     PatchedEnterprisePropertyDefinitionApi,
     PatchedFileSystemApi,
@@ -106,12 +109,19 @@ import type {
     PropertyDefinitionsListParams,
     PropertyUsageMetricsRequestApi,
     PropertyUsageMetricsResponseApi,
+    RenameTagRequestApi,
     ResolvedWorkloadSubjectApi,
     RevokeOtherSessionsResponseApi,
     SCIMTokenResponseApi,
     SearchIntentRequestApi,
     SearchIntentResponseApi,
     SharingConfigurationApi,
+    TagDefinitionApi,
+    TagDefinitionsListParams,
+    TagDefinitionsMergePreviewRetrieveParams,
+    TagMergePreviewApi,
+    TagMergeRequestApi,
+    TagMergeResultApi,
     TerminalNetplayMailboxApi,
     TerminalNetplayMailboxRetrieveParams,
     TerminalNetplaySignalApi,
@@ -900,7 +910,8 @@ export const getOauthApplicationsListUrl = (organizationId: string, params?: Oau
 }
 
 /**
- * ViewSet for listing OAuth applications at the organization level (read-only).
+ * OAuth applications linked to the organization, with each app's provisioning partner status and
+ * review. Read-only, and only for organization admins, who are the people who run the apps.
  */
 export const oauthApplicationsList = async (
     organizationId: string,
@@ -912,6 +923,50 @@ export const oauthApplicationsList = async (
         {
             ...options,
             method: 'GET',
+        }
+    )
+}
+
+export const getOauthApplicationsRetrieveUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/oauth_applications/${id}/`
+}
+
+/**
+ * OAuth applications linked to the organization, with each app's provisioning partner status and
+ * review. Read-only, and only for organization admins, who are the people who run the apps.
+ */
+export const oauthApplicationsRetrieve = async (
+    organizationId: string,
+    id: string,
+    options?: RequestInit
+): Promise<OrganizationOAuthApplicationDetailApi> => {
+    return apiMutator<OrganizationOAuthApplicationDetailApi>(getOauthApplicationsRetrieveUrl(organizationId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getOauthApplicationsReviewNoteCreateUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/oauth_applications/${id}/review_note/`
+}
+
+/**
+ * Tell PostHog staff about the application. On a declined review, or one where staff asked for changes, the note asks for another review. A blocked application cannot send one.
+ * @summary Send a note on the app's provisioning review
+ */
+export const oauthApplicationsReviewNoteCreate = async (
+    organizationId: string,
+    id: string,
+    partnerReviewNoteApi: PartnerReviewNoteApi,
+    options?: RequestInit
+): Promise<OrganizationOAuthApplicationDetailApi> => {
+    return apiMutator<OrganizationOAuthApplicationDetailApi>(
+        getOauthApplicationsReviewNoteCreateUrl(organizationId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(partnerReviewNoteApi),
         }
     )
 }
@@ -1271,30 +1326,6 @@ export const organizationsProjectsDefaultReleaseConditionsUpdate = async (
     )
 }
 
-export const getOrganizationsProjectsDeleteSecretTokenBackupPartialUpdateUrl = (organizationId: string, id: number) => {
-    return `/api/organizations/${organizationId}/projects/${id}/delete_secret_token_backup/`
-}
-
-/**
- * Projects for the current organization.
- */
-export const organizationsProjectsDeleteSecretTokenBackupPartialUpdate = async (
-    organizationId: string,
-    id: number,
-    patchedProjectBackwardCompatApi?: NonReadonly<PatchedProjectBackwardCompatApi>,
-    options?: RequestInit
-): Promise<ProjectBackwardCompatApi> => {
-    return apiMutator<ProjectBackwardCompatApi>(
-        getOrganizationsProjectsDeleteSecretTokenBackupPartialUpdateUrl(organizationId, id),
-        {
-            ...options,
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedProjectBackwardCompatApi),
-        }
-    )
-}
-
 export const getOrganizationsProjectsEventIngestionRestrictionsListUrl = (
     organizationId: string,
     id: number,
@@ -1470,30 +1501,6 @@ export const organizationsProjectsRotateHeatmapsScreenshotSecretPartialUpdate = 
         {
             ...options,
             method: 'PATCH',
-        }
-    )
-}
-
-export const getOrganizationsProjectsRotateSecretTokenPartialUpdateUrl = (organizationId: string, id: number) => {
-    return `/api/organizations/${organizationId}/projects/${id}/rotate_secret_token/`
-}
-
-/**
- * Projects for the current organization.
- */
-export const organizationsProjectsRotateSecretTokenPartialUpdate = async (
-    organizationId: string,
-    id: number,
-    patchedProjectBackwardCompatApi?: NonReadonly<PatchedProjectBackwardCompatApi>,
-    options?: RequestInit
-): Promise<ProjectBackwardCompatApi> => {
-    return apiMutator<ProjectBackwardCompatApi>(
-        getOrganizationsProjectsRotateSecretTokenPartialUpdateUrl(organizationId, id),
-        {
-            ...options,
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedProjectBackwardCompatApi),
         }
     )
 }
@@ -2836,6 +2843,130 @@ export const sessionRecordingsSharingRefreshCreate = async (
     })
 }
 
+export const getTagDefinitionsListUrl = (projectId: string, params?: TagDefinitionsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/tag_definitions/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tag_definitions/`
+}
+
+/**
+ * List project tags for organization admins and owners. System tags are excluded.
+ */
+export const tagDefinitionsList = async (
+    projectId: string,
+    params?: TagDefinitionsListParams,
+    options?: RequestInit
+): Promise<PaginatedTagDefinitionListApi> => {
+    return apiMutator<PaginatedTagDefinitionListApi>(getTagDefinitionsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTagDefinitionsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tag_definitions/${id}/`
+}
+
+export const tagDefinitionsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TagDefinitionApi> => {
+    return apiMutator<TagDefinitionApi>(getTagDefinitionsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTagDefinitionsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tag_definitions/${id}/`
+}
+
+export const tagDefinitionsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    renameTagRequestApi: RenameTagRequestApi,
+    options?: RequestInit
+): Promise<TagDefinitionApi> => {
+    return apiMutator<TagDefinitionApi>(getTagDefinitionsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(renameTagRequestApi),
+    })
+}
+
+export const getTagDefinitionsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tag_definitions/${id}/`
+}
+
+export const tagDefinitionsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getTagDefinitionsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getTagDefinitionsMergeCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tag_definitions/${id}/merge/`
+}
+
+export const tagDefinitionsMergeCreate = async (
+    projectId: string,
+    id: string,
+    tagMergeRequestApi: TagMergeRequestApi,
+    options?: RequestInit
+): Promise<TagMergeResultApi> => {
+    return apiMutator<TagMergeResultApi>(getTagDefinitionsMergeCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(tagMergeRequestApi),
+    })
+}
+
+export const getTagDefinitionsMergePreviewRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params: TagDefinitionsMergePreviewRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/tag_definitions/${id}/merge_preview/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tag_definitions/${id}/merge_preview/`
+}
+
+export const tagDefinitionsMergePreviewRetrieve = async (
+    projectId: string,
+    id: string,
+    params: TagDefinitionsMergePreviewRetrieveParams,
+    options?: RequestInit
+): Promise<TagMergePreviewApi> => {
+    return apiMutator<TagMergePreviewApi>(getTagDefinitionsMergePreviewRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getTaxonomicSearchIntentClassifyCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/taxonomic_search_intent/classify/`
 }
@@ -2992,7 +3123,7 @@ export const getUploadedMediaCompleteUploadCreateUrl = (projectId: string, id: s
 }
 
 /**
- * Step 2 of the presigned upload flow: verifies the object POSTed to the upload_url, sniffs its real content type, and activates it — after this it appears in the library and is publicly servable.
+ * Step 2 of the presigned upload flow: verifies the object POSTed to the upload_url, sniffs its real content type, and activates it — after this it is publicly servable, and it appears in its library unless its purpose is upload-only (`conversations`).
  */
 export const uploadedMediaCompleteUploadCreate = async (
     projectId: string,

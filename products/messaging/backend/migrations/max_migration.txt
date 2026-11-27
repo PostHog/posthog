@@ -1,1 +1,1 @@
-0020_messagesuppression_transient_bounce_event_ids
+0024_message_template_click_tracking_enabled

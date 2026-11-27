@@ -237,7 +237,6 @@ class TestObservationLabels(_VisionAPITestCase):
             "emits_signals": None,
             "query": None,
             "sampling_rate": None,
-            "sampling_mode": None,
         }
         self.assertEqual(
             labels["version_markers"],
@@ -278,7 +277,6 @@ class TestObservationLabels(_VisionAPITestCase):
                 "emits_signals": False,
                 "query": query,
                 "sampling_rate": 0.5,
-                "sampling_mode": "focused",
             }
         )
         ReplayObservation.objects.filter(id=newer.id).update(
@@ -291,7 +289,6 @@ class TestObservationLabels(_VisionAPITestCase):
                 "emits_signals": False,
                 "query": query,
                 "sampling_rate": 1.0,
-                "sampling_mode": "balanced",
             }
         )
 
@@ -299,8 +296,8 @@ class TestObservationLabels(_VisionAPITestCase):
 
         # v1 to v2 changed sampling only, so without these fields the bump looks like nothing changed.
         self.assertEqual(
-            [(m["version"], m["sampling_rate"], m["sampling_mode"]) for m in markers],
-            [(1, 0.5, "focused"), (2, 1.0, "balanced")],
+            [(m["version"], m["sampling_rate"]) for m in markers],
+            [(1, 0.5), (2, 1.0)],
         )
         self.assertEqual(
             [(m["scanner_type"], m["model"], m["provider"], m["emits_signals"], m["query"]) for m in markers],

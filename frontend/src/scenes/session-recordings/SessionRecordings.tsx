@@ -1,10 +1,9 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
-import { useEffect } from 'react'
 
 import * as explorerPng from '@posthog/brand/hoggies/png/explorer'
-import { IconDocument, IconGear, IconHeadset } from '@posthog/icons'
+import { IconGear, IconHeadset, IconUpload } from '@posthog/icons'
 import { LemonButton, LemonSegmentedButton, Link } from '@posthog/lemon-ui'
 import { Button } from '@posthog/quill'
 import { PostHogCaptureOnViewed } from '@posthog/react'
@@ -17,7 +16,6 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { preflightLogic } from 'lib/logic/preflightLogic'
@@ -27,22 +25,16 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { LiveRecordingsCount } from 'scenes/session-recordings/components/LiveRecordingsCount'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
-import { playerSidebarLogic } from 'scenes/session-recordings/player/sidebar/playerSidebarLogic'
 import { ReplayLayout, STAFF_REPLAY_LAYOUTS, isNewReplayLayout } from 'scenes/session-recordings/playlist/replayLayout'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ScenePanel, ScenePanelActionsSection } from '~/layout/scenes/SceneLayout'
 import { ProductKey } from '~/queries/schema/schema-general'
-import {
-    AccessControlLevel,
-    AccessControlResourceType,
-    ReplayTab,
-    ReplayTabs,
-    SessionRecordingSidebarTab,
-} from '~/types'
+import { AccessControlLevel, AccessControlResourceType, AvailableFeature, ReplayTab, ReplayTabs } from '~/types'
 
 import { sessionReplayEmptyState } from 'products/replay/frontend/emptyState/sessionReplayEmptyState'
 
@@ -71,46 +63,62 @@ function Header(): JSX.Element {
     const { setPreferClassicReplayLayout, setStaffLayoutOverride } = useActions(playerSettingsLogic)
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const { hasAvailableFeature } = useValues(userLogic)
+    const filePlaybackAvailable = hasAvailableFeature(AvailableFeature.RECORDINGS_FILE_EXPORT)
     const { createCollection: handleNewPlaylist, creating: loading } = useNewCollection()
 
     return (
         <div className="flex items-center gap-2">
             {tab === ReplayTabs.Home && !recordingsDisabled && (
                 <>
-                    {canOverrideLayout ? (
-                        <LemonSegmentedButton
-                            size="small"
-                            value={replayLayout}
-                            onChange={setStaffLayoutOverride}
-                            options={STAFF_REPLAY_LAYOUTS.map((layout) => ({
-                                value: layout,
-                                label: STAFF_REPLAY_LAYOUT_LABELS[layout] ?? layout,
-                                'data-attr': `replay-layout-override-${layout}`,
-                            }))}
-                        />
-                    ) : watchLayoutOffered ? (
-                        <LemonSegmentedButton
-                            size="small"
-                            value={replayLayout === 'classic' ? 'classic' : 'new'}
-                            onChange={(value) => setPreferClassicReplayLayout(value === 'classic')}
-                            options={[
-                                { value: 'new', label: 'New layout', 'data-attr': 'replay-layout-switch-new' },
-                                { value: 'classic', label: 'Legacy', 'data-attr': 'replay-layout-switch-classic' },
-                            ]}
-                        />
-                    ) : null}
+                    <span className="flex">
+                        {canOverrideLayout ? (
+                            <LemonSegmentedButton
+                                size="small"
+                                value={replayLayout}
+                                onChange={setStaffLayoutOverride}
+                                options={STAFF_REPLAY_LAYOUTS.map((layout) => ({
+                                    value: layout,
+                                    label: STAFF_REPLAY_LAYOUT_LABELS[layout] ?? layout,
+                                    'data-attr': `replay-layout-override-${layout}`,
+                                }))}
+                            />
+                        ) : watchLayoutOffered ? (
+                            <LemonSegmentedButton
+                                size="small"
+                                value={replayLayout === 'classic' ? 'classic' : 'new'}
+                                onChange={(value) => setPreferClassicReplayLayout(value === 'classic')}
+                                options={[
+                                    { value: 'new', label: 'New layout', 'data-attr': 'replay-layout-switch-new' },
+                                    { value: 'classic', label: 'Legacy', 'data-attr': 'replay-layout-switch-classic' },
+                                ]}
+                            />
+                        ) : null}
+                    </span>
                     <LiveRecordingsCount />
+                    {filePlaybackAvailable &&
+                        (todayRailNav ? (
+                            <Button
+                                variant="outline"
+                                render={<LinkPrimitive to={urls.replayFilePlayback()} />}
+                                data-attr="replay-open-file-playback"
+                            >
+                                <IconUpload />
+                                Load recording file
+                            </Button>
+                        ) : (
+                            <LemonButton
+                                icon={<IconUpload />}
+                                type="secondary"
+                                size="small"
+                                to={urls.replayFilePlayback()}
+                                data-attr="replay-open-file-playback"
+                            >
+                                Load recording file
+                            </LemonButton>
+                        ))}
                     <ScenePanel>
                         <ScenePanelActionsSection>
-                            <Link
-                                data-attr="replay-open-file-playback"
-                                to={urls.replayFilePlayback()}
-                                buttonProps={{
-                                    menuItem: true,
-                                }}
-                            >
-                                <IconDocument /> Playback from PostHog JSON file
-                            </Link>
                             <Link
                                 data-attr="replay-open-kiosk"
                                 to={urls.replayKiosk()}
@@ -190,39 +198,6 @@ function Header(): JSX.Element {
 const REPLAY_VISION_PROMO_DISMISS_KEY = 'replay-vision-launch-promo'
 // Pinned: a localStorage key. Renaming it shows the banner again to everyone who closed it.
 const FIELD_GUIDE_DISMISS_KEY = 'replay-field-guide-callout'
-
-function DebugHintToast(): null {
-    const { debugHintShown, debugMode } = useValues(playerSettingsLogic)
-    const { setDebugMode, dismissDebugHint } = useActions(playerSettingsLogic)
-    const { setTab } = useActions(playerSidebarLogic)
-
-    useEffect(() => {
-        if (!debugHintShown) {
-            return
-        }
-        lemonToast.info(
-            'Looking for the inspector, network waterfall or linked issues? They are under the Dev mode button above the player now.',
-            {
-                toastId: 'replay-debug-hint',
-                autoClose: false,
-                onClose: () => dismissDebugHint(),
-                button: debugMode
-                    ? undefined
-                    : {
-                          label: 'Turn on dev mode',
-                          dataAttr: 'player-debug-hint-open',
-                          action: () => {
-                              posthog.capture('session recording mode changed', { mode: 'debug', source: 'hint' })
-                              setDebugMode(true)
-                              setTab(SessionRecordingSidebarTab.INSPECTOR)
-                          },
-                      },
-            }
-        )
-    }, [debugHintShown, debugMode, setDebugMode, dismissDebugHint, setTab])
-
-    return null
-}
 
 function ReplayVisionPromoBanner(): JSX.Element | null {
     const { isDismissed } = useValues(lemonBannerLogic({ dismissKey: REPLAY_VISION_PROMO_DISMISS_KEY }))
@@ -307,7 +282,6 @@ function MainPanel(): JSX.Element {
 
     return (
         <div className={cn('flex flex-col gap-y-4', ReplayTabs.Home === tab && 'grow')}>
-            {tab === ReplayTabs.Home && <DebugHintToast />}
             <ReplayVisionPromoBanner />
             {tab === ReplayTabs.Home && <FieldGuideBanner />}
 

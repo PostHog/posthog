@@ -37,7 +37,6 @@ use uuid::Uuid;
 
 const LE_LABEL: &str = "le";
 const QUANTILE_LABEL: &str = "quantile";
-const ORIGINAL_TIMESTAMP_LABELS: [&str; 2] = [ORIGINAL_TIMESTAMP_ATTRIBUTE, "$originalTimestamp"];
 const BUCKET_SUFFIX: &str = "_bucket";
 const COUNT_SUFFIX: &str = "_count";
 const SUM_SUFFIX: &str = "_sum";
@@ -207,9 +206,7 @@ fn normalize_float_labels(rows: &mut [KafkaMetricRow]) {
         }
         if changed {
             let mut attributes = row.attributes.clone();
-            for label in ORIGINAL_TIMESTAMP_LABELS {
-                attributes.remove(label);
-            }
+            attributes.remove(ORIGINAL_TIMESTAMP_ATTRIBUTE);
             row.series_fingerprint = compute_series_fingerprint(
                 &row.metric_name,
                 &row.metric_type,
@@ -263,11 +260,7 @@ fn histogram_component(
     row: &KafkaMetricRow,
     declared: &HashMap<&str, MetricType>,
 ) -> Option<(String, HistogramComponent)> {
-    if row.metric_type != SUM_TYPE
-        || ORIGINAL_TIMESTAMP_LABELS
-            .iter()
-            .any(|label| row.attributes.contains_key(*label))
-    {
+    if row.metric_type != SUM_TYPE || row.attributes.contains_key(ORIGINAL_TIMESTAMP_ATTRIBUTE) {
         return None;
     }
     let name = row.metric_name.as_str();

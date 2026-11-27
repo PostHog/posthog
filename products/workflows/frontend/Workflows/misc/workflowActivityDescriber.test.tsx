@@ -26,6 +26,13 @@ const change = (field: string, before: unknown, after: unknown): ActivityChange 
     ({ type: ActivityScope.HOG_FLOW, action: 'changed', field, before, after }) as ActivityChange
 
 describe('workflowActivityDescriber', () => {
+    it('shows both names when a tag is renamed', () => {
+        const text = getTextContent(workflowActivityDescriber(workflowLogItem([change('tag', 'trial', 'customer')])))
+
+        expect(text).toContain('renamed the tag trial to customer')
+        expect(text).not.toContain('removed the tag')
+    })
+
     // The backend masks `actions` because the graph can carry secret function inputs, so the log
     // holds the string 'masked'. Mapping over that threw "itemsAfter.map is not a function" and
     // took the whole History tab down with an error boundary.
@@ -68,6 +75,21 @@ describe('workflowActivityDescriber', () => {
         const text = getTextContent(workflowActivityDescriber(workflowLogItem([scheduleChange])))
 
         expect(text).toContain(expected)
+    })
+
+    it.each([
+        ['batch_run_started', 'started a batch run of the workflow: Welcome email'],
+        ['batch_run_stopped', 'stopped a batch run of the workflow: Welcome email'],
+    ])('describes a %s entry with its batch run', (activity, expected) => {
+        const logItem = workflowLogItem([])
+        const described = workflowActivityDescriber({
+            ...logItem,
+            activity,
+            detail: { ...logItem.detail, context: { batch_job_id: 'job-uuid', filters: {} } },
+        })
+
+        expect(getTextContent(described)).toContain(expected)
+        expect(render(<>{described.extendedDescription}</>).container.textContent).toContain('Batch run job-uuid')
     })
 
     it('still diffs individual items when both sides really are arrays', () => {

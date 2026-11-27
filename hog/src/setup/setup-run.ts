@@ -7,14 +7,14 @@ import { loginFor, readSettings, type LoginRecord } from '@/posthog/settings'
 
 import { chosenFirst, loadProducts, type Product } from './products'
 import type { DoneStep, SetupContext, SetupInput, Stop } from './result'
-import { SETUP_NEXT, updateState, type SetupScope, type SetupState, type StepId } from './state'
+import { SETUP_COMMAND, updateState, type SetupScope, type SetupState, type StepId } from './state'
 
 // One step of the setup. Each one lives in its own file under `steps/`.
 export interface Step {
     // Defaults to the step being in the state file's completed list.
     isDone?(run: SetupRun): Promise<boolean>
     summary(run: SetupRun): Promise<string> | string
-    // Does the step on `hog setup next`, or says what `next` will do on `hog setup`. Returns
+    // Does the step on `hog setup`, or says what it will do on `hog setup status`. Returns
     // undefined once the step is done, or what has to happen first.
     advance(run: SetupRun): Promise<Stop | undefined>
 }
@@ -24,10 +24,10 @@ export function completed(run: SetupRun, step: StepId): boolean {
 }
 
 export function runNext(code: string, instructions: string): Stop {
-    return { code, next: { kind: 'run', command: SETUP_NEXT, instructions } }
+    return { code, next: { kind: 'run', command: SETUP_COMMAND, instructions } }
 }
 
-// One call of `hog setup` or `hog setup next`, and what the steps found along the way.
+// One call of `hog setup` or `hog setup status`, and what the steps found along the way.
 export class SetupRun {
     readonly done: DoneStep[] = []
     readonly context: SetupContext
@@ -50,7 +50,7 @@ export class SetupRun {
         }
     }
 
-    // A step an agent finishes without giving an answer counts only on a `hog setup next` that
+    // A step an agent finishes without giving an answer counts only on a `hog setup` that
     // started on it, so the agent always sees the step's instructions before the step ends.
     startedOn(step: StepId): boolean {
         return this.input.next && this.firstStep === step
@@ -85,7 +85,7 @@ export class SetupRun {
             throw new HogError(
                 'not_authenticated',
                 "You aren't logged in to this folder's project.",
-                `Run \`${SETUP_NEXT}\` to log in.`
+                `Run \`${SETUP_COMMAND}\` to log in.`
             )
         }
 

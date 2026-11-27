@@ -140,6 +140,12 @@ _ALLOWED_AGGREGATIONS: frozenset[str] = frozenset(
 
 _ALLOWED_RANGE_FUNCTIONS: frozenset[str] = frozenset({"rate", "increase"})
 
+# Range functions over the observation count of a histogram or summary, not its running sum.
+_COUNT_RANGE_FUNCTIONS: dict[str, str] = {"count_rate": "rate", "count_increase": "increase"}
+_COUNTED_METRIC_TYPES: frozenset[str] = frozenset(
+    {MetricType.HISTOGRAM.value, MetricType.EXPONENTIAL_HISTOGRAM.value, MetricType.SUMMARY.value}
+)
+
 # Derive this from the contract enum to match ingestion values.
 _ALLOWED_METRIC_TYPES: frozenset[str] = frozenset(t.value for t in MetricType)
 
@@ -575,8 +581,48 @@ def _active_since_expr(date_from: dt.datetime | None) -> ast.Expr:
     )
 
 
+def _metric_names_expr(metric_name: str | Sequence[str]) -> ast.Expr:
+    return metric_name_expr((metric_name,) if isinstance(metric_name, str) else tuple(metric_name))
+
+
+def series_label_keys_query(
+    metric_names: Sequence[str], filters: Sequence[MetricFilter], date_from: dt.datetime
+) -> ast.SelectQuery:
+    """Return one hash of the full label set for each series of `metric_names`.
+
+    Series of different names or types that carry the same labels get the same key.
+    Like the series fingerprint, the key leaves out `posthog.original_timestamp`.
+    """
+    query = parse_select(
+        """
+            SELECT
+                series_fingerprint,
+                any(cityHash64(tuple(
+                    service_name,
+                    arraySort(arrayZip(mapKeys(resource_attributes), mapValues(resource_attributes))),
+                    arraySort(arrayFilter(
+                        pair -> tupleElement(pair, 1) != 'posthog.original_timestamp',
+                        arrayZip(mapKeys(attributes), mapValues(attributes))
+                    ))
+                ))) AS label_key
+            FROM posthog.metric_series
+            WHERE {metric_name}
+              AND {active_since}
+              AND {filters}
+            GROUP BY series_fingerprint
+        """,
+        placeholders={
+            "metric_name": _metric_names_expr(metric_names),
+            "active_since": _active_since_expr(date_from),
+            "filters": filters_expr(filters),
+        },
+    )
+    assert isinstance(query, ast.SelectQuery)
+    return query
+
+
 def series_scope_expr(
-    metric_name: str,
+    metric_name: str | Sequence[str],
     filters: Sequence[MetricFilter],
     date_from: dt.datetime | None = None,
     *,
@@ -597,14 +643,14 @@ def series_scope_expr(
         """
             SELECT series_fingerprint
             FROM posthog.metric_series
-            WHERE metric_name = {metric_name}
+            WHERE {metric_name}
               AND {active_since}
               AND {filters}
               AND {metric_type}
             GROUP BY series_fingerprint
         """,
         placeholders={
-            "metric_name": ast.Constant(value=metric_name),
+            "metric_name": _metric_names_expr(metric_name),
             "active_since": _active_since_expr(date_from),
             "filters": filters_expr(filters),
             "metric_type": type_filter_expr(metric_type),
@@ -645,7 +691,7 @@ def series_labels_query(metric_name: str, date_from: dt.datetime | None = None) 
 
 
 def series_group_labels_query(
-    metric_name: str, group_by: Sequence[MetricGroupBy], date_from: dt.datetime | None = None
+    metric_name: str | Sequence[str], group_by: Sequence[MetricGroupBy], date_from: dt.datetime | None = None
 ) -> ast.SelectQuery:
     """Return group-by labels for each series as `group_0`, `group_1`, and so on.
 
@@ -656,11 +702,11 @@ def series_group_labels_query(
         """
             SELECT series_fingerprint
             FROM posthog.metric_series
-            WHERE metric_name = {metric_name}
+            WHERE {metric_name}
               AND {active_since}
             GROUP BY series_fingerprint
         """,
-        placeholders={"metric_name": ast.Constant(value=metric_name), "active_since": _active_since_expr(date_from)},
+        placeholders={"metric_name": _metric_names_expr(metric_name), "active_since": _active_since_expr(date_from)},
     )
     assert isinstance(query, ast.SelectQuery)
     for index, group in enumerate(group_by):
@@ -687,12 +733,25 @@ class MetricQueryRunner:
         quantile: float | None = None,
         metric_type: str | None = None,
         range_function: str | None = None,
+        max_series_fingerprints: int | None = None,
     ) -> None:
         """`aggregation=None` returns one row per series and bucket, for at most `MAX_RAW_SERIES` series.
 
+        `max_series_fingerprints` caps each row's `series_fingerprints` to its smallest values, so a caller that
+        only needs a sample does not receive every series of a bucket.
+
         The legacy `rate` and `increase` aggregations mean a range function with a sum across series.
+        `count_rate` and `count_increase` are the same over the `count` column of histogram and summary rows.
         """
-        if aggregation in _ALLOWED_RANGE_FUNCTIONS:
+        self.counter_column = "value"
+        if aggregation in _COUNT_RANGE_FUNCTIONS:
+            if range_function is not None:
+                raise ValueError(f"range_function cannot combine with the {aggregation} aggregation")
+            if metric_type is not None and metric_type not in _COUNTED_METRIC_TYPES:
+                raise ValueError(f"{aggregation} needs a histogram or summary metric, not {metric_type!r}")
+            aggregation, range_function = "sum", _COUNT_RANGE_FUNCTIONS[aggregation]
+            self.counter_column = "count"
+        elif aggregation in _ALLOWED_RANGE_FUNCTIONS:
             if range_function is not None:
                 raise ValueError("range_function cannot combine with the rate or increase aggregation")
             aggregation, range_function = "sum", aggregation
@@ -726,6 +785,7 @@ class MetricQueryRunner:
         self.group_by = tuple(group_by)
         self.quantile = quantile
         self.metric_type = metric_type
+        self.max_series_fingerprints = max_series_fingerprints
 
     @property
     def scan_from(self) -> dt.datetime:
@@ -775,19 +835,26 @@ class MetricQueryRunner:
 
     def _run_histogram_quantile(self) -> list[dict[str, Any]]:
         """Calculate quantiles from the distributions that ClickHouse sums."""
-        assert self.quantile is not None
-        query = self._build_histogram_query()
+        return self.quantile_rows(self.histogram_rows())
+
+    def histogram_rows(self) -> list[Any]:
+        """The summed distributions, one row per (time, *group labels, bounds, metric type):
+        `(time, *group labels, bounds, counts, series_fingerprints, metric_type)`."""
         response = execute_hogql_query(
             query_type="MetricQuery",
-            query=query,
+            query=self._bound_series_fingerprints(self._build_histogram_query()),
             team=self.team,
             workload=Workload.METRICS,
             settings=_QUERY_SETTINGS,
         )
         self._raise_on_truncation(response.results)
+        return response.results
 
+    def quantile_rows(self, results: list[Any]) -> list[dict[str, Any]]:
+        """Bucketed quantile rows from rows shaped like `histogram_rows`."""
+        assert self.quantile is not None
         rows: list[dict[str, Any]] = []
-        for key, merged in self.merged_distributions(response.results).items():
+        for key, merged in self.merged_distributions(results).items():
             bounds, counts = merged.bounds, merged.counts
             if sum(counts) <= 0:
                 # The bucket has no computable increase. Return a gap, not zero.
@@ -864,7 +931,7 @@ class MetricQueryRunner:
         assert query.select_from is not None and query.select_from.alias == "s"
         query.select_from.next_join = ast.JoinExpr(
             join_type="LEFT JOIN",
-            table=series_group_labels_query(self.metric_name, self.group_by, self.date_from),
+            table=series_group_labels_query(self._series_metric_names, self.group_by, self.date_from),
             alias="ser",
             constraint=ast.JoinConstraint(
                 expr=parse_expr("s.series_fingerprint = ser.series_fingerprint"), constraint_type="ON"
@@ -877,8 +944,42 @@ class MetricQueryRunner:
             query.select.insert(1 + index, ast.Alias(alias=alias, expr=ast.Field(chain=["ser", alias])))
             query.group_by.append(ast.Field(chain=[alias]))
 
+    @cached_property
+    def _classic_count_name(self) -> str | None:
+        """The `_count` series of a Prometheus classic histogram with this name, for the count functions.
+
+        Capture converts a classic histogram to one histogram row only when one remote-write
+        request carries its `_sum` and `+Inf` bucket. When the sender splits the histogram across
+        requests, the components stay separate rows, so the observation count of those scrapes
+        is only in `<name>_count`. Without those rows a series can have few histogram points,
+        and its predecessor is then often outside the lookback.
+        """
+        if self.counter_column != "count" or self.metric_type not in (None, MetricType.HISTOGRAM.value):
+            return None
+        return f"{self.metric_name}_count"
+
+    @property
+    def _series_metric_names(self) -> tuple[str, ...]:
+        if self._classic_count_name is None:
+            return (self.metric_name,)
+        return (self.metric_name, self._classic_count_name)
+
     def _type_filter_expr(self) -> ast.Expr:
-        return type_filter_expr(self.metric_type)
+        if self.counter_column == "count" and self.metric_type is None:
+            # Every other type stores count = 1 per point, which would count samples, not observations.
+            native = parse_expr(
+                "metric_type IN {types}",
+                placeholders={"types": ast.Tuple(exprs=[ast.Constant(value=t) for t in sorted(_COUNTED_METRIC_TYPES)])},
+            )
+        else:
+            native = type_filter_expr(self.metric_type)
+        if self._classic_count_name is None:
+            return native
+        # Capture writes the classic `_count` component as a `sum` row.
+        return parse_expr(
+            "if(metric_name = {name}, {native}, metric_type = 'sum')",
+            placeholders={"name": ast.Constant(value=self.metric_name), "native": native},
+        )
 
     def _series_scope_expr(self) -> ast.Expr:
         if self.aggregation is None:
@@ -889,7 +990,7 @@ class MetricQueryRunner:
                 metric_type=self.metric_type,
                 limit=MAX_RAW_SERIES,
             )
-        return series_scope_expr(self.metric_name, self.filters, self.date_from)
+        return series_scope_expr(self._series_metric_names, self.filters, self.date_from)
 
     def _points_query(
         self, columns: Sequence[str], point_filters: Sequence[ast.Expr] = (), dedupe_points: bool = True
@@ -897,7 +998,7 @@ class MetricQueryRunner:
         return points_query(
             from_samples=self.reads_samples,
             columns=columns,
-            metric_names=(self.metric_name,),
+            metric_names=self._series_metric_names,
             date_from=self.scan_from,
             date_to=self.date_to,
             timezone=self.team.timezone,
@@ -949,6 +1050,21 @@ class MetricQueryRunner:
         assert isinstance(query, ast.SelectQuery) and query.select_from is not None
         query.select_from.table = per_series
         self._splice_group_columns(query)
+        return self._bound_series_fingerprints(query)
+
+    def _bound_series_fingerprints(self, query: ast.SelectQuery) -> ast.SelectQuery:
+        if self.max_series_fingerprints is None:
+            return query
+        for column in query.select:
+            if isinstance(column, ast.Alias) and column.alias == "series_fingerprints":
+                column.expr = ast.Call(
+                    name="arraySlice",
+                    args=[
+                        ast.Call(name="arraySort", args=[column.expr]),
+                        ast.Constant(value=1),
+                        ast.Constant(value=self.max_series_fingerprints),
+                    ],
+                )
         return query
 
     def _build_simple_query(self) -> ast.SelectQuery:
@@ -1022,19 +1138,19 @@ class MetricQueryRunner:
                         SELECT
                             timestamp,
                             series_fingerprint,
-                            value,
+                            counter_value AS value,
                             aggregation_temporality,
-                            lagInFrame(toNullable(value)) OVER (
-                                PARTITION BY {series_key}
+                            lagInFrame(toNullable(counter_value)) OVER (
+                                PARTITION BY series_key
                                 ORDER BY timestamp ASC
                                 ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING
                             ) AS prev_value,
-                            leadInFrame(toNullable(value)) OVER (
-                                PARTITION BY {series_key}
+                            leadInFrame(toNullable(counter_value)) OVER (
+                                PARTITION BY series_key
                                 ORDER BY timestamp ASC
                                 ROWS BETWEEN 1 FOLLOWING AND 1 FOLLOWING
                             ) AS next_value
-                        FROM {points}
+                        FROM {counter_points}
                     )
                 )
                 WHERE sample_timestamp >= {date_from}
@@ -1044,16 +1160,73 @@ class MetricQueryRunner:
             placeholders={
                 "interval": _interval_expr(self.interval),
                 "divisor": ast.Constant(value=divisor),
-                "series_key": _series_key_expr(),
-                "points": self._points_query(("timestamp", "series_fingerprint", "value", "aggregation_temporality")),
+                "counter_points": self._counter_points_query(),
                 "date_from": ast.Constant(value=self.date_from),
             },
         )
         assert isinstance(per_series, ast.SelectQuery)
         return self._combine_series(per_series)
 
+    def _counter_points_query(self) -> ast.SelectQuery:
+        """Return `(timestamp, series_fingerprint, aggregation_temporality, counter_value, series_key)` per point.
+
+        Deltas are taken within one `series_key`. With classic `_count` rows, the key is the label set,
+        so the histogram rows and the `_count` rows of one histogram form one sequence.
+        """
+        if self._classic_count_name is None:
+            query = parse_select(
+                """
+                    SELECT
+                        timestamp,
+                        series_fingerprint,
+                        aggregation_temporality,
+                        {counter_value} AS counter_value,
+                        {series_key} AS series_key
+                    FROM {points}
+                """,
+                placeholders={
+                    "counter_value": (
+                        ast.Call(name="toFloat", args=[ast.Field(chain=["count"])])
+                        if self.counter_column == "count"
+                        else ast.Field(chain=["value"])
+                    ),
+                    "series_key": _series_key_expr(),
+                    "points": self._points_query(
+                        ("timestamp", "series_fingerprint", self.counter_column, "aggregation_temporality")
+                    ),
+                },
+            )
+        else:
+            # A series without a `metric_series` row keeps its own fingerprint as its key. The key keeps
+            # the type, so only the classic `_count` rows (type `sum`) join the histogram sequence.
+            query = parse_select(
+                """
+                    SELECT
+                        p.timestamp AS timestamp,
+                        p.series_fingerprint AS series_fingerprint,
+                        p.aggregation_temporality AS aggregation_temporality,
+                        if(p.metric_type = 'sum', p.value, toFloat(p.count)) AS counter_value,
+                        if(
+                            ifNull(k.label_key, 0) = 0,
+                            p.series_fingerprint,
+                            cityHash64(tuple(k.label_key, if(p.metric_type = 'sum', 'histogram', p.metric_type)))
+                        ) AS series_key
+                    FROM {points} AS p
+                    LEFT JOIN {label_keys} AS k ON p.series_fingerprint = k.series_fingerprint
+                """,
+                placeholders={
+                    "points": self._points_query(
+                        ("timestamp", "series_fingerprint", "metric_type", "value", "count", "aggregation_temporality")
+                    ),
+                    "label_keys": series_label_keys_query(self._series_metric_names, self.filters, self.scan_from),
+                },
+            )
+        assert isinstance(query, ast.SelectQuery)
+        return query
+
     def _build_histogram_query(self) -> ast.SelectQuery:
         """Build histogram distributions with rate and increase semantics."""
+        # Use the counter first-sample rule on the total so admission cannot distort the distribution.
         query = parse_select(
             """
                 SELECT
@@ -1070,7 +1243,19 @@ class MetricQueryRunner:
                         metric_type AS metric_type,
                         multiIf(
                             aggregation_temporality = 'delta', counts_f,
-                            empty(prev_counts), arrayMap(x -> 0.0, counts_f),
+                            empty(prev_counts),
+                                if(
+                                    observation_count < 10 * (
+                                        multiIf(
+                                            isNull(next_count), 0,
+                                            assumeNotNull(next_count) >= observation_count,
+                                                assumeNotNull(next_count) - observation_count,
+                                            assumeNotNull(next_count)
+                                        ) + 1
+                                    ),
+                                    counts_f,
+                                    arrayMap(x -> 0.0, counts_f)
+                                ),
                             prev_bounds != histogram_bounds OR length(prev_counts) != length(counts_f),
                                 arrayMap(x -> 0.0, counts_f),
                             arrayAll((c, p) -> c >= p, counts_f, prev_counts), arrayMap((c, p) -> c - p, counts_f, prev_counts),
@@ -1084,6 +1269,7 @@ class MetricQueryRunner:
                             histogram_bounds,
                             metric_type,
                             arrayMap(x -> toFloat(x), histogram_counts) AS counts_f,
+                            toFloat(arraySum(histogram_counts)) AS observation_count,
                             lagInFrame(arrayMap(x -> toFloat(x), histogram_counts)) OVER (
                                 PARTITION BY {series_key}
                                 ORDER BY timestamp ASC
@@ -1093,7 +1279,12 @@ class MetricQueryRunner:
                                 PARTITION BY {series_key}
                                 ORDER BY timestamp ASC
                                 ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING
-                            ) AS prev_bounds
+                            ) AS prev_bounds,
+                            leadInFrame(toNullable(observation_count)) OVER (
+                                PARTITION BY {series_key}
+                                ORDER BY timestamp ASC
+                                ROWS BETWEEN 1 FOLLOWING AND 1 FOLLOWING
+                            ) AS next_count
                         FROM {points}
                     )
                 ) AS s

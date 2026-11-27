@@ -2,6 +2,8 @@ import { useMountedLogic, useValues } from 'kea'
 import { Suspense, useEffect } from 'react'
 import { Slide, ToastContainer } from 'react-toastify'
 
+import { PostHogErrorBoundary } from '@posthog/react'
+
 import { commandLogic } from 'lib/components/Command/commandLogic'
 import { productSetupPreloadLogic } from 'lib/components/ProductEmptyState/productSetupPreloadLogic'
 import { globalSetupLogic, useSetupHighlight } from 'lib/components/ProductSetup'
@@ -12,6 +14,7 @@ import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { eventIngestionRestrictionLogic } from 'lib/logic/eventIngestionRestrictionLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { runWhenIdle } from 'lib/utils/async'
+import { markBootPhase } from 'lib/utils/bootTiming'
 import { isEmbeddedPageFrame } from 'lib/utils/embeddedPageFrame'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { ChunkLoadErrorBoundary } from 'scenes/ChunkLoadErrorBoundary'
@@ -27,10 +30,16 @@ import { NewEventsTableBar } from '~/layout/navigation/NewEventsTableBar'
 
 import { webmcpLogic } from 'products/webmcp/frontend/logics/webmcpLogic'
 
+import { mountRealtimeCohortsJoin } from './mountRealtimeCohortsJoin'
 import { sceneLogic } from './sceneLogic'
 
 const TerminalDock = lazyWithRetry(() =>
     import('./terminal/TerminalDock').then(({ TerminalDock }) => ({ default: TerminalDock }))
+)
+const AgentTranscriptRequest = lazyWithRetry(() =>
+    import('products/agent_transcripts/frontend/components/AgentTranscriptRequest').then(
+        ({ AgentTranscriptRequest }) => ({ default: AgentTranscriptRequest })
+    )
 )
 const importCommand = (): Promise<typeof import('lib/components/Command/Command')> =>
     import('lib/components/Command/Command')
@@ -42,6 +51,9 @@ function preloadCommand(): void {
 }
 
 export default function AuthenticatedShell({ children }: { children: React.ReactNode }): JSX.Element {
+    // Mark during render because a layout effect here runs after the scene's own effects. The gap from this
+    // mark to `empty_state_gate_mounted` or `scene_rendered` then excludes the wait for this lazy chunk.
+    markBootPhase('authenticated_shell_rendered')
     useMountedLogic(apiStatusLogic)
     useMountedLogic(eventIngestionRestrictionLogic)
     useMountedLogic(breadcrumbsLogic)
@@ -50,6 +62,7 @@ export default function AuthenticatedShell({ children }: { children: React.React
     useMountedLogic(billingLogic)
     // Resolves product setup statuses on idle, so gated scenes open without a spinner.
     useMountedLogic(productSetupPreloadLogic)
+    useEffect(() => mountRealtimeCohortsJoin(), [])
     useSetupHighlight()
 
     const { sceneConfig } = useValues(sceneLogic)
@@ -105,6 +118,15 @@ export default function AuthenticatedShell({ children }: { children: React.React
                 )}
                 <ImpersonationNoticeSlot />
                 <NewEventsTableBar />
+                {/* Only an organization in the experiment loads the card, and its logic decides whether it shows.
+                    The local boundary keeps a failed card chunk from reaching ChunkLoadErrorBoundary, which reloads the app. */}
+                {featureFlags[FEATURE_FLAGS.AGENT_TRANSCRIPT_REQUEST] && (
+                    <PostHogErrorBoundary fallback={<></>}>
+                        <Suspense fallback={null}>
+                            <AgentTranscriptRequest />
+                        </Suspense>
+                    </PostHogErrorBoundary>
+                )}
                 {featureFlags[FEATURE_FLAGS.EXPERIMENTS_FREEZE_EXPOSURE_AA_TEST] === 'test' && (
                     <div data-attr="experiments-freeze-exposure-aa-test-variant" className="hidden" />
                 )}

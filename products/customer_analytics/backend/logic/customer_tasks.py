@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from contextlib import nullcontext
 from datetime import datetime
 from functools import cached_property
 from typing import cast
@@ -8,20 +9,27 @@ from uuid import UUID
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
-from django.db.models import Case, CharField, F, IntegerField, Q, QuerySet, Value, When
+from django.db.models import Case, CharField, F, IntegerField, Prefetch, Q, QuerySet, Value, When
 from django.db.models.functions import Coalesce, Concat, Lower, NullIf, Trim
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
 from posthog.models import OrganizationMembership, Team, User
+from posthog.models.tag import Tag, tag_assignment_transaction, tagify
+from posthog.models.tagged_item import TaggedItem
 from posthog.paging import Page, PageRequest
 from posthog.queryset_paging import select_page
+from posthog.tag_management import delete_unused_tags
 
 from products.access_control.backend.facade import (
     api as access_control_api,
     contracts as access_control_contracts,
 )
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import ResourceType
+from products.authorization.backend.presentation.querysets import filter_queryset
+from products.customer_analytics.backend.constants import CUSTOMER_TASK_MAX_TAGS
 from products.customer_analytics.backend.facade import contracts
 from products.customer_analytics.backend.facade.contracts import (
     CustomerTaskAccessDenied,
@@ -31,6 +39,7 @@ from products.customer_analytics.backend.facade.contracts import (
     CustomerTaskAssigneeInvalid,
     CustomerTaskInvalidTransition,
     CustomerTaskRoleNotFound,
+    CustomerTaskTagLimitExceeded,
 )
 from products.customer_analytics.backend.models import Account, CustomerTask, CustomerTaskActivity
 from products.customer_analytics.backend.models.customer_task import CustomerTaskActivityType, CustomerTaskStatus
@@ -50,6 +59,7 @@ class _CustomerTaskWrite:
     task: CustomerTask
     before_assignee: User | None
     activity: CustomerTaskActivity
+    tag_names: list[str] | None = None
 
 
 _ALLOWED_TRANSITIONS: dict[str, frozenset[str]] = {
@@ -64,8 +74,79 @@ _ALLOWED_TRANSITIONS: dict[str, frozenset[str]] = {
 }
 
 
-def _task_queryset(team_id: int) -> QuerySet[CustomerTask]:
-    return CustomerTask.objects.for_team(team_id).select_related("account", "assigned_to", "completed_by", "created_by")
+def _task_queryset(team_id: int, *, tag_db: str | None = None) -> QuerySet[CustomerTask]:
+    return (
+        CustomerTask.objects.for_team(team_id)
+        .select_related("account", "assigned_to", "completed_by", "created_by")
+        .prefetch_related(
+            Prefetch(
+                "tagged_items",
+                queryset=TaggedItem.objects.using(tag_db).select_related("tag"),
+                to_attr="prefetched_tags",
+            )
+        )
+    )
+
+
+def _get_customer_task_tagged_items(task: CustomerTask, *, using: str | None = None) -> list[TaggedItem]:
+    tagged_items = getattr(task, "prefetched_tags", None)
+    return tagged_items if tagged_items is not None else list(task.tagged_items.using(using).select_related("tag"))
+
+
+def list_customer_task_tag_names(task: CustomerTask) -> list[str]:
+    return sorted(item.tag.name for item in _get_customer_task_tagged_items(task))
+
+
+def _parse_tag_names(tags: Iterable[str]) -> list[str]:
+    return sorted({name for name in (tagify(tag) for tag in tags) if name})
+
+
+def _resolve_tag_names(current: list[str], tags: Iterable[str], tags_mode: str) -> list[str]:
+    requested = set(_parse_tag_names(tags))
+    if tags_mode == "add":
+        resolved = set(current) | requested
+        if len(resolved) > max(len(current), CUSTOMER_TASK_MAX_TAGS):
+            raise CustomerTaskTagLimitExceeded()
+        return sorted(resolved)
+    if tags_mode == "remove":
+        return sorted(set(current) - requested)
+    return sorted(requested)
+
+
+def _set_customer_task_tags(
+    team_id: int, updates: Iterable[tuple[CustomerTask, list[str]]], *, using: str | None
+) -> None:
+    pending: list[tuple[CustomerTask, dict[str, TaggedItem], set[str]]] = []
+    names_to_add: set[str] = set()
+    removed_ids: set[UUID] = set()
+    removed_tag_ids: set[UUID] = set()
+    for task, names in updates:
+        requested = set(names)
+        kept = {}
+        for item in _get_customer_task_tagged_items(task, using=using):
+            if item.tag.name in requested:
+                kept[item.tag.name] = item
+            else:
+                removed_ids.add(item.pk)
+                removed_tag_ids.add(item.tag_id)
+        missing = requested - kept.keys()
+        names_to_add.update(missing)
+        pending.append((task, kept, missing))
+
+    tags = {
+        name: Tag.objects.using(using).get_or_create(name=name, team_id=team_id)[0] for name in sorted(names_to_add)
+    }
+    added: list[TaggedItem] = []
+    for task, kept, missing in pending:
+        new_items = [TaggedItem.for_content_object(tags[name], task) for name in missing]
+        added.extend(new_items)
+        task.prefetched_tags = [*kept.values(), *new_items]  # type: ignore[attr-defined]
+
+    if added:
+        TaggedItem.objects.using(using).bulk_create(added)
+    if removed_ids:
+        TaggedItem.objects.using(using).filter(team_id=team_id, pk__in=removed_ids).delete()
+        delete_unused_tags(team_id, removed_tag_ids)
 
 
 def _visible_account_queryset(team_id: int, user_access_control: UserAccessControl) -> QuerySet[Account]:
@@ -80,11 +161,15 @@ def _task_by_id(queryset: QuerySet[CustomerTask], task_id: UUID | str) -> Custom
         return None
 
 
-def _visible_task_queryset(team_id: int, user_access_control: UserAccessControl) -> QuerySet[CustomerTask]:
+def _visible_task_queryset(
+    team_id: int, user_access_control: UserAccessControl, *, tag_db: str | None = None
+) -> QuerySet[CustomerTask]:
     visible_account_ids = _visible_account_queryset(team_id, user_access_control).values("id")
     account_filter = Q(account__isnull=True) | Q(account_id__in=visible_account_ids)
-    return user_access_control.filter_queryset_by_access_level(
-        _task_queryset(team_id), resource="customer_task"
+    return filter_queryset(
+        _task_queryset(team_id, tag_db=tag_db),
+        resource=Resource(type=ResourceType.CUSTOMER_TASK, project_id=team_id),
+        subject=Subject(user_id=user_access_control.user.id),
     ).filter(account_filter)
 
 
@@ -246,6 +331,8 @@ def _changes(
     after_assignee: User | None,
     before_due_at: datetime | None,
     after_due_at: datetime | None,
+    before_tags: list[str] | None,
+    after_tags: list[str] | None,
 ) -> list[dict[str, object | None]]:
     values: Iterable[tuple[str, object | None, object | None]] = (
         ("account", _snapshot_account(before_account), _snapshot_account(after_account)),
@@ -254,6 +341,7 @@ def _changes(
         ("status", before_status, after_status),
         ("assigned_to", _snapshot_user(before_assignee), _snapshot_user(after_assignee)),
         ("due_at", _timestamp(before_due_at), _timestamp(after_due_at)),
+        ("tags", before_tags or None, after_tags or None),
     )
     before_account_id = str(before_account.id) if before_account is not None else None
     after_account_id = str(after_account.id) if after_account is not None else None
@@ -322,7 +410,11 @@ def _apply_ordering(queryset: QuerySet[CustomerTask], ordering: str) -> QuerySet
 
 
 def remove_customer_task_assignee_access_for_account(*, team: Team, account_id: UUID) -> None:
-    tasks = _task_queryset(team.id).filter(account_id=account_id, assigned_to__isnull=False)
+    tasks = (
+        CustomerTask.objects.for_team(team.id)
+        .select_related("assigned_to")
+        .filter(account_id=account_id, assigned_to__isnull=False)
+    )
     for task in tasks.iterator():
         _set_customer_task_assignee_access(
             task=task,
@@ -376,6 +468,9 @@ def list_customer_tasks(
         queryset = queryset.filter(due_at__lt=filters.due_before)
     if filters.has_due_at is not None:
         queryset = queryset.filter(due_at__isnull=not filters.has_due_at)
+    if tag_names := _parse_tag_names(filters.tags):
+        tagged_task_ids = CustomerTask.objects.for_team(team_id).filter(tagged_items__tag__name__in=tag_names)
+        queryset = queryset.filter(id__in=tagged_task_ids.values("id"))
 
     if filters.ordering is None:
         queryset = queryset.order_by(F("due_at").asc(nulls_last=True), "-updated_at", "id")
@@ -391,9 +486,9 @@ def get_customer_task(
 
 
 def _task_for_write(
-    *, team_id: int, task_id: UUID | str, user_access_control: UserAccessControl
+    *, team_id: int, task_id: UUID | str, user_access_control: UserAccessControl, tag_db: str | None = None
 ) -> CustomerTask | None:
-    queryset = _visible_task_queryset(team_id, user_access_control).select_for_update(of=("self",))
+    queryset = _visible_task_queryset(team_id, user_access_control, tag_db=tag_db).select_for_update(of=("self",))
     return _task_by_id(queryset, task_id)
 
 
@@ -409,7 +504,8 @@ def create_customer_task(
     assignee = _validate_assignee(team=team, account=account, assignee_id=input.assigned_to_id)
     completed_at = timezone.now() if input.status == CustomerTaskStatus.COMPLETED else None
     completed_by = actor if completed_at is not None and actor is not None else assignee if completed_at else None
-    with transaction.atomic():
+    tag_names = _parse_tag_names(input.tags)
+    with transaction.atomic(), tag_assignment_transaction([team.id]) if tag_names else nullcontext() as tag_db:
         task = CustomerTask.objects.for_team(team.id).create(
             **({"id": task_id} if task_id is not None else {}),
             team_id=team.id,
@@ -423,6 +519,8 @@ def create_customer_task(
             completed_by=completed_by,
             created_by=actor,
         )
+        if tag_names:
+            _set_customer_task_tags(team.id, [(task, tag_names)], using=tag_db)
         _set_customer_task_assignee_access(
             task=task,
             organization_id=team.organization_id,
@@ -447,6 +545,8 @@ def create_customer_task(
                 after_assignee=assignee,
                 before_due_at=None,
                 after_due_at=task.due_at,
+                before_tags=None,
+                after_tags=tag_names,
             ),
         )
     return task
@@ -477,6 +577,8 @@ def _prepare_customer_task_update(
     before_status = task.status
     before_assignee = task.assigned_to
     before_due_at = task.due_at
+    before_tags = list_customer_task_tag_names(task)
+    after_tags = _resolve_tag_names(before_tags, input.tags, input.tags_mode) if input.tags_provided else before_tags
     semantic_change = (
         (input.account_id_provided and input.account_id != task.account_id)
         or (input.name_provided and input.name != task.name)
@@ -484,6 +586,7 @@ def _prepare_customer_task_update(
         or (input.assigned_to_id_provided and input.assigned_to_id != task.assigned_to_id)
         or (input.due_at_provided and input.due_at != task.due_at)
         or (input.status_provided and input.status != task.status)
+        or after_tags != before_tags
     )
     if not semantic_change:
         return None
@@ -538,10 +641,13 @@ def _prepare_customer_task_update(
         after_assignee=task.assigned_to,
         before_due_at=before_due_at,
         after_due_at=task.due_at,
+        before_tags=before_tags,
+        after_tags=after_tags,
     )
     return _CustomerTaskWrite(
         task=task,
         before_assignee=before_assignee,
+        tag_names=after_tags if after_tags != before_tags else None,
         activity=CustomerTaskActivity(
             team_id=team.id,
             task=task,
@@ -610,8 +716,11 @@ def update_customer_task(
     actor: User | None,
     user_access_control: UserAccessControl,
 ) -> CustomerTask | None:
-    with transaction.atomic():
-        task = _task_for_write(team_id=team.id, task_id=task_id, user_access_control=user_access_control)
+    with (
+        transaction.atomic(),
+        tag_assignment_transaction([team.id]) if input.tags_provided else nullcontext() as tag_db,
+    ):
+        task = _task_for_write(team_id=team.id, task_id=task_id, user_access_control=user_access_control, tag_db=tag_db)
         if task is None:
             return None
         write = _prepare_customer_task_update(
@@ -619,6 +728,8 @@ def update_customer_task(
         )
         if write is not None:
             task.save()
+            if write.tag_names is not None:
+                _set_customer_task_tags(team.id, [(task, write.tag_names)], using=tag_db)
             _update_customer_task_access(team=team, write=write, actor=actor)
             write.activity.save()
         return task
@@ -634,9 +745,12 @@ def bulk_update_customer_tasks(
     user_access_control: UserAccessControl,
 ) -> int | None:
     try:
-        with transaction.atomic():
+        with (
+            transaction.atomic(),
+            tag_assignment_transaction([team.id]) if input.tags_provided else nullcontext() as tag_db,
+        ):
             tasks = list(
-                _visible_task_queryset(team.id, user_access_control)
+                _visible_task_queryset(team.id, user_access_control, tag_db=tag_db)
                 .filter(id__in=task_ids)
                 .order_by("id")
                 .select_for_update(of=("self",))
@@ -693,6 +807,11 @@ def bulk_update_customer_tasks(
                     "archived_at",
                     "updated_at",
                 ],
+            )
+            _set_customer_task_tags(
+                team.id,
+                ((write.task, write.tag_names) for write in writes if write.tag_names is not None),
+                using=tag_db,
             )
             _bulk_update_customer_task_access(team=team, writes=writes, actor=actor)
             CustomerTaskActivity.objects.for_team(team.id).bulk_create([write.activity for write in writes])

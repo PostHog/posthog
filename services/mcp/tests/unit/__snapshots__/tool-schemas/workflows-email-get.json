@@ -1,0 +1,17 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "action_id": {
+            "description": "The email step that sent the email, the `action_id` of a send.",
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+        },
+        "id": {
+            "description": "The workflow run that sent the email, the `invocation_id` of a send.",
+            "type": "string"
+        }
+    },
+    "required": ["id", "action_id"],
+    "type": "object"
+}

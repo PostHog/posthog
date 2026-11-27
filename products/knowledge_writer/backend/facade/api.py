@@ -6,7 +6,8 @@ import structlog
 from posthog.github.installations import installation_id
 
 from ...merge_check.sources import LandedChange, merged_pull_request_change
-from ..settings import configured_writer_team_id, source_repositories, writer_settings
+from ..logic.launch import HEAD_BRANCH_PREFIX
+from ..settings import configured_writer_team_id, docs_source, source_repositories, writer_settings
 from .contracts import DocsCommandRequest
 
 logger = structlog.get_logger(__name__)
@@ -21,6 +22,37 @@ def request_docs_for_pull_request(command: DocsCommandRequest, *, team_id: int, 
     from ..temporal.client import start_command_check  # noqa: PLC0415 — keeps temporalio off the facade import path
 
     start_command_check(command, team_id=team_id, waiter_id=waiter_id)
+
+
+def record_pull_request_event(payload: Mapping[str, Any]) -> None:
+    from ..temporal.client import (  # noqa: PLC0415 — keeps temporalio off the facade import path
+        signal_pull_request_closed,
+    )
+
+    writer_pull_request_number = closed_writer_pull_request_number(payload)
+    if writer_pull_request_number is None:
+        record_merged_pull_request(payload)
+        return
+    signal_pull_request_closed(payload["repository"]["full_name"], writer_pull_request_number)
+
+
+def closed_writer_pull_request_number(payload: Mapping[str, Any]) -> int | None:
+    configured_docs = docs_source()
+    repository = (payload.get("repository") or {}).get("full_name")
+    pull_request = payload.get("pull_request") or {}
+    head = pull_request.get("head") or {}
+    head_repository = (head.get("repo") or {}).get("full_name")
+    head_branch = head.get("ref")
+    number = pull_request.get("number")
+    if configured_docs is None or payload.get("action") != "closed" or not isinstance(number, int):
+        return None
+    if not isinstance(repository, str) or repository.lower() != configured_docs.docs_repository.lower():
+        return None
+    if not isinstance(head_repository, str) or head_repository.lower() != repository.lower():
+        return None
+    if not isinstance(head_branch, str) or not head_branch.startswith(HEAD_BRANCH_PREFIX):
+        return None
+    return number
 
 
 def record_merged_pull_request(payload: Mapping[str, Any]) -> None:

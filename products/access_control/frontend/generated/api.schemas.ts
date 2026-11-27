@@ -60,6 +60,8 @@ export const ResolvedAccessSourceSubjectEnumApi = {
  * * `billing` - billing
  * * `business_knowledge` - business_knowledge
  * * `canvas` - canvas
+ * * `code_review` - code_review
+ * * `code_review_approval` - code_review_approval
  * * `cohort` - cohort
  * * `comment` - comment
  * * `conversation` - conversation
@@ -133,19 +135,16 @@ export const ResolvedAccessSourceSubjectEnumApi = {
  * * `query` - query
  * * `query_performance` - query_performance
  * * `replay_scanner` - replay_scanner
- * * `review_hog` - review_hog
  * * `revenue_analytics` - revenue_analytics
  * * `session_recording` - session_recording
  * * `session_recording_playlist` - session_recording_playlist
  * * `sharing_configuration` - sharing_configuration
  * * `signal_scout` - signal_scout
  * * `signal_usage` - signal_usage
- * * `stamphog` - stamphog
  * * `streamlit_app` - streamlit_app
  * * `subscription` - subscription
  * * `support_ticket` - support_ticket
  * * `survey` - survey
- * * `tagger` - tagger
  * * `ticket` - ticket
  * * `task` - task
  * * `today` - today
@@ -187,6 +186,8 @@ export const ScopeObjectEnumApi = {
     Billing: 'billing',
     BusinessKnowledge: 'business_knowledge',
     Canvas: 'canvas',
+    CodeReview: 'code_review',
+    CodeReviewApproval: 'code_review_approval',
     Cohort: 'cohort',
     Comment: 'comment',
     Conversation: 'conversation',
@@ -260,19 +261,16 @@ export const ScopeObjectEnumApi = {
     Query: 'query',
     QueryPerformance: 'query_performance',
     ReplayScanner: 'replay_scanner',
-    ReviewHog: 'review_hog',
     RevenueAnalytics: 'revenue_analytics',
     SessionRecording: 'session_recording',
     SessionRecordingPlaylist: 'session_recording_playlist',
     SharingConfiguration: 'sharing_configuration',
     SignalScout: 'signal_scout',
     SignalUsage: 'signal_usage',
-    Stamphog: 'stamphog',
     StreamlitApp: 'streamlit_app',
     Subscription: 'subscription',
     SupportTicket: 'support_ticket',
     Survey: 'survey',
-    Tagger: 'tagger',
     Ticket: 'ticket',
     Task: 'task',
     Today: 'today',
@@ -337,6 +335,8 @@ export interface ProjectAccessSourceApi {
      * * `billing` - billing
      * * `business_knowledge` - business_knowledge
      * * `canvas` - canvas
+     * * `code_review` - code_review
+     * * `code_review_approval` - code_review_approval
      * * `cohort` - cohort
      * * `comment` - comment
      * * `conversation` - conversation
@@ -410,19 +410,16 @@ export interface ProjectAccessSourceApi {
      * * `query` - query
      * * `query_performance` - query_performance
      * * `replay_scanner` - replay_scanner
-     * * `review_hog` - review_hog
      * * `revenue_analytics` - revenue_analytics
      * * `session_recording` - session_recording
      * * `session_recording_playlist` - session_recording_playlist
      * * `sharing_configuration` - sharing_configuration
      * * `signal_scout` - signal_scout
      * * `signal_usage` - signal_usage
-     * * `stamphog` - stamphog
      * * `streamlit_app` - streamlit_app
      * * `subscription` - subscription
      * * `support_ticket` - support_ticket
      * * `survey` - survey
-     * * `tagger` - tagger
      * * `ticket` - ticket
      * * `task` - task
      * * `today` - today
@@ -507,6 +504,8 @@ export interface AccessControlObjectRuleApi {
      * * `billing` - billing
      * * `business_knowledge` - business_knowledge
      * * `canvas` - canvas
+     * * `code_review` - code_review
+     * * `code_review_approval` - code_review_approval
      * * `cohort` - cohort
      * * `comment` - comment
      * * `conversation` - conversation
@@ -580,19 +579,16 @@ export interface AccessControlObjectRuleApi {
      * * `query` - query
      * * `query_performance` - query_performance
      * * `replay_scanner` - replay_scanner
-     * * `review_hog` - review_hog
      * * `revenue_analytics` - revenue_analytics
      * * `session_recording` - session_recording
      * * `session_recording_playlist` - session_recording_playlist
      * * `sharing_configuration` - sharing_configuration
      * * `signal_scout` - signal_scout
      * * `signal_usage` - signal_usage
-     * * `stamphog` - stamphog
      * * `streamlit_app` - streamlit_app
      * * `subscription` - subscription
      * * `support_ticket` - support_ticket
      * * `survey` - survey
-     * * `tagger` - tagger
      * * `ticket` - ticket
      * * `task` - task
      * * `today` - today
@@ -660,6 +656,8 @@ export interface AccessControlPropertyRulesResponseApi {
  * * `activity_log` - activity_log
  * * `ai_observability_clusters` - ai_observability_clusters
  * * `business_knowledge` - business_knowledge
+ * * `canvas` - canvas
+ * * `code_review_approval` - code_review_approval
  * * `customer_analytics` - customer_analytics
  * * `customer_journey` - customer_journey
  * * `customer_task` - customer_task
@@ -699,9 +697,7 @@ export interface AccessControlPropertyRulesResponseApi {
  * * `session_recording` - session_recording
  * * `session_recording_playlist` - session_recording_playlist
  * * `sharing_configuration` - sharing_configuration
- * * `stamphog` - stamphog
  * * `survey` - survey
- * * `tagger` - tagger
  * * `ticket` - ticket
  * * `toolbar` - toolbar
  * * `tracing` - tracing
@@ -720,6 +716,8 @@ export const RuleResourceEnumApi = {
     ActivityLog: 'activity_log',
     AiObservabilityClusters: 'ai_observability_clusters',
     BusinessKnowledge: 'business_knowledge',
+    Canvas: 'canvas',
+    CodeReviewApproval: 'code_review_approval',
     CustomerAnalytics: 'customer_analytics',
     CustomerJourney: 'customer_journey',
     CustomerTask: 'customer_task',
@@ -759,9 +757,7 @@ export const RuleResourceEnumApi = {
     SessionRecording: 'session_recording',
     SessionRecordingPlaylist: 'session_recording_playlist',
     SharingConfiguration: 'sharing_configuration',
-    Stamphog: 'stamphog',
     Survey: 'survey',
-    Tagger: 'tagger',
     Ticket: 'ticket',
     Toolbar: 'toolbar',
     Tracing: 'tracing',
@@ -785,6 +781,8 @@ export interface AccessControlRuleRequestApi {
      * * `activity_log` - activity_log
      * * `ai_observability_clusters` - ai_observability_clusters
      * * `business_knowledge` - business_knowledge
+     * * `canvas` - canvas
+     * * `code_review_approval` - code_review_approval
      * * `customer_analytics` - customer_analytics
      * * `customer_journey` - customer_journey
      * * `customer_task` - customer_task
@@ -824,9 +822,7 @@ export interface AccessControlRuleRequestApi {
      * * `session_recording` - session_recording
      * * `session_recording_playlist` - session_recording_playlist
      * * `sharing_configuration` - sharing_configuration
-     * * `stamphog` - stamphog
      * * `survey` - survey
-     * * `tagger` - tagger
      * * `ticket` - ticket
      * * `toolbar` - toolbar
      * * `tracing` - tracing
@@ -908,6 +904,8 @@ export interface AccessControlObjectRuleResourceApi {
      * * `billing` - billing
      * * `business_knowledge` - business_knowledge
      * * `canvas` - canvas
+     * * `code_review` - code_review
+     * * `code_review_approval` - code_review_approval
      * * `cohort` - cohort
      * * `comment` - comment
      * * `conversation` - conversation
@@ -981,19 +979,16 @@ export interface AccessControlObjectRuleResourceApi {
      * * `query` - query
      * * `query_performance` - query_performance
      * * `replay_scanner` - replay_scanner
-     * * `review_hog` - review_hog
      * * `revenue_analytics` - revenue_analytics
      * * `session_recording` - session_recording
      * * `session_recording_playlist` - session_recording_playlist
      * * `sharing_configuration` - sharing_configuration
      * * `signal_scout` - signal_scout
      * * `signal_usage` - signal_usage
-     * * `stamphog` - stamphog
      * * `streamlit_app` - streamlit_app
      * * `subscription` - subscription
      * * `support_ticket` - support_ticket
      * * `survey` - survey
-     * * `tagger` - tagger
      * * `ticket` - ticket
      * * `task` - task
      * * `today` - today
@@ -1072,6 +1067,8 @@ export interface AccessControlMemberRuleRequestApi {
      * * `activity_log` - activity_log
      * * `ai_observability_clusters` - ai_observability_clusters
      * * `business_knowledge` - business_knowledge
+     * * `canvas` - canvas
+     * * `code_review_approval` - code_review_approval
      * * `customer_analytics` - customer_analytics
      * * `customer_journey` - customer_journey
      * * `customer_task` - customer_task
@@ -1111,9 +1108,7 @@ export interface AccessControlMemberRuleRequestApi {
      * * `session_recording` - session_recording
      * * `session_recording_playlist` - session_recording_playlist
      * * `sharing_configuration` - sharing_configuration
-     * * `stamphog` - stamphog
      * * `survey` - survey
-     * * `tagger` - tagger
      * * `ticket` - ticket
      * * `toolbar` - toolbar
      * * `tracing` - tracing
@@ -1202,6 +1197,8 @@ export interface ResolvedAccessApi {
      * * `billing` - billing
      * * `business_knowledge` - business_knowledge
      * * `canvas` - canvas
+     * * `code_review` - code_review
+     * * `code_review_approval` - code_review_approval
      * * `cohort` - cohort
      * * `comment` - comment
      * * `conversation` - conversation
@@ -1275,19 +1272,16 @@ export interface ResolvedAccessApi {
      * * `query` - query
      * * `query_performance` - query_performance
      * * `replay_scanner` - replay_scanner
-     * * `review_hog` - review_hog
      * * `revenue_analytics` - revenue_analytics
      * * `session_recording` - session_recording
      * * `session_recording_playlist` - session_recording_playlist
      * * `sharing_configuration` - sharing_configuration
      * * `signal_scout` - signal_scout
      * * `signal_usage` - signal_usage
-     * * `stamphog` - stamphog
      * * `streamlit_app` - streamlit_app
      * * `subscription` - subscription
      * * `support_ticket` - support_ticket
      * * `survey` - survey
-     * * `tagger` - tagger
      * * `ticket` - ticket
      * * `task` - task
      * * `today` - today
@@ -1391,6 +1385,8 @@ export interface AccessControlRoleRuleRequestApi {
      * * `activity_log` - activity_log
      * * `ai_observability_clusters` - ai_observability_clusters
      * * `business_knowledge` - business_knowledge
+     * * `canvas` - canvas
+     * * `code_review_approval` - code_review_approval
      * * `customer_analytics` - customer_analytics
      * * `customer_journey` - customer_journey
      * * `customer_task` - customer_task
@@ -1430,9 +1426,7 @@ export interface AccessControlRoleRuleRequestApi {
      * * `session_recording` - session_recording
      * * `session_recording_playlist` - session_recording_playlist
      * * `sharing_configuration` - sharing_configuration
-     * * `stamphog` - stamphog
      * * `survey` - survey
-     * * `tagger` - tagger
      * * `ticket` - ticket
      * * `toolbar` - toolbar
      * * `tracing` - tracing

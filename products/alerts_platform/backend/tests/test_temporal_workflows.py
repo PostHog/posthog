@@ -430,14 +430,14 @@ async def test_a_split_delivery_sends_every_part_then_routes_each_even_after_one
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "refusal, attempts",
+    "refusal, attempts, fails",
     [
-        (RefusedEverywhere("1 destination(s) failed: Slack refused the message: not_in_channel."), 1),
-        (DeliveryError("2 destination(s) failed: not_in_channel; ConnectTimeout"), 3),
+        (RefusedEverywhere("1 destination(s) failed: Slack refused the message: not_in_channel."), 1, False),
+        (DeliveryError("2 destination(s) failed: not_in_channel; ConnectTimeout"), 3, True),
     ],
 )
-async def test_a_delivery_refused_everywhere_is_not_retried(
-    environment: WorkflowEnvironment, refusal: DeliveryError, attempts: int
+async def test_a_delivery_refused_everywhere_completes_without_a_retry(
+    environment: WorkflowEnvironment, refusal: DeliveryError, attempts: int, fails: bool
 ) -> None:
     calls: list[str] = []
 
@@ -470,12 +470,14 @@ async def test_a_delivery_refused_everywhere_is_not_retried(
                 task_queue=settings.ALERTS_PLATFORM_DELIVERY_TASK_QUEUE,
                 execution_timeout=DELIVERY_EXECUTION_TIMEOUT,
             )
-            with pytest.raises(WorkflowFailureError) as failure:
-                await handle.result()
+            if fails:
+                with pytest.raises(WorkflowFailureError) as failure:
+                    await handle.result()
+                assert isinstance(failure.value.cause, ActivityError)
+                assert "not_in_channel" in str(failure.value.cause.cause)
+            else:
+                assert await handle.result() is None
 
-    assert isinstance(failure.value.cause, ActivityError)
-    assert isinstance(failure.value.cause.cause, ApplicationError)
-    assert "not_in_channel" in str(failure.value.cause.cause)
     assert len(calls) == attempts
 
 

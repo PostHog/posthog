@@ -315,6 +315,9 @@ class TestNonRetryableErrors:
             # Real requests HTTPError strings from Snapchat's Marketing API.
             "404 Client Error: Not Found for url: https://adsapi.snapchat.com/v1/adaccounts/abc/stats",
             "403 Client Error: Forbidden for url: https://adsapi.snapchat.com/v1/adaccounts/abc/stats",
+            # A stats response too large to process, reported with Snapchat's E9012 code and
+            # appended by the shared REST client as `| api error: code=E9012`.
+            "400 Client Error: Bad Request for url: https://adsapi.snapchat.com/v1/adaccounts/abc/stats | api error: code=E9012",
         ]
     )
     def test_permanent_client_errors_are_non_retryable(self, error_msg: str) -> None:

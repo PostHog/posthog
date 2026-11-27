@@ -15,7 +15,7 @@ from django.utils import timezone
 import structlog
 from disposable_email_domains import blocklist as disposable_email_domains_list
 from free_email_domains import whitelist as free_email_domains_list
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
@@ -53,6 +53,9 @@ ORGANIZATION_PROOF_TOKEN_KEY = "organization_proof_token"
 # Set on every sender of a domain once two organizations claim it, and never cleared, so a claim that outlives the
 # other claims cannot verify from DNS records another organization published.
 ORGANIZATION_PROOF_REQUIRED_KEY = "organization_proof_required"
+# Kept apart from `verified`, because the expiry task deletes unverified senders even when workflows use them.
+SES_SENDING_STATUS_KEY = "ses_sending_status"
+SES_SENDING_FAILED = "failed"
 
 
 def _duplicate_sender_error(email_address: str) -> ValidationError:
@@ -258,7 +261,9 @@ class EmailIntegration:
         except IntegrationConflict:
             raise _duplicate_sender_error(email_address)
 
-    def update_native_integration(self, config: dict, team_id: int) -> model.Integration:
+    def update_native_integration(
+        self, config: dict, team_id: int, *, keep_shared_mail_from: bool = False
+    ) -> model.Integration:
         provider = self.integration.config.get("provider")
         domain = self.integration.config.get("domain")
         # Only name, mail_from_subdomain, reply_to and setup_method can be updated
@@ -270,7 +275,9 @@ class EmailIntegration:
         mail_from_changed = mail_from_subdomain != self.integration.config.get("mail_from_subdomain", "feedback")
 
         if provider not in ("ses", "maildev") or (provider == "maildev" and not settings.DEBUG):
-            raise ValueError(f"Invalid provider: must be 'ses'")
+            raise ValidationError(
+                "This sender uses an email provider that cannot be updated. Create a new sender instead."
+            )
 
         if mail_from_changed:
             # The identity at the provider is shared by every organization that added the domain, so a claim that has
@@ -280,6 +287,10 @@ class EmailIntegration:
             with transaction.atomic():
                 with connection.cursor() as cursor:
                     lock_sender_domain(cursor, domain)
+                if keep_shared_mail_from and self._shares_domain_with_other_projects():
+                    raise PermissionDenied(
+                        "Other projects send from this domain, so change its MAIL FROM subdomain in PostHog."
+                    )
                 current = row_writes.reread_row(self.integration)
                 if not current.config.get("verified") and self._requires_organization_proof(current) and not proven:
                     raise ValidationError(
@@ -306,6 +317,18 @@ class EmailIntegration:
         reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
 
         return self.integration
+
+    def _shares_domain_with_other_projects(self) -> bool:
+        return (
+            model.Integration.objects.filter(kind="email", config__domain=self.integration.config.get("domain"))
+            .exclude(team_id=self.integration.team_id)
+            .exists()
+        )
+
+    def reject_address_change(self, email_address: str) -> None:
+        stored_address = self.integration.config.get("email") or self.integration.integration_id
+        if stored_address and email_address.lower() != stored_address.lower():
+            raise ValidationError(f"The sender address cannot change. Create a new sender for {email_address} instead.")
 
     def _adopt_mail_from_subdomain_ses_uses(self, stored_mail_from_subdomain: str) -> None:
         from products.workflows.backend.facade.api import (
@@ -489,10 +512,14 @@ class EmailIntegration:
 
     def _record_verification(self) -> UpdatedRows:
         original = self.integration
-        senders = row_writes.row_accessor(original).update_where(
+        same_domain = {"domain": original.config.get("domain"), "provider": original.config.get("provider", "ses")}
+        row_writes.row_accessor(original).update_where(
             original.team_id,
-            where={"domain": original.config.get("domain"), "provider": original.config.get("provider", "ses")},
-            patch=IntegrationPatch(config_patch={"verified": True}),
+            where={**same_domain, SES_SENDING_STATUS_KEY: SES_SENDING_FAILED},
+            patch=IntegrationPatch(config_remove=(SES_SENDING_STATUS_KEY,)),
+        )
+        senders = row_writes.row_accessor(original).update_where(
+            original.team_id, where=same_domain, patch=IntegrationPatch(config_patch={"verified": True})
         )
         fresh = next((sender for sender in senders.records if sender.id == original.id), None)
         if fresh is None:

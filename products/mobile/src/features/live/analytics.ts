@@ -2,6 +2,11 @@ import type { NavChrome } from '@/features/tabs/navPinStore'
 import { track } from '@/lib/analytics'
 import type { LiveBreakdownKind, LiveEventKind, LiveProjectState } from '@/model/live'
 import type { ViewEntry } from '@/model/views'
+import type { LivePreference } from './livePreference'
+
+export function trackLiveAudienceChanged(props: { preference: LivePreference }): void {
+    track('mobile_live_audience_changed', props)
+}
 
 /** `load_failed`: the first read failed and the screen has nothing to show. `refresh_failed`: a later read failed. */
 export type LiveErrorKind = 'load_failed' | 'refresh_failed'

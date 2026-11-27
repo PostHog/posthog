@@ -1,6 +1,9 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -9,6 +12,11 @@ import { transactionalEmailLogLogic } from './transactionalEmailLogLogic'
 const NOW = '2026-03-15T12:00:00.000Z'
 const LATER = '2026-03-15T12:05:00.000Z'
 const LAST_WEEK = { date_from: '2026-03-08T00:00:00.000Z', date_to: NOW, limit: '50' }
+
+const setSendLinks = (on: boolean): void =>
+    featureFlagLogic.actions.setFeatureFlags(on ? [FEATURE_FLAGS.WORKFLOWS_EMAIL_SEND_LINKS] : [], {
+        [FEATURE_FLAGS.WORKFLOWS_EMAIL_SEND_LINKS]: on,
+    })
 
 const sends = (n: number): { message_id: string }[] => Array.from({ length: n }, (_, i) => ({ message_id: `msg-${i}` }))
 
@@ -33,6 +41,8 @@ describe('transactionalEmailLogLogic', () => {
             },
         })
         initKeaTests()
+        featureFlagLogic.mount()
+        setSendLinks(true)
         router.actions.push('/transactional/log', { tab: 'sends' })
         logic = transactionalEmailLogLogic()
         logic.mount()
@@ -108,10 +118,11 @@ describe('transactionalEmailLogLogic', () => {
         expect(logic.values.emails.map((e) => e.message_id)).toEqual(['msg-0'])
     })
 
-    it('writes every filter but the search to the URL, keeping params it does not own', async () => {
+    it('writes every filter but the search to the URL, keeping params it does not own, and a new status drops the reason', async () => {
         logic.actions.setFilters({
             search: 'ada@example.com',
             status: 'bounced',
+            reason: 'soft',
             workflowId: 'flow-1',
             dateFrom: '-14d',
             dateTo: '2026-03-14',
@@ -120,6 +131,7 @@ describe('transactionalEmailLogLogic', () => {
         expect(router.values.searchParams).toEqual({
             tab: 'sends',
             status: 'bounced',
+            reason: 'soft',
             email: 'flow-1',
             date_from: '-14d',
             date_to: '2026-03-14',
@@ -128,6 +140,33 @@ describe('transactionalEmailLogLogic', () => {
 
         logic.actions.setFilters({ status: null, workflowId: null, dateFrom: '-7d', dateTo: null })
         expect(router.values.searchParams).toEqual({ tab: 'sends' })
+    })
+
+    it("lists only one email's sends on its own page, with the other filters read from and written to that page", async () => {
+        router.actions.push('/transactional/code-emails/code-1', { tab: 'sends', status: 'bounced', date_from: '-3d' })
+        const scoped = transactionalEmailLogLogic({ workflowId: 'flow-1' })
+        scoped.mount()
+        await expectLogic(scoped).toFinishAllListeners()
+
+        expect(requests.at(-1)).toEqual({
+            ...LAST_WEEK,
+            date_from: '2026-03-12T00:00:00.000Z',
+            status: 'bounced',
+            workflow_id: 'flow-1',
+            offset: '0',
+        })
+
+        scoped.actions.setFilters({ workflowId: null, status: null })
+        await expectLogic(scoped).toFinishAllListeners()
+
+        expect(requests.at(-1)).toEqual({
+            ...LAST_WEEK,
+            date_from: '2026-03-12T00:00:00.000Z',
+            workflow_id: 'flow-1',
+            offset: '0',
+        })
+        expect(router.values.searchParams).toEqual({ tab: 'sends', date_from: '-3d' })
+        scoped.unmount()
     })
 
     it.each([
@@ -139,13 +178,14 @@ describe('transactionalEmailLogLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         router.actions.push(
-            `/transactional/log?status=failed&email=flow-2&date_from=-3d&date_to=2026-03-14&${pageParam}`
+            `/transactional/log?status=failed&reason=sending_paused&email=flow-2&date_from=-3d&date_to=2026-03-14&${pageParam}`
         )
         await expectLogic(logic).toFinishAllListeners()
 
         expect(requests.at(-1)).toEqual({
             search: 'ada',
             status: 'failed',
+            reason: 'sending_paused',
             workflow_id: 'flow-2',
             date_from: '2026-03-12T00:00:00.000Z',
             date_to: '2026-03-14T00:00:00.000Z',
@@ -153,4 +193,27 @@ describe('transactionalEmailLogLogic', () => {
             offset,
         })
     })
+
+    it.each([
+        ['without the send links flag', false, 'status=failed&reason=sending_paused', { status: 'failed' }],
+        ['without a status', true, 'reason=soft', {}],
+        ['under a status it does not belong to', true, 'status=failed&reason=soft', { status: 'failed' }],
+    ])(
+        'ignores the reason of a shared link %s, whose page shows no Reason filter',
+        async (_name, sendLinks, query, sent) => {
+            setSendLinks(sendLinks)
+
+            router.actions.push(`/transactional/log?${query}`)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(requests.at(-1)).toEqual({
+                ...sent,
+                date_from: LAST_WEEK.date_from,
+                date_to: NOW,
+                limit: '50',
+                offset: '0',
+            })
+            expect(logic.values.filters.reason).toBeNull()
+        }
+    )
 })

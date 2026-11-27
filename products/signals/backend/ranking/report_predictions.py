@@ -38,8 +38,8 @@ class ReportPredictions:
     predictions: tuple[OutcomePrediction, ...] = ()
 
     def probability(self, outcome: PublicOutcomeName) -> float | None:
-        """The probability that the model sorts and filters use: None unless the score describes the current text."""
-        if self.status != "scored":
+        """The probability that the model sorts and filters use. A stale score still counts."""
+        if self.status == "unscored":
             return None
         return next((entry.probability for entry in self.predictions if entry.outcome == outcome), None)
 

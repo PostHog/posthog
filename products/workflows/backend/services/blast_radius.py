@@ -1,16 +1,16 @@
-"""Batch audience sizing and paging: the preview counts the editor shows, and the pages the Node
+"""Batch audience sizing: the preview counts the editor shows, and the account audience pages the Node
 batch resolver walks when it sends."""
 
+import json
+import hashlib
 from typing import Any
 
-from django.conf import settings
 from django.core.cache import cache
 
 from posthog.models.property import GroupTypeIndex
 from posthog.models.team.team import Team
 
-from products.feature_flags.backend.person_sampling import bounded_memory_settings
-from products.feature_flags.backend.user_blast_radius import get_user_blast_radius
+from products.feature_flags.backend.user_blast_radius import BlastRadiusResult, get_user_blast_radius
 from products.workflows.backend.facade.contracts import AudiencePage, AudienceSize, RealtimeAudienceCohort
 from products.workflows.backend.services.account_audience import (
     ACCOUNT_BATCH_SIZE,
@@ -19,7 +19,6 @@ from products.workflows.backend.services.account_audience import (
     get_account_group_type_name as _get_account_group_type_name,
 )
 from products.workflows.backend.services.audience_v2 import get_dedupe_audience_count_v2, get_person_audience_count_v2
-from products.workflows.backend.services.batch_audience import audience_page_size, get_batch_audience_person_ids
 from products.workflows.backend.services.batch_audience_cohorts import (
     find_realtime_behavioral_cohort,
     realtime_audience_cohort,
@@ -27,11 +26,16 @@ from products.workflows.backend.services.batch_audience_cohorts import (
     realtime_cohort_is_ready,
     realtime_cohort_status,
 )
+from products.workflows.backend.services.batch_audience_test_accounts import skipped_test_account_filter_keys
 from products.workflows.backend.utils.batch_trigger_limit import resolve_batch_audience_limit
 
 # An open send screen re-sizes a realtime cohort audience every few seconds while the cohort calculates. The
 # project's person total only gives the count context, so it is counted once per window, not on every check.
 REALTIME_AUDIENCE_TOTAL_CACHE_SECONDS = 600
+# The editor re-sizes the audience on every open and every filter edit, so the same audience is counted again and
+# again within minutes, and each count reads the team's whole person table. The preview is a sampled estimate, so a
+# few minutes of staleness doesn't change what it tells the user.
+AUDIENCE_COUNT_CACHE_SECONDS = 600
 
 
 def _realtime_audience_total(team: Team) -> int:
@@ -41,6 +45,31 @@ def _realtime_audience_total(team: Team) -> int:
         total = get_person_audience_count_v2(team, {"properties": []}).total
         cache.set(cache_key, total, REALTIME_AUDIENCE_TOTAL_CACHE_SECONDS)
     return total
+
+
+def _count_audience(
+    team: Team, filters: dict, group_type_index: GroupTypeIndex | None, dedupe_key: str | None
+) -> BlastRadiusResult:
+    if group_type_index is not None:
+        return get_user_blast_radius(team, filters, group_type_index)
+    if dedupe_key is not None:
+        return get_dedupe_audience_count_v2(team, filters, dedupe_key)
+    return get_person_audience_count_v2(team, filters)
+
+
+def _cached_count_audience(
+    team: Team, filters: dict, group_type_index: GroupTypeIndex | None, dedupe_key: str | None
+) -> BlastRadiusResult:
+    audience = json.dumps(
+        [filters, group_type_index, dedupe_key, team.test_account_filters], sort_keys=True, default=str
+    )
+    cache_key = f"workflows:audience_count:{team.pk}:{hashlib.sha256(audience.encode()).hexdigest()}"
+    cached = cache.get(cache_key)
+    if isinstance(cached, tuple) and len(cached) == 2:
+        return BlastRadiusResult(affected=cached[0], total=cached[1])
+    result = _count_audience(team, filters, group_type_index, dedupe_key)
+    cache.set(cache_key, (result.affected, result.total), AUDIENCE_COUNT_CACHE_SECONDS)
+    return result
 
 
 def _top_level_cohort_ids(filters: dict) -> list[int | str]:
@@ -65,6 +94,7 @@ def get_audience_size(
     dedupe_key: str | None,
     sends_email: bool,
     email_rate_limit: dict[str, Any] | None = None,
+    use_cached_counts: bool = False,
 ) -> AudienceSize:
     team = Team.objects.get(id=team_id)
     audience_limit = resolve_batch_audience_limit(team_id, sends_email=sends_email, email_rate_limit=email_rate_limit)
@@ -86,13 +116,10 @@ def get_audience_size(
             realtime_cohort=realtime_cohort_status(realtime_cohort),
             rate_limited=audience_limit.rate_limited,
         )
-    if group_type_index is not None:
-        blast_radius = get_user_blast_radius(team, filters, group_type_index)
-    elif dedupe_key is not None:
-        blast_radius = get_dedupe_audience_count_v2(team, filters, dedupe_key)
+    if group_type_index is None:
         applied_dedupe_key = dedupe_key
-    else:
-        blast_radius = get_person_audience_count_v2(team, filters)
+    count = _cached_count_audience if use_cached_counts else _count_audience
+    blast_radius = count(team, filters, group_type_index, applied_dedupe_key)
 
     mixed_realtime_cohort = (
         find_realtime_behavioral_cohort(team.project_id, _top_level_cohort_ids(filters))
@@ -105,6 +132,9 @@ def get_audience_size(
         limit=audience_limit.limit,
         dedupe_key=applied_dedupe_key,
         rate_limited=audience_limit.rate_limited,
+        skipped_test_account_filters=(
+            skipped_test_account_filter_keys(team, filters) if group_type_index is None else []
+        ),
         realtime_cohort_with_other_conditions=(
             RealtimeAudienceCohort(
                 id=mixed_realtime_cohort.pk,
@@ -130,25 +160,6 @@ def get_account_audience_size(
         dedupe_key=None,
         rate_limited=audience_limit.rate_limited,
     )
-
-
-def get_audience_person_page(
-    *,
-    team_id: int,
-    filters: dict,
-    group_type_index: GroupTypeIndex | None,
-    cursor: str | None,
-    dedupe_key: str | None,
-) -> AudiencePage:
-    team = Team.objects.get(id=team_id)
-    enumeration_settings = None
-    if group_type_index is None:
-        enumeration_settings = bounded_memory_settings()
-        enumeration_settings.max_execution_time = settings.WORKFLOWS_BATCH_AUDIENCE_QUERY_TIMEOUT_SECONDS
-    ids = get_batch_audience_person_ids(
-        team, filters, group_type_index, cursor, dedupe_key=dedupe_key, settings=enumeration_settings
-    )
-    return AudiencePage(ids=ids, has_more=len(ids) == audience_page_size(group_type_index))
 
 
 def get_account_audience_ids_page(*, team_id: int, filters: dict, cursor: str | None) -> AudiencePage:

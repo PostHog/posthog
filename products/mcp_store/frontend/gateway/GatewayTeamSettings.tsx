@@ -8,7 +8,7 @@ import { urls } from 'scenes/urls'
 import { ServerIcon } from '../scene/icons'
 import { GatewayServerEntry, isTemplateOnlyServer, mcpGatewayLogic } from './mcpGatewayLogic'
 
-const SERVER_PREVIEW_LIMIT = 10
+export const SERVER_PREVIEW_LIMIT = 10
 
 interface gatewayTeamSettingsViewLogicValues {
     serverSearch: string
@@ -25,7 +25,7 @@ type gatewayTeamSettingsViewLogicType = MakeLogicType<
     gatewayTeamSettingsViewLogicActions
 >
 
-const gatewayTeamSettingsViewLogic = kea<gatewayTeamSettingsViewLogicType>([
+export const gatewayTeamSettingsViewLogic = kea<gatewayTeamSettingsViewLogicType>([
     path(['products', 'mcp_store', 'frontend', 'gateway', 'gatewayTeamSettingsViewLogic']),
     actions({
         setServerSearch: (serverSearch: string) => ({ serverSearch }),
@@ -43,29 +43,36 @@ const gatewayTeamSettingsViewLogic = kea<gatewayTeamSettingsViewLogicType>([
     }),
 ])
 
-export interface GatewayTeamSettingsProps {
-    onOpenServer?: (id: string) => void
+export interface GatewayTeamSettingsViewState {
+    filteredServers: GatewayServerEntry[]
+    displayedServers: GatewayServerEntry[]
+    teamSettingsMutationInProgress: boolean
+    configMutationDisabledReason: string | undefined
+    enableAllDisabledReason: string | null
+    disableAllDisabledReason: string | null
 }
 
-export function GatewayTeamSettings({ onOpenServer }: GatewayTeamSettingsProps = {}): JSX.Element {
-    const {
-        allServersEnabledTarget,
-        allowCustomServers,
-        allowCustomServersLoading,
-        allowMemberAgentAccess,
-        allowMemberAgentAccessLoading,
-        configLoading,
-        configMutationInProgress,
-        defaultServersEnabled,
-        enabledServerCount,
-        mergedServers,
-        serverEnabledLoadingIds,
-        templateEnabledLoadingIds,
-    } = useValues(mcpGatewayLogic)
-    const { setAllowCustomServers, setAllowMemberAgentAccess, setAllServersEnabled } = useActions(mcpGatewayLogic)
-    const { serverSearch, serversExpanded } = useValues(gatewayTeamSettingsViewLogic)
-    const { setServerSearch, toggleServersExpanded } = useActions(gatewayTeamSettingsViewLogic)
-
+export function gatewayTeamSettingsViewState({
+    configLoading,
+    configMutationInProgress,
+    defaultServersEnabled,
+    enabledServerCount,
+    mergedServers,
+    serverEnabledLoadingIds,
+    templateEnabledLoadingIds,
+    serverSearch,
+    serversExpanded,
+}: {
+    configLoading: boolean
+    configMutationInProgress: boolean
+    defaultServersEnabled: boolean
+    enabledServerCount: number
+    mergedServers: GatewayServerEntry[]
+    serverEnabledLoadingIds: Set<string>
+    templateEnabledLoadingIds: Set<string>
+    serverSearch: string
+    serversExpanded: boolean
+}): GatewayTeamSettingsViewState {
     const normalizedServerSearch = serverSearch.trim().toLowerCase()
     const filteredServers = mergedServers
         .filter(
@@ -98,6 +105,58 @@ export function GatewayTeamSettings({ onOpenServer }: GatewayTeamSettingsProps =
         : !defaultServersEnabled && enabledServerCount === 0
           ? 'All servers are already disabled'
           : null
+
+    return {
+        filteredServers,
+        displayedServers,
+        teamSettingsMutationInProgress,
+        configMutationDisabledReason,
+        enableAllDisabledReason,
+        disableAllDisabledReason,
+    }
+}
+
+export interface GatewayTeamSettingsProps {
+    onOpenServer?: (id: string) => void
+}
+
+export function GatewayTeamSettings({ onOpenServer }: GatewayTeamSettingsProps = {}): JSX.Element {
+    const {
+        allServersEnabledTarget,
+        allowCustomServers,
+        allowCustomServersLoading,
+        allowMemberAgentAccess,
+        allowMemberAgentAccessLoading,
+        configLoading,
+        configMutationInProgress,
+        defaultServersEnabled,
+        enabledServerCount,
+        mergedServers,
+        serverEnabledLoadingIds,
+        templateEnabledLoadingIds,
+    } = useValues(mcpGatewayLogic)
+    const { setAllowCustomServers, setAllowMemberAgentAccess, setAllServersEnabled } = useActions(mcpGatewayLogic)
+    const { serverSearch, serversExpanded } = useValues(gatewayTeamSettingsViewLogic)
+    const { setServerSearch, toggleServersExpanded } = useActions(gatewayTeamSettingsViewLogic)
+
+    const {
+        filteredServers,
+        displayedServers,
+        teamSettingsMutationInProgress,
+        configMutationDisabledReason,
+        enableAllDisabledReason,
+        disableAllDisabledReason,
+    } = gatewayTeamSettingsViewState({
+        configLoading,
+        configMutationInProgress,
+        defaultServersEnabled,
+        enabledServerCount,
+        mergedServers,
+        serverEnabledLoadingIds,
+        templateEnabledLoadingIds,
+        serverSearch,
+        serversExpanded,
+    })
 
     return (
         <div className="flex flex-col gap-6 min-w-0">
@@ -238,6 +297,37 @@ export function GatewayTeamSettings({ onOpenServer }: GatewayTeamSettingsProps =
     )
 }
 
+export function gatewayServerAccessRowState(
+    server: GatewayServerEntry,
+    serverEnabledLoadingIds: Set<string>,
+    templateEnabledLoadingIds: Set<string>
+): { templateOnly: boolean; rowLoading: boolean; serverUpdateInProgress: boolean } {
+    // Untouched catalog templates have no registry row yet: toggling one
+    // materializes it through set_template_enabled instead of a PATCH.
+    const templateOnly = isTemplateOnlyServer(server)
+    const rowLoading =
+        templateOnly && server.template_id
+            ? templateEnabledLoadingIds.has(server.template_id)
+            : serverEnabledLoadingIds.has(server.id)
+    const serverUpdateInProgress = serverEnabledLoadingIds.size > 0 || templateEnabledLoadingIds.size > 0
+
+    return { templateOnly, rowLoading, serverUpdateInProgress }
+}
+
+export function setGatewayServerTeamEnabled(
+    server: GatewayServerEntry,
+    templateOnly: boolean,
+    checked: boolean,
+    setTemplateEnabled: (templateId: string, enabled: boolean) => void,
+    toggleServerEnabled: (serverId: string, enabled: boolean) => void
+): void {
+    if (templateOnly && server.template_id) {
+        setTemplateEnabled(server.template_id, checked)
+    } else {
+        toggleServerEnabled(server.id, checked)
+    }
+}
+
 function GatewayServerAccessRow({
     server,
     onOpenServer,
@@ -248,14 +338,11 @@ function GatewayServerAccessRow({
     const { configMutationInProgress, serverEnabledLoadingIds, templateEnabledLoadingIds } = useValues(mcpGatewayLogic)
     const { toggleServerEnabled, setTemplateEnabled } = useActions(mcpGatewayLogic)
 
-    // Untouched catalog templates have no registry row yet: toggling one
-    // materializes it through set_template_enabled instead of a PATCH.
-    const templateOnly = isTemplateOnlyServer(server)
-    const rowLoading =
-        templateOnly && server.template_id
-            ? templateEnabledLoadingIds.has(server.template_id)
-            : serverEnabledLoadingIds.has(server.id)
-    const serverUpdateInProgress = serverEnabledLoadingIds.size > 0 || templateEnabledLoadingIds.size > 0
+    const { templateOnly, rowLoading, serverUpdateInProgress } = gatewayServerAccessRowState(
+        server,
+        serverEnabledLoadingIds,
+        templateEnabledLoadingIds
+    )
 
     return (
         <div className={`flex items-center gap-3 p-2 ${server.is_team_enabled ? '' : 'opacity-60'}`}>
@@ -296,11 +383,7 @@ function GatewayServerAccessRow({
                     if (rowLoading || configMutationInProgress || serverUpdateInProgress) {
                         return
                     }
-                    if (templateOnly && server.template_id) {
-                        setTemplateEnabled(server.template_id, checked)
-                    } else {
-                        toggleServerEnabled(server.id, checked)
-                    }
+                    setGatewayServerTeamEnabled(server, templateOnly, checked, setTemplateEnabled, toggleServerEnabled)
                 }}
             />
         </div>

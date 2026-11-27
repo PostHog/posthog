@@ -401,7 +401,7 @@ tools:
         scopes:
             - survey:read
         annotations:
-            readOnly: true
+            readOnly: false
             destructive: false
             idempotent: false
         title: Summarize survey responses (per question, or survey-wide headline).

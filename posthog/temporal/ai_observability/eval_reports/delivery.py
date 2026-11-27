@@ -6,18 +6,21 @@ email HTML body and Slack Block Kit payloads from that shape.
 """
 
 import re
+import html
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from urllib.parse import quote, urlencode
 
 import structlog
 from markdown_it import MarkdownIt
+from markdown_it.token import Token
 from markdown_to_mrkdwn import SlackMarkdownConverter
 from slack_sdk.errors import SlackApiError
 
 from posthog.dataclasses import frozen
+from posthog.helpers.email_utils import defang_urls
 from posthog.models.team import Team
-from posthog.slack.formatting import channel_id_from_target
+from posthog.slack.formatting import channel_id_from_target, escape_slack_mrkdwn
 from posthog.temporal.ai_observability.eval_reports.auto_disable import disable_undeliverable_report
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
     METRICS_UNAVAILABLE_MESSAGE,
@@ -35,12 +38,39 @@ logger = structlog.get_logger(__name__)
 # to avoid duplicated titles. See EvaluationReportViewer.tsx for the parallel fix.
 _LEADING_HEADING_RE = re.compile(r"^\s*#{1,6}\s+(.+?)\s*(?:\r?\n|$)")
 
-# html=False escapes any raw HTML in the markdown source — defense in depth
-# even though the markdown is produced by our own LLM agent via structured tools.
-_md = MarkdownIt("commonmark", {"html": False}).enable("table")
-_slack_converter = SlackMarkdownConverter()
+
+# The agent writes the markdown, but it reads customer trace content, so a prompt injection can steer
+# what it writes. Both renderers make only the citation links clickable: in email, html=False escapes raw
+# HTML, images are off, links render only when they point at a cited trace, and URL-shaped text is defanged.
+class _CitationLinksMarkdownIt(MarkdownIt):
+    def __init__(self, citation_urls: set[str]):
+        super().__init__("commonmark", {"html": False})
+        self.enable("table").disable("image")
+        self._citation_urls = {self.normalizeLink(url) for url in citation_urls}
+        # Mail clients auto-link URL- and domain-shaped text, so every text and code node is defanged too.
+        self.add_render_rule("text", lambda _renderer, tokens, idx, _options, _env: _defang(tokens[idx]))
+        self.add_render_rule(
+            "code_inline", lambda _renderer, tokens, idx, _options, _env: f"<code>{_defang(tokens[idx])}</code>"
+        )
+        for block in ("code_block", "fence"):
+            self.add_render_rule(
+                block,
+                lambda _renderer, tokens, idx, _options, _env: f"<pre><code>{_defang(tokens[idx])}</code></pre>\n",
+            )
+
+    def validateLink(self, url: str) -> bool:
+        return url in self._citation_urls
+
+
+def _defang(token: Token) -> str:
+    return defang_urls(html.escape(token.content))
+
 
 _INVITE_UTM_TAGS = "utm_source=posthog&utm_campaign=eval_report&utm_medium=slack"
+
+_EMAIL_NO_ADDRESSES_ERROR = (
+    "Failed to send email: The email destination has no addresses. Add an address or remove the email destination."
+)
 
 _SLACK_RECONNECT_HINT = "The Slack connection no longer works. Reconnect Slack in your project settings."
 # Slack errors that no retry can fix, each with the step the user must take.
@@ -151,21 +181,16 @@ def _citation_link_label(cited_id: str, link: CitationLink) -> str:
     return "generation" if link.generation_id else "trace"
 
 
-def _linkify_citations(text: str, project_id: int, citation_map: CitationMap) -> str:
-    """Replace cited generation or trace IDs with clickable markdown links.
+def _citation_placeholders(text: str, citation_map: CitationMap) -> tuple[str, dict[str, str]]:
+    """Swap every cited generation or trace ID for a unique placeholder, mapped back to its ID.
 
     Uses the structured citation map (from add_citation calls) rather than
     scanning for UUID patterns. Only IDs the agent explicitly cited get linked.
     Handles common LLM formatting wrappers (backticks, angle brackets).
 
-    Two-phase approach avoids double-replacement: first swap every occurrence
-    of each cited ID to a unique placeholder, then replace placeholders with the
-    actual markdown links. This prevents cited IDs inside URLs from being matched.
+    Swapping every ID before any link is written keeps cited IDs inside the
+    generated URLs from being matched again.
     """
-    if not citation_map:
-        return text
-
-    # Phase 1: replace all occurrences of each cited ID with a placeholder.
     placeholders: dict[str, str] = {}
     for i, cited_id in enumerate(citation_map):
         placeholder = f"\x00CITE{i}\x00"
@@ -175,14 +200,22 @@ def _linkify_citations(text: str, project_id: int, citation_map: CitationMap) ->
             text = text.replace(wrapper, placeholder)
         if citation_map[cited_id].generation_id:
             text = text.replace(cited_id, placeholder)
+    return text, placeholders
 
-    # Phase 2: replace placeholders with markdown links.
+
+def _linkify_citations(text: str, project_id: int, citation_map: CitationMap) -> str:
+    """Replace cited generation or trace IDs with clickable markdown links."""
+    return _write_markdown_citation_links(*_citation_placeholders(text, citation_map), project_id, citation_map)
+
+
+def _write_markdown_citation_links(
+    text: str, placeholders: dict[str, str], project_id: int, citation_map: CitationMap
+) -> str:
     for placeholder, cited_id in placeholders.items():
         link = citation_map[cited_id]
-        url = _make_citation_link(project_id, link)
-        label = _citation_link_label(cited_id, link)
-        text = text.replace(placeholder, f"[{label}]({url})")
-
+        text = text.replace(
+            placeholder, f"[{_citation_link_label(cited_id, link)}]({_make_citation_link(project_id, link)})"
+        )
     return text
 
 
@@ -282,21 +315,40 @@ def _render_metrics_slack_blocks(metrics: EvalReportMetrics | None) -> list[dict
     return blocks
 
 
+# The agent writes sections without a length cap, and Slack conversion is super-linear on adversarial markdown, so
+# longer text is cut before it runs.
+_MAX_SECTION_CHARS = 20_000
+
+
+def _prepare_section(title: str, content: str, citation_map: CitationMap) -> tuple[str, dict[str, str]]:
+    """Cited IDs become placeholders before anything parses the text, so no later step can split or escape them."""
+    content = _strip_redundant_leading_heading(content[:_MAX_SECTION_CHARS], title)
+    return _citation_placeholders(content, citation_map)
+
+
 def _render_section_html(title: str, content: str, project_id: int, citation_map: CitationMap) -> str:
     """Render a titled markdown section as HTML with clickable trace links."""
-    content = _strip_redundant_leading_heading(content, title)
-    content_with_links = _linkify_citations(content, project_id, citation_map)
-    html_content = _md.render(content_with_links)
-    html_content = _inline_email_styles(html_content)
-    return f"<h2>{title}</h2>\n{html_content}\n"
+    content = _write_markdown_citation_links(*_prepare_section(title, content, citation_map), project_id, citation_map)
+    md = _CitationLinksMarkdownIt({_make_citation_link(project_id, link) for link in citation_map.values()})
+    html_content = _inline_email_styles(md.render(content))
+    return f"<h2>{defang_urls(html.escape(title))}</h2>\n{html_content}\n"
 
 
 def _render_section_mrkdwn(title: str, content: str, project_id: int, citation_map: CitationMap) -> str:
     """Render a titled markdown section as Slack mrkdwn with clickable trace links."""
-    content = _strip_redundant_leading_heading(content, title)
-    content = _linkify_citations(content, project_id, citation_map)
-    mrkdwn_content = _slack_converter.convert(content)
-    return f"*{title}*\n{mrkdwn_content}"
+    content, placeholders = _prepare_section(title, content, citation_map)
+    content = content.replace("&", "&amp;")
+    # Whatever syntax the agent used, a live `<!channel>` or `<url|label>` needs a `<`, so every `<` left
+    # after conversion is escaped and only citation links are written back.
+    # Slack auto-links domain-shaped text too, so it is defanged.
+    # A fresh converter per section, since it keeps code-block state and a section can end inside a fence.
+    mrkdwn_content = defang_urls(SlackMarkdownConverter().convert(content)).replace("<", "&lt;")
+    for placeholder, cited_id in placeholders.items():
+        link = citation_map[cited_id]
+        mrkdwn_content = mrkdwn_content.replace(
+            placeholder, f"<{_make_citation_link(project_id, link)}|{_citation_link_label(cited_id, link)}>"
+        )
+    return f"*{escape_slack_mrkdwn(defang_urls(title[:_MAX_SECTION_CHARS]))}*\n{mrkdwn_content}"
 
 
 def _report_url(project_id: int, evaluation_id: str, report_run_id: str) -> str:
@@ -304,6 +356,13 @@ def _report_url(project_id: int, evaluation_id: str, report_run_id: str) -> str:
 
     # report_run is the evaluation page's URL param that opens this report in its drawer.
     return absolute_uri(f"/project/{project_id}/ai-evals/evaluations/{evaluation_id}?report_run={report_run_id}")
+
+
+def _email_addresses(target: dict) -> list[str]:
+    value = target.get("value")
+    if not isinstance(value, str):
+        return []
+    return [address.strip() for address in value.split(",") if address.strip()]
 
 
 def deliver_email_report(
@@ -338,8 +397,7 @@ def deliver_email_report(
         if target.get("type") != "email":
             continue
 
-        emails = [e.strip() for e in target.get("value", "").split(",") if e.strip()]
-        for email_addr in emails:
+        for email_addr in _email_addresses(target):
             try:
                 message = EmailMessage(
                     campaign_key=f"eval_report_{report_run.report_id}_{report_run.id}",
@@ -412,14 +470,16 @@ def deliver_slack_report(
     citation_map = _build_citation_map(content.citations)
     failures: list[SlackDeliveryFailure] = []
 
-    header_text = f"{evaluation_name}: {content.title}" if content.title else f"Evaluation report: {evaluation_name}"
+    # Slack auto-links URLs even in the plain-text header, so the evaluation name and title are defanged.
+    name = defang_urls(evaluation_name)
+    header_text = f"{name}: {defang_urls(content.title)}" if content.title else f"Evaluation report: {name}"
     # Slack header blocks are limited to 150 chars, enforce that here.
     if len(header_text) > 150:
         header_text = header_text[:147] + "..."
 
     report_url = _report_url(project_id, evaluation_id, str(report_run.id))
     period_line = (
-        f"*{evaluation_name}*  ·  {_format_period_for_display(period_start)} → {_format_period_for_display(period_end)}"
+        f"*{escape_slack_mrkdwn(name)}*  ·  {_format_period_for_display(period_start)} → {_format_period_for_display(period_end)}"
         f"  ·  <{report_url}|Open in PostHog>"
     )
 
@@ -455,7 +515,8 @@ def deliver_slack_report(
                 },
                 {
                     "type": "context",
-                    "elements": [{"type": "mrkdwn", "text": period_line}],
+                    # Verbatim, so an evaluation name such as `@here` is not parsed into a broadcast mention.
+                    "elements": [{"type": "mrkdwn", "text": period_line, "verbatim": True}],
                 },
                 *_render_metrics_slack_blocks(content.metrics),
                 {"type": "divider"},
@@ -468,7 +529,7 @@ def deliver_slack_report(
                 blocks.append(
                     {
                         "type": "section",
-                        "text": {"type": "mrkdwn", "text": first_section_mrkdwn[:3000]},
+                        "text": {"type": "mrkdwn", "text": first_section_mrkdwn[:3000], "verbatim": True},
                     }
                 )
 
@@ -478,7 +539,10 @@ def deliver_slack_report(
             result = client.chat_postMessage(
                 channel=channel_id,
                 blocks=blocks,
-                text=header_text,
+                text=escape_slack_mrkdwn(header_text),
+                parse="none",
+                unfurl_links=False,
+                unfurl_media=False,
             )
 
             # Thread replies: remaining sections, one per reply
@@ -490,6 +554,9 @@ def deliver_slack_report(
                         channel=channel_id,
                         thread_ts=thread_ts,
                         text=mrkdwn_text[:3000],
+                        parse="none",
+                        unfurl_links=False,
+                        unfurl_media=False,
                     )
 
         except IntegrationNotFound:
@@ -505,11 +572,7 @@ def _report_destinations(targets: list[dict]) -> list[dict[str, str]]:
     destinations: list[dict[str, str]] = []
     for target in targets:
         if target.get("type") == "email":
-            destinations.extend(
-                {"type": "email", "name": address.strip()}
-                for address in target.get("value", "").split(",")
-                if address.strip()
-            )
+            destinations.extend({"type": "email", "name": address} for address in _email_addresses(target))
         elif target.get("type") == "slack" and target.get("channel"):
             destinations.append({"type": "slack", "name": _slack_channel_label(target["channel"])})
     return destinations
@@ -521,7 +584,7 @@ def deliver_report(report_id: str, report_run_id: str) -> None:
     Raises RuntimeError after persisting FAILED status if ALL delivery targets
     fail, so the Temporal activity surfaces the failure and the retry policy
     kicks in. Partial failures return normally (with delivery_status=partial_failure).
-    If every failure is a Slack configuration error, a retry cannot fix it, so the
+    If every failure is a configuration error, a retry cannot fix it, so the
     report is disabled and its creator notified instead.
     """
     from products.ai_observability.backend.models.evaluation_reports import EvaluationReport, EvaluationReportRun
@@ -540,6 +603,8 @@ def deliver_report(report_id: str, report_run_id: str) -> None:
     all_errors: list[str] = []
 
     email_targets = [t for t in targets if t.get("type") == "email"]
+    email_config_errors = [_EMAIL_NO_ADDRESSES_ERROR for t in email_targets if not _email_addresses(t)]
+    all_errors.extend(email_config_errors)
     email_errors: list[str] = []
     if email_targets:
         email_errors = deliver_email_report(
@@ -558,18 +623,16 @@ def deliver_report(report_id: str, report_run_id: str) -> None:
     had_any_target = bool(email_targets or slack_targets)
     # Each email target may contain multiple comma-separated addresses, and deliver_email_report
     # appends one error per address that fails — so count attempts per address, not per target.
-    email_attempts = sum(
-        len([addr.strip() for addr in t.get("value", "").split(",") if addr.strip()]) for t in email_targets
-    )
+    email_attempts = sum(len(_email_addresses(t)) for t in email_targets)
     slack_attempts = len(slack_targets)
-    total_attempts = email_attempts + slack_attempts
+    total_attempts = email_attempts + len(email_config_errors) + slack_attempts
     all_failed = had_any_target and total_attempts > 0 and len(all_errors) >= total_attempts
 
     from posthog.temporal.ai_observability.eval_reports.metrics import increment_delivery
 
     for _ in range(email_attempts - len(email_errors)):
         increment_delivery("email", "delivered")
-    for _ in range(len(email_errors)):
+    for _ in range(len(email_errors) + len(email_config_errors)):
         increment_delivery("email", "failed")
     for _ in range(slack_attempts - len(slack_failures)):
         increment_delivery("slack", "delivered")

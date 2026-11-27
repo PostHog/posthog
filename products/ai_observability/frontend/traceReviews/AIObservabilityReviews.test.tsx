@@ -52,6 +52,16 @@ describe('AIObservabilityReviews', () => {
         cleanup()
     })
 
+    it('identifies the project key that last reviewed the trace', async () => {
+        const keyId = 'example-project-key-12345678'
+        mockTraceReviewsList.mockResolvedValue({
+            results: [{ ...reviews[0], reviewed_by_project_key_id: keyId }],
+            count: 1,
+        })
+        const { findByTitle } = render(<AIObservabilityReviews />)
+        expect((await findByTitle(keyId)).textContent).toBe('Project key · 12345678')
+    })
+
     it('loads the next page when the next page button is clicked', async () => {
         const { findAllByText, getByLabelText } = render(<AIObservabilityReviews />)
         await findAllByText(`1-${TRACE_REVIEWS_PER_PAGE} of ${TRACE_REVIEWS_PER_PAGE * 2} reviews`)

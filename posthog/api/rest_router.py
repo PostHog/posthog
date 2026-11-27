@@ -68,6 +68,7 @@ from . import (
     schema_property_group,
     search,
     sharing,
+    tag_definition,
     tagged_item,
     uploaded_media,
     user,
@@ -274,6 +275,9 @@ projects_router.register(
 )
 
 projects_router.register(r"tags", tagged_item.TaggedItemViewSet, "project_tags", ["project_id"])
+projects_router.register(
+    r"tag_definitions", tag_definition.TagDefinitionViewSet, "project_tag_definitions", ["project_id"]
+)
 projects_router.register(r"query", query.QueryViewSet, "project_query", ["team_id"])
 projects_router.register(
     r"data_deletion_requests",

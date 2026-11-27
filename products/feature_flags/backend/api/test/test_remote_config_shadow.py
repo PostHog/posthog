@@ -6,21 +6,17 @@ from django.test import override_settings
 
 from rest_framework.response import Response
 
-from posthog.auth import (
-    OAuthAccessTokenAuthentication,
-    PersonalAPIKeyAuthentication,
-    ProjectSecretAPIKeyAuthentication,
-    TeamSecretTokenAuthentication,
-)
+from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication
 
 from products.feature_flags.backend.api import remote_config_shadow as shadow
+from products.feature_flags.backend.api.feature_flag import _JSONNullResponse
 
 # Matches REDACTED_PAYLOAD_VALUE on the Django and Rust sides: a quoted string returned to a
 # secret-key caller on an encrypted flag — the most parity-sensitive value the shadow compares.
 REDACTED = '"********* (encrypted)"'
 
 
-def _request(authenticator=TeamSecretTokenAuthentication, authorization="Bearer phs_x", query=None):
+def _request(authenticator=ProjectSecretAPIKeyAuthentication, authorization="Bearer phs_x", query=None):
     req = MagicMock()
     req.successful_authenticator = MagicMock(spec=authenticator) if authenticator else None
     req.headers = {"Authorization": authorization} if authorization else {}
@@ -66,7 +62,7 @@ def test_unsupported_auth_is_skipped(authenticator):
 
 @pytest.mark.parametrize(
     "authenticator",
-    [TeamSecretTokenAuthentication, PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication],
+    [PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication],
 )
 def test_supported_auth_is_compared(authenticator):
     with (
@@ -81,7 +77,7 @@ def test_supported_auth_is_compared(authenticator):
 
 @pytest.mark.parametrize(
     "authenticator",
-    [TeamSecretTokenAuthentication, PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication],
+    [PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication],
 )
 def test_non_header_credential_is_skipped(authenticator):
     # Django also authenticates via ?personal_api_key= / request body, but Rust reads only the
@@ -114,6 +110,7 @@ def test_builds_canonical_rust_url():
         (Response("v", status=200), _rust_response(200, b'"other"', "other"), "mismatch"),
         (Response(status=404), _rust_response(200, b'"v"', "v"), "mismatch"),
         (Response(None, status=200), _rust_response(200, b"", None), "match"),
+        (_JSONNullResponse(), _rust_response(200, b"null", None), "match"),
         (Response(status=404), _rust_response(404, b"", None), "match"),
         (Response(REDACTED, status=200), _rust_response(200, REDACTED.encode(), REDACTED), "match"),
         (Response({"a": 1}, status=200), _rust_response(200, b'{"a": 1}', {"a": 1}), "match"),

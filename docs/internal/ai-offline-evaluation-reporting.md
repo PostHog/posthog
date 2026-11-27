@@ -20,6 +20,10 @@ Offline API uploads run through the Python SDK independently of `TEST` and `OPT_
 The harness's dedicated trace client captures `$ai_generation`, `$ai_span`, and `$ai_trace` events despite the harness's `TEST` database setting, and honors `OPT_OUT_CAPTURE`.
 During teardown, the harness waits up to five seconds for trace shutdown before continuing infrastructure cleanup.
 Pending traces may be lost if delivery does not finish before the process exits.
+A sandboxed trace has one `$ai_span` per tool call, under the `$ai_generation` that made the call, with the tool's input, output, latency, and error state.
+A failed call also sets `$ai_error` to its output.
+The `$ai_provider` of agent generations follows `--agent-runtime`: `anthropic` for Claude and `openai` for Codex.
+When the log names no model, the generations use the run's `--agent-model`.
 
 ## Result contents and scope
 
@@ -33,6 +37,7 @@ Case names stay the same across trials.
 For a repeatable smoke comparison, use the [Claude and Codex command pair](../../products/posthog_ai/eval_harness/README.md#claude-and-codex-smoke-comparison).
 Both commands select the same MCP case and record the model, runtime, delivery mode, and checkout.
 Compare completed coverage and infrastructure errors alongside named scores and duration.
+The local JSON report saved by `--results-file` includes the resolved `team_setup_concurrency` and `max_sandboxes` so you can compare throughput at the same limits.
 Add `--compare` to one selected sandboxed run to execute both default models and save a combined local comparison.
 Repeated `--compare-model RUNTIME:MODEL` options select explicit models. The comparison checks both configurations
 before running agents, retains each model's results, and reports case or scorer selection differences.
@@ -57,10 +62,10 @@ The SQL suite retains its seven existing scorer versions.
 The discovery-wide enrollment test checks every enrolled suite's publishing flag, stable key, scorer coverage, pinned UUIDs and ownership tags without executing agents or judges.
 Provide the API key through the environment before running the suite:
 
-| Variable                       | Purpose                                                                                                                                                                                                                                  |
-| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `POSTHOG_OFFLINE_EVAL_API_KEY` | Personal API key with `offline_evaluation_ingestion:write` and `evaluation:write` to upload and tag results. Ingestion-only personal or project secret keys can upload without tags. A public project token cannot authenticate uploads. |
-| `POSTHOG_OFFLINE_EVAL_HOST`    | App origin; defaults to `https://us.posthog.com`.                                                                                                                                                                                        |
+| Variable                       | Purpose                                                                                                                             |
+| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `POSTHOG_OFFLINE_EVAL_API_KEY` | Personal or project secret API key with `offline_evaluation_ingestion:write` to upload results. Add `evaluation:write` to tag them. |
+| `POSTHOG_OFFLINE_EVAL_HOST`    | App origin; defaults to `https://us.posthog.com`.                                                                                   |
 
 The publisher normalizes the cloud ingestion hosts (`us.i.posthog.com`, `eu.i.posthog.com`) and the legacy `app.posthog.com` host to their app origins.
 Uploads, result links, and trace-destination checks use that same origin.
@@ -91,9 +96,40 @@ from the setup screen; filtered lists keep their filters and results table.
 Dataset setup appears only when there are no active or archived datasets, so projects with only archived
 datasets can still browse and restore them from the list.
 
+Hosted datasets default to 100 per project, including archived datasets until they expire. Each dataset can hold
+2,000 items, including archived items. Each item can have 40 retained versions, and all datasets in a project
+share 25,000 retained item versions. Creating, editing, archiving, or restoring an item can add a version.
+Retention frees slots when it deletes version rows. An item payload can contain up to 406,666 bytes of compact
+UTF-8 JSON across its input, expected output, source output, and metadata. JSONL exports have a separate 250 MB limit,
+so a dataset with large items can exceed the size of a single export.
+
 Scorers have an optional **Short name** (up to 40 characters) for experiment table headers and other compact views.
 These views use the full name when the short name is blank. Editing or clearing a short name updates existing
 experiment displays without creating a scorer version or changing scoring rules. Versions appear in a separate badge.
+
+### Experiment scores
+
+An experiment scorer produces one value for a completed run. Create one under **Evaluations → Scorers** or
+use **Set up experiment score** on an existing run to preview a formula with its real results.
+Opening setup from a run takes you back to that experiment when you choose **Back to experiment** or **Cancel**.
+Each input has a name, an item scorer and a statistic. For example, using `correct` and `grounded` as
+pass rates, `0.7 * correct + 0.3 * grounded` gives correctness a 70% weight. Rates range from 0 to 1.
+Other inputs include a numeric mean, the fraction of Boolean values that are true, and the fraction of
+successful items with a selected category. An item composite can supply any statistic its output supports.
+
+A suite key can have one default experiment scorer version per environment. The first successful experiment
+creation pins that version. The HTTP creation endpoint accepts `experiment_scorer_version_id` to select a
+specific version. Suite defaults apply automatically to SDK-created runs. When publishing a new version,
+selected suites move to it and deselected suites on the previous version lose their default. Archiving a
+scorer releases its suites. These changes affect future runs. Previewing a formula on a historical run leaves
+its official score unchanged.
+
+By default an input uses the version that successfully scored items in the run. If several versions contributed, the
+experiment shows each version's statistic and successful item count and leaves the score unset. Choose
+an exact version to use just its results, or **Combine versions** to pool the successful items across versions.
+For example, 9 passes out of 10 on v3 and 1 out of 2 on v4 give 10/12 overall. If v3 scores an item
+and v4 errors or skips it, only the v3 result counts. If both versions return a score for the same item,
+the pooled input is unavailable. A missing input also leaves the score unset.
 
 The SQL suite uses these existing scorers:
 
@@ -124,7 +160,7 @@ The final summary shows a PostHog results link only after a successful offline u
 
 ### Testing uploads against local PostHog
 
-Set `POSTHOG_OFFLINE_EVAL_HOST=http://localhost:8010` and use a personal API key created in that local instance.
+Set `POSTHOG_OFFLINE_EVAL_HOST=http://localhost:8010` and use a personal or project secret API key created in that local instance.
 HTTP is accepted only for `localhost`, `127.0.0.1`, and `::1`; other hosts require HTTPS.
 The eval harness's temporary test database is separate from the development instance receiving uploads.
 
@@ -169,7 +205,7 @@ Score definitions and experiment runs use the same team and component tags:
 
 `OfflineEvalSuite.tags` supplies the experiment tags. Delivery records the successful upload and results link once the experiment has completed, then calls the publisher's `tag()` method to update tags through the Python SDK's `experiment.set_tags(...)`. Tagging has its own five-second deadline outside the upload deadline. Tags are mutable metadata, separate from the immutable creation declaration and scorer versions.
 
-To upload **and tag** experiments, `POSTHOG_OFFLINE_EVAL_API_KEY` must be a personal API key with both `offline_evaluation_ingestion:write` and `evaluation:write`. An ingestion-only personal or project secret key can still upload results, but the tag update will warn. Tagging failures, timeouts, and shutdown interruptions retain the successful upload status and results link and do not change the evaluation score gate.
+To upload **and tag** experiments, grant the API key both `offline_evaluation_ingestion:write` and `evaluation:write`. With only ingestion access the upload succeeds and the tag update warns. Tagging failures, timeouts, and shutdown interruptions retain the successful upload status and results link and do not change the evaluation score gate.
 
 Each prepared experiment's tag update is attempted once per publisher, including when delivery pauses and resumes. A failed or interrupted replacement is not repeated automatically, because it may already have succeeded or someone may have edited the tags afterward. Inspect the experiment's tags before manually retrying a replacement.
 
@@ -312,7 +348,7 @@ Runs appear in the offline experiments UI.
 
 ## Postgres experiment ingestion
 
-The project API accepts offline experiment results behind the `ai-observability-offline-evaluations` feature flag.
+The project API accepts offline experiment results.
 The configured public suites call this API to publish completed scorer results.
 
 Experiments and their items, results, and payloads belong to the exact project/environment in the request path.
@@ -331,6 +367,12 @@ Use the base path `/api/projects/{project_id}/ai_observability/offline_experimen
 
 Programmatic callers use a personal or project secret API key with `offline_evaluation_ingestion:write`.
 Project secret keys grant these operations across their project.
+Project admins need viewer access to grant dataset, evaluation, or AI observability read scopes, and editor access to grant their write scopes. Rotating a key checks the admin's current access to each of those resources.
+In project key settings, grant **Dataset** (`dataset:read` or `dataset:write`) for datasets and items, **Evaluation** (`evaluation:read` or `evaluation:write`) for experiment reads and corrections, and **AI observability** (`llm_analytics:read` or `llm_analytics:write`) for scorers and trace reviews. Each write scope includes the corresponding read permission. Use a personal API key with `dataset:read` to create, check, or download a dataset export. Export files are private to the requesting user.
+A project key needs `dataset:write` to call the `extend_retention` action. Reading a dataset or snapshot and using a revision in an offline experiment also refresh retention as part of normal use.
+
+Datasets, items, and scorers identify the project key that created them. Dataset item history, dataset revisions, and scorer version history identify the key that wrote each version. A trace review identifies the user or project key that last saved it. The activity log records project-key scorer changes and trace review creation, edits, and deletion. When someone takes over or deletes a review last saved by a project key, the audit entry includes that key's public ID. When a project key clears a pending queue item, the trace review activity includes the removed item's ID even if the reviewer and scores stay the same.
+
 Personal keys and logged-in users require evaluation editor access.
 They also require viewer access to the dataset when linking a revision or adding hosted items, and viewer access to the scorer definition when adding results.
 Missing and inaccessible references return the same validation error.
@@ -366,7 +408,7 @@ For example, this upload declares one item and its boolean result:
 
 The version UUID above is a placeholder for a pre-existing boolean scorer version.
 An additional scorer result can reference the same `item_id` without repeating its item declaration or payload.
-Each item declaration is complete and immutable.
+Each upload carries the complete original item declaration. Use the update endpoints below to change an accepted item.
 Missing payload properties and explicitly supplied JSON nulls remain distinct.
 
 Responses acknowledge committed writes and return stable item/result IDs, original acceptance times, and `created` flags.
@@ -436,13 +478,13 @@ Numeric composites use minimum and maximum bounds but do not accept a manual-sco
 Request calculation independently for each item by uploading `item_id`, `scorer_version_id`, and `calculate: true`, without a value or result metadata.
 `calculate` is only for composite scorers. For reported scorers, omit it or set it to false and supply the result.
 All pinned inputs must already exist for that item or be included anywhere in the same HTTP request.
-Using stored inputs requires `evaluation:read` and `llm_analytics:read` in addition to ingestion access, including on retries.
-Ingestion-only and project secret keys must include every input result in the same upload. Previously uploaded inputs may be resubmitted with their original values and metadata.
+Using stored inputs requires evaluation and scorer read access in addition to ingestion access, including on retries.
+Ingestion-only keys must include every input result in the same upload. Previously uploaded inputs may be resubmitted with their original values and metadata.
 Missing inputs reject the whole request. Non-success input statuses propagate in this precedence: `error`, `skipped`, `not_applicable`.
 An input error uses `composite_input_error`. Arithmetic errors or results outside the output configuration use `composite_formula_error`; valid reported results in the batch are still saved.
 Each result acknowledgment includes its stored `status` and nullable `error_code`, on both initial uploads and retries. HTTP success means the upload was accepted; check each result's status to identify calculation failures without needing result-read permission.
 
-The server computes once during ingestion and saves the result with `input_result_ids` in composition input order.
+The server computes during ingestion and saves the result with `input_result_ids` in composition input order.
 Exact retries return the stored acknowledgment, including after closure. Composite requests and retries require current access to the composite scorer and every pinned input scorer, even when all input results are included in the upload.
 Reported-score retries remain available after reference-access changes. New requests require an uploading experiment.
 Results and formulas are never recalculated on read. Formula/input changes create a new composite version; old results keep their original configuration.
@@ -471,7 +513,7 @@ Input scorer selection supports search and tag filters, and version lists load a
 **Validate formula** calls `POST /api/projects/{team_id}/llm_analytics/score_definitions/validate_composition/` with `kind`, `composition`, and `config`.
 This read-scoped operation checks formula syntax, input access, output type, and literal categorical outputs without creating a scorer or version. API callers may omit `config` to check syntax and types only. Runtime values and output bounds remain checked when results are calculated.
 The MCP tool `llma-score-definition-validate` exposes the same validation with `llm_analytics:read` scope.
-It is gated by `ai-observability-composite-validation`. Enable this flag only after the backend validation route is deployed in every target environment; MCP and Django deploy independently.
+It is gated by `ai-observability-composite-validation`. Enable this flag only after the backend validation route is deployed in every target environment.
 MCP preserves omission of `calculate` on reported uploads so they remain compatible with the previous backend during rollout.
 MCP agents can create and version composites through the scorer tools, then request per-item calculations through `llma-offline-experiment-upload` with `calculate: true`.
 
@@ -499,6 +541,8 @@ Experiment lifecycle events include dataset source, run source, status, and expe
 Dataset source is classified as `posthog` for hosted revisions, `external` for a supplied external source, or `unknown` when omitted; the original source string is never captured.
 Dataset and experiment usage events exclude input, output, reasoning, metadata values, and resource names.
 Rejected requests, unchanged item updates, and exact ingestion retries emit no success event.
+Quota rejections emit `llma dataset limit reached`. Its `resource`, `current_count`, and `limit` properties
+identify the count or byte limit that blocked the write. Project groups identify affected projects.
 Dataset and experiment reporting failures are logged without failing successful API operations.
 
 Frontend controls use `data-attr` for autocapture action matching.
@@ -510,7 +554,7 @@ Existing `llma` event names and attributes remain unchanged so saved actions and
 Newly accepted reported Postgres results produce durable `OfflineEvaluationUsageLedger` entries.
 Each upload transaction that inserts reported results writes one entry with a quantity equal to the number of new reported results, including error, skipped, and not-applicable outcomes. Computed composite results add no ledger quantity.
 Results, payloads, and usage commit together; a ledger write failure rolls back the upload.
-Exact retries add no usage, including retries split or regrouped into different requests.
+Retries of retained results add no usage, including retries split or regrouped into different requests.
 Mixed uploads count only new results, and changed content still returns a conflict.
 
 Each entry stores the environment's team ID, the owning organization's ID at acceptance, the experiment ID, and the same server acceptance timestamp as its new results.
@@ -524,8 +568,45 @@ Independent scalar identifiers prevent product deletion cascades from deleting u
 `editable=False`, environment scoping, and server-assigned fields are application protections, not database immutability: privileged SQL and ORM bulk updates/deletes can still change the ledger.
 
 Retry deduplication uses retained result identities, not the batch ledger. Payload expiry preserves these identities.
-There is no result/experiment deletion endpoint. Privileged deletion of a result followed by reupload while its experiment is still open creates a new result and another usage unit; the ledger cannot identify the old metric after deletion.
-Operators must not delete durable result identities and then replay uploads as a billing-neutral operation. Any future identity cleanup needs an explicit replay policy before deployment.
+While an experiment is uploading, submitting a deleted item or result again creates it anew, even when the submission is an exact retry.
+Each recreated reported result counts as another usage unit. Computed composites add no usage. Once the experiment closes, it rejects uploads that would recreate deleted data.
+
+### Updating and deleting offline evaluation data
+
+Use these paths below `offline_experiments/{experiment_id}/` in the project's AI observability API.
+They work on uploading, completed, and failed experiments.
+
+| Path                           | PATCH                                                                                                                                                            | DELETE                                                                                                   |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `items/{item_id}/`             | Change the case key, trial, model version, or application trace ID.                                                                                              | Remove the item, its results, and their payloads.                                                        |
+| `results/{result_id}/`         | Change a reported status, score value, or error code. The server recomputes requested dependent composites in the same transaction, using their pinned formulas. | Remove the result, its payload, and its dependent composites. Deleting a composite preserves its inputs. |
+| `items/{item_id}/payload/`     | Set one or more top-level item payload fields.                                                                                                                   | Remove the stored item payload.                                                                          |
+| `results/{result_id}/payload/` | Set one or more top-level result payload fields.                                                                                                                 | Remove the stored result payload.                                                                        |
+
+Read the item's, result's, or payload's `revision` first. Include it in the PATCH body or the DELETE query string.
+A successful PATCH returns the current revision. A successful DELETE returns HTTP 204. A stale revision returns HTTP 409.
+If a reported score already has the requested status, value, and error code, its revision and score timestamp stay the same. This also preserves the timestamps of its dependent composites.
+Correcting only the error code advances the result revision and preserves the score timestamp. Its dependent composites keep their scores, revisions, and timestamps.
+For example, PATCH a reported result with `{"revision": 0, "status": "ok", "value": false}`.
+For payload edits, use `{"revision": 0, "payload": {"output": null}}`. Omission preserves a field, while JSON null sets it to null.
+An item and its payload share a revision, as do a result and its payload.
+Adding, editing, or deleting a result on an existing item also advances the item revision, as does editing or deleting a result payload. If another writer makes one of these changes after you read the item, read it again before deleting it.
+Recreating an item starts it at a higher revision than its deleted copy. A delayed edit or delete using the old revision returns HTTP 409.
+
+Corrections require `evaluation:write`. Result operations and item deletion also require scorer read access. Human callers need evaluation editor access and access to the affected scorers and composite inputs.
+MCP marks all four updates as destructive because they can overwrite stored data. The CLI requires `--confirm` for these updates. Deletes are available only through the direct API.
+An ingestion-only key can still acknowledge an original upload after an edit. That retry returns the original outcome.
+Calculating a new composite from an edited input, or retrying that calculation, requires stored-result read access.
+
+The 30-day window starts at the owner's original acceptance time, even if its first payload arrives later. Recreating a hard-deleted item or result starts a new window for that record.
+An edit cannot extend the deadline or restore a deleted or expired payload.
+Only a stored payload can be deleted. If it was never provided, already deleted, or removed by retention, DELETE returns HTTP 409 (`payload_unavailable`) and preserves the revision. A first payload can still be added within the original window.
+Explicit payload deletion returns a `deleted_at` timestamp on payload reads. A score can still change after its payload expires.
+Changing an item's input, output, or expected output leaves its reported scores in place. Item results and result cells expose `is_stale`, which the inspector uses to identify scores that predate the change.
+The API compares the item edit time with the score's latest status or value change, its reported evaluation time, or its upload time, in that order. A composite uses the oldest of its input score times.
+
+Current summaries and scorer history reflect updates and deletes. Closed experiments retain their closure time and the counts acknowledged at closure.
+Completion of an uploading experiment checks the items and results still present. Updates, recomputation, and deletion do not change billed usage.
 
 ### Usage reporting and shared AIO meter
 
@@ -606,7 +687,7 @@ Candidate selection skips expired revisions that are retained only for shared ve
 Datasets, stable scorer definitions, and offline experiments use the shared project tag vocabulary.
 Tags belong to the resource, not to dataset revisions or scorer versions, and do not propagate between linked resources.
 Their list and detail responses include `tags`. Dataset and scorer creation and updates accept a `tags` array.
-Use `PATCH /api/projects/{project_id}/ai_observability/offline_experiments/{id}/` with `{"tags": ["quality", "production"]}` to replace experiment tags; it requires evaluation editor access and `evaluation:write` for personal API keys. Ingestion credentials cannot edit tags.
+Use `PATCH /api/projects/{project_id}/ai_observability/offline_experiments/{id}/` with `{"tags": ["quality", "production"]}` to replace experiment tags. Both key types require `evaluation:write`. Personal keys also require evaluation editor access.
 Omitting `tags` preserves existing assignments, including an empty experiment PATCH body; sending `[]` clears them. Names are trimmed and lowercased, with up to 100 tags of at most 255 characters each after normalization.
 Saving unchanged scorer tags preserves the update timestamp and does not emit a scorer update event.
 Removing the last assignment of a tag removes it from the shared project tag vocabulary.
@@ -627,7 +708,6 @@ Opening scorer history from an experiment clears remembered tag filters so they 
 
 ## Postgres experiment reads
 
-Read endpoints use the same feature flag as ingestion.
 The offline UI uses these APIs. The configured SQL pilot and Signals suites publish results here.
 
 The following GET paths are relative to `/api/projects/{project_id}/ai_observability/`:
@@ -645,18 +725,17 @@ The following GET paths are relative to `/api/projects/{project_id}/ai_observabi
 | `offline_experiments/{experiment_id}/scorer_summaries/`            | Summaries grouped by exact scorer version.                                           |
 | `offline_scorers/{definition_id}/history/`                         | Experiment summaries for one stable scorer definition.                               |
 
-Reads accept logged-in sessions and personal API keys.
-Experiment and item metadata, including shared item payloads, require `evaluation:read` and evaluation viewer access.
-Results, result payloads, summaries, history, and scorer filters also require `llm_analytics:read` and viewer access to the corresponding scorer definitions.
+Reads accept logged-in sessions, personal API keys, and project secret API keys.
+Experiment and item metadata, including shared item payloads, require `evaluation:read`. Human callers need evaluation viewer access.
+Results, result payloads, summaries, history, and scorer filters also require scorer read access. Human callers need viewer access to the corresponding scorer definitions.
 An upload-only credential cannot read stored results or payloads.
-Project secret API keys remain limited to the ingestion and lifecycle operations above.
 Reads allow 600 requests per minute and 6,000 per hour per caller, with shared project limits of 3,000 per minute and 30,000 per hour.
 These limits are separate from ingestion so fetching individual payloads does not consume the upload budget.
 The shared read budget includes child environments of the same parent project.
 
 Experiment responses expose `accepted_item_count` separately from `visible_result_count`, `visible_scorer_definition_count`, and `visible_scorer_version_count`.
 Visible counts include only authorized scorers and are marked with `result_count_scope: "authorized"`.
-For personal keys without `llm_analytics:read`, these three counts are null and `result_count_scope` is `"unavailable"`.
+For keys without scorer read access, these three counts are null and `result_count_scope` is `"unavailable"`.
 Declared expected counts remain caller-supplied totals, so they are not a measure of the reader's visible result coverage.
 Missing and inaccessible scorer references produce the same response.
 
@@ -704,7 +783,9 @@ Passing rules classify accepted scores; a failing score still has execution stat
 Each immutable version keeps its own polarity and rule. Changing a scorer creates a new configuration version without reinterpreting historical offline results or saved manual review snapshots.
 Numeric scorers without a passing rule remain neutral. The editor always offers a passing value for boolean scorers and persists the default polarity when saving a configuration.
 
-Experiment summaries and scorer history use the same aggregation rules over all matching results, independently of item pagination or payload availability.
+For item scorers, experiment summaries and scorer history aggregate all matching results independently of item pagination or payload availability.
+For experiment scorers, history returns one row per run pinned to the requested definition and version filters. Each row has a null `summary` and exposes the calculated value or its unavailable status in `experiment.experiment_score`.
+Opening an experiment scorer's history from the scorer editor shows all its versions. Following the link from a run selects its pinned version.
 Different scorer versions remain separate, even when their configurations match.
 
 | Kind        | Summary                                                                                |
@@ -730,8 +811,7 @@ Numeric increases do not imply better quality unless that meaning is established
 ### MCP access
 
 The `llma-offline-experiment-*` and `llma-offline-scorer-history` MCP tools expose
-these reads and the create/upload/complete/fail lifecycle behind the same
-`ai-observability-offline-evaluations` flag. Lifecycle tools record externally
+these reads and the create/upload/complete/fail lifecycle. Lifecycle tools record externally
 computed results; they do not execute evaluators. Scorer configuration remains on
 the existing `llma-score-definition-*` tools, with `version-list` and `version-get`
 for immutable version discovery. Version tools use the existing scorer permissions.
@@ -765,14 +845,23 @@ Passing the deadline makes a payload eligible for cleanup. It remains available 
 The sweep processes at most 20 batches of 500 candidates per payload type, alternating item and result payloads, with a three-minute work budget checked before each environment transaction. Each environment's batch commits independently; retries and overlapping runs are safe. Existing overdue payloads are included, and a backlog drains over subsequent runs.
 
 Each run emits `offline evaluation payload retention run` using scoped capture, including empty runs and handled failures. Properties include `run_id`, `status`, `batches` (committed environment batches), `item_payloads_expired`, `result_payloads_expired`, `payloads_expired`, `budget_exhausted`, and `duration_seconds`. Counts reflect committed work, and the same properties are logged. Event delivery is best-effort; a hard-killed worker cannot emit its completion event.
+The event also reports `item_payload_bytes_deleted`, `result_payload_bytes_deleted`, and their sum, `payload_bytes_deleted`.
+The dataset cleanup event, `dataset retention run`, reports `payload_bytes_deleted` for removed item versions, summing their input, expected output, source output, and metadata fields.
+Both measure the byte length of PostgreSQL's JSON text representation immediately before deletion and count only committed deletions.
+SQL null fields contribute zero; JSON null values and empty objects include their serialized bytes.
+These totals exclude indexes, row overhead, and storage compression, and do not measure disk space reclaimed by vacuum.
+Byte telemetry starts when these properties are deployed; older events without the properties cannot be treated as zero-byte deletions.
+Both cleanup events send aggregate run metrics to the US analytics project, retaining the deployment region in the `region` property.
+The events contain no customer payloads or customer identifiers. Filter by `region` for separate US and EU monitoring.
+EU history in the US project starts when centralized reporting is deployed; earlier EU events remain in the EU project.
 Expired input/output is not reconstructed from linked datasets or traces, and missing links do not prevent experiment reads.
 Opening those resources requires their own permissions.
 
 ## Inspecting offline results
 
-Open **Evaluations → Offline evals** to see the newest experiments and chosen score trends.
-When offline evaluations are enabled, **Experiments** is selected by default. **Datasets** opens the list on the same page
-with `tab=datasets` in the query string. MCP-generated dataset-list links retain this tab selector.
+Open **Evaluations → Offline evals**. The **Experiments** tab opens by default and shows the newest experiments and chosen score trends.
+**Datasets** opens the dataset list on the same page with `tab=datasets` in the query string.
+MCP-generated dataset-list links retain this tab selector.
 Existing `/ai-evals/datasets` and `/llm-analytics/datasets`
 links redirect there, preserving filters and pagination. Dataset creation and detail pages live at
 `/ai-evals/evaluations/offline/datasets/:id`, within the Offline evals navigation. Both legacy dataset
@@ -782,8 +871,6 @@ directly in the detail view; **Details** opens the dataset metadata without repl
 The back arrow beside the dataset name returns to the list and preserves its filters, including after creating a dataset.
 Creation and editing actions appear below the dataset form. Switching from Experiments to Datasets clears
 experiment search and filters and restores the saved dataset tag selection.
-Projects with Datasets enabled but without offline evaluations open **Datasets** automatically,
-including from experiment-list links. **Experiments** stays visible with a disabled **Coming soon** label.
 When Datasets is disabled, its tab stays disabled and direct list links show an availability message.
 The chevron beside **Score trends** collapses or expands the charts. It starts expanded and remembers
 your choice in local storage. Charts load on the first expansion if the page opens collapsed, and
@@ -794,9 +881,14 @@ Projects without experiments show a full setup screen with example results and a
 a filter with no matching experiments keeps the overview available. The offline evaluations description and tabs
 stay visible on both the experiments and datasets setup screens.
 Datasets, suites, and traces are optional context and are not required to display an experiment.
-The compact experiment list shows the execution source in its own column and item/scorer counts together; hover over coverage for result and scorer-version counts.
+The recent experiments table shows the name, tags, source, experiment score, upload state, author, and execution time.
+The experiment score column appears when at least one listed run has an assigned scorer. Hover over or focus a score to see the item scorer versions for each formula input.
+When an input uses multiple versions and the formula requires a single version, the experiment score shows “Not calculated”. Hover or focus it to see which versions were used.
+Hover over an experiment name to see its item, result, and scorer counts.
 
-**Choose scores** selects and orders recurring scorer definitions above the experiment list.
+**Choose scores** selects and orders item and experiment scorers above the experiment list.
+Experiment scorers show the pinned result for each run. Numeric cards chart those results by version.
+Boolean and categorical cards list the three most recent run outcomes. Open the scorer history to see the remaining runs.
 When no scores are selected, the overview selects up to three from recent completed experiments, falling back to available scorer definitions.
 These choices are stored in local storage, scoped to the user and exact project/environment, and persist in that browser.
 Shared URL selections and dates take precedence for that view without replacing saved choices until the user saves a customization.
@@ -805,14 +897,17 @@ History pages are bounded; each overview card loads at most five pages of 100 ex
 Overview cards show the loaded count and date span when history is incomplete, and explain that earlier experiments and scorer versions may not be shown.
 Different scorer versions retain their pinned configurations and are not averaged together.
 Overview charts show each loaded scorer version as a separate series. Arrows browse version summaries without changing the chart.
-The card summary aggregates the loaded experiments in the selected period for the selected scorer version, using the same history points as the chart. When history is partial, summaries cover only those loaded experiments.
+For item scorers, the card summary aggregates the loaded experiments in the selected period for the selected scorer version, using the same history points as the chart. When history is partial, summaries cover only those loaded experiments.
 Numeric means are weighted by successful result counts; boolean and category rates pool their counts across successful results.
 Boolean charts show the passing rate, with true passing by default when polarity is omitted.
-Numeric charts keep the mean as their primary metric and show the configured threshold with faint passing and failing regions. Series retain their identity colors.
+Numeric charts show the mean and the configured threshold with faint passing and failing regions. On item scorer overview cards, the threshold follows the selected version and its label includes the version number. The chart retains every version's series and color.
 Summaries and tooltips show actual passing and failing counts separately from numeric means. Pooled passing rates divide total passing results by total passing plus failing results.
-Long score summaries truncate to fit their container, with the full value available on hover.
+On an experiment, the experiment score and item score summaries share one section. Scorer names open version-specific history in a new tab.
+Item summaries show compact bars for rates and bounded numeric means. Each category has its own rate and the first three are visible by default.
+Experiment scores with a passing rule show a green check or a red cross. Numeric mean bars are green when the mean passes and red when it fails. Hover or focus the value to read the verdict.
 Percentage displays use at most two decimal places across summaries, charts, and tooltips. Numeric scores and means normally use six significant digits, retaining more precision when rounding would change their passing verdict. Numeric tooltips and threshold labels show the exact value.
-Below the passing and failing counts, each card shows distinct experiments with the scored item count in parentheses. The item count equals passing plus failing results when a passing rule applies; otherwise it counts successful results. The experiment count includes experiments without successful scores. History is limited to 100 experiment/version results, so incomplete-history summaries cover only the loaded results.
+On item scorer cards, the main metric appears beside the title. Categorical cards show the most frequent category and offer a popup with every category rate.
+Passing and failing counts share a line with the distinct experiment count and scored item count. The item count equals passing plus failing results when a passing rule applies; otherwise it counts successful results. The experiment count includes experiments without successful scores.
 Output types sit beside scorer titles, and neighboring charts use different colors from the theme palette.
 Points are connected chronologically with smooth curves within each version and metric. Click a scorer title to open its history.
 Hovering over an overview chart shows a shared vertical guide at the same execution time across the other score charts.
@@ -824,6 +919,8 @@ Short date ranges show time-of-day labels, and short period comparisons show ela
 An experiment shows whole-run scorer summaries and an item table with every observed scorer version.
 Scroll horizontally to reach additional scorer columns.
 Open an item or score cell for input, output, expected output, reasoning, and payload availability.
+Choose **Pretty** or **Raw** to change how the inspector displays item and result payloads. The browser remembers the choice across items.
+In Pretty view, select **Show more** under a shortened text value to read and copy the full string.
 Boolean score cells and numeric or categorical cells with a passing rule retain their raw values or custom labels, with a success/check or danger/cross treatment based on the pinned version's rule. Execution errors use a separate warning treatment; skipped, not-applicable, missing, and numeric or categorical results without a passing rule remain neutral.
 The inspector separates payload fields into collapsible labeled panels. Metadata and long text or large JSON start collapsed; each field can be expanded independently. Result details show the selected scorer and score above its reasoning.
 Small application and evaluator trace buttons appear only after a background lookup confirms their IDs in the current project. The lookup batches both IDs in one AI events query, then checks only missing IDs in one shared events query using the trace reader's fallback window, without reading trace payloads. Each query has a two-second execution limit; a timeout preserves any trace IDs already found. Buttons stay hidden while checking, on failure, or when no match was found within the budget. Changing the selection or closing the inspector cancels obsolete requests; reopening or refreshing the inspector checks again. The evaluator button appears beside the selected score. Buttons open a single trace in the drawer without previous/next controls when the new trace view is enabled; closing it returns to the same item and selected result. Modified clicks open the full trace page, as do buttons when using the legacy trace view.
@@ -832,17 +929,18 @@ Upload completion is separate from score quality. **Mark as completed** checks d
 
 Manage scorer definitions and versions under **Evaluations → Scorers**.
 The previous Human reviews Scorers entry and bookmarked scorer URLs redirect there.
-Scorer management remains available for manual reviews when offline evaluations are disabled.
 Scorer names open the full-page editor at `/ai-evals/evaluations/scorers/{scorer_id}`; `/ai-evals/evaluations/scorers/new` creates a scorer.
-The editor combines metadata and score configuration in one form. Passing settings are shown only when offline evaluations are enabled; hiding those controls preserves existing rules. **Save** patches metadata when configuration is unchanged; configuration changes save metadata and a new immutable version together. Saving edits to a boolean scorer with omitted or null polarity also creates a version that explicitly records the default.
+The editor shows metadata, score configuration, and the passing rule in one form.
+**Save** updates only the metadata when the configuration is unchanged. When the configuration changes, **Save** updates the metadata and creates a new immutable version.
+Saving edits to a boolean scorer with omitted or null polarity also creates a version that explicitly records the default.
 Saving a new configuration checks the version observed when editing started. A concurrent version change returns 409 without saving either the draft metadata or configuration.
 The **More → Create new version** action can create an unchanged configuration version after confirmation. Save or discard a dirty draft before using this action.
 The **Offline evals history** button in the editor opens a scorer's experiment timeline.
-With the offline feature enabled, a scorer timeline offers upload state, source, date range, comparison, and exact version filters.
+The timeline offers upload state, source, date range, comparison, and exact version filters.
 The filters use compact controls. Selected and comparison period timestamps use the project timezone, matching the date range boundaries, chart labels, and coverage dates; hover a timestamp for full timezone details.
 **Break down by** splits score history by Model, Prompt version, Application version, Suite, or Run source.
 Model uses the item's optional `model_version`, falling back to the experiment's `model_version` when omitted or null.
-The scorer history `model_version` filter uses this resolved item model, with or without a breakdown. Scores and coverage include only matching items, even when the experiment's default model differs. Experiment list filters continue to match the experiment's model.
+For item scorers, the history `model_version` filter uses this resolved item model, with or without a breakdown. Scores and coverage include only matching items, even when the experiment's default model differs. Experiment scorer history and experiment lists use the experiment's model.
 The other breakdowns use experiment fields. Item reads expose the resolved model.
 Each point summarizes one experiment, scorer version, and breakdown value, with coverage and missing-result counts for that group.
 Unspecified values appear as **Not specified**. Different scorer versions, categories, and comparison periods remain separate.
@@ -856,6 +954,3 @@ Its experiment table keeps names and coverage on one line, shows execution time 
 Compare against a previous or custom period.
 Custom comparison periods ending now retain that end when their URL is shared or reloaded.
 Equal-length periods can share elapsed-time axes; unequal periods keep their actual date axes.
-
-The `ai-observability-offline-evaluations` flag controls all new offline views and related scorer wording and links.
-The legacy `llm-analytics-offline-evals` flag does not enable them. Keep rollout disabled until producer upload-to-display verification is complete.

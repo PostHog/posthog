@@ -9,7 +9,11 @@ from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from products.visual_review.backend.db import WRITER_DB
-from products.visual_review.backend.facade.contracts import AUTO_QUARANTINE_DAILY_LIMIT, AUTO_QUARANTINE_DAYS
+from products.visual_review.backend.facade.contracts import (
+    AUTO_EXTEND_REASON_PREFIX,
+    AUTO_QUARANTINE_DAILY_LIMIT,
+    AUTO_QUARANTINE_DAYS,
+)
 from products.visual_review.backend.facade.enums import (
     ActorType,
     AutoQuarantineMode,
@@ -340,14 +344,21 @@ class TestQuarantineProvenFlakes:
 
         assert capture.call_count == 1
 
-    def test_the_daily_limit_stops_more_automatic_quarantines(self, repo, github, capture):
+    @pytest.mark.parametrize(
+        "last_reason,capped",
+        [
+            ("earlier proof", True),
+            (f"{AUTO_EXTEND_REASON_PREFIX}: changed in 3 of the last 100 default-branch runs, 1 picture", False),
+        ],
+    )
+    def test_the_daily_limit_stops_more_automatic_quarantines(self, repo, github, capture, last_reason, capped):
         for index in range(AUTO_QUARANTINE_DAILY_LIMIT):
             QuarantinedIdentifier.objects.create(
                 team_id=repo.team_id,
                 repo=repo,
                 identifier=f"other--{index}",
                 run_type=RunType.STORYBOOK,
-                reason="earlier proof",
+                reason=last_reason if index == AUTO_QUARANTINE_DAILY_LIMIT - 1 else "earlier proof",
                 source=ActorType.AUTO,
                 expires_at=timezone.now() + timedelta(days=1),
             )
@@ -356,9 +367,11 @@ class TestQuarantineProvenFlakes:
         with patch("products.visual_review.backend.tasks.tasks.notify_auto_quarantine_limit.apply_async") as notice:
             auto_quarantine.quarantine_proven_flakes(finishing)
 
-        assert not _auto_rows(repo).filter(identifier=_IDENTIFIER).exists()
-        assert capture.call_args.kwargs["properties"]["capped"] is True
-        assert notice.call_args.kwargs["args"] == (repo.team_id, str(repo.id), AUTO_QUARANTINE_DAILY_LIMIT)
+        assert _auto_rows(repo).filter(identifier=_IDENTIFIER).exists() is not capped
+        assert capture.call_args.kwargs["properties"]["capped"] is capped
+        assert notice.called is capped
+        if capped:
+            assert notice.call_args.kwargs["args"] == (repo.team_id, str(repo.id), AUTO_QUARANTINE_DAILY_LIMIT)
 
     def test_the_limit_is_counted_again_under_the_repo_lock(self, repo, github, capture):
         finishing = _chain(repo)

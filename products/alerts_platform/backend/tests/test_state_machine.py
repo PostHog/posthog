@@ -455,14 +455,35 @@ class TestFiringEpisode:
                 AlertState.NOT_FIRING,
                 episode(STARTED, ended=True),
             ),
+            ("errored", LOGS_ALERT_POLICY, AlertState.FIRING, STARTED, AlertState.ERRORED, episode(STARTED)),
             (
-                "errored",
+                "recovered_after_an_error",
                 LOGS_ALERT_POLICY,
-                AlertState.FIRING,
-                STARTED,
                 AlertState.ERRORED,
+                STARTED,
+                AlertState.NOT_FIRING,
                 episode(STARTED, ended=True),
+                True,
             ),
+            (
+                "breached_after_an_error",
+                LOGS_ALERT_POLICY,
+                AlertState.ERRORED,
+                STARTED,
+                AlertState.FIRING,
+                episode(STARTED),
+                True,
+            ),
+            (
+                "recovered_after_an_error_without_a_start",
+                LOGS_ALERT_POLICY,
+                AlertState.ERRORED,
+                None,
+                AlertState.NOT_FIRING,
+                episode(None, ended=True),
+                True,
+            ),
+            ("errored_while_clear", LOGS_ALERT_POLICY, AlertState.ERRORED, None, AlertState.FIRING, episode(NOW)),
             ("never_fired", LOGS_ALERT_POLICY, AlertState.NOT_FIRING, None, AlertState.NOT_FIRING, None),
             (
                 "firing_without_a_start",
@@ -521,10 +542,14 @@ class TestFiringEpisode:
         started_at: datetime | None,
         new_state: AlertState,
         expected: FiringEpisode | None,
+        failed_while_firing: bool = False,
     ) -> None:
         assert (
             decide_firing_episode(
-                snapshot(state=state, firing_started_at=started_at), outcome(new_state), NOW, policy=policy
+                snapshot(state=state, firing_started_at=started_at, failed_while_firing=failed_while_firing),
+                outcome(new_state),
+                NOW,
+                policy=policy,
             )
             == expected
         )
@@ -546,6 +571,17 @@ class TestIncidentAction:
             ("snoozed_while_clear", SNOOZE_UNTIL_CLEAR, AlertState.NOT_FIRING, AlertState.SNOOZED, None),
             ("awaiting_resolve", LOGS_ALERT_POLICY, AlertState.FIRING, AlertState.PENDING_RESOLVE, None),
             ("refired_while_awaiting", LOGS_ALERT_POLICY, AlertState.PENDING_RESOLVE, AlertState.FIRING, None),
+            ("errored_while_firing", LOGS_ALERT_POLICY, AlertState.FIRING, AlertState.ERRORED, None),
+            (
+                "recovered_after_an_error",
+                LOGS_ALERT_POLICY,
+                AlertState.ERRORED,
+                AlertState.NOT_FIRING,
+                IncidentAction.RESOLVE,
+                True,
+            ),
+            ("breached_after_an_error", LOGS_ALERT_POLICY, AlertState.ERRORED, AlertState.FIRING, None, True),
+            ("errored_while_clear", LOGS_ALERT_POLICY, AlertState.ERRORED, AlertState.FIRING, IncidentAction.TRIGGER),
         ]
     )
     def test_which_transitions_open_or_close_an_incident(
@@ -555,5 +591,8 @@ class TestIncidentAction:
         state: AlertState,
         new_state: AlertState,
         expected: IncidentAction | None,
+        failed_while_firing: bool = False,
     ) -> None:
-        assert decide_incident_action(state, new_state, policy=policy) == expected
+        assert (
+            decide_incident_action(state, new_state, policy=policy, failed_while_firing=failed_while_firing) == expected
+        )

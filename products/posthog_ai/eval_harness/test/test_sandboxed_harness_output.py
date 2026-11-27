@@ -39,7 +39,7 @@ from products.posthog_ai.eval_harness.engines.types import (
     NullCaseHooks,
 )
 from products.posthog_ai.eval_harness.harness import reporting
-from products.posthog_ai.eval_harness.harness.cli import SkillDelivery
+from products.posthog_ai.eval_harness.harness.cli import EvalSurface, SkillDelivery
 from products.posthog_ai.eval_harness.harness.discovery import EvalSuite, discover_suites
 from products.posthog_ai.eval_harness.harness.offline_delivery import OfflineEvalDelivery
 from products.posthog_ai.eval_harness.harness.reporting import ProgressReporter, SuiteRunResult
@@ -49,7 +49,13 @@ from products.posthog_ai.eval_harness.harness.trial_stats import ScorerTrialStat
 from products.posthog_ai.eval_harness.offline_results import OfflineEvalSuite
 from products.posthog_ai.eval_harness.one_shot import OneShotEval
 from products.posthog_ai.eval_harness.scorers import ExitCodeZero
+from products.posthog_ai.eval_harness.test.acp_log_lines import (
+    join_lines,
+    tool_call_completed_line,
+    tool_call_start_line,
+)
 from products.posthog_ai.eval_harness.test.offline_api import OfflineServer
+from products.posthog_ai.eval_harness.tool_chain import ToolChainStep
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext
 
 
@@ -130,6 +136,7 @@ async def test_reporter_output_is_labeled_and_reserves_pass_for_the_run(
         agent_runtime="codex",
         agent_model="gpt-5",
         max_sandboxes=4,
+        team_setup_concurrency=2,
         trials=1,
         case_timeout_seconds=900,
     )
@@ -179,6 +186,7 @@ async def test_reporter_output_is_labeled_and_reserves_pass_for_the_run(
 
     output = capsys.readouterr().out
 
+    assert "Team setup concurrency: 2" in output
     assert "CASE DONE" in output
     assert "EXPERIMENT DONE" in output
     assert "SUITE DONE" in output
@@ -503,17 +511,20 @@ async def test_suite_enrolls_every_scorer_in_offline_publishing(
 
 
 @pytest.mark.parametrize(
-    "delivery,origin,has_original,expected_origin",
+    "delivery,origin,has_original,surface,expected_origin",
     [
-        ("exec", None, True, "eval"),
-        ("exec", None, False, "eval"),
-        ("bundled", None, True, None),
-        ("bundled", None, False, None),
-        ("exec", "eval", True, "eval"),
-        ("exec", "slack", True, "slack"),
-        ("exec", "posthog_ai", True, "posthog_ai"),
-        ("exec", "posthog-code", True, "posthog-code"),
-        ("bundled", "slack", True, "slack"),
+        ("exec", None, True, "mcp", "eval"),
+        ("exec", None, False, "mcp", "eval"),
+        ("bundled", None, True, "mcp", None),
+        ("bundled", None, False, "mcp", None),
+        ("exec", "eval", True, "mcp", "eval"),
+        ("exec", "slack", True, "mcp", "slack"),
+        ("exec", "posthog_ai", True, "mcp", "posthog_ai"),
+        ("exec", "posthog-code", True, "mcp", "posthog-code"),
+        ("bundled", "slack", True, "mcp", "slack"),
+        ("bundled", None, True, "app", "posthog_ai"),
+        ("bundled", None, False, "app", "posthog_ai"),
+        ("bundled", "slack", True, "app", "slack"),
     ],
 )
 @pytest.mark.asyncio
@@ -523,6 +534,7 @@ async def test_sandboxed_eval_skill_delivery_sets_the_agent_origin(
     delivery: SkillDelivery,
     origin: str | None,
     has_original: bool,
+    surface: EvalSurface,
     expected_origin: str | None,
 ) -> None:
     monkeypatch.setattr(base, "build_case_dir", MagicMock(return_value=tmp_path))
@@ -531,6 +543,7 @@ async def test_sandboxed_eval_skill_delivery_sets_the_agent_origin(
         posthog_client=None,
         case_filter=None,
         skill_delivery=delivery,
+        surface=surface,
         sandbox_slots=asyncio.Semaphore(1),
         team_setup_slots=asyncio.Semaphore(1),
         per_case_timeout_seconds=30,
@@ -766,6 +779,39 @@ async def test_case_setup_retries_use_fresh_data_and_report_one_outcome(
 
 
 @pytest.mark.asyncio
+async def test_prepare_next_team_while_sandbox_is_busy(tmp_path, monkeypatch):
+    monkeypatch.setattr(base, "build_case_dir", MagicMock(return_value=tmp_path))
+    ctx = MagicMock(
+        posthog_client=None,
+        case_filter=None,
+        sandbox_slots=asyncio.Semaphore(0),
+        preparation_slots=asyncio.Semaphore(1),
+        per_case_timeout_seconds=30,
+    )
+    case = SandboxedEvalCase(name="case", prompt="Run the task")
+    runner = AsyncMock(return_value=base.EvalCaseResult(artifacts=AgentArtifacts(exit_code=0)))
+    run = base._SandboxedEvalRun("prefetch", [case], [], ctx, case_runner=runner)
+    ready = asyncio.Event()
+    teams: list[int] = []
+
+    async def prepare(*args):
+        teams.append(len(teams) + 1)
+        ready.set()
+        return base._SandboxedCaseSetup(context=CustomPromptSandboxContext(team_id=teams[-1], user_id=1), seed={})
+
+    monkeypatch.setattr(run, "_prepare_case", prepare)
+    monkeypatch.setattr(base, "reclaim_kernels", AsyncMock())
+    async with asyncio.TaskGroup() as group:
+        for _ in range(2):
+            group.create_task(run._run_sandbox_window(case, case))
+        await asyncio.wait_for(ready.wait(), timeout=2)
+        assert teams == [1]
+        runner.assert_not_awaited()
+        ctx.sandbox_slots.release()
+    assert [call.args[1].team_id for call in runner.await_args_list] == [1, 2]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("agent_error", [None, RuntimeError("agent failed"), asyncio.CancelledError()])
 @pytest.mark.parametrize("reporting_phase", ["agent", "cleanup"])
 @pytest.mark.parametrize("custom_runner", [False, True])
@@ -823,8 +869,15 @@ async def test_sandboxed_trials_keep_separate_logs_and_trace_roots(
     class ProductArtifacts(AgentArtifacts):
         report_id: str
 
+    def build_tool_chain(output: dict[str, object]) -> list[ToolChainStep]:
+        if "call-1" in str(output["raw_log"]):
+            raise AttributeError("malformed tool_call line")
+        return real_build_tool_chain(output)
+
+    real_build_tool_chain = base.build_tool_chain
     monkeypatch.delenv("EXPORT_EVAL_RESULTS", raising=False)
     monkeypatch.setattr(base, "build_case_dir", lambda *_: tmp_path)
+    monkeypatch.setattr(base, "build_tool_chain", build_tool_chain)
     ctx = MagicMock(posthog_client=None, reporter=ProgressReporter(total_suites=1))
     ctx.trials = 3
     run = base._SandboxedEvalRun("trials", [], [], ctx)
@@ -834,18 +887,24 @@ async def test_sandboxed_trials_keep_separate_logs_and_trace_roots(
         trial_id = f"trial-{index}"
         hooks = NullCaseHooks()
         hooks.metadata["trial_id"] = trial_id
-        raw_log = json.dumps(
-            {
-                "notification": {
-                    "method": "session/update",
-                    "params": {
-                        "update": {
-                            "sessionUpdate": "agent_message_chunk",
-                            "content": {"type": "text", "text": str(index)},
+        raw_log = join_lines(
+            [
+                json.dumps(
+                    {
+                        "notification": {
+                            "method": "session/update",
+                            "params": {
+                                "update": {
+                                    "sessionUpdate": "agent_message_chunk",
+                                    "content": {"type": "text", "text": str(index)},
+                                }
+                            },
                         }
-                    },
-                }
-            }
+                    }
+                ),
+                tool_call_start_line("2026-04-15T10:00:01.000Z", f"call-{index}", "mcp__posthog__execute-sql"),
+                tool_call_completed_line("2026-04-15T10:00:02.000Z", f"call-{index}", "42"),
+            ]
         )
         output = await run._post_process(
             SandboxedEvalCase(name="same-case", prompt="Run the task"),
@@ -872,6 +931,9 @@ async def test_sandboxed_trials_keep_separate_logs_and_trace_roots(
         assert artifacts["report_id"] == f"report-{index}"
         summary = (tmp_path / f"same-case.trial-trial-{index}.summary.txt").read_text()
         assert f"trace_id: trace-{index}" in summary
+        tool_chain = json.loads((tmp_path / f"same-case.trial-trial-{index}.toolchain.json").read_text())
+        # A chain that fails to build must not stop the other case logs from reaching disk.
+        assert [step["name"] for step in tool_chain] == ([] if index == 1 else ["execute-sql"])
         assert json.loads(summary.split("=== scores ===\n")[1]) == {"score": index / 2}
     roots = [
         call.kwargs["properties"]

@@ -17,6 +17,8 @@ import type { SessionActivityGroup, SessionThoughtItem, SessionToolInvocation } 
 interface ActivityGroupRowProps {
     group: SessionActivityGroup
     invocations: ReadonlyMap<string, SessionToolInvocation>
+    active: boolean
+    onToggle?: () => void
     /** The call a pending decision waits on, which the row must not count as running. */
     waitingToolCallId?: string
 }
@@ -64,19 +66,26 @@ function ThoughtRow({ item }: { item: SessionThoughtItem }): ReactElement | null
     const styles = useStyles()
     return item.text ? (
         <View style={styles.thought}>
-            <ChatMarkdown tone="thought" text={item.text} streaming={!item.complete} />
+            <ChatMarkdown tone="thought" text={item.text} streaming={!item.complete} projectUrl={item.projectUrl} />
         </View>
     ) : null
 }
 
-function ActivityGroupRowImpl({ group, invocations, waitingToolCallId }: ActivityGroupRowProps): ReactElement {
+function ActivityGroupRowImpl({
+    group,
+    invocations,
+    active,
+    onToggle,
+    waitingToolCallId,
+}: ActivityGroupRowProps): ReactElement {
     const colors = useColors()
     const styles = useStyles()
-    const running = isActivityRunning(group, invocations, waitingToolCallId)
-    const summary = summarizeActivity(group, invocations, waitingToolCallId)
+    const running = active && isActivityRunning(group, invocations, waitingToolCallId)
+    const summary = summarizeActivity(group, invocations, waitingToolCallId, active)
     // Every group starts closed, also while it runs; the summary line carries the progress.
     const [expanded, setExpanded] = useState(false)
     const toggle = (): void => {
+        onToggle?.()
         if (!expanded) {
             track('mobile_chat_activity_expanded', {
                 running,
@@ -133,6 +142,8 @@ function ActivityGroupRowImpl({ group, invocations, waitingToolCallId }: Activit
 // The invocations map changes on every tool update, so a settled group skips a render when its own calls did not change.
 function sameRow(previous: ActivityGroupRowProps, next: ActivityGroupRowProps): boolean {
     return (
+        previous.active === next.active &&
+        previous.onToggle === next.onToggle &&
         previous.waitingToolCallId === next.waitingToolCallId &&
         previous.group.id === next.group.id &&
         previous.group.items.length === next.group.items.length &&

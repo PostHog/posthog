@@ -166,7 +166,11 @@ const constructValuesEndpoint = (
 ): string => {
     let basePath: string
 
-    if (type === PropertyDefinitionType.Session) {
+    if (
+        type === PropertyDefinitionType.Session ||
+        type === PropertyDefinitionType.Event ||
+        type === PropertyDefinitionType.Person
+    ) {
         basePath = `api/projects/${teamId}/${type}s/values`
     } else if (type === PropertyDefinitionType.FlagValue) {
         // FlagValue is project-scoped, so use the project-scoped endpoint
@@ -252,16 +256,14 @@ export interface propertyDefinitionsModelActions {
         type: PropertyDefinitionType
     }) => {
         endpoint: string | undefined
-        eventNames?: string[] | undefined
+        eventNames?: string[]
         newInput: string | undefined
-        properties?:
-            | {
-                  key: string
-                  values: string | string[]
-              }[]
-            | undefined
+        properties?: {
+            key: string
+            values: string | string[]
+        }[]
         propertyKey: string
-        refresh?: string | undefined
+        refresh?: string
         type: PropertyDefinitionType
     }
     setOptions: (

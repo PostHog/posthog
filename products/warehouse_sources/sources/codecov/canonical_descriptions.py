@@ -158,6 +158,15 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "is_admin": "Whether the member is an admin of the organization.",
         },
     },
+    "owner": {
+        "description": "The Codecov owner (organization or user account) the source is configured for.",
+        "docs_url": "https://docs.codecov.com/reference/root_retrieve",
+        "columns": {
+            "service": "Git hosting provider of the owner.",
+            "username": "Username of the owner on the git provider.",
+            "name": "Display name of the owner.",
+        },
+    },
     "coverage_trend": {
         "description": "Daily coverage time series for a repository's default branch.",
         "docs_url": "https://docs.codecov.com/reference/repos_coverage_list",

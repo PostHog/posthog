@@ -19,9 +19,11 @@ from products.signals.backend.scout_harness.limits import SCOUT_TRIAL_METADATA_K
 from products.signals.backend.scout_harness.tools.runs import _build_task_url
 from products.signals.backend.scout_harness.tools.scratchpad import (
     DEFAULT_SCRATCHPAD_SEARCH_LIMIT,
+    ScratchpadConflictError,
     ScratchpadEntry,
+    ScratchpadRevivedExpiry,
     _clamp_search_limit,
-    _project_content,
+    _paged_content,
     _validate_entry,
 )
 
@@ -84,6 +86,10 @@ def initial_trial_state() -> dict[str, JsonValue]:
 def is_scout_trial(run: SignalScoutRun) -> bool:
     marker = (run.metadata or {}).get(SCOUT_TRIAL_METADATA_KEY)
     return isinstance(marker, dict) and marker.get("version") == 1
+
+
+def _is_expired(entry: ScratchpadEntry, now: datetime) -> bool:
+    return entry.expires_at is not None and datetime.fromisoformat(entry.expires_at) <= now
 
 
 def memory_snapshot(entries: Sequence[ScratchpadEntry]) -> list[dict[str, JsonValue]]:
@@ -198,12 +204,14 @@ class ScoutTrialStore:
         *,
         text: str | None = None,
         key: str | None = None,
+        key_prefix: str | None = None,
         skill_name: str | None = None,
         date_from: datetime | None = None,
         date_to: datetime | None = None,
         limit: int = DEFAULT_SCRATCHPAD_SEARCH_LIMIT,
         keys_only: bool = False,
         content_max_chars: int | None = None,
+        content_offset: int = 0,
         include_expired: bool = False,
     ) -> list[ScratchpadEntry]:
         entries = self._merge_memory(self._memory_snapshot(), self._read_state()).values()
@@ -212,34 +220,70 @@ class ScoutTrialStore:
         for entry in entries:
             if key and entry.key != key:
                 continue
+            if key_prefix and not entry.key.startswith(key_prefix):
+                continue
             if skill_name and entry.created_by_skill != skill_name:
                 continue
             if text and text.casefold() not in entry.key.casefold() and text.casefold() not in entry.content.casefold():
-                continue
-            if not include_expired and entry.expires_at and datetime.fromisoformat(entry.expires_at) <= now:
                 continue
             updated_at = datetime.fromisoformat(entry.updated_at) if entry.updated_at else None
             if date_from is not None and (updated_at is None or updated_at < date_from):
                 continue
             if date_to is not None and (updated_at is None or updated_at >= date_to):
                 continue
+            if not include_expired and _is_expired(entry, now):
+                # The same marker `search_scratchpad` returns. Trial memory keeps no revisions, so it names no writer.
+                if key:
+                    result.append(replace(entry, content="", expired=True))
+                continue
             result.append(entry)
         result.sort(key=lambda entry: (entry.updated_at or "", entry.key), reverse=True)
         return [
-            replace(
+            entry
+            if entry.expired
+            else replace(
                 entry,
-                content=_project_content(entry.content, keys_only=keys_only, content_max_chars=content_max_chars),
+                **_paged_content(
+                    entry.content,
+                    keys_only=keys_only,
+                    content_max_chars=content_max_chars,
+                    content_offset=content_offset,
+                ),
             )
             for entry in result[: _clamp_search_limit(limit)]
         ]
 
-    def remember(self, *, key: str, content: str, expires_at: datetime | None = None) -> ScratchpadEntry:
+    def remember(
+        self,
+        *,
+        key: str,
+        content: str,
+        expires_at: datetime | None = None,
+        if_updated_at: datetime | None = None,
+    ) -> ScratchpadEntry:
         _validate_entry(key=key, content=content, expires_at=expires_at)
         snapshot = self._memory_snapshot()
 
         def change(state: _TrialState) -> ScratchpadEntry:
             existing = self._merge_memory(snapshot, state).get(key)
-            now = timezone.now().isoformat()
+            if if_updated_at is not None and (
+                existing is None
+                or existing.updated_at is None
+                or datetime.fromisoformat(existing.updated_at) != if_updated_at
+            ):
+                raise ScratchpadConflictError(
+                    key=key, current_updated_at=existing.updated_at if existing is not None else None
+                )
+            written_at = timezone.now()
+            revived_expiry = None
+            if (
+                existing is not None
+                and existing.expires_at is not None
+                and _is_expired(existing, written_at)
+                and (expires_at is None or expires_at > written_at)
+            ):
+                revived_expiry = ScratchpadRevivedExpiry(expires_at=existing.expires_at)
+            now = written_at.isoformat()
             entry = (
                 replace(
                     existing, content=content, expires_at=expires_at.isoformat() if expires_at else None, updated_at=now
@@ -261,7 +305,7 @@ class ScoutTrialStore:
                 )
             )
             state.memory[key] = entry
-            return entry
+            return replace(entry, revived_expiry=revived_expiry)
 
         return self._mutate(change)
 

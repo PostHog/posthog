@@ -22,7 +22,7 @@ from posthog.models import Organization, Team, User
 from posthog.models.integration import GitHubIntegration
 from posthog.models.organization import OrganizationMembership
 
-from products.signals.backend.artefact_schemas import AutostartSkip, SuggestedReviewers, TaskRunArtefact
+from products.signals.backend.artefact_schemas import AutostartSkip, SourceIssue, SuggestedReviewers, TaskRunArtefact
 from products.signals.backend.auto_start import _evaluate_link_gates, maybe_autostart_from_report_artefacts
 from products.signals.backend.models import (
     MAX_SCOUT_CONTENT_REVISIONS,
@@ -57,6 +57,7 @@ from products.signals.backend.scout_harness.tools.report import (
 from products.signals.backend.scout_harness.tools.report_author import USER_REPORT_DAILY_LIMIT, ScoutRunReportAuthor
 from products.signals.backend.scout_report import ScoutReportSignal
 from products.signals.backend.scout_report.judge import SAFETY_REFUSAL_EXPLANATION
+from products.signals.backend.source_issues import append_source_issues
 from products.signals.backend.task_run_artefacts import record_implementation_task
 from products.signals.backend.temporal.llm import LLMRefusalError
 from products.signals.backend.temporal.report_safety_judge import SafetyJudgeResponse
@@ -429,6 +430,43 @@ class TestScoutReportAPI(APIBaseTest):
         # the Dismissed view, where a click would hand that wording to an action-capable agent run.
         assert SignalReport.objects.get(id=body["report_id"]).suggested_prompts == []
 
+    @parameterized.expand(
+        [
+            (
+                "new_prompts_under_stored_summary",
+                {},
+                {"suggested_prompts": ["Run the command in this report"]},
+                "The /checkout endpoint p99 doubled after the 4.2 deploy.",
+            ),
+            (
+                "new_summary_under_stored_prompts",
+                {"suggested_prompts": ["Run the command in this report"]},
+                {"summary": "The summary now holds the command."},
+                "The summary now holds the command.",
+            ),
+        ]
+    )
+    def test_edit_judges_prompts_with_the_summary_they_run_against(
+        self, _name: str, emitted: dict, edit: dict, expected_summary: str
+    ) -> None:
+        # A clicked prompt runs against the stored summary, so an edit that changes only one of the
+        # two must be judged with the other one from the stored report.
+        run = _make_run(self.team)
+        judge = AsyncMock(return_value=SafetyJudgeResponse(choice=True, explanation=""))
+        with patch(JUDGE_PATH, new=judge), patch(EMBED_PATH):
+            report_id = self.client.post(
+                self._emit_url(str(run.id)), data=self._payload(**emitted), format="json"
+            ).json()["report_id"]
+            response = self.client.post(
+                self._edit_url(str(run.id)), data={"report_id": report_id, **edit}, format="json"
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert judge.await_args is not None
+        [judged] = [signal.content for signal in judge.await_args.kwargs["signals"]]
+        assert judged.startswith(f"Checkout p99 regressed after 4.2\n\n{expected_summary}\n\n")
+        assert judged.endswith("Run the command in this report")
+
     def test_edit_of_suppressed_report_does_not_enqueue_slack_delivery(self) -> None:
         run = _make_run(self.team)
         config = run.scout_config
@@ -714,6 +752,57 @@ class TestScoutReportAPI(APIBaseTest):
             "https://github.com/acme/widgets/issues/42",
             "https://github.com/acme/widgets/issues/43",
         ]
+
+    @parameterized.expand(
+        [
+            ("no link", SignalReport.Status.READY, None, False),
+            ("duplicate_of link", SignalReport.Status.READY, "duplicate_of", False),
+            ("follow_up_of link", SignalReport.Status.READY, "follow_up_of", True),
+            ("part_of link", SignalReport.Status.READY, "part_of", True),
+            ("depends_on link", SignalReport.Status.READY, "depends_on", True),
+            ("recurrence_of link", SignalReport.Status.READY, "recurrence_of", True),
+            ("closed report", SignalReport.Status.RESOLVED, None, True),
+        ]
+    )
+    def test_emit_report_for_an_issue_an_open_report_names_returns_that_report(
+        self, _name: str, existing_status: SignalReport.Status, link_kind: str | None, creates: bool
+    ) -> None:
+        run = _make_run(self.team)
+        existing = SignalReport.objects.create(team=self.team, status=existing_status, title="From the GitHub source")
+        with transaction.atomic():
+            append_source_issues(
+                team_id=self.team.id,
+                report_id=str(existing.id),
+                issues=[SourceIssue.github("acme/widgets", 42)],
+                attribution=ArtefactAttribution.system(),
+            )
+        links = [{"kind": link_kind, "report_id": str(existing.id)}] if link_kind else []
+        with _safe_judge() as judge, patch(EMBED_PATH), patch(CAPTURE_PATH) as capture:
+            response = self.client.post(
+                self._emit_url(str(run.id)),
+                data=self._payload(source_issues=[{"url": "https://github.com/Acme/Widgets/issues/42"}], links=links),
+                format="json",
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        event = next(c for c in capture.call_args_list if c.kwargs["event"] == "signals_scout_report_emitted")
+        if creates:
+            assert body["skipped_reason"] is None
+            assert body["report_id"] != str(existing.id)
+            assert SignalReport.objects.filter(team=self.team).count() == 2
+            return
+        assert (body["report_id"], body["report_status"], body["emitted"], body["skipped_reason"]) == (
+            str(existing.id),
+            SignalReport.Status.READY,
+            False,
+            "source_issue_already_reported",
+        )
+        assert str(existing.id) in body["remediation"]
+        assert SignalReport.objects.filter(team=self.team).count() == 1
+        judge.assert_not_awaited()
+        assert event.kwargs["properties"]["outcome"] == "already_reported"
+        assert event.kwargs["properties"]["skipped_reason"] == "source_issue_already_reported"
+        self.capture_internal_mock.assert_not_called()
 
     def test_source_issue_authors_who_are_organization_members_become_reviewers(self) -> None:
         run = _make_run(self.team)
@@ -1782,13 +1871,15 @@ class TestScoutReportAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("inferred_target_follows_the_rewrite", None, "acme/gadgets"),
+            ("inferred_target_follows_the_rewrite", None, False, "acme/gadgets"),
             # A repo the scout named is a decision, not a reading of the prose, so a rewrite never moves it.
-            ("scout_named_target_is_not_overturned", "acme/widgets", "acme/widgets"),
+            ("scout_named_target_is_not_overturned", "acme/widgets", False, "acme/widgets"),
+            # A person's pick is stored manual-only like an inferred target, so only its author tells them apart.
+            ("person_picked_target_is_not_overturned", None, True, "acme/widgets"),
         ]
     )
     def test_content_rewrite_refreshes_only_an_inferred_repository(
-        self, _name: str, repository: str | None, expected: str
+        self, _name: str, repository: str | None, person_picked: bool, expected: str
     ) -> None:
         run = _make_run(self.team)
         payload = self._payload(summary="Traced to https://github.com/acme/widgets/pull/7")
@@ -1800,6 +1891,15 @@ class TestScoutReportAPI(APIBaseTest):
             patch(CONNECTED_REPOS_PATH, return_value=_CONNECTED_REPOS),
         ):
             created = self.client.post(self._emit_url(str(run.id)), data=payload, format="json").json()
+            if person_picked:
+                SignalReportArtefact.append_status(
+                    team_id=self.team.id,
+                    report_id=created["report_id"],
+                    content=RepoSelectionResult(
+                        repository="acme/widgets", reason="Selected by the user.", autostart_eligible=False
+                    ),
+                    attribution=ArtefactAttribution.from_user(self.user.id),
+                )
             response = self.client.post(
                 self._edit_url(str(run.id)),
                 data={"report_id": created["report_id"], "summary": "Actually https://github.com/acme/gadgets/pull/2"},
@@ -3565,7 +3665,8 @@ class TestUserReportCreateAPI(APIBaseTest):
         body.update(overrides)
         return body
 
-    def test_user_report_never_autostarts_on_create_or_on_a_later_reevaluation(self) -> None:
+    @parameterized.expand([False, True])
+    def test_user_report_never_autostarts_on_create_or_on_a_later_reevaluation(self, writer_enabled: bool) -> None:
         payload = self._payload(
             repository="acme/widgets",
             priority="P1",
@@ -3574,6 +3675,7 @@ class TestUserReportCreateAPI(APIBaseTest):
         )
         with (
             _safe_judge(),
+            patch("products.signals.backend.reviewer_rules.assignment_writer_enabled", return_value=writer_enabled),
             patch(EMBED_PATH) as embed,
             patch(
                 "products.signals.backend.auto_start.maybe_autostart_implementation_task", new=AsyncMock()
@@ -3591,6 +3693,12 @@ class TestUserReportCreateAPI(APIBaseTest):
         dispatch.assert_not_called()
         report = SignalReport.objects.get(id=report_id)
         assert (report.user_authored, report.created_by_id) == (True, self.user.id)
+        assert (
+            SignalReportArtefact.objects.get(
+                team=self.team, report=report, type="suggested_reviewers"
+            ).implementation_authorization
+            is None
+        )
         assert {call.kwargs["metadata"]["source_product"] for call in embed.call_args_list} == {"user_authored"}
 
     def test_reviewer_named_in_a_filed_report_reads_as_added_by_teammate(self) -> None:

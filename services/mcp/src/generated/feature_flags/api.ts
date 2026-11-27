@@ -139,7 +139,7 @@ export const FeatureFlagsListQueryParams = () => zod.object({
         .string()
         .optional()
         .describe(
-            'Search by feature flag key or name. Case insensitive. Spaces, underscores, and hyphens count as the same separator.'
+            'Search by feature flag key or name. Case insensitive. Spaces, underscores, and hyphens count as the same separator. The words of the term must appear together and in order, so a shorter term matches more flags.'
         ),
     tags: zod.string().optional().describe('JSON-encoded list of tag names to filter feature flags by.'),
     type: zod.enum(['boolean', 'experiment', 'multivariant', 'remote_config']).optional(),
@@ -432,6 +432,12 @@ export const FeatureFlagsCreateBody = () => zod.object({
                             .number()
                             .nullish()
                             .describe('Group type index for this condition set. None means person-level aggregation.'),
+                        description: zod
+                            .string()
+                            .nullish()
+                            .describe(
+                                'Display-only name for this release condition group. It does not affect evaluation.'
+                            ),
                     })
                 )
                 .optional()
@@ -853,6 +859,12 @@ export const FeatureFlagsPartialUpdateBody = () => zod.object({
                             .number()
                             .nullish()
                             .describe('Group type index for this condition set. None means person-level aggregation.'),
+                        description: zod
+                            .string()
+                            .nullish()
+                            .describe(
+                                'Display-only name for this release condition group. It does not affect evaluation.'
+                            ),
                     })
                 )
                 .optional()
@@ -1358,7 +1370,7 @@ export const FeatureFlagsBulkDeleteCreateBody = () => zod.object({
                 .string()
                 .optional()
                 .describe(
-                    'Search by feature flag key or name (case-insensitive). Spaces, underscores, and hyphens count as the same separator.'
+                    'Search by feature flag key or name (case-insensitive). Spaces, underscores, and hyphens count as the same separator. The words of the term must appear together and in order, so a shorter term matches more flags.'
                 ),
             type: zod
                 .enum(['boolean', 'multivariant', 'experiment', 'remote_config'])

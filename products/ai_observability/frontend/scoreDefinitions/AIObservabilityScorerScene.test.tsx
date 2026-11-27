@@ -36,6 +36,8 @@ const source: ScoreDefinitionApi = {
     description: '',
     tags: [],
     kind: 'numeric',
+    scope: 'item',
+    suite_keys: [],
     calculation: 'reported',
     config: { min: 0, max: 1 },
     composition: null,
@@ -48,10 +50,12 @@ const source: ScoreDefinitionApi = {
     created_by: null,
     created_at: '2026-01-01T00:00:00Z',
     updated_by: null,
+    created_by_project_key_id: null,
+    updated_by_project_key_id: null,
     updated_at: null,
 }
 
-describe.each([false, true])('scorer scene duplication with Today navigation: %s', (todayRailNav) => {
+describe.each([false, true])('scorer scene with Today navigation: %s', (todayRailNav) => {
     beforeEach(() => {
         initKeaTests()
         jest.clearAllMocks()
@@ -59,8 +63,7 @@ describe.each([false, true])('scorer scene duplication with Today navigation: %s
             ...window.POSTHOG_APP_CONTEXT!.resource_access_control,
             llm_analytics: AccessControlLevel.Editor,
         }
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.AI_OBSERVABILITY_OFFLINE_EVALUATIONS], {
-            [FEATURE_FLAGS.AI_OBSERVABILITY_OFFLINE_EVALUATIONS]: true,
+        featureFlagLogic.actions.setFeatureFlags([], {
             [FEATURE_FLAGS.TODAY_RAIL_NAV]: todayRailNav,
         })
         const emptyPage = { results: [], count: 0, next: null, previous: null }
@@ -69,6 +72,29 @@ describe.each([false, true])('scorer scene duplication with Today navigation: %s
     })
 
     afterEach(cleanup)
+
+    it.each([
+        [
+            { experiment: '08b13acc-f998-5208-9d45-4114c633ba9e' },
+            'Back to experiment',
+            urls.aiObservabilityOfflineEvaluationExperiment('08b13acc-f998-5208-9d45-4114c633ba9e'),
+        ],
+        [{}, 'Back to scorers', urls.aiObservabilityScorers()],
+        [{ experiment: 'unknown-run' }, 'Back to scorers', urls.aiObservabilityScorers()],
+    ] as const)('returns Back and Cancel to the origin for %j', async (searchParams, backLabel, destination) => {
+        const params = { scorerId: 'new' }
+        router.actions.push(urls.aiObservabilityScorer('new'), searchParams)
+        const SceneComponent = scene.component
+        render(
+            <BindLogic logic={scorerLogic} props={scene.paramsToProps!({ params, searchParams, hashParams: {} })}>
+                <SceneComponent {...params} />
+            </BindLogic>
+        )
+
+        const expectedPath = `/project/${MOCK_DEFAULT_TEAM.id}${destination}`
+        expect((await screen.findByLabelText(backLabel)).getAttribute('href')).toBe(expectedPath)
+        expect(screen.getByText('Cancel').closest('a')?.getAttribute('href')).toBe(expectedPath)
+    })
 
     it.each(['reported', 'composite'] as const)(
         'copies and saves a %s scorer through the scene route',

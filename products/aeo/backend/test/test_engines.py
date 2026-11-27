@@ -20,6 +20,7 @@ from products.aeo.backend.engines import (
     GATEWAY_MAX_ATTEMPTS,
     MAX_WEB_SEARCHES_PER_PROMPT,
     OPENAI_MAX_OUTPUT_TOKENS,
+    AICreditsExhausted,
     CitationCheck,
     ClaudeWebSearchEngine,
     OpenAIWebSearchEngine,
@@ -151,6 +152,41 @@ def test_parse_openai_responses_citations() -> None:
     assert parsed.answer_text == "Several tools offer feature flags."
     assert parsed.cited_urls == ["https://posthog.com/feature-flags", "https://example.com/flags"]
     assert parsed.search_queries == ["feature flag tools comparison"]
+
+
+@parameterized.expand(
+    [
+        ("utm_only", "https://example.com/flags?utm_source=openai", "https://example.com/flags"),
+        ("utm_and_others", "https://example.com/a?id=7&utm_source=openai#top", "https://example.com/a?id=7#top"),
+        ("no_utm", "https://example.com/a?id=7&page=2", "https://example.com/a?id=7&page=2"),
+        (
+            "encoded_param_kept_as_is",
+            "https://example.com/s?q=feature%20flags&utm_source=openai",
+            "https://example.com/s?q=feature%20flags",
+        ),
+        ("malformed_url", "https://[invalid/path", "https://[invalid/path"),
+    ]
+)
+def test_parse_openai_responses_citations_drop_utm_params(_name: str, cited: str, expected: str) -> None:
+    body = {
+        "output": [
+            {
+                "type": "message",
+                "content": [
+                    {
+                        "type": "output_text",
+                        "text": "Answer.",
+                        "annotations": [
+                            {"type": "url_citation", "url": cited},
+                            {"type": "url_citation", "url": expected},
+                        ],
+                    }
+                ],
+            }
+        ]
+    }
+
+    assert parse_openai_responses_citations(body).cited_urls == [expected]
 
 
 OPENAI_INCOMPLETE_BODY = {
@@ -294,8 +330,8 @@ def test_gateway_engines_send_the_search_tool_only_with_search(
 ) -> None:
     captured: dict[str, Any] = {}
 
-    def fake_post(_session, url, _headers, payload, **_kwargs):
-        captured.update(url=url, payload=payload)
+    def fake_post(_session, url, headers, payload, **_kwargs):
+        captured.update(url=url, headers=headers, payload=payload)
         return body
 
     with (
@@ -303,7 +339,6 @@ def test_gateway_engines_send_the_search_tool_only_with_search(
             "products.aeo.backend.engines.resolve_ai_gateway_config",
             return_value=SimpleNamespace(url="https://gw.test/v1", api_key="k"),
         ),
-        patch("products.aeo.backend.engines.ai_gateway_headers", return_value={}),
         patch("products.aeo.backend.engines.gateway_post_json", side_effect=fake_post),
     ):
         engine = engine_class(search=search)
@@ -320,6 +355,7 @@ def test_gateway_engines_send_the_search_tool_only_with_search(
         target_domains=["posthog.com"],
     )
     assert (captured["url"], captured["payload"]["model"]) == (f"https://gw.test/v1{path}", web_search_model)
+    assert captured["headers"]["X-PostHog-Product"] == "ai_visibility"
     assert check.error is None and fields["answer_text"]
     assert (fields["engine"], fields["mode"]) == (expected_engine, "web_search" if search else "no_search")
     assert captured["payload"].get("tools") == expected_tools
@@ -413,6 +449,53 @@ def test_build_check_fields_cited() -> None:
     assert fields["cost_usd"] is None
 
 
+@pytest.mark.parametrize(
+    "answer_text, error, expected",
+    [
+        ("Try Example for funnels.", None, True),
+        ("A counterexample, nothing more.", None, False),
+        ("", None, False),
+        ("", "HTTPError: status=500", None),
+    ],
+)
+def test_build_check_fields_record_whether_the_answer_names_the_brand(
+    answer_text: str, error: str | None, expected: bool | None
+) -> None:
+    fields = build_check_fields(
+        check=CitationCheck(engine="exa-answer", model="exa-answer", answer_text=answer_text, error=error),
+        run_id="run-1",
+        prompt_id="prompt-1",
+        prompt_text="q",
+        prompt_source="manual",
+        prompt_hash="abc",
+        target_domains=["example.com"],
+    )
+    assert fields["names_brand"] is expected
+
+
+@pytest.mark.parametrize(
+    "prompt_text, error, expected",
+    [
+        ("Is Example good for funnels?", None, True),
+        ("Best funnel tool?", None, False),
+        ("Is Example good for funnels?", "HTTPError: status=500", True),
+    ],
+)
+def test_build_check_fields_record_whether_the_prompt_names_the_brand(
+    prompt_text: str, error: str | None, expected: bool
+) -> None:
+    fields = build_check_fields(
+        check=CitationCheck(engine="exa-answer", model="exa-answer", answer_text="", error=error),
+        run_id="run-1",
+        prompt_id="prompt-1",
+        prompt_text=prompt_text,
+        prompt_source="manual",
+        prompt_hash="abc",
+        target_domains=["example.com"],
+    )
+    assert fields["prompt_branded"] is expected
+
+
 def test_build_check_fields_failed_check() -> None:
     check = CitationCheck(engine="exa-answer", model="exa-answer", error="HTTPError: status=500 " + "x" * 600)
     fields = build_check_fields(
@@ -459,12 +542,14 @@ def test_engine_derived_text_is_sanitized_before_it_reaches_the_event() -> None:
     assert fields["target_best_position"] == 1
 
 
-def _response(status: int, retry_after: str | None = None) -> requests.Response:
+def _response(status: int, retry_after: str | None = None, denial: str | None = None) -> requests.Response:
     response = requests.Response()
     response.status_code = status
     response._content = b'{"ok": true}'
     if retry_after is not None:
         response.headers["Retry-After"] = retry_after
+    if denial is not None:
+        response.headers["X-PostHog-Denial"] = denial
     return response
 
 
@@ -473,6 +558,15 @@ def _response(status: int, retry_after: str | None = None) -> requests.Response:
         ("throttled_then_ok", [_response(429, retry_after="7"), _response(200)], None, 2, [7.0]),
         ("transient_until_attempts_run_out", [_response(503)] * GATEWAY_MAX_ATTEMPTS, requests.HTTPError, 3, [5, 10]),
         ("client_error_is_not_retried", [_response(400)], requests.HTTPError, 1, []),
+        (
+            "gateway_credit_refusal",
+            [_response(402, denial="credit_bucket_exhausted:ai_credits")],
+            AICreditsExhausted,
+            1,
+            [],
+        ),
+        ("provider_payment_refusal", [_response(402)], requests.HTTPError, 1, []),
+        ("gateway_wallet_refusal", [_response(402, denial="insufficient_credits")], requests.HTTPError, 1, []),
     ]
 )
 def test_gateway_post_json_retries_throttling_and_transient_errors(
@@ -703,7 +797,12 @@ def test_perplexity_engine_sends_the_configured_model_with_web_search_to_the_gat
     assert url == "https://gw.test/v1/responses"
     assert headers["Authorization"] == "Bearer k"
     assert headers["X-PostHog-Trace-Id"] == "t1"
-    assert json.loads(headers["X-PostHog-Properties"]) == {"aeo_prompt_id": "p1", "aeo_run_id": "r1"}
+    assert headers["X-PostHog-Product"] == "ai_visibility"
+    assert json.loads(headers["X-PostHog-Properties"]) == {
+        "aeo_prompt_id": "p1",
+        "aeo_run_id": "r1",
+        "ai_product": "ai_visibility",
+    }
     assert payload["model"] == "perplexity/sonar-pro"
     assert payload["tools"] == [{"type": "web_search", "search_type": "fast"}]
     assert check.error is None

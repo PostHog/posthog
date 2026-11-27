@@ -1,8 +1,10 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import type { HogFlowInvocationApi } from '../../../generated/api.schemas'
 import { workflowLogic } from '../../workflowLogic'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlowAction, HogFlowActionNode } from '../types'
@@ -535,6 +537,80 @@ describe('hogFlowOutputMappingLogic', () => {
             })
         })
 
+        describe('setAgentField', () => {
+            const selectStep = (id: string, variables: any[]): void => {
+                const node = makeActionNode(id)
+                wfLogic.actions.setWorkflowInfo({ actions: [node.data], variables })
+                editorLogic.actions.setSelectedNodeId(id)
+            }
+
+            it('names a new field and creates its variable', async () => {
+                selectStep('action-new-field', [])
+                logic.actions.initMappings([{ key: '', result_path: '' }])
+
+                logic.actions.setAgentField(0, 'tags')
+
+                expect(logic.values.mappings).toEqual([{ key: 'tags', result_path: 'output.tags' }])
+                expect(wfLogic.values.workflow.variables).toEqual([
+                    { key: 'tags', label: 'tags', type: 'string', default: '' },
+                ])
+            })
+
+            it('renames a field without moving it off the variable later steps read', async () => {
+                const variables = [{ key: 'score', label: 'score', type: 'number', default: '', description: '1-5' }]
+                selectStep('action-rename', variables)
+                logic.actions.initMappings([{ key: 'score', result_path: 'output.score', spread: true }])
+
+                logic.actions.setAgentField(0, 'rating')
+
+                expect(logic.values.mappings).toEqual([{ key: 'score', result_path: 'output.rating', spread: true }])
+                expect(wfLogic.values.workflow.actions.find((a) => a.id === 'action-rename')?.output_variable).toEqual({
+                    key: 'score',
+                    result_path: 'output.rating',
+                    spread: true,
+                })
+                expect(wfLogic.values.workflow.variables).toEqual(variables)
+            })
+
+            it('renames one of two saved fields that share a variable', async () => {
+                selectStep('action-shared', [{ key: 'score', label: 'score', type: 'number', default: '' }])
+                logic.actions.initMappings([
+                    { key: 'score', result_path: 'output.score' },
+                    { key: 'score', result_path: 'output.rating' },
+                ])
+
+                logic.actions.setAgentField(1, 'grade')
+
+                expect(logic.values.mappings[1]).toEqual({ key: 'score', result_path: 'output.grade' })
+            })
+
+            it.each([
+                ['a name another field already uses', 'summary'],
+                ['an empty name on a saved field', ''],
+                ['a name the task result reserves', 'ci_status'],
+            ])('refuses %s and leaves every variable alone', async (_case, name) => {
+                // Field names differ from their variables, so the check has to compare field names.
+                const variables = [
+                    { key: 'triage_summary', label: 'triage_summary', type: 'string', default: '' },
+                    { key: 'risk_score', label: 'risk_score', type: 'number', default: '' },
+                ]
+                selectStep('action-collision', variables)
+                const mappings = [
+                    { key: 'triage_summary', result_path: 'output.summary' },
+                    { key: 'risk_score', result_path: 'output.score' },
+                ]
+                logic.actions.initMappings(mappings)
+
+                logic.actions.setAgentField(1, name)
+
+                expect(logic.values.mappings).toEqual(mappings)
+                expect(wfLogic.values.workflow.actions.find((a) => a.id === 'action-collision')?.output_variable).toBe(
+                    undefined
+                )
+                expect(wfLogic.values.workflow.variables).toEqual(variables)
+            })
+        })
+
         describe('addMapping and removeMapping', () => {
             it('addMapping appends an empty mapping to the existing list', async () => {
                 logic.actions.initMappings([{ key: 'existing', result_path: 'x' }])
@@ -606,6 +682,50 @@ describe('hogFlowOutputMappingLogic', () => {
                 await expectLogic(logic).toMatchValues({
                     selectedAction: node.data,
                 })
+            })
+        })
+
+        describe('runOutputTest', () => {
+            it('reports the test email a run of the step sent', async () => {
+                const email = {
+                    ...makeActionNode('email').data,
+                    type: 'function_email',
+                    config: { inputs: {} },
+                } as HogFlowAction
+                const node = { ...makeActionNode('email'), data: email }
+                const submitted: HogFlowInvocationApi[] = []
+                useMocks({
+                    post: {
+                        '/api/environments/:team_id/hog_flows/:id/invocations': async ({ request }) => {
+                            submitted.push((await request.json()) as HogFlowInvocationApi)
+                            return [
+                                200,
+                                {
+                                    status: 'success',
+                                    logs: [],
+                                    nextActionId: null,
+                                    execResult: {},
+                                    emailSendResult: { status: 'accepted' },
+                                },
+                            ]
+                        },
+                    },
+                })
+                const capture = jest.spyOn(posthog, 'capture')
+                await expectLogic(wfLogic).toFinishAllListeners()
+                wfLogic.actions.setWorkflowValues({ actions: [email] })
+                editorLogic.actions.setNodesRaw([node])
+                editorLogic.actions.setSelectedNodeId('email')
+
+                await expectLogic(logic, () => logic.actions.runOutputTest()).toFinishAllListeners()
+
+                expect(logic.values.testError).toBeNull()
+                expect(submitted.map((body) => [body.current_action_id, body.mock_async_functions])).toEqual([
+                    ['email', false],
+                ])
+                expect(capture.mock.calls.filter(([event]) => event === 'workflows test email sent')).toEqual([
+                    ['workflows test email sent', { step_type: 'function_email', sender_kind: 'own_domain' }],
+                ])
             })
         })
     })

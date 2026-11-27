@@ -1,7 +1,7 @@
 import json
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 from uuid import uuid4
 
 import time_machine
@@ -34,13 +34,15 @@ from posthog.api.cohort import (
     AddPersonsToStaticCohortRequestSerializer,
     CohortFilters,
     CohortViewSet,
+    _criteria_edit_queues_behavioral_run,
     flag_call_criterion_shape_problem,
+    generate_cohort_filter_bytecode,
 )
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.constants import AvailableFeature
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import ActivityLog
-from posthog.models.async_deletion.async_deletion import AsyncDeletion
+from posthog.models.async_deletion.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.event.new_events_schema import use_new_events_schema
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.person.util import get_person_by_id
@@ -120,6 +122,7 @@ def _pageview_with_hogql_filter(expression: str) -> dict[str, Any]:
 
 
 _FLAG_CALLED_PAST_RETENTION_CRITERION = {**_FLAG_CALLED_CRITERION, "time_value": 180}
+_PERSON_EMAIL_CRITERION = {"key": "email", "type": "person", "value": "person@example.com", "operator": "exact"}
 _FLAG_CALLED_UNRESOLVABLE_CRITERION = {
     **_FLAG_CALLED_CRITERION,
     "event_filters": [_FLAG_KEY_FILTER, {"key": "goe_0.properties.plan = 'pro'", "type": "hogql"}],
@@ -144,7 +147,7 @@ _FLAG_CALL_KEY_REFUSAL = '"Feature flag" equals'
 _FLAG_CALL_COMPILE_REFUSAL = "can't calculate this criterion"
 _FLAG_CALL_FILTER_REFUSAL = "instead of a SQL expression"
 _FLAG_CALL_SQL_EXPRESSION_REFUSAL = "on another criterion"
-_FLAG_CALL_REALTIME_REFUSAL = "Real-time cohorts can't use this event"
+_REALTIME_CRITERIA_REFUSAL = "Realtime is on for this cohort"
 
 
 class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
@@ -324,9 +327,11 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
 
     @parameterized.expand(
         [
+            # The create asks for realtime, and a team the pipeline does not process cannot turn it on.
             ("team_off_the_pipeline", None, False, "off"),
-            # A load-test team runs the pipeline, so it is enabled, but adoption counts only serving teams.
-            ("team_granted_processing", RealtimeCohortLevel.PROCESSING, True, "processing"),
+            # A load-test team runs the pipeline, but its users must not turn realtime on.
+            ("team_granted_processing", RealtimeCohortLevel.PROCESSING, False, "processing"),
+            ("team_serving", RealtimeCohortLevel.SERVING, True, "serving"),
         ]
     )
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
@@ -350,6 +355,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
             f"/api/projects/{self.team.id}/cohorts",
             data={
                 "name": "performed an action",
+                "realtime_enabled": True,
                 "filters": {
                     "properties": {
                         "type": "OR",
@@ -720,7 +726,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
         self.assertEqual(response.json()["code"], "behavioral_cohort_found")
-        self.assertIn("Behavioral filters cannot be added to cohorts used in feature flags", response.json()["detail"])
+        self.assertIn("used in 1 active feature flag(s): Cohort-based flag.", response.json()["detail"])
 
     def test_static_cohort_csv_upload_end_to_end(self):
         """Test CSV upload end-to-end with actual celery task execution"""
@@ -2471,6 +2477,7 @@ email@example.org,
                 is_static=False,
                 filters={"properties": {"type": "OR", "values": values}},
                 cohort_type=CohortType.REALTIME if realtime_backfilled else None,
+                realtime_enabled_at=timezone.now() if realtime_backfilled else None,
                 last_backfill_person_properties_at=timezone.now() if realtime_backfilled else None,
                 last_backfill_events_at=timezone.now() if realtime_backfilled else None,
             )
@@ -2555,6 +2562,7 @@ email@example.org,
             team=self.team,
             name="realtime cohort",
             cohort_type=CohortType.REALTIME,
+            realtime_enabled_at=timezone.now(),
             filters={
                 "properties": {
                     "type": "AND",
@@ -2608,6 +2616,7 @@ email@example.org,
                 team=self.team,
                 name=f"realtime cohort {index}",
                 cohort_type=CohortType.REALTIME,
+                realtime_enabled_at=timezone.now(),
                 filters=behavioral_filters,
             )
             get_redis_client().set(
@@ -2812,6 +2821,7 @@ email@example.org,
                 }
             },
             cohort_type=cohort_type,
+            realtime_enabled_at=datetime.now() if is_backfilled else None,
             last_backfill_person_properties_at=datetime.now() if is_backfilled else None,
             last_backfill_events_at=datetime.now() if is_backfilled else None,
         )
@@ -2868,6 +2878,7 @@ email@example.org,
                 }
             },
             cohort_type=CohortType.REALTIME,
+            realtime_enabled_at=datetime.now(),
             last_backfill_person_properties_at=datetime.now(),
             last_backfill_events_at=datetime.now(),
         )
@@ -3653,7 +3664,7 @@ email@example.org,
             response = self.client.post(cohorts_url, data={"name": "cohort A", "deleted": True, **criteria})
         elif save == "update":
             cohort_a = Cohort.objects.create(team=self.team, name="cohort A")
-            # _validate_nested_cohort_behavioral_filters runs only on a PATCH to a cohort that an active flag uses.
+            # _validate_nested_cohort_behavioral_filters runs only on a PATCH or PUT to a cohort that an active flag uses.
             FeatureFlag.objects.create(
                 team=self.team,
                 key="cohort-flag",
@@ -4212,43 +4223,44 @@ email@example.org,
             created_by=self.user,
         )
 
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/cohorts/{cohort_pk}",
-            data={
-                "name": "cohort A",
-                "filters": {
-                    "properties": {
-                        "type": "OR",
-                        "values": [
-                            {
-                                "key": "$some_prop",
-                                "value": "something",
-                                "type": "person",
-                                "operator": "exact",
-                            },
-                            {
-                                "key": "$pageview",
-                                "event_type": "events",
-                                "time_value": 1,
-                                "time_interval": "day",
-                                "value": "performed_event",
-                                "type": "behavioral",
-                            },
-                        ],
-                    }
-                },
+        behavioral_body = {
+            "name": "cohort A",
+            "filters": {
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "key": "$some_prop",
+                            "value": "something",
+                            "type": "person",
+                            "operator": "exact",
+                        },
+                        {
+                            "key": "$pageview",
+                            "event_type": "events",
+                            "time_value": 1,
+                            "time_interval": "day",
+                            "value": "performed_event",
+                            "type": "behavioral",
+                        },
+                    ],
+                }
             },
-        )
-        self.assertEqual(response.status_code, 400)
-        self.assertLessEqual(
-            {
-                "type": "validation_error",
-                "code": "behavioral_cohort_found",
-                "detail": "Behavioral filters cannot be added to cohorts used in feature flags.",
-                "attr": "filters",
-            }.items(),
-            response.json().items(),
-        )
+        }
+        for send in (self.client.patch, self.client.put):
+            response = send(f"/api/projects/{self.team.id}/cohorts/{cohort_pk}", data=behavioral_body)
+            self.assertEqual(response.status_code, 400)
+            self.assertLessEqual(
+                {
+                    "type": "validation_error",
+                    "code": "behavioral_cohort_found",
+                    "detail": "This cohort is used in 1 active feature flag(s): This is a cohort-based flag. "
+                    "Its criteria include events, so they can't change while these flags use it. "
+                    "Remove this cohort, or the cohort that includes it, from these flags, then save again. You can add it back once feature flags can target it.",
+                    "attr": "filters",
+                }.items(),
+                response.json().items(),
+            )
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/cohorts/{cohort_pk}",
@@ -4279,10 +4291,80 @@ email@example.org,
             {
                 "type": "validation_error",
                 "code": "behavioral_cohort_found",
-                "detail": "A cohort dependency (cohort XX) has filters based on events. These cohorts can't be used in feature flags.",
+                "detail": "This cohort is used in 1 active feature flag(s): This is a cohort-based flag. "
+                "It includes cohort 'cohort XX', which has event criteria, so this cohort's criteria can't change while these flags use it. "
+                "Remove this cohort, or the cohort that includes it, from these flags, then save again. You can add it back once feature flags can target it.",
                 "attr": "filters",
             }.items(),
             response.json().items(),
+        )
+
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_update_cohort_used_in_flags_names_only_the_flags_the_member_can_view(
+        self, patch_calculate_cohort: MagicMock, patch_capture: MagicMock
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="cohort A",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [{"key": "$some_prop", "value": "something", "type": "person", "operator": "exact"}],
+                }
+            },
+        )
+        flag_filters = {"groups": [{"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}]}]}
+        FeatureFlag.objects.create(
+            team=self.team, filters=flag_filters, name="Visible flag", key="a-visible-flag", created_by=self.user
+        )
+        sibling_team = Team.objects.create(organization=self.organization, project=self.team.project, name="Staging")
+        flag_owner = self._create_user("flag-owner@example.com")
+        for team, key in ((self.team, "b-hidden-flag"), (sibling_team, "c-hidden-sibling-flag")):
+            hidden_flag = FeatureFlag.objects.create(
+                team=team, filters=flag_filters, name=key, key=key, created_by=flag_owner
+            )
+            AccessControl.objects.create(
+                team=team,
+                resource="feature_flag",
+                resource_id=str(hidden_flag.id),
+                access_level="none",
+                organization_member=self.organization_membership,
+            )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort.pk}",
+            data={
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "key": "$pageview",
+                                "event_type": "events",
+                                "time_value": 1,
+                                "time_interval": "day",
+                                "value": "performed_event",
+                                "type": "behavioral",
+                            }
+                        ],
+                    }
+                }
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertEqual(
+            response.json()["detail"],
+            "This cohort is used in 3 active feature flag(s): Visible flag and 2 more. "
+            "Its criteria include events, so they can't change while these flags use it. "
+            "Remove this cohort, or the cohort that includes it, from these flags, then save again. "
+            "You can add it back once feature flags can target it.",
         )
 
     @patch("posthog.api.cohort.report_user_action")
@@ -4516,11 +4598,17 @@ email@example.org,
         # The save also repairs a legacy list in place: the persisted value is the unwrapped scalar.
         self.assertEqual(static_cohort.filters["properties"]["values"][0].get("value"), value)
 
-    @parameterized.expand([("with_filters", True), ("without_filters", False)])
+    @parameterized.expand(
+        [
+            ("with_filters", True, "patch"),
+            ("without_filters", False, "patch"),
+            ("without_filters_put", False, "put"),
+        ]
+    )
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
     def test_update_static_cohort_used_in_flag_rejects_static_to_dynamic_behavioral_filters(
-        self, _name: str, include_filters: bool, patch_calculate_cohort, patch_capture
+        self, _name: str, include_filters: bool, method: str, patch_calculate_cohort, patch_capture
     ) -> None:
         def cohort_filter(cohort_id: int) -> dict[str, Any]:
             return {"key": "id", "value": cohort_id, "type": "cohort"}
@@ -4559,7 +4647,7 @@ email@example.org,
         if include_filters:
             data["filters"] = static_filters
 
-        response = self.client.patch(
+        response = getattr(self.client, method)(
             f"/api/projects/{self.team.id}/cohorts/{static_cohort.pk}",
             data=data,
         )
@@ -4569,7 +4657,9 @@ email@example.org,
             {
                 "type": "validation_error",
                 "code": "behavioral_cohort_found",
-                "detail": "Behavioral filters cannot be added to cohorts used in feature flags.",
+                "detail": "This cohort is used in 1 active feature flag(s): This is a static cohort-based flag. "
+                "Its criteria include events, so they can't change while these flags use it. "
+                "Remove this cohort, or the cohort that includes it, from these flags, then save again. You can add it back once feature flags can target it.",
                 "attr": "filters" if include_filters else None,
             }.items(),
             response.json().items(),
@@ -4618,7 +4708,9 @@ email@example.org,
             {
                 "type": "validation_error",
                 "code": "behavioral_cohort_found",
-                "detail": "Behavioral filters cannot be added to cohorts used in feature flags.",
+                "detail": "This cohort is used in 1 active feature flag(s): This is a static cohort-based flag. "
+                "Its criteria include events, so they can't change while these flags use it. "
+                "Remove this cohort, or the cohort that includes it, from these flags, then save again. You can add it back once feature flags can target it.",
                 "attr": None,
             }.items(),
             response.json().items(),
@@ -4950,7 +5042,7 @@ email@example.org,
                 "event",
                 [_FLAG_CALLED_CRITERION],
                 FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
-                {False: None, True: _FLAG_CALL_KEY_REFUSAL},
+                None,
             ),
             (
                 "multiple_times",
@@ -4963,13 +5055,13 @@ email@example.org,
                     }
                 ],
                 FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
-                {False: None, True: _FLAG_CALL_KEY_REFUSAL},
+                None,
             ),
             (
                 "did_not_complete_event",
                 [_PAGEVIEW_CRITERION, {**_FLAG_CALLED_CRITERION, "negation": True}],
                 FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
-                {False: None, True: _FLAG_CALL_KEY_REFUSAL},
+                None,
             ),
             (
                 "multiple_times_without_flag_key",
@@ -4982,7 +5074,8 @@ email@example.org,
                     }
                 ],
                 FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
-                _FLAG_CALL_KEY_REFUSAL,
+                # The native JSON events table reads every flag call through the union, which needs no flag key.
+                {False: _FLAG_CALL_KEY_REFUSAL, True: None},
             ),
             (
                 "any_flag_in_flag_evaluations_only_mode",
@@ -5105,8 +5198,12 @@ email@example.org,
             data={"name": "flag callers", "groups": [{"event_id": "$feature_flag_called", "days": 30}]},
         )
 
-        self.assertEqual(response.status_code, 400, response.json())
-        self.assertIn(_FLAG_CALL_KEY_REFUSAL, response.json()["detail"])
+        if use_new_events_schema(self.team.id):
+            # The native JSON events table reads every flag call through the union, which needs no flag key.
+            self.assertEqual(response.status_code, 201, response.json())
+        else:
+            self.assertEqual(response.status_code, 400, response.json())
+            self.assertIn(_FLAG_CALL_KEY_REFUSAL, response.json()["detail"])
 
     @parameterized.expand(
         [
@@ -5114,7 +5211,7 @@ email@example.org,
                 "adds_within_retention",
                 [_PAGEVIEW_CRITERION],
                 [_PAGEVIEW_CRITERION, _FLAG_CALLED_CRITERION],
-                {False: None, True: _FLAG_CALL_KEY_REFUSAL},
+                None,
             ),
             (
                 "adds_past_retention",
@@ -5144,13 +5241,13 @@ email@example.org,
                 "adds_beside_unresolvable",
                 [_FLAG_CALLED_UNRESOLVABLE_CRITERION],
                 [_FLAG_CALLED_UNRESOLVABLE_CRITERION, _FLAG_CALLED_CRITERION],
-                _FLAG_CALL_KEY_REFUSAL,
+                {False: _FLAG_CALL_KEY_REFUSAL, True: None},
             ),
             (
                 "adds_unresolvable_flag_calls_in_another_criterion",
                 [_FLAG_CALLED_CRITERION],
                 [_FLAG_CALLED_CRITERION, _PAGEVIEW_WITH_UNRESOLVABLE_FLAG_CALLS_CRITERION],
-                {False: _FLAG_CALL_SQL_EXPRESSION_REFUSAL, True: _FLAG_CALL_KEY_REFUSAL},
+                _FLAG_CALL_SQL_EXPRESSION_REFUSAL,
             ),
             (
                 "keeps_unresolvable_flag_calls_in_another_criterion",
@@ -5238,14 +5335,14 @@ email@example.org,
 
     @parameterized.expand(
         [
-            ("realtime", None, None, False, [_FLAG_CALLED_CRITERION], _FLAG_CALL_REALTIME_REFUSAL),
+            ("realtime", None, None, False, [_FLAG_CALLED_CRITERION], None),
             ("batch", None, None, True, [_FLAG_CALLED_CRITERION], None),
-            ("becomes_realtime", True, None, False, [_FLAG_CALLED_CRITERION], _FLAG_CALL_REALTIME_REFUSAL),
-            ("stays_batch", True, None, True, [_FLAG_CALLED_CRITERION], None),
+            ("becomes_realtime", True, [_FLAG_CALLED_CRITERION], False, [_FLAG_CALLED_CRITERION], None),
+            ("stays_batch", True, [_FLAG_CALLED_CRITERION], True, [_FLAG_CALLED_CRITERION], None),
             (
                 "realtime_keeps_stored_criterion",
                 False,
-                CohortType.REALTIME,
+                [_FLAG_CALLED_CRITERION],
                 False,
                 [_FLAG_CALLED_CRITERION, _PAGEVIEW_CRITERION],
                 None,
@@ -5253,19 +5350,62 @@ email@example.org,
             (
                 "realtime_edits_stored_criterion",
                 False,
-                CohortType.REALTIME,
+                [_FLAG_CALLED_CRITERION],
                 False,
                 [{**_FLAG_CALLED_CRITERION, "time_value": 7}],
-                _FLAG_CALL_REALTIME_REFUSAL,
+                None,
+            ),
+            # Realtime stays off, so no backfill runs. Turning realtime on refuses the cohort.
+            (
+                "becomes_realtime_with_stored_criterion_past_retention",
+                True,
+                [_FLAG_CALLED_PAST_RETENTION_CRITERION],
+                False,
+                [_FLAG_CALLED_PAST_RETENTION_CRITERION],
+                None,
+            ),
+            # The editor sends unchanged filters on every save. An unchanged filter queues no backfill.
+            (
+                "realtime_resaves_stored_criterion_past_retention",
+                False,
+                [_FLAG_CALLED_PAST_RETENTION_CRITERION],
+                False,
+                [_FLAG_CALLED_PAST_RETENTION_CRITERION],
+                None,
+            ),
+            (
+                "realtime_keeps_stored_criterion_past_retention",
+                False,
+                [_FLAG_CALLED_PAST_RETENTION_CRITERION],
+                False,
+                [_FLAG_CALLED_PAST_RETENTION_CRITERION, _PAGEVIEW_CRITERION],
+                _REALTIME_CRITERIA_REFUSAL,
+            ),
+            # A person-only edit queues no behavioral backfill, so it never reads the stored flag calls.
+            (
+                "realtime_adds_person_criterion_beside_stored_criterion_past_retention",
+                False,
+                [_FLAG_CALLED_PAST_RETENTION_CRITERION],
+                False,
+                [_FLAG_CALLED_PAST_RETENTION_CRITERION, _PERSON_EMAIL_CRITERION],
+                None,
+            ),
+            (
+                "batch_keeps_stored_criterion_past_retention",
+                True,
+                [_FLAG_CALLED_PAST_RETENTION_CRITERION],
+                True,
+                [_FLAG_CALLED_PAST_RETENTION_CRITERION, _PAGEVIEW_CRITERION],
+                None,
             ),
         ]
     )
     @patch("posthog.api.cohort.report_user_action")
-    def test_flag_call_criterion_on_realtime_cohort_in_flag_evaluations_only_mode(
+    def test_flag_call_criterion_on_realtime_and_batch_cohorts_in_flag_evaluations_only_mode(
         self,
         _name,
         stored_filter_test_accounts,
-        stored_cohort_type,
+        stored_criteria,
         filter_test_accounts,
         criteria,
         expected_refusal,
@@ -5282,24 +5422,118 @@ email@example.org,
                 f"/api/projects/{self.team.id}/cohorts", data={"name": "flag callers", "filters": filters}
             )
         else:
+            # A cohort that filters test accounts can't be realtime.
+            stored_realtime = not stored_filter_test_accounts
             cohort = Cohort.objects.create(
                 team=self.team,
                 name="flag callers",
-                # A criterion stored without the validator has no negation key.
+                # A criterion stored without the validator has no negation key. It still needs the conditionHash
+                # that saved rows carry, because the behavioral leaf hash skips a leaf without one.
                 filters={
-                    "properties": {"type": "OR", "values": [_FLAG_CALLED_CRITERION]},
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                **criterion,
+                                "conditionHash": generate_cohort_filter_bytecode(criterion, self.team).condition_hash,
+                            }
+                            for criterion in stored_criteria
+                        ],
+                    },
                     "filterTestAccounts": stored_filter_test_accounts,
                 },
-                cohort_type=stored_cohort_type,
+                cohort_type=CohortType.REALTIME if stored_realtime else None,
+                realtime_enabled_at=timezone.now() if stored_realtime else None,
             )
             response = self.client.patch(f"/api/projects/{self.team.id}/cohorts/{cohort.pk}", data={"filters": filters})
 
         if expected_refusal is None:
             self.assertIn(response.status_code, (200, 201), response.json())
-            self.assertEqual(response.json()["cohort_type"] == "realtime", stored_cohort_type == CohortType.REALTIME)
+            self.assertEqual(response.json()["cohort_type"] == "realtime", not filter_test_accounts)
         else:
             self.assertEqual(response.status_code, 400, response.json())
+            self.assertEqual(response.json()["code"], "realtime_criteria_unsupported")
             self.assertIn(expected_refusal, response.json()["detail"])
+            stored_filters = cohort.filters
+            cohort.refresh_from_db()
+            self.assertEqual(cohort.filters, stored_filters)
+
+    def _hashed_filters(self, criteria: list[dict[str, Any]], group_type: str = "OR") -> dict[str, Any]:
+        return {
+            "properties": {
+                "type": group_type,
+                "values": [
+                    {**criterion, "conditionHash": generate_cohort_filter_bytecode(criterion, self.team).condition_hash}
+                    for criterion in criteria
+                ],
+            }
+        }
+
+    @parameterized.expand(
+        [
+            ("unchanged", [_FLAG_CALLED_CRITERION], "OR", [_FLAG_CALLED_CRITERION], "OR"),
+            (
+                "adds_person_criterion",
+                [_FLAG_CALLED_CRITERION],
+                "OR",
+                [_FLAG_CALLED_CRITERION, _PERSON_EMAIL_CRITERION],
+                "OR",
+            ),
+            (
+                "adds_behavioral_criterion",
+                [_FLAG_CALLED_CRITERION],
+                "OR",
+                [_FLAG_CALLED_CRITERION, _PAGEVIEW_CRITERION],
+                "OR",
+            ),
+            (
+                "edits_behavioral_window",
+                [_FLAG_CALLED_CRITERION],
+                "OR",
+                [{**_FLAG_CALLED_CRITERION, "time_value": 7}],
+                "OR",
+            ),
+            (
+                "removes_behavioral_criterion",
+                [_FLAG_CALLED_CRITERION, _PAGEVIEW_CRITERION],
+                "OR",
+                [_FLAG_CALLED_CRITERION],
+                "OR",
+            ),
+            (
+                "changes_behavioral_composition",
+                [_FLAG_CALLED_CRITERION, _PAGEVIEW_CRITERION],
+                "OR",
+                [_FLAG_CALLED_CRITERION, _PAGEVIEW_CRITERION],
+                "AND",
+            ),
+        ]
+    )
+    def test_criteria_edit_check_agrees_with_the_backfill_the_save_queues(
+        self, _name, stored_criteria, stored_group_type, criteria, group_type
+    ):
+        # The refusal check in update() runs only when this predicate says the save queues a behavioral backfill.
+        # A save that resets last_backfill_events_at queues one, so the two must agree on every edit.
+        with override_settings(
+            REALTIME_COHORT_TEAM_ALLOWLIST=str(self.team.pk), COHORT_BACKFILL_TRIGGER_TEAM_ALLOWLIST="none"
+        ):
+            created = Cohort.objects.create(
+                team=self.team,
+                name="flag callers",
+                filters=self._hashed_filters(stored_criteria, stored_group_type),
+                cohort_type=CohortType.REALTIME,
+                realtime_enabled_at=timezone.now(),
+                last_backfill_events_at=timezone.now(),
+            )
+            cohort = Cohort.objects.get(pk=created.pk)
+            previous_filters = cohort.filters
+            cohort.filters = self._hashed_filters(criteria, group_type)
+
+            predicted = _criteria_edit_queues_behavioral_run(cohort, previous_filters)
+            cohort.save()
+
+        cohort.refresh_from_db()
+        self.assertEqual(predicted, cohort.last_backfill_events_at is None)
 
     @parameterized.expand([("farthest_east", "Pacific/Kiritimati"), ("farthest_west", "Pacific/Pago_Pago")])
     @patch("posthog.api.cohort.report_user_action")
@@ -7185,6 +7419,25 @@ email@example.org,
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_calculation_history_returns_recorded_queries(self) -> None:
+        cohort = Cohort.objects.create(team=self.team, name="Test Cohort")
+        recorded_queries = [{"query": "SELECT 1", "query_id": "q-1", "query_ms": 12}]
+        CohortCalculationHistory.objects.create(
+            cohort=cohort,
+            team=self.team,
+            filters={},
+            started_at=timezone.now() - timedelta(hours=1),
+            queries=recorded_queries,
+        )
+        CohortCalculationHistory.objects.create(
+            cohort=cohort, team=self.team, filters={}, started_at=timezone.now() - timedelta(hours=2), queries=None
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.id}/calculation_history/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([row["queries"] for row in response.json()["results"]], [recorded_queries, None])
+
     def test_cohort_last_error_message_clears_after_subsequent_success(self):
         """Test that a subsequent completed successful calculation clears last_error_message in detail, list, and fallback paths"""
         from posthog.api.cohort import CohortSerializer
@@ -8993,3 +9246,701 @@ class TestFlagCallCriterionShapeProblem(SimpleTestCase):
         )
 
         assert (flag_call_criterion_shape_problem(criterion) is not None) == unsupported
+
+
+_REALTIME_BYTECODE = ["_H", 1, 32, "matched", 32, "event", 1, 1, 11]
+_REALTIME_PAGEVIEW_LEAF = {
+    "type": "behavioral",
+    "key": "$pageview",
+    "event_type": "events",
+    "value": "performed_event",
+    "time_value": 7,
+    "time_interval": "day",
+    "conditionHash": "pageview00000000",
+    "bytecode": _REALTIME_BYTECODE,
+}
+_REALTIME_PERSON_LEAF = {
+    "type": "person",
+    "key": "email",
+    "value": ["person@example.com"],
+    "operator": "exact",
+    "conditionHash": "email00000000000",
+    "bytecode": _REALTIME_BYTECODE,
+}
+
+
+@override_settings(REALTIME_COHORT_DEFAULT_MAX_COHORTS=3, REALTIME_COHORT_DEFAULT_MAX_HISTORY_DAYS=14)
+class TestCohortRealtimeSwitch(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        enqueue = patch("posthog.tasks.calculate_cohort.trigger_cohort_backfill_run_task.apply_async")
+        enqueue.start()
+        self.addCleanup(enqueue.stop)
+        RealtimeCohortTeamAccess.objects.create(
+            team=self.team,
+            level=RealtimeCohortLevel.SERVING,
+            purpose=RealtimeCohortAccessPurpose.BETA,
+            save_triggers_backfill=True,
+        )
+
+    def _cohort(self, *leaves: dict, enabled: bool = False) -> Cohort:
+        return Cohort.objects.create(
+            team=self.team,
+            name="Realtime",
+            cohort_type=CohortType.REALTIME,
+            realtime_enabled_at=timezone.now() if enabled else None,
+            filters={"properties": {"type": "AND", "values": list(leaves)}},
+        )
+
+    def _switch(self, cohort: Cohort, enabled: bool) -> Any:
+        return self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/{cohort.id}/realtime/", {"enabled": enabled}, format="json"
+        )
+
+    # The `cohorts-set-realtime` MCP tool sends a token, so the switch must not need a session.
+    @parameterized.expand([("session", None), ("personal_api_key", ["cohort:write"])])
+    @patch("posthog.api.cohort.report_user_action")
+    def test_turning_realtime_on_and_off_logs_both_changes(
+        self, _name: str, key_scopes: list[str] | None, mock_report_user_action: MagicMock
+    ) -> None:
+        cohort = self._cohort(_REALTIME_PAGEVIEW_LEAF)
+        if key_scopes is not None:
+            key = self.create_personal_api_key_with_scopes(key_scopes)
+            self.client.logout()
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {key}")
+
+        turned_on = self._switch(cohort, True)
+        turned_off = self._switch(cohort, False)
+
+        assert [(call.args[1], call.args[2]["cohort_id"]) for call in mock_report_user_action.call_args_list] == [
+            ("cohort realtime enabled", cohort.pk),
+            ("cohort realtime disabled", cohort.pk),
+        ]
+
+        assert (turned_on.status_code, turned_on.json()["realtime_enabled"]) == (200, True)
+        assert (turned_off.status_code, turned_off.json()["realtime_enabled"]) == (200, False)
+        assert turned_off.json()["realtime"]["state"] == "off"
+        changes = [
+            (change["before"], change["after"])
+            for log in ActivityLog.objects.filter(scope="Cohort", item_id=str(cohort.id)).order_by("created_at")
+            for change in (log.detail or {}).get("changes", [])
+            if change["field"] == "realtime_enabled"
+        ]
+        assert changes == [(False, True), (True, False)]
+
+    @parameterized.expand(
+        [
+            ("nothing_is_preparing_it", False, "needs_attention", ["cohort realtime retried"]),
+            ("a_build_is_queued", True, "building", []),
+        ]
+    )
+    def test_turning_on_a_cohort_that_is_on_prepares_it_again_when_nothing_is_preparing_it(
+        self, _name: str, queued: bool, state_before: str, events: list[str]
+    ) -> None:
+        cohort = self._cohort(_REALTIME_PAGEVIEW_LEAF, enabled=True)
+        pending_key = cohort_backfill_pending_key(cohort.id, CohortBackfillKind.BEHAVIORAL)
+        self.addCleanup(get_redis_client().delete, pending_key)
+        if queued:
+            get_redis_client().set(pending_key, CohortBackfillTrigger.COHORT_CREATED, ex=300)
+        before = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.id}/").json()["realtime"]
+
+        with (
+            patch("posthog.api.cohort.report_user_action") as report,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self._switch(cohort, True)
+
+        after = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.id}/").json()["realtime"]
+        assert response.status_code == 200
+        assert (before["state"], after["state"]) == (state_before, "building")
+        assert [call.args[1] for call in report.call_args_list] == events
+
+    @parameterized.expand(
+        [
+            ("flag_on_event_criteria", _REALTIME_PAGEVIEW_LEAF, "flag", "feature flag"),
+            ("active_workflow", _REALTIME_PAGEVIEW_LEAF, "workflow", "active workflow"),
+            ("cohort_that_is_on_includes_it", _REALTIME_PAGEVIEW_LEAF, "parent", "include this cohort"),
+            ("static_cohort_that_is_on_includes_it", _REALTIME_PAGEVIEW_LEAF, "static_parent", None),
+            ("daily_cohort_that_is_on_includes_it", _REALTIME_PAGEVIEW_LEAF, "daily_parent", None),
+            # Flags read person criteria straight off the person, so this cohort's membership table has no reader.
+            ("flag_on_person_criteria", _REALTIME_PERSON_LEAF, "flag", None),
+        ]
+    )
+    def test_turning_off_is_refused_while_something_reads_the_cohort(
+        self, _name: str, leaf: dict, reader: str, refusal: str | None
+    ) -> None:
+        cohort = self._cohort(leaf, enabled=True)
+        reference = {"key": "id", "type": "cohort", "value": cohort.id}
+        if reader == "flag":
+            FeatureFlag.objects.create(
+                team=self.team, key="flag", created_by=self.user, filters={"groups": [{"properties": [reference]}]}
+            )
+        elif reader == "workflow":
+            create_workflow_for_test(
+                team_id=self.team.id,
+                name="Workflow",
+                status="active",
+                actions=[
+                    {"id": "trigger_node", "type": "trigger", "config": {"type": "cohort", "cohort_id": cohort.id}}
+                ],
+            )
+        else:
+            parent = self._cohort(reference, enabled=True)
+            if reader == "static_parent":
+                Cohort.objects.filter(id=parent.id).update(is_static=True)
+            elif reader == "daily_parent":
+                Cohort.objects.filter(id=parent.id).update(cohort_type=None)
+
+        response = self._switch(cohort, False)
+
+        cohort.refresh_from_db()
+        if refusal is None:
+            assert (response.status_code, cohort.realtime_enabled) == (200, False)
+        else:
+            assert (response.status_code, cohort.realtime_enabled) == (400, True)
+            assert refusal in response.json()["detail"]
+
+    @parameterized.expand([("turn_on", "realtime_enabled_at"), ("finalizer_stamp", "last_backfill_events_at")])
+    def test_an_update_that_read_the_cohort_before_a_concurrent_write_keeps_that_write(
+        self, _name: str, field: str
+    ) -> None:
+        cohort = self._cohort(_REALTIME_PAGEVIEW_LEAF)
+        written_at = timezone.now()
+
+        def concurrent_write(_cohort: Cohort) -> bool:
+            Cohort.objects.filter(id=cohort.id).update(**{field: written_at})
+            return False
+
+        with patch("posthog.api.cohort.will_create_loops", side_effect=concurrent_write):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/cohorts/{cohort.id}/", {"name": "Renamed"}, format="json"
+            )
+
+        cohort.refresh_from_db()
+        assert response.status_code == 200
+        assert (cohort.name, getattr(cohort, field)) == ("Renamed", written_at)
+
+    @parameterized.expand(
+        [
+            ("rename", "event_criterion", {"name": "Renamed"}, {}, None, 200),
+            ("rename_with_put", "event_criterion", {"name": "Renamed"}, {}, None, 200, "put"),
+            ("new_description", "event_criterion", {"description": "New description"}, {}, None, 200),
+            (
+                "rename_that_nulls_cohort_type",
+                "event_criterion",
+                {"name": "Renamed"},
+                {"cohort_type": None},
+                None,
+                200,
+            ),
+            ("criterion_edit", "event_criterion", {}, {}, "$pageleave", 400),
+            ("rename_of_daily_cohort", "daily_event_criterion", {"name": "Renamed"}, {}, None, 400),
+            (
+                "rename_of_cohort_including_an_event_cohort",
+                "reference_to_event_cohort",
+                {"name": "Renamed"},
+                {},
+                None,
+                200,
+            ),
+        ]
+    )
+    def test_saving_a_cohort_that_an_active_flag_uses(
+        self,
+        _name: str,
+        criteria: str,
+        fields: dict,
+        sent_cohort_type: dict,
+        new_event: str | None,
+        expected_status: int,
+        method: str = "patch",
+    ) -> None:
+        stamped_at = timezone.now() - timedelta(hours=1)
+        editor_leaf = {**_REALTIME_PAGEVIEW_LEAF, "explicit_datetime": "-7d"}
+        if criteria == "reference_to_event_cohort":
+            editor_leaf = {"type": "cohort", "key": "id", "value": self._cohort(_REALTIME_PAGEVIEW_LEAF).id}
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Realtime",
+            cohort_type=None if criteria == "daily_event_criterion" else CohortType.REALTIME,
+            filters={"properties": {"type": "OR", "values": [{"type": "AND", "values": [editor_leaf]}]}},
+        )
+        Cohort.objects.filter(id=cohort.id).update(
+            last_backfill_events_at=stamped_at, last_realtime_cohort_calculation_at=stamped_at
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [{"key": "id", "type": "cohort", "value": cohort.id}]}]},
+        )
+        filters = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.id}/").json()["filters"]
+        if new_event is not None:
+            filters["properties"]["values"][0]["values"][0]["key"] = new_event
+
+        response = getattr(self.client, method)(
+            f"/api/projects/{self.team.id}/cohorts/{cohort.id}/",
+            {**fields, **sent_cohort_type, "filters": filters},
+            format="json",
+        )
+
+        assert response.status_code == expected_status, response.json()
+        cohort.refresh_from_db()
+        if expected_status == 400:
+            assert response.json()["code"] == "behavioral_cohort_found"
+            return
+        assert {field: getattr(cohort, field) for field in fields} == fields
+        assert (cohort.cohort_type, cohort.last_backfill_events_at, cohort.last_realtime_cohort_calculation_at) == (
+            CohortType.REALTIME,
+            stamped_at,
+            stamped_at,
+        )
+
+    @parameterized.expand([("turns_on_what_it_includes", False), ("keeps_a_turn_off_made_during_the_edit", True)])
+    def test_editing_the_criteria_of_a_cohort_that_is_on(self, _name: str, turned_off_during_the_edit: bool) -> None:
+        included = self._cohort(_REALTIME_PAGEVIEW_LEAF)
+        cohort = self._cohort(_REALTIME_PAGEVIEW_LEAF, enabled=True)
+        leaf = {
+            key: value for key, value in _REALTIME_PAGEVIEW_LEAF.items() if key not in ("bytecode", "conditionHash")
+        }
+
+        def concurrent_turn_off(_cohort: Cohort) -> bool:
+            if turned_off_during_the_edit:
+                Cohort.objects.filter(id=cohort.id).update(realtime_enabled_at=None)
+            return False
+
+        with patch("posthog.api.cohort.will_create_loops", side_effect=concurrent_turn_off):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/cohorts/{cohort.id}/",
+                {
+                    "filters": {
+                        "properties": {
+                            "type": "AND",
+                            "values": [leaf, {"type": "cohort", "key": "id", "value": included.id}],
+                        }
+                    }
+                },
+                format="json",
+            )
+
+        assert response.status_code == 200, response.json()
+        cohort.refresh_from_db()
+        included.refresh_from_db()
+        assert (cohort.realtime_enabled, included.realtime_enabled) == (
+            not turned_off_during_the_edit,
+            not turned_off_during_the_edit,
+        )
+
+    @parameterized.expand(
+        [
+            ("realtime_criteria", "performed_event", 0, True),
+            ("daily_criteria", "performed_event_first_time", 0, False),
+            # Every slot of the default limit is taken, so the cohort is saved with realtime off.
+            ("no_slot_left", "performed_event", 3, False),
+        ]
+    )
+    @patch("posthog.api.cohort.report_user_action")
+    def test_creating_a_cohort_with_realtime_on(
+        self, _name: str, behavioral_value: str, already_on: int, turned_on: bool, report_user_action: MagicMock
+    ) -> None:
+        for _ in range(already_on):
+            self._cohort(_REALTIME_PAGEVIEW_LEAF, enabled=True)
+        leaf = {
+            "type": "behavioral",
+            "key": "$pageview",
+            "event_type": "events",
+            "value": behavioral_value,
+            "time_value": 7,
+            "time_interval": "day",
+        }
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {
+                "name": "New",
+                "realtime_enabled": True,
+                "filters": {"properties": {"type": "OR", "values": [{"type": "AND", "values": [leaf]}]}},
+            },
+            format="json",
+        )
+
+        assert response.status_code == 201, response.json()
+        assert response.json()["realtime_enabled"] is turned_on
+        assert Cohort.objects.get(id=response.json()["id"]).realtime_enabled is turned_on
+        assert self._limit_events(report_user_action) == (
+            [{"limit": "cohorts", "allowed": 3, "used": 3, "source": "create"}] if already_on else []
+        )
+
+    @parameterized.expand(
+        [
+            ("sequence", "sequence", False, "unsupported_criteria"),
+            ("action", "action", False, "action_criteria"),
+            ("action_with_a_string_id", "action_with_a_string_id", False, "action_criteria"),
+            ("daily_cohort_reference", "daily_cohort_reference", False, "includes_non_realtime_cohort"),
+            ("test_account_filter", "pageview", True, "test_account_filter"),
+        ]
+    )
+    def test_a_created_cohort_says_why_it_is_not_realtime(
+        self, _name: str, criteria: str, filter_test_accounts: bool, reason: str
+    ) -> None:
+        pageview = {
+            "type": "behavioral",
+            "key": "$pageview",
+            "event_type": "events",
+            "value": "performed_event",
+            "time_value": 7,
+            "time_interval": "day",
+        }
+        if criteria == "sequence":
+            leaf = {
+                **pageview,
+                "value": "performed_event_sequence",
+                "seq_event": "$feature_flag_called",
+                "seq_event_type": "events",
+                "seq_time_value": 1,
+                "seq_time_interval": "day",
+            }
+            leaves = [leaf]
+        elif criteria == "action":
+            action = create_action(team=self.team, name="Signed up", steps_json=[{"event": "signed_up"}])
+            leaves = [{**pageview, "key": action.id, "event_type": "actions"}]
+        elif criteria == "action_with_a_string_id":
+            action = create_action(team=self.team, name="Signed up", steps_json=[{"event": "signed_up"}])
+            leaves = [{**pageview, "key": str(action.id), "event_type": "actions"}]
+        elif criteria == "daily_cohort_reference":
+            daily = Cohort.objects.create(
+                team=self.team,
+                name="Daily",
+                cohort_type=None,
+                filters={
+                    "properties": {"type": "AND", "values": [{**pageview, "value": "performed_event_first_time"}]}
+                },
+            )
+            leaves = [pageview, {"type": "cohort", "key": "id", "value": daily.id}]
+        else:
+            leaves = [pageview]
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {
+                "name": "New",
+                "filters": {
+                    "properties": {"type": "OR", "values": [{"type": "AND", "values": leaves}]},
+                    "filterTestAccounts": filter_test_accounts,
+                },
+            },
+            format="json",
+        )
+
+        assert response.status_code == 201, response.json()
+        assert (response.json()["realtime"]["state"], response.json()["realtime"]["reason"]) == ("daily", reason)
+
+    @parameterized.expand(
+        [
+            ("window_in_days", {}, None, 200),
+            (
+                "counted_since_a_date",
+                {"value": "performed_event_multiple", "explicit_datetime": "2026-11-01"},
+                "unsupported_time_range",
+                400,
+            ),
+            (
+                "counted_in_hours",
+                {"value": "performed_event_multiple", "explicit_datetime": "-24h"},
+                "unsupported_time_range",
+                400,
+            ),
+        ]
+    )
+    def test_an_off_cohort_names_the_time_range_a_turn_on_refuses(
+        self, _name: str, overrides: dict, reason: str | None, turn_on_status: int
+    ) -> None:
+        cohort = self._cohort({**_REALTIME_PAGEVIEW_LEAF, **overrides})
+
+        realtime = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.id}/").json()["realtime"]
+        turned_on = self._switch(cohort, True)
+
+        refusal_code = "realtime_refused" if reason else None
+        assert (realtime["state"], realtime["reason"], turned_on.status_code, turned_on.json().get("code")) == (
+            "off",
+            reason,
+            turn_on_status,
+            refusal_code,
+        )
+
+    def test_a_cohort_that_is_on_names_the_time_range_nothing_can_prepare(self) -> None:
+        cohort = self._cohort(
+            {**_REALTIME_PAGEVIEW_LEAF, "value": "performed_event_multiple", "explicit_datetime": "2026-11-01"},
+            enabled=True,
+        )
+
+        realtime = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.id}/").json()["realtime"]
+
+        assert (realtime["state"], realtime["reason"]) == ("needs_attention", "unsupported_time_range")
+
+    @parameterized.expand(
+        [
+            ("sent_in_a_patch", False, "patch", {"realtime_enabled": True}, "json", 400, "realtime_enabled_read_only"),
+            # DRF reads a boolean left out of form data as false.
+            ("left_out_of_a_multipart_put", True, "put", {"name": "Renamed"}, "multipart", 200, None),
+        ]
+    )
+    def test_an_update_cannot_change_the_switch(
+        self, _name: str, enabled: bool, method: str, data: dict, data_format: str, status: int, code: str | None
+    ) -> None:
+        cohort = self._cohort(_REALTIME_PAGEVIEW_LEAF, enabled=enabled)
+
+        response = getattr(self.client, method)(
+            f"/api/projects/{self.team.id}/cohorts/{cohort.id}/", data, format=data_format
+        )
+
+        cohort.refresh_from_db()
+        assert (response.status_code, response.json().get("code"), cohort.realtime_enabled) == (status, code, enabled)
+
+    def _restrict(self, cohort: Cohort, access_level: str) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        AccessControl.objects.create(
+            team=self.team,
+            resource="cohort",
+            resource_id=str(cohort.id),
+            access_level=access_level,
+            organization_member=self.organization_membership,
+        )
+
+    def _limit_events(self, report_user_action: MagicMock) -> list[dict]:
+        return [
+            {key: call.args[2][key] for key in ("limit", "allowed", "used", "source")}
+            for call in report_user_action.call_args_list
+            if call.args[1] == "cohort realtime limit reached"
+        ]
+
+    @parameterized.expand(
+        [
+            ("included_cohort_not_editable", "realtime_refused", None),
+            # A load-test team runs the pipeline, but its users must not turn realtime on.
+            ("team_processing", "realtime_unavailable", None),
+            # The cohort and the one it includes need a slot each, and the default limit leaves one.
+            (
+                "one_slot_left_for_two_cohorts",
+                "realtime_limit_reached",
+                {"limit": "cohorts", "allowed": 3, "used": 2, "source": "switch"},
+            ),
+        ]
+    )
+    @patch("posthog.api.cohort.report_user_action")
+    def test_turning_on_is_refused_before_anything_is_written(
+        self, name: str, code: str, limit_event: dict | None, report_user_action: MagicMock
+    ) -> None:
+        included = self._cohort(_REALTIME_PAGEVIEW_LEAF)
+        cohort = self._cohort(_REALTIME_PAGEVIEW_LEAF, {"type": "cohort", "key": "id", "value": included.id})
+        if name == "team_processing":
+            RealtimeCohortTeamAccess.objects.filter(team=self.team).update(level=RealtimeCohortLevel.PROCESSING)
+        elif name == "included_cohort_not_editable":
+            self._restrict(included, "viewer")
+        else:
+            for _ in range(2):
+                self._cohort(_REALTIME_PAGEVIEW_LEAF, enabled=True)
+        enabled = Cohort.objects.filter(team=self.team, realtime_enabled_at__isnull=False)
+        enabled_before = set(enabled.values_list("id", flat=True))
+
+        response = self._switch(cohort, True)
+
+        assert (response.status_code, response.json()["code"]) == (400, code)
+        assert set(enabled.values_list("id", flat=True)) == enabled_before
+        assert self._limit_events(report_user_action) == ([limit_event] if limit_event else [])
+
+    @parameterized.expand(
+        [
+            param(
+                "window_past_the_plan",
+                window_days=15,
+                limit_event={"limit": "history_days", "allowed": 14, "used": None, "source": "edit"},
+            ),
+            # The editor resends unchanged criteria with every save, and a date is not judged again as it ages.
+            param("rename_of_a_cohort_whose_start_date_aged_past_the_plan", start_days_ago=60),
+            param(
+                "includes_a_cohort_that_is_off_with_no_slot_left",
+                others_on=2,
+                includes="off",
+                limit_event={"limit": "cohorts", "allowed": 3, "used": 3, "source": "edit"},
+            ),
+            param(
+                "includes_a_cohort_that_is_off_past_the_plan",
+                includes="off",
+                included_days=15,
+                limit_event={"limit": "history_days", "allowed": 14, "used": None, "source": "edit"},
+            ),
+            param("includes_a_cohort_that_is_on_with_no_slot_left", others_on=1, includes="on"),
+            # The turn-on after the save refuses a cohort the editor can't edit, and a refusal here would name it.
+            param(
+                "includes_a_cohort_past_the_plan_that_the_editor_cannot_view",
+                includes="off",
+                included_days=15,
+                included_access="none",
+            ),
+            param("window_past_the_plan_of_a_cohort_that_is_off", enabled=False, window_days=15),
+            # Migration 0023 turned on the cohorts of teams whose users don't see realtime cohorts.
+            param("window_past_the_plan_outside_the_realtime_gate", inside_gate=False, window_days=15),
+        ]
+    )
+    @patch("posthog.api.cohort.report_user_action")
+    def test_an_edit_of_a_cohort_that_is_on_has_to_fit_the_plan(
+        self,
+        _name: str,
+        report_user_action: MagicMock,
+        *,
+        enabled: bool = True,
+        inside_gate: bool = True,
+        start_days_ago: int | None = None,
+        window_days: int = 7,
+        others_on: int = 0,
+        includes: Literal["off", "on"] | None = None,
+        included_days: int = 7,
+        included_access: str | None = None,
+        limit_event: dict | None = None,
+    ) -> None:
+        leaf = {
+            key: value for key, value in _REALTIME_PAGEVIEW_LEAF.items() if key not in ("bytecode", "conditionHash")
+        }
+        if start_days_ago is not None:
+            leaf["explicit_datetime"] = (timezone.now() - timedelta(days=start_days_ago)).date().isoformat()
+        cohort = self._cohort(leaf, enabled=enabled)
+        if not inside_gate:
+            RealtimeCohortTeamAccess.objects.filter(team=self.team).update(level=RealtimeCohortLevel.PROCESSING)
+        for _ in range(others_on):
+            self._cohort(_REALTIME_PAGEVIEW_LEAF, enabled=True)
+        edited = [{**leaf, "time_value": window_days}]
+        if includes is not None:
+            included = self._cohort({**leaf, "time_value": included_days}, enabled=includes == "on")
+            if included_access is not None:
+                self._restrict(included, included_access)
+            edited.append({"type": "cohort", "key": "id", "value": included.id})
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort.id}/",
+            {"name": "Renamed", "filters": {"properties": {"type": "AND", "values": edited}}},
+            format="json",
+        )
+
+        cohort.refresh_from_db()
+        assert (response.status_code, response.json().get("code")) == (
+            (400, "realtime_limit_reached") if limit_event else (200, None)
+        ), response.json()
+        assert cohort.name == ("Realtime" if limit_event else "Renamed")
+        assert self._limit_events(report_user_action) == ([limit_event] if limit_event else [])
+
+    @parameterized.expand(
+        [
+            param(
+                "made_realtime_again",
+                state={
+                    "cohort_type": None,
+                    "filters": {
+                        "properties": {
+                            "type": "AND",
+                            "values": [{**_REALTIME_PAGEVIEW_LEAF, "value": "performed_event_first_time"}],
+                        }
+                    },
+                },
+                edit={"filters": {"properties": {"type": "AND", "values": [_REALTIME_PAGEVIEW_LEAF]}}},
+                limit_event={"limit": "cohorts", "allowed": 3, "used": 3, "source": "edit"},
+            ),
+            param(
+                "made_dynamic_again",
+                state={"is_static": True},
+                edit={"is_static": False},
+                limit_event={"limit": "cohorts", "allowed": 3, "used": 3, "source": "edit"},
+            ),
+            param(
+                "restored",
+                state={"deleted": True},
+                edit={"deleted": False},
+                limit_event={"limit": "cohorts", "allowed": 3, "used": 3, "source": "edit"},
+            ),
+            # The check and the save hold the lock turn-ons take, so a slot taken while the restore ran counts.
+            param(
+                "restored_while_a_turn_on_takes_the_last_slot",
+                state={"deleted": True},
+                edit={"deleted": False},
+                others_on=2,
+                turned_on_during_the_edit=True,
+                limit_event={"limit": "cohorts", "allowed": 3, "used": 3, "source": "edit"},
+            ),
+            # An edit saved while the cohort was deleted held no slot, so nothing judged its criteria until now.
+            param(
+                "restored_with_criteria_past_the_plan",
+                state={
+                    "deleted": True,
+                    "filters": {
+                        "properties": {"type": "AND", "values": [{**_REALTIME_PAGEVIEW_LEAF, "time_value": 15}]}
+                    },
+                },
+                edit={"deleted": False},
+                others_on=0,
+                limit_event={"limit": "history_days", "allowed": 14, "used": None, "source": "edit"},
+            ),
+        ]
+    )
+    @patch("posthog.api.cohort.report_user_action")
+    def test_an_edit_that_brings_back_a_cohort_that_is_on_is_judged_like_a_turn_on(
+        self,
+        _name: str,
+        report_user_action: MagicMock,
+        *,
+        state: dict,
+        edit: dict,
+        limit_event: dict,
+        others_on: int = 3,
+        turned_on_during_the_edit: bool = False,
+    ) -> None:
+        cohort = self._cohort(_REALTIME_PAGEVIEW_LEAF, enabled=True)
+        Cohort.objects.filter(id=cohort.id).update(**state)
+        if state.get("deleted"):
+            AsyncDeletion.objects.create(
+                deletion_type=DeletionType.Cohort_full, team_id=self.team.id, key=f"{cohort.pk}_{cohort.version}"
+            )
+        for _ in range(others_on):
+            self._cohort(_REALTIME_PAGEVIEW_LEAF, enabled=True)
+
+        def turn_on_during_the_edit(_cohort: Cohort) -> bool:
+            if turned_on_during_the_edit:
+                self._cohort(_REALTIME_PAGEVIEW_LEAF, enabled=True)
+            return False
+
+        with patch("posthog.api.cohort.will_create_loops", side_effect=turn_on_during_the_edit):
+            response = self.client.patch(f"/api/projects/{self.team.id}/cohorts/{cohort.id}/", edit, format="json")
+
+        assert (response.status_code, response.json().get("code")) == (400, "realtime_limit_reached"), response.json()
+        assert self._limit_events(report_user_action) == [limit_event]
+        assert AsyncDeletion.objects.filter(key=f"{cohort.pk}_{cohort.version}").count() == (
+            1 if state.get("deleted") else 0
+        )
+
+    def test_turning_off_hides_names_of_parents_the_member_cannot_view(self) -> None:
+        cohort = self._cohort(_REALTIME_PAGEVIEW_LEAF, enabled=True)
+        reference = {"key": "id", "type": "cohort", "value": cohort.id}
+        hidden = self._cohort(reference, enabled=True)
+        Cohort.objects.filter(id=hidden.id).update(name="Hidden parent")
+        self._restrict(hidden, "none")
+        self._cohort(reference, enabled=True)
+
+        response = self._switch(cohort, False)
+
+        assert response.status_code == 400
+        assert "2 cohort(s) that include this cohort as criteria: Realtime and 1 more." in response.json()["detail"]
+        assert "Hidden parent" not in response.json()["detail"]
+
+    def test_the_project_says_whether_realtime_cohorts_are_served_and_the_slot_limit(self) -> None:
+        self._cohort(_REALTIME_PAGEVIEW_LEAF, enabled=True)
+        self._cohort(_REALTIME_PAGEVIEW_LEAF)
+        served = self.client.get(f"/api/projects/{self.team.id}/").json()["realtime_cohorts"]
+        RealtimeCohortTeamAccess.objects.filter(team=self.team).update(level=RealtimeCohortLevel.PROCESSING)
+        not_served = self.client.get(f"/api/projects/{self.team.id}/").json()["realtime_cohorts"]
+
+        assert (served, not_served) == (
+            {"access": "serving", "cohorts_used": 1, "max_cohorts": 3},
+            {"access": "off", "cohorts_used": None, "max_cohorts": None},
+        )

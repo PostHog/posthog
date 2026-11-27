@@ -1,6 +1,7 @@
 import uuid
+import decimal
 from datetime import UTC, datetime
-from typing import Optional
+from typing import Literal, Optional
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -459,6 +460,75 @@ class TestGetIncrementalFieldValue:
     def test_returns_max_of_configured_column(self):
         table = pa.table({"id": ["a", "b"], "created": [10, 20]})
         assert get_incremental_field_value(self._schema("created"), table) == 20
+
+    @parameterized.expand(
+        [
+            ("max_string", pa.string(), "integer", "max", ["9.5", "100", None, "76"], decimal.Decimal("100")),
+            ("min_string", pa.string(), "integer", "min", ["9.5", "100", None, "76"], decimal.Decimal("9.5")),
+            ("max_large_string", pa.large_string(), "numeric", "max", ["9.5", "100", None], decimal.Decimal("100")),
+            ("min_large_string", pa.large_string(), "numeric", "min", ["9.5", "100", None], decimal.Decimal("9.5")),
+            (
+                "max_oversized",
+                pa.string(),
+                "integer",
+                "max",
+                ["9" * 77, "1" + "0" * 77],
+                decimal.Decimal("1" + "0" * 77),
+            ),
+            (
+                "min_oversized",
+                pa.large_string(),
+                "numeric",
+                "min",
+                ["9" * 77, "1" + "0" * 77],
+                decimal.Decimal("9" * 77),
+            ),
+            ("max_placeholder", pa.string(), "integer", "max", ["None", "100", None], decimal.Decimal("100")),
+            ("min_placeholder", pa.large_string(), "numeric", "min", ["None", "100", None], decimal.Decimal("100")),
+            ("all_null", pa.string(), "integer", "max", [None, "None"], None),
+            ("empty", pa.large_string(), "numeric", "min", [], None),
+        ]
+    )
+    def test_numeric_cursor_stored_as_text_aggregates_numerically(
+        self,
+        _name: str,
+        column_type: pa.DataType,
+        field_type: str,
+        aggregate: Literal["max", "min"],
+        values: list[Optional[str]],
+        expected: Optional[decimal.Decimal],
+    ):
+        values = [val + "0" * 38 if val is not None and "." in val else val for val in values]
+        table = pa.table({"created": pa.array(values, type=column_type)})
+        schema = self._schema("created")
+        schema.incremental_field_type = field_type
+
+        value = get_incremental_field_value(schema, table, aggregate=aggregate)
+
+        assert value == expected
+        cursor_schema = ExternalDataSchema(sync_type_config={"incremental_field_type": field_type})
+        if expected is None or expected == expected.to_integral_value():
+            assert cursor_schema.serialize_incremental_value(value) == (int(expected) if expected is not None else None)
+
+    @parameterized.expand(
+        [
+            ("integer", "max", "1e640", 640),
+            ("numeric", "min", "-1e640", 640),
+            ("numeric", "max", "1e10000", 0),
+        ]
+    )
+    def test_numeric_text_cursor_rejects_values_beyond_integer_text_limit(
+        self, field_type: str, aggregate: Literal["max", "min"], value: str, digit_limit: int
+    ):
+        schema = self._schema("created")
+        schema.incremental_field_type = field_type
+        table = pa.table({"created": [value]})
+
+        with (
+            patch("sys.get_int_max_str_digits", return_value=digit_limit),
+            pytest.raises(ValueError, match="supported integer digit limit"),
+        ):
+            get_incremental_field_value(schema, table, aggregate=aggregate)
 
     def test_missing_column_raises_actionable_error_matched_by_non_retryable_map(self):
         # A label like "created_at" persisted instead of the real field must fail with guidance

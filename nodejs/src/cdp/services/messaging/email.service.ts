@@ -13,6 +13,7 @@ import {
     HogFunctionType,
     IntegrationType,
     MessageAssetRow,
+    MinimalAppMetric,
 } from '~/cdp/types'
 import { createAddLogFunction, logEntry } from '~/cdp/utils'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
@@ -20,7 +21,7 @@ import { buildIntegerMatcher } from '~/common/config/matchers'
 import { logger } from '~/common/utils/logger'
 import type { ValueMatcher } from '~/types'
 
-import { TRANSACTIONAL_EMAIL_EVENT, isSensitiveMessage } from '../hogflows/hogflow-sensitivity'
+import { TRANSACTIONAL_EMAIL_EVENT, isClickTrackingEnabled, isSensitiveMessage } from '../hogflows/hogflow-sensitivity'
 import { IntegrationManagerService } from '../managers/integration-manager.service'
 import { RecipientManagerRecipient, RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
@@ -36,6 +37,7 @@ import {
 import { getEmailQueuePriorityClass } from './email-priority'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
 import {
+    EmailSkipReason,
     EmailStatusReason,
     EmailStatusService,
     isKeyedMessageId,
@@ -49,6 +51,8 @@ import {
     resolveEmailTrackingDistinctId,
 } from './email-tracking.service'
 import { UtmTagging, htmlForSes, tagEmailLinks, utmTagsFor } from './helpers/email-html'
+import { plainTextFromHtml } from './helpers/email-text'
+import { escapeHtml } from './helpers/escape-html'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { SES_EMAIL_STATUS_TAG, SES_SENSITIVE_TAG } from './helpers/ses'
 import {
@@ -63,6 +67,8 @@ import {
     TRACKING_CODE_HEADER_NAME,
 } from './helpers/tracking-code'
 import { transactionalEmailIdentity, transactionalEmailIdentityTags } from './helpers/transactional-email-identity'
+import { WorkflowRunTag } from './helpers/utm'
+import { parseWorkflowEmailPause } from './helpers/workflow-email-pause'
 import { callsSettledBefore, declaredFileBytes, exceedsLargestSend, settledBeforeAbort } from './in-flight-registry'
 import { MessageAssetsService } from './message-assets.service'
 import { MESSAGE_MAX_BYTES, estimateMessageBytes } from './message-estimate'
@@ -97,6 +103,7 @@ const AUTO_SUBMITTED_HEADER_NAME = 'Auto-Submitted'
 const AUTO_SUBMITTED_HEADER_VALUE = 'auto-generated'
 const AUTO_SUBMITTED_HEADER: MessageHeader = { Name: AUTO_SUBMITTED_HEADER_NAME, Value: AUTO_SUBMITTED_HEADER_VALUE }
 const SES_HEADER_VALUE_MAX_LENGTH = 870
+const UNSUBSCRIBE_URL_PLACEHOLDER = /\{\{\s*unsubscribe_url\s*\}\}/g
 
 /**
  * SES error codes that signal a transient rate-limit shape — safe to retry
@@ -112,6 +119,29 @@ const SES_HEADER_VALUE_MAX_LENGTH = 870
  */
 const SES_THROTTLE_ERROR_NAMES = ['TooManyRequestsException', 'ThrottlingException'] as const
 type SesThrottleErrorName = (typeof SES_THROTTLE_ERROR_NAMES)[number]
+
+// References ends with the parent's ID (RFC 5322 section 3.6.4). One that would pass SES's header limit keeps the
+// thread root and the newest IDs, as RFC 5537 section 3.4.4 does.
+export function threadHeaders(thread: CyclotronInvocationQueueParametersEmailType['thread']): MessageHeader[] {
+    if (!thread) {
+        return []
+    }
+    const ids = [...thread.references.filter((id) => id !== thread.inReplyTo), thread.inReplyTo]
+    const [root, ...rest] = ids
+    const newest: string[] = []
+    let length = root.length
+    for (const id of rest.reverse()) {
+        if (length + 1 + id.length > SES_HEADER_VALUE_MAX_LENGTH) {
+            break
+        }
+        length += 1 + id.length
+        newest.unshift(id)
+    }
+    return [
+        { Name: 'In-Reply-To', Value: thread.inReplyTo },
+        { Name: 'References', Value: [root, ...newest].join(' ') },
+    ]
+}
 
 function isSesThrottleError(error: unknown): error is Error & { name: SesThrottleErrorName } {
     return error instanceof Error && (SES_THROTTLE_ERROR_NAMES as readonly string[]).includes(error.name)
@@ -152,26 +182,32 @@ const emailSendsStoppedForJobOwnershipTotal = new Counter({
 
 const sesSendDurationMs = new Histogram({
     name: 'cdp_ses_send_duration_ms',
-    help: 'Duration of the SES SendEmail call in milliseconds, by whether SES accepted the email (success or error).',
-    labelNames: ['result'],
+    help: 'Duration of the SES SendEmail call in milliseconds, by whether SES accepted the email (success or error) and whether it carried attachment files (with_files).',
+    labelNames: ['result', 'with_files'],
     buckets: [25, 50, 100, 250, 500, 1_000, 2_500, 5_000, 10_000, 30_000],
 })
 
 const emailQueueToSendMs = new Histogram({
     name: 'cdp_email_queue_to_send_ms',
-    help: 'Milliseconds an email waits on the email queue before its handoff to SES. For source="transactional_api" the wait starts when cdp-api created the job, or at its scheduled time for a scheduled send, so it is the time from the API\'s 202 or the scheduled time to SES and includes every throttled or rate-limited retry. For source="workflow" the wait starts at the job\'s scheduled time: when the job joined the email queue, or when a delayed or rescheduled send became due, so a retried send measures only its last wait. priority_class is the email queue lane. team_capped is true when the team sending cap delayed the send, so that alerts can leave out a wait that the cap causes on purpose.',
-    labelNames: ['source', 'priority_class', 'team_capped'],
+    help: 'Milliseconds an email waits on the email queue before its handoff to SES. For source="transactional_api" the wait starts when cdp-api created the job, or at its scheduled time for a scheduled send, so it is the time from the API\'s 202 or the scheduled time to SES and includes every throttled or rate-limited retry. For source="workflow" the wait starts at the job\'s scheduled time: when the job joined the email queue, or when a delayed or rescheduled send became due, so a retried send measures only its last wait. priority_class is the email queue lane. team_capped is true when the team sending cap delayed the send, so that alerts can leave out a wait that the cap causes on purpose. with_files is true for an email that carries attachment files, so plain sends can be read apart from them.',
+    labelNames: ['source', 'priority_class', 'team_capped', 'with_files'],
     buckets: [100, 250, 500, 1_000, 2_500, 5_000, 10_000, 30_000, 60_000, 120_000, 300_000],
 })
 
 type EmailQueueWait = { source: 'transactional_api' | 'workflow'; startedAt: DateTime; teamCapped: boolean }
 
+// A transactional API send waits from the caller's 202: `acceptedAt` when the API stamped it, which counts time on the
+// intake topic, else the job's creation on the email queue. A scheduled send waits from its scheduled time instead.
 function transactionalWaitStart(invocation: CyclotronJobInvocationHogFunction): DateTime | undefined {
+    const acceptedAt = invocation.state.acceptedAt
+        ? DateTime.fromISO(invocation.state.acceptedAt, { zone: 'utc' })
+        : undefined
+    const start = acceptedAt?.isValid ? acceptedAt : invocation.queueCreatedAt
     const scheduledAt = invocation.state.scheduledAt ? DateTime.fromISO(invocation.state.scheduledAt) : undefined
-    if (!invocation.queueCreatedAt || !scheduledAt?.isValid) {
-        return invocation.queueCreatedAt
+    if (!start || !scheduledAt?.isValid) {
+        return start
     }
-    return DateTime.max(invocation.queueCreatedAt, scheduledAt)
+    return DateTime.max(start, scheduledAt)
 }
 
 function emailQueueWait(invocation: CyclotronJobInvocationHogFunction): EmailQueueWait | undefined {
@@ -290,6 +326,32 @@ class UnverifiedEmailDomainError extends Error {
     }
 }
 
+class SesSenderNotVerifiedError extends Error {}
+
+class EmailSenderNotFoundError extends Error {}
+
+const addressesIn = (text: string): string[] =>
+    (text.match(/[^\s<>",;:]+@[^\s<>",;:]+/g) ?? []).map((address) => address.replace(/\.$/, '').toLowerCase())
+
+function sesNamedSenderAsUnverified(error: unknown, senderEmail: string): boolean {
+    return (
+        error instanceof Error &&
+        error.name === 'MessageRejected' &&
+        error.message.includes('not verified') &&
+        addressesIn(error.message).includes(senderEmail.toLowerCase())
+    )
+}
+
+function sentStatusReason(
+    invocation: CyclotronJobInvocationHogFunction,
+    trackingEnabled: boolean
+): 'untracked' | 'clicks_untracked' | undefined {
+    if (!trackingEnabled) {
+        return 'untracked'
+    }
+    return isClickTrackingEnabled(invocation) ? undefined : 'clicks_untracked'
+}
+
 const isRealWorkflowSend = (invocation: CyclotronJobInvocationHogFunction, isTest: boolean): boolean =>
     !isTest && 'hogFlow' in invocation
 
@@ -339,25 +401,6 @@ const workflowEmailPausedTotal = new Counter({
     name: 'cdp_workflow_email_paused_total',
     help: 'Email sends skipped because the workflow they belong to had its email paused for complaints or hard bounces.',
 })
-
-/**
- * Whether this workflow's email is paused, and the customer-facing reason.
- *
- * Stamped into the synthetic hog function's metadata by HogFlowFunctionsService, which is the only
- * flow-level state in scope here. The `HogFlow` post_save signal publishes a worker config reload
- * when the pause is written, so an in-flight run and an already-queued batch send both stop at this
- * choke point instead of only newly started runs.
- */
-function parseWorkflowEmailPause(metadata: HogFunctionType['metadata']): { reason: string; byStaff: boolean } | null {
-    if (!metadata?.email_sending_paused_at) {
-        return null
-    }
-    const reason = metadata.email_sending_paused_reason
-    return {
-        reason: typeof reason === 'string' ? reason : '',
-        byStaff: metadata.email_sending_paused_by === 'staff',
-    }
-}
 
 function pickTokenBucketRetryDelayMs(refillPerSecond: number): number {
     // Wake around when the next token accrues. The 1x-2x jitter spreads a queued backlog's
@@ -411,6 +454,53 @@ function pickReservedRetryDelayMs(retryAfterMs: number | null, refillPerSecond: 
     // time back. Spread them over the next horizon so they do not arrive as one herd
     // asking for tokens that will not be there.
     return Math.floor(parkMs * (1 + Math.random()))
+}
+
+const SENDING_LIMIT_LONG_DELAY_MS = 60 * 60 * 1_000
+
+function sendStepOf(invocation: CyclotronJobInvocationHogFunction): string {
+    return invocation.state.actionId
+        ? `${invocation.state.actionId}:${invocation.state.actionStepCount ?? 0}`
+        : invocation.id
+}
+
+function sendingLimitHoldStartMs(invocation: CyclotronJobInvocationHogFunction): number | null {
+    const stamp = invocation.queueMetadata?.teamCappedAt
+    if (typeof stamp !== 'string') {
+        return null
+    }
+    const separator = stamp.lastIndexOf('@')
+    if (separator < 0 || stamp.slice(0, separator) !== sendStepOf(invocation)) {
+        return null
+    }
+    const heldAtMs = DateTime.fromISO(stamp.slice(separator + 1), { zone: 'utc' }).toMillis()
+    return Number.isFinite(heldAtMs) ? heldAtMs : null
+}
+
+function sentOverAnHourAfterFirstLimitHold(invocation: CyclotronJobInvocationHogFunction): boolean {
+    const heldSinceMs = sendingLimitHoldStartMs(invocation)
+    return heldSinceMs !== null && Date.now() - heldSinceMs > SENDING_LIMIT_LONG_DELAY_MS
+}
+
+function emailMetric(
+    invocation: CyclotronJobInvocationHogFunction,
+    metricName:
+        | 'email_sent'
+        | 'email_failed'
+        | 'email_untracked'
+        | 'email_sending_limit_delayed'
+        | 'email_sending_limit_delayed_over_1h'
+): MinimalAppMetric {
+    const appSourceVersion = resolveEmailSendingAppSourceVersion(invocation)
+    return {
+        team_id: invocation.teamId,
+        app_source_id: invocation.parentRunId ?? invocation.functionId,
+        instance_id: invocation.state.actionId || invocation.id,
+        metric_kind: 'email',
+        metric_name: metricName,
+        count: 1,
+        ...(appSourceVersion ? { app_source_version: appSourceVersion } : {}),
+    }
 }
 
 const teamEmailCapDelayedTotal = new Counter({
@@ -492,6 +582,7 @@ export interface EmailServiceConfig {
     utmLinkScannerTeams?: string
     workflowRunLinkTagTeams?: string
     templateTagsTeams?: string
+    textPartTeams?: string
     attachmentSendDeadlineMs?: number
     ownershipCheckTimeoutMs?: number
 }
@@ -572,6 +663,29 @@ type TeamSendingBudget = {
     delay: { retryDelayMs: number; label: string | null } | null
 }
 
+type EmailSender = { email: string; name: string }
+
+type EmailSendSkip = {
+    kind: 'skip'
+    logLevel: 'info' | 'warn' | 'error'
+    reason: string
+    metricName: 'email_suspended' | 'email_paused' | 'email_missing_recipient' | 'email_suppressed'
+    statusReason: EmailSkipReason
+    marksRunSkipped: boolean
+    blockedSendReport: 'missing_recipient' | null
+}
+
+type EmailSendDecision =
+    | {
+          kind: 'proceed'
+          integration: IntegrationType
+          from: EmailSender
+          params: CyclotronInvocationQueueParametersEmailType
+          trackingEnabled: boolean
+      }
+    | EmailSendSkip
+    | { kind: 'error'; error: unknown; from?: EmailSender }
+
 export class EmailService {
     sesV2Client: SESv2Client | null
 
@@ -579,6 +693,7 @@ export class EmailService {
     private workflowRunLinkTagTeams: ValueMatcher<number>
     private stillOwnsJob: JobOwnershipCheck = () => Promise.resolve(true)
     private templateTagsTeams: ValueMatcher<number>
+    private textPartTeams: ValueMatcher<number>
 
     constructor(
         private sesConfig: EmailServiceConfig,
@@ -607,6 +722,14 @@ export class EmailService {
         this.recipientTokensService = new RecipientTokensService(encryptionSaltKeys, siteUrl)
         this.workflowRunLinkTagTeams = buildIntegerMatcher(this.sesConfig.workflowRunLinkTagTeams, true)
         this.templateTagsTeams = buildIntegerMatcher(this.sesConfig.templateTagsTeams, true)
+        this.textPartTeams = buildIntegerMatcher(this.sesConfig.textPartTeams, true)
+    }
+
+    private textPart(params: CyclotronInvocationQueueParametersEmailType, teamId: number): string {
+        if (params.text || !params.html || !this.textPartTeams(teamId)) {
+            return params.text ?? ''
+        }
+        return plainTextFromHtml(params.html)
     }
 
     public checkJobOwnershipBeforeSend(stillOwnsJob: JobOwnershipCheck): void {
@@ -645,13 +768,37 @@ export class EmailService {
             : null
     }
 
-    private tagsLinksWithWorkflowRun(
+    private async workflowRunTagFor(
         invocation: CyclotronJobInvocationHogFunction,
         trackingEnabled: boolean,
-        isTest: boolean
-    ): boolean {
-        const sensitive = isSensitiveMessage(invocation)
-        return trackingEnabled && !isTest && !sensitive && this.workflowRunLinkTagTeams(invocation.teamId)
+        isTest: boolean,
+        senderEmail: string
+    ): Promise<WorkflowRunTag | null> {
+        // A send that opts out of click tracking gets no run tag added and no earlier one stripped.
+        // `trackingEnabled` reflects opens only, and the click opt-out is applied after the links are tagged.
+        if (!trackingEnabled || !isClickTrackingEnabled(invocation) || isTest || isSensitiveMessage(invocation)) {
+            return null
+        }
+        if (!this.workflowRunLinkTagTeams(invocation.teamId)) {
+            return null
+        }
+        const untagged = { runId: null, senderEmail, siteUrl: this.siteUrl }
+        // The stored config skips schema checks, so any value other than true or absent counts as an opt-out.
+        const runLinkTag: unknown = invocation.hogFunction.metadata?.run_link_tag_enabled
+        if (runLinkTag !== undefined && runLinkTag !== true) {
+            return untagged
+        }
+        try {
+            const enabled = await this.teamWorkflowsConfigService.tagsEmailLinksWithWorkflowRun(invocation.teamId)
+            return enabled ? { ...untagged, runId: invocation.id } : untagged
+        } catch (error) {
+            logger.warn('Workflow run link tag lookup failed - sending without the tag', {
+                teamId: invocation.teamId,
+                functionId: invocation.functionId,
+                error: error instanceof Error ? error.message : String(error),
+            })
+            return untagged
+        }
     }
 
     // Send email. `isTest` flags sends from the editor's "Run test" path so the tracking code
@@ -682,7 +829,7 @@ export class EmailService {
 
         const params = invocation.queueParameters
         const integrationId = selectEmailSenderIntegrationId(invocation.id, params.from)
-        const integration = await this.integrationManager.get(integrationId)
+        const storedIntegration = await this.integrationManager.get(integrationId)
 
         let success: boolean = false
         let rescheduled: boolean = false
@@ -690,180 +837,23 @@ export class EmailService {
         let trackingEnabled = true
         let sendingDomain = ''
         let failureReason: EmailStatusReason = 'provider_error'
+        let senderNotVerified = false
         let messageId: string | undefined
         let teamBudgetCharged = false
 
         try {
-            // Team-level kill switches: staff suspend all workflow email for a team whose sender
-            // reputation endangers shared SES deliverability, and AWS pauses the team's SES tenant
-            // for the same underlying reason. Same choke-point placement as the suppression check
-            // below so no upstream route can bypass either. Test sends are blocked too — they hit
-            // SES and count against the tenant all the same. A paused tenant rejects every send, so
-            // gating here turns wasted invocations into one clear skip.
-            const suspensionCause = await this.teamWorkflowsConfigService.getEmailSendingSuspension(invocation.teamId)
-            if (suspensionCause) {
-                const skipReason =
-                    suspensionCause === 'staff'
-                        ? 'Skipping send: email sending is suspended for this project. Contact support to get sending re-enabled.'
-                        : 'Skipping send: our email provider paused sending for this project. Check the Reputation tab to see what to fix.'
-                addLog('warn', skipReason)
-                result.emailSendResult = { status: 'skipped', reason: skipReason }
-                this.emailStatusService?.queueSkippedSend(invocation, 'sending_suspended', isTest)
-                logger.warn('Skipping email send for a suspended team', {
-                    teamId: invocation.teamId,
-                    cause: suspensionCause,
-                })
-                // One metric for both causes: from the project's side sending is off either way, so
-                // the cause belongs in the log lines above and not in a second metric name.
-                if (!isTest) {
-                    result.metrics.push({
-                        team_id: invocation.teamId,
-                        app_source_id: invocation.parentRunId ?? invocation.functionId,
-                        instance_id: invocation.state.actionId || invocation.id,
-                        metric_kind: 'email',
-                        metric_name: 'email_suspended',
-                        count: 1,
-                    })
-                }
-                result.invocation.state.vmState?.stack.push({ success: false })
-                return result
+            const decision = await this.decideSend(invocation, params, storedIntegration, addLog)
+            if (decision.kind === 'skip') {
+                return this.applySkip(result, invocation, isTest, addLog, decision)
             }
-
-            // Per-workflow pause: this workflow's complaint or hard bounce rate breached a
-            // threshold, so its email is held while the rest of the project keeps sending. Placed
-            // at the same choke point as the team-level switch above, for the same reason. Test
-            // sends are blocked too, because they hit SES and count against the tenant all the same.
-            const workflowPause = parseWorkflowEmailPause(invocation.hogFunction.metadata)
-            if (workflowPause) {
-                workflowEmailPausedTotal.inc()
-                const pauseDetail = workflowPause.reason ? ` ${workflowPause.reason}` : ''
-                // Error rather than warn: the email did not go out, and warn-level lines get skimmed
-                // past in the run logs. The run itself still continues; a pause is policy, not a
-                // fault, so it must not enter retry or abort handling.
-                const skipReason = workflowPause.byStaff
-                    ? `Skipping send: PostHog staff paused email sending for this workflow.${pauseDetail} Contact support to get sending re-enabled.`
-                    : `Skipping send: email sending is paused for this workflow.${pauseDetail} Resume it from the workflow page once the audience is cleaned up.`
-                addLog('error', skipReason)
-                result.emailSendResult = { status: 'skipped', reason: skipReason }
-                this.emailStatusService?.queueSkippedSend(invocation, 'sending_paused', isTest)
-                if (!isTest) {
-                    result.metrics.push({
-                        team_id: invocation.teamId,
-                        app_source_id: invocation.parentRunId ?? invocation.functionId,
-                        instance_id: invocation.state.actionId || invocation.id,
-                        metric_kind: 'email',
-                        metric_name: 'email_paused',
-                        count: 1,
-                    })
-                }
-                // Mark the skip so the flow-level billing gate does not charge for a send that
-                // never reached the provider, and does not re-pin the run's attribution version to
-                // one that delivered nothing. Mirrors the pre-send opt-out and bounce skip paths.
-                result.skipped = true
-                result.invocation.state.vmState?.stack.push({ success: false })
-                return result
+            if (decision.from) {
+                sendingDomain = decision.from.email.split('@').pop()?.toLowerCase() ?? ''
             }
-
-            // Wrong-team references deliberately read as not-found so an ID's existence on another team can't be probed
-            if (!integration || integration.team_id !== invocation.teamId) {
-                throw new Error(
-                    "Email integration not found. The sender configured for this step no longer exists — select a new sender in the workflow's email step."
-                )
+            if (decision.kind === 'error') {
+                throw decision.error
             }
-            if (integration.kind !== 'email') {
-                throw new Error(
-                    "The integration configured for this step is not an email channel — select an email sender in the workflow's email step."
-                )
-            }
-
-            const from = this.resolveFromSender(integration, params.from, addLog)
-            sendingDomain = from.email.split('@').pop()?.toLowerCase() ?? ''
-
-            // An empty `to` comes from the customer's data (a person without an email property, or no
-            // person at all), not from a fault in the send path. SES rejects it as an invalid address,
-            // so record a skip with its own metric instead of an `email_failed`. Otherwise one project
-            // with bad data inflates the platform send failure rate.
-            if (!params.to?.email?.trim()) {
-                const skipReason =
-                    'Skipping send: the recipient has no email address. Add a filter so only people with an email address reach this step.'
-                addLog('warn', skipReason)
-                result.emailSendResult = { status: 'skipped', reason: skipReason }
-                if (!isTest) {
-                    result.metrics.push({
-                        team_id: invocation.teamId,
-                        app_source_id: invocation.parentRunId ?? invocation.functionId,
-                        instance_id: invocation.state.actionId || invocation.id,
-                        metric_kind: 'email',
-                        metric_name: 'email_missing_recipient',
-                        count: 1,
-                    })
-                }
-                this.emailStatusService?.queueSkippedSend(invocation, 'missing_recipient', isTest)
-                if (isRealWorkflowSend(invocation, isTest)) {
-                    void this.workflowsActivationReporter.report(invocation.teamId, 'workflows send blocked', {
-                        reason: 'missing_recipient',
-                        channel: 'email',
-                        workflow_id: invocation.functionId,
-                    })
-                }
-                result.skipped = true
-                result.invocation.state.vmState?.stack.push({ success: false })
-                return result
-            }
-
-            // Single choke point for the suppression check — every send path lands here regardless
-            // of whether the invocation came from a workflow action or an email destination hog
-            // function. Checking here means callers can't bypass it by taking a different upstream
-            // route. Suppressed addresses are removed from every list. A suppressed `to` is replaced by
-            // the first deliverable cc address, and the send is skipped only when none is left.
-            const suppressionOptions: SuppressionCheckOptions = {
-                transactional: invocation.hogFunction?.metadata?.message_category_type === 'transactional',
-            }
-            const suppression = await removeSuppressedRecipients(params, (email) =>
-                this.emailSuppressionService.isSuppressed(invocation.teamId, email, suppressionOptions)
-            )
-            if (suppression.skip) {
-                const skipReason = `Skipping send: ${suppression.removed.join(', ')} ${suppression.removed.length === 1 ? 'is' : 'are'} on the suppression list and no cc address can receive the email instead`
-                addLog('info', skipReason)
-                result.emailSendResult = { status: 'skipped', reason: skipReason }
-                this.emailStatusService?.queueSkippedSend(invocation, 'recipient_suppressed', isTest)
-                if (!isTest) {
-                    result.metrics.push({
-                        team_id: invocation.teamId,
-                        app_source_id: invocation.parentRunId ?? invocation.functionId,
-                        instance_id: invocation.state.actionId || invocation.id,
-                        metric_kind: 'email',
-                        metric_name: 'email_suppressed',
-                        count: 1,
-                    })
-                }
-                result.invocation.state.vmState?.stack.push({ success: false })
-                return result
-            }
-            if (suppression.removed.length > 0) {
-                const promoted = suppression.promotedTo
-                    ? ` ${suppression.promotedTo.email} moves from cc to the To field.`
-                    : ''
-                addLog(
-                    'warn',
-                    `Not sending to ${suppression.removed.join(', ')} because ${suppression.removed.length === 1 ? 'it is' : 'they are'} on the suppression list.${promoted} The email still goes to the other recipients.`
-                )
-            }
-            // Always send the lists the suppression check parsed, so delivery uses the addresses it checked.
-            const deliverableParams = {
-                ...params,
-                to:
-                    suppression.promotedTo ??
-                    (params.to?.email
-                        ? { ...params.to, email: quoteMailbox(unquoteMailbox(params.to.email)) }
-                        : params.to),
-                cc: suppression.cc,
-                bcc: suppression.bcc,
-            }
-
-            // Like suppression, the tracking decision lives at this choke point so every send path
-            // (workflow action or email destination hog function) resolves it the same way.
-            trackingEnabled = await this.resolveTrackingEnabled(result.invocation, deliverableParams)
+            const { integration, from, params: deliverableParams } = decision
+            trackingEnabled = decision.trackingEnabled
 
             const provider = sendingProviderOf(integration)
 
@@ -872,9 +862,7 @@ export class EmailService {
             // limiter's Valkey is down claimUpTo returns 0, so sends wait (never drop) until it
             // recovers — same fail-closed stance as the global SES gate.
             const workflowRateLimit = parseWorkflowEmailRateLimit(invocation.hogFunction.metadata)
-            const sendStep = invocation.state.actionId
-                ? `${invocation.state.actionId}:${invocation.state.actionStepCount ?? 0}`
-                : invocation.id
+            const sendStep = sendStepOf(invocation)
             let workflowRateClaimed = invocation.queueMetadata?.workflowRateClaimed === sendStep
             if (workflowRateLimit && this.workflowEmailRateLimiter && !isTest && !workflowRateClaimed) {
                 const periodSeconds = workflowRateLimit.period === 'minute' ? 60 : 3600
@@ -897,6 +885,7 @@ export class EmailService {
                 if (claim.granted === 0) {
                     workflowEmailRateLimitedTotal.inc()
                     result.finished = false
+                    result.parked = true
                     // Re-attach the email payload before rescheduling. createInvocationResult cleared
                     // queueParameters, so without this the rescheduled dequeue has no 'email' params to
                     // re-enter the send path — the retry would resume the Hog VM instead and drop the
@@ -928,13 +917,19 @@ export class EmailService {
             const teamBudget = await this.claimTeamSendingBudget(invocation, isTest, capRecipients)
             teamBudgetCharged = teamBudget.charged
             const capDelay = teamBudget.delay
+            const limitHeldSinceMs = sendingLimitHoldStartMs(invocation)
             if (capDelay) {
                 result.finished = false
+                result.parked = true
                 // Re-attach the email payload before rescheduling, for the same reason as the
                 // per-workflow limit above: createInvocationResult cleared queueParameters, and
                 // without them the rescheduled dequeue resumes the Hog VM and drops the send.
                 result.invocation.queueParameters = params
                 result.invocation.queueMetadata = { ...invocation.queueMetadata, teamCapped: true }
+                if (capDelay.label && limitHeldSinceMs === null) {
+                    result.invocation.queueMetadata.teamCappedAt = `${sendStep}@${DateTime.utc().toISO()}`
+                    result.metrics.push(emailMetric(invocation, 'email_sending_limit_delayed'))
+                }
                 result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: capDelay.retryDelayMs })
                 const capRetrySeconds = Math.round(capDelay.retryDelayMs / 1000)
                 addLog(
@@ -959,9 +954,7 @@ export class EmailService {
                       html: tagEmailLinks(
                           paramsWithReplyTo.html,
                           this.utmTaggingFor(invocation, addLog),
-                          this.tagsLinksWithWorkflowRun(invocation, trackingEnabled, isTest)
-                              ? { runId: invocation.id, senderEmail: from.email, siteUrl: this.siteUrl }
-                              : null
+                          await this.workflowRunTagFor(invocation, trackingEnabled, isTest, from.email)
                       ),
                   }
                 : paramsWithReplyTo
@@ -1045,6 +1038,7 @@ export class EmailService {
                 // catches the cases where SES disagrees with our estimate.
                 rescheduled = true
                 result.finished = false
+                result.parked = true
                 result.invocation.queueParameters = params
                 result.invocation.queueMetadata = invocation.queueMetadata
                 result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: error.retryAfterMs })
@@ -1092,6 +1086,10 @@ export class EmailService {
                 result.error = message
                 result.emailSendResult = { status: 'failed', reason: message }
                 result.finished = true
+                senderNotVerified =
+                    error instanceof UnverifiedEmailDomainError ||
+                    error instanceof SesSenderNotVerifiedError ||
+                    error instanceof EmailSenderNotFoundError
                 if (error instanceof UnverifiedEmailDomainError && isRealWorkflowSend(invocation, isTest)) {
                     void this.workflowsActivationReporter.report(invocation.teamId, 'workflows send failed', {
                         reason: 'unverified_domain',
@@ -1118,30 +1116,19 @@ export class EmailService {
         // Test sends (from the editor's "Run test") must not record metrics — keep them out of the
         // workflow's Metrics tab, mirroring the isTest skip the SES webhook applies to delivery/open/click.
         if (!isTest) {
-            const appSourceVersion = resolveEmailSendingAppSourceVersion(invocation)
-            const sendVersion = appSourceVersion ? { app_source_version: appSourceVersion } : {}
             result.metrics.push({
-                team_id: invocation.teamId,
-                app_source_id: invocation.parentRunId ?? invocation.functionId,
-                instance_id: invocation.state.actionId || invocation.id,
-                metric_kind: 'email',
-                metric_name: success ? 'email_sent' : 'email_failed',
-                count: 1,
-                ...sendVersion,
+                ...emailMetric(invocation, success ? 'email_sent' : 'email_failed'),
+                prometheus_metric_name: senderNotVerified ? 'email_sender_unverified' : undefined,
             })
 
             // Untracked sends can never produce opens/clicks, so record them separately: open/click
             // rates are computed against (delivered - untracked) to avoid deflation.
             if (success && !trackingEnabled) {
-                result.metrics.push({
-                    team_id: invocation.teamId,
-                    app_source_id: invocation.parentRunId ?? invocation.functionId,
-                    instance_id: invocation.state.actionId || invocation.id,
-                    metric_kind: 'email',
-                    metric_name: 'email_untracked',
-                    count: 1,
-                    ...sendVersion,
-                })
+                result.metrics.push(emailMetric(invocation, 'email_untracked'))
+            }
+
+            if (success && sentOverAnHourAfterFirstLimitHold(invocation)) {
+                result.metrics.push(emailMetric(invocation, 'email_sending_limit_delayed_over_1h'))
             }
 
             if (success && assetRow) {
@@ -1155,7 +1142,7 @@ export class EmailService {
                     teamId: invocation.teamId,
                     messageId: invocation.id,
                     status: success ? 'sent' : 'failed',
-                    reason: success ? undefined : failureReason,
+                    reason: success ? sentStatusReason(invocation, trackingEnabled) : failureReason,
                     sendingDomain,
                     messageCreatedAt: messageCreatedAtOf(invocation.state.globals.event),
                 })
@@ -1203,6 +1190,190 @@ export class EmailService {
             })
         }
 
+        return result
+    }
+
+    private async decideSend(
+        invocation: CyclotronJobInvocationHogFunction,
+        params: CyclotronInvocationQueueParametersEmailType,
+        integration: IntegrationType | null,
+        addLog: ReturnType<typeof createAddLogFunction>
+    ): Promise<EmailSendDecision> {
+        let from: EmailSender | undefined
+        try {
+            // Team-level kill switches: staff suspend all workflow email for a team whose sender
+            // reputation endangers shared SES deliverability, and AWS pauses the team's SES tenant
+            // for the same underlying reason. Same choke-point placement as the suppression check
+            // below so no upstream route can bypass either. Test sends are blocked too — they hit
+            // SES and count against the tenant all the same. A paused tenant rejects every send, so
+            // gating here turns wasted invocations into one clear skip.
+            const suspensionCause = await this.teamWorkflowsConfigService.getEmailSendingSuspension(invocation.teamId)
+            if (suspensionCause) {
+                logger.warn('Skipping email send for a suspended team', {
+                    teamId: invocation.teamId,
+                    cause: suspensionCause,
+                })
+                return {
+                    kind: 'skip',
+                    logLevel: 'warn',
+                    reason:
+                        suspensionCause === 'staff'
+                            ? 'Skipping send: email sending is suspended for this project. Contact support to get sending re-enabled.'
+                            : 'Skipping send: our email provider paused sending for this project. Check the Reputation tab to see what to fix.',
+                    // One metric for both causes: from the project's side sending is off either way, so
+                    // the cause belongs in the log lines and not in a second metric name.
+                    metricName: 'email_suspended',
+                    statusReason: 'sending_suspended',
+                    marksRunSkipped: false,
+                    blockedSendReport: null,
+                }
+            }
+
+            // Per-workflow pause: this workflow's complaint or hard bounce rate breached a
+            // threshold, so its email is held while the rest of the project keeps sending. Placed
+            // at the same choke point as the team-level switch above, for the same reason. Test
+            // sends are blocked too, because they hit SES and count against the tenant all the same.
+            const workflowPause = parseWorkflowEmailPause(invocation.hogFunction.metadata)
+            if (workflowPause) {
+                workflowEmailPausedTotal.inc()
+                const pauseDetail = workflowPause.reason ? ` ${workflowPause.reason}` : ''
+                return {
+                    kind: 'skip',
+                    // Error rather than warn: the email did not go out, and warn-level lines get skimmed
+                    // past in the run logs. The run itself still continues; a pause is policy, not a
+                    // fault, so it must not enter retry or abort handling.
+                    logLevel: 'error',
+                    reason: workflowPause.byStaff
+                        ? `Skipping send: PostHog staff paused email sending for this workflow.${pauseDetail} Contact support to get sending re-enabled.`
+                        : `Skipping send: email sending is paused for this workflow.${pauseDetail} Resume it from the workflow page once the audience is cleaned up.`,
+                    metricName: 'email_paused',
+                    statusReason: 'sending_paused',
+                    // Mark the skip so the flow-level billing gate does not charge for a send that
+                    // never reached the provider, and does not re-pin the run's attribution version to
+                    // one that delivered nothing. Mirrors the pre-send opt-out and bounce skip paths.
+                    marksRunSkipped: true,
+                    blockedSendReport: null,
+                }
+            }
+
+            // Wrong-team references deliberately read as not-found so an ID's existence on another team can't be probed
+            if (!integration || integration.team_id !== invocation.teamId) {
+                throw new EmailSenderNotFoundError(
+                    "Email integration not found. The sender configured for this step no longer exists — select a new sender in the workflow's email step."
+                )
+            }
+            if (integration.kind !== 'email') {
+                throw new Error(
+                    "The integration configured for this step is not an email channel — select an email sender in the workflow's email step."
+                )
+            }
+
+            from = this.resolveFromSender(integration, params.from, addLog)
+
+            // An empty `to` comes from the customer's data (a person without an email property, or no
+            // person at all), not from a fault in the send path. SES rejects it as an invalid address,
+            // so record a skip with its own metric instead of an `email_failed`. Otherwise one project
+            // with bad data inflates the platform send failure rate.
+            if (!params.to?.email?.trim()) {
+                return {
+                    kind: 'skip',
+                    logLevel: 'warn',
+                    reason: 'Skipping send: the recipient has no email address. Add a filter so only people with an email address reach this step.',
+                    metricName: 'email_missing_recipient',
+                    statusReason: 'missing_recipient',
+                    marksRunSkipped: true,
+                    blockedSendReport: 'missing_recipient',
+                }
+            }
+
+            // Single choke point for the suppression check — every send path lands here regardless
+            // of whether the invocation came from a workflow action or an email destination hog
+            // function. Checking here means callers can't bypass it by taking a different upstream
+            // route. Suppressed addresses are removed from every list. A suppressed `to` is replaced by
+            // the first deliverable cc address, and the send is skipped only when none is left.
+            const suppressionOptions: SuppressionCheckOptions = {
+                transactional: invocation.hogFunction?.metadata?.message_category_type === 'transactional',
+            }
+            const suppression = await removeSuppressedRecipients(params, (email) =>
+                this.emailSuppressionService.isSuppressed(invocation.teamId, email, suppressionOptions)
+            )
+            if (suppression.skip) {
+                return {
+                    kind: 'skip',
+                    logLevel: 'info',
+                    reason: `Skipping send: ${suppression.removed.join(', ')} ${suppression.removed.length === 1 ? 'is' : 'are'} on the suppression list and no cc address can receive the email instead`,
+                    metricName: 'email_suppressed',
+                    statusReason: 'recipient_suppressed',
+                    marksRunSkipped: false,
+                    blockedSendReport: null,
+                }
+            }
+            if (suppression.removed.length > 0) {
+                const promoted = suppression.promotedTo
+                    ? ` ${suppression.promotedTo.email} moves from cc to the To field.`
+                    : ''
+                addLog(
+                    'warn',
+                    `Not sending to ${suppression.removed.join(', ')} because ${suppression.removed.length === 1 ? 'it is' : 'they are'} on the suppression list.${promoted} The email still goes to the other recipients.`
+                )
+            }
+            // Always send the lists the suppression check parsed, so delivery uses the addresses it checked.
+            const deliverableParams = this.withUnsubscribeLink(invocation, {
+                ...params,
+                to:
+                    suppression.promotedTo ??
+                    (params.to?.email
+                        ? { ...params.to, email: quoteMailbox(unquoteMailbox(params.to.email)) }
+                        : params.to),
+                cc: suppression.cc,
+                bcc: suppression.bcc,
+            })
+
+            return {
+                kind: 'proceed',
+                integration,
+                from,
+                params: deliverableParams,
+                // Like suppression, the tracking decision lives at this choke point so every send path
+                // (workflow action or email destination hog function) resolves it the same way.
+                trackingEnabled: await this.resolveTrackingEnabled(invocation, deliverableParams),
+            }
+        } catch (error) {
+            return { kind: 'error', error, from }
+        }
+    }
+
+    private applySkip(
+        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
+        invocation: CyclotronJobInvocationHogFunction,
+        isTest: boolean,
+        addLog: ReturnType<typeof createAddLogFunction>,
+        skip: EmailSendSkip
+    ): CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> {
+        addLog(skip.logLevel, skip.reason)
+        result.emailSendResult = { status: 'skipped', reason: skip.reason }
+        this.emailStatusService?.queueSkippedSend(invocation, skip.statusReason, isTest)
+        if (!isTest) {
+            result.metrics.push({
+                team_id: invocation.teamId,
+                app_source_id: invocation.parentRunId ?? invocation.functionId,
+                instance_id: invocation.state.actionId || invocation.id,
+                metric_kind: 'email',
+                metric_name: skip.metricName,
+                count: 1,
+            })
+        }
+        if (skip.blockedSendReport && isRealWorkflowSend(invocation, isTest)) {
+            void this.workflowsActivationReporter.report(invocation.teamId, 'workflows send blocked', {
+                reason: skip.blockedSendReport,
+                channel: 'email',
+                workflow_id: invocation.functionId,
+            })
+        }
+        if (skip.marksRunSkipped) {
+            result.skipped = true
+        }
+        result.invocation.state.vmState?.stack.push({ success: false })
         return result
     }
 
@@ -1359,6 +1530,7 @@ export class EmailService {
                     const recipient = await this.recipientsManager.get({
                         teamId: invocation.teamId,
                         identifier: email,
+                        anyCase: true,
                     })
                     return recipient ? this.recipientsManager.getEmailTrackingPreference(recipient) : 'NO_PREFERENCE'
                 })
@@ -1481,12 +1653,15 @@ export class EmailService {
         files: LoadedAttachment[] = []
     ): Promise<void> {
         // This can timeout but there is no native timeout so we do our own one
+        const text = this.textPart(params, result.invocation.teamId)
         const mailOptions: SendMailOptions = {
             from: toNodemailerAddress(from.name, from.email),
             to: toNodemailerAddress(params.to.name, params.to.email),
             subject: sanitizeEmailSubject(params.subject),
-            ...(params.text ? { text: params.text } : {}),
-            headers: { [AUTO_SUBMITTED_HEADER.Name!]: AUTO_SUBMITTED_HEADER.Value! },
+            ...(text ? { text } : {}),
+            headers: Object.fromEntries(
+                [AUTO_SUBMITTED_HEADER, ...threadHeaders(params.thread)].map(({ Name, Value }) => [Name!, Value!])
+            ),
             ...(params.html
                 ? {
                       html: trackingEnabled
@@ -1567,16 +1742,18 @@ export class EmailService {
                   params.preheader
               )
             : null
-        if (
-            files.length > 0 &&
+        const fitsInMessage = (text: string): boolean =>
             estimateMessageBytes(
                 files.map(({ bytes }) => bytes.byteLength),
-                [html ?? '', params.text ?? ''],
+                [html ?? '', text],
                 sanitizeEmailSubject(params.subject)
-            ) > MESSAGE_MAX_BYTES
-        ) {
+            ) <= MESSAGE_MAX_BYTES
+        if (files.length > 0 && !fitsInMessage(params.text ?? '')) {
             throw new MessageTooLargeError()
         }
+        const candidateText = this.textPart(params, result.invocation.teamId)
+        // The text part made from the html adds to the message, so it goes out only when the message still fits.
+        const text = candidateText === (params.text ?? '') || fitsInMessage(candidateText) ? candidateText : ''
         const htmlBody = html ? { Html: { Data: html, Charset: 'UTF-8' } } : {}
 
         const sendEmailParams: SendEmailCommandInput = {
@@ -1591,7 +1768,7 @@ export class EmailService {
                         Charset: 'UTF-8',
                     },
                     Body: {
-                        ...(params.text ? { Text: { Data: params.text, Charset: 'UTF-8' } } : {}),
+                        ...(text ? { Text: { Data: text, Charset: 'UTF-8' } } : {}),
                         ...htmlBody,
                     },
                 },
@@ -1660,6 +1837,7 @@ export class EmailService {
                 trackingHeader,
                 ...messageCreatedHeaders,
                 AUTO_SUBMITTED_HEADER,
+                ...threadHeaders(params.thread),
             ]
             if (files.length) {
                 sendEmailParams.Content.Simple.Attachments = files.map(({ file, bytes }) => ({
@@ -1687,12 +1865,14 @@ export class EmailService {
             sendEmailParams.Destination!.BccAddresses = bccAddresses
         }
 
+        const withFiles = files.length > 0 ? 'true' : 'false'
         if (queueWait) {
             emailQueueToSendMs
                 .labels({
                     source: queueWait.source,
                     priority_class: getEmailQueuePriorityClass(result.invocation.hogFunction.metadata),
                     team_capped: queueWait.teamCapped ? 'true' : 'false',
+                    with_files: withFiles,
                 })
                 .observe(Math.max(0, Date.now() - queueWait.startedAt.toMillis()))
         }
@@ -1710,11 +1890,15 @@ export class EmailService {
             if (!response.MessageId) {
                 throw new Error('No messageId returned from SES')
             }
-            sesSendDurationMs.labels({ result: 'success' }).observe(performance.now() - sendStartedAt)
+            sesSendDurationMs
+                .labels({ result: 'success', with_files: withFiles })
+                .observe(performance.now() - sendStartedAt)
             sesSendResultsTotal.labels({ result: 'success' }).inc()
             return response.MessageId
         } catch (error: unknown) {
-            sesSendDurationMs.labels({ result: 'error' }).observe(performance.now() - sendStartedAt)
+            sesSendDurationMs
+                .labels({ result: 'error', with_files: withFiles })
+                .observe(performance.now() - sendStartedAt)
             sesSendResultsTotal.labels({ result: classifySesSendError(error) }).inc()
             if (deadline?.aborted) {
                 if (!anAttemptSesMayHaveAccepted()) {
@@ -1728,8 +1912,37 @@ export class EmailService {
                 sesThrottleResponsesTotal.inc({ error_code: error.name })
                 throw new SESThrottleError(error.name, pickThrottleRetryDelayMs(), error.message)
             }
-            const message = error instanceof Error ? error.message : String(error)
-            throw new Error(`Failed to send email via SES: ${message}`)
+            const message = `Failed to send email via SES: ${error instanceof Error ? error.message : String(error)}`
+            if (sesNamedSenderAsUnverified(error, from.email)) {
+                throw new SesSenderNotVerifiedError(message)
+            }
+            throw new Error(message)
+        }
+    }
+
+    private withUnsubscribeLink(
+        invocation: CyclotronJobInvocationHogFunction,
+        params: CyclotronInvocationQueueParametersEmailType
+    ): CyclotronInvocationQueueParametersEmailType {
+        if (invocation.state?.send?.category?.type !== 'marketing' || !params.to?.email) {
+            return params
+        }
+        const url = this.recipientTokensService.generatePreferencesUrl(
+            { team_id: invocation.teamId, identifier: unquoteMailbox(params.to.email) },
+            preferencesTokenSourceForInvocation(invocation)
+        )
+        const expandedBytes = (body: string | undefined, link: string): number =>
+            (body?.match(UNSUBSCRIBE_URL_PLACEHOLDER) ?? []).reduce(
+                (total, placeholder) => total + Buffer.byteLength(link) - placeholder.length,
+                Buffer.byteLength(body ?? '')
+            )
+        if (exceedsLargestSend(expandedBytes(params.html, escapeHtml(url)) + expandedBytes(params.text, url))) {
+            throw new MessageTooLargeError()
+        }
+        return {
+            ...params,
+            html: params.html.replace(UNSUBSCRIBE_URL_PLACEHOLDER, () => escapeHtml(url)),
+            text: params.text?.replace(UNSUBSCRIBE_URL_PLACEHOLDER, () => url),
         }
     }
 

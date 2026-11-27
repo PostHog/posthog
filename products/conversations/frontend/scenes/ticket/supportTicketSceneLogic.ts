@@ -40,7 +40,8 @@ import {
     ImpersonationTicketContext,
     impersonationNoticeLogic,
 } from '~/layout/navigation/ImpersonationNotice/impersonationNoticeLogic'
-import { TODAY_PEOPLE_RECENT_KEY, TodayPeopleRecent } from '~/layout/today/todayPeople'
+import { TodayPeopleRecent } from '~/layout/today/todayPeople'
+import { TODAY_RECENT_KEY } from '~/layout/today/todayRecents'
 import api, { ApiConfig } from '~/lib/api'
 import { PERSON_DISPLAY_NAME_COLUMN_NAME } from '~/lib/constants'
 import { CLOUD_HOSTNAMES } from '~/lib/constants'
@@ -60,6 +61,8 @@ import {
 import {
     conversationsTicketsAiFeedbackCreate,
     conversationsTicketsAiHumanOutcomeCreate,
+    conversationsTicketsAiRerunCreate,
+    conversationsTicketsRetrieve,
     conversationsTicketsDestroy,
     conversationsTicketsMessagesFullEmailRetrieve,
     conversationsTicketsNotesDestroy,
@@ -67,10 +70,7 @@ import {
     conversationsTicketsPartialUpdate,
     conversationsMacrosUsedCreate,
 } from 'products/conversations/frontend/generated/api'
-import type {
-    PatchedTicketUpdateRequestApi,
-    TicketMacroApi,
-} from 'products/conversations/frontend/generated/api.schemas'
+import type { AiFeedbackReasonEnumApi, TicketMacroApi } from 'products/conversations/frontend/generated/api.schemas'
 import { getCommentsCreateUrl } from 'products/platform_features/frontend/generated/api'
 import { signalsReportsList } from 'products/signals/frontend/generated/api'
 import type { SignalReportApi } from 'products/signals/frontend/generated/api.schemas'
@@ -86,6 +86,7 @@ import { supportMacrosLogic } from '../../components/Macros/supportMacrosLogic'
 import { supportTicketCounterLogic } from '../../supportTicketCounterLogic'
 import { priorityOptions } from '../../types'
 import type {
+    AITriage,
     AiReplyFeedbackRating,
     ChatMessage,
     MessageDeliveryStatus,
@@ -96,8 +97,13 @@ import type {
 } from '../../types'
 import { conversationsDraftModeLogic } from '../settings/conversationsDraftModeLogic'
 import { supportTicketsSceneLogic } from '../tickets/supportTicketsSceneLogic'
+import { aiRerunRefresh } from './aiRerunRefresh'
+import { changedTicketFields } from './ticketFieldChanges'
 
 const MESSAGE_POLL_INTERVAL = 5000 // 5 seconds
+const AI_RERUN_POLL_INTERVAL = 10000
+// Thirty minutes of polling, which is how long the server treats a run as live.
+const AI_RERUN_MAX_POLLS = 180
 /** Discussions ride the message timer at 1/4 the rate, so ~20s. */
 const DISCUSSION_POLL_EVERY_N_TICKS = 4
 /** Must not exceed the server's replay window, or recovery could adopt a message from an older send. */
@@ -286,9 +292,10 @@ export interface supportTicketSceneLogicValues {
     draftModeDefault: boolean // conversationsDraftModeLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
-    hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
+    hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean // userLogic
     user: UserType | null // userLogic
     aiDraftApplying: boolean
+    aiRerunning: boolean
     assignee: TicketAssignee
     breadcrumbs: Breadcrumb[]
     chatMessages: ChatMessage[]
@@ -337,7 +344,7 @@ export interface supportTicketSceneLogicValues {
     ticketDeleting: boolean
     ticketLoading: boolean
     ticketUpdating: boolean
-    todayPeopleRecent: TodayPeopleRecent | null
+    todayRecent: TodayPeopleRecent | null
     unsavedTicketChanges: string[]
 }
 
@@ -486,6 +493,12 @@ export interface supportTicketSceneLogicActions {
         messageId: string
         rating: AiReplyFeedbackRating
     }
+    refreshAiTriage: () => {
+        value: true
+    }
+    rerunAi: () => {
+        value: true
+    }
     sendMessage: (
         content: string,
         richContent: Record<string, unknown> | null,
@@ -501,6 +514,12 @@ export interface supportTicketSceneLogicActions {
     }
     setAiDraftApplying: (applying: boolean) => {
         applying: boolean
+    }
+    setAiRerunning: (rerunning: boolean) => {
+        rerunning: boolean
+    }
+    setAiTriage: (aiTriage: AITriage) => {
+        aiTriage: AITriage
     }
     setAssignee: (assignee: TicketAssignee) => {
         assignee: TicketAssignee
@@ -538,6 +557,9 @@ export interface supportTicketSceneLogicActions {
     setPriority: (priority: TicketPriority) => {
         priority: TicketPriority
     }
+    setSavedTicket: (ticket: Ticket) => {
+        ticket: Ticket
+    }
     setSnoozedUntil: (snoozedUntil: string | null) => {
         snoozedUntil: string | null
     }
@@ -572,11 +594,13 @@ export interface supportTicketSceneLogicActions {
     submitAiReplyFeedback: (
         messageId: string,
         rating: AiReplyFeedbackRating,
-        feedbackText?: string
+        feedbackText?: string,
+        reasons?: AiFeedbackReasonEnumApi[]
     ) => {
         feedbackText: string | undefined
         messageId: string
         rating: AiReplyFeedbackRating
+        reasons: AiFeedbackReasonEnumApi[] | undefined
     }
     updateTicket: () => {
         value: true
@@ -592,7 +616,7 @@ export interface supportTicketSceneLogicProps {
 export interface supportTicketSceneLogicMeta {
     key: number | string
     __keaTypeGenInternalSelectorTypes: {
-        todayPeopleRecent: (ticket: Ticket | null) => TodayPeopleRecent | null
+        todayRecent: (ticket: Ticket | null) => TodayPeopleRecent | null
         breadcrumbs: (id: number | string) => Breadcrumb[]
         emailReplyBlockedReason: (
             ticket: Ticket | null,
@@ -603,7 +627,7 @@ export interface supportTicketSceneLogicMeta {
         replyRecipientDescription: (ticket: Ticket | null) => string
         deleteDisabledReason: (
             ticket: Ticket | null,
-            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
+            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean
         ) => string | undefined
         unsavedTicketChanges: (
             priority: TicketPriority | null,
@@ -611,7 +635,7 @@ export interface supportTicketSceneLogicMeta {
             tags: string[],
             snoozedUntil: string | null,
             ticket: Ticket | null,
-            resolveAssignee: (assignee: TicketAssignee) => Assignee // assigneeSelectLogic
+            resolveAssignee: (assignee: TicketAssignee) => Assignee
         ) => string[]
         hasUnsavedChanges: (
             status: TicketStatus | null,
@@ -667,6 +691,8 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
     actions({
         loadTicket: true,
         setTicket: (ticket: Ticket | null) => ({ ticket }),
+        // Unlike setTicket, keeps the sidebar fields so edits made during an in-flight save survive.
+        setSavedTicket: (ticket: Ticket) => ({ ticket }),
         setTicketLoading: (loading: boolean) => ({ loading }),
         incrementUnreadCustomerCount: true,
         updateTicket: true,
@@ -681,6 +707,10 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
 
         applyAiDraft: (message: ChatMessage) => ({ message }),
         setAiDraftApplying: (applying: boolean) => ({ applying }),
+        rerunAi: true,
+        setAiRerunning: (rerunning: boolean) => ({ rerunning }),
+        setAiTriage: (aiTriage: AITriage) => ({ aiTriage }),
+        refreshAiTriage: true,
         bumpComposerPrefill: true,
         insertMacro: (macro: Pick<TicketMacroApi, 'id' | 'body' | 'visibility'>, source: 'button' | 'slash') => ({
             macro,
@@ -734,10 +764,16 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         deleteTicket: true,
         setTicketDeleting: (deleting: boolean) => ({ deleting }),
 
-        submitAiReplyFeedback: (messageId: string, rating: AiReplyFeedbackRating, feedbackText?: string) => ({
+        submitAiReplyFeedback: (
+            messageId: string,
+            rating: AiReplyFeedbackRating,
+            feedbackText?: string,
+            reasons?: AiFeedbackReasonEnumApi[]
+        ) => ({
             messageId,
             rating,
             feedbackText,
+            reasons,
         }),
         recordAiReplyFeedback: (messageId: string, rating: AiReplyFeedbackRating) => ({
             messageId,
@@ -864,6 +900,8 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             null as Ticket | null,
             {
                 setTicket: (_, { ticket }) => ticket,
+                setSavedTicket: (_, { ticket }) => ticket,
+                setAiTriage: (state, { aiTriage }) => (state ? { ...state, ai_triage: aiTriage } : state),
                 incrementUnreadCustomerCount: (state) =>
                     state ? { ...state, unread_customer_count: state.unread_customer_count + 1 } : state,
             },
@@ -983,6 +1021,13 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 setAiDraftApplying: (_, { applying }) => applying,
             },
         ],
+        aiRerunning: [
+            false,
+            {
+                rerunAi: () => true,
+                setAiRerunning: (_, { rerunning }) => rerunning,
+            },
+        ],
         composerPrefillAt: [
             0,
             {
@@ -1052,7 +1097,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         ],
     }),
     selectors({
-        [TODAY_PEOPLE_RECENT_KEY]: [
+        [TODAY_RECENT_KEY]: [
             (s) => [s.ticket],
             (ticket: Ticket | null): TodayPeopleRecent | null =>
                 ticket?.ticket_number
@@ -1163,11 +1208,12 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 if (!ticket) {
                     return []
                 }
+                const changed = changedTicketFields({ status: null, priority, assignee, tags, snoozedUntil }, ticket)
                 const changes: string[] = []
-                if (priority && priority !== ticket.priority) {
+                if (changed.priority) {
                     changes.push(`Priority: ${priorityOptions.find((o) => o.value === priority)?.label ?? priority}`)
                 }
-                if (JSON.stringify(assignee) !== JSON.stringify(ticket.assignee)) {
+                if ('assignee' in changed) {
                     const resolved = resolveAssignee(assignee)
                     const label =
                         resolved?.type === 'user'
@@ -1179,13 +1225,10 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                                 : 'unassigned'
                     changes.push(`Assignee: ${label}`)
                 }
-                if (JSON.stringify([...tags].sort()) !== JSON.stringify([...(ticket.tags || [])].sort())) {
+                if (changed.tags) {
                     changes.push(tags.length > 0 ? `Tags: ${tags.join(', ')}` : 'Tags: none')
                 }
-                if (
-                    (snoozedUntil ? dayjs(snoozedUntil).unix() : null) !==
-                    (ticket.snoozed_until ? dayjs(ticket.snoozed_until).unix() : null)
-                ) {
+                if ('snoozed_until' in changed) {
                     changes.push(
                         snoozedUntil
                             ? `Snoozed until ${dayjs(snoozedUntil).format('D MMM YYYY, h:mm A')}`
@@ -1426,6 +1469,11 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 actions.setTicketLoading(false)
             }
         },
+        setStatus: () => actions.updateTicket(),
+        setPriority: () => actions.updateTicket(),
+        setAssignee: () => actions.updateTicket(),
+        setTags: () => actions.updateTicket(),
+        setSnoozedUntil: () => actions.updateTicket(),
         loadPersonSuccess: async () => {
             // Load previous tickets after person is loaded
             actions.loadPreviousTickets()
@@ -1446,32 +1494,37 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             }
             breakpoint()
 
-            const data: PatchedTicketUpdateRequestApi = {}
-
-            if (values.status && values.status !== values.ticket?.status) {
-                data.status = values.status
+            if (!values.ticket) {
+                actions.setTicketUpdating(false)
+                return
             }
-            if (values.priority && values.priority !== values.ticket?.priority) {
-                data.priority = values.priority
+            const data = changedTicketFields(values, values.ticket)
+            if (Object.keys(data).length === 0) {
+                actions.setTicketUpdating(false)
+                return
             }
-            data.assignee = values.assignee
-            data.tags = values.tags
-            data.snoozed_until = values.snoozedUntil
 
             const request = conversationsTicketsPartialUpdate(String(getCurrentTeamId()), props.id.toString(), data)
             cache.ticketUpdateRequest = request
             try {
-                const ticket = await request
+                const ticket = (await request) as Ticket
+                actions.setSavedTicket(ticket)
                 breakpoint()
-                actions.setTicket(ticket as Ticket)
-                lemonToast.success('Ticket updated')
+                actions.setTicket(ticket)
+                lemonToast.success('Ticket saved')
                 actions.loadTickets()
             } catch (error: any) {
                 if (error?.isBreakpoint) {
                     throw error
                 }
                 actions.setTicketUpdating(false)
-                lemonToast.error('Failed to update ticket')
+                lemonToast.error("Couldn't save the ticket change. Try again.")
+                // A newer edit is already queued and will send the latest local values, so only the
+                // last failed save rolls the fields back to what the server holds.
+                breakpoint()
+                if (values.ticket) {
+                    actions.setTicket(values.ticket)
+                }
             } finally {
                 if (cache.ticketUpdateRequest === request) {
                     cache.ticketUpdateRequest = null
@@ -1684,7 +1737,6 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             }
             if (statusAfterSend) {
                 actions.setStatus(statusAfterSend)
-                actions.updateTicket()
             }
             actions.loadTickets()
         },
@@ -1697,6 +1749,12 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 actions.setDraftIsPrivate(false)
                 actions.setDraftContent(aiDraftComposerHtml(message))
                 actions.bumpComposerPrefill()
+                // pinned: analytics event name. Dashboards break when it is renamed.
+                posthog.capture('support ai draft applied', {
+                    draft_kind: aiDraftAction(message),
+                    ai_triage_result: values.ticket?.ai_triage?.result ?? null,
+                    ticket_type: values.ticket?.ai_triage?.ticket_type ?? null,
+                })
                 if (!values.ticket?.id) {
                     return
                 }
@@ -1719,6 +1777,63 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 }
             } finally {
                 actions.setAiDraftApplying(false)
+            }
+        },
+        rerunAi: async () => {
+            const ticket = values.ticket
+            if (!ticket) {
+                actions.setAiRerunning(false)
+                return
+            }
+            try {
+                await conversationsTicketsAiRerunCreate(String(getCurrentTeamId()), ticket.id)
+            } catch (error: unknown) {
+                const detail = error instanceof ApiError ? error.detail : null
+                lemonToast.error(detail || "Couldn't start Support AI. Try again in a minute.")
+                actions.setAiRerunning(false)
+                return
+            }
+            lemonToast.success('Support AI is running. Its note will appear on this ticket.')
+            // Until the finish time changes, a fetched "done" belongs to the earlier run.
+            cache.aiRerunPreviousFinishedAt = ticket.ai_triage?.finished_at ?? null
+            cache.aiRerunPollsLeft = AI_RERUN_MAX_POLLS
+            actions.setAiTriage({ ...ticket.ai_triage, status: 'in_progress' })
+            actions.setAiRerunning(false)
+            cache.disposables.dispose('aiTriagePolling')
+            cache.disposables.add(() => {
+                const intervalId = setInterval(() => actions.refreshAiTriage(), AI_RERUN_POLL_INTERVAL)
+                return () => clearInterval(intervalId)
+            }, 'aiTriagePolling')
+        },
+        refreshAiTriage: async () => {
+            const ticketId = values.ticket?.id
+            // A slow response must not land after a newer one and overwrite its result.
+            if (cache.aiTriageRefreshInFlight) {
+                return
+            }
+            cache.aiRerunPollsLeft = (cache.aiRerunPollsLeft ?? 0) - 1
+            if (!ticketId || cache.aiRerunPollsLeft < 0) {
+                cache.disposables.dispose('aiTriagePolling')
+                return
+            }
+            cache.aiTriageRefreshInFlight = true
+            let fetched: unknown
+            try {
+                fetched = (await conversationsTicketsRetrieve(String(getCurrentTeamId()), ticketId)).ai_triage
+            } catch {
+                return
+            } finally {
+                cache.aiTriageRefreshInFlight = false
+            }
+            if (cache.disposables.isDisposed) {
+                return
+            }
+            const { triage, finished } = aiRerunRefresh(fetched, cache.aiRerunPreviousFinishedAt ?? null)
+            if (triage) {
+                actions.setAiTriage(triage)
+            }
+            if (finished) {
+                cache.disposables.dispose('aiTriagePolling')
             }
         },
         insertMacro: ({ macro, source }) => {
@@ -1835,20 +1950,21 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 secondaryButton: { children: 'Cancel' },
             })
         },
-        submitAiReplyFeedback: async ({ messageId, rating, feedbackText }) => {
+        submitAiReplyFeedback: async ({ messageId, rating, feedbackText, reasons }) => {
             const ticket = values.ticket
             if (!ticket) {
                 return
             }
             try {
-                if (feedbackText) {
+                if (feedbackText || reasons?.length) {
                     if (rating !== 'bad') {
                         return
                     }
                     await conversationsTicketsAiFeedbackCreate(String(ApiConfig.getCurrentProjectId()), ticket.id, {
                         message_id: messageId,
                         rating,
-                        feedback_text: feedbackText,
+                        ...(feedbackText ? { feedback_text: feedbackText } : {}),
+                        ...(reasons?.length ? { reasons } : {}),
                     })
                     return
                 }

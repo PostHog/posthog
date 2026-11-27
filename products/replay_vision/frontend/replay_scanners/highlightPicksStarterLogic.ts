@@ -377,7 +377,6 @@ export const highlightPicksStarterLogic: LogicWrapper<highlightPicksStarterLogic
                             provider: DEFAULT_PROVIDER,
                             enabled: true,
                             sampling_rate: samplingRate,
-                            sampling_mode: 'balanced',
                             query,
                             tags: [],
                             free_only: free,

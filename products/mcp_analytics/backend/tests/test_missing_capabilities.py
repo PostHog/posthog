@@ -6,8 +6,19 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _
 
 from parameterized import parameterized
 
-from posthog.schema import DateRange, MCPMissingCapabilitiesItem, MCPMissingCapabilitiesQuery
+from posthog.schema import (
+    DateRange,
+    EventPropertyFilter,
+    MCPMissingCapabilitiesItem,
+    MCPMissingCapabilitiesQuery,
+    PropertyOperator,
+)
 
+from posthog.constants import AvailableFeature
+
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.access_control.backend.property_access_control import PropertyAccessLevel
+from products.event_definitions.backend.models import PropertyDefinition
 from products.mcp_analytics.backend.hogql_queries.missing_capabilities import MCPMissingCapabilitiesQueryRunner
 from products.mcp_analytics.backend.models import MCPCustomHarness
 from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
@@ -50,10 +61,53 @@ class TestMCPMissingCapabilitiesQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Cl
         )
         return runner.calculate()
 
-    def test_returns_reports_newest_first_with_their_text(self) -> None:
-        now = datetime.now(tz=UTC)
-        self._emit(intent="older ask", timestamp=now - timedelta(hours=2))
-        self._emit(intent="newer ask", timestamp=now - timedelta(hours=1))
+    @parameterized.expand([("no_rule", False, 1), ("member_denied", True, 0)])
+    def test_property_filter_applies_the_callers_own_property_restrictions(
+        self, _name: str, deny_member: bool, expected_rows: int
+    ) -> None:
+        if deny_member:
+            self.organization.available_product_features = [
+                {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+            ]
+            self.organization.save()
+            definition = PropertyDefinition.objects.create(
+                team=self.team, name="$mcp_llm_model", property_type="String", type=PropertyDefinition.Type.EVENT
+            )
+            PropertyAccessControl.objects.create(
+                team=self.team,
+                property_definition=definition,
+                organization_member=self.user.organization_memberships.get(),
+                access_level=PropertyAccessLevel.NONE.value,
+            )
+        _create_event(
+            team=self.team,
+            event="$mcp_missing_capability",
+            distinct_id="d1",
+            timestamp=datetime.now(tz=UTC),
+            properties={"$session_id": "s1", "$mcp_intent": "export a PDF", "$mcp_llm_model": "secret-model"},
+        )
+        flush_persons_and_events()
+
+        runner = MCPMissingCapabilitiesQueryRunner(
+            query=MCPMissingCapabilitiesQuery(
+                dateRange=DateRange(date_from="-30d"),
+                properties=[
+                    EventPropertyFilter(key="$mcp_llm_model", value="secret-model", operator=PropertyOperator.EXACT)
+                ],
+            ),
+            team=self.team,
+            user=self.user,
+        )
+
+        assert len(runner.calculate().results) == expected_rows
+
+    def test_returns_reports_newest_first_with_their_text_and_time(self) -> None:
+        self.team.timezone = "Asia/Tokyo"
+        self.team.save()
+        now = datetime.now(tz=UTC).replace(microsecond=0)
+        older, newer = now - timedelta(hours=2), now - timedelta(hours=1)
+        self._emit(intent="older ask", timestamp=older)
+        self._emit(intent="newer ask", timestamp=newer)
         # Only missing-capability reports are the unmet-demand signal; a tool call carrying an
         # intent is what the agent *did*, not what it couldn't do.
         self._emit(intent="a tool call intent", event="$mcp_tool_call")
@@ -61,7 +115,10 @@ class TestMCPMissingCapabilitiesQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Cl
 
         rows = self._run()
 
-        assert [row.intent for row in rows] == ["newer ask", "older ask"]
+        assert [(row.intent, datetime.fromisoformat(row.timestamp)) for row in rows] == [
+            ("newer ask", newer),
+            ("older ask", older),
+        ]
         assert rows[0].session_id == "s1"
         assert rows[0].distinct_id == "d1"
         assert rows[0].harness == "Claude.ai"

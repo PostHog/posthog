@@ -494,7 +494,7 @@ describe('the property definitions model', () => {
         ])('handles %s without crashing and stores correct values', async (_label, apiResponse, expectedValues) => {
             useMocks({
                 get: {
-                    '/api/event/values/': () => [200, apiResponse],
+                    '/api/projects/:team_id/events/values/': () => [200, apiResponse],
                 },
             })
 
@@ -514,7 +514,7 @@ describe('the property definitions model', () => {
         it('handles API errors by setting error state and stopping loading', async () => {
             useMocks({
                 get: {
-                    '/api/event/values/': () => [503, { detail: 'Service Unavailable' }],
+                    '/api/projects/:team_id/events/values/': () => [503, { detail: 'Service Unavailable' }],
                 },
             })
 
@@ -617,7 +617,7 @@ describe('the property definitions model', () => {
 
             useMocks({
                 get: {
-                    '/api/event/values': ({ request }) => {
+                    '/api/projects/:team_id/events/values': ({ request }) => {
                         capturedUrl = request.url
                         return [200, { results: [], refreshing: false }]
                     },
@@ -642,7 +642,7 @@ describe('the property definitions model', () => {
 
             useMocks({
                 get: {
-                    '/api/event/values': ({ request }) => {
+                    '/api/projects/:team_id/events/values': ({ request }) => {
                         capturedUrl = request.url
                         return [200, { results: [], refreshing: false }]
                     },
@@ -681,7 +681,7 @@ describe('the property definitions model', () => {
 
             useMocks({
                 get: {
-                    '/api/event/values': ({ request }) => {
+                    '/api/projects/:team_id/events/values': ({ request }) => {
                         capturedUrls.push(request.url)
                         return [200, { results: [], refreshing: capturedUrls.length === 1 }]
                     },

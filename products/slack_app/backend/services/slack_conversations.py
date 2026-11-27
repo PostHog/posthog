@@ -14,9 +14,12 @@ public-vs-private split among channels, where ``channels:read`` and ``groups:rea
 
 from typing import Any
 
+from django.core.cache import cache
+
 import structlog
 from slack_sdk.errors import SlackApiError
 
+from posthog.dataclasses import frozen
 from posthog.models.integration import SlackIntegration
 
 from products.slack_app.backend.models import SlackThreadTaskMapping
@@ -24,6 +27,8 @@ from products.slack_app.backend.models import SlackThreadTaskMapping
 logger = structlog.get_logger(__name__)
 
 ConversationType = SlackThreadTaskMapping.ConversationType
+
+_CHANNEL_NAME_TTL_SECONDS = 60 * 60
 
 # `channel_type` rides on `message` events and is what the event router already keys on to
 # send DMs to the assistant surface. `group` is Slack's wire name for a private channel.
@@ -42,8 +47,8 @@ def resolve_conversation_type(
 ) -> SlackThreadTaskMapping.ConversationType:
     """The shape of the conversation ``channel_id`` names.
 
-    Never raises: an unresolvable conversation comes back as ``UNKNOWN``, which reads as
-    non-private downstream. Task creation must not fail over this.
+    Never raises: an unresolvable conversation comes back as ``UNKNOWN``, which keeps the task
+    with its creator downstream. Task creation must not fail over this.
     """
     channel_type = event.get("channel_type")
     if channel_type in _CHANNEL_TYPE_TO_CONVERSATION_TYPE:
@@ -81,6 +86,8 @@ def _channel_privacy_from_slack(
         logger.warning("slack_app_conversation_type_lookup_failed", channel_id=channel_id, exc_info=True)
         return ConversationType.UNKNOWN
 
+    _remember_channel_name(slack, channel_id, channel)
+
     # A group DM reached here only if its id did not start with `D`; `conversations.info`
     # still labels it, so honour that before falling back to the private/public split.
     if channel.get("is_im"):
@@ -90,6 +97,55 @@ def _channel_privacy_from_slack(
     if "is_private" not in channel:
         return ConversationType.UNKNOWN
     return ConversationType.PRIVATE_CHANNEL if channel["is_private"] else ConversationType.PUBLIC_CHANNEL
+
+
+@frozen
+class ChannelInfoLookup:
+    """A `conversations.info` result: the channel record, or the Slack error code when Slack refused."""
+
+    channel: dict[str, Any] | None = None
+    error: str | None = None
+
+
+def lookup_channel_info(slack: SlackIntegration, channel_id: str) -> ChannelInfoLookup:
+    """Like `fetch_channel_info`, for a caller that acts on why the lookup failed."""
+    try:
+        channel: dict[str, Any] = slack.client.conversations_info(channel=channel_id).get("channel") or {}
+    except SlackApiError as error:
+        code = str((error.response or {}).get("error") or "unknown")
+        logger.warning("slack_app_channel_info_lookup_failed", channel_id=channel_id, error=code)
+        return ChannelInfoLookup(error=code)
+    except Exception:
+        logger.warning("slack_app_channel_info_lookup_failed", channel_id=channel_id, exc_info=True)
+        return ChannelInfoLookup(error="request_failed")
+    _remember_channel_name(slack, channel_id, channel)
+    return ChannelInfoLookup(channel=channel)
+
+
+def fetch_channel_info(slack: SlackIntegration, channel_id: str) -> dict[str, Any] | None:
+    """The channel's `conversations.info` record, or None when Slack could not say. Warms the name cache."""
+    return lookup_channel_info(slack, channel_id).channel
+
+
+def resolve_channel_name(slack: SlackIntegration, channel_id: str) -> str | None:
+    if channel_id.startswith("D"):
+        return None
+    cached = cache.get(_channel_name_key(slack, channel_id))
+    if cached is None and fetch_channel_info(slack, channel_id) is not None:
+        cached = cache.get(_channel_name_key(slack, channel_id))
+    return cached or None
+
+
+def _remember_channel_name(slack: SlackIntegration, channel_id: str, channel: dict[str, Any]) -> str | None:
+    name = channel.get("name")
+    if channel.get("is_im") or channel.get("is_mpim") or not isinstance(name, str):
+        name = ""
+    cache.set(_channel_name_key(slack, channel_id), name, timeout=_CHANNEL_NAME_TTL_SECONDS)
+    return name or None
+
+
+def _channel_name_key(slack: SlackIntegration, channel_id: str) -> str:
+    return f"slack_app:channel_name:v1:{slack.integration.integration_id}:{channel_id}"
 
 
 def channel_is_ext_shared(slack: SlackIntegration, channel: str) -> bool:

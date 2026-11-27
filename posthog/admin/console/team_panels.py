@@ -7,7 +7,7 @@ from django.db.models import Model
 from django.http import HttpRequest, HttpResponse
 from django.urls import reverse
 
-from posthog.admin.console.panels import Fact, Operation, Owner, Panel, Tone
+from posthog.admin.console.panels import Fact, Operation, Panel, Tone
 from posthog.admin.console.registry import console
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models.organization import OrganizationMembership
@@ -15,16 +15,13 @@ from posthog.models.remote_config import RemoteConfig
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-# The console shell owns the core panels until a team claims one.
-DEV_EXPERIENCE = Owner(name="Dev experience", crest="dev-experience")
-
 
 @console.register_panel
 class TeamOverviewPanel(Panel):
     record = "team"
     key = "overview"
     title = "Overview"
-    owner = DEV_EXPERIENCE
+    owner = None
     order = 10
 
     def facts(self, obj: Model) -> list[Fact]:
@@ -65,7 +62,7 @@ class RemoteConfigPanel(Panel):
     record = "team"
     key = "remote-config"
     title = "Remote config cache"
-    owner = DEV_EXPERIENCE
+    owner = None
     order = 20
 
     def facts(self, obj: Model) -> list[Fact]:
@@ -126,7 +123,7 @@ class ApiTokenPanel(Panel):
     record = "team"
     key = "api-token"
     title = "Project API token"
-    owner = DEV_EXPERIENCE
+    owner = None
     operation_keys = frozenset({"set"})
     order = 30
     danger = True

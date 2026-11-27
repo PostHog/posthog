@@ -24,7 +24,7 @@ JUDGE_MODEL = "claude-opus-5"
 
 # The judge model thinks before it answers, and the thinking counts against max_tokens, so a small
 # budget can cut the JSON off before it closes.
-_JUDGE_MAX_TOKENS = 4096
+JUDGE_MAX_TOKENS = 4096
 
 # The model rejects a temperature, so a fixed effort keeps a change of the model default from moving
 # the verdicts between scans.
@@ -122,7 +122,7 @@ async def judge_pair(
             model=JUDGE_MODEL,
             system=_SYSTEM_PROMPT,
             messages=[{"role": "user", "content": build_judge_prompt(metric, intent, sql, question)}],
-            max_tokens=_JUDGE_MAX_TOKENS,
+            max_tokens=JUDGE_MAX_TOKENS,
             output_config={"effort": _JUDGE_EFFORT},
         )
         text = "".join(block.text for block in response.content if block.type == "text")

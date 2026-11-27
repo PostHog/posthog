@@ -57,9 +57,6 @@ manifest_stack() {
 golden_name() {
   case "$1" in
     aux)    echo "auxiliary" ;;
-    events) echo "ingestion_events" ;;
-    small)  echo "ingestion_small" ;;
-    medium) echo "ingestion_medium" ;;
     *)      echo "$1" ;;
   esac
 }

@@ -18,7 +18,9 @@ use personhog_common::grpc::{current_client_name, current_method_name};
 use crate::config::{IdentityTables, OutboxWrites};
 use crate::pools::{IdentityPools, Lane};
 use crate::storage::error::StorageResult;
-use crate::storage::types::{AttachOutcome, DistinctIdMapping, Person, PersonStub, StubOutcome};
+use crate::storage::types::{
+    AttachOutcome, DistinctIdMapping, Person, PersonAttach, PersonStub, StubOutcome,
+};
 use crate::storage::{IdentityStorage, DB_QUERY_DURATION};
 
 /// Decode a person from a row whose SELECT list uses the canonical aliases
@@ -36,8 +38,6 @@ pub(super) fn person_from_row(row: &PgRow) -> Result<Person, sqlx::Error> {
         uuid: row.try_get("uuid")?,
         team_id: row.try_get("team_id")?,
         properties: None,
-        properties_last_updated_at: None,
-        properties_last_operation: None,
         created_at: row.try_get("created_at")?,
         version: row.try_get("version")?,
         is_identified: row.try_get("is_identified")?,
@@ -144,5 +144,52 @@ impl IdentityStorage for PostgresIdentityStorage {
             self.outbox_writes,
         )
         .await
+    }
+
+    async fn attach_distinct_ids_batch(
+        &self,
+        attaches: &[PersonAttach],
+    ) -> StorageResult<Vec<HashMap<String, AttachOutcome>>> {
+        let labels = Self::query_labels("attach_distinct_ids", Lane::Heavy);
+        let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
+        attach::attach_batch(&self.pools, &self.tables, attaches, self.outbox_writes).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    #[test]
+    fn every_compile_time_query_carries_its_query_tag() {
+        let prefix = format!("/* service='{}', operation='", env!("CARGO_PKG_NAME"));
+        let tagged = |query: &str| {
+            query
+                .strip_prefix(&prefix)
+                .and_then(|rest| rest.split_once("' */"))
+                .is_some_and(|(operation, _)| {
+                    !operation.is_empty()
+                        && operation
+                            .chars()
+                            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+                })
+        };
+        let cache = Path::new(env!("CARGO_MANIFEST_DIR")).join(".sqlx");
+        let mut untagged: Vec<String> = std::fs::read_dir(&cache)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .filter(|path| path.extension().is_some_and(|ext| ext == "json"))
+            .filter_map(|path| {
+                let entry: serde_json::Value =
+                    serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+                let query = entry["query"].as_str().unwrap();
+                (!tagged(query)).then(|| query.to_string())
+            })
+            .collect();
+        untagged.sort();
+        assert!(
+            untagged.is_empty(),
+            "queries without a `{prefix}<snake_case>' */` tag: {untagged:#?}"
+        );
     }
 }

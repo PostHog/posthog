@@ -6,7 +6,8 @@ import {
     signedClientIpHeaders,
 } from '@/lib/client-ip-signature'
 import { env } from '@/lib/env'
-import { findPostHogPermissionError } from '@/lib/errors'
+import { findPostHogPermissionError, PostHogApiError } from '@/lib/errors'
+import { isProjectSecretKey, PROJECT_SECRET_KEY_ACCESS_PATH } from '@/lib/project-secret-key'
 import type { CloudRegion } from '@/tools/types'
 
 const MCP_HONO_US_URL = 'https://mcp.us.posthog.com'
@@ -37,10 +38,7 @@ async function resolveRegion(
     const usBase = env.POSTHOG_API_BASE_URL || 'https://us.posthog.com'
     const euBase = env.POSTHOG_API_BASE_URL || 'https://eu.posthog.com'
 
-    const [usResult, euResult] = await Promise.all([
-        new ApiClient({ apiToken: token, baseUrl: usBase }).users().me(),
-        new ApiClient({ apiToken: token, baseUrl: euBase }).users().me(),
-    ])
+    const [usResult, euResult] = await Promise.all([probeRegion(token, usBase), probeRegion(token, euBase)])
 
     // Only the home region answers 403 (token known, `user:read` missing). The other region answers
     // 401, which would make the client refresh a valid token forever.
@@ -65,6 +63,26 @@ async function resolveRegion(
     }
 
     return region
+}
+
+type ProbeResult = { success: true } | { success: false; error: Error }
+
+async function probeRegion(token: string, baseUrl: string): Promise<ProbeResult> {
+    const api = new ApiClient({ apiToken: token, baseUrl })
+    if (!isProjectSecretKey(token)) {
+        return api.users().me()
+    }
+    try {
+        await api.request({ method: 'GET', path: PROJECT_SECRET_KEY_ACCESS_PATH })
+        return { success: true }
+    } catch (error) {
+        // Only the home region knows the key. Every refusal there is a 403, also one for a blocked
+        // IP address, and the other region answers 401.
+        if (error instanceof PostHogApiError && error.status === 403) {
+            return { success: true }
+        }
+        return { success: false, error: error instanceof Error ? error : new Error(String(error)) }
+    }
 }
 
 function getHonoTargetUrl(region: CloudRegion): string {

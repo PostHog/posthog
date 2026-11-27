@@ -244,6 +244,9 @@ export const WarehouseSuggestionStatusEnumApi = {
 /**
  * * `not_useful` - Not useful
  * * `not_now` - Not now
+ * * `wrong_estimate` - Wrong estimate
+ * * `already_handled` - Already handled
+ * * `not_owner` - Someone else decides
  * * `other` - Other
  */
 export type WarehouseSuggestionDismissalReasonEnumApi =
@@ -252,6 +255,9 @@ export type WarehouseSuggestionDismissalReasonEnumApi =
 export const WarehouseSuggestionDismissalReasonEnumApi = {
     NotUseful: 'not_useful',
     NotNow: 'not_now',
+    WrongEstimate: 'wrong_estimate',
+    AlreadyHandled: 'already_handled',
+    NotOwner: 'not_owner',
     Other: 'other',
 } as const
 
@@ -313,6 +319,9 @@ export interface WarehouseSuggestionApi {
      *
      * * `not_useful` - Not useful
      * * `not_now` - Not now
+     * * `wrong_estimate` - Wrong estimate
+     * * `already_handled` - Already handled
+     * * `not_owner` - Someone else decides
      * * `other` - Other */
     dismissal_reason: WarehouseSuggestionDismissalReasonEnumApi | null
     /** What happened to the asset an accepted suggestion created.
@@ -407,6 +416,8 @@ export interface AcceptWarehouseSuggestionApi {
     keep_materialized?: boolean
     /** Deprecate only: true to delete the view instead of marking it deprecated. Deleting also drops its stored table and refreshes, and cannot be undone. Refused when another view now reads it, or when it feeds person properties, account properties, a destination or a workflow. Refused with a 400 when any day in the read window has no read data, because a view read only on those days would look unread. */
     delete_view?: boolean
+    /** Deprecate only: false to stop a materialized view's refreshes and delete its stored table without marking it deprecated in the data catalog. If the view is still unread 30 days later, the deprecate suggestion is shown again. Refused with a 400 when the view is not materialized, or with keep_materialized or delete_view. Refused with a 409 when another view, a sync, a destination or a workflow reads it, or when it reads a direct-connection source. */
+    mark_deprecated?: boolean
 }
 
 export interface AssignWarehouseSuggestionApi {
@@ -422,6 +433,9 @@ export interface DismissWarehouseSuggestionApi {
      *
      * * `not_useful` - Not useful
      * * `not_now` - Not now
+     * * `wrong_estimate` - Wrong estimate
+     * * `already_handled` - Already handled
+     * * `not_owner` - Someone else decides
      * * `other` - Other */
     reason: WarehouseSuggestionDismissalReasonEnumApi
     /**
@@ -561,6 +575,10 @@ export const WarehouseSuggestionsListSurface = {
 
 export type WarehouseSuggestionsAcceptCreateParams = {
     /**
+     * Whether the decision was part of one action on several selected suggestions. Only recorded on the analytics event.
+     */
+    bulk?: boolean
+    /**
      * Page the decision was made on. Only recorded on the analytics event.
      *
      * * `models` - Models
@@ -579,6 +597,10 @@ export const WarehouseSuggestionsAcceptCreateSurface = {
 } as const
 
 export type WarehouseSuggestionsDismissCreateParams = {
+    /**
+     * Whether the decision was part of one action on several selected suggestions. Only recorded on the analytics event.
+     */
+    bulk?: boolean
     /**
      * Page the decision was made on. Only recorded on the analytics event.
      *

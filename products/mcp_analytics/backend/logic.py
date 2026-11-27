@@ -34,7 +34,10 @@ from posthog.models.user import User
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.utils import generate_cache_key
 
-from products.access_control.backend.facade.api import get_restricted_properties_with_group_type_index_for_team
+from products.access_control.backend.facade.api import (
+    get_restricted_properties_with_group_type_index_for_team,
+    split_restricted_property_names,
+)
 from products.access_control.backend.facade.property_access import restriction_fingerprint
 from products.mcp_analytics.backend import intent_generation, mcp_harness
 from products.mcp_analytics.backend.constants import MAX_SNAPSHOT_CLUSTERS, MCP_TOOL_CALL_EVENT
@@ -46,10 +49,10 @@ from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPInt
 
 # How long a snapshot may sit in COMPUTING before we assume the run died and
 # auto-recover. Must exceed the compute activity's schedule_to_close budget
-# (400s, covering queue wait + both attempts — see intent_clustering
+# (1300s, covering queue wait + both attempts — see intent_clustering
 # constants); past that, nothing can still legitimately write a final status,
 # so the row is a dead run whose worker never reached _mark_error.
-STALE_COMPUTING_THRESHOLD = timedelta(minutes=8)
+STALE_COMPUTING_THRESHOLD = timedelta(minutes=25)
 
 _MCP_TOOL_CALLS_SQL = """
 SELECT
@@ -201,6 +204,16 @@ ORDER BY __ORDER__
 __PAGE__
 """
 
+# A server-side subquery, since a long list of session IDs would not fit in the GET request's URL.
+_FEEDBACK_SESSIONS_EXPR = """$session_id IN (
+    SELECT $session_id
+    FROM events
+    WHERE {missing_capability_report}
+        AND timestamp >= {scan_from}
+        AND timestamp <= {scan_to}
+        AND $session_id != ''
+)"""
+
 _SESSIONS_IN_WINDOW_SQL = """
 SELECT $session_id
 FROM events
@@ -291,12 +304,11 @@ def _sessions_cache_key(
     date_from: str,
     date_to: str,
     has_errors: bool | None,
+    feedback_only: bool,
     filters: str,
     user_id: int | None,
 ) -> str:
-    payload = (
-        f"mcp_sessions_{date_from}_{date_to}_{limit}_{offset}_{search}_{order_by}_{has_errors}_{filters}_{user_id}"
-    )
+    payload = f"mcp_sessions_{date_from}_{date_to}_{limit}_{offset}_{search}_{order_by}_{has_errors}_{feedback_only}_{filters}_{user_id}"
     return generate_cache_key(team_id, payload)
 
 
@@ -309,6 +321,7 @@ def list_mcp_sessions(
     date_from: str | None = None,
     date_to: str | None = None,
     has_errors: bool | None = None,
+    feedback_only: bool = False,
     properties: list[AnyPropertyFilterDiscriminated] | None = None,
     filter_test_accounts: bool = False,
     user: User | None = None,
@@ -354,6 +367,7 @@ def list_mcp_sessions(
         effective_date_from,
         date_to or "",
         has_errors,
+        feedback_only,
         _filters_cache_fragment(team, properties, filter_test_accounts),
         # Property-level access control is evaluated per member, so two members can get different
         # rows from the same filters. Key the cache by the caller to keep them apart.
@@ -372,6 +386,7 @@ def list_mcp_sessions(
         date_from=effective_date_from,
         date_to=date_to,
         has_errors=has_errors,
+        feedback_only=feedback_only,
         properties=properties,
         filter_test_accounts=filter_test_accounts,
         user=user,
@@ -392,6 +407,7 @@ def _query_mcp_sessions(
     date_from: str,
     date_to: str | None,
     has_errors: bool | None,
+    feedback_only: bool,
     properties: list[AnyPropertyFilterDiscriminated] | None,
     filter_test_accounts: bool,
     user: User | None,
@@ -416,6 +432,20 @@ def _query_mcp_sessions(
     window_to = query_date_range.date_to()
 
     shared_filters = shared_filters_expr(team, properties, filter_test_accounts)
+    if feedback_only:
+        shared_filters = ast.And(
+            exprs=[
+                shared_filters,
+                parse_expr(
+                    _FEEDBACK_SESSIONS_EXPR,
+                    placeholders={
+                        "missing_capability_report": missing_capability_report_expr(),
+                        "scan_from": ast.Constant(value=window_from - SESSION_OVERLAP_BUFFER),
+                        "scan_to": ast.Constant(value=window_to + SESSION_OVERLAP_BUFFER),
+                    },
+                ),
+            ]
+        )
     # Over-fetch one row to learn whether a next page exists, without a count query.
     placeholders: dict[str, ast.Expr] = {
         "event": ast.Constant(value=MCP_TOOL_CALL_EVENT),
@@ -1201,8 +1231,20 @@ def _scope_blob_to_tool(
     return clusters, tools, overlaps
 
 
-def get_intent_cluster_snapshot(team: Team, tool: str | None = None) -> contracts.IntentClusterSnapshot:
-    """Return the current intent cluster snapshot for a team.
+# Event properties the snapshot copies text from. The snapshot is computed once per
+# team and shared, so property access control has to be applied when it is read.
+INTENT_TEXT_PROPERTIES = frozenset({"$mcp_intent"})
+TOOL_DESCRIPTION_PROPERTIES = frozenset({"$mcp_tool_description", "$mcp_exec_tool_call_description"})
+
+
+def get_intent_cluster_snapshot(
+    team: Team, *, user: User | None, tool: str | None = None
+) -> contracts.IntentClusterSnapshot:
+    """Return the current intent cluster snapshot for a team, as ``user`` may read it.
+
+    When ``user`` can't read ``$mcp_intent``, every intent string (cluster labels,
+    samples, long-tail samples, recurring texts) comes back empty and
+    ``intent_text_redacted`` is set. Tool descriptions are blanked the same way.
 
     ``tool`` narrows clusters, pivot, and overlaps to that tool's slice; the
     coverage meta stays whole-snapshot because it describes the run. Surfaces
@@ -1256,7 +1298,11 @@ def get_intent_cluster_snapshot(team: Team, tool: str | None = None) -> contract
     if tool is not None:
         clusters_raw, tools_raw, overlaps_raw = _scope_blob_to_tool(clusters_raw, tools_raw, overlaps_raw, tool)
 
-    return contracts.IntentClusterSnapshot(
+    long_tail_raw = blob.get("long_tail") if isinstance(blob, dict) else None
+    # The recurring list is whole-snapshot automation, not part of any one tool's slice.
+    recurring_raw = blob.get("recurring", []) if isinstance(blob, dict) and tool is None else []
+
+    result = contracts.IntentClusterSnapshot(
         status=snapshot.status,
         error_message=snapshot.error_message,
         last_computed_at=snapshot.last_computed_at,
@@ -1265,6 +1311,53 @@ def get_intent_cluster_snapshot(team: Team, tool: str | None = None) -> contract
         computed_with=_to_meta_dto(meta_raw) if isinstance(meta_raw, dict) else None,
         tools=[_to_tool_pivot_dto(item) for item in tools_raw if isinstance(item, dict)],
         tool_overlaps=[_to_overlap_dto(item) for item in overlaps_raw if isinstance(item, dict)],
+        long_tail=_to_long_tail_dto(long_tail_raw) if isinstance(long_tail_raw, dict) and tool is None else None,
+        recurring=[_to_recurring_dto(item) for item in recurring_raw if isinstance(item, dict)],
+    )
+    return _redact_restricted_snapshot_text(team, user, result)
+
+
+def _redact_restricted_snapshot_text(
+    team: Team, user: User | None, snapshot: contracts.IntentClusterSnapshot
+) -> contracts.IntentClusterSnapshot:
+    restricted = split_restricted_property_names(
+        get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team.pk)
+    ).event
+    if TOOL_DESCRIPTION_PROPERTIES & restricted:
+        snapshot = dataclasses.replace(
+            snapshot, tools=[dataclasses.replace(t, description=None) for t in snapshot.tools]
+        )
+    if not INTENT_TEXT_PROPERTIES & restricted:
+        return snapshot
+    return dataclasses.replace(
+        snapshot,
+        intent_text_redacted=True,
+        clusters=[dataclasses.replace(c, label="", sample_intents=[]) for c in snapshot.clusters],
+        long_tail=dataclasses.replace(snapshot.long_tail, sample_intents=[]) if snapshot.long_tail else None,
+        recurring=[dataclasses.replace(r, intent_text="", sample_variants=[]) for r in snapshot.recurring],
+    )
+
+
+def _to_long_tail_dto(item: dict[str, Any]) -> contracts.IntentClusterLongTail:
+    return contracts.IntentClusterLongTail(
+        intent_count=int(item.get("intent_count", 0)),
+        session_count=int(item.get("session_count", 0)),
+        call_count=int(item.get("call_count", 0)),
+        error_count=int(item.get("error_count", 0)),
+        error_rate_pct=float(item.get("error_rate_pct", 0.0)),
+        sample_intents=[str(s) for s in item.get("sample_intents", []) if isinstance(s, str)],
+    )
+
+
+def _to_recurring_dto(item: dict[str, Any]) -> contracts.RecurringIntentEntry:
+    return contracts.RecurringIntentEntry(
+        intent_text=str(item.get("intent_text", "")),
+        session_count=int(item.get("session_count", 0)),
+        call_count=int(item.get("call_count", 0)),
+        error_count=int(item.get("error_count", 0)),
+        error_rate_pct=float(item.get("error_rate_pct", 0.0)),
+        variant_count=int(item.get("variant_count", 1)),
+        sample_variants=[str(s) for s in item.get("sample_variants", []) if isinstance(s, str)],
     )
 
 

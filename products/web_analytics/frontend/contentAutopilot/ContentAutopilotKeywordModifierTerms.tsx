@@ -1,9 +1,15 @@
-import { LemonTable, LemonTag } from '@posthog/lemon-ui'
-
 import { percentage } from 'lib/utils/numbers'
+import { pluralize } from 'lib/utils/strings'
 
-import type { AEOKeywordModifierApi } from 'products/web_analytics/frontend/generated/api.schemas'
+import type {
+    AEOKeywordModifierApi,
+    BrandedSegmentEnumApi,
+} from 'products/web_analytics/frontend/generated/api.schemas'
 
+import { AiVisibilityTable } from './AiVisibilityTable'
+import { AiVisibilityTag } from './AiVisibilityTag'
+import { ContentAutopilotCitationsLink } from './ContentAutopilotCitationsLink'
+import { ContentAutopilotRateBar } from './ContentAutopilotRateBar'
 import { isCitationGap } from './keywordsReport'
 import { engineLabel } from './utils'
 
@@ -11,11 +17,18 @@ import { engineLabel } from './utils'
 export const ContentAutopilotKeywordModifierTerms = ({
     modifiers,
     baselineCitedRate,
+    dateFrom,
+    dateTo,
+    branded,
 }: {
     modifiers: AEOKeywordModifierApi[]
+    /** The window and branded split of the report, so a search opens the same answers the report counted. */
+    dateFrom: string
+    dateTo: string
+    branded: BrandedSegmentEnumApi
     baselineCitedRate: number | null
 }): JSX.Element => (
-    <LemonTable<AEOKeywordModifierApi>
+    <AiVisibilityTable<AEOKeywordModifierApi>
         size="small"
         embedded
         dataSource={modifiers}
@@ -33,9 +46,10 @@ export const ContentAutopilotKeywordModifierTerms = ({
                 align: 'right',
                 tooltip: 'Share of answers whose searches used this word.',
                 render: (_, modifier) => (
-                    <span className="tabular-nums">
-                        {percentage(modifier.share, 0)} <span className="text-muted">({modifier.answers})</span>
-                    </span>
+                    <ContentAutopilotRateBar
+                        rate={modifier.share}
+                        tooltip={`${pluralize(modifier.answers, 'answer')}`}
+                    />
                 ),
             },
             {
@@ -46,14 +60,16 @@ export const ContentAutopilotKeywordModifierTerms = ({
                 render: (_, modifier) => (
                     <span className="flex items-center justify-end gap-2 tabular-nums">
                         {isCitationGap(modifier, baselineCitedRate) ? (
-                            <LemonTag type="danger" size="small">
-                                Gap
-                            </LemonTag>
+                            <AiVisibilityTag type="danger">Gap</AiVisibilityTag>
                         ) : null}
-                        {modifier.cited_rate === null ? '-' : percentage(modifier.cited_rate, 0)}
-                        {baselineCitedRate !== null ? (
-                            <span className="text-muted">vs {percentage(baselineCitedRate, 0)}</span>
-                        ) : null}
+                        <ContentAutopilotRateBar
+                            rate={modifier.cited_rate}
+                            tooltip={
+                                baselineCitedRate !== null
+                                    ? `Against ${percentage(baselineCitedRate, 0)} across all answers`
+                                    : undefined
+                            }
+                        />
                     </span>
                 ),
             },
@@ -61,7 +77,7 @@ export const ContentAutopilotKeywordModifierTerms = ({
                 title: 'Engines',
                 key: 'engines',
                 render: (_, modifier) => (
-                    <span className="text-muted">
+                    <span className="text-muted-foreground">
                         {modifier.engines.map((engine) => `${engineLabel(engine.engine)} ${engine.answers}`).join(', ')}
                     </span>
                 ),
@@ -72,8 +88,14 @@ export const ContentAutopilotKeywordModifierTerms = ({
                 render: (_, modifier) => (
                     <ul className="m-0 flex flex-col gap-0.5 max-w-120">
                         {modifier.example_searches.map((search) => (
-                            <li key={search} className="truncate text-xs" title={search}>
-                                {search}
+                            <li key={search} className="flex min-w-0 text-xs">
+                                <ContentAutopilotCitationsLink
+                                    lookup={{ kind: 'search', value: search, dateFrom, dateTo, branded }}
+                                    source="keyword-modifier-searches"
+                                    title={search}
+                                >
+                                    {search}
+                                </ContentAutopilotCitationsLink>
                             </li>
                         ))}
                     </ul>

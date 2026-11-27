@@ -2,6 +2,7 @@ import posthog from 'posthog-js'
 
 import { Link } from '@posthog/lemon-ui'
 
+import type { LemonMenuSection } from 'lib/lemon-ui/LemonMenu'
 import { urls } from 'scenes/urls'
 
 import { TimeRange, drillDownParams, metricsDrillDownUrl } from './applicationObservabilityLogic'
@@ -20,6 +21,25 @@ function signalUrl(signal: TelemetrySignal, serviceName: string, timeRange: Time
             return `${urls.logs()}?${drillDownParams(serviceName, timeRange)}`
         case 'metrics':
             return metricsDrillDownUrl(serviceName, timeRange)
+    }
+}
+
+/** The "Open in" links as a menu section, for tables too narrow to show them side by side. */
+export function telemetryMenuSection(
+    serviceName: string,
+    timeRange: TimeRange,
+    source: string,
+    signals: TelemetrySignal[] = ALL_SIGNALS
+): LemonMenuSection {
+    return {
+        title: 'Open in',
+        items: signals.map((signal) => ({
+            label: LABEL[signal],
+            to: signalUrl(signal, serviceName, timeRange),
+            // pinned: analytics event name and properties, renaming breaks dashboards
+            onClick: () => posthog.capture('apm telemetry link clicked', { signal, source }),
+            'data-attr': `apm-open-${signal}`,
+        })),
     }
 }
 

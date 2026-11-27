@@ -657,6 +657,13 @@ impl TryFrom<AnyEvent> for ExceptionEvent<Parsed> {
             recursively_sanitize_properties(event.uuid, value, 0)?;
             normalize_legacy_tags(value);
         }
+        // Native resolution binds each image's debug_id as Postgres text, which rejects NUL.
+        if let Some(value) = properties
+            .as_object_mut()
+            .and_then(|object| object.get_mut("$debug_images"))
+        {
+            recursively_sanitize_properties(event.uuid, value, 0)?;
+        }
 
         let mut raw: RawExceptionProperties = serde_json::from_value(properties)
             .map_err(|error| EventError::InvalidProperties(event.uuid, error.to_string()))?;
@@ -670,10 +677,14 @@ impl TryFrom<AnyEvent> for ExceptionEvent<Parsed> {
             exception.exception_id = Some(Uuid::now_v7().to_string());
         }
 
+        // A new issue stores these as its name and description, and Postgres rejects NUL in
+        // text columns.
         if let Some(name) = raw.issue_name.as_mut() {
+            *name = name.replace('\u{0000}', "\u{FFFD}");
             truncate_with_ellipsis(name, MAX_ISSUE_NAME_LENGTH);
         }
         if let Some(description) = raw.issue_description.as_mut() {
+            *description = description.replace('\u{0000}', "\u{FFFD}");
             truncate_with_ellipsis(description, MAX_ISSUE_DESCRIPTION_LENGTH);
         }
 
