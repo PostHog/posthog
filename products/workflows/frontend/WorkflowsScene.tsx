@@ -21,7 +21,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, Breadcrumb } from '~/types'
 
-import { AdventCalendarBanner } from './AdventCalendar/AdventCalendarBanner'
+import { AdventEntry } from './AdventCalendar/entry/AdventEntry'
 import { EmailSuspensionBanner } from './EmailSuspensionBanner'
 import { workflowsEmptyState } from './emptyState/workflowsEmptyState'
 import { EngagementEventsBanner } from './EngagementEventsBanner'
@@ -275,7 +275,7 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
                 }
             />
             <ProviderImportModal />
-            <AdventCalendarBanner />
+            <AdventEntry />
             <EmailSuspensionBanner />
             <EngagementEventsBanner />
             <LemonTabs<WorkflowsTopTab>

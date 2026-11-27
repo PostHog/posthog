@@ -15,6 +15,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { AdventEntry } from '../AdventCalendar/entry/AdventEntry'
 import { EmailSuspensionBanner } from '../EmailSuspensionBanner'
 import { EngagementEventsBanner } from '../EngagementEventsBanner'
 import { MessagingSetup } from '../MessagingSetup'
@@ -104,6 +105,7 @@ export function BroadcastsScene(): JSX.Element {
                     )
                 }
             />
+            <AdventEntry />
             <EmailSuspensionBanner />
             <EngagementEventsBanner />
             <LemonTabs<'broadcasts' | 'calendar' | 'library' | 'messaging-setup'>
