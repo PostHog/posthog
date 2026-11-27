@@ -190,8 +190,9 @@ def running_experiment_load(team_ids: list[int]) -> dict[int, TeamRunningLoad]:
     load: dict[int, TeamRunningLoad] = {}
     team_by_experiment: dict[int, int] = {}
     experiments = (
-        Experiment.objects.filter(team_id__in=team_ids, start_date__isnull=False, end_date__isnull=True)
-        .exclude(deleted=True)
+        Experiment.objects.on_exact_teams(team_ids)
+        .live()
+        .filter(start_date__isnull=False, end_date__isnull=True)
         .values_list("id", "team_id", "metrics", "metrics_secondary")
     )
     for experiment_id, team_id, metrics, metrics_secondary in experiments:

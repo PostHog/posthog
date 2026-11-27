@@ -136,14 +136,14 @@ def _eligible_experiments() -> list[Experiment]:
     if not team_ids:
         return []
     experiments = (
-        Experiment.objects.filter(
-            team_id__in=team_ids,
+        Experiment.objects.on_exact_teams(team_ids)
+        .live()
+        .filter(
             start_date__lte=timezone.now() - MIN_EXPERIMENT_RUNTIME,
             end_date__isnull=True,
             # An experiment on a feature flag rule never precomputes, so it has no second path to compare.
             feature_flag_rule_id__isnull=True,
         )
-        .exclude(deleted=True)
         .exclude(archived=True)
         .select_related("team", "feature_flag")
     )
@@ -441,8 +441,9 @@ def run_metric_canary_sync(target: CanaryMetricTarget) -> CanaryMetricResult:
 
     with team_scope(target.team_id, canonical=True):
         experiment = (
-            Experiment.objects.filter(id=target.experiment_id, team_id=target.team_id, start_date__isnull=False)
-            .exclude(deleted=True)
+            Experiment.objects.for_team(target.team_id)
+            .live()
+            .filter(id=target.experiment_id, start_date__isnull=False)
             .select_related("team")
             .first()
         )
