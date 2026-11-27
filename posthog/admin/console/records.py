@@ -22,8 +22,6 @@ class RecordLink:
     label: str
     href: str
     title: str = ""
-    # Query parameters of the record page that the link passes on, such as the support ticket.
-    keep_query: tuple[str, ...] = ()
 
 
 class RecordType:
@@ -185,7 +183,6 @@ class UserRecord(RecordType):
                         self.operation_url_name,
                         kwargs={"pk": obj.pk, "panel_key": "log-in-as", "operation_key": "log-in"},
                     ),
-                    keep_query=(SUPPORT_TICKET_PARAM,),
                 )
             )
         links.append(

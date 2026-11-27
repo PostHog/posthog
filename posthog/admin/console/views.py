@@ -221,6 +221,13 @@ def _with_kept_query(url: str, request: HttpRequest, names: tuple[str, ...]) -> 
     return f"{url}?{urlencode(kept)}" if kept else url
 
 
+def _with_kept_ticket(link: RecordLink, request: HttpRequest) -> RecordLink:
+    # A header link that stays in the console carries the support ticket, like the operation links do.
+    if not link.href.startswith(reverse("admin_console_home")):
+        return link
+    return dataclasses.replace(link, href=_with_kept_query(link.href, request, (SUPPORT_TICKET_PARAM,)))
+
+
 def _find_user(query: str) -> User | None:
     # Team and organization names rarely hold an @, so a query with one is an email address and opens that user.
     if "@" not in query:
@@ -346,10 +353,7 @@ def record_detail(request: HttpRequest, record: str, pk: object) -> HttpResponse
         "admin_console/record.html",
         {
             **_record_context(record_type, obj),
-            "record_links": [
-                dataclasses.replace(link, href=_with_kept_query(link.href, request, link.keep_query))
-                for link in record_type.links(obj)
-            ],
+            "record_links": [_with_kept_ticket(link, request) for link in record_type.links(obj)],
             "attention": [
                 AttentionItem(panel=rendered.panel, fact=fact)
                 for rendered in panels
