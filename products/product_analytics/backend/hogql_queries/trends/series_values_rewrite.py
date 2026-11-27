@@ -30,6 +30,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import hogql_select_rewrite
+from posthog.hogql.transforms.flag_calls_from_flag_evaluations import names_flag_called_event
 from posthog.hogql.transforms.preaggregated_table_transformation import is_integer_timezone
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
@@ -269,6 +270,10 @@ class _CountQuery:
                 else:
                     return Blocker.UNSUPPORTED_TIME_RANGE
                 continue
+            # The table that flag calls are read from follows the organization's flag evaluations mode, which
+            # is not part of a stored job's identity. A stored count of them would outlive a change of mode.
+            if names_flag_called_event(condition):
+                return Blocker.UNSUPPORTED_FILTER
             feature = next((kind.feature for kind in _FILTER_FEATURES if kind.accepts(condition)), None)
             if feature is None:
                 return Blocker.UNSUPPORTED_FILTER

@@ -296,6 +296,11 @@ class TestSeriesValuesRewrite(ClickhouseTestMixin, APIBaseTest):
                 {"properties": [HogQLPropertyFilter(key="properties.plan = <HogQLQuery query='SELECT 1' />")]},
                 "UTC",
             ),
+            (
+                Blocker.UNSUPPORTED_FILTER,
+                {"series": [EventsNode(event="$feature_flag_called", math="total")]},
+                "UTC",
+            ),
             (Blocker.SAMPLING, {"samplingFactor": 0.1}, "UTC"),
             (Blocker.NO_COUNT_QUERY, {"trendsFilter": TrendsFilter(display=ChartDisplayType.BOLD_NUMBER)}, "UTC"),
             (Blocker.TIMEZONE, {}, "Asia/Kolkata"),
