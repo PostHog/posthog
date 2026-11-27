@@ -4,11 +4,20 @@ from io import StringIO
 from types import SimpleNamespace
 from uuid import uuid4
 
+import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
-from posthog.hogql.direct_sql.mysql_adapter import MySQLAdapter
+from django.db import connection
 
+from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.direct_sql.adapter import DirectQueryRequest, DirectQueryResult
+from posthog.hogql.direct_sql.mysql_adapter import MySQLAdapter
+from posthog.hogql.direct_sql.result_limit import execute_with_result_limit
+from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.timings import HogQLTimings
+
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Product, get_query_tags
 
 from products.notebooks.backend.kernel_runtime import KernelRuntimeService, build_notebook_sandbox_config
@@ -123,6 +132,66 @@ class TestAppCompute(APIBaseTest):
         query.assert_called_once()
         assert "uniqExact" in query.call_args.kwargs["query"] and "events" in query.call_args.kwargs["query"]
         sandbox.assert_not_called()
+
+    def test_full_organization_query_budget_refuses_private_sql(self, _flag) -> None:
+        self.release.markdown = '<SQLV2 nodeId="capacity" code="SELECT 1" />'
+        self.release.save(update_fields=["markdown"])
+        with (
+            patch(
+                "products.notebooks.backend.app_compute.app_org_concurrency_slot",
+                side_effect=ConcurrencyLimitExceeded("busy"),
+            ),
+            patch("products.notebooks.backend.app_compute.execute_hogql_query") as query,
+        ):
+            response = self.client.post(self.url, self.payload, format="json")
+        assert response.status_code == 429 and response["Retry-After"]
+        query.assert_not_called()
+
+    def test_native_query_byte_budget_fails_cleanly_before_display(self, _flag) -> None:
+        self.release.markdown = '<SQLV2 nodeId="capacity" code="SELECT repeat(\'a\', 3000) AS reading" />'
+        self.release.save(update_fields=["markdown"])
+        ordinary = self.client.post(self.url, self.payload, format="json")
+        assert ordinary.status_code == 200, ordinary.content
+        assert ordinary.json()["rows"] == [["a" * 3000]]
+        with patch("products.notebooks.backend.app_compute.APP_VIEWER_MAX_OUTPUT_BYTES", 1024):
+            response = self.client.post(self.url, self.payload, format="json")
+        assert response.status_code == 400, response.content
+        assert "detail" in response.json()
+
+    def test_database_byte_budget_preserves_columns_and_stops_values_at_the_connection(self, _flag) -> None:
+        adapter = MagicMock(engine="postgres")
+        received = []
+
+        def execute(request):
+            with connection.cursor() as cursor:
+                cursor.execute(request.sql, request.values)
+                rows = cursor.fetchall()
+                received.append(rows)
+                names = [col.name for col in cursor.description]
+            return DirectQueryResult(results=rows, types=[(name, "String") for name in names], print_columns=names)
+
+        adapter.execute.side_effect = execute
+        request = DirectQueryRequest(
+            source=MagicMock(),
+            team=self.team,
+            sql='SELECT repeat(%(letter)s, 10) AS "daily total" FROM generate_series(1, 3)',
+            values={"letter": "a"},
+            settings=HogQLGlobalSettings(max_result_bytes=120),
+            timings=HogQLTimings(),
+            query_type="test",
+            debug=False,
+        )
+        result = execute_with_result_limit(adapter, request)
+        assert result.print_columns == ["daily total"] and result.results == [("a" * 10,)] * 3
+        request.settings.max_result_bytes = 42
+        with pytest.raises(ExposedHogQLError, match="too large"):
+            execute_with_result_limit(adapter, request)
+        assert received[-2] == []
+        assert len(received[-1]) == 3 and all(value is None and size > 42 for value, size in received[-1])
+
+        request.sql = "SELECT 42 AS total WHERE false"
+        request.values = None
+        assert execute_with_result_limit(adapter, request).results == []
 
     def test_private_frames_use_notebook_expression_semantics_and_bound_intermediate_sql(self, _flag) -> None:
         from IPython.core.interactiveshell import InteractiveShell

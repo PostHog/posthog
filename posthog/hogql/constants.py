@@ -230,6 +230,8 @@ def cap_flag_call_memory_settings(settings: dict[str, Any]) -> None:
 class HogQLGlobalSettings(HogQLQuerySettings):
     model_config = ConfigDict(extra="forbid")
     readonly: Optional[int] = 2
+    max_result_bytes: Optional[int] = None
+    result_overflow_mode: Literal["throw", "break"] | None = None
     max_execution_time: Optional[int] = 60
     timeout_before_checking_execution_speed: Optional[int] = None
     # None inherits the cluster profile's overflow behavior. Set "throw" when a partial

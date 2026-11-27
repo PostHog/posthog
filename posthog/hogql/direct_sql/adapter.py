@@ -74,6 +74,7 @@ class DirectQueryResult:
     types: list[tuple[str, str]]
     print_columns: list[str]
     error: str | None = None
+    json_text_columns: frozenset[str] = frozenset()
 
 
 class DirectSQLAdapter(Protocol):
