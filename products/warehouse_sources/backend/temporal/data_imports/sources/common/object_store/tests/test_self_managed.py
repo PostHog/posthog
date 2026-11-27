@@ -1,6 +1,7 @@
 import io
 import time
 import uuid
+import dataclasses
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -977,7 +978,7 @@ class TestJobInputsForSelfManaged:
     def test_adds_the_default_file_options_to_the_connection_inputs(self) -> None:
         source = FakeObjectStorageSource(connection_inputs=S3_CONNECTION_INPUTS)
 
-        job_inputs = source.job_inputs_for_self_managed(EXPORTS_LOCATION, CREDENTIAL)
+        job_inputs = source.job_inputs_for_self_managed(EXPORTS_LOCATION, CREDENTIAL, team_id=1)
 
         assert job_inputs == {**S3_CONNECTION_INPUTS, "file_format": "infer", "csv_allow_double_quotes": "true"}
 
@@ -992,17 +993,12 @@ class TestJobInputsForSelfManaged:
         source = FakeObjectStorageSource(_refusing_builder(error), connection_inputs=S3_CONNECTION_INPUTS)
 
         with pytest.raises(UnmappableTableError):
-            source.job_inputs_for_self_managed(EXPORTS_LOCATION, CREDENTIAL)
+            source.job_inputs_for_self_managed(EXPORTS_LOCATION, CREDENTIAL, team_id=1)
 
 
 class TestSourceForPipeline:
-    @parameterized.expand([("preserved", True), ("normalized", False)])
-    def test_the_response_carries_the_column_name_choice(self, _name: str, preserve: bool) -> None:
-        source = FakeObjectStorageSource()
-        location = parse_self_managed_url("https://exports.s3.us-east-1.amazonaws.com/orders/*.csv")
-        definition = table_definition_for("orders", location, "CSVWithNames", {}, None)
-        metadata = {**definition.schema_metadata(), "preserve_column_names": preserve}
-        inputs = SourceInputs(
+    def _inputs(self, metadata: dict[str, Any]) -> SourceInputs:
+        return SourceInputs(
             schema_name="orders",
             schema_id=str(uuid.uuid4()),
             source_id=str(uuid.uuid4()),
@@ -1017,8 +1013,30 @@ class TestSourceForPipeline:
             reset_pipeline=False,
             schema_metadata=metadata,
         )
+
+    @parameterized.expand([("preserved", True), ("normalized", False)])
+    def test_the_response_carries_the_column_name_choice(self, _name: str, preserve: bool) -> None:
+        source = FakeObjectStorageSource()
+        location = parse_self_managed_url("https://exports.s3.us-east-1.amazonaws.com/orders/*.csv")
+        definition = table_definition_for("orders", location, "CSVWithNames", {}, None)
+        metadata = {**definition.schema_metadata(), "preserve_column_names": preserve}
         source.open_store = MagicMock(return_value=MagicMock())  # type: ignore[method-assign]
 
-        response = source.source_for_pipeline(FakeObjectStorageConfig(values=S3_CONNECTION_INPUTS), inputs)
+        response = source.source_for_pipeline(
+            FakeObjectStorageConfig(values=S3_CONNECTION_INPUTS), self._inputs(metadata)
+        )
 
         assert response.preserve_column_names is preserve
+
+    def test_a_delta_read_gets_the_data_filesystem_of_the_store(self) -> None:
+        source = FakeObjectStorageSource()
+        location = parse_self_managed_url("https://exports.s3.us-east-1.amazonaws.com/lake/orders/")
+        definition = table_definition_for("orders", location, "Delta", {}, None)
+        store = MagicMock()
+        source.open_store = MagicMock(return_value=store)  # type: ignore[method-assign]
+        inputs = dataclasses.replace(self._inputs(definition.schema_metadata()), source_cursor=MagicMock())
+
+        with patch.object(source_base, "plan_delta_read") as plan:
+            source.source_for_pipeline(FakeObjectStorageConfig(values=S3_CONNECTION_INPUTS), inputs)
+
+        assert plan.call_args.kwargs["data_filesystem"] is store.delta_data_filesystem.return_value
