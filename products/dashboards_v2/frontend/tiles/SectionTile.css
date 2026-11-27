@@ -31,6 +31,9 @@
 /* One grid row and gap (22px) more than the header's 44px, which `sectionDescriptionRows` adds to the section's rows. */
 .SectionTile__header--described {
     height: 66px;
+
+    /* The body adds its inset under the header, so the same inset above keeps the space over the title and under the description equal. */
+    padding-top: var(--section-inset);
 }
 
 /* Starts under the title's text, past the toggle and the title's own padding. */
