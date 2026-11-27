@@ -191,14 +191,20 @@ class TestObservationRequestAPI(APIBaseTest):
         self.assertEqual((parent.status_code, response.status_code), (202, 400), response.json())
 
     def _stored_request(
-        self, reference: str, minutes_ago: int, *, team: Team | None = None, scanner: ReplayScanner | None = None
+        self,
+        reference: str,
+        minutes_ago: int,
+        *,
+        team: Team | None = None,
+        scanner: ReplayScanner | None = None,
+        session_id: str = "s1",
     ) -> str:
         requests = ReplayObservationRequest.objects.for_team((team or self.team).id)
         request = requests.create(
             team=team or self.team,
             scanner=scanner or self.scanner,
-            session_ids=["s1"],
-            start_outcomes=[{"session_id": "s1", "scan_outcome": "started"}],
+            session_ids=[session_id],
+            start_outcomes=[{"session_id": session_id, "scan_outcome": "started"}],
             source="user",
             created_by=self.user,
             reference=reference,
@@ -207,8 +213,8 @@ class TestObservationRequestAPI(APIBaseTest):
         return str(request.id)
 
     def test_lists_the_recent_readable_requests_with_a_reference_newest_first(self) -> None:
-        newer = self._stored_request("email:welcome", 5)
-        older = self._stored_request("email:welcome", 10)
+        newer = self._stored_request("email:welcome", 5, session_id="s-newer")
+        older = self._stored_request("email:welcome", 10, session_id="s-older")
         self._stored_request("email:receipt", 1)
         self._stored_request("email:welcome", 31 * 24 * 60)
         self._stored_request("email:welcome", 1, team=Team.objects.create(organization=self.organization))
@@ -222,12 +228,24 @@ class TestObservationRequestAPI(APIBaseTest):
             experiment_targeting={"experiment_id": experiment.id, "variant": "test"},
         )
         self._stored_request("email:welcome", 1, scanner=hidden_scanner)
+        for session_id, snapshot_scanner in (("s-newer", hidden_scanner), ("s-older", self.scanner)):
+            ReplayObservation.objects.create(
+                scanner=self.scanner,
+                team=self.team,
+                session_id=session_id,
+                scanner_snapshot=snapshot_for(snapshot_scanner),
+                triggered_by=ObservationTrigger.ON_DEMAND,
+                status=ObservationStatus.RUNNING,
+            )
 
         with hide_experiment_from_access_filter(experiment.id):
             response = self.client.get(self.url, {"reference": "email:welcome"})
 
         self.assertEqual(response.status_code, 200, response.json())
-        self.assertEqual([r["id"] for r in response.json()], [newer, older])
+        self.assertEqual(
+            [(r["id"], [s["session_id"] for s in r["sessions"]], r["status"]) for r in response.json()],
+            [(newer, [], "completed"), (older, ["s-older"], "running")],
+        )
         self.assertEqual(self.client.get(self.url).status_code, 400)
 
     def test_a_request_that_waits_for_the_session_to_end_starts_nothing_yet(self) -> None:

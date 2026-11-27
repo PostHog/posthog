@@ -3,6 +3,7 @@
 from collections.abc import Iterable
 from datetime import timedelta
 from typing import Any, cast
+from uuid import UUID
 
 from django.db import models
 from django.db.models import Q, QuerySet
@@ -283,7 +284,7 @@ class ObservationRequestViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMixi
         return [self._render_with(request, progress[request.id], readable) for request in requests]
 
     def _render_with(
-        self, request: ReplayObservationRequest, progress: RequestProgress, readable: set[Any] | None
+        self, request: ReplayObservationRequest, progress: RequestProgress, readable: set[UUID] | None
     ) -> dict[str, Any]:
         if readable is None:
             sessions = progress.sessions
@@ -304,7 +305,7 @@ class ObservationRequestViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMixi
             }
         ).data
 
-    def _readable_observation_ids(self, progresses: Iterable[RequestProgress]) -> set[Any]:
+    def _readable_observation_ids(self, progresses: Iterable[RequestProgress]) -> set[UUID]:
         # A row authorizes against the experiment in its own snapshot, like every other observation read.
         ids = [s.observation.id for p in progresses for s in p.sessions if s.observation is not None]
         return set(
