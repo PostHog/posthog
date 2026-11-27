@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -79,6 +80,39 @@ def test_publish_review_rejects_option_sources_with_non_native_ancestors() -> No
     ):
         review = review_sources(notebook, '<SQLV2 nodeId="regions" code="select * from joined" />', [source])
     assert review.problems == ["options: choose a native SQL cell that only depends on native SQL."]
+
+
+@pytest.mark.parametrize(
+    ("source_tag", "column", "problem"),
+    [
+        ("SQLV2", "region", None),
+        ("SQLV2", "removed_column", "options: choose a result column from a native SQL cell."),
+        ("PythonV2", "region", "options: choose a native SQL cell for dropdown options."),
+    ],
+)
+def test_publish_review_checks_dropdown_column_against_the_saved_result(
+    source_tag: str, column: str, problem: str | None
+) -> None:
+    notebook = Notebook(variables=[{"name": "region", "type": "string", "value": ""}])
+    source = AppBlockSource(
+        id="options",
+        kind="input",
+        input_kind="query_select",
+        variable="region",
+        node_id="regions",
+        option_column=column,
+    )
+    finished = datetime(2026, 1, 15, tzinfo=UTC)
+    cell = NotebookCellState(
+        node_id="regions", cell_type="sql", status="done", last_run={"run_id": "run-1", "finished_at": finished}
+    )
+    markdown = (
+        f'<{source_tag} nodeId="regions" runId="run-1" result={{{{"columns":["region"],"first_page":[["West"]]}}}} />'
+    )
+    with patch("products.notebooks.backend.app_releases.release_cell_states", return_value={"regions": cell}):
+        review = review_sources(notebook, markdown, [source])
+    assert review.problems == ([problem] if problem else [])
+    assert review.results_as_of == (None if problem else finished)
 
 
 class TestNotebookAppLayout(APIBaseTest):
