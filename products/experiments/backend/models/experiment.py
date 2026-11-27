@@ -478,7 +478,7 @@ class Experiment(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixi
 
     @classmethod
     def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> QuerySet["Experiment"]:
-        base_qs = cls.objects.filter(team=team).exclude(deleted=True)
+        base_qs = cls.objects.on_exact_team(team.id).live()
         return cls._filter_unfiled_queryset(base_qs, team, type="experiment", ref_field="id", surface=surface)
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
