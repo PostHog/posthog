@@ -63,3 +63,12 @@ export function cleanTicketsByUser(value: unknown): Record<string, number[]> {
         )
     )
 }
+
+export function storeConfirmedTicket(userUuid: string, day: number): void {
+    const tickets = cleanTicketsByUser(storedTicketsByUser())
+    const days = tickets[userUuid] ?? []
+    if (!days.includes(day)) {
+        const confirmed = { ...tickets, [userUuid]: [...days, day].sort((x, y) => x - y) }
+        window.localStorage.setItem(TICKETS_STORAGE_KEY, JSON.stringify(confirmed))
+    }
+}

@@ -12,10 +12,10 @@ function focusIsLost(root: HTMLElement): boolean {
     )
 }
 
-// The card renders after the track, so without this a keyboard user tabs through every later door
-// before reaching the answers, and on the phone the first offscreen door scrolls the card away.
 const doorOfNode = (nodeId: string): string => `button[aria-describedby="advent-flow-caption-${nodeId}"]`
 
+// The card renders after the track, so without this a keyboard user tabs through every later door
+// before reaching the answers, and on the phone the first offscreen door scrolls the card away.
 export function useAdventCardFocus(
     stage: RefObject<HTMLElement>,
     isPinned: boolean,
@@ -24,6 +24,9 @@ export function useAdventCardFocus(
 ): void {
     const lastPinned = useRef<string | null>(null)
     const pinnedNodeId = isPinned ? (cardNode?.id ?? null) : null
+    // An answer swaps the focused option for the shares while the card stays pinned, so a change of the door's
+    // status runs the effect again.
+    const pinnedStatus = isPinned ? cardNode?.door?.status : undefined
 
     useEffect(() => {
         const root = stage.current
@@ -31,8 +34,10 @@ export function useAdventCardFocus(
             return
         }
         if (pinnedNodeId) {
+            if (lastPinned.current !== pinnedNodeId || document.activeElement === document.body) {
+                root.querySelector<HTMLElement>('[data-attr="advent-door-card-close"]')?.focus({ preventScroll: true })
+            }
             lastPinned.current = pinnedNodeId
-            root.querySelector<HTMLElement>('[data-attr="advent-door-card-close"]')?.focus({ preventScroll: true })
             return
         }
         const nodeId = lastPinned.current
@@ -42,10 +47,10 @@ export function useAdventCardFocus(
                 preventScroll: true,
             })
         }
-    }, [stage, pinnedNodeId])
+    }, [stage, pinnedNodeId, pinnedStatus])
 
     // Focus moved into the card, which sits after every door, so Tab from its last control goes on to the door
-    // after the pinned one and closes the card, instead of leaving the stage.
+    // after the pinned one, and Shift+Tab from its first control back to the pinned door. Both close the card.
     useEffect(() => {
         const root = stage.current
         if (!root || !pinnedNodeId) {
@@ -53,17 +58,18 @@ export function useAdventCardFocus(
         }
         const onKeyDown = (event: KeyboardEvent): void => {
             const controls = root.querySelectorAll('[data-attr="advent-door-card"] :is(button, a[href])')
-            if (event.key !== 'Tab' || event.shiftKey || document.activeElement !== controls[controls.length - 1]) {
+            const edge = event.shiftKey ? controls[0] : controls[controls.length - 1]
+            if (event.key !== 'Tab' || document.activeElement !== edge) {
                 return
             }
             const doors = Array.from(
                 root.querySelectorAll<HTMLElement>('button[aria-describedby^="advent-flow-caption-"]')
             )
             const pinned = doors.findIndex((door) => door.matches(doorOfNode(pinnedNodeId)))
-            const next = pinned >= 0 ? doors[pinned + 1] : undefined
+            const next = pinned >= 0 ? doors[pinned + (event.shiftKey ? 0 : 1)] : undefined
+            onTabOut()
             if (next) {
                 event.preventDefault()
-                onTabOut()
                 next.focus()
             }
         }

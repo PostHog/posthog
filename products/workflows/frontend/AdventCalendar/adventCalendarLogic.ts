@@ -36,6 +36,7 @@ import {
     PROGRESS_STORAGE_KEY,
     reachableProgress,
     storedProgressByUser,
+    storeConfirmedTicket,
     storedTicketsByUser,
     TICKETS_STORAGE_KEY,
 } from './adventProgressStorage'
@@ -148,14 +149,18 @@ function withTicket(
     state: Record<string, number[]>,
     stored: unknown,
     userUuid: string,
-    day: number
+    day: number | null
 ): Record<string, number[]> {
     const latest = cleanTicketsByUser(stored)
     const cached = cleanTicketsByUser(state)
     const uuids = new Set([...Object.keys(latest), ...Object.keys(cached), userUuid])
     return Object.fromEntries(
         [...uuids].map((uuid) => {
-            const days = [...(latest[uuid] ?? []), ...(cached[uuid] ?? []), ...(uuid === userUuid ? [day] : [])]
+            const days = [
+                ...(latest[uuid] ?? []),
+                ...(cached[uuid] ?? []),
+                ...(uuid === userUuid && day !== null ? [day] : []),
+            ]
             return [uuid, [...new Set(days)].sort((x, y) => x - y)]
         })
     )
@@ -461,7 +466,7 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
             { persist: true, storageKey: TICKETS_STORAGE_KEY },
             {
                 settleTicket: (state, { userUuid, day, isOnTime, stored }) =>
-                    isOnTime ? withTicket(state, stored, userUuid, day) : state,
+                    withTicket(state, stored, userUuid, isOnTime ? day : null),
             },
         ],
         pendingTicketDays: [
@@ -682,8 +687,13 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
             openDoor: ({ userUuid, day, isLive, isOnTime }) => {
                 captureLive(isLive, EVENTS.doorOpened, { day, on_time: isOnTime })
                 const hoggy = values.graph.doors.find((door) => door.day === day && door.status === 'open')?.reward
-                const settle = (isOnServerDay: boolean): void =>
-                    actions.settleTicket(userUuid, day, isOnServerDay, isOnTime)
+                const settle = (isOnServerDay: boolean): void => {
+                    if (adventCalendarLogic.isMounted()) {
+                        actions.settleTicket(userUuid, day, isOnServerDay, isOnTime)
+                    } else if (isOnServerDay) {
+                        storeConfirmedTicket(userUuid, day)
+                    }
+                }
                 if (isLive) {
                     const utcOffsetMinutes = -new Date().getTimezoneOffset()
                     if (hoggy) {
@@ -696,7 +706,11 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
                             .then(
                                 (open) =>
                                     settle(
-                                        adventOpenedOnItsDay(day, new Date(open.opened_at), open.utc_offset_minutes)
+                                        adventOpenedOnItsDay(
+                                            day,
+                                            new Date(open.opened_at),
+                                            open.utc_offset_minutes ?? utcOffsetMinutes
+                                        )
                                     ),
                                 () => settle(false)
                             )

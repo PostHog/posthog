@@ -161,19 +161,38 @@ describe('AdventFlowStage', () => {
         expect([isPinned, card()]).toEqual([true, null])
     })
 
-    it('moves on to the next door and closes the card when Tab leaves a pinned card', () => {
-        seed([1, 2], { 2: 'tim' })
+    it.each([
+        ['Tab from Close', 2, '[data-attr="advent-door-card-close"]', false, 3],
+        ['Shift+Tab from its face', 2, '.AdventCard__face', true, 2],
+        ["Tab from the last door's link", 24, '[data-attr="advent-tip-link"]', false, 24],
+    ])('leaves a pinned card on %s and closes the card', (_, pinned, from, shiftKey, landsOn) => {
+        seed([1, 2, 24], { 2: 'tim' })
+        renderStage({ width: 1200, height: 830 })
+
+        act(() => fireEvent.click(door(pinned) as HTMLElement))
+        act(() => card()?.querySelector<HTMLElement>(from)?.focus())
+        act(() => void fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'Tab', shiftKey }))
+        waitForTheCardToClose()
+
+        expect([document.activeElement === door(landsOn), card()]).toEqual([true, null])
+    })
+
+    it('keeps focus in a pinned card after a keyboard answer opens its door', async () => {
+        jest.spyOn(window, 'matchMedia').mockReturnValue({ matches: true } as MediaQueryList)
+        seed([1], {})
         renderStage({ width: 1200, height: 830 })
 
         act(() => fireEvent.click(door(2) as HTMLElement))
-        const close = document.activeElement as HTMLElement
-        act(() => void fireEvent.keyDown(close, { key: 'Tab' }))
-        waitForTheCardToClose()
+        const option = card()?.querySelector<HTMLElement>('[data-attr="advent-door-answer"]') as HTMLElement
+        act(() => option.focus())
+        act(() => fireEvent.click(option))
+        await act(async () => {
+            await jest.advanceTimersByTimeAsync(700)
+        })
 
-        expect([close.getAttribute('data-attr'), document.activeElement === door(3), card()]).toEqual([
+        expect([door(2)?.getAttribute('data-attr'), document.activeElement?.getAttribute('data-attr')]).toEqual([
+            'advent-hog-2',
             'advent-door-card-close',
-            true,
-            null,
         ])
     })
 
