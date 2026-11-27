@@ -101,8 +101,7 @@ def upgrade_impersonation(request):
         del request.session[IMPERSONATION_READ_ONLY_SESSION_KEY]
     request.session.modified = True
 
-    # AdminImpersonationMiddleware sets request.user back to the staff user on /admin/ paths, so read the
-    # impersonated user from the session.
+    # request.user is the staff user here, because AdminImpersonationMiddleware swaps it on /admin/ paths.
     target_user = get_impersonated_user(request)
     posthoganalytics.capture(
         distinct_id=str(staff_user.distinct_id),

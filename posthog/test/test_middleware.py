@@ -2427,7 +2427,6 @@ class TestUpgradeImpersonation(APIBaseTest):
         user_response = self.client.get("/api/users/@me/")
         assert user_response.json()["is_impersonated_read_only"] is False
 
-        # Both events name the impersonated user and the impersonation session, not the staff user's.
         session_key = self.client.session.session_key
         assert session_key
         events = {

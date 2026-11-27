@@ -1346,7 +1346,6 @@ class TestUserAPI(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
-        # A token request carries no login session, so only the client IP attributes it.
         assert self._identity_change_refused_properties(mock_capture) == {
             "field": "email",
             "reason": "token_auth",

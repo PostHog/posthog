@@ -53,31 +53,28 @@ def session_activity_credential(request: HttpRequest, impersonated_by_id: int | 
 
 def client_attribution_properties(request: "HttpRequest | Request", user: User) -> dict[str, str]:
     """`$ip` and `session_public_id` for an event captured server-side about `user`, so an investigator
-    can tell where the request came from and find the login session to revoke it."""
-    # A self-hosted install captures to PostHog's own project, so its users' addresses must not leave it.
+    can tell where the request came from and find the login session to revoke it.
+
+    Without an explicit `$ip`, server-side capture records this server's egress address. An MCP call uses
+    the end-user IP that the MCP server signed. The session id is left out when a token authenticated the
+    request, or when the session is not logged in as `user` yet, because login() then replaces its key.
+    A self-hosted install gets nothing, because its capture reaches PostHog's own project.
+    """
     if self_hosted_capture_reaches_posthog():
         return {}
-    # Call-time import: posthog.auth pulls zxcvbn and webauthn, which this module's other callers do not need.
-    from posthog.auth import SessionAuthentication  # noqa: PLC0415
+    from posthog.auth import SessionAuthentication  # noqa: PLC0415 — keeps posthog.auth off the model import path
 
     authenticator = getattr(request, "successful_authenticator", None)
     token_authenticated = authenticator is not None and not isinstance(authenticator, SessionAuthentication)
     request = getattr(request, "_request", request)
     properties: dict[str, str] = {}
-    # Server-side capture otherwise records this server's egress address as `$ip`. Ingestion keeps an
-    # explicit `$ip` and still drops it for teams that anonymize IPs. An MCP call comes from the MCP pod,
-    # so prefer the end-user IP that the MCP server signed and the middleware verified.
     if ip := get_restriction_client_ip(request):
         properties["$ip"] = ip
     session = getattr(request, "session", None)
-    # A token can authenticate a request that also carries the user's session cookie, and that session
-    # did not make the request. Before login() runs, as in the social auth pipeline or a password reset,
-    # the session is not the user's yet and login() replaces its key. Either id would misattribute the event.
     if token_authenticated or session is None or session.get(SESSION_KEY) != str(user.pk):
         return properties
     if session.session_key is None:
-        # login() over another account's session flushes it, and the new session gets its key only when
-        # saved. Save it now so the event names the session that the response sets.
+        # login() over another account's session flushes it, and the new session has a key only once saved.
         session.save()
     properties["session_public_id"] = str(session_public_id(session.session_key))
     return properties

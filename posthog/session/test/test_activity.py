@@ -68,7 +68,6 @@ class TestSessionActivity(BaseTest):
     @parameterized.expand(
         [
             ("own_session", "user", False, False, {"$ip", "session_public_id"}),
-            # The social auth pipeline reports a login before login() replaces the session key.
             ("another_users_session", "other", False, False, {"$ip"}),
             ("anonymous_session", None, False, False, {"$ip"}),
             ("token_request_carrying_the_users_session_cookie", "user", True, False, {"$ip"}),
