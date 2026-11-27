@@ -594,13 +594,9 @@ FILTER_FUNCTIONS: dict[str, tuple[int, Optional[int]]] = {
 }
 # Input templates run against the invocation globals, a different shape from the flattened filter globals.
 TEMPLATE_GLOBALS: set[str] = set(_RUNTIME["template_roots"])
-_WORKFLOW_ONLY_TEMPLATE_GLOBALS: set[str] = {"variables"}
+# Only workflow steps and webhook sources run with `variables` set.
+TEMPLATE_GLOBALS_WITHOUT_VARIABLES: set[str] = TEMPLATE_GLOBALS - {"variables"}
 TEMPLATE_CALLABLES: set[str] = set(_RUNTIME["callables"])
-
-
-def template_globals(in_workflow: bool) -> set[str]:
-    return TEMPLATE_GLOBALS if in_workflow else TEMPLATE_GLOBALS - _WORKFLOW_ONLY_TEMPLATE_GLOBALS
-
 
 _UNKNOWN_GLOBAL = "Unknown global variable: "
 

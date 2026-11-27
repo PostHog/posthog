@@ -1462,9 +1462,11 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
             assert "Variable not available in inputs" in str(ctx.exception), (function_type, template)
 
         # Roots a specific path provides stay allowed everywhere, so a template valid on one path is
-        # never refused on another. Workflow variables are the exception: only a workflow step has them.
+        # never refused on another. `variables` is the exception: only workflow steps and webhook sources,
+        # which fill it from the request's `$variables`, have it.
         for function_type, template in (
             ("source_webhook", "{request.body.distinct_id}"),
+            ("source_webhook", "{variables.order_id}"),
             ("destination", "{groups.company.properties.name}"),
             ("transformation", "{arrayMap(a -> a, [1])}"),
         ):

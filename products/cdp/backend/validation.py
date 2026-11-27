@@ -32,13 +32,14 @@ from products.cdp.backend.filters import (
     FILTER_FUNCTIONS,
     RUNTIME_CONTRACT,
     TEMPLATE_CALLABLES,
+    TEMPLATE_GLOBALS,
+    TEMPLATE_GLOBALS_WITHOUT_VARIABLES,
     collect_property_cohort_ids,
     compile_filters_bytecode,
     compile_filters_expr,
     filter_action_ids,
     filter_cohort_ids,
     iter_property_leaves,
-    template_globals,
 )
 from products.cdp.backend.models.hog_functions.hog_function import (
     TYPES_WITH_JAVASCRIPT_SOURCE,
@@ -721,7 +722,9 @@ def generate_template_bytecode(
             # Every other type resolves its inputs against the invocation globals at run time. A save
             # that disables or deletes the function skips this, so a broken function can be turned off.
             template_validator = TemplateGlobalsValidator(
-                available_globals=template_globals(in_workflow),
+                available_globals=TEMPLATE_GLOBALS
+                if in_workflow or function_type == "source_webhook"
+                else TEMPLATE_GLOBALS_WITHOUT_VARIABLES,
                 runtime_functions=TEMPLATE_CALLABLES,
                 python_stl=False,
             )
