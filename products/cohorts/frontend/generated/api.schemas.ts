@@ -662,31 +662,47 @@ export interface CohortUsedInWorkflowsBlockApi {
     has_more: boolean
 }
 
+export interface CohortCalculationQueryApi {
+    /** Text of the query. */
+    query?: string
+    /** ClickHouse query ID. */
+    query_id?: string
+    /** Query duration in milliseconds. */
+    query_ms?: number
+    /** Peak memory the query used, in megabytes. */
+    memory_mb?: number
+    /** Rows the query read. */
+    read_rows?: number
+    /** Rows the query wrote. */
+    written_rows?: number
+}
+
 export interface CohortCalculationHistoryApi {
     readonly id: string
     /** Cohort filters/properties at time of calculation */
-    filters: unknown
+    readonly filters: unknown
     /**
      * Number of people in cohort
-     * @minimum 0
-     * @maximum 2147483647
      * @nullable
      */
-    count?: number | null
+    readonly count: number | null
     /** When calculation started */
-    started_at?: string
+    readonly started_at: string
     /**
      * When calculation finished
      * @nullable
      */
-    finished_at?: string | null
-    /** Array of query information (query, query_id, query_ms, memory_mb, read_rows, written_rows) */
-    queries?: unknown
+    readonly finished_at: string | null
+    /**
+     * Queries the calculation ran, in order. Each entry only has the keys that were recorded.
+     * @nullable
+     */
+    readonly queries: readonly CohortCalculationQueryApi[] | null
     /**
      * Error message if calculation failed
      * @nullable
      */
-    error?: string | null
+    readonly error: string | null
     /**
      * Calculate duration in seconds if both start and end times are available
      * @nullable

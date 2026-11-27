@@ -14,6 +14,8 @@ The estimate does not include separate failed or canceled generation jobs, or no
 
 ## Notebook apps and variables
 
+Drag the bottom-right corner of an app card to resize it. In **Component settings**, you can also adjust **Width** in grid columns and enter a **Height** in pixels. Clear the height to restore automatic sizing. Publishing includes these sizes in the app release.
+
 To filter on several values, add a **List of text** notebook variable, then bind an app input to it. Choose **Multi-select dropdown** and enter one option per line. The variable holds the selected strings, including an empty list when cleared. For a variable named `regions`, use `WHERE region IN {regions}` in a native SQL cell. To show all regions when the selection is empty, use `WHERE empty({regions}) OR region IN {regions}`. A Python cell receives `regions` as a list.
 
 Choose **Dropdown from query** to fill an input from a native SQL cell. Select the cell and the column that contains the choices. The cell can stay off the app canvas. Reference another input in its SQL to create cascading choices. The dropdown shows up to 100 distinct values from the available rows. A viewer can replace or clear a selection that falls outside the refreshed choices.

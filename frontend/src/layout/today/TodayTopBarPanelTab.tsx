@@ -78,7 +78,7 @@ export function TodayTopBarPanelTab({ tab }: { tab: SidePanelTab }): JSX.Element
                         />
                     }
                 >
-                    <Icon />
+                    <Icon className={isAi ? 'text-primary' : undefined} />
                     {isAi && tabLabel}
                 </TooltipTrigger>
                 <TooltipContent side="bottom" align="end">

@@ -1267,14 +1267,32 @@ tools:
         list: true
         title: List scout configs
         description: >
-            List the per-scout configs for this project. Each scout has one row with the `display_name` people read, the
-            `skill_name` that is its permanent identity, its schedule (rolling `run_interval_minutes`, or a
-            project-local cron `run_cron_schedule` when set), `enabled` flag, and `emit` (dry-run) posture, and output
-            destinations. A freshly authored scout appears once its config is registered: immediately via
-            `scout-config-create` (one skill) or `scout-config-sync` (the whole fleet), or on the coordinator's next
-            tick. Use this to see which scouts run, how often, whether they emit findings to the inbox, and where those
-            findings are delivered. Pass `search` to narrow the list to the scouts matching a substring of either name.
-            Pair with `scout-config-update` to tune them.
+            List the per-scout configs for this project. Each scout has one compact row with the `display_name` people
+            read, the `skill_name` that is its permanent identity, its schedule (rolling `run_interval_minutes`, or a
+            project-local cron `run_cron_schedule` when set), `enabled` flag, `emit` (dry-run) posture, and `status`. A
+            freshly authored scout appears once its config is registered: immediately via `scout-config-create` (one
+            skill) or `scout-config-sync` (the whole fleet), or on the coordinator's next tick. Use this to see which
+            scouts run, how often, and whether they emit findings to the inbox. Pass `search` to narrow the list to the
+            scouts matching a substring of either name. Read one config in full with `scout-config-retrieve`, for its
+            output destinations, write scopes, failure streak, pre-check queries and their last outcome, structured
+            output schema, and owners. Pair with `scout-config-update` to tune them.
+        response:
+            include:
+                - id
+                - skill_name
+                - display_name
+                - description
+                - scout_origin
+                - scout_role
+                - enabled
+                - status
+                - pause_reason
+                - emit
+                - run_interval_minutes
+                - run_cron_schedule
+                - last_run_at
+                - tags
+                - source_product
     scout-config-precheck-test:
         operation: signals_scout_config_precheck_test
         enabled: true
@@ -1293,6 +1311,22 @@ tools:
             `{now}` values the next scheduled run would get. `would_run` and `reason` say whether that run would start
             (`rows`, `query_error`) or skip (`no_rows`, `false_value`). `rows_text` is the text the scout reads, one
             JSON object per line. A query error comes back in `error`: fix the query and test again.
+    scout-config-retrieve:
+        operation: signals_scout_config_retrieve
+        enabled: true
+        scopes:
+            - signal_scout:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get a scout config
+        description: >
+            Return one scout config by its `id` from `scout-config-list`, with every field: schedule, `enabled`, `emit`,
+            `status`, output destinations, write scopes, report actions, MCP servers, repositories, pre-check queries
+            and their last outcome, structured output schema, model, owners, and who last turned it on or off. Use it
+            when the compact list row does not carry the field you need.
+        feature_flag: scout-config-retrieve-mcp
     scout-config-sync:
         operation: signals_scout_config_sync
         enabled: true
@@ -1832,17 +1866,34 @@ tools:
         title: List recent scout runs
         description: >
             Return the most recent `SignalScoutRun` summaries for this project, newest first. Used by the headless scout
-            to dedupe against work other runs already covered. Each row carries `emitted_count` (how many findings the
-            run surfaced to the inbox) and `emitted_finding_ids`; `emitted_report_ids` (reports the run authored
-            directly via `emit_report`) and `edited_report_ids` (reports the run mutated via `edit_report`) for the
-            report channel; and — for runs that didn't complete cleanly — `error` (full TaskRun error) plus
-            `failure_reason` (a concise derived one-liner). Pass `skill_name` (optionally with `skill_version`) to scope
-            the dump to a single scout instead of every scout on the team — the primary scoping path when a specialist
-            dedupes against its own past runs. Pass `emitted=true` to return only runs that emitted at least one finding
-            (or `emitted=false` for runs that surfaced nothing). Pass `text` for a case-insensitive substring match on
-            the run's `summary` (the primary dedupe key for runs that didn't emit findings). Pass `date_from` /
-            `date_to` (ISO-8601, inclusive lower / exclusive upper bound on `created_at`) to scope to a window. Results
-            capped at 100.
+            to dedupe against work other runs already covered. Each row is a compact view: `summary_lead` (the start of
+            the run's close-out, at most 600 characters), `emitted_count` (how many findings the run surfaced to the
+            inbox) and `emitted_finding_ids`; `emitted_report_ids` (reports the run authored directly via `emit_report`)
+            and `edited_report_ids` (reports the run mutated via `edit_report`) for the report channel; and
+            `failure_reason` (a concise one-liner) for runs that didn't complete cleanly. Read one run in full with
+            `scout-runs-retrieve`, for the whole `summary`, the full `error`, `metadata`, and `task_url`. Pass
+            `skill_name` (optionally with `skill_version`) to scope the dump to a single scout instead of every scout on
+            the team — the primary scoping path when a specialist dedupes against its own past runs. Pass
+            `exclude_skill_name` with your own skill name to leave your own runs out of a fleet-wide search. Pass
+            `emitted=true` to return only runs that emitted at least one finding (or `emitted=false` for runs that
+            surfaced nothing). Pass `text` for a case-insensitive substring match on the run's whole `summary` (the
+            primary dedupe key for runs that didn't emit findings). Pass `date_from` / `date_to` (ISO-8601, inclusive
+            lower / exclusive upper bound on `created_at`) to scope to a window. Results capped at 100.
+        response:
+            include:
+                - run_id
+                - skill_name
+                - skill_version
+                - status
+                - created_at
+                - started_at
+                - completed_at
+                - summary_lead
+                - failure_reason
+                - emitted_count
+                - emitted_finding_ids
+                - emitted_report_ids
+                - edited_report_ids
     scout-runs-recent-emissions:
         operation: signals_scout_runs_recent_emissions
         enabled: true
@@ -1953,7 +2004,30 @@ tools:
             creator. When the entry exists but has expired, a `key` search returns it with `expired=true`, a blank
             `content` and its `expires_at`, and the two fields name who set the expiry when known. That means another
             writer or a time limit retired the entry on purpose: read it with `include_expired=true` and weigh that
-            before you rebuild it.
+            before you rebuild it. A search that returns bodies gives each entry `content_total_length` and
+            `content_next_offset`. When `content_next_offset` is set, `content` stopped before the end of the entry:
+            read the rest with the same `key` and `content_offset` set to that value.
+    scout-send-message:
+        operation: signals_scout_send_message
+        enabled: true
+        scopes:
+            - signal_scout_internal:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Send a message through a scout route
+        description: >
+            Ask to message a person or channel through one of this scout's owner-set routes. Pass the `run_id`, the
+            route `key` listed in your run prompt, the `report_id` of a report this run wrote or edited (leave it out on
+            a dry run), a short plain-text `title`, a markdown `body`, and a `dedupe_key` that names the subject, for
+            example `pr-12345`. You never name a recipient: the route decides who receives the message. Nothing is
+            posted during the run; the message is sent when the run ends, and a second call with the same route and key
+            replaces it. The result `outcome` is `queued`, `replaced`, `duplicate` (the route and key were sent in the
+            last 30 days; `recent_dedupe_keys` shows the keys in use), `over_cap` (the scout sent its 5 messages for the
+            last 24 hours; do not retry), or `dry_run`.
+        feature_flag: scout-send-message
+        feature_flag_behavior: enable
     scout-trial-archive:
         operation: signals_scout_config_trial_comparison_archive
         enabled: true

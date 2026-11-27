@@ -6,6 +6,8 @@ import { Button, ButtonGroup, Popover, PopoverContent, PopoverTrigger, Switch } 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
+import { useSceneMenuBarSlotFilled } from '~/layout/scenes/components/SceneMenuBarSlotProvider'
+
 import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals/frontend/generated/api.schemas'
 
 import { scoutDetailActionsLogic } from '../../../logics/scoutDetailActionsLogic'
@@ -26,13 +28,17 @@ export function QuillScoutDetailActions({ config }: { config: SignalScoutConfig 
         runNoteOpen,
     } = useValues(logic)
     const { runNow, leaveNote, setEnabled, setRunNoteOpen, openDialog, confirmDelete, skillOpened } = useActions(logic)
+    // The menu bar offers every other action, so the row keeps only the run and the switch beside it.
+    const menuBarShown = useSceneMenuBarSlotFilled()
 
     return (
         <div className="flex flex-wrap items-center gap-1.5">
-            <Button variant="outline" loading={savingNote} disabledReason={noteDisabledReason} onClick={leaveNote}>
-                <IconPencil />
-                Tell it something
-            </Button>
+            {!menuBarShown && (
+                <Button variant="outline" loading={savingNote} disabledReason={noteDisabledReason} onClick={leaveNote}>
+                    <IconPencil />
+                    Tell it something
+                </Button>
+            )}
             <ButtonGroup>
                 <Button
                     variant="outline"
@@ -64,29 +70,33 @@ export function QuillScoutDetailActions({ config }: { config: SignalScoutConfig 
                     </PopoverContent>
                 </Popover>
             </ButtonGroup>
-            <Button variant="outline" onClick={() => openDialog('settings')}>
-                <IconGear />
-                Settings
-            </Button>
-            {/* Captured on the way down: the link swallows Cmd/Ctrl-clicks before its onClick runs, and those opens
-                count too. */}
-            <Button
-                variant="outline"
-                tooltip={SCOUT_VIEW_SKILL_TOOLTIP}
-                nativeButton={false}
-                render={<LinkPrimitive to={urls.skill(config.skill_name)} />}
-                onClickCapture={skillOpened}
-            >
-                <IconExternal />
-                View skill
-            </Button>
+            {!menuBarShown && (
+                <>
+                    <Button variant="outline" onClick={() => openDialog('settings')}>
+                        <IconGear />
+                        Settings
+                    </Button>
+                    {/* Captured on the way down: the link swallows Cmd/Ctrl-clicks before its onClick runs, and those opens
+                        count too. */}
+                    <Button
+                        variant="outline"
+                        tooltip={SCOUT_VIEW_SKILL_TOOLTIP}
+                        nativeButton={false}
+                        render={<LinkPrimitive to={urls.skill(config.skill_name)} />}
+                        onClickCapture={skillOpened}
+                    >
+                        <IconExternal />
+                        View skill
+                    </Button>
+                </>
+            )}
             <Switch
                 checked={config.enabled}
                 onCheckedChange={(checked: boolean) => setEnabled(checked)}
                 disabledReason={updating ? 'Saving scout settings' : undefined}
                 aria-label={`${scoutDisplayName(config)} enabled`}
             />
-            {canDelete && (
+            {canDelete && !menuBarShown && (
                 <Button
                     variant="destructive-outline"
                     size="icon"

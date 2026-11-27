@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconCheck, IconEllipsis, IconWarning } from '@posthog/icons'
+import { IconCheck, IconEllipsis, IconInfo, IconWarning } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -528,9 +528,9 @@ export function UtmAuditTab(): JSX.Element {
             {/* Explainer */}
             <p className="text-secondary text-sm">
                 PostHog uses UTM parameters (utm_source, utm_campaign) from your pageview events to connect website
-                traffic back to your ad platform campaigns. This connection powers{' '}
+                traffic back to your ad platform campaigns. This connection powers marketing conversion goal{' '}
                 <Tooltip title="Conversion goals are events or actions you define in settings (e.g. purchase, sign up) that are tracked and attributed to your marketing campaigns.">
-                    <span className="underline decoration-dotted cursor-help">marketing conversion goal</span>
+                    <IconInfo className="inline-block align-text-bottom text-base" />
                 </Tooltip>{' '}
                 attribution. If campaigns aren't linked to UTM events, their conversion goals won't be tracked. The best
                 fix is to update your UTM parameters directly in your ad platform campaigns. If that's not possible, you

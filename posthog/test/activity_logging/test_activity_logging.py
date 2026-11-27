@@ -43,6 +43,7 @@ from posthog.models.activity_logging.activity_log import (
     LogActivityEntry,
     Trigger,
     bulk_log_activity,
+    defer_activity_log_events,
     log_activity,
 )
 from posthog.models.activity_logging.model_activity import ActivityTriggerContext
@@ -440,6 +441,41 @@ class TestActivityLogModel(BaseTest):
             'new row for relation "posthog_activitylog" violates check constraint "must_have_team_or_organization_id',
             error.exception.args[0],
         )
+
+    @parameterized.expand(["single", "bulk"])
+    def test_event_publication_deferral_is_scoped(self, path: str) -> None:
+        entry: LogActivityEntry = {
+            "organization_id": self.organization.id,
+            "team_id": self.team.id,
+            "user": self.user,
+            "was_impersonated": False,
+            "item_id": "strict",
+            "scope": "FeatureFlag",
+            "activity": "updated",
+            "detail": Detail(changes=[Change(type="FeatureFlag", field="active", action="created")]),
+        }
+        published_items: list[str] = []
+        with (
+            self.settings(ACTIVITY_LOG_TRANSACTION_MANAGEMENT=True),
+            patch(
+                "products.cdp.backend.internal_events.produce_internal_event",
+                side_effect=lambda **kwargs: published_items.append(kwargs["event"].properties["item_id"]),
+            ),
+        ):
+            with self.captureOnCommitCallbacks(execute=True):
+                with defer_activity_log_events():
+                    if path == "single":
+                        log_activity(**entry, strict=True)
+                    else:
+                        bulk_log_activity([entry], strict=True)
+                self.assertTrue(ActivityLog.objects.filter(item_id="strict", team_id=self.team.id).exists())
+                self.assertEqual(published_items, [])
+
+                entry["item_id"] = "ordinary"
+                log_activity(**entry, strict=True)
+                self.assertEqual(published_items, ["ordinary"])
+
+            self.assertEqual(published_items, ["ordinary", "strict"])
 
     def test_deferred_write_failure_does_not_escape_committed_transaction(self) -> None:
         # A write deferred to transaction.on_commit runs after the transaction commits, so a
