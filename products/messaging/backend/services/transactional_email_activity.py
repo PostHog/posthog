@@ -368,7 +368,7 @@ def _landings(
         workload=Workload.ONLINE,
     )
     landings = response.results or []
-    stats = _session_stats(
+    totals = _session_totals(
         team,
         user,
         [row[0] for row in landings],
@@ -380,8 +380,8 @@ def _landings(
             session_id=session_id,
             landed_at=landed_at.astimezone(UTC),
             landing_url=landing_url,
-            duration_seconds=stats.get(session_id, (None, None))[0],
-            pageview_count=stats.get(session_id, (None, None))[1],
+            duration_seconds=totals[session_id].duration_seconds if session_id in totals else None,
+            pageview_count=totals[session_id].pageview_count if session_id in totals else None,
             device_type=device_type or None,
             browser=browser or None,
             city=city or None,
@@ -419,9 +419,15 @@ def _in_click_windows(click_times: list[datetime]) -> ast.Expr:
     )
 
 
-def _session_stats(
+@frozen
+class _SessionTotals:
+    duration_seconds: int | None
+    pageview_count: int | None
+
+
+def _session_totals(
     team: Team, user: User | None, session_ids: list[str], start: datetime, end: datetime
-) -> dict[str, tuple[int | None, int | None]]:
+) -> dict[str, _SessionTotals]:
     if not session_ids:
         return {}
     response = execute_hogql_query(
@@ -440,7 +446,10 @@ def _session_stats(
         query_type="transactional_email_activity_session_stats",
         workload=Workload.ONLINE,
     )
-    return {str(session_id): (duration, pageviews) for session_id, duration, pageviews in response.results or []}
+    return {
+        str(session_id): _SessionTotals(duration_seconds=duration, pageview_count=pageviews)
+        for session_id, duration, pageviews in response.results or []
+    }
 
 
 def _sessions_by_click(
