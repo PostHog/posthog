@@ -222,7 +222,6 @@ describe('adventCalendarLogic', () => {
     it.each<[string, Reply, (day: number) => string, number | null | undefined, number[]]>([
         ['first opened each door on its day', 200, (day) => `2026-12-0${day}T12:00:00Z`, undefined, [1, 2, 3]],
         ['first opened each door a day late', 200, (day) => `2026-12-0${day + 1}T12:00:00Z`, undefined, []],
-        ['failed every open', 500, (day) => `2026-12-0${day}T12:00:00Z`, undefined, []],
         [
             'first opened each door on its day five hours behind UTC',
             200,
@@ -251,29 +250,94 @@ describe('adventCalendarLogic', () => {
         }
     )
 
-    it.each<[string, boolean, string | undefined, number]>([
-        ['the calendar closes before the reply', true, undefined, 1],
-        ['the page reloads before the reply, and the server has it on its day', false, undefined, 1],
-        ['the page reloads before the reply, and the server has it on another day', false, '2026-12-04T09:00:00Z', 0],
-    ])('settles the ticket of a door opened on its day when %s', async (_, isReplied, openedAt, tickets) => {
+    const LATE = { openedAt: () => '2026-12-04T09:00:00Z' }
+    const OLD_FORMAT = (): void => {
+        window.localStorage.setItem(
+            KEY,
+            JSON.stringify({ [UUID]: { opened: [1, 2, 3], answers: { 2: 'james' }, onTime: [3] } })
+        )
+        window.localStorage.setItem(TICKETS_KEY, JSON.stringify({ [UUID]: 3 }))
+    }
+
+    it.each<
+        [
+            string,
+            Parameters<typeof calendarApi>[0],
+            'reload' | 'close' | 'another tab',
+            Parameters<typeof calendarApi>[0],
+            number,
+        ]
+    >([
+        ['the reply confirms the open, and the server refuses opens after the reload', {}, 'reload', { open: 403 }, 1],
+        ['the reply puts the first open on another day', LATE, 'reload', {}, 0],
+        ['the server refuses the open', { open: 403 }, 'reload', {}, 0],
+        [
+            'the reply is lost on the network, and the server confirms it after the reload',
+            { open: 'network error' },
+            'reload',
+            {},
+            1,
+        ],
+        ['the server fails, and puts the first open on another day after the reload', { open: 500 }, 'reload', LATE, 0],
+        [
+            'the page reloads before the reply, and the server confirms it after the reload',
+            { openHeld: new Promise(() => {}) },
+            'reload',
+            {},
+            1,
+        ],
+        [
+            'the page reloads before the reply, and the server has it on another day',
+            { openHeld: new Promise(() => {}) },
+            'reload',
+            LATE,
+            0,
+        ],
+        ['the calendar closes before the reply comes back', {}, 'close', {}, 1],
+        [
+            'another tab saves its tickets without this one, and the server refuses opens after the reload',
+            {},
+            'another tab',
+            { open: 403 },
+            1,
+        ],
+    ])('shows the right tickets after a reload when %s', async (_, first, between, afterReload, tickets) => {
         let reply: () => void = () => {}
-        useMocks(calendarApi({ openHeld: new Promise((resolve) => (reply = resolve)) }).mocks)
+        const held = between === 'close' ? new Promise<void>((resolve) => (reply = resolve)) : first?.openHeld
+        const firstApi = calendarApi({ ...first, openHeld: held })
+        useMocks(firstApi.mocks)
         logic.actions.activateDoor('door-1')
         logic.actions.finishReveal()
         logic.actions.answerDoor('door-2', 'james')
         logic.actions.finishReveal()
         logic.actions.activateDoor('door-3-upper')
-        logic.unmount()
+        await waitFor(() => expect(firstApi.opens).toHaveLength(3))
+        await jest.advanceTimersByTimeAsync(100)
 
-        if (isReplied) {
-            reply()
-        } else {
-            useMocks(calendarApi({ openedAt: openedAt ? () => openedAt : undefined }).mocks)
+        if (between === 'another tab') {
+            window.localStorage.setItem(TICKETS_KEY, JSON.stringify({ [UUID]: [] }))
+            window.dispatchEvent(new StorageEvent('storage', { key: TICKETS_KEY }))
         }
+        logic.unmount()
+        if (between === 'close') {
+            reply()
+            await jest.advanceTimersByTimeAsync(100)
+        }
+        useMocks(calendarApi(afterReload).mocks)
+        logic = adventCalendarLogic()
+        logic.mount()
+        await jest.advanceTimersByTimeAsync(100)
+
+        expect(logic.values.tickets).toBe(tickets)
+    })
+
+    it('counts no ticket from a stored format no release wrote', () => {
+        OLD_FORMAT()
+        logic.unmount()
         logic = adventCalendarLogic()
         logic.mount()
 
-        await waitFor(() => expect(logic.values.tickets).toBe(tickets))
+        expect([doorOf(logic, 'door-3-upper')?.status, logic.values.tickets]).toEqual(['open', 0])
     })
 
     it('earns a ticket for every door a preview opens, and saves none of them', async () => {

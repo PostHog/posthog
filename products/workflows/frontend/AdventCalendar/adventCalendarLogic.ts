@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
+import { ApiError } from 'lib/api-error'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -153,7 +154,7 @@ function withTicket(
 ): Record<string, number[]> {
     const latest = cleanTicketsByUser(stored)
     const cached = cleanTicketsByUser(state)
-    const uuids = new Set([...Object.keys(latest), ...Object.keys(cached), userUuid])
+    const uuids = new Set([...Object.keys(latest), ...Object.keys(cached), ...(day === null ? [] : [userUuid])])
     return Object.fromEntries(
         [...uuids].map((uuid) => {
             const days = [
@@ -176,6 +177,10 @@ function withPendingDays(
 ): Record<string, number[]> {
     const pending = cleanTicketsByUser(state)
     return { ...pending, [userUuid]: update(pending[userUuid] ?? []) }
+}
+
+function isRefused(error: unknown): boolean {
+    return error instanceof ApiError && !!error.status && error.status < 500 && error.status !== 429
 }
 
 function prefersReducedMotion(): boolean {
@@ -279,6 +284,9 @@ export interface adventCalendarLogicActions {
     ) => {
         pollResults: AdventCalendarResultsApi | null
         payload?: any
+    }
+    mergeStoredTickets: () => {
+        stored: unknown
     }
     openDoor: (
         userUuid: string,
@@ -416,6 +424,7 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
         }),
         landTicket: true,
         resumePendingTickets: true,
+        mergeStoredTickets: () => ({ stored: storedTicketsByUser() }),
         settleTicket: (userUuid: string, day: number, isOnTime: boolean, wasGuessedOnTime: boolean) => ({
             userUuid,
             day,
@@ -480,6 +489,7 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
             {
                 settleTicket: (state, { userUuid, day, isOnTime, stored }) =>
                     withTicket(state, stored, userUuid, isOnTime ? day : null),
+                mergeStoredTickets: (state, { stored }) => withTicket(state, stored, '', null),
             },
         ],
         pendingTicketsByUser: [
@@ -684,7 +694,11 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
                                 open.utc_offset_minutes ?? utcOffsetMinutes
                             )
                         ),
-                    () => settle(false)
+                    (error) => {
+                        if (isRefused(error)) {
+                            settle(false)
+                        }
+                    }
                 )
         }
         const isOnTime = (day: number): boolean => {
@@ -777,6 +791,15 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
         posthog.capture(EVENTS.viewed, { has_workflows: adventHasWorkflows() })
         actions.preloadImages()
         actions.loadPollResults()
+        cache.disposables.add(() => {
+            const onStorage = (event: StorageEvent): void => {
+                if (event.key === TICKETS_STORAGE_KEY) {
+                    actions.mergeStoredTickets()
+                }
+            }
+            window.addEventListener('storage', onStorage)
+            return () => window.removeEventListener('storage', onStorage)
+        }, 'tickets')
         actions.resumePendingTickets()
     }),
 ])
