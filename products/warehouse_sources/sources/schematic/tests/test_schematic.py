@@ -196,10 +196,13 @@ class TestSchematicFeatureUsageHistory:
         assert set(result.params("limit")) == {"250"}
         assert len(result.rows) == HISTORY_PAGE_SIZE + 1
         assert result.saved_states == [
-            SchematicResumeConfig(offset=HISTORY_PAGE_SIZE, window_start="2023-01-01T00:00:00Z"),
-            SchematicResumeConfig(offset=0, window_start="2024-01-01T00:00:00Z"),
-            SchematicResumeConfig(offset=0, window_start="2024-12-31T00:00:00Z"),
-            SchematicResumeConfig(offset=0, window_start="2025-12-31T00:00:00Z"),
+            SchematicResumeConfig(offset=offset, window_start=start, history_end="2026-11-26T10:00:00Z")
+            for offset, start in [
+                (HISTORY_PAGE_SIZE, "2023-01-01T00:00:00Z"),
+                (0, "2024-01-01T00:00:00Z"),
+                (0, "2024-12-31T00:00:00Z"),
+                (0, "2025-12-31T00:00:00Z"),
+            ]
         ]
 
     @pytest.mark.parametrize(
@@ -237,18 +240,42 @@ class TestSchematicFeatureUsageHistory:
         ]
         assert len(result.rows) == 2
 
-    def test_resume_continues_the_saved_window_then_the_later_ones(self) -> None:
+    @pytest.mark.parametrize(
+        ("history_end", "expected_windows"),
+        [
+            # The saved end keeps the resumed offset on the window it was taken from.
+            (
+                "2026-11-25T23:00:00Z",
+                [
+                    ("2024-12-31T00:00:00Z", "2025-12-31T00:00:00Z", "500"),
+                    ("2025-12-31T00:00:00Z", "2026-11-25T23:00:00Z", "0"),
+                ],
+            ),
+            # A state saved before the end was kept falls back to the current hour.
+            (
+                None,
+                [
+                    ("2024-12-31T00:00:00Z", "2025-12-31T00:00:00Z", "500"),
+                    ("2025-12-31T00:00:00Z", "2026-11-26T10:00:00Z", "0"),
+                ],
+            ),
+        ],
+    )
+    def test_resume_continues_the_saved_window_then_the_later_ones(
+        self, history_end: str | None, expected_windows: list[tuple[str, str, str]]
+    ) -> None:
         result = _driver().run(
             "feature_usage_history",
             [_page(_history_rows(1)), _page([])],
-            resume_state=SchematicResumeConfig(offset=500, window_start="2024-12-31T00:00:00Z"),
+            resume_state=SchematicResumeConfig(
+                offset=500, window_start="2024-12-31T00:00:00Z", history_end=history_end
+            ),
         )
 
         assert result.raised is None
-        assert [(r.param("start_time"), r.param("offset")) for r in result.requests] == [
-            ("2024-12-31T00:00:00Z", "500"),
-            ("2025-12-31T00:00:00Z", "0"),
-        ]
+        assert [(r.param("start_time"), r.param("end_time"), r.param("offset")) for r in result.requests] == (
+            expected_windows
+        )
 
 
 class TestSchematicSchemas:

@@ -22,6 +22,7 @@ from products.warehouse_sources.sources.sdk import (
     SourceResponse,
     build_dependent_resource,
     format_datetime,
+    frozen,
     make_tracked_session,
     resolve_incremental_start,
     rest_api_resource,
@@ -38,8 +39,16 @@ class SchematicResumeConfig:
     is_active: bool | None = None
     # Feature usage history: the start of the time window the offset belongs to.
     window_start: str | None = None
+    # Feature usage history: the end of the whole read, so a resume walks the same windows.
+    history_end: str | None = None
     # Feature usage: the state `build_dependent_resource` checkpoints over the companies listing.
     fanout_state: dict[str, Any] | None = None
+
+
+@frozen
+class HistoryWindow:
+    start: datetime
+    end: datetime
 
 
 def _client_config(api_key: str) -> ClientConfig:
@@ -66,16 +75,17 @@ def _resource(
     resumable_source_manager: ResumableSourceManager[SchematicResumeConfig],
     is_active: bool | None,
     initial_offset: int | None,
-    window: tuple[datetime, datetime] | None = None,
+    window: HistoryWindow | None = None,
+    history_end: str | None = None,
 ) -> Resource:
     params: dict[str, Any] = dict(config.extra_params)
     if is_active is not None:
         params["is_active"] = "true" if is_active else "false"
     window_start: str | None = None
     if window is not None:
-        window_start = format_datetime(window[0], "iso_z")
+        window_start = format_datetime(window.start, "iso_z")
         params["start_time"] = window_start
-        params["end_time"] = format_datetime(window[1], "iso_z")
+        params["end_time"] = format_datetime(window.end, "iso_z")
     rest_config: RESTAPIConfig = {
         "client": _client_config(api_key),
         "resource_defaults": {},
@@ -99,7 +109,12 @@ def _resource(
     def save_checkpoint(state: dict[str, Any] | None) -> None:
         if state is not None:
             resumable_source_manager.save_state(
-                SchematicResumeConfig(offset=int(state["offset"]), is_active=is_active, window_start=window_start)
+                SchematicResumeConfig(
+                    offset=int(state["offset"]),
+                    is_active=is_active,
+                    window_start=window_start,
+                    history_end=history_end,
+                )
             )
 
     return rest_api_resource(
@@ -126,11 +141,11 @@ def _active_then_inactive(
         yield from build(False, resume.offset)
 
 
-def _history_windows(start: datetime, end: datetime) -> list[tuple[datetime, datetime]]:
+def _history_windows(start: datetime, end: datetime) -> list[HistoryWindow]:
     windows = []
     while start < end:
         window_end = min(start + HISTORY_WINDOW, end)
-        windows.append((start, window_end))
+        windows.append(HistoryWindow(start=start, end=window_end))
         start = window_end
     return windows
 
@@ -149,16 +164,19 @@ def _history_start(should_use_incremental_field: bool, db_incremental_field_last
 
 
 def _windows_in_order(
-    build: Callable[[tuple[datetime, datetime], int | None], Resource],
+    build: Callable[[HistoryWindow, int | None], Resource],
     resumable_source_manager: ResumableSourceManager[SchematicResumeConfig],
-    windows: list[tuple[datetime, datetime]],
+    windows: list[HistoryWindow],
     initial_offset: int | None,
+    history_end: str,
 ) -> Iterator[Any]:
     for index, window in enumerate(windows):
         if index > 0:
             # Every row of the earlier windows is handed on, so a resume from here starts this window.
             resumable_source_manager.save_state(
-                SchematicResumeConfig(offset=0, window_start=format_datetime(window[0], "iso_z"))
+                SchematicResumeConfig(
+                    offset=0, window_start=format_datetime(window.start, "iso_z"), history_end=history_end
+                )
             )
         yield from build(window, initial_offset if index == 0 else None)
 
@@ -178,22 +196,26 @@ def _feature_usage_history_resource(
     end = now.replace(minute=0, second=0, microsecond=0)
     if resume is not None and resume.window_start is not None:
         start = datetime.fromisoformat(resume.window_start)
+        # A later end would change the result set the saved offset pages through.
+        if resume.history_end is not None:
+            end = datetime.fromisoformat(resume.history_end)
         initial_offset: int | None = resume.offset
     else:
         start = _history_start(should_use_incremental_field, db_incremental_field_last_value, now)
         initial_offset = None
 
     windows = _history_windows(start, end)
+    history_end = format_datetime(end, "iso_z")
     build = partial(_resource, api_key, config, team_id, job_id, resumable_source_manager, None)
 
-    def build_window(window: tuple[datetime, datetime], offset: int | None) -> Resource:
-        return build(offset, window)
+    def build_window(window: HistoryWindow, offset: int | None) -> Resource:
+        return build(offset, window, history_end)
 
-    hints_from = build_window(windows[0] if windows else (start, start + HISTORY_WINDOW), None)
+    hints_from = build_window(windows[0] if windows else HistoryWindow(start=start, end=start + HISTORY_WINDOW), None)
     # The chain hands each page on unchanged and holds no rows, so as a `Resource` it keeps the
     # framework's checkpoints.
     return Resource(
-        partial(_windows_in_order, build_window, resumable_source_manager, windows, initial_offset),
+        partial(_windows_in_order, build_window, resumable_source_manager, windows, initial_offset, history_end),
         name=config.name,
         hints=hints_from._hints,
     )
