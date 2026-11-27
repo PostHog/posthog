@@ -14,7 +14,7 @@ import { ProviderEdge, TruthRecord, UNIT_EMAIL_DOMAIN, startProviderEdge } from 
 import { TRUTH_PAGE_LIMIT, Truth } from '../provider-edge/truth'
 import { atLeastOnce } from './invariants'
 import { FollowUpAnswer, JournalEntry, Judge, RunEvidence, createJudge } from './judge'
-import { TruthSource, edgeTruth } from './truth'
+import { TruthRead, TruthSource, edgeTruth } from './truth'
 
 const TRACKING_KEYS = 'scenario-tracking-key'
 const UNIT = 'run-a-1'
@@ -36,7 +36,7 @@ describe('judge', () => {
     let duringProbe: (() => Promise<unknown>) | undefined
     let duringFinalPage: (() => Promise<unknown>) | undefined
     let duringPage: (() => Promise<unknown>) | undefined
-    let duringHead: (() => Promise<unknown> | void) | undefined
+    let duringHead: ((read: TruthRead | undefined, feedbackInFlight: number) => Promise<unknown> | void) | undefined
     let drainsFeedback: boolean
     let polls: number
     let probeAnswers: number
@@ -57,7 +57,7 @@ describe('judge', () => {
         return createJudge({
             truth: {
                 head: async (read) => {
-                    await duringHead?.()
+                    await duringHead?.(read, source.feedbackInFlight?.() ?? 0)
                     return source.head(read)
                 },
                 feedbackInFlight: () => source.feedbackInFlight?.() ?? 0,
@@ -1295,32 +1295,45 @@ describe('judge', () => {
         }
     }
 
-    it.each([
-        [
-            'with feedback shares waits out a feedback post the webhook holds until it times out',
-            true,
-            [
-                ['ses.send', 200],
-                ['ses.feedback', 0],
-            ],
-        ],
-        [
-            'without feedback shares converges while the webhook still holds its feedback post',
-            false,
-            [['ses.send', 200]],
-        ],
-    ])('a profile %s', (_story, drains, records) =>
-        withHeldWebhook(drains, async () => {
+    const DRAIN_HEADS_PER_CONVERGENCE_PASS = 2
+
+    const convergesOnlyOnceTheWebhookAnswers = async (release: () => void): Promise<void> => {
+        let drainsSeeingThePostPending = 0
+        duringHead = (read, feedbackInFlight) => {
+            if (read?.waitMs !== undefined && feedbackInFlight > 0) {
+                drainsSeeingThePostPending += 1
+            }
+            if (drainsSeeingThePostPending === DRAIN_HEADS_PER_CONVERGENCE_PASS) {
+                release()
+            }
+        }
+
+        expect(await judge.converge(100, NEVER_ABORTED)).toMatchObject({ converged: true })
+        expect(judge.evidence().truth.map(({ kind, status }) => [kind, status])).toEqual([
+            ['ses.send', 200],
+            ['ses.feedback', 200],
+        ])
+    }
+
+    it('a profile with feedback shares converges only once the webhook answers the feedback post it holds', () =>
+        withHeldWebhook(true, async (release) => {
+            judge.record(offered())
+            await deliver(UNIT, 'email', 'flow-1', [], `invocation-${UNIT}`, 'scenario-tracked')
+
+            await convergesOnlyOnceTheWebhookAnswers(release)
+        }))
+
+    it('a profile without feedback shares converges while the webhook still holds its feedback post', () =>
+        withHeldWebhook(false, async () => {
             judge.record(offered())
             await deliver(UNIT, 'email', 'flow-1', [], `invocation-${UNIT}`, 'scenario-tracked')
 
             expect(await judge.converge(10_000, NEVER_ABORTED)).toMatchObject({ converged: true })
-            expect(judge.evidence().truth.map(({ kind, status }) => [kind, status])).toEqual(records)
-        })
-    )
+            expect(judge.evidence().truth.map(({ kind, status }) => [kind, status])).toEqual([['ses.send', 200]])
+        }))
 
     it('waits out the SES feedback of a send that landed while the judge read its truth', () =>
-        withHeldWebhook(true, async () => {
+        withHeldWebhook(true, async (release) => {
             judge.record(offered())
             let pages = 0
             duringPage = async () => {
@@ -1330,11 +1343,7 @@ describe('judge', () => {
                 }
             }
 
-            expect(await judge.converge(10_000, NEVER_ABORTED)).toMatchObject({ converged: true })
-            expect(judge.evidence().truth.map(({ kind, status }) => [kind, status])).toEqual([
-                ['ses.send', 200],
-                ['ses.feedback', 0],
-            ])
+            await convergesOnlyOnceTheWebhookAnswers(release)
         }))
 
     it('ends at its deadline with the truth it read and the read that failed, rather than throwing', async () => {
