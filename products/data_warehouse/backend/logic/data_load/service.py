@@ -64,7 +64,7 @@ def _jitter_timedelta(max_jitter: timedelta, rng: random.Random) -> tuple[int, i
     return (int(jitter_seconds // 3600), int((jitter_seconds % 3600) // 60))
 
 
-def get_sync_schedule(external_data_schema: ExternalDataSchema, should_sync: bool = True):
+def get_sync_schedule(external_data_schema: ExternalDataSchema, should_sync: bool = True) -> Schedule:
     inputs = ExternalDataWorkflowInputs(
         team_id=external_data_schema.team_id,
         external_data_schema_id=external_data_schema.id,
