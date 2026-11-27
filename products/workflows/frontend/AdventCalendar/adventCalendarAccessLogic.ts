@@ -71,7 +71,11 @@ export const adventCalendarAccessLogic = kea<adventCalendarAccessLogicType>([
     selectors({
         calendarOn: [
             (s) => [s.featureFlags, s.receivedFeatureFlags, s.lastLoadFailed],
-            (featureFlags, receivedFeatureFlags, lastLoadFailed): boolean | undefined => {
+            (
+                featureFlags: adventCalendarAccessLogicValues['featureFlags'],
+                receivedFeatureFlags: adventCalendarAccessLogicValues['receivedFeatureFlags'],
+                lastLoadFailed: adventCalendarAccessLogicValues['lastLoadFailed']
+            ): boolean | undefined => {
                 const pageDecision = window.POSTHOG_USER_IDENTITY_WITH_FLAGS?.featureFlags?.[FLAG]
                 if (lastLoadFailed && typeof pageDecision === 'boolean') {
                     return pageDecision
