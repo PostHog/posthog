@@ -192,9 +192,6 @@ class PostHogSCIMUser(SCIMUser):
         with transaction.atomic():
             user = EmailLookupHandler.get_user_by_email(email, is_active=None)
 
-            if user and not user.is_human:
-                raise SCIMUserConflict()
-
             # Check if already SCIM-provisioned for this IdP config
             if user and SCIMProvisionedUser.objects.record_for(user=user, config=config) is not None:
                 raise SCIMUserConflict()
@@ -203,6 +200,11 @@ class PostHogSCIMUser(SCIMUser):
                 is_member = OrganizationMembership.objects.filter(user=user, organization=config.organization).exists()
                 if not is_member:
                     _validate_email_domain_is_verified(email, config.organization)
+
+                # After the domain validation, so that the conflict is only reported for an address this
+                # organization may provision.
+                if not user.is_human:
+                    raise SCIMUserConflict()
 
                 if first_name:
                     user.first_name = first_name
