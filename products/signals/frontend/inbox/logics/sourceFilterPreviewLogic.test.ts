@@ -119,7 +119,7 @@ describe('sourceFilterPreviewLogic', () => {
 
     test.each([
         ['saved allowlist', null, {}],
-        ['every team', [], { scope_ids: [] }],
+        ['empty selection', [], { scope_ids: [] }],
         ['picked teams', ['team-a'], { scope_ids: ['team-a'] }],
     ])('validates, then previews with the %s', async (_, scopeIds, scopeBody) => {
         logic.actions.setPreviewInput({ expression: 'assignee_id IS NULL', scopeIds })
@@ -335,11 +335,10 @@ describe('sourceFilterPreviewLogic', () => {
     })
 
     test.each([
-        ['a source without teams', sourceConfig(SignalSourceProduct.Github, SignalSourceType.Issue), 'all', [], null],
-        ['all Linear teams', linearConfig, 'all', ['team-a'], []],
-        ['picked Linear teams', linearConfig, 'selected', ['team-a'], ['team-a']],
-        ['a Linear selection with no teams yet', linearConfig, 'selected', [], null],
-    ] as const)('previewScopeIds for %s', (_, config, teamScope, teamIds, expected) => {
-        expect(previewScopeIds(config, { teamScope, teamIds: [...teamIds] })).toEqual(expected)
+        ['a source without teams', sourceConfig(SignalSourceProduct.Github, SignalSourceType.Issue), [], null],
+        ['picked Linear teams', linearConfig, ['team-a'], ['team-a']],
+        ['a Linear selection with no teams yet', linearConfig, [], []],
+    ] as const)('previewScopeIds for %s', (_, config, teamIds, expected) => {
+        expect(previewScopeIds(config, { teamIds: [...teamIds] })).toEqual(expected)
     })
 })

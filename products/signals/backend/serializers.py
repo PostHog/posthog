@@ -265,8 +265,8 @@ _SOURCE_CONFIG_HELP_TEXT = (
     "session analysis. "
     "The Linear issue source (`source_product=linear`, `source_type=issue`) reads "
     "`linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the "
-    "whole Linear workspace, but only issues from those teams become signals. Omit the key or "
-    "pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. "
+    "whole Linear workspace, and only issues from the selected teams become signals. "
+    "An enabled Linear issue source requires at least one team id. Get the ids from the Linear integration's teams endpoint. "
     "The error tracking sources (`source_product=error_tracking`) read `issue_filters`: an object "
     "with a `properties` list of event property filters, the same shape error tracking alert "
     "filters use. The filter sees the issue's own fields (`name`, `description`, `severity`, "
@@ -400,6 +400,11 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
         # Absent key means "not read yet", a `None` value means the read failed.
         self._filter_state_rows_by_team: dict[int, dict[SourceKey, list[SignalSourceFilterState]] | None] = {}
 
+    def to_representation(self, instance: SignalSourceConfig) -> dict[str, Any]:
+        data = super().to_representation(instance)
+        data["enabled"] = instance.effectively_enabled
+        return data
+
     @extend_schema_field(serializers.ChoiceField(choices=SIGNAL_SOURCE_CONFIG_STATUSES, allow_null=True))
     def get_status(self, obj: SignalSourceConfig) -> str | None:
         schema = _DATA_IMPORT_SOURCE_MAP.get((obj.source_product, obj.source_type))
@@ -480,7 +485,8 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError({"config_set": "config_set must be a JSON object"})
             if set(config_set).intersection(config_remove):
                 raise serializers.ValidationError("A config key cannot be both set and removed.")
-            merged_config = {**self.instance.config, **config_set}
+            stored_config = self.instance.config
+            merged_config = {**(stored_config if isinstance(stored_config, dict) else {}), **config_set}
             for key in config_remove:
                 merged_config.pop(key, None)
             attrs["config"] = merged_config
@@ -521,13 +527,22 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
                 problem = alert_patterns_problem(config[patterns_key])
                 if problem is not None:
                     raise serializers.ValidationError({"config": f"{patterns_key} {problem}"})
-            scope_key = SCOPE_CONFIG_KEYS.get((source_product, source_type)) if source_product and source_type else None
-            if scope_key is not None and scope_key in config:
-                problem = scope_ids_problem(config[scope_key])
+        scope_key = SCOPE_CONFIG_KEYS.get((source_product, source_type)) if source_product and source_type else None
+        if scope_key is not None:
+            scope_config = config if config is not None else getattr(self.instance, "config", {})
+            team_ids = scope_config.get(scope_key) if isinstance(scope_config, dict) else None
+            currently_enabled = self.instance.effectively_enabled if self.instance is not None else True
+            scope_enabled = attrs.get("enabled", currently_enabled)
+            if self.instance is not None and self.instance.enabled and not currently_enabled:
+                attrs.setdefault("enabled", False)
+            if scope_enabled and (team_ids is None or team_ids == []):
+                raise serializers.ValidationError({"config": f"{scope_key} must include at least one Linear team"})
+            if scope_enabled or (config is not None and scope_key in config):
+                problem = scope_ids_problem(team_ids)
                 if problem is not None:
                     raise serializers.ValidationError({"config": f"{scope_key} {problem}"})
-                # Stored stripped: emission matches these ids exactly, so a pasted id with a
-                # stray space would select a scope and then read nothing.
+            if config is not None and scope_key in config:
+                # Emission matches ids exactly, so whitespace around a pasted id would exclude its team.
                 config[scope_key] = [scope_id.strip() for scope_id in config[scope_key]]
         if config is not None and ISSUE_FILTERS_KEY in config:
             config[ISSUE_FILTERS_KEY] = self._compiled_issue_filters(
@@ -757,7 +772,7 @@ class SourceFilterExpressionRequestSerializer(serializers.Serializer):
         help_text=(
             "The source's record allowlist as it would be saved, to preview it before saving. For Linear issues, "
             "these are the Linear team ids saved in `config.linear_team_ids`. Omit it or pass null to use the saved "
-            "allowlist, pass an empty list to read every team, or pass a list of non-empty ids "
+            "allowlist, pass an empty list to preview zero records, or pass a list of non-empty ids "
             f"(at most {SCOPE_IDS_MAX_COUNT}) to read only those. Sources without an allowlist ignore it."
         ),
     )

@@ -213,7 +213,6 @@ class TestQueryNewRecords:
         [
             ({"linear_team_ids": ["team-1", "team-2"]}, ["team-1", "team-2"]),
             ({"linear_team_ids": [" team-1 ", "team-2"]}, ["team-1", "team-2"]),
-            # Every one of these means "read everything": a malformed list must not apply even in part.
             ({"linear_team_ids": []}, None),
             ({}, None),
             (None, None),
@@ -230,9 +229,9 @@ class TestQueryNewRecords:
         mock_result.columns = []
         mock_result.results = []
 
-        with patch(f"{FETCHER_MODULE_PATH}.execute_hogql_query", return_value=mock_result):
+        with patch(f"{FETCHER_MODULE_PATH}.execute_hogql_query", return_value=mock_result) as mock_query:
             with patch(f"{FETCHER_MODULE_PATH}.parse_select", return_value="parsed") as mock_parse:
-                data_warehouse_record_fetcher(
+                records = data_warehouse_record_fetcher(
                     team=MagicMock(),
                     config=config,
                     context={
@@ -243,14 +242,16 @@ class TestQueryNewRecords:
                     },
                 )
 
+        if expected_ids is None:
+            assert records == []
+            mock_query.assert_not_called()
+            return
+
+        mock_query.assert_called_once()
         query_arg = mock_parse.call_args[0][0]
         placeholders = mock_parse.call_args.kwargs["placeholders"]
-        if expected_ids is None:
-            assert "IN {scope_ids}" not in query_arg
-            assert "scope_ids" not in placeholders
-        else:
-            assert "JSONExtractString(team, 'id') IN {scope_ids}" in query_arg
-            assert placeholders["scope_ids"] == ast.Tuple(exprs=[ast.Constant(value=i) for i in expected_ids])
+        assert "JSONExtractString(team, 'id') IN {scope_ids}" in query_arg
+        assert placeholders["scope_ids"] == ast.Tuple(exprs=[ast.Constant(value=i) for i in expected_ids])
 
     def test_source_without_scope_ignores_scope_keys_in_config(self):
         config = _make_config()

@@ -36,9 +36,7 @@ SCOPE_ID_MAX_LENGTH = 255
 
 
 def scope_ids_problem(value: object) -> str | None:
-    """Why `value` is not a valid scope allowlist, or None when it is. The API rejects the value
-    with this message; the fetcher falls back to reading everything, so a malformed row never
-    applies part of a list."""
+    """The validation error for the list's shape and bounds. Callers decide whether an empty list is allowed."""
     if not isinstance(value, list) or not all(isinstance(scope_id, str) and scope_id.strip() for scope_id in value):
         return "must be a list of non-empty strings"
     if len(value) > SCOPE_IDS_MAX_COUNT:
@@ -46,6 +44,14 @@ def scope_ids_problem(value: object) -> str | None:
     if any(len(scope_id.strip()) > SCOPE_ID_MAX_LENGTH for scope_id in value):
         return f"entries must be at most {SCOPE_ID_MAX_LENGTH} characters"
     return None
+
+
+def has_required_source_scope(source_product: str, source_type: str, config: object) -> bool:
+    scope_key = SCOPE_CONFIG_KEYS.get((source_product, source_type))
+    if scope_key is None:
+        return True
+    scope_ids = config.get(scope_key) if isinstance(config, dict) else None
+    return bool(scope_ids) and scope_ids_problem(scope_ids) is None
 
 
 # ── Alert scope ─────────────────────────────────────────────────────────────────

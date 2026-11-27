@@ -9,7 +9,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import type { SourceFilterCatalogApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { SourceFilterModalLogicProps, sourceFilterModalLogic } from '../../logics/sourceFilterModalLogic'
-import { SignalSourceConfig } from '../../types'
+import { LINEAR_TEAMS_REQUIRED, SignalSourceConfig, linearTeamIdsFromConfig } from '../../types'
 import { SourceFilterFieldList } from './SourceFilterFieldList'
 import { SourceFilterFieldSnippets } from './SourceFilterFieldSnippets'
 import { SourceFilterLinearTeams } from './SourceFilterLinearTeams'
@@ -64,6 +64,9 @@ export function SourceFilterModal({
     const busy = isSourceFilterSubmitting || isRemovingFilter
     const noun = catalog.source_type
     const hasSavedFilter = !!savedFilter?.expression.trim()
+    const teamsRequired = teamsEditable && sourceFilter.teamIds.length === 0
+    const savedTeamsRequired =
+        teamsEditable && sourceConfig.enabled && linearTeamIdsFromConfig(sourceConfig.config).length === 0
 
     const handleClose = (): void => {
         if (!busy) {
@@ -82,7 +85,11 @@ export function SourceFilterModal({
             isOpen
             onClose={handleClose}
             title={`Filter ${sourceLabel} ${noun}s`}
-            description={`Set a rule each ${sourceLabel} ${noun} must pass before the agent reads it. ${noun.charAt(0).toUpperCase()}${noun.slice(1)}s that don't pass are skipped before any AI work starts. Leave it empty to let every ${noun} through.`}
+            description={
+                teamsEditable
+                    ? 'Select at least one Linear team. Add an optional rule to narrow the issues from those teams.'
+                    : `Set a rule each ${sourceLabel} ${noun} must pass before the agent reads it. ${noun.charAt(0).toUpperCase()}${noun.slice(1)}s that don't pass are skipped before any AI work starts. Leave it empty to let every ${noun} through.`
+            }
             width={760}
             hasUnsavedInput={sourceFilterChanged}
             footer={
@@ -93,7 +100,13 @@ export function SourceFilterModal({
                             status="danger"
                             onClick={removeFilter}
                             loading={isRemovingFilter}
-                            disabledReason={isSourceFilterSubmitting ? 'Saving' : undefined}
+                            disabledReason={
+                                isSourceFilterSubmitting
+                                    ? 'Saving'
+                                    : savedTeamsRequired
+                                      ? LINEAR_TEAMS_REQUIRED
+                                      : undefined
+                            }
                             data-attr="signal-source-filter-remove"
                         >
                             Remove filter
@@ -114,7 +127,9 @@ export function SourceFilterModal({
                             form={formId}
                             htmlType="submit"
                             loading={isSourceFilterSubmitting}
-                            disabledReason={isRemovingFilter ? 'Removing' : undefined}
+                            disabledReason={
+                                isRemovingFilter ? 'Removing' : teamsRequired ? LINEAR_TEAMS_REQUIRED : undefined
+                            }
                             data-attr="signal-source-filter-save"
                         >
                             Save
@@ -139,7 +154,6 @@ export function SourceFilterModal({
                     )}
                     {teamsEditable && (
                         <SourceFilterLinearTeams
-                            scope={sourceFilter.teamScope}
                             linearIntegration={linearIntegration}
                             integrationsUnknown={integrationsUnknown}
                             integrationsLoadFailed={integrationsLoadFailed}

@@ -50,9 +50,7 @@ def escape_table_name(table_name: str) -> str:
 
 
 def scope_ids_from_source_config(config: SignalSourceTableConfig, source_config: Any) -> list[str]:
-    """The source's allowlist, stripped, or an empty list. A malformed value in the API-writable
-    config blob is ignored as a whole: emission reads everything rather than applying part of a
-    list or breaking."""
+    """The source's allowlist, stripped. A malformed list allows no records, even if some entries are valid."""
     if config.scope_config_key is None or not isinstance(source_config, dict):
         return []
     raw = source_config.get(config.scope_config_key)
@@ -105,7 +103,9 @@ def data_warehouse_record_fetcher(
     if config.where_clause:
         where_parts.append(config.where_clause)
     # Filtered in the query rather than in Python so the LIMIT below counts only allowlisted records.
-    if scope_ids:
+    if config.scope_field is not None:
+        if not scope_ids:
+            return []
         where_parts.append(f"{config.scope_field} IN {{scope_ids}}")
         placeholders["scope_ids"] = ast.Tuple(exprs=[ast.Constant(value=scope_id) for scope_id in scope_ids])
     where_sql = " AND ".join(where_parts)

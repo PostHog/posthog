@@ -32,7 +32,7 @@ import { SourceFilterFormValues, sourceReadsLinearTeams } from './sourceFilterMo
 
 export interface SourceFilterPreviewInput {
     expression: string
-    /** The unsaved record allowlist: null for the saved one, an empty list for every team. */
+    /** The unsaved allowlist. An empty list previews zero records and null uses the saved selection. */
     scopeIds: string[] | null
 }
 
@@ -50,21 +50,11 @@ const PREVIEW_LOOKBACK_DAYS = 7
 const THROTTLED_RETRY_FALLBACK_MS = 10_000
 const PREVIEW_TIMER_KEY = 'previewTimer'
 
-/**
- * The allowlist the editor's form values would save. A selection with no teams yet falls back to the
- * saved allowlist, because an empty list would preview every team.
- */
 export function previewScopeIds(
     sourceConfig: SignalSourceConfig,
-    values: Pick<SourceFilterFormValues, 'teamScope' | 'teamIds'>
+    values: Pick<SourceFilterFormValues, 'teamIds'>
 ): string[] | null {
-    if (!sourceReadsLinearTeams(sourceConfig)) {
-        return null
-    }
-    if (values.teamScope === 'all') {
-        return []
-    }
-    return values.teamIds.length > 0 ? values.teamIds : null
+    return sourceReadsLinearTeams(sourceConfig) ? values.teamIds : null
 }
 
 function samePreviewInput(a: SourceFilterPreviewInput, b: SourceFilterPreviewInput): boolean {

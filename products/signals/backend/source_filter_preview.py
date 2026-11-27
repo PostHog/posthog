@@ -180,6 +180,9 @@ def preview_source_filter(
     database = Database.create_for(team=team, user=user)
     previews: list[SourceFilterPreview] = []
     for table in tables:
+        table_scope_ids = scope_ids_from_source_config(table.config, source_config) if scope_ids is None else scope_ids
+        if table.config.scope_config_key is not None and not table_scope_ids:
+            continue
         try:
             previews.append(
                 _preview_table(
@@ -191,8 +194,7 @@ def preview_source_filter(
                     table,
                     expression,
                     filter_conditions,
-                    source_config,
-                    scope_ids,
+                    table_scope_ids,
                 )
             )
         except TableAccessDeniedError:
@@ -242,8 +244,7 @@ def _preview_table(
     table: _PreviewTable,
     expression: str,
     filter_conditions: tuple[str, ...] | None,
-    source_config: object,
-    scope_ids_override: list[str] | None,
+    scope_ids: list[str],
 ) -> SourceFilterPreview:
     columns = {
         name: field for name, field in database.get_table(table.name).fields.items() if isinstance(field, DatabaseField)
@@ -267,9 +268,6 @@ def _preview_table(
         conditions.append(parse_expr(config.where_clause))
     if config.emittable_where:
         conditions.append(parse_expr(config.emittable_where))
-    scope_ids = (
-        scope_ids_from_source_config(config, source_config) if scope_ids_override is None else scope_ids_override
-    )
     if scope_ids and config.scope_field:
         conditions.append(
             parse_expr(

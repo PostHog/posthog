@@ -5,16 +5,10 @@ import { useId } from 'react'
 import { LemonBanner, LemonButton, LemonModal, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
 
-import { LinearTeamsModalLogicProps, LinearTeamsScope, linearTeamsModalLogic } from '../../logics/linearTeamsModalLogic'
-import { SignalSourceConfig } from '../../types'
+import { LinearTeamsModalLogicProps, linearTeamsModalLogic } from '../../logics/linearTeamsModalLogic'
+import { LINEAR_TEAMS_REQUIRED, SignalSourceConfig } from '../../types'
 import { LinearTeamsSelect } from './LinearTeamsSelect'
-
-const SCOPE_OPTIONS: LemonRadioOption<LinearTeamsScope>[] = [
-    { value: 'all', label: 'All teams', 'data-attr': 'signal-source-linear-teams-all' },
-    { value: 'selected', label: 'Only the teams I pick', 'data-attr': 'signal-source-linear-teams-selected' },
-]
 
 export interface LinearTeamsModalProps {
     config: SignalSourceConfig | null
@@ -32,8 +26,7 @@ export function LinearTeamsModal({
     const formId = useId()
     const logicProps: LinearTeamsModalLogicProps = { config, enableOnSave, viaSetupWizard, onClose }
     const logic = linearTeamsModalLogic(logicProps)
-    const { linearTeams, linearTeamsValidationErrors, isLinearIssuesToggling, linearIntegration, integrationsUnknown } =
-        useValues(logic)
+    const { isLinearTeamsValid, isLinearIssuesToggling, linearIntegration, integrationsUnknown } = useValues(logic)
 
     const handleClose = (): void => {
         if (isLinearIssuesToggling) {
@@ -42,20 +35,12 @@ export function LinearTeamsModal({
         onClose()
     }
 
-    const scopeError =
-        typeof linearTeamsValidationErrors.scope === 'string' ? linearTeamsValidationErrors.scope : undefined
-
-    // A radio group disables per option, so the saving reason goes on each one.
-    const scopeOptions = isLinearIssuesToggling
-        ? SCOPE_OPTIONS.map((option) => ({ ...option, disabledReason: 'Saving' }))
-        : SCOPE_OPTIONS
-
     return (
         <LemonModal
             isOpen
             onClose={handleClose}
             title="Linear teams"
-            description="Choose which Linear teams self-driving reads. It reads open issues only from those teams."
+            description="Select at least one team. Self-driving reads open issues from the teams you select."
             width={480}
             footer={
                 <>
@@ -71,7 +56,7 @@ export function LinearTeamsModal({
                         form={formId}
                         htmlType="submit"
                         loading={isLinearIssuesToggling}
-                        disabledReason={scopeError}
+                        disabledReason={isLinearTeamsValid ? undefined : LINEAR_TEAMS_REQUIRED}
                         data-attr="signal-source-linear-teams-save"
                     >
                         {enableOnSave && !config?.enabled ? 'Turn on Linear' : 'Save'}
@@ -80,37 +65,22 @@ export function LinearTeamsModal({
             }
         >
             <Form logic={linearTeamsModalLogic} props={logicProps} formKey="linearTeams" id={formId} enableFormOnSubmit>
-                <div className="flex flex-col gap-3">
-                    <LemonField name="scope">
-                        {({ value, onChange }) => (
-                            <LemonRadio
-                                value={value}
-                                onChange={onChange}
-                                options={scopeOptions}
-                                aria-label="Which Linear teams to read"
-                            />
-                        )}
+                {integrationsUnknown ? (
+                    <LemonSkeleton className="h-10" />
+                ) : linearIntegration ? (
+                    <LemonField
+                        name="teamIds"
+                        label="Teams"
+                        help="Applies from the next sync. Reports already in your inbox stay."
+                    >
+                        <LinearTeamsSelect integrationId={linearIntegration.id} disabled={isLinearIssuesToggling} />
                     </LemonField>
-                    {linearTeams.scope === 'selected' &&
-                        (integrationsUnknown ? (
-                            <LemonSkeleton className="h-10" />
-                        ) : linearIntegration ? (
-                            <LemonField
-                                name="teamIds"
-                                help="Applies from the next sync. Reports already in your inbox stay."
-                            >
-                                <LinearTeamsSelect
-                                    integrationId={linearIntegration.id}
-                                    disabled={isLinearIssuesToggling}
-                                />
-                            </LemonField>
-                        ) : (
-                            <LemonBanner type="warning">
-                                Couldn't find your Linear connection, so the team list isn't available. Reconnect Linear
-                                in integration settings, then try again.
-                            </LemonBanner>
-                        ))}
-                </div>
+                ) : (
+                    <LemonBanner type="warning">
+                        Couldn't find your Linear connection, so the team list isn't available. Reconnect Linear in
+                        integration settings, then try again.
+                    </LemonBanner>
+                )}
             </Form>
         </LemonModal>
     )

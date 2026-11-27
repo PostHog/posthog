@@ -260,6 +260,7 @@ export const SOURCE_DEFAULT_NOT_ACTIONABLE_KEY = 'default_not_actionable'
 export const SOURCE_STEERING_MAX_LENGTH = 2000
 /** Linear source only: the Linear team ids it reads issues from. Absent or empty means every team. */
 export const SOURCE_LINEAR_TEAM_IDS_KEY = 'linear_team_ids'
+export const LINEAR_TEAMS_REQUIRED = 'Select at least one Linear team.'
 /** Error tracking source only: the issue filter, compiled by the server, saved on every error tracking row. */
 export const SOURCE_ISSUE_FILTERS_KEY = 'issue_filters'
 /**
@@ -289,10 +290,14 @@ export function sourceFilterIsSet(config: Record<string, any> | null | undefined
     return !!savedSourceFilter(config)?.expression.trim()
 }
 
-// Anything that is not a list of ids reads as "every team", matching the backend's fallback.
+// Match scope_ids_problem so a malformed saved list cannot make a paused source look configured.
 export function linearTeamIdsFromConfig(config: Record<string, any> | null | undefined): string[] {
     const raw = config?.[SOURCE_LINEAR_TEAM_IDS_KEY]
-    return Array.isArray(raw) ? raw.filter((id): id is string => typeof id === 'string' && id.length > 0) : []
+    if (!Array.isArray(raw) || raw.length > 100) {
+        return []
+    }
+    const ids = raw.map((id) => (typeof id === 'string' ? id.trim() : ''))
+    return ids.every((id) => id && [...id].length <= 255) ? ids : []
 }
 
 /** Product analytics source only: which firing insight alerts become signals. */

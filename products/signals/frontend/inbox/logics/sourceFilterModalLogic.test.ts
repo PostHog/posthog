@@ -97,14 +97,14 @@ describe('sourceFilterModalLogic', () => {
         [
             'leaves an unchanged filter on its catalog version when only teams change',
             { hogql_filter: { expression: "project_name = 'Mobile'", catalog_version: 1 } },
-            { teamScope: 'all' as const },
-            { config_set: { linear_team_ids: [] } },
+            { teamIds: ['team-b'] },
+            { config_set: { linear_team_ids: ['team-b'] } },
         ],
         [
             'saves teams and the filter in one request',
             {},
-            { expression: 'assignee_id IS NULL', teamScope: 'all' as const },
-            { config_set: { hogql_filter: 'assignee_id IS NULL', linear_team_ids: [] } },
+            { expression: 'assignee_id IS NULL', teamIds: ['team-b'] },
+            { config_set: { hogql_filter: 'assignee_id IS NULL', linear_team_ids: ['team-b'] } },
         ],
     ])('%s', async (_, config, values, expectedBody) => {
         mountWith(config)
@@ -118,6 +118,18 @@ describe('sourceFilterModalLogic', () => {
         expect(onClose).toHaveBeenCalled()
     })
 
+    it('refuses to save after the last Linear team is removed', async () => {
+        mountWith({})
+        logic.actions.setSourceFilterValue('teamIds', [])
+
+        await expectLogic(logic, () => logic.actions.submitSourceFilter()).toDispatchActions([
+            'submitSourceFilterFailure',
+        ])
+
+        expect(patchBodies).toEqual([])
+        expect(onClose).not.toHaveBeenCalled()
+    })
+
     it('shows a rejected expression under the field until it is edited', async () => {
         rejectWith = 'hogql_filter: Use an unqualified field from the filter catalog.'
         mountWith({})
@@ -127,13 +139,11 @@ describe('sourceFilterModalLogic', () => {
             'submitSourceFilterFailure',
         ])
 
-        expect(logic.values.sourceFilterAllErrors).toEqual({
-            expression: 'Use an unqualified field from the filter catalog.',
-        })
+        expect(logic.values.sourceFilterAllErrors.expression).toBe('Use an unqualified field from the filter catalog.')
         expect(onClose).not.toHaveBeenCalled()
 
         logic.actions.setSourceFilterValue('expression', "project_name = 'Core'")
-        expect(logic.values.sourceFilterAllErrors).toEqual({})
+        expect(logic.values.sourceFilterHasErrors).toBe(false)
     })
 
     it('reports a failed Linear connection load and recovers on retry', async () => {

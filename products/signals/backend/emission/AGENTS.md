@@ -63,11 +63,11 @@ Each source defines how to fetch records via its `record_fetcher` on the config:
 - **Data warehouse fetcher** (`fetchers/data_warehouse.py`) — queries HogQL on warehouse tables.
   Receives `table_name`, `last_synced_at` and the team's `source_config` blob via the runtime context dict.
   A source that declares `scope_field` (a HogQL expression yielding a record's scope id) and `scope_config_key` (a list of allowed ids on `SignalSourceConfig.config`) gets an `IN` clause added to its query, so a team narrows a workspace-wide warehouse sync without changing what the warehouse imports.
-  An absent, empty, or malformed list means no narrowing.
+  An absent, empty, or malformed list skips the record query for a source that declares a scope.
   Declare the key per source in `contracts.SCOPE_CONFIG_KEYS` and read it from there, as `linear_issues.py` does for Linear team ids: the table stays out of `emission/` so the API serializer validates the same key without importing the emitters.
   A saved `hogql_filter` (`contracts.HOGQL_FILTER_KEY`) is bound to the filter catalog version it was saved against and ANDed into the same query before the limit (`source_filters.py`).
   A row with a malformed value in a field the filter uses never passes: the fetcher drops it and logs the count.
-  Unlike a malformed scope list, a saved filter that cannot be read or bound raises, so emission stops rather than reading unfiltered rows.
+  A saved filter that cannot be read or bound raises so emission can retry without reading unfiltered rows.
   The emit activity calls the fetcher through `fetch_window.fetch_records`, which keeps that failed window per warehouse schema: a filtered source's failed fetch stores its window start on `SignalSourceFilterState`, and the next fetch reads from there instead of `last_synced_at`.
   The activity calls `complete_fetch` only after the pipeline succeeds, and it clears the stored window only when the processed window covered it.
   Each failure and success also stores a fingerprint of the saved filter that produced it, so the API's `filter_status` ignores results from a filter since replaced.

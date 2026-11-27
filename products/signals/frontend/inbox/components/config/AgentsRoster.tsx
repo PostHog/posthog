@@ -91,7 +91,7 @@ const ENTITY_FILTER_THRESHOLD = 8
 function linearTeamsSummary(config: SignalSourceConfig): string {
     const count = linearTeamIdsFromConfig(config.config).length
     if (count === 0) {
-        return 'Reads issues from all Linear teams.'
+        return 'Select teams to read Linear issues.'
     }
     return `Reads issues from ${count} Linear ${count === 1 ? 'team' : 'teams'}.`
 }
@@ -670,6 +670,7 @@ interface AgentRowProps {
     anomalyScoring?: SourceAnomalyScoring
     onSteer?: () => void
     onRetryData: () => void
+    needsLinearTeams?: boolean
 }
 
 const AgentRow = memo(function AgentRow({
@@ -688,6 +689,7 @@ const AgentRow = memo(function AgentRow({
     anomalyScoring,
     onSteer,
     onRetryData,
+    needsLinearTeams,
 }: AgentRowProps): JSX.Element {
     const { armed, loading, requiresSetup, syncStatus, entities } = state
     const status = resolveAgentStatus(armed, syncStatus)
@@ -696,9 +698,11 @@ const AgentRow = memo(function AgentRow({
     const armingBlocked = productOff && !armed
     const warehouseSource = isExternalSignalSource(agent.source)
     const tag =
-        warehouseSource && !loading && !armed
-            ? { label: state.connected ? 'Connected · Off' : 'Not connected', type: 'default' as LemonTagType }
-            : notableTag(status, armed, productOff, product)
+        needsLinearTeams && !loading
+            ? { label: 'Select teams', type: 'caution' as const }
+            : warehouseSource && !loading && !armed
+              ? { label: state.connected ? 'Connected · Off' : 'Not connected', type: 'default' as LemonTagType }
+              : notableTag(status, armed, productOff, product)
     // A source whose entities the user creates gets no master switch. Arming it would write to
     // every entity at once, and turning it off and on again would not restore the earlier subset.
     const hasMasterSwitch = !agent.entitiesAreUserCreated
@@ -1165,6 +1169,10 @@ export function AgentsRoster(): JSX.Element {
                     : null
             // The filter editor holds the Linear teams once its fields load, so the teams get no button of their own.
             const teamsInEditor = agent.source === 'linear' && catalogState?.status === 'ready'
+            const needsLinearTeams =
+                agent.source === 'linear' &&
+                linearIssuesConfig !== null &&
+                linearTeamIdsFromConfig(linearIssuesConfig.config).length === 0
             const expressionFilter: SourceExpressionFilter | undefined =
                 filterConfig && catalogState && catalogState.status !== 'unavailable'
                     ? {
@@ -1196,7 +1204,7 @@ export function AgentsRoster(): JSX.Element {
                     !linearIssuesConfig.id.startsWith('new_')
                   ? {
                         summary: linearTeamsSummary(linearIssuesConfig),
-                        changeLabel: 'Change teams',
+                        changeLabel: needsLinearTeams ? 'Select teams' : 'Change teams',
                         onChange: () => openLinearTeamsPicker({ enableOnSave: false, viaSetupWizard: false }),
                         // A save or reload can replace the row, and the picker reads it on open.
                         disabledReason: isLinearIssuesToggling
@@ -1222,6 +1230,7 @@ export function AgentsRoster(): JSX.Element {
                     onEnableProduct={(product) => product.enablement && enableSourceProduct(product.enablement)}
                     filters={filters}
                     expressionFilter={expressionFilter}
+                    needsLinearTeams={needsLinearTeams}
                     alertScope={agent.source === 'analytics' ? alertScope : undefined}
                     anomalyScoring={agent.source === 'analytics' ? anomalyScoring : undefined}
                     onSteer={

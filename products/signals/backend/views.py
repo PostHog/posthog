@@ -930,7 +930,7 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def perform_update(self, serializer):
         instance = cast(SignalSourceConfig, serializer.instance)
-        was_enabled = instance.enabled
+        was_enabled = instance.effectively_enabled
 
         # The source keys are the row's identity and decide its canonical team_id on create
         # (`_config_team_id`); retagging them in place would strand the row on the wrong team —
@@ -955,7 +955,7 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 {"source_product": "A configuration for this source product and type already exists for this team."}
             )
 
-        if instance.enabled and not was_enabled:
+        if instance.effectively_enabled and not was_enabled:
             transaction.on_commit(partial(self._trigger_data_import_sync, instance))
 
     # Maps source_product to ExternalDataSourceType value for data import sources

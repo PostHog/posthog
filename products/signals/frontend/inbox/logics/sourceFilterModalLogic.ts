@@ -39,6 +39,7 @@ import {
 import { syncedLinearIntegration } from '../linearSyncedIntegration'
 import { signalSourcesLogic } from '../signalSourcesLogic'
 import {
+    LINEAR_TEAMS_REQUIRED,
     SOURCE_HOGQL_FILTER_KEY,
     SOURCE_LINEAR_TEAM_IDS_KEY,
     SavedSourceFilter,
@@ -48,20 +49,17 @@ import {
     linearTeamIdsFromConfig,
     savedSourceFilter,
 } from '../types'
-import type { LinearTeamsScope } from './linearTeamsModalLogic'
 
 export interface SourceFilterFormValues {
     expression: string
-    /** Linear issues only: which teams the source reads, saved to `linear_team_ids` next to the filter. */
-    teamScope: LinearTeamsScope
     teamIds: string[]
+    _form?: string
 }
 
 /** What one save writes. `undefined` leaves a key as it is. */
 interface SourceFilterChange {
     /** The expression to save, or null to remove the filter. */
     expression?: string | null
-    /** Linear team ids to read, where an empty list means every team. */
     teamIds?: string[]
 }
 
@@ -70,11 +68,9 @@ export function sourceReadsLinearTeams(config: SignalSourceConfig): boolean {
 }
 
 function formDefaults(config: SignalSourceConfig): SourceFilterFormValues {
-    const teamIds = linearTeamIdsFromConfig(config.config)
     return {
         expression: savedSourceFilter(config.config)?.expression ?? '',
-        teamScope: teamIds.length > 0 ? 'selected' : 'all',
-        teamIds,
+        teamIds: linearTeamIdsFromConfig(config.config),
     }
 }
 
@@ -96,11 +92,8 @@ function changeFrom(values: SourceFilterFormValues, config: SignalSourceConfig):
     } else if (!trimmed && saved) {
         change.expression = null
     }
-    if (sourceReadsLinearTeams(config)) {
-        const teamIds = values.teamScope === 'all' ? [] : values.teamIds
-        if (!sameTeams(teamIds, linearTeamIdsFromConfig(config.config))) {
-            change.teamIds = teamIds
-        }
+    if (sourceReadsLinearTeams(config) && !sameTeams(values.teamIds, linearTeamIdsFromConfig(config.config))) {
+        change.teamIds = values.teamIds
     }
     return change
 }
@@ -409,12 +402,10 @@ export const sourceFilterModalLogic: LogicWrapper<sourceFilterModalLogicType> = 
     forms((logic) => ({
         sourceFilter: {
             defaults: formDefaults(logic.props.sourceConfig),
-            // The message hangs off `teamScope` because kea-forms types an array field's error as one
-            // entry per item, and this is about the list as a whole.
-            errors: ({ teamScope, teamIds }: SourceFilterFormValues) => ({
-                teamScope:
-                    sourceReadsLinearTeams(logic.props.sourceConfig) && teamScope === 'selected' && teamIds.length === 0
-                        ? 'Pick at least one team, or read all teams.'
+            errors: ({ teamIds }: SourceFilterFormValues) => ({
+                _form:
+                    sourceReadsLinearTeams(logic.props.sourceConfig) && teamIds.length === 0
+                        ? LINEAR_TEAMS_REQUIRED
                         : undefined,
             }),
             submit: async (values: SourceFilterFormValues) => {
