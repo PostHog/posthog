@@ -355,6 +355,18 @@ class TestPlaywrightSpecSelection(unittest.TestCase):
         tailwind_source = selection.select(["services/mcp/src/ui-apps/lib/theme.ts"], area_map, all_specs)
         self.assertEqual(tailwind_source["full_run_reason_category"], "force_full")
 
+    def test_real_map_keeps_spec_and_tailwind_inputs_out_of_the_inert_lists(self) -> None:
+        area_map = selection.load_map(selection.MAP_PATH)
+        all_specs = selection.discover_specs(selection.REPO_ROOT)
+        fixture = selection.select(
+            ["frontend/src/mocks/fixtures/_billing.tsx", "products/surveys/frontend/logic.ts"], area_map, all_specs
+        )
+        self.assertIn("products/billing/frontend/e2e/billing-usage-spend.spec.ts", fixture["spec_files"])
+        story = selection.select(
+            ["frontend/src/lib/lemon-ui/colors.stories.tsx", "products/surveys/frontend/logic.ts"], area_map, all_specs
+        )
+        self.assertEqual(story["full_run_reason_category"], "force_full")
+
     def test_real_map_runs_the_workflows_specs_for_generated_messaging_clients(self) -> None:
         area_map = selection.load_map(selection.MAP_PATH)
         all_specs = selection.discover_specs(selection.REPO_ROOT)

@@ -27,7 +27,7 @@ provably adds nothing; the third is a deliberate trust trade:
   `all_ignored`) — running nothing is a trust-model change this selector
   deliberately doesn't make; the category exists to measure how much a skip
   mode would save before anyone builds it. `force_full_exempt` is the one
-  narrow exception to that precedence: a unit test, story, or Jest mock that
+  narrow exception to that precedence: a unit test or Jest mock that
   falls inside a `force_full` tree (a test under `frontend/src/lib/`, a
   `test_middleware.py`) contributes nothing, because it never enters the app
   bundle or the server. Outside `force_full` trees it has no effect, so a
