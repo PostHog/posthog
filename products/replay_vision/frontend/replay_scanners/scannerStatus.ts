@@ -51,6 +51,9 @@ export function isOffByChoice(
     return !!scanner && scanner.enabled === false && (!scanner.disabled_reason || scanner.disabled_reason === 'manual')
 }
 
+// A sweep tick runs every few minutes, so checking once a minute keeps a status close without a request storm.
+export const STATUS_POLL_MS = 60_000
+
 export function isOffForAReason(status: ScannerStatus | undefined): boolean {
     return status?.kind === 'off' && !!status.reason && status.reason !== 'manual'
 }

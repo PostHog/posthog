@@ -104,6 +104,7 @@ import {
 import { consumeScannerGoalDraftIntent, consumeScannerHandoffIntent } from './scannerHandoffIntent'
 import type { ObservationStatusStats } from './scannerStats'
 import { availableTagsFromStats, deriveObservationStatusStats } from './scannerStats'
+import { STATUS_POLL_MS } from './scannerStatus'
 import {
     ExperimentScannerConfig,
     MAX_CREDIT_LIMIT,
@@ -118,9 +119,6 @@ import {
     scannerToApiBody,
     scannerToPatchedApiBody,
 } from './types'
-
-// A sweep tick runs every few minutes, so checking once a minute keeps the status close without a request storm.
-export const STATUS_POLL_MS = 60_000
 
 function serverStatusFields(
     scanner: ReplayScanner
@@ -1424,6 +1422,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 loadScannerSuccess: (_, { scanner }) => scanner,
                 // Keyed on the real save, not submitScannerSuccess — kea-forms fires that on the no-API advance path too.
                 scannerSaved: (_, { scanner }) => scanner,
+                // Mirrors the `scanner` patch so a background refresh never leaves the form looking edited.
+                scannerStatusRefreshed: (state, { scanner }) =>
+                    state ? { ...state, ...serverStatusFields(scanner) } : state,
                 toggleEnabledSuccess: (state, { saved }) =>
                     state ? { ...state, ...freeOnlyFields(saved), ...enabledFields(saved) } : state,
             },
@@ -2559,6 +2560,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             },
 
             toggleEnabled: async () => {
+                cache.statusWrites = (cache.statusWrites ?? 0) + 1
                 const scanner = values.scanner
                 if (props.id === 'new' || !scanner) {
                     actions.toggleEnabledFailure()
@@ -2756,9 +2758,15 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 if (!teamId || props.id === 'new') {
                     return
                 }
+                const writesBefore = cache.statusWrites ?? 0
                 try {
                     const response = await visionScannersRetrieve(String(teamId), props.id)
-                    if (!cache.disposables.isDisposed) {
+                    // A toggle that saved while this was in flight is newer than the response, so the response loses.
+                    if (
+                        !cache.disposables.isDisposed &&
+                        !values.togglingEnabled &&
+                        (cache.statusWrites ?? 0) === writesBefore
+                    ) {
                         actions.scannerStatusRefreshed(scannerFromApi(response))
                     }
                 } catch {

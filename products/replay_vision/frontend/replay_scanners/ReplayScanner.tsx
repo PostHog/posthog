@@ -24,6 +24,7 @@ import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { formatCreditsRange } from '../utils/credits'
 import { quotaBannerState } from '../utils/quotaProjection'
 import { ScannerObservationsTable } from './components/ScannerObservationsTable'
+import { ScannerPageMoreMenu } from './components/ScannerPageMoreMenu'
 import { ScannerStatusLabel } from './components/ScannerStatusLabel'
 import { ScannerStatusNote } from './components/ScannerStatusNote'
 import { replayScannerLogic } from './replayScannerLogic'
@@ -142,6 +143,7 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                             >
                                 Edit scanner
                             </Button>
+                            <ScannerPageMoreMenu scanner={scanner} />
                             <ReplayVisionFeedbackButton />
                         </>
                     ) : (
@@ -157,6 +159,7 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                             >
                                 Edit scanner
                             </LemonButton>
+                            <ScannerPageMoreMenu scanner={scanner} />
                             <ReplayVisionFeedbackButton />
                         </>
                     )

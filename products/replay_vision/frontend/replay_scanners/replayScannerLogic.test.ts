@@ -30,7 +30,6 @@ import {
     leaveScannerEditor,
     replayScannerLogic,
     shouldGuardScannerNavigation,
-    STATUS_POLL_MS,
 } from './replayScannerLogic'
 import { readScannerDraft, writeScannerDraft } from './scannerDraft'
 import { scannerEditorSceneLogic } from './scannerEditorSceneLogic'
@@ -40,6 +39,7 @@ import {
     markScannerGoalDraftIntent,
     markScannerHandoffIntent,
 } from './scannerHandoffIntent'
+import { STATUS_POLL_MS } from './scannerStatus'
 import { ClassifierScanner, ReplayScanner, ScorerScanner } from './types'
 
 jest.mock('lib/forms/scrollToFormError', () => ({
@@ -1797,6 +1797,7 @@ describe('replayScannerLogic', () => {
             expect(logic.values.scanner?.name).toBe('Edited')
             expect(logic.values.scanner?.last_swept_at).toBe('2026-08-13T10:00:00Z')
             expect(logic.values.scanner?.filter_error).toBe('Unknown property')
+            expect(logic.values.originalScanner?.filter_error).toBe('Unknown property')
         })
 
         // The scanner page's status leaves "Starting" only through this poll, so it must run and stop on cue.

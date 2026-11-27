@@ -5908,6 +5908,7 @@ class TestHighlightFeedAPI(_VisionAPITestCase):
         self.assertEqual(
             sorted(item["observation"]["session_id"] for item in resp.json()["results"]), ["open-sess", "open-sess-2"]
         )
+        assert resp.json()["observation_count"] == 2
 
     def test_restricted_picks_never_take_a_page_slot(self) -> None:
         experiment = create_experiment(self.team, "restricted-picks-flag")

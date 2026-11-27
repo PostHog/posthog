@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { combineUrl, router, urlToAction } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
 
 import { addProductIntent } from 'lib/utils/product-intents'
 import { teamLogic } from 'scenes/teamLogic'
@@ -18,7 +19,7 @@ import { visionScannersListLogic } from '../logics/visionScannersListLogic'
 import { quotaBannerState } from '../utils/quotaProjection'
 import { DEFAULT_FEED_DATE_FROM } from './highlightFeedLogic'
 import { ReplayScannerTab } from './replayScannerSceneLogic'
-import { type ScannerStatus, scannerStatus } from './scannerStatus'
+import { STATUS_POLL_MS, type ScannerStatus, scannerStatus } from './scannerStatus'
 import { type ReplayScanner, scannersFromApi } from './types'
 
 export const REPLAY_VISION_INTENT_DWELL_MS = 15000
@@ -71,6 +72,7 @@ export interface visionHomeLogicValues {
         hash: string
     } // router
     searchParams: Record<string, any> // router
+    currentTeamId: number | null // teamLogic
     quota: VisionQuotaApi | null // visionQuotaLogic
     scanners: ReplayScannerApi[] // visionScannersListLogic
     scannersLoading: boolean // visionScannersListLogic
@@ -95,6 +97,9 @@ export interface visionHomeLogicActions {
         searchInput: string | Record<string, any>
         url: string
     } // router
+    loadScanners: () => {
+        value: true
+    } // visionScannersListLogic
     loadHighlightCounts: () => {
         value: true
     }
@@ -172,8 +177,10 @@ export const visionHomeLogic = kea<visionHomeLogicType>([
             ['recordingsBlock'],
             router,
             ['searchParams', 'location'],
+            teamLogic,
+            ['currentTeamId'],
         ],
-        actions: [router, ['push']],
+        actions: [router, ['push'], visionScannersListLogic, ['loadScanners']],
     })),
 
     actions({
@@ -291,6 +298,25 @@ export const visionHomeLogic = kea<visionHomeLogicType>([
                       ? { ...rest, tab: view }
                       : { ...rest, scanner: view }
             )
+        },
+    })),
+
+    subscriptions(({ actions, cache }) => ({
+        // Starting and delayed end when a sweep tick finishes, which the home only sees by reloading the scanners.
+        scannerStatuses: (statuses: Record<string, ScannerStatus>) => {
+            if (Object.values(statuses).some((status) => status.kind === 'starting' || status.kind === 'delayed')) {
+                cache.disposables.add(() => {
+                    const timer = setInterval(() => actions.loadScanners(), STATUS_POLL_MS)
+                    return () => clearInterval(timer)
+                }, 'statusPoll')
+            } else {
+                cache.disposables.dispose('statusPoll')
+            }
+        },
+        currentTeamId: (teamId: number | null, previous: number | null | undefined) => {
+            if (previous !== undefined && teamId !== previous) {
+                actions.loadHighlightCounts()
+            }
         },
     })),
 

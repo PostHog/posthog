@@ -9,6 +9,7 @@ import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-genera
 import { initKeaTests } from '~/test/init'
 
 import { visionScannersListLogic } from '../logics/visionScannersListLogic'
+import { STATUS_POLL_MS } from './scannerStatus'
 import { REPLAY_VISION_INTENT_DWELL_MS, visionHomeLogic } from './visionHomeLogic'
 
 jest.mock('lib/utils/product-intents', () => ({
@@ -66,6 +67,37 @@ describe('visionHomeLogic', () => {
         await expectLogic(visionScannersListLogic).toDispatchActions(['loadScannersSuccess'])
         router.actions.push(destination)
         expect(logic.values.view).toBe('scanner-a')
+    })
+
+    it('reloads the scanners while one is starting', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team/vision/scanners/': {
+                    results: [
+                        {
+                            id: 'scanner-a',
+                            name: 'A',
+                            enabled: true,
+                            sweep_interval_minutes: 5,
+                            created_at: new Date().toISOString(),
+                            last_swept_at: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+                        },
+                    ],
+                    next: null,
+                },
+            },
+        })
+        // Only intervals are faked, so the mocked requests still resolve on their own.
+        jest.useFakeTimers({ doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate', 'setTimeout', 'Date'] })
+        try {
+            logic.mount()
+            await expectLogic(visionScannersListLogic).toDispatchActions(['loadScannersSuccess'])
+            expect(logic.values.scannerStatuses['scanner-a'].kind).toBe('starting')
+            jest.advanceTimersByTime(STATUS_POLL_MS)
+            await expectLogic(visionScannersListLogic).toDispatchActions(['loadScanners'])
+        } finally {
+            jest.useRealTimers()
+        }
     })
 
     describe('shallow product intent', () => {
