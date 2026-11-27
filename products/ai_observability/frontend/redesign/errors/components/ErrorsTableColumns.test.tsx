@@ -21,6 +21,7 @@ function changeCell(firstSeen: CellLoads<ErrorFirstSeen>): string {
                 order: 'occurrences',
                 onOrder: () => {},
                 firstSeen,
+                timezone: 'UTC',
                 'data-attr': 'errors-list',
             })}
             dataSource={[makeErrorListItem({ key: 'error-1', changeLabel: 'was 0' })]}

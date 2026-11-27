@@ -23,6 +23,8 @@ export interface ErrorsTableColumnsOptions {
     order: AiObservabilityErrorsListOrder | null
     onOrder: (order: AiObservabilityErrorsListOrder) => void
     firstSeen: CellLoads<ErrorFirstSeen>
+    /** The project's timezone, which first seen dates are shown in. */
+    timezone: string
     'data-attr': string
 }
 
@@ -39,6 +41,7 @@ export function errorsTableColumns({
     order,
     onOrder,
     firstSeen,
+    timezone,
     'data-attr': dataAttr,
 }: ErrorsTableColumnsOptions): LemonTableColumns<ErrorListItemApi> {
     const sortable = (
@@ -130,7 +133,7 @@ export function errorsTableColumns({
         {
             title: 'First seen',
             key: 'first_seen',
-            render: (_, { key }) => <FirstSeenCell load={firstSeen.get(key)} />,
+            render: (_, { key }) => <FirstSeenCell load={firstSeen.get(key)} timezone={timezone} />,
         },
         {
             ...sortable('Last seen', AiObservabilityErrorsListOrder.LastSeen),

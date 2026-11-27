@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
-import { ApiConfig } from 'lib/api'
+import { ApiConfig, isAbortError } from 'lib/api'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { objectsEqual } from 'lib/utils/objects'
 
@@ -22,12 +22,14 @@ import {
     EntitySeed,
     RECENT_TRACES_LIMIT,
     ReadFor,
+    createPreviewReader,
     detailLoadOf,
     drawerReadParams,
+    entityKeyParam,
     isReportedFailure,
     latest,
-    readMissingPreviews,
     recentTracesLoadOf,
+    replaceableRead,
     rowWithKey,
     scopedTracesHref,
     shownItem,
@@ -48,6 +50,8 @@ import { isNewError } from './isNewError'
 
 // pinned: the param of the open error's key, which saved links read
 const ERROR_PARAM = 'error'
+const DETAIL_READ = 'detailRead'
+const RECENT_TRACES_READ = 'recentTracesRead'
 
 /** The traces list's error scope takes the message, which a row or the detail gives the drawer. */
 export interface ErrorTracesRequest {
@@ -226,7 +230,7 @@ export const errorDrawerLogic = kea<errorDrawerLogicType>([
         previewsFailed: (traceIds: string[]) => ({ traceIds }),
         previewsLoaded: (items: TracePreviewApi[]) => ({ items }),
     }),
-    loaders(() => ({
+    loaders(({ cache }) => ({
         detail: [
             null as ReadFor<ErrorGroupDetailApi> | null,
             {
@@ -235,7 +239,8 @@ export const errorDrawerLogic = kea<errorDrawerLogicType>([
                         aiObservabilityErrorsRetrieve(
                             String(ApiConfig.getCurrentProjectId()),
                             request.key,
-                            request.params
+                            request.params,
+                            { signal: replaceableRead(cache, DETAIL_READ) }
                         ),
                         breakpoint
                     )
@@ -251,11 +256,11 @@ export const errorDrawerLogic = kea<errorDrawerLogicType>([
                     breakpoint
                 ): Promise<ReadFor<TraceListItemApi[]>> => {
                     const page = await latest(
-                        aiObservabilityTracesList(String(ApiConfig.getCurrentProjectId()), {
-                            ...request.params,
-                            error: request.message,
-                            limit: RECENT_TRACES_LIMIT,
-                        }),
+                        aiObservabilityTracesList(
+                            String(ApiConfig.getCurrentProjectId()),
+                            { ...request.params, error: request.message, limit: RECENT_TRACES_LIMIT },
+                            { signal: replaceableRead(cache, RECENT_TRACES_READ) }
+                        ),
                         breakpoint
                     )
                     return { request, value: page.items }
@@ -271,18 +276,22 @@ export const errorDrawerLogic = kea<errorDrawerLogicType>([
                 close: () => null,
             },
         ],
+        // An aborted read was closed or replaced, so it is no failure of what the drawer shows.
         detailFailure: [
             null as LoadFailure | null,
             {
                 loadErrorDetail: () => null,
-                loadErrorDetailFailure: (_, { errorObject }) => toLoadFailure(errorObject),
+                loadErrorDetailFailure: (state, { errorObject }) =>
+                    isAbortError(errorObject) ? state : toLoadFailure(errorObject),
             },
         ],
+        // Another error's detail read clears the failure too, since its traces wait for its message.
         recentTracesFailed: [
             false,
             {
+                loadErrorDetail: () => false,
                 loadErrorRecentTraces: () => false,
-                loadErrorRecentTracesFailure: () => true,
+                loadErrorRecentTracesFailure: (state, { errorObject }) => (isAbortError(errorObject) ? state : true),
             },
         ],
         previews: [
@@ -303,7 +312,7 @@ export const errorDrawerLogic = kea<errorDrawerLogicType>([
             () => [router.selectors.location],
             ({ pathname, search }: { pathname: string; search: string }): string | null =>
                 removeProjectIdIfPresent(pathname) === ERRORS_LIST_FILTERS.path
-                    ? rawSearchParam(search, ERROR_PARAM)
+                    ? entityKeyParam(rawSearchParam(search, ERROR_PARAM))
                     : null,
         ],
         readParams: [
@@ -390,45 +399,56 @@ export const errorDrawerLogic = kea<errorDrawerLogicType>([
                 openMessage ? scopedTracesHref(location, searchParams, { kind: 'error', value: openMessage }) : null,
         ],
     }),
-    listeners(({ actions, values }) => ({
-        openError: ({ item }) => {
-            if (item.key === values.openKey) {
-                return
-            }
-            actions.setSeed({ item, params: values.readParams })
-            diagnosticsTracking.entityOpened({ kind: 'error', trigger: 'row' })
-            router.actions.push(...currentUrlWith(router.values, { ...CLOSED_TRACE_DRAWER, [ERROR_PARAM]: item.key }))
-        },
-        close: () => {
-            router.actions.push(...currentUrlWith(router.values, { [ERROR_PARAM]: undefined }))
-        },
-        retry: () => {
-            const { request, tracesRequest, detailFailure, recentTracesFailed } = values
-            if (request && detailFailure === 'failed') {
-                actions.loadErrorDetail(request)
-            }
-            if (tracesRequest && recentTracesFailed) {
-                actions.loadErrorRecentTraces(tracesRequest)
-            }
-        },
-        loadErrorDetailFailure: ({ errorObject }) => {
-            if (isReportedFailure(errorObject)) {
-                diagnosticsTracking.readFailed({ kind: 'error', read: 'detail' })
-            }
-        },
-        loadErrorRecentTracesFailure: ({ errorObject }) => {
-            if (isReportedFailure(errorObject)) {
-                diagnosticsTracking.readFailed({ kind: 'error', read: 'recent_traces' })
-            }
-        },
-        loadErrorRecentTracesSuccess: async ({ recentTraces }, breakpoint) =>
-            readMissingPreviews(recentTraces.value, values.previews, actions, breakpoint),
-    })),
+    listeners(({ actions, values, cache }) => {
+        const readPreviews = createPreviewReader(cache, actions)
+        return {
+            openError: ({ item }) => {
+                if (item.key === values.openKey) {
+                    return
+                }
+                actions.setSeed({ item, params: values.readParams })
+                diagnosticsTracking.entityOpened({ kind: 'error', trigger: 'row' })
+                router.actions.push(
+                    ...currentUrlWith(router.values, { ...CLOSED_TRACE_DRAWER, [ERROR_PARAM]: item.key })
+                )
+            },
+            close: () => {
+                router.actions.push(...currentUrlWith(router.values, { [ERROR_PARAM]: undefined }))
+            },
+            retry: async () => {
+                const { request, tracesRequest, detailFailure, recentTracesFailed, openRecentTraces, previews } = values
+                if (request && detailFailure === 'failed') {
+                    actions.loadErrorDetail(request)
+                }
+                if (tracesRequest && recentTracesFailed) {
+                    actions.loadErrorRecentTraces(tracesRequest)
+                }
+                if (openRecentTraces) {
+                    await readPreviews(openRecentTraces, previews)
+                }
+            },
+            loadErrorDetailFailure: ({ errorObject }) => {
+                if (isReportedFailure(errorObject)) {
+                    diagnosticsTracking.readFailed({ kind: 'error', read: 'detail' })
+                }
+            },
+            loadErrorRecentTracesFailure: ({ errorObject }) => {
+                if (isReportedFailure(errorObject)) {
+                    diagnosticsTracking.readFailed({ kind: 'error', read: 'recent_traces' })
+                }
+            },
+            loadErrorRecentTracesSuccess: ({ recentTraces }) => readPreviews(recentTraces.value, values.previews),
+        }
+    }),
     // Each fires on mount with the URL's error, then each time the open error or its selection changes, the traces once
     // the error's message is known. A trace opened over the drawer changes neither, so the drawer keeps what it read.
-    subscriptions(({ actions, values }) => ({
+    subscriptions(({ actions, values, cache }) => ({
         request: (request: EntityRequest | null, previous: EntityRequest | null | undefined) => {
-            if (!request || (previous && objectsEqual(request, previous))) {
+            if (!request) {
+                cache.disposables.dispose(DETAIL_READ)
+                return
+            }
+            if (previous && objectsEqual(request, previous)) {
                 return
             }
             if (request.key !== previous?.key && values.seed?.item.key !== request.key) {
@@ -438,7 +458,9 @@ export const errorDrawerLogic = kea<errorDrawerLogicType>([
             actions.firstSeenWanted([request.key])
         },
         tracesRequest: (request: ErrorTracesRequest | null, previous: ErrorTracesRequest | null | undefined) => {
-            if (request && !(previous && objectsEqual(request, previous))) {
+            if (!request) {
+                cache.disposables.dispose(RECENT_TRACES_READ)
+            } else if (!(previous && objectsEqual(request, previous))) {
                 actions.loadErrorRecentTraces(request)
             }
         },
