@@ -60,6 +60,18 @@ const TRANSPORT_BASE_BACKOFF_MS = 250
  *  connection cannot apply the same work twice. */
 const SAFE_HTTP_METHODS = new Set(['GET', 'HEAD'])
 
+/** A query on an external connection can call that database's own functions, and a read-only
+ *  transaction still runs side effects such as Postgres `pg_notify`, so it is never repeated. */
+export function targetsConnection(value: unknown): boolean {
+    if (Array.isArray(value)) {
+        return value.some(targetsConnection)
+    }
+    if (value === null || typeof value !== 'object') {
+        return false
+    }
+    return Object.entries(value).some(([key, v]) => (key === 'connectionId' && Boolean(v)) || targetsConnection(v))
+}
+
 /** An aborted request is the caller's own timeout or cancellation, so a retry
  *  would only wait for a deadline that has already passed. Everything else
  *  thrown out of `fetch` or a body read is a transport fault. */
@@ -1563,7 +1575,7 @@ export class ApiClient {
                         method: 'POST',
                         body: JSON.stringify({ query }),
                     },
-                    { idempotent: true }
+                    { idempotent: !targetsConnection(query) }
                 )
             },
 
@@ -1700,7 +1712,7 @@ export class ApiClient {
                 method: 'POST',
                 path: `/api/environments/${projectId}/query/`,
                 body: { query: wrappedQuery },
-                idempotent: true,
+                idempotent: !targetsConnection(wrappedQuery),
             })
 
             const baseUrl = this.getProjectBaseUrl(projectId)
@@ -1756,7 +1768,7 @@ export class ApiClient {
                         method: 'POST',
                         body: JSON.stringify({ query: queryBody }),
                     },
-                    { idempotent: true }
+                    { idempotent: !targetsConnection(queryBody) }
                 )
             },
 
@@ -1776,6 +1788,7 @@ export class ApiClient {
                 next_cursor?: string | null
                 hasMore?: boolean | null
             }> => {
+                const normalized = normalizeQuery(query)
                 return this.request<{
                     results: unknown
                     columns?: unknown[] | null
@@ -1788,8 +1801,8 @@ export class ApiClient {
                 }>({
                     method: 'POST',
                     path: `/api/environments/${projectId}/query/`,
-                    body: { query: normalizeQuery(query) },
-                    idempotent: true,
+                    body: { query: normalized },
+                    idempotent: !targetsConnection(normalized),
                     signal,
                 })
             },

@@ -878,17 +878,43 @@ describe('ApiClient', () => {
             expect(mockFetch).toHaveBeenCalledTimes(1)
         })
 
-        it('does not repeat a raw execute-sql call whose outcome is unknown', async () => {
+        const notifyQuery = { kind: 'HogQLQuery', query: "SELECT pg_notify('jobs', 'run')", connectionId: 'conn_1' }
+
+        it.each([
+            {
+                name: 'raw execute-sql call',
+                send: (context: Context) =>
+                    executeSqlHandler(context, {
+                        query: notifyQuery.query,
+                        truncate: true,
+                        connectionId: 'conn_1',
+                        sendRawQuery: true,
+                    }),
+            },
+            {
+                name: 'compiled execute-sql call',
+                send: (context: Context) =>
+                    executeSqlHandler(context, { query: notifyQuery.query, truncate: true, connectionId: 'conn_1' }),
+            },
+            {
+                name: 'query tool run',
+                send: (context: Context) =>
+                    context.api
+                        .query({ projectId: '17' })
+                        .runQuery({ query: { kind: 'DataVisualizationNode', source: notifyQuery } }),
+            },
+            {
+                name: 'query execution',
+                send: (context: Context) => context.api.query({ projectId: '17' }).execute({ queryBody: notifyQuery }),
+            },
+            {
+                name: 'insight query',
+                send: (context: Context) => context.api.insights({ projectId: '17' }).query({ query: notifyQuery }),
+            },
+        ])('does not repeat a $name on an external connection', async ({ send }) => {
             const mockFetch = stubFetch()
 
-            await settle(
-                executeSqlHandler(skillContext(), {
-                    query: "SELECT pg_notify('jobs', 'run')",
-                    truncate: true,
-                    connectionId: 'conn_1',
-                    sendRawQuery: true,
-                })
-            )
+            await settle(send(skillContext()))
 
             expect(mockFetch).toHaveBeenCalledTimes(1)
         })

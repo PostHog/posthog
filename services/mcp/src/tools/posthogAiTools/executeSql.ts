@@ -1,5 +1,6 @@
 import type { z } from 'zod'
 
+import { targetsConnection } from '@/api/client'
 import { ExecuteSQLSchema } from '@/schema/tool-inputs'
 import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, type Context, type ToolBase } from '@/tools/types'
 
@@ -26,8 +27,7 @@ export const executeSqlHandler: ToolBase<typeof schema, ExecuteSqlResult>['handl
             ...(params.connectionId !== undefined && { connectionId: params.connectionId }),
             ...(params.sendRawQuery !== undefined && { sendRawQuery: params.sendRawQuery }),
         },
-        // A read-only transaction still allows side effects such as Postgres `pg_notify`, so raw SQL is never repeated.
-        { idempotent: !params.sendRawQuery }
+        { idempotent: !targetsConnection(params) }
     )
 
     return result.structured_content
