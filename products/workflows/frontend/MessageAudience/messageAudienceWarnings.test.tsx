@@ -461,25 +461,50 @@ describe('message audience warnings', () => {
         }
     )
 
-    it.each<{ destination: MessageAudienceDestination; label: string; path: string }>([
-        { destination: 'workflow', label: 'Build a custom workflow', path: urls.workflowNew() },
-        { destination: 'broadcast', label: 'Send a one-time email', path: urls.broadcastNew() },
-    ])('saves the $destination with the attempt of the click that opened it', async ({ destination, label, path }) => {
-        const capture = jest.spyOn(posthog, 'capture')
-        useEnvironmentMocks({ [projectId()]: { senders: [verified], draftRequests, createRequests } })
-        allowWorkflowEditing()
-        router.actions.push('/project/997/early_access_features/1')
-        render(<MessageAudienceButton audience={earlyAccess} label="Email opted-in users" />)
+    it.each<{ destination: MessageAudienceDestination; label: string; path: string; how: string; warning?: string }>([
+        { destination: 'workflow', label: 'Build a custom workflow', path: urls.workflowNew(), how: 'directly' },
+        { destination: 'broadcast', label: 'Send a one-time email', path: urls.broadcastNew(), how: 'directly' },
+        {
+            destination: 'workflow',
+            label: 'Build a custom workflow',
+            path: urls.workflowNew(),
+            how: 'through Continue',
+            warning: TEST_SENDER_FOR_WORKFLOW,
+        },
+        {
+            destination: 'broadcast',
+            label: 'Send a one-time email',
+            path: urls.broadcastNew(),
+            how: 'through Continue',
+            warning: NO_SENDER,
+        },
+    ])(
+        'saves the $destination opened $how with the attempt of the click that opened it',
+        async ({ destination, label, path, warning }) => {
+            const capture = jest.spyOn(posthog, 'capture')
+            useEnvironmentMocks({
+                [projectId()]: warning
+                    ? { senders: [], sandbox: { ...testSender, integration_id: 12 }, draftRequests, createRequests }
+                    : { senders: [verified], draftRequests, createRequests },
+            })
+            allowWorkflowEditing()
+            router.actions.push('/project/997/early_access_features/1')
+            render(<MessageAudienceButton audience={earlyAccess} label="Email opted-in users" />)
 
-        fireEvent.click(screen.getByText('Email opted-in users'))
-        fireEvent.click(await screen.findByText(label))
-        await waitFor(() => expect(router.values.location.pathname).toEqual(`/project/${projectId()}${path}`))
-        cleanup()
+            fireEvent.click(screen.getByText('Email opted-in users'))
+            fireEvent.click(await screen.findByText(label))
+            if (warning) {
+                expect(await screen.findByText(warning)).toBeInTheDocument()
+                fireEvent.click(screen.getByText('Continue'))
+            }
+            await waitFor(() => expect(router.values.location.pathname).toEqual(`/project/${projectId()}${path}`))
+            cleanup()
 
-        const [clicked] = clickAttempts(capture)
-        expect(clicked).toEqual(expect.stringMatching(/^[0-9a-f-]{36}$/))
-        expect(await savedAttempt[destination]()).toEqual(clicked)
-    })
+            const [clicked] = clickAttempts(capture)
+            expect(clicked).toEqual(expect.stringMatching(/^[0-9a-f-]{36}$/))
+            expect(await savedAttempt[destination]()).toEqual(clicked)
+        }
+    )
 
     it('saves the attempt of the click whose broadcast opens when a second click lands during its checks', async () => {
         const capture = jest.spyOn(posthog, 'capture')

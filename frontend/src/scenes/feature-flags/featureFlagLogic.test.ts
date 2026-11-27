@@ -1607,7 +1607,8 @@ describe('featureFlagLogic', () => {
             ])
             expect(lemonToast.loading).toHaveBeenCalledTimes(1)
             expect(lemonToast.dismiss).toHaveBeenCalledWith((lemonToast.loading as jest.Mock).mock.results[0].value)
-            const broadcastDetails = { name: 'test-flag announcement', source: 'feature_flag' }
+            const [[, { attempt_id: attempt }]] = capturesOf('message audience clicked')
+            const broadcastDetails = { name: 'test-flag announcement', source: 'feature_flag', attempt }
             if (outcome === 'opened') {
                 expect(router.values.location.pathname).toContain('/broadcasts/new')
                 expect(JSON.parse(router.values.searchParams.audience)).toEqual([
