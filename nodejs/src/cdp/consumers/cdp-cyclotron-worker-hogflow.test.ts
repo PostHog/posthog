@@ -416,48 +416,62 @@ describe('CdpCyclotronWorkerHogFlow', () => {
                 true,
                 { '$device_push_subscription_com.example.app:abc': 'encrypted-token' },
             ],
-        ])('attaches the person to %s', async (_name, distinctId, event, sendsPush, expectedProperties) => {
-            const transactional = await insertHogFlow(
-                hub.postgres,
-                new FixtureHogFlowBuilder()
-                    .withTeamId(team.id)
-                    .withStatus('active')
-                    .withWorkflow({
-                        actions: {
-                            trigger: { type: 'trigger', config: { type: 'api' } },
-                            ...(sendsPush
-                                ? {
-                                      push: {
-                                          type: 'function_push',
-                                          config: { template_id: 'template-native-push', inputs: {} },
-                                      },
-                                  }
-                                : {}),
-                            exit: { type: 'exit', config: {} },
-                        },
-                        edges: sendsPush
-                            ? [
-                                  { from: 'trigger', to: 'push', type: 'continue' },
-                                  { from: 'push', to: 'exit', type: 'continue' },
-                              ]
-                            : [{ from: 'trigger', to: 'exit', type: 'continue' }],
-                    } as any)
-                    .build()
-            )
-            const invocation = createSerializedHogFlowInvocation(transactional, {
-                event: { event, distinct_id: distinctId, properties: {} } as any,
-            })
+            [
+                'a transactional push whose step sends to someone else without their devices',
+                'push_person',
+                '$transactional_push',
+                true,
+                {},
+                '{{ variables.target }}',
+            ],
+        ])(
+            'attaches the person to %s',
+            async (_name, distinctId, event, sendsPush, expectedProperties, recipient = '{{ event.distinct_id }}') => {
+                const transactional = await insertHogFlow(
+                    hub.postgres,
+                    new FixtureHogFlowBuilder()
+                        .withTeamId(team.id)
+                        .withStatus('active')
+                        .withWorkflow({
+                            actions: {
+                                trigger: { type: 'trigger', config: { type: 'api' } },
+                                ...(sendsPush
+                                    ? {
+                                          push: {
+                                              type: 'function_push',
+                                              config: {
+                                                  template_id: 'template-native-push',
+                                                  inputs: { distinctId: { value: recipient, templating: 'liquid' } },
+                                              },
+                                          },
+                                      }
+                                    : {}),
+                                exit: { type: 'exit', config: {} },
+                            },
+                            edges: sendsPush
+                                ? [
+                                      { from: 'trigger', to: 'push', type: 'continue' },
+                                      { from: 'push', to: 'exit', type: 'continue' },
+                                  ]
+                                : [{ from: 'trigger', to: 'exit', type: 'continue' }],
+                        } as any)
+                        .build()
+                )
+                const invocation = createSerializedHogFlowInvocation(transactional, {
+                    event: { event, distinct_id: distinctId, properties: {} } as any,
+                })
 
-            const results = (await processor.processInvocations([
-                invocation,
-            ])) as CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>[]
+                const results = (await processor.processInvocations([
+                    invocation,
+                ])) as CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>[]
 
-            // The send is still recorded against the person, but the template can't read what they hold.
-            expect(results[0].invocation.person).toMatchObject({ properties: expectedProperties, name: '' })
-            expect(Object.keys(results[0].invocation.person!.properties)).toEqual(Object.keys(expectedProperties))
-            const refreshed = await results[0].invocation.refreshPerson!()
-            expect(refreshed.person).toMatchObject({ properties: expectedProperties, name: '' })
-        })
+                // The send is still recorded against the person, but the template can't read what they hold.
+                expect(results[0].invocation.person).toMatchObject({ properties: expectedProperties, name: '' })
+                expect(Object.keys(results[0].invocation.person!.properties)).toEqual(Object.keys(expectedProperties))
+                const refreshed = await results[0].invocation.refreshPerson!()
+                expect(refreshed.person).toMatchObject({ properties: expectedProperties, name: '' })
+            }
+        )
 
         it('should make minimal calls to the person manager', async () => {
             const personManagerSpy = jest.spyOn(processor['personsManager'] as any, 'fetchPersonsByDistinctIds')
