@@ -69,7 +69,9 @@ export function DescriptionInfo({ description }: { description: string }): JSX.E
             >
                 <IconInfo />
             </TooltipTrigger>
-            <TooltipContent className="max-w-80">{description}</TooltipContent>
+            <TooltipContent className="max-w-80">
+                <span className="line-clamp-6">{description}</span>
+            </TooltipContent>
         </Tooltip>
     )
 }
