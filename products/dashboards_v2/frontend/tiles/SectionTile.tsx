@@ -20,10 +20,17 @@ import {
 } from '@posthog/quill'
 
 import { useDashboard } from '../dashboard/core/dashboardContext'
-import { GRID, type SectionPanel, type Tile, isSection, spanPx } from '../dashboard/document/dashboardTypes'
+import {
+    GRID,
+    type SectionPanel,
+    type Tile,
+    isSection,
+    sectionDescriptionRows,
+    spanPx,
+} from '../dashboard/document/dashboardTypes'
 import { everyTile } from '../dashboard/document/tileTree'
 import type { OnSectionRows } from '../grid/TileGrid'
-import { DESCRIPTION_ICON_CLASS, DESCRIPTION_IMAGE_ONLY_CLASS, DescriptionInfo } from './core/ContentTile'
+import { DESCRIPTION_IMAGE_ONLY_CLASS, DescriptionInfo } from './core/ContentTile'
 import { TileActions } from './core/TileActions'
 import { showsBorder, tileBackgroundStyle } from './core/tileAppearance'
 import { TileContextMenu, hasTileMenu } from './core/TileContextMenu'
@@ -74,9 +81,12 @@ export function SectionTile({
                 id,
                 rows === null
                     ? null
-                    : Math.max(panel.minRows ?? 0, GRID.sectionChromeRows + Math.max(GRID.emptySectionRows, rows))
+                    : Math.max(
+                          panel.minRows ?? 0,
+                          GRID.sectionChromeRows + sectionDescriptionRows(panel) + Math.max(GRID.emptySectionRows, rows)
+                      )
             ),
-        [id, onSectionRows, panel.minRows]
+        [id, onSectionRows, panel]
     )
 
     const emptyLabel = editable ? 'Drag tiles here' : 'No tiles'
@@ -105,6 +115,17 @@ export function SectionTile({
             <TileContextMenu actions={actions}>
                 <Section border={showsBorder(panel)} backgroundColor={panel.appearance?.backgroundColor}>
                     <SectionHeader
+                        description={
+                            description &&
+                            descriptionMode === 'below' && (
+                                <DescriptionInfo
+                                    description={description}
+                                    className="SectionTile__description TileGrid__text truncate text-left text-xs text-muted-foreground"
+                                >
+                                    {description}
+                                </DescriptionInfo>
+                            )
+                        }
                         actions={
                             (showAdd || hasMenu) && (
                                 <TileActions menu={hasMenu}>{showAdd && <AddTileMenu gridId={id} />}</TileActions>
@@ -120,27 +141,11 @@ export function SectionTile({
                             draft={draft}
                             onDraftChange={setDraft}
                         />
-                        <SectionCount count={panel.tiles.length} />
+                        {/* An open section shows its tiles, so the count only says something once it is closed. */}
+                        {collapsed && <SectionCount count={panel.tiles.length} />}
                         {description && descriptionMode === 'icon' && <DescriptionInfo description={description} />}
                         {description && descriptionMode === 'icon' && (
                             <span className={clsx(DESCRIPTION_IMAGE_ONLY_CLASS, DESCRIPTION_TEXT)}>{description}</span>
-                        )}
-                        {description && descriptionMode === 'below' && (
-                            <>
-                                <DescriptionInfo
-                                    description={description}
-                                    className={clsx(
-                                        DESCRIPTION_ICON_CLASS,
-                                        'SectionTile__description-narrow-icon shrink-0 text-muted-foreground'
-                                    )}
-                                />
-                                <DescriptionInfo
-                                    description={description}
-                                    className={clsx(DESCRIPTION_TEXT, 'SectionTile__description-text text-left')}
-                                >
-                                    {description}
-                                </DescriptionInfo>
-                            </>
                         )}
                     </SectionHeader>
                     {!collapsed && (
@@ -197,10 +202,22 @@ const TITLE_MAX_WIDTH = 'max-w-96'
 const DESCRIPTION_TEXT = 'TileGrid__text min-w-0 flex-1 basis-0 truncate text-xs text-muted-foreground'
 
 /** The section's title bar, which is also what the section is dragged by. */
-export function SectionHeader({ actions, children }: { actions?: ReactNode; children: ReactNode }): JSX.Element {
+export function SectionHeader({
+    actions,
+    description,
+    children,
+}: {
+    actions?: ReactNode
+    /** Shown on its own line under the title. The header is one grid row and gap taller with it. */
+    description?: ReactNode
+    children: ReactNode
+}): JSX.Element {
     return (
-        <CardHeader className="SectionTile__header TileGrid__handle">
+        <CardHeader
+            className={clsx('SectionTile__header TileGrid__handle', description && 'SectionTile__header--described')}
+        >
             <div className="flex items-center gap-1 min-w-0">{children}</div>
+            {description}
             {actions}
         </CardHeader>
     )

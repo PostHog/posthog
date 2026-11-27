@@ -60,6 +60,11 @@ export function isSectionPanel(panel: Panel): panel is SectionPanel {
     return panel.type === 'section'
 }
 
+/** A description shown under a section's title makes its header one grid row and gap (22px) taller. */
+export function sectionDescriptionRows(panel: SectionPanel): number {
+    return panel.description && panel.appearance?.description === 'below' ? 1 : 0
+}
+
 export function panelSize(panel: Panel, sizeOf: SizeOf): PanelSize {
     return isSectionPanel(panel) ? SECTION_SIZE : sizeOf(panel)
 }
