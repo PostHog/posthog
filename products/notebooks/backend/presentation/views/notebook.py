@@ -521,7 +521,9 @@ class NotebookSerializer(NotebookMinimalSerializer):
                     **validated_data,
                 )
                 if notebook.app_published is not None:
-                    record_release(notebook.team_id, notebook.pk)
+                    record_release(
+                        notebook.team_id, notebook.pk, actor=request.user, was_impersonated=is_impersonated(request)
+                    )
         except IntegrityError:
             existing_notebook = (
                 Notebook.objects.filter(team=team, short_id=short_id)
@@ -641,7 +643,13 @@ class NotebookSerializer(NotebookMinimalSerializer):
                 was_deleted = locked_instance.deleted
                 updated_notebook = super().update(locked_instance, validated_data)
                 if validated_data.get("app_published") is not None:
-                    record_release(updated_notebook.team_id, updated_notebook.pk, restore_previous=restore)
+                    record_release(
+                        updated_notebook.team_id,
+                        updated_notebook.pk,
+                        actor=self.context["request"].user,
+                        was_impersonated=is_impersonated(self.context["request"]),
+                        restore_previous=restore,
+                    )
                 if updated_notebook.deleted != was_deleted or (
                     "app_published" in validated_data and updated_notebook.app_published is None
                 ):

@@ -111,6 +111,8 @@ def _field_path_reaches_change_values(field_path: str) -> bool:
 
 class AdvancedActivityLogFilterManager:
     def apply_filters(self, queryset: QuerySet[ActivityLog], filters: dict[str, Any]) -> QuerySet[ActivityLog]:
+        if "entry_ids" in filters:
+            queryset = queryset.filter(pk__in=filters["entry_ids"])
         queryset = self._apply_date_filters(queryset, filters)
         queryset = self._apply_user_filters(queryset, filters)
         queryset = self._apply_scope_filters(queryset, filters)

@@ -12,14 +12,20 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.schema import QueryStatus
+
 from posthog.api.advanced_activity_logs import ActivityLogSerializer
-from posthog.models import OrganizationMembership
+from posthog.constants import AvailableFeature
+from posthog.models import OrganizationMembership, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.file_system.file_system import FileSystem
 from posthog.token_bucket import BucketDecision, BucketUnavailable, Budget
 
+from products.notebooks.backend.app_delivery import APP_OUTPUT_VERSION
 from products.notebooks.backend.app_release_results import capture_published_sql_rows
+from products.notebooks.backend.markdown_conversion import build_markdown_notebook_content
 from products.notebooks.backend.models import Notebook, NotebookAppEmbed, NotebookAppRelease, NotebookNodeRun
+from products.notebooks.backend.sql_v2_direct import sync_direct_run
 from products.notebooks.backend.tasks.app_embeds import cleanup_expired_app_embeds
 
 
@@ -43,6 +49,8 @@ class TestNotebookAppEmbeds(APIBaseTest):
             "description": "Active projects and completed sessions in the last seven days.",
         }
         result = {
+            "has_more": False,
+            "row_count": 4,
             "columns": ["workspace_id", "Project", "Sessions"],
             "first_page": [
                 ["coast", "Tide pools", 128],
@@ -152,7 +160,16 @@ class TestNotebookAppEmbeds(APIBaseTest):
             assert summary is not None
             assert summary["id"] == str(record.pk)
             assert summary["detail"] == {"changes": [{"field": "app_embed", "action": action}]}
-            assert "item_id" not in summary
+            assert {"item_id", "ip_address", "client", "credential_type", "credential_id"}.isdisjoint(summary)
+        lookup_id = records[0].pk
+        self.organization.available_product_features = [{"key": AvailableFeature.AUDIT_LOGS, "name": "Audit logs"}]
+        self.organization.save(update_fields=["available_product_features"])
+        audit_url = f"/api/projects/{self.team.pk}/advanced_activity_logs/"
+        lookup = self.client.get(audit_url, {"entry_ids": str(lookup_id)})
+        self.assertEqual(lookup.status_code, 200)
+        (matched,) = lookup.json()["results"]
+        assert matched["id"] == str(lookup_id)
+        self.assertContains(lookup, expected_digest)
         notebook_url = f"/api/projects/{self.team.pk}/notebooks/"
         notebook_detail = f"{notebook_url}{self.notebook.short_id}/"
         notebook_history = notebook_detail + "activity/"
@@ -165,11 +182,35 @@ class TestNotebookAppEmbeds(APIBaseTest):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save(update_fields=["level"])
         assert self.client.get(notebook_detail).status_code == 200
+        lookup = self.client.get(audit_url, {"entry_ids": str(lookup_id)})
+        self.assertEqual(lookup.status_code, 200)
+        assert lookup.json()["results"] == []
         for path in (team_feed, notebook_history):
             detail = self.client.get(path)
             self.assertNotContains(detail, "app_embed")
             self.assertNotContains(detail, expected_digest)
             self.assertNotContains(detail, embed.origin)
+
+    def test_notebook_owner_notifications_keep_ordinary_edits_visible(self) -> None:
+        owner = User.objects.create_and_join(self.organization, "editor@example.com", None)
+        self.notebook.created_by = owner
+        self.notebook.save(update_fields=["created_by"])
+        ordinary = ActivityLog.objects.create(
+            team_id=self.team.pk,
+            organization_id=self.organization.pk,
+            scope="Notebook",
+            item_id=self.notebook.short_id,
+            user=self.user,
+            activity="updated",
+            detail={"name": "Updated project report"},
+        )
+        self.issue("coast")
+        self.client.force_login(owner)
+        notifications = self.client.get(f"/api/projects/{self.team.pk}/my_notifications/")
+        self.assertContains(notifications, str(ordinary.pk))
+        self.assertNotContains(notifications, "app_embed")
+        self.assertNotContains(notifications, "portal.example.com")
+        self.assertNotContains(notifications, sha256(b"coast").hexdigest())
 
     def test_stale_release_cannot_be_shared_and_expired_audiences_release_capacity(self) -> None:
         stale = {**self.configuration("coast"), "revision": self.release.revision + 1}
@@ -201,13 +242,25 @@ class TestNotebookAppEmbeds(APIBaseTest):
     def test_older_snapshot_reopens_from_its_pinned_release_for_the_signed_tenant(self) -> None:
         path, token = self.issue("coast")
         old_tabs = [{"title": "Old view", "blocks": [{"text": "Previous projection"}]}]
-        for snapshot in [old_tabs, {"version": 1, "tabs": old_tabs}]:
+        for snapshot in [old_tabs, {"version": 1, "tabs": old_tabs}, {"version": APP_OUTPUT_VERSION, "tabs": old_tabs}]:
             with self.subTest(snapshot=snapshot):
                 NotebookAppEmbed.objects.for_team(self.team.pk).filter(release=self.release).update(snapshot=snapshot)
                 output = self.public.post(path, {"token": token}, HTTP_SEC_FETCH_DEST="iframe")
                 self.assertContains(output, "Tide pools")
                 self.assertNotContains(output, "Previous projection")
                 self.assertNotContains(output, "Orchard")
+
+    def test_unverified_legacy_release_cannot_reopen_an_old_tenant_snapshot(self) -> None:
+        path, token = self.issue("coast")
+        run_id = next(key for key in self.release.sql_rows if not key.startswith("schema:"))
+        self.release.sql_rows[f"schema:{run_id}"].pop("complete")
+        self.release.save(update_fields=["sql_rows"])
+        NotebookAppEmbed.objects.for_team(self.team.pk).filter(release=self.release).update(
+            snapshot={"version": APP_OUTPUT_VERSION, "tabs": []}
+        )
+        self.assertEqual(self.public.post(path, {"token": token}, HTTP_SEC_FETCH_DEST="iframe").status_code, 404)
+        response = self.client.post(self.management, self.configuration("grove"), format="json")
+        self.assertContains(response, "complete SQL results", status_code=400)
 
     def test_wrapped_table_only_embeds_published_columns_for_the_selected_tenant(self) -> None:
         run_id = next(key for key in self.release.sql_rows if not key.startswith("schema:"))
@@ -241,17 +294,29 @@ class TestNotebookAppEmbeds(APIBaseTest):
         assert response.status_code == 400
         self.assertContains(self.public.post(path, {"token": token}, HTTP_SEC_FETCH_DEST="iframe"), "Tide pools")
 
-    def test_single_number_shares_only_the_first_matching_tenant_value(self) -> None:
+    @parameterized.expand([(True,), (False,)])
+    def test_single_number_only_shares_the_rendered_column_for_the_signed_tenant(self, tenant_first: bool) -> None:
         self.release.markdown = self.release.markdown.replace(
             'outputTab="results"',
-            'vizQuery={{"display":"BoldNumber","tableSettings":{"columns":[{"column":"Sessions"}]}}}',
+            'vizQuery={{"display":"BoldNumber","tableSettings":{"columns":[{"column":"Project"}]}}}',
         )
-        self.release.save(update_fields=["markdown"])
-        path, token = self.issue("grove")
-        result = self.public.post(path, {"token": token}, HTTP_SEC_FETCH_DEST="iframe")
-        self.assertContains(result, "<td>93</td>", html=True)
-        for hidden in ("<td>128</td>", "<td>62</td>", "Orchard study", "workspace_id"):
-            self.assertNotContains(result, hidden)
+        if not tenant_first:
+            run_id = next(key for key in self.release.sql_rows if not key.startswith("schema:"))
+            self.release.sql_rows[f"schema:{run_id}"]["columns"] = ["Sessions", "workspace_id", "Project"]
+            self.release.sql_rows[run_id] = [
+                [count, tenant, project] for tenant, project, count in self.release.sql_rows[run_id]
+            ]
+        self.release.save(update_fields=["markdown", "sql_rows"])
+        if tenant_first:
+            response = self.client.post(self.management, self.configuration("grove"), format="json")
+            self.assertContains(response, "visible data column", status_code=400)
+            assert not NotebookAppEmbed.objects.for_team(self.team.pk).filter(release=self.release).exists()
+        else:
+            path, token = self.issue("grove")
+            result = self.public.post(path, {"token": token}, HTTP_SEC_FETCH_DEST="iframe")
+            self.assertContains(result, "<td>93</td>", html=True)
+            for hidden in ("<td>128</td>", "<td>62</td>", "Orchard study", "workspace_id"):
+                self.assertNotContains(result, hidden)
 
     @parameterized.expand([("unpublish",), ("project_tree",)])
     def test_withdrawing_a_notebook_permanently_revokes_issued_embeds(self, surface: str) -> None:
@@ -314,11 +379,96 @@ class TestNotebookAppEmbeds(APIBaseTest):
         )
         assert not NotebookAppEmbed.objects.for_team(self.team.pk).filter(release=self.release).exists()
 
+    @parameterized.expand([(300, True), (301, False)])
+    def test_direct_query_cache_completeness_is_verified_before_issuing(self, count: int, complete: bool) -> None:
+        run = NotebookNodeRun.objects.for_team(self.team.pk).create(
+            team=self.team,
+            notebook=self.notebook,
+            node_id="usage",
+            node_type="hogql",
+            status="running",
+            code="SELECT 1",
+        )
+        status = QueryStatus(
+            id=str(run.pk),
+            team_id=self.team.pk,
+            complete=True,
+            error=False,
+            results={
+                "columns": ["workspace_id", "Sample"],
+                "results": [["coast", i] for i in range(count - 1)] + [["grove", 502]],
+            },
+        )
+        markdown = f'<SQLV2 nodeId="usage" code="SELECT 1" runId="{run.pk}" outputTab="results" />'
+        with patch("products.notebooks.backend.sql_v2_direct.get_query_status", return_value=status):
+            assert len(sync_direct_run(run) or []) == 300
+            run.refresh_from_db()
+            assert run.envelope["cache_truncated"] is not complete
+            self.release.sql_rows = capture_published_sql_rows(self.notebook, markdown, self.release.layout)
+        self.release.markdown = markdown
+        self.release.save(update_fields=["markdown", "sql_rows"])
+        assert self.release.sql_rows[f"schema:{run.pk}"]["complete"] is complete
+        if complete:
+            path, token = self.issue("grove")
+            self.assertContains(
+                self.public.post(path, {"token": token}, HTTP_SEC_FETCH_DEST="iframe"), "<td>502</td>", html=True
+            )
+        else:
+            response = self.client.post(self.management, self.configuration("grove"), format="json")
+            self.assertContains(response, "complete SQL results", status_code=400)
+            assert not NotebookAppEmbed.objects.for_team(self.team.pk).filter(release=self.release).exists()
+
+    def test_pruning_withdraws_only_old_release_audiences_and_records_the_publisher(self) -> None:
+        old_path, old_token = self.issue("coast")
+        original = NotebookAppEmbed.objects.for_team(self.team.pk).get(release=self.release)
+        self.notebook.content = build_markdown_notebook_content(
+            self.release.markdown.replace(" />", ' result={{"status":"ok"}} />')
+        )
+        self.notebook.app_revision = self.release.revision
+        self.notebook.save(update_fields=["content", "app_revision"])
+        resource = f"/api/projects/{self.team.pk}/notebooks/{self.notebook.short_id}/"
+
+        def publish() -> None:
+            response = self.client.patch(
+                resource, {"app_revision": self.release.revision, "app_published": self.release.layout}, format="json"
+            )
+            self.assertEqual(response.status_code, 200, response.content)
+            self.release = NotebookAppRelease.objects.for_team(self.team.pk).get(
+                notebook=self.notebook, revision=self.release.revision + 1
+            )
+
+        publish()
+        retained_path, retained_token = self.issue("grove")
+        with patch("products.notebooks.backend.presentation.views.notebook.is_impersonated", return_value=True):
+            publish()
+        self.assertEqual(
+            self.public.post(old_path, {"token": old_token}, HTTP_SEC_FETCH_DEST="iframe").status_code, 404
+        )
+        self.assertContains(
+            self.public.post(retained_path, {"token": retained_token}, HTTP_SEC_FETCH_DEST="iframe"), "Orchard study"
+        )
+        record = ActivityLog.objects.get(
+            team_id=self.team.pk,
+            item_id=self.notebook.short_id,
+            detail__contains={"changes": [{"field": "app_embed", "action": "deleted"}]},
+        )
+        assert record.user_id == self.user.pk and record.was_impersonated
+        assert isinstance(record.detail, dict)
+        (change,) = record.detail["changes"]
+        assert change["before"]["embed_id"] == str(original.pk)
+        assert change["before"]["revision"] == 1
+        assert change["before"]["tenant_sha256"] == sha256(b"coast").hexdigest()
+
     def test_tenant_rows_after_the_preview_and_incomplete_releases(self) -> None:
         self.release.markdown = '<SQLV2 nodeId="usage" code="SELECT 1" runId="retained" outputTab="results" result={{"columns":["workspace_id","project"],"first_page":[["grove","Grove survey"]],"has_more":true,"row_count":2}} />'
         self.release.sql_rows = {
             "retained": [["grove", "Grove survey"], ["coast", "Tidal survey"]],
-            "schema:retained": {"node_id": "usage", "columns": ["workspace_id", "project"], "row_count": 2},
+            "schema:retained": {
+                "node_id": "usage",
+                "columns": ["workspace_id", "project"],
+                "row_count": 2,
+                "complete": True,
+            },
         }
         self.release.save(update_fields=["markdown", "sql_rows"])
         path, token = self.issue("coast")

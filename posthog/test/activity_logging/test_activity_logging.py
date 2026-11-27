@@ -186,16 +186,14 @@ class TestActivityLogModel(BaseTest):
         assert properties["id"] == str(log.pk)
         assert properties["user"]["uuid"] == str(self.user.uuid)
         assert properties["detail"] == {"changes": [{"field": "app_view_grant", "action": action}]}
-        assert properties["ip_address"] == "192.0.2.10"
-        assert properties["client"] == "audit-integration"
-        assert properties["credential_type"] == credential_type
-        assert properties["credential_id"] == expected_credential_id
+        assert {"ip_address", "client", "credential_type", "credential_id"}.isdisjoint(properties)
         assert properties["was_impersonated"] is impersonated
         assert "item_id" not in properties
         assert recipient not in json.dumps(properties)
         log.refresh_from_db()
         assert isinstance(log.detail, dict)
         assert log.detail["changes"][0]["after"]["recipient"] == recipient
+        assert log.customer_visible_credential_id == expected_credential_id
 
     def test_client_is_populated_from_activity_storage(self) -> None:
         activity_storage.set_client("posthog-js/1.234.0")

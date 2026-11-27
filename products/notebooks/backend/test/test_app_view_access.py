@@ -1,6 +1,8 @@
 import json
 from datetime import timedelta
 
+import pytest
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -14,12 +16,60 @@ from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.file_system.file_system import FileSystem
-from posthog.token_bucket import BucketDecision, Budget
+from posthog.token_bucket import BucketDecision, BucketUnavailable, Budget
 
 from products.access_control.backend.facade.testing import create_access_control
 from products.notebooks.backend import app_delivery
+from products.notebooks.backend.app_delivery import plain_scalar_rows
 from products.notebooks.backend.app_release_results import capture_published_sql_rows
 from products.notebooks.backend.models import Notebook, NotebookAppRelease, NotebookAppViewGrant, NotebookNodeRun
+
+
+@pytest.mark.parametrize(
+    ("value", "kind", "expected"),
+    [
+        (0, "Int64", [[0]]),
+        ("Ready", "String", [["Ready"]]),
+        (None, "Nullable(Int64)", []),
+        ({"complete": 2}, "JSON", None),
+        (2**53 + 1, "UInt64", None),
+        ("123.4567890123456789", "Decimal(20, 16)", None),
+        ("123.4567890123456789", "float64", None),
+        ("9007199254740993", "int64", None),
+        ("123.4567890123456789", None, [["123.4567890123456789"]]),
+    ],
+)
+def test_plain_scalar_rows_match_representable_values(value: object, kind: str | None, expected: list | None) -> None:
+    rows = [[value, 24], [35, 46]]
+    result = {
+        "columns": ["Total", "Comparison"],
+        "types": [["Total", kind], ["Comparison", "Int64"]] if kind else [],
+        "first_page": rows,
+    }
+    assert plain_scalar_rows(rows, result) == expected
+
+
+def test_scalar_uses_the_published_column_type_for_a_subset_of_rows() -> None:
+    rows = [[17], ["123.4567890123456789"]]
+    assert plain_scalar_rows(rows[1:], {"columns": ["Total"], "first_page": rows}) is None
+
+
+@pytest.mark.parametrize("kind", [None, "String", "UUID"])
+def test_automatic_one_column_table_withholds_values(kind: str | None) -> None:
+    result = {
+        "columns": ["Total"],
+        "types": [["Total", kind]] if kind else [],
+        "first_page": [["123.4567890123456789"], ["2"]],
+    }
+    for table in (
+        {},
+        {"columns": [{"column": "Previous column"}]},
+        {"columns": [{"column": "Total", "settings": {"formatting": {"suffix": " items"}}}]},
+    ):
+        assert (
+            app_delivery.shared_display_columns({"vizQuery": {"display": "Auto", "tableSettings": table}}, result)
+            is None
+        )
 
 
 class TestNotebookAppViewAccess(APIBaseTest):
@@ -206,6 +256,20 @@ class TestNotebookAppViewAccess(APIBaseTest):
             assert response.status_code == 429
             assert response.headers["Retry-After"] == "4"
 
+    def test_a_cached_grant_can_be_retried_after_either_budget_recovers(self) -> None:
+        url = self.grant()
+        self.client.force_login(self.recipient)
+        self.assertContains(self.client.get(url), "222")
+        allowed = BucketDecision(allowed=True, remaining=1, limit=2, retry_after=0, reset=1)
+        unavailable = BucketUnavailable(error="temporarily unavailable")
+        for scope, decisions in (("recipient", [unavailable]), ("project", [allowed, unavailable])):
+            with self.subTest(scope=scope), patch.object(app_delivery, "consume", side_effect=decisions):
+                response = self.client.get(url)
+                assert response.status_code == 503
+                assert int(response.headers["Retry-After"]) > 0
+                self.assertNotContains(response, "222", status_code=503)
+        self.assertContains(self.client.get(url), "222")
+
     def test_recipient_lookup_budget_applies_before_resolving_a_second_project(self) -> None:
         url = self.grant()
         another_team = Team.objects.create(organization=self.organization, name="Second project")
@@ -328,23 +392,32 @@ class TestNotebookAppViewAccess(APIBaseTest):
 
     @parameterized.expand(
         [
-            ([], "Oct 12", "222"),
-            ([{"column": "Signups"}], "222", "Oct 12"),
+            ("plain", {}, True),
+            ("second_column_configured", {"columns": [{"column": "Comparison"}]}, True),
+            ("reordered", {"columns": [{"column": "Comparison"}, {"column": "Total"}]}, True),
+            ("rounded", {"columns": [{"column": "Total", "settings": {"formatting": {"decimalPlaces": 0}}}]}, False),
+            ("transposed", {"transpose": True}, False),
         ]
     )
-    def test_single_number_exposes_one_displayed_value(
-        self, columns: list[dict[str, str]], visible: str, hidden: str
-    ) -> None:
+    def test_single_number_exposes_one_displayed_value(self, _case: str, settings: dict, visible: bool) -> None:
         run_id = next(key for key in self.release.sql_rows if not key.startswith("schema:"))
-        chart = json.dumps({"display": "BoldNumber", "tableSettings": {"columns": columns}})
+        chart = json.dumps({"display": "BoldNumber", "tableSettings": settings})
         self.release.markdown = f'<SQLV2 nodeId="totals" code="SELECT 1" runId="{run_id}" vizQuery={{{chart}}} />'
-        self.release.sql_rows[run_id].append(["Oct 19", 91])
+        self.release.sql_rows[f"schema:{run_id}"].update(
+            columns=["Total", "Comparison"], types=[["Total", "Float64"], ["Comparison", "Int64"]]
+        )
+        self.release.sql_rows[run_id] = [[12.75, 24], [35, 46]]
         self.release.save(update_fields=["markdown", "sql_rows"])
         url = self.grant()
         self.client.force_login(self.recipient)
         output = self.client.get(url)
-        self.assertContains(output, f"<td>{visible}</td>", html=True)
-        for other in (hidden, "Oct 19", "91"):
+        if visible:
+            self.assertContains(output, "<td>12.75</td>", html=True)
+            self.assertContains(output, '<th scope="col">Value</th>', html=True)
+        else:
+            self.assertNotContains(output, "<td>12.75</td>", html=True)
+            self.assertContains(output, "Publish this chart as a table or single number")
+        for other in ("24", "35", "46"):
             self.assertNotContains(output, f"<td>{other}</td>", html=True)
 
     def test_automatic_single_column_and_malformed_visualization(self) -> None:
@@ -475,6 +548,37 @@ class TestNotebookAppViewAccess(APIBaseTest):
         self.assertNotContains(history, "app_view_grant")
         self.assertNotContains(history, self.recipient.email)
 
+    def test_creator_and_editor_notifications_show_the_latest_visible_notebook_edit(self) -> None:
+        creator = User.objects.create_and_join(self.organization, "creator@example.com", None)
+        editor = User.objects.create_and_join(self.organization, "editor@example.com", None)
+        Notebook.objects.filter(pk=self.notebook.pk).update(created_by=creator)
+        with time_machine.travel("2026-01-03T13:01:00Z", tick=False) as clock:
+
+            def update(actor: User) -> ActivityLog:
+                return ActivityLog.objects.create(
+                    team_id=self.team.pk,
+                    organization_id=self.organization.pk,
+                    user=actor,
+                    item_id=self.notebook.short_id,
+                    scope="Notebook",
+                    activity="updated",
+                )
+
+            update(editor)
+            clock.shift(timedelta(seconds=1))
+            visible_edit = update(self.user)
+            clock.shift(timedelta(seconds=1))
+            self.grant()
+            clock.shift(timedelta(seconds=1))
+            revoke = self.client.post(self.management, {"recipient_uuid": str(self.recipient.uuid), "revoke": True})
+            assert revoke.status_code == 200
+
+            for reader in [creator, editor]:
+                self.client.force_login(reader)
+                response = self.client.get(f"/api/projects/{self.team.pk}/my_notifications/")
+                assert response.status_code == 200
+                assert [entry["id"] for entry in response.json()["results"]] == [str(visible_edit.pk)]
+
     def test_grant_audits_are_scoped_to_the_notebook(self) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.AUDIT_LOGS, "name": "Audit logs"},
@@ -537,6 +641,13 @@ class TestNotebookAppViewAccess(APIBaseTest):
             detail__contains={"changes": [{"field": "app_view_grant"}]},
         ).values_list("pk", flat=True)
         assert len(audit_ids) == 2
+        audit_id = audit_ids[0]
+        ActivityLog.objects.filter(pk=audit_id).update(
+            credential_type="personal_api_key",
+            credential_id="sample-key-id",
+            ip_address="192.0.2.10",
+            client="audit-test",
+        )
         outside = Organization.objects.create(name="Separate organization")
         outside_team = Team.objects.create(organization=outside, name="Separate project")
         outside_record = ActivityLog.objects.create(
@@ -560,8 +671,11 @@ class TestNotebookAppViewAccess(APIBaseTest):
             f"{project}/advanced_activity_logs/?is_csv_export=1",
         ]
         org_audit = f"/api/organizations/{self.organization.pk}/advanced_activity_logs/"
+        project_audit = f"{project}/advanced_activity_logs/"
+        lookup_routes = [project_audit]
         if level >= OrganizationMembership.Level.ADMIN:
             routes.append(org_audit)
+            lookup_routes.append(org_audit)
         else:
             assert self.client.get(org_audit).status_code == 403
         for route in routes:
@@ -571,3 +685,17 @@ class TestNotebookAppViewAccess(APIBaseTest):
                 self.assertNotContains(response, str(outside_record.pk))
                 for row_id in audit_ids:
                     self.assertContains(response, str(row_id))
+
+        for route in lookup_routes:
+            with self.subTest(lookup=route):
+                lookup = self.client.get(route, {"entry_ids": [str(audit_id), str(outside_record.pk)]})
+                self.assertEqual(lookup.status_code, 200)
+                (row,) = lookup.json()["results"]
+                assert row["id"] == str(audit_id)
+                assert (row["credential_type"], row["credential_id"]) == ("personal_api_key", "sample-key-id")
+                assert (row["ip_address"], row["client"]) == ("192.0.2.10", "audit-test")
+
+        self.client.force_login(self.recipient)
+        lookup = self.client.get(project_audit, {"entry_ids": str(audit_id)})
+        assert lookup.status_code == 200
+        assert lookup.json()["results"] == []

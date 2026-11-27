@@ -316,6 +316,8 @@ export const AdvancedActivityLogsListParams = () => zod.object({
 
 export const advancedActivityLogsListQueryActivitiesDefault = []
 export const advancedActivityLogsListQueryClientsDefault = []
+export const advancedActivityLogsListQueryEntryIdsMax = 100
+
 export const advancedActivityLogsListQueryFollowDefault = false
 export const advancedActivityLogsListQueryIncludeValuesDefault = false
 export const advancedActivityLogsListQueryIpAddressesDefault = []
@@ -353,6 +355,11 @@ export const AdvancedActivityLogsListQueryParams = () => zod.object({
         .describe(
             'Upper bound on `created_at` (inclusive), as an ISO 8601 timestamp with a UTC offset, such as `2026-01-15T11:30:00Z`.'
         ),
+    entry_ids: zod
+        .array(zod.string())
+        .max(advancedActivityLogsListQueryEntryIdsMax)
+        .optional()
+        .describe('Filter by up to 100 activity log entry UUIDs, such as the id from an activity log event.'),
     follow: zod
         .boolean()
         .default(advancedActivityLogsListQueryFollowDefault)
