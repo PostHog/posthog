@@ -27,6 +27,7 @@ from posthog.utils import str_to_bool
 from products.access_control.backend.facade.api import InvalidObjectAccessControlError
 from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
+from products.data_modeling.backend.facade import api as data_modeling_api
 from products.data_warehouse.backend.facade.api import (
     cancel_external_data_workflow,
     create_and_register_webhook,
@@ -2385,6 +2386,15 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             # Cleared whatever this request loaded, because a stop can commit after the load.
             validated_data["auto_disabled_at"] = None
 
+        source_floor_may_change = was_sync_frequency_updated or (
+            should_sync is not None and should_sync != instance.should_sync
+        )
+        view_cadences_before = (
+            data_modeling_api.snapshot_view_cadences_for_table(instance.team_id, instance.table_id)
+            if source_floor_may_change
+            else None
+        )
+
         # Persist under a row lock, replaying only the sync_type_config keys this request changed
         # so a concurrent CDC extract activity's writes aren't reverted by the full-instance save.
         updated_instance = self._save_merging_sync_type_config(
@@ -2508,6 +2518,9 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                             _sync_now_for_shorter_cadence(updated_instance)
 
             self._run_temporal_side_effect(update_schedule)
+
+        if view_cadences_before is not None:
+            data_modeling_api.reschedule_views_if_cadence_changed(view_cadences_before)
 
         if trigger_refresh:
             request_manual_runs([updated_instance.id], updated_instance.team_id)

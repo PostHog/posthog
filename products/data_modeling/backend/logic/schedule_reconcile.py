@@ -46,7 +46,11 @@ from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.schedule import a_create_schedule, a_delete_schedule, a_update_schedule
 from posthog.temporal.common.search_attributes import POSTHOG_DAG_ID_KEY
 
-from products.data_modeling.backend.facade.contracts import PlanFloorRefusalError, UnsupportedFrequencyTargetError
+from products.data_modeling.backend.facade.contracts import (
+    PlanFloorRefusalError,
+    UnsupportedFrequencyTargetError,
+    ViewCadenceSnapshot,
+)
 from products.data_modeling.backend.logic.cadence_changes import cadence_changes
 from products.data_modeling.backend.logic.cohort_scheduling import (
     MINUTES_PER_WEEK,
@@ -67,12 +71,14 @@ from products.data_modeling.backend.logic.freshness import (
 from products.data_modeling.backend.logic.node_frequency import (
     FrequencyGraph,
     build_frequency_graph,
+    dag_ids_reading_warehouse_table,
     drop_plan_floor_clamp,
     get_declared_pin,
     get_declared_target,
     nodes_declared_finer_than,
     persist_seed_targets,
     scheduled_cadences,
+    scheduled_cadences_by_dag,
     seed_targets,
     set_declared_anchor,
     set_declared_pin,
@@ -111,6 +117,40 @@ def maybe_reconcile_dag(dag: DAG) -> None:
     commit — the user's write already succeeded.
     """
     transaction.on_commit(lambda: _reconcile_dag_best_effort(dag))
+
+
+def snapshot_view_cadences_for_table(team_id: int, table_id: uuid.UUID | None) -> ViewCadenceSnapshot:
+    """The cadence each node runs at now, in every DAG that reads this warehouse table."""
+    try:
+        cadences_by_dag = _scheduled_cadences_of_dags_reading(team_id, table_id)
+    except Exception as error:
+        logger.exception("View cadence snapshot failed", team_id=team_id, table_id=str(table_id))
+        capture_exception(error)
+        cadences_by_dag = {}
+    return ViewCadenceSnapshot(team_id=team_id, table_id=table_id, cadences_by_dag=cadences_by_dag)
+
+
+def reschedule_views_if_cadence_changed(before: ViewCadenceSnapshot) -> None:
+    """Reconcile, after commit and best-effort, only the DAGs where a node's cadence moved since the snapshot."""
+    try:
+        after = _scheduled_cadences_of_dags_reading(before.team_id, before.table_id)
+        changed_dag_ids = [
+            dag_id for dag_id, cadences in after.items() if cadences != before.cadences_by_dag.get(dag_id)
+        ]
+        for dag in DAG.objects.select_related("team").filter(team_id=before.team_id, id__in=changed_dag_ids):
+            maybe_reconcile_dag(dag)
+    except Exception as error:
+        logger.exception("View reschedule check failed", team_id=before.team_id, table_id=str(before.table_id))
+        capture_exception(error)
+
+
+def _scheduled_cadences_of_dags_reading(
+    team_id: int, table_id: uuid.UUID | None
+) -> dict[str, dict[str, timedelta | None]]:
+    if table_id is None:
+        return {}
+    dag_ids = dag_ids_reading_warehouse_table(team_id, table_id)
+    return scheduled_cadences_by_dag(team_id, dag_ids) if dag_ids else {}
 
 
 def _reconcile_dag_best_effort(dag: DAG) -> None:
