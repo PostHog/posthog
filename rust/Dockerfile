@@ -114,7 +114,7 @@ RUN --mount=type=secret,id=actions_id_token_request_url \
         GITHUB_ACTIONS=true \
         ACTIONS_ID_TOKEN_REQUEST_URL="$(cat /run/secrets/actions_id_token_request_url)" \
         ACTIONS_ID_TOKEN_REQUEST_TOKEN="$(cat /run/secrets/actions_id_token_request_token)" \
-        HOG_PROJECT_ID=2 HOG_NO_TELEMETRY=1 HOG_NO_UPDATE_CHECK=1 \
+        HOG_PROJECT_ID=2 \
         /tmp/hog/hog error-tracking upload /tmp/posthog-symbols --include-source \
     ); then \
         echo "Native debug symbols uploaded for $BIN"; \
