@@ -993,7 +993,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'error-tracking-auto-resolve',
                 title: 'Auto-resolve inactive issues',
                 description:
-                    'After you turn this on, active issues must go the full number of days without exceptions. The next daily check resolves eligible issues. If another exception occurs, the issue reopens.',
+                    'The daily check resolves active issues that have had no exceptions for the number of days you set. Quiet time before you turn on auto-resolve counts. If another exception occurs, the issue reopens.',
                 component: <AutoResolveSettings />,
                 flag: 'ERROR_TRACKING_AUTO_RESOLVE',
                 keywords: ['resolve', 'inactive', 'stale', 'cleanup'],
