@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo
 
 from pydantic import ValidationError
 
-from posthog.schema import ChartDisplayType, MetricsQuery, TrendsQuery
+from posthog.schema import MetricsQuery, TrendsQuery
 
 from posthog.caching.insight_result import InsightResult
 from posthog.hogql_queries.apply_dashboard_filters import WRAPPER_NODE_KINDS
@@ -21,17 +21,8 @@ from posthog.hogql_queries.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL, 
 from posthog.hogql_queries.utils.result_series import get_series_key
 
 from products.dashboards.backend.facade.contracts import Frame, FrameField, FrameMeta
+from products.dashboards.backend.v2.frames import TIME_SERIES_DISPLAYS
 
-# Trends displays that draw one value per interval. The others show one number per series.
-_TIME_SERIES_DISPLAYS = {
-    None,
-    ChartDisplayType.ACTIONS_LINE_GRAPH,
-    ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE,
-    ChartDisplayType.ACTIONS_AREA_GRAPH,
-    ChartDisplayType.ACTIONS_BAR,
-    ChartDisplayType.ACTIONS_STACKED_BAR,
-    ChartDisplayType.ACTIONS_UNSTACKED_BAR,
-}
 _BREAKDOWN_LABELS = {BREAKDOWN_NULL_STRING_LABEL: "None", BREAKDOWN_OTHER_STRING_LABEL: "Other"}
 
 
@@ -62,7 +53,7 @@ def has_frames(query: Mapping[str, Any]) -> bool:
         return True
     trends_filter = source.get("trendsFilter")
     display = trends_filter.get("display") if isinstance(trends_filter, Mapping) else None
-    return source.get("kind") == "TrendsQuery" and display in _TIME_SERIES_DISPLAYS
+    return source.get("kind") == "TrendsQuery" and display in TIME_SERIES_DISPLAYS
 
 
 def _source(query: Mapping[str, Any]) -> Mapping[str, Any] | None:
@@ -71,7 +62,7 @@ def _source(query: Mapping[str, Any]) -> Mapping[str, Any] | None:
 
 
 def _trends_frames(query: TrendsQuery, result: InsightResult) -> list[Frame] | None:
-    if (query.trendsFilter.display if query.trendsFilter else None) not in _TIME_SERIES_DISPLAYS:
+    if (query.trendsFilter.display if query.trendsFilter else None) not in TIME_SERIES_DISPLAYS:
         return None
     timezone = ZoneInfo(result.timezone or "UTC")
     interval = query.interval.value if query.interval else "day"

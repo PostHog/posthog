@@ -31,8 +31,10 @@ from products.dashboards.backend.facade.contracts import Frame, FrameField, Fram
 from products.dashboards.backend.facade.enums import QueryBatchLanguage, QueryBatchTargetFormat
 
 # Trends displays that draw one value per interval. The others show one number per series.
-_TIME_SERIES_DISPLAYS = {
+# Metric returns the interval values for its sparkline and change pill, so it is framed as a time series.
+TIME_SERIES_DISPLAYS = {
     None,
+    ChartDisplayType.METRIC,
     ChartDisplayType.ACTIONS_LINE_GRAPH,
     ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE,
     ChartDisplayType.ACTIONS_AREA_GRAPH,
@@ -226,7 +228,7 @@ def trends_frames(query: TrendsQuery, result: Mapping[str, Any]) -> Optional[lis
     display = query.trendsFilter.display if query.trendsFilter else None
     if display in _AGGREGATED_DISPLAYS:
         return trends_aggregated_frames(query, result)
-    if display not in _TIME_SERIES_DISPLAYS:
+    if display not in TIME_SERIES_DISPLAYS:
         return None
     timezone = ZoneInfo(result.get("timezone") or "UTC")
     interval = query.interval.value if query.interval else "day"

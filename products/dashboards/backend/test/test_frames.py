@@ -51,7 +51,8 @@ class TestInsightFramesFromCachedRows(SimpleTestCase):
         assert frame.fields[1].values == [0, 0, 0, 0, 0, 0, 1, 2]
         assert (frame.name, frame.labels, frame.meta.interval) == ("$pageview", {"series_index": "0"}, "day")
 
-    def test_compared_frames_carry_their_own_period(self) -> None:
+    @parameterized.expand([("line", None), ("metric", ChartDisplayType.METRIC)])
+    def test_compared_frames_carry_their_own_period(self, _name: str, display: ChartDisplayType | None) -> None:
         days = ["2026-09-18", "2026-09-19"]
         result = InsightResult(
             result=[
@@ -69,7 +70,8 @@ class TestInsightFramesFromCachedRows(SimpleTestCase):
             },
         )
 
-        frames = insight_frames(TrendsQuery(series=[EventsNode(event="$pageview")]).model_dump(), result)
+        query = TrendsQuery(series=[EventsNode(event="$pageview")], trendsFilter=TrendsFilter(display=display))
+        frames = insight_frames(query.model_dump(), result)
 
         assert frames is not None
         current, previous = frames

@@ -11,7 +11,16 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.schema import BreakdownFilter, EventsNode, EventsQuery, HogQLQuery, IntervalType, TrendsFilter, TrendsQuery
+from posthog.schema import (
+    BreakdownFilter,
+    ChartDisplayType,
+    EventsNode,
+    EventsQuery,
+    HogQLQuery,
+    IntervalType,
+    TrendsFilter,
+    TrendsQuery,
+)
 
 from posthog.hogql_queries.query_runner import ExecutionMode, get_query_runner
 
@@ -129,15 +138,23 @@ class TestFramesFromRealRunners(ClickhouseTestMixin, APIBaseTest):
 class TestFrameConverters(SimpleTestCase):
     # Rows in the shape TrendsQueryRunner returns, as in PR #138426's frames tests. A dashboards test may not run
     # another product's runner.
-    @parameterized.expand([("UTC", "2026-09-12T00:00:00+00:00"), ("America/New_York", "2026-09-12T00:00:00-04:00")])
-    def test_trends_line_is_one_frame_on_the_project_wall_clock(self, timezone: str, first_day: str) -> None:
+    @parameterized.expand(
+        [
+            ("UTC", "2026-09-12T00:00:00+00:00", None),
+            ("America/New_York", "2026-09-12T00:00:00-04:00", None),
+            ("UTC", "2026-09-12T00:00:00+00:00", ChartDisplayType.METRIC),
+        ]
+    )
+    def test_trends_line_is_one_frame_on_the_project_wall_clock(
+        self, timezone: str, first_day: str, display: ChartDisplayType | None
+    ) -> None:
         days = [f"2026-09-{day}" for day in range(12, 20)]
         result = {
             "results": [{"label": "$pageview", "order": 0, "days": days, "data": [0, 0, 0, 0, 0, 0, 1, 2]}],
             "timezone": timezone,
             "resolved_date_range": {"date_from": first_day, "date_to": "2026-09-19T23:59:59" + first_day[-6:]},
         }
-        query = TrendsQuery(series=[EventsNode(event="$pageview")])
+        query = TrendsQuery(series=[EventsNode(event="$pageview")], trendsFilter=TrendsFilter(display=display))
 
         frames = frames_for(QueryBatchLanguage.QUERY, query.model_dump(), result)
 
