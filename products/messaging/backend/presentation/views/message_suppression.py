@@ -176,7 +176,7 @@ def _normalized(identifier: str) -> str:
     return identifier.strip().lower()
 
 
-@extend_schema(extensions={"x-swagger-tag": "subscriptions"})
+@extend_schema(extensions={"x-swagger-tag": "email_subscriptions"})
 class MessageSuppressionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """
     Per-team email suppression list. Addresses here are skipped before send.

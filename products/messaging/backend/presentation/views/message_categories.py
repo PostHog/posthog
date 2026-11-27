@@ -131,7 +131,7 @@ CATEGORY_ID_PARAMETER = OpenApiParameter(
 )
 
 
-@extend_schema(extensions={"x-swagger-tag": "subscriptions"})
+@extend_schema(extensions={"x-swagger-tag": "email_subscriptions"})
 @extend_schema_view(
     retrieve=extend_schema(parameters=[CATEGORY_ID_PARAMETER]),
     update=extend_schema(parameters=[CATEGORY_ID_PARAMETER]),
