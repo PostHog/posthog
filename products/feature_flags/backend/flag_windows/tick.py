@@ -91,9 +91,9 @@ def watched_team_ids() -> list[int]:
 def tick_team(team_id: int, now: datetime) -> TeamTick:
     """Opens the windows of the edits since the previous tick, and closes the windows that those edits or the time
     close. The first tick of a team only starts the cursor, so the edits before the watch started open no window."""
-    cursor = FlagWindowsCursor.objects.filter(team_id=team_id).first()
+    cursor = FlagWindowsCursor.objects.for_team(team_id).first()
     if cursor is None:
-        FlagWindowsCursor.objects.get_or_create(team_id=team_id, defaults={"read_until": now})
+        FlagWindowsCursor.objects.for_team(team_id).get_or_create(team_id=team_id, defaults={"read_until": now})
         return TeamTick(opened=0, closed=0)
 
     histories = flag_histories(team_id, cursor.read_until - READ_OVERLAP)

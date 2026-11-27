@@ -60,7 +60,7 @@ class FlagObservationWindow(TeamScopedRootMixin, UUIDModel):
         return f"FlagObservationWindow(team={self.team_id}, flag={self.feature_flag_id}, state={self.state})"
 
 
-class FlagWindowsCursor(models.Model):
+class FlagWindowsCursor(TeamScopedRootMixin):
     """How far the windows of a team read the activity log. Only the flag windows workflow writes it."""
 
     team = models.OneToOneField(
