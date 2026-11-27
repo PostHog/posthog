@@ -27,6 +27,7 @@ from posthog.exceptions import (
     ClickHouseQueryMemoryLimitExceeded,
     ClickHouseQuerySizeExceeded,
     ClickHouseQueryTimeOut,
+    ClickHouseUDFTimeOut,
     DatabaseSchemaUnavailable,
 )
 from posthog.hogql_queries.query_failure_handling import (
@@ -112,6 +113,14 @@ class TestSharedFailures(SimpleTestCase):
             ("query_cancelled", lambda: _clickhouse_error("Query was cancelled", 394)),
             ("concurrency_limit", lambda: ConcurrencyLimitExceeded("busy")),
             ("app_raised_timeout", lambda: ClickHouseQueryTimeOut()),
+            (
+                "funnel_udf_pool_timeout",
+                lambda: _clickhouse_error(
+                    "User defined function 'aggregate_funnel_v13' failed. Original error: Code: 159. "
+                    "DB::Exception: Pipe read timeout exceeded 10000 milliseconds. (TIMEOUT_EXCEEDED)",
+                    754,
+                ),
+            ),
             ("wrapped_by_the_app", _wrapped_by_the_app),
             ("table_access", lambda: TableAccessDeniedError("events")),
             ("validation", lambda: ValidationError("bad")),
@@ -145,6 +154,7 @@ class TestQueryFailureHandling(SimpleTestCase):
             ("memory_for_user", _memory_error("Memory limit (for user) exceeded: would use 80 GiB"), None),
             ("memory_unknown_phrasing", _memory_error("Some future memory message"), None),
             ("timeout", ClickHouseQueryTimeOut(), "timeout"),
+            ("funnel_udf_timeout", ClickHouseUDFTimeOut(), None),
             ("too_slow", ClickHouseEstimatedQueryExecutionTimeTooLong(), "too_slow"),
             ("query_size", ClickHouseQuerySizeExceeded(), "query_size"),
             (

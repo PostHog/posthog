@@ -246,6 +246,8 @@ def parse_events_hogql_query(
             user=user,
             enable_select_queries=True,
             restricted_properties=restricted_properties,
+            # An export that opted in recompiles the stored query for events_json when it runs
+            # (recompile_stored_schema), so its opt-in does not apply when the schema is saved.
             use_new_events_schema=batch_exports_read_new_events_table(team_id),
             modifiers=HogQLQueryModifiers(
                 # A materialized column would replace `properties` in the prepared query, and the field check below

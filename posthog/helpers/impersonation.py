@@ -1,5 +1,5 @@
 from datetime import timedelta
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from django.contrib import messages
 from django.contrib.auth import BACKEND_SESSION_KEY, SESSION_KEY, get_user_model, load_backend
@@ -8,6 +8,9 @@ from django.http import HttpRequest
 
 from loginas import settings as la_settings
 from loginas.utils import is_impersonated_session, restore_original_login
+
+if TYPE_CHECKING:
+    from posthog.models.user import User
 
 
 def is_impersonated(request: Optional[HttpRequest]) -> bool:
@@ -107,3 +110,16 @@ def impersonation_context(request):
     if not getattr(request, "path", "").startswith("/admin/"):
         return {}
     return {"impersonated_user": get_impersonated_user(request)}
+
+
+class Impersonation:
+    @staticmethod
+    def refusal(user: "User") -> str | None:
+        """Why nobody can log in as this user. Staff log in as any other user. CAN_LOGIN_AS refuses the same cases on post."""
+        if user.is_staff:
+            return "This user is staff. Nobody can log in as a staff account"
+        if user.is_service_account:
+            return "Service accounts cannot use browser sessions"
+        if user.allow_impersonation is False:
+            return "This user turned off log in as user"
+        return None

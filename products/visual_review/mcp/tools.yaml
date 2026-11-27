@@ -9,7 +9,7 @@ ui_apps:
     visual-review-snapshots:
         type: custom
         app_name: PostHog Visual Review Snapshots
-        description: Visual review run snapshots — diff viewer with approve/tolerate actions
+        description: 'Visual review run snapshots: diff viewer with accept and tolerate actions'
         resource_domains:
             - https://s3.us-east-1.amazonaws.com/posthog-cloud-prod-us-east-1-app-assets/visual_review/
             - http://localhost:19000/posthog/visual_review/
@@ -271,13 +271,50 @@ tools:
             readOnly: false
             destructive: false
             idempotent: true
-        title: Mark visual review snapshots reviewed
+        title: Accept visual review changes
         description: >
-            Record snapshots as approved in a run, in the database only. Pass `snapshots: [{identifier, new_hash}]`,
-            where `new_hash` is the snapshot's `current_artifact.content_hash`. It does not commit the baseline or
-            change the gate; `visual-review-runs-finalize-create` ships it. An approved quarantined `new` snapshot gets
-            its baseline entry at finalize while the quarantine stays.
+            Accept changed, new or removed snapshots of a pull request run (stored as `review_state: approved`). Pass
+            the run's UUID as `id` and `snapshots: [{identifier, new_hash}]`, where `new_hash` is the snapshot's
+            `current_artifact.content_hash` on that run. In ledger mode `new_hash` is null for a `removed` snapshot;
+            elsewhere finalize accepts removals by itself. In ledger mode the run can be the newest run of the pull
+            request or an older one: an accept counts on every later run that renders the same before and after
+            pictures. It does not pass the gate: `visual-review-runs-finalize-create` does that, and it needs a person's
+            yes. An agent cannot change a decision a person made, and never accepts over a rejection, its own or anyone
+            else's (`rejected_by_other`). An accept of a snapshot that is already accepted changes nothing and keeps the
+            first approver (listed in `already_decided`). The response has `head_run` and its `progress`. All or
+            nothing: on an error nothing is written, and `snapshots` names every refused snapshot with its `code`.
+        exclude_params:
+            - override_rejection
+        param_overrides:
+            id:
+                description: |
+                    The UUID of a run of the pull request, not a snapshot `id`.
+                aliases:
+                    - run_id
         feature_flag: visual-review
+    visual-review-runs-clear-create:
+        operation: visual_review_runs_clear_create
+        enabled: true
+        scopes:
+            - visual_review:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Undo visual review decisions
+        description: >
+            Undo the accept or reject of snapshots in ledger mode, so they need review again. Pass the run's UUID as
+            `id` and the snapshot `identifiers`. Works on any run of the pull request until its newest run is finalized.
+            An agent can undo only decisions made through MCP, never a person's, and never a rejection another user's
+            agent made (`rejected_by_other`). The response has `head_run` and its `progress`.
+        exclude_params:
+            - override_rejection
+        param_overrides:
+            id:
+                description: |
+                    The UUID of a run of the pull request, not a snapshot `id`.
+                aliases:
+                    - run_id
     visual-review-runs-counts-retrieve:
         operation: visual_review_runs_counts_retrieve
         enabled: true
@@ -302,13 +339,16 @@ tools:
             idempotent: false
         title: Finalize a visual review run
         description: >
-            Ship a fully reviewed run: commit the approved snapshots to the pull request's baseline file and pass the
-            gate. All or nothing: it returns the unresolved list until every changed or new snapshot is approved,
-            tolerated or quarantined. `approve_all: true` approves the pending ones first, but not quarantined ones.
-            With nothing to commit, it posts a green status, and the required check follows when its job re-runs. For a
-            run whose `gate` is `commit_status`, it records the approval, commits nothing, and turns the required status
-            green at once; nothing in CI re-runs. On `409 stale_run`, finalize the newest run; on `409 sha_mismatch`,
-            re-run CI and finalize the new run. STOP: never finalize without an explicit human yes for this run.
+            Finalize the newest run of a pull request once every changed, new and removed snapshot is accepted,
+            tolerated or quarantined, and none is rejected. In ledger mode accepts made on earlier runs of the pull
+            request count while the pictures are the same, and the run's `gate` is `commit_status`: finalize records the
+            accepts, commits nothing, and turns the required status green at once. In yaml mode it commits the accepted
+            snapshots to the pull request's baseline file. `approve_all: true` accepts every change nobody decided on
+            first, and skips rejected and quarantined ones. On `409 not_fully_resolved` the response lists `rejected`
+            and `needs_review` separately: a rejected snapshot clears with a new picture, the rejecter's undo, or a
+            person's explicit override, never by an agent. On `409 stale_run`, finalize `head_run_id` instead; on `409
+            sha_mismatch`, re-run CI and finalize the new run. The response names the `approvers`. STOP: never finalize
+            without an explicit human yes for this run. A yes covers one run: after a push, ask again.
         feature_flag: visual-review
     visual-review-runs-lift-on-merge-create:
         operation: visual_review_runs_lift_on_merge_create
@@ -327,8 +367,9 @@ tools:
             so no snapshot UUID is needed. Requesting a lift never approves a picture: a changed or new snapshot must
             first be approved by identifier with `visual-review-runs-approve-create`, or the call returns 400. The lift
             happens only after the pull request merges and a default-branch run that contains the merge renders the
-            expected picture, with a baseline entry that holds the same picture. Until then the quarantine stays. A
-            repeat call from the same pull request replaces the pending request.
+            expected picture, with a baseline entry that holds the same picture. Until then the quarantine stays. An
+            accept made on an earlier run of the pull request counts when the pictures are the same. A repeat call from
+            the same pull request replaces the pending request.
         param_overrides:
             id:
                 description: |
@@ -426,6 +467,30 @@ tools:
             `gate` is `commit_status`, it recounts and publishes the status and touches nothing in CI, so
             `ci_rerun_triggered` is false and that is expected.
         feature_flag: visual-review
+    visual-review-runs-reject-create:
+        operation: visual_review_runs_reject_create
+        enabled: true
+        scopes:
+            - visual_review:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Reject visual review changes
+        description: >
+            Reject changed, new or removed snapshots of a pull request run in ledger mode, each with a `reason` the
+            author can act on. Pass the run's UUID as `id` and `snapshots: [{identifier, new_hash, reason}]`, with
+            `new_hash` null for a `removed` snapshot. A rejected snapshot blocks finalize, also when it is tolerated or
+            quarantined, until the pull request renders a different picture or the rejecter undoes it. Reject only when
+            the user asked you to review someone else's change, never your own: fix your code instead. For a picture
+            that is wrong on the default branch, use `visual-review-repos-quarantine-create`, not a reject. The response
+            has `head_run` and its `progress`.
+        param_overrides:
+            id:
+                description: |
+                    The UUID of a run of the pull request, not a snapshot `id`.
+                aliases:
+                    - run_id
     visual-review-runs-retrieve:
         operation: visual_review_runs_retrieve
         enabled: true
@@ -441,6 +506,10 @@ tools:
             Get one run: status, review decision, commit, branch, PR, change summary, `gate` (what blocks the merge:
             `ci_job` or `commit_status`), `stale_approval_count` (approvals whose baseline another merge changed, which
             keep a `commit_status` run red until the branch is updated), and the newer run that supersedes it, if any.
+            `progress` counts the run's changes by where they stand (`approved`, `approved_on_earlier_commits`,
+            `approved_via_mcp`, `rejected`, `needs_review`, `tolerated`), `head_run` is the newest run of the pull
+            request, which finalize needs, and `can_finalize` says whether finalize without `approve_all` would pass
+            now. `needs_review` also counts removed snapshots nobody decided on, which finalize accepts by itself.
             Per-snapshot results come from `visual-review-runs-snapshots-list`.
         feature_flag: visual-review
     visual-review-runs-snapshot-history-list:
@@ -480,10 +549,14 @@ tools:
         description: >
             Snapshots in a run with their diff results: `identifier`, `result` (`unchanged`, `changed`, `new`,
             `removed`), `classification_reason`, diff percentage and pixels, `review_state`, and signed baseline and
-            current image URLs. Quarantined snapshots are left out and counted in `quarantined_count`; pass
-            `include_quarantined=true` to get them. Pass `exclude_unchanged=true` to list only the changed, new and
-            removed snapshots; a large run holds thousands of unchanged ones. Pass `snapshot_id` to fetch one snapshot
-            by its `id`. Pass a `limit`, such as 50. Renders a diff viewer.
+            current image URLs. `review_state` is the effective state on this run (`pending`, `approved`, `rejected`,
+            `tolerated`), including accepts and rejections made on earlier runs of the pull request while the pictures
+            are the same. `decision` says who decided, how (`via`), on which commit, and why for a rejection.
+            `earlier_decision` names a decision on another picture of the story, with `changed` (`before`, `after`,
+            `both`) saying which picture changed since. Pass `review_state: pending` with `exclude_unchanged=true` to
+            list what still needs a decision. Quarantined snapshots are left out and counted in `quarantined_count`,
+            except rejected ones; pass `include_quarantined=true` to get them all. Pass `snapshot_id` to fetch one
+            snapshot by its `id`. Pass a `limit`, such as 50. Renders a diff viewer.
         ui_app: visual-review-snapshots
         feature_flag: visual-review
     visual-review-runs-tolerate-create:
@@ -501,9 +574,9 @@ tools:
             for named render noise over the threshold (anti-aliasing, font hinting, a cursor) at the same size, with
             `change_kind: pixel`, so check the images first. It cannot be undone through the API. Never use it to pass a
             gate: a story that renders differently from run to run gets `visual-review-repos-quarantine-create`, and an
-            intended change gets approved and finalized. Pass the snapshot's UUID as `snapshot_id`, then call
-            `visual-review-runs-recompute-create`, unless the run's `gate` is `commit_status`: its status updates by
-            itself.
+            intended change gets accepted and finalized. A rejected snapshot cannot be tolerated (409 `rejected`). Pass
+            the snapshot's UUID as `snapshot_id`, then call `visual-review-runs-recompute-create`, unless the run's
+            `gate` is `commit_status`: its status updates by itself.
         feature_flag: visual-review
     visual-review-runs-tolerated-hashes-list:
         operation: visual_review_runs_tolerated_hashes_list

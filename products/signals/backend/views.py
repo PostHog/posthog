@@ -404,7 +404,7 @@ from products.signals.backend.slack_notification_targets import (
     saved_notification_integration,
     validate_slack_notification_target,
 )
-from products.signals.backend.source_filter_preview import preview_source_filter
+from products.signals.backend.source_filter_preview import preview_source_filter, preview_supported
 from products.signals.backend.source_filters import validate_source_filter, writable_sources
 from products.signals.backend.source_issues import source_issues_by_report
 from products.signals.backend.source_suggestions import current_source_suggestion
@@ -766,6 +766,7 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     for field in source.bundle.fields
                 ],
                 "starter_expressions": source.bundle.starter_expressions,
+                "preview_supported": preview_supported(source.source_product, source.source_type),
             }
             for source in writable_sources(str(self.team.organization_id))
         ]

@@ -1,5 +1,5 @@
 import { CardError, LoadedCard, Target, load, loadText } from '.'
-import { mkdtempSync, readdirSync, writeFileSync } from 'fs'
+import { mkdirSync, mkdtempSync, readdirSync, writeFileSync } from 'fs'
 import os from 'os'
 import path from 'path'
 import { stringify } from 'yaml'
@@ -298,14 +298,17 @@ describe('load', () => {
             `edge_accepted on ${valve} of ${target}`,
             { ...card, valves: [{ ...emailWorkerKill, valve, target, when: edgeAccepted }] },
             { ...profile, replicas: { 'cdp-cyclotron-worker-email': 2 } },
-            "valves.0.when: edge_accepted holds an email worker's send, so it fires only role.kill on cdp-cyclotron-worker-email",
+            "valves.0.when: edge_accepted holds an email worker's send, so it fires only role.kill or role.terminate on cdp-cyclotron-worker-email",
         ]),
-        [
-            'edge_accepted while the profile runs more than one email worker',
-            { ...card, valves: [{ ...emailWorkerKill, when: edgeAccepted }] },
+        ...[
+            ['role.kill', {}],
+            ['role.terminate', { grace: '20s' }],
+        ].map(([valve, dose]): [string, object, object, string] => [
+            `edge_accepted on ${valve} while the profile runs more than one email worker`,
+            { ...card, valves: [{ ...emailWorkerKill, valve, dose, when: edgeAccepted }] },
             { ...profile, replicas: { 'cdp-cyclotron-worker-email': 2 } },
-            "valves.0.target: role.kill stops cdp-cyclotron-worker-email replica 0 only, and edge_accepted can hold another replica's send; run one email worker replica on this card",
-        ],
+            `valves.0.target: ${valve} stops cdp-cyclotron-worker-email replica 0 only, and edge_accepted can hold another replica's send; run one email worker replica on this card`,
+        ]),
         [
             'an unknown valve',
             { ...card, valves: [{ ...emailWorkerKill, valve: 'role.melt' }] },
@@ -322,6 +325,15 @@ describe('load', () => {
             },
             undefined,
             'valves.0.dose.share: ',
+        ],
+        [
+            'a terminate whose grace is longer than a stopped run waits for its release',
+            {
+                ...card,
+                valves: [{ ...emailWorkerKill, valve: 'role.terminate', dose: { grace: '301s' } }],
+            },
+            undefined,
+            'valves.0.dose.grace: at most 5m, so a stopped run releases the role within its release window',
         ],
         [
             'a kill aimed at something that is not a role',
@@ -825,14 +837,31 @@ describe('load', () => {
         expect(loadCard(card, { ...profile, name: 'measured-2026-11' }).profile.name).toBe('measured-2026-11')
     })
 
-    it("finds a profile's alert files next to the profile, wherever the runner starts", () => {
+    it("finds a profile's alert files relative to the profile, wherever the runner starts", () => {
         const alerts = { rules: 'alerts/rules.yaml', labels: '../labels.yaml', exclude: ['SyntheticLeftOut'] }
+        mkdirSync(path.join(dir, 'runner', 'alerts'), { recursive: true })
+        const rules = write('runner/alerts/rules.yaml', 'groups: []\n')
+        const labels = write('labels.yaml', 'labels: {}\n')
+        const profilePath = write('runner/profile.yaml', { ...profile, alerts })
 
-        expect(loadCard(card, { ...profile, alerts }).alerts).toEqual({
-            rules: path.join(dir, 'alerts', 'rules.yaml'),
-            labels: path.join(path.dirname(dir), 'labels.yaml'),
+        expect(load(write('card.yaml', card), { profilePath }).alerts).toEqual({
+            rules,
+            labels,
             exclude: ['SyntheticLeftOut'],
         })
+    })
+
+    it.each(['rules', 'labels'] as const)('changes the profile hash when the alert %s file changes', (kind) => {
+        const alerts = { rules: 'rules.yaml', labels: 'labels.yaml' }
+        write(alerts.rules, 'groups: []\n')
+        write(alerts.labels, 'labels: {}\n')
+        const before = loadCard(card, { ...profile, alerts })
+
+        write(alerts[kind], kind === 'rules' ? 'groups: []\n\n' : 'labels: { stage: test }\n')
+        const after = loadCard(card, { ...profile, alerts })
+
+        expect(after.profileHash).not.toBe(before.profileHash)
+        expect(after.cardHash).not.toBe(before.cardHash)
     })
 
     it('refuses an alerts profile on the dev target, and one read from text with no directory for its files', () => {
@@ -973,6 +1002,14 @@ describe('load', () => {
             { ...card, valves: [emailWorkerKill] },
             { ...profile, replicas: { 'cdp-api': 2 } },
         ],
+        [
+            'a terminate armed on edge_accepted while the profile runs one email worker',
+            {
+                ...card,
+                valves: [{ ...emailWorkerKill, valve: 'role.terminate', dose: { grace: '20s' }, when: edgeAccepted }],
+            },
+            profile,
+        ],
     ])('loads %s', (_name, content, profileContent) => {
         expect(loadCard(content, profileContent).card.id).toBe(card.id)
     })
@@ -1095,4 +1132,24 @@ describe('load', () => {
             expect(load(path.join(__dirname, `${id}.yaml`), { profilePath }).card.id).toBe(id)
         }
     )
+
+    it('admits cyclotron-failover-at-scale on a profile shaped like the US scale profile', () => {
+        const scaleShaped = {
+            name: 'scale-shaped',
+            traffic: {
+                event_email: { ratePerSecond: 20, parks: 1 },
+                event_webhook: { ratePerSecond: 20, parks: 1 },
+                transactional_email: { ratePerSecond: 5, parks: 1 },
+            },
+            replicas: { 'cdp-cyclotron-worker-hogflow': 4, 'cdp-cyclotron-worker-email': 4, 'cdp-api': 4 },
+            settings: { CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: '2000', CDP_SES_RATE_LIMIT_CAPACITY: '5000' },
+            load: { targets: { claimsPerSecond: { hogflow: 40, email: 30 } }, tolerance: 0.1 },
+            host: { cpuCeiling: 0.5 },
+        }
+        const profilePath = write('profile.yaml', scaleShaped)
+
+        expect(load(path.join(__dirname, 'cyclotron-failover-at-scale.yaml'), { profilePath }).card.id).toBe(
+            'cyclotron-failover-at-scale'
+        )
+    })
 })

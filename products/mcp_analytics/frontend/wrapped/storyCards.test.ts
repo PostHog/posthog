@@ -1,0 +1,197 @@
+import type { MCPWrappedCardsApi } from '../generated/api.schemas'
+import {
+    formatHour,
+    shareTiles,
+    storyCardKeys,
+    chartMonths,
+    formatCallCount,
+    errorLine,
+    formatDuration,
+    formatPercent,
+    reliabilityLine,
+    reliabilityTier,
+    speedLine,
+    speedTier,
+    dayPart,
+    peakMultiple,
+    rushHourLine,
+    wrappableToolName,
+} from './storyCards'
+
+const BASE: MCPWrappedCardsApi = {
+    intro: { tracked_since: '2026-07', server_count: 1 },
+    tool_calls: { total_calls: 4812655, months: [{ month: '2026-07', calls: 4812655 }], growth_multiple: null },
+    top_tools: { tools: [{ tool: 'get_forecast', calls: 1540000 }] },
+    apps: null,
+    labs: null,
+    models: null,
+    rush_hour: null,
+    reliability: { success_rate: 0.976, most_reliable_tool: null, struggling_tool: null },
+    speed: { p95_duration_ms: 410, quickest_busy_tool: null, slowest_tool: null },
+    archetype: { archetype: 'all_rounder', evidence: null },
+}
+
+describe('storyCards', () => {
+    it.each([
+        [
+            'skips cards the backend left out',
+            BASE,
+            ['intro', 'tool_calls', 'top_tools', 'reliability', 'speed', 'archetype', 'share'],
+        ],
+        [
+            'keeps optional cards that have data',
+            {
+                ...BASE,
+                models: { shares: [{ name: 'Claude Sonnet', share: 0.6 }] },
+                rush_hour: {
+                    weekday: 2,
+                    hour: 15,
+                    timezone: 'UTC',
+                    heat: [],
+                    quiet_weekends: true,
+                    night_shift: false,
+                },
+            },
+            ['intro', 'tool_calls', 'top_tools', 'models', 'rush_hour', 'reliability', 'speed', 'archetype', 'share'],
+        ],
+    ])('%s', (_name, cards, keys) => {
+        expect(storyCardKeys(cards)).toEqual(keys)
+    })
+
+    it('shows the top model on the share card, and p95 speed without one', () => {
+        const withModel = { ...BASE, models: { shares: [{ name: 'Claude Sonnet', share: 0.6 }] } }
+
+        expect(shareTiles(withModel).at(-1)).toEqual({ kind: 'model', label: 'Top AI model', value: 'Claude Sonnet' })
+        expect(shareTiles(BASE).at(-1)).toEqual({ kind: 'speed', label: '95% answered in', value: '410 ms' })
+    })
+
+    it.each([
+        [2, 15, 'Tuesday, 3 pm'],
+        [7, 0, 'Sunday, 12 am'],
+        [1, 12, 'Monday, 12 pm'],
+    ])('formats weekday %i at hour %i', (weekday, hour, expected) => {
+        expect(formatHour(weekday, hour)).toBe(expected)
+    })
+
+    it('fills months between tracked months with zero calls', () => {
+        expect(
+            chartMonths([
+                { month: '2026-11', calls: 40 },
+                { month: '2026-09', calls: 10 },
+            ])
+        ).toEqual([
+            { month: '2026-09', calls: 10 },
+            { month: '2026-10', calls: 0 },
+            { month: '2026-11', calls: 40 },
+        ])
+    })
+
+    it.each([
+        [999_999, '999,999'],
+        [4_812_655, '4.8M'],
+        [219_000_000, '219M'],
+    ])('shows %i calls as %s', (calls, count) => {
+        expect(formatCallCount(calls)).toBe(count)
+    })
+
+    it.each([
+        ['an even week', Array(168).fill(100), null],
+        ['a peak three times the average', [100, 0, 0], '3.0×'],
+        ['a peak far above the average', [100, ...Array(167).fill(1)], 'over 10×'],
+        ['no calls', Array(168).fill(0), null],
+    ])('gives the peak multiple for %s', (_, heat, expected) => {
+        expect(peakMultiple(heat)).toBe(expected)
+    })
+
+    it.each([
+        [2, 6, false, 'Your agents were already hard at work.'],
+        [3, 14, false, 'Right in the middle of the workday.'],
+        [4, 19, false, 'Your agents kept going after hours.'],
+        [6, 14, false, 'Your agents worked through the weekend.'],
+        [2, 14, true, 'Your agents worked the night shift.'],
+        [5, 23, false, 'Your agents worked the night shift.'],
+    ])('describes weekday %i at hour %i (night shift %s)', (weekday, hour, nightShift, expected) => {
+        expect(rushHourLine(weekday, hour, nightShift)).toBe(expected)
+    })
+
+    it.each([
+        [0, '0%'],
+        [0.0004, '<0.1%'],
+        [0.04, '4%'],
+        [0.0512, '5.1%'],
+        [0.964, '96%'],
+        [0.99, '99%'],
+        [0.996, '99.6%'],
+        [0.9999, '99.9%'],
+        [1, '100%'],
+    ])('shows a share of %d as %s, never rounding to 0% or 100% unless it is', (share, expected) => {
+        expect(formatPercent(share)).toBe(expected)
+    })
+
+    it.each([
+        [0.3, '<1 ms'],
+        [379, '379 ms'],
+        [999.6, '1.0 s'],
+        [7100, '7.1 s'],
+        [61_234, '1.0 min'],
+        [3_600_000, '1.0 h'],
+    ])('shows a duration of %d ms as %s', (ms, expected) => {
+        expect(formatDuration(ms)).toBe(expected)
+    })
+
+    // The tier picks the card's color, so it has to agree with the line on every side of each boundary.
+    it.each([
+        [0.999, 'Your server rarely missed a beat.', 'healthy'],
+        [0.95, 'Your agents could count on you.', 'healthy'],
+        [0.949, 'Mostly on point, with a few bumps.', 'bumpy'],
+        [0.9, 'Mostly on point, with a few bumps.', 'bumpy'],
+        [0.8, 'A bumpy year, with room to improve.', 'rough'],
+    ])('describes a success rate of %d', (rate, line, tier) => {
+        expect(reliabilityLine(rate)).toBe(line)
+        expect(reliabilityTier(rate)).toBe(tier)
+    })
+
+    it.each([
+        [1, 'Not a single tool call hit an error.'],
+        [0.997, 'Fewer than 1 in 100 tool calls hit an error.'],
+        [0.964, '4 in every 100 tool calls hit an error.'],
+    ])('counts the errors for a success rate of %d', (rate, expected) => {
+        const { figure, rest } = errorLine(rate)
+        expect(figure + rest).toBe(expected)
+    })
+
+    it.each([
+        [120, 'Lightning fast.', 'fast'],
+        [999, 'Quick on the draw.', 'fast'],
+        [1000, 'Your agents rarely waited long.', 'steady'],
+        [4999, 'Your agents rarely waited long.', 'steady'],
+        [5000, 'Some calls kept agents waiting.', 'slow'],
+    ])('describes a p95 of %d ms', (p95, line, tier) => {
+        expect(speedLine(p95)).toBe(line)
+        expect(speedTier(p95)).toBe(tier)
+    })
+
+    it.each([
+        [4, false, 'night'],
+        [5, false, 'morning'],
+        [9, false, 'day'],
+        [17, false, 'evening'],
+        [22, false, 'night'],
+        [14, true, 'night'],
+    ])('puts a busiest hour of %i (night shift: %s) in the %s', (hour, nightShift, part) => {
+        expect(dayPart(hour, nightShift)).toBe(part)
+    })
+
+    it.each([
+        ['snake_case breaks after underscores', 'query_run', 'query_\u200Brun'],
+        ['camelCase breaks before capitals', 'getAllFlags', 'get\u200BAll\u200BFlags'],
+        ['kebab-case is left to wrap at its hyphens', 'get-all-flags', 'get-all-flags'],
+        [
+            'a name over 40 characters keeps its start and end',
+            'feature_flag_get_all_definitions_with_overrides_and_more',
+            'feature_\u200Bflag_\u200Bget_\u200Ball_\u200Bdef…rrides_\u200Band_\u200Bmore',
+        ],
+    ])('%s', (_, name, expected) => {
+        expect(wrappableToolName(name)).toBe(expected)
+    })
+})

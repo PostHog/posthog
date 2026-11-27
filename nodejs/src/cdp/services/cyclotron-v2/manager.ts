@@ -39,7 +39,7 @@ import {
  * that). Keeps headroom for ~5 × 10^11 jobs per team before the BIGINT
  * sort key overflows, which is centuries at any realistic email volume.
  *
- * Only used for queue_name='email'. Other queues leave dequeue_seq NULL.
+ * Only used for fair-dequeue queues. Other queues leave dequeue_seq NULL.
  */
 export const EMAIL_DEQUEUE_BLOCK_SIZE = BigInt(16_777_216)
 
@@ -222,7 +222,7 @@ const cancelMarkedCounter = new Counter({
 
 const CANCELED_BEFORE_CLAIM = `(cyclotron_jobs.status = 'canceled' AND cyclotron_jobs.transition_count = 0)`
 
-const UNCLAIMED_EMAIL_JOB = `id = $1 AND team_id = $2 AND queue_name = 'email' AND status = 'available' AND transition_count = 0`
+const UNCLAIMED_EMAIL_JOB = `id = $1 AND team_id = $2 AND queue_name = ANY($3::text[]) AND status = 'available' AND transition_count = 0`
 
 type UnclaimedJobRow = {
     id: string
@@ -312,6 +312,8 @@ export class CyclotronV2Manager {
     private lastDepthCountedAt = 0
     private depthRefresh: Promise<boolean> | null = null
     private readonly depthRefreshSql: string
+    private readonly emailQueues: readonly string[]
+    private readonly fairDequeueQueues: readonly string[]
     private readonly reschedule: {
         floorSeconds: number
         wakeRatePerSecond: number
@@ -330,6 +332,8 @@ export class CyclotronV2Manager {
             statement_timeout: config.pool.statementTimeoutMs,
             connectionTimeoutMillis: config.pool.connectionTimeoutMs,
         })
+        this.emailQueues = config.emailQueues
+        this.fairDequeueQueues = config.fairDequeueQueues
         this.depthLimit = config.depthLimit ?? 1_000_000
         this.depthCheckIntervalMs = config.depthCheckIntervalMs ?? 10_000
         this.backgroundDepthCheck = config.backgroundDepthCheck ?? false
@@ -581,7 +585,9 @@ export class CyclotronV2Manager {
                         ({ job }) =>
                             new Date(
                                 Math.max(now, job.scheduled?.getTime() ?? now) +
-                                    (job.queueName === 'email' ? EMAIL_IDEMPOTENCY_KEY_TTL_MS : IDEMPOTENCY_KEY_TTL_MS)
+                                    (this.emailQueues.includes(job.queueName)
+                                        ? EMAIL_IDEMPOTENCY_KEY_TTL_MS
+                                        : IDEMPOTENCY_KEY_TTL_MS)
                             )
                     ),
                     entries.map((entry) => (entry.reply ? JSON.stringify(entry.reply) : null)),
@@ -599,7 +605,9 @@ export class CyclotronV2Manager {
                 })
             }
             // Such a key has no slot yet either.
-            const unslotted = toInsert.filter((entry) => entry.job.queueName === 'email' && !dequeueSeqs.has(entry.id))
+            const unslotted = toInsert.filter(
+                (entry) => this.fairDequeueQueues.includes(entry.job.queueName) && !dequeueSeqs.has(entry.id)
+            )
             if (unslotted.length > 0) {
                 const lateSeqs = await allocateEmailDequeueSeqs(
                     client,
@@ -773,7 +781,7 @@ export class CyclotronV2Manager {
     }
 
     private async computeEmailDequeueSeqs(jobs: CyclotronV2JobInit[]): Promise<(string | null)[]> {
-        const emailIndices = jobs.flatMap((job, i) => (job.queueName === 'email' ? [i] : []))
+        const emailIndices = jobs.flatMap((job, i) => (this.fairDequeueQueues.includes(job.queueName) ? [i] : []))
         const dequeueSeqs: (string | null)[] = new Array(jobs.length).fill(null)
         if (emailIndices.length === 0) {
             return dequeueSeqs
@@ -1065,7 +1073,7 @@ export class CyclotronV2Manager {
                  janitor_touch_count = 0
              WHERE ${UNCLAIMED_EMAIL_JOB}
              RETURNING ${UNCLAIMED_JOB_COLUMNS}`,
-            [id, teamId]
+            [id, teamId, this.emailQueues]
         )
         const row = result.rows[0]
         if (row) {
@@ -1073,8 +1081,8 @@ export class CyclotronV2Manager {
         }
         const existing = await this.pool.query<UnclaimedJobRow & { status: string; transition_count: number }>(
             `SELECT status, transition_count, ${UNCLAIMED_JOB_COLUMNS} FROM cyclotron_jobs
-             WHERE id = $1 AND team_id = $2 AND queue_name = 'email'`,
-            [id, teamId]
+             WHERE id = $1 AND team_id = $2 AND queue_name = ANY($3::text[])`,
+            [id, teamId, this.emailQueues]
         )
         const found = existing.rows[0]
         if (!found) {
@@ -1099,7 +1107,7 @@ export class CyclotronV2Manager {
                 `SELECT ${UNCLAIMED_JOB_COLUMNS} FROM cyclotron_jobs
                  WHERE ${UNCLAIMED_EMAIL_JOB} AND cancel_requested_at IS NULL
                  FOR UPDATE`,
-                [id, teamId]
+                [id, teamId, this.emailQueues]
             )
             const row = locked.rows[0]
             if (!row) {
@@ -1147,8 +1155,8 @@ export class CyclotronV2Manager {
     private async findJob(teamId: number, id: string): Promise<{ status: string; cancelRequested: boolean } | null> {
         const result = await this.pool.query<{ status: string; cancel_requested: boolean }>(
             `SELECT status, cancel_requested_at IS NOT NULL AS cancel_requested FROM cyclotron_jobs
-             WHERE id = $1 AND team_id = $2 AND queue_name = 'email'`,
-            [id, teamId]
+             WHERE id = $1 AND team_id = $2 AND queue_name = ANY($3::text[])`,
+            [id, teamId, this.emailQueues]
         )
         const row = result.rows[0]
         return row ? { status: row.status, cancelRequested: row.cancel_requested } : null

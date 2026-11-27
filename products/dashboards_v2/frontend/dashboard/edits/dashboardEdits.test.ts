@@ -1,5 +1,6 @@
 import { dropIntoGrid, stackTiles } from '../../grid/layout/gridTiles'
-import { type Dashboard, type SizeOf, type Tile, type PanelSize, gridTabs, isSection } from '../document/dashboardTypes'
+import { type SizeOf, type PanelSize } from '../../panels/core/panelSpec'
+import { type Dashboard, type Tile, gridTabs, isSection } from '../document/dashboardTypes'
 import { findTile } from '../document/tileTree'
 import { applyEdit, settleDashboard, withFolds, withoutTiles } from './dashboardEdits'
 
@@ -74,6 +75,12 @@ describe('dashboardEdits', () => {
         },
     ])('$name', ({ edit, expected }) => {
         expect(allPlaces(applyEdit(nested, edit, sizeOf))).toEqual(expected)
+    })
+
+    it('keeps fields of a place it does not know when it settles the grid', () => {
+        const pinned = { ...text('a', 0, 3, 6, 8), place: { x: 0, y: 3, w: 6, h: 8, pinned: true } }
+
+        expect(gridTabs(dashboard([pinned]))[0].tiles[0].place).toEqual({ x: 0, y: 0, w: 6, h: 8, pinned: true })
     })
 
     it('sets the parts of a tile inside a section and leaves its siblings alone', () => {

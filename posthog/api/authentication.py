@@ -58,7 +58,11 @@ from two_factor.views.utils import get_remember_device_cookie, validate_remember
 from webauthn.helpers import base64url_to_bytes, bytes_to_base64url, options_to_json
 from webauthn.helpers.structs import AuthenticatorTransport, PublicKeyCredentialDescriptor
 
-from posthog.api.email_verification import email_verification_code_verifier, is_email_verification_disabled
+from posthog.api.email_verification import (
+    EmailVerificationCodeUndeliverable,
+    email_verification_code_verifier,
+    is_email_verification_disabled,
+)
 from posthog.auth import ACCOUNT_BLOCKED_DETAIL
 from posthog.caching.login_device_cache import check_and_cache_login_device
 from posthog.constants import AUTH_BACKEND_DISPLAY_NAMES, POSTHOG_INTERNAL_EMAIL_SUFFIX
@@ -415,7 +419,11 @@ def require_verified_email_for_login(user: User) -> None:
         return
 
     if user.is_email_verified is None:
-        email_verification_code_verifier.send_code(user)
+        try:
+            email_verification_code_verifier.send_code(user)
+        except EmailVerificationCodeUndeliverable:
+            # These accounts may sign in unverified, so a refused address must not lock them out.
+            pass
         return
 
     inbox_lookup = InboxProviderLookup.start(user.email)
@@ -576,6 +584,9 @@ class LoginSerializer(serializers.Serializer):
 
             raise serializers.ValidationError("Invalid email or password.", code="invalid_credentials")
 
+        if not user.is_human:
+            raise serializers.ValidationError("Invalid email or password.", code="invalid_credentials")
+
         if radar_attempt and radar_attempt.attempt_id:
             # Reported when the session signs in, so a login that stops at a second factor is never reported
             remember_login_attempt(
@@ -664,7 +675,7 @@ class LoginSerializer(serializers.Serializer):
                 user.id, timezone.now(), short_user_agent, ip_address, backend_name
             )
 
-        report_user_logged_in(user, social_provider="")
+        report_user_logged_in(user, request=request, social_provider="")
         return user
 
 
@@ -872,13 +883,13 @@ class DevLoginSerializer(serializers.Serializer):
 
         request = self.context["request"]
         user = EmailLookupHandler.get_user_by_email(validated_data["email"])
-        if user is None:
+        if user is None or not user.is_human:
             raise serializers.ValidationError("User not found", code="user_not_found")
 
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
         request.session["reauth"] = "false"
         request.session.save()
-        report_user_logged_in(user, social_provider="")
+        report_user_logged_in(user, request=request, social_provider="")
         return user
 
     def _create_fresh_account(self) -> Any:
@@ -899,7 +910,7 @@ class DevLoginSerializer(serializers.Serializer):
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
         request.session["reauth"] = "false"
         request.session.save()
-        report_user_logged_in(user, social_provider="")
+        report_user_logged_in(user, request=request, social_provider="")
         return user
 
 
@@ -964,7 +975,8 @@ class DevLoginViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
         # alphabetical: on instances with hundreds of test accounts, the handful you actually
         # switch between float up on their own. Email breaks ties to keep the order stable.
         users = list(
-            User.objects.filter(is_active=True)
+            User.objects.humans()
+            .filter(is_active=True)
             .annotate(is_seeded=Q(email__in=DEV_LOGIN_KNOWN_EMAIL_LABELS))
             .order_by("-is_seeded", F("last_login").desc(nulls_last=True), "email")
             .values("email", "first_name", "is_staff", "last_login")
@@ -1004,7 +1016,7 @@ class TwoFactorViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
         otp_login(request, device)
         set_two_factor_verified_in_session(request)
-        report_user_logged_in(user, social_provider="")
+        report_user_logged_in(user, request=request, social_provider="")
         device.throttle_reset()
 
         # Clean up pre-2FA session keys to prevent reuse
@@ -1075,7 +1087,7 @@ class TwoFactorViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
             # Complete 2FA verification
             login(request, user, backend="django.contrib.auth.backends.ModelBackend")
             set_two_factor_verified_in_session(request)
-            report_user_logged_in(user, social_provider="")
+            report_user_logged_in(user, request=request, social_provider="")
 
             # Clean up pre-2FA session keys to prevent reuse
             request.session.pop("user_authenticated_but_no_2fa", None)
@@ -1167,7 +1179,7 @@ class TwoFactorViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
             )
 
         try:
-            user = User.objects.get(pk=user_id)
+            user = User.objects.humans().get(pk=user_id)
         except User.DoesNotExist:
             raise serializers.ValidationError(
                 detail="Invalid 2FA session. Please log in again.",
@@ -1219,7 +1231,7 @@ class TwoFactorPasskeyViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
             )
 
         try:
-            user = User.objects.get(pk=user_id)
+            user = User.objects.humans().get(pk=user_id)
         except User.DoesNotExist:
             return Response(
                 {"error": "User not found."},
@@ -1252,7 +1264,7 @@ class TwoFactorPasskeyViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
             )
 
         try:
-            user = User.objects.get(pk=user_id)
+            user = User.objects.humans().get(pk=user_id)
         except User.DoesNotExist:
             return Response(
                 {"error": "User not found."},
@@ -1413,7 +1425,7 @@ class CodeBasedVerificationViewSet(NonCreatingViewSetMixin, viewsets.GenericView
         code = serializer.validated_data.get("code")
         user_id = code_based_verifier.get_pending_code_based_verification_user_id(request)
         try:
-            user = User.objects.get(pk=user_id, is_active=True)
+            user = User.objects.humans().get(pk=user_id, is_active=True)
         except User.DoesNotExist:
             code_based_verifier.clear_pending(request)
             raise invalid_error
@@ -1442,7 +1454,7 @@ class CodeBasedVerificationViewSet(NonCreatingViewSetMixin, viewsets.GenericView
             _complete_idp_login(request, user, sso)
         else:
             login(request, user, backend="django.contrib.auth.backends.ModelBackend")
-            report_user_logged_in(user, social_provider="")
+            report_user_logged_in(user, request=request, social_provider="")
         set_two_factor_verified_in_session(request)
         mfa_logger.info("Code-based verification successful", user_id=user.pk)
         LOGIN_CODE_VERIFICATION_COUNTER.labels(result="success").inc()
@@ -1474,7 +1486,9 @@ class CodeBasedVerificationViewSet(NonCreatingViewSetMixin, viewsets.GenericView
         _require_fresh_idp_challenge(request)
 
         try:
-            user = User.objects.get(pk=code_based_verifier.get_pending_code_based_verification_user_id(request))
+            user = User.objects.humans().get(
+                pk=code_based_verifier.get_pending_code_based_verification_user_id(request)
+            )
         except User.DoesNotExist:
             raise serializers.ValidationError({"detail": "User not found."}, code="user_not_found")
 
@@ -1530,7 +1544,7 @@ class PasswordResetSerializer(serializers.Serializer):
                 code="email_not_available",
             )
 
-        if user:
+        if user and user.is_human:
             user.requested_password_reset_at = datetime.datetime.now(datetime.UTC)
             user.save()
             token = password_reset_token_generator.make_token(user)
@@ -1554,7 +1568,7 @@ class PasswordResetCompleteSerializer(serializers.Serializer):
             return {"email": "test@posthog.com"}
 
         try:
-            user = User.objects.filter(is_active=True).get(uuid=self.context["view"].kwargs["user_uuid"])
+            user = User.objects.humans().filter(is_active=True).get(uuid=self.context["view"].kwargs["user_uuid"])
         except (User.DoesNotExist, ValidationError):
             capture_exception(
                 Exception("User not found in password reset serializer"),
@@ -1593,7 +1607,7 @@ class PasswordResetCompleteSerializer(serializers.Serializer):
         # action, so revoke every existing login session for this user.
         revoke_other_sessions(user, keep_session_key=None)
 
-        report_user_password_reset(user)
+        report_user_password_reset(user, request=self.context["request"])
         return {"email": user.email}
 
 
@@ -1613,7 +1627,7 @@ class PasswordResetCompleteViewSet(NonCreatingViewSetMixin, mixins.RetrieveModel
 
     def get_object(self):
         token = self.request.query_params.get("token")
-        user_uuid = self.kwargs.get("user_uuid")
+        user_uuid = self.kwargs["user_uuid"]
 
         if not token:
             raise serializers.ValidationError({"token": ["This field is required."]}, code="required")
@@ -1623,7 +1637,7 @@ class PasswordResetCompleteViewSet(NonCreatingViewSetMixin, mixins.RetrieveModel
             return {"success": True, "token": token}
 
         try:
-            user = User.objects.filter(is_active=True).get(uuid=user_uuid)
+            user = User.objects.humans().filter(is_active=True).get(uuid=user_uuid)
         except (User.DoesNotExist, ValidationError):
             capture_exception(
                 Exception("User not found in password reset viewset"), {"user_uuid": user_uuid, "token": token}
@@ -1799,11 +1813,13 @@ def social_reauth(
 def social_access_rules_allow(
     strategy: DjangoStrategy, backend: BaseAuth, user: User | None = None, **kwargs: Any
 ) -> None:
-    """Refuse an SSO login for an account that an enforced access rule blocks, before a session starts."""
+    """Refuse an SSO login for a service account or an account that an enforced access rule blocks, before a session starts."""
     if user is None:
         # A new account is checked where it is created: the signup serializer, or the SSO invite
         # and verified-domain joins in posthog/api/signup.py.
         return
+    if not user.is_human:
+        raise AuthFailed(backend, "Authentication failed.")
     if _sso_access_refused(strategy.request, user):
         raise AuthFailed(backend, SECURITY_REFUSAL_CODE)
 
@@ -1994,7 +2010,7 @@ def social_grant_staff_to_google_workspace_members(
 
 
 def _notify_social_login(request: HttpRequest, user: User, backend_name: str) -> None:
-    report_user_logged_in(user, social_provider=backend_name)
+    report_user_logged_in(user, request=request, social_provider=backend_name)
     if not has_valid_known_device_cookie(request, user):
         login_from_new_device_notification.delay(
             user.id, timezone.now(), get_short_user_agent(request), get_ip_address(request), backend_name

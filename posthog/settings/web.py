@@ -199,6 +199,9 @@ MIDDLEWARE = [
     "posthog.middleware.per_request_logging_context_middleware",
     "django_structlog.middlewares.RequestMiddleware",
     "posthog.middleware.Fix204Middleware",
+    # Above every middleware that can answer without calling the view, such as the HTTPS
+    # redirect from SecurityMiddleware, so those responses carry the noindex header too.
+    "posthog.robots_tag_middleware.RobotsTagMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "posthog.middleware.OAuthCoopMiddleware",
     # NOTE: we need healthcheck high up to avoid hitting middlewares that may be
@@ -291,7 +294,7 @@ ROOT_URLCONF = "posthog.urls"
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": ["frontend/dist", "posthog/templates"],
+        "DIRS": [os.path.join(BASE_DIR, "frontend/dist"), os.path.join(BASE_DIR, "posthog/templates")],
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
@@ -420,6 +423,7 @@ CAN_LOGIN_AS = lambda request, target_user: (
     request.user.is_staff
     # cannot impersonate other staff
     and not target_user.is_staff
+    and target_user.is_human
     # target user must not have opted out of impersonation (None treated as allowed)
     and target_user.allow_impersonation is not False
 )
@@ -631,6 +635,7 @@ SPECTACULAR_SETTINGS = {
     "AUTHENTICATION_WHITELIST": ["posthog.auth.PersonalAPIKeyAuthentication"],
     "GET_MOCK_REQUEST": "posthog.api.documentation.build_openapi_mock_request",
     "PREPROCESSING_HOOKS": ["posthog.api.documentation.preprocess_exclude_path_format"],
+    "SORT_OPERATIONS": "posthog.api.documentation.sort_operations",
     "POSTPROCESSING_HOOKS": [
         # The guard pair around postprocess_schema_enums fails the build when two
         # different choice sets resolve to one component name, which the enum hook
@@ -1026,6 +1031,15 @@ DOMAIN_CONNECT_KEY_ID: str = os.getenv("DOMAIN_CONNECT_KEY_ID", "_dcpubkeyv1")
 LOGO_DEV_TOKEN = get_from_env("LOGO_DEV_TOKEN", "")
 LOGO_DEV_PUBLISHABLE_KEY = get_from_env("LOGO_DEV_PUBLISHABLE_KEY", LOGO_DEV_TOKEN)
 LOGO_DEV_SECRET_KEY = get_from_env("LOGO_DEV_SECRET_KEY", "")
+
+####
+# Docs library: the business knowledge library that holds the PostHog documentation. `docs-search`
+# reads it over HTTP, so every region can reach the one project that holds it.
+# The key is a project secret API key limited to that library. Docs search stays on Inkeep while it is empty.
+DOCS_SEARCH_LIBRARY_API_KEY = get_from_env("DOCS_SEARCH_LIBRARY_API_KEY", "")
+DOCS_SEARCH_LIBRARY_HOST = get_from_env("DOCS_SEARCH_LIBRARY_HOST", "").rstrip("/")
+DOCS_SEARCH_LIBRARY_PROJECT_ID = get_from_env("DOCS_SEARCH_LIBRARY_PROJECT_ID", "")
+DOCS_SEARCH_LIBRARY_ID = get_from_env("DOCS_SEARCH_LIBRARY_ID", "")
 
 ####
 # Firecrawl (outbound page scraping, see posthog/egress/firecrawl/)
@@ -1557,6 +1571,8 @@ except ValueError:
 MCP_CATALOG_SYNC_ON_WORKER_READY: bool = get_from_env("MCP_CATALOG_SYNC_ON_WORKER_READY", True, type_cast=str_to_bool)
 
 AEO_ANTHROPIC_MODEL = get_from_env("AEO_ANTHROPIC_MODEL", "claude-sonnet-5")
+# Setup's site research and prompt writing. A faster model than the Claude engine's, since a person waits on it.
+AEO_SETUP_MODEL = get_from_env("AEO_SETUP_MODEL", "claude-haiku-5-5")
 AEO_OPENAI_MODEL = get_from_env("AEO_OPENAI_MODEL", "gpt-5")
 AEO_PERPLEXITY_MODEL = get_from_env("AEO_PERPLEXITY_MODEL", "posthog/perplexity/sonar")
 # A full daily run covers the whole prompt set, so the cap only guards against a runaway import.

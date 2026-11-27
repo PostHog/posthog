@@ -136,6 +136,9 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         )
 
     def test_warehouse_native_exposures_come_from_the_warehouse(self):
+        # An excluded variant stays out of the exposures, but its rows aren't unknown to the diagnostic.
+        self.experiment.excluded_variants = ["holdout"]
+        self.experiment.save()
         connection = ExternalDataSource.objects.create(
             team=self.team,
             source_id="bigquery",
@@ -164,8 +167,8 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
                 ),
                 # The second statement counts the rows the first one left out, by reason.
                 HogQLQueryResponse(
-                    columns=["reason", "value", "rows"],
-                    results=[["unknown_variant", "Control", 3], ["empty_id", None, 1]],
+                    columns=["reason", "value", "row_count", "reason_row_count"],
+                    results=[["unknown_variant", "Control", 3, 7], ["empty_id", None, 1, 1]],
                 ),
             ]
             response = ExperimentExposuresQueryRunner(
@@ -178,15 +181,25 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         assert "FROM exposures" in statement["query"]
         assert "DATE(" in statement["query"] and "'UTC'" in statement["query"]
         assert left_out["connection_id"] == str(connection.id) and "unknown_variant" in left_out["query"]
+        assert "'holdout'" in left_out["query"] and "'holdout'" not in statement["query"]
+        # The statement names at most 50 values, so the total of the reason comes with them.
         assert response.rows_left_out == ExperimentWarehouseNativeRowsLeftOut(
-            unknown_variants={"Control": 3}, empty_id=1
+            unknown_variants={"Control": 3}, unknown_variant_rows=7, empty_id=1
         )
         assert response.total_exposures == {"control": 4, "test": 2, MULTIPLE_VARIANT_KEY: 1}
         control = next(series for series in response.timeseries if series.variant == "control")
         assert control.exposure_counts == [0, 3, 4, 4, 4, 4, 4]
         assert response.exposed_by_library is None
-        # The exposure health checks read flag calls and exposure events, which a warehouse has neither of.
-        assert {check.status for check in response.health_checks} == {ExperimentExposureHealthCheckStatus.NOT_CHECKED}
+        # The rows the run left out become a finding. The other exposure health checks read flag calls and exposure
+        # events, which a warehouse has neither of.
+        statuses = {check.key: check.status for check in response.health_checks}
+        assert statuses.pop(ExperimentExposureHealthCheckKey.EXPOSURE_ROWS_LEFT_OUT) == (
+            ExperimentExposureHealthCheckStatus.FINDING
+        )
+        assert set(statuses.values()) == {ExperimentExposureHealthCheckStatus.NOT_CHECKED}
+        assert [(finding.code, finding.subcode) for finding in response.health_findings] == [
+            (ExperimentExposureHealthFindingCode.EXPOSURE_ROWS_LEFT_OUT, "unknown_variant")
+        ]
 
     def test_a_failing_diagnostic_keeps_the_exposures(self):
         connection = ExternalDataSource.objects.create(
@@ -215,6 +228,12 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
 
         assert response.total_exposures["control"] == 3
         assert response.rows_left_out is None
+        left_out = next(
+            check
+            for check in response.health_checks
+            if check.key == ExperimentExposureHealthCheckKey.EXPOSURE_ROWS_LEFT_OUT
+        )
+        assert (left_out.status, response.health_findings) == (ExperimentExposureHealthCheckStatus.NOT_CHECKED, [])
 
     def test_publishing_and_shared_links_need_access_to_the_connection(self):
         connection = ExternalDataSource.objects.create(
@@ -2017,6 +2036,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
             {key: value for key, value in finding.evidence.items() if not key.endswith("p_value")},
             {
                 "share_off_split": 0.1667,
+                "mismatch_started_on": "2024-01-03",
                 "located_dimensions": "library,library_version",
                 "library_1": "web",
                 "library_1_exposed_control": 100,

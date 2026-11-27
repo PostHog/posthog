@@ -61,9 +61,10 @@ class AnchoredDashboardsSource:
         if not dashboard_ids:
             return Insight.objects.none()
         # A removed tile counts too, matching the `Insight.dashboards` relation.
-        on_dashboards = Q()
-        for dashboard_id in sorted(dashboard_ids):
-            on_dashboards |= Q(id__in=dashboards_api.insight_ids_on_dashboard(dashboard_id, include_removed_tiles=True))
+        insight_ids_by_dashboard = dashboards_api.insight_ids_on_dashboards(
+            dashboard_ids, team_id=team.id, include_removed_tiles=True
+        )
+        on_dashboards = Q(id__in=frozenset[int]().union(*insight_ids_by_dashboard.values()))
         return user_access_control.filter_queryset_by_access_level(
             Insight.objects.filter(on_dashboards, team=team, deleted=False).distinct()
         )

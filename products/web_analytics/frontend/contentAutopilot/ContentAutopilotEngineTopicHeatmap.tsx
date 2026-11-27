@@ -1,45 +1,46 @@
-import clsx from 'clsx'
+import { Button, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
-import { LemonTable, LemonTableColumn, LemonTableColumns, Link, Tooltip } from '@posthog/lemon-ui'
-
+import type { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
-import { PagePerformanceCard } from 'scenes/web-analytics/PagePerformanceCard'
-import { PagePerformanceCardHeader } from 'scenes/web-analytics/PagePerformanceCardHeader'
 
+import { AiVisibilityCard } from './AiVisibilityCard'
+import { AiVisibilityTable } from './AiVisibilityTable'
 import { ContentAutopilotEngineLabel } from './ContentAutopilotEngineLabel'
 import type { EngineTopicCell, EngineTopicGrid, EngineTopicRow } from './promptsOverview'
 import { sameTopic } from './utils'
 
-// One fill per heat step, lowest rate first. Each is mixed from one token over the card, so the text on it keeps
-// the theme's text color in light and dark mode. The classes are spelled out because Tailwind only emits the
-// class names it finds in the source.
-const HEAT_FILLS = [
-    'bg-[color-mix(in_oklab,var(--success)_7%,transparent)]',
-    'bg-[color-mix(in_oklab,var(--success)_17%,transparent)]',
-    'bg-[color-mix(in_oklab,var(--success)_28%,transparent)]',
-    'bg-[color-mix(in_oklab,var(--success)_40%,transparent)]',
-    'bg-[color-mix(in_oklab,var(--success)_52%,transparent)]',
-]
+// How much of the strong success color each heat step mixes over the card, lowest rate first, so the text on it keeps
+// the theme's text color in light and dark mode. A mix in a style, because quill's scoped colors take no opacity modifier.
+const HEAT_SHARES = [5, 15, 25, 35, 50]
 
 const HeatCell = ({ cell }: { cell: EngineTopicCell }): JSX.Element =>
     cell.rate === null || cell.heat === null ? (
-        <Tooltip title="No answers">
-            <span className="block px-2 py-1 text-center text-muted" aria-label="No answers">
+        <Tooltip>
+            <TooltipTrigger
+                render={<span className="block px-2 py-1 text-center text-muted-foreground" aria-label="No answers" />}
+            >
                 -
-            </span>
+            </TooltipTrigger>
+            <TooltipContent>No answers</TooltipContent>
         </Tooltip>
     ) : (
-        <Tooltip title={`Visible in ${humanFriendlyNumber(cell.mentioned)} of ${pluralize(cell.answers, 'answer')}`}>
-            <span
-                className={clsx(
-                    'block rounded px-2 py-1 text-center whitespace-nowrap tabular-nums',
-                    HEAT_FILLS[cell.heat]
-                )}
+        <Tooltip>
+            <TooltipTrigger
+                render={
+                    <span
+                        className="block rounded-sm px-2 py-1 text-center whitespace-nowrap tabular-nums"
+                        style={{
+                            backgroundColor: `color-mix(in oklab, var(--success-foreground) ${HEAT_SHARES[cell.heat]}%, transparent)`,
+                        }}
+                    />
+                }
             >
-                <span className="font-semibold">{percentage(cell.rate, 0)}</span>{' '}
-                <span className="text-xs">of {humanFriendlyNumber(cell.answers)}</span>
-            </span>
+                <span className="font-semibold">{percentage(cell.rate, 0)}</span>
+            </TooltipTrigger>
+            <TooltipContent>
+                Visible in {humanFriendlyNumber(cell.mentioned)} of {pluralize(cell.answers, 'answer')}
+            </TooltipContent>
         </Tooltip>
     )
 
@@ -59,18 +60,19 @@ export const ContentAutopilotEngineTopicHeatmap = ({
             title: 'Topic',
             key: 'topic',
             render: (_, row) => (
-                <Link
-                    subtle
+                <Button
+                    variant={row.topic ? 'link-foreground' : 'link-muted'}
+                    size="sm"
                     onClick={(event) => {
                         // The row handler below would otherwise select the topic a second time.
                         event.stopPropagation()
                         onSelectTopic(row.topic)
                     }}
-                    className={row.topic ? 'font-semibold' : 'font-semibold text-muted'}
+                    className="font-semibold"
                     data-attr="content-autopilot-prompts-overview-heatmap-topic"
                 >
                     {row.topic || 'No topic'}
-                </Link>
+                </Button>
             ),
         },
         ...grid.engines.map(
@@ -83,10 +85,9 @@ export const ContentAutopilotEngineTopicHeatmap = ({
         ),
     ]
     return (
-        <PagePerformanceCard className="min-w-0">
-            <PagePerformanceCardHeader title="Visibility by engine and topic" />
+        <AiVisibilityCard title="Visibility by engine and topic">
             <div className="overflow-x-auto" data-attr="content-autopilot-prompts-overview-heatmap">
-                <LemonTable
+                <AiVisibilityTable
                     size="small"
                     embedded
                     dataSource={grid.rows}
@@ -98,6 +99,6 @@ export const ContentAutopilotEngineTopicHeatmap = ({
                     emptyState="No topics yet"
                 />
             </div>
-        </PagePerformanceCard>
+        </AiVisibilityCard>
     )
 }

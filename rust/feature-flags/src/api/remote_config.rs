@@ -9,12 +9,9 @@
 //! Session-cookie auth is intentionally not ported (not an SDK path), same as
 //! `flag_definitions`.
 //!
-//! Not ported, consistent with `flag_definitions`/`local_evaluation` (so "matches Django"
-//! does not extend to these): per-flag access control (advanced RBAC) is not enforced.
-//! Personal-key callers are checked for scope and team/org membership only, not role-based
-//! feature flag access, even though this endpoint can return decrypted payloads. OAuth
-//! access tokens are also not accepted — any non-`phs_` bearer goes through personal-key
-//! validation and gets 401; only `phs_` and `phx_` credentials work.
+//! Personal-key callers go through Django's access control checks (see `flag_access`), because
+//! they get decrypted payloads. OAuth access tokens are not accepted — any non-`phs_` bearer goes
+//! through personal-key validation and gets 401; only `phs_` and `phx_` credentials work.
 //!
 //! Supports `If-None-Match` conditional requests like `/flags/definitions`, but with a
 //! content-derived ETag: no cache backs this endpoint (the payload is read from Postgres
@@ -32,10 +29,12 @@
 
 use crate::api::api_key_usage::ApiKeyKind;
 use crate::{
-    api::{auth, errors::FlagError, flag_definitions},
+    api::{auth, errors::FlagError, flag_access::FlagAccess, flag_definitions},
     database::get_connection_with_metrics,
     flags::flag_payload_decryptor::REDACTED_PAYLOAD_VALUE,
-    metrics::consts::{REMOTE_CONFIG_AUTH_COUNTER, REMOTE_CONFIG_ETAG_COUNTER},
+    metrics::consts::{
+        REMOTE_CONFIG_ACCESS_DENIED_COUNTER, REMOTE_CONFIG_AUTH_COUNTER, REMOTE_CONFIG_ETAG_COUNTER,
+    },
     router::State as AppState,
     team::team_models::Team,
     utils::python_truthiness::is_falsy,
@@ -74,6 +73,7 @@ enum AuthOutcome {
         /// Per-credential throttle key. `Some(pak_id)` for personal API keys (which Django
         /// throttles), `None` for secret keys (which Django does not throttle).
         rate_limit_key: Option<String>,
+        user_id: Option<i32>,
     },
     /// Credential is valid but not for this project (Django: 403 team mismatch).
     Forbidden,
@@ -141,13 +141,14 @@ pub async fn remote_config(
         }
     };
 
-    let (should_decrypt, team_id, rate_limit_key) =
+    let (should_decrypt, team_id, rate_limit_key, user_id) =
         match authenticate(&state, scope_team_id, resolved_team.as_ref(), &headers).await? {
             AuthOutcome::Authorized {
                 should_decrypt,
                 team_id,
                 rate_limit_key,
-            } => (should_decrypt, team_id, rate_limit_key),
+                user_id,
+            } => (should_decrypt, team_id, rate_limit_key, user_id),
             AuthOutcome::Forbidden => return Ok(StatusCode::FORBIDDEN.into_response()),
             AuthOutcome::ProjectNotFound => return Ok(StatusCode::NOT_FOUND.into_response()),
         };
@@ -155,6 +156,8 @@ pub async fn remote_config(
     // Throttle mirroring Django's RemoteConfigThrottle: only personal-API-key requests are
     // throttled, bucketed per credential, and allowlisted teams bypass. Secret-key requests
     // carry no `rate_limit_key` and are not throttled. Runs before the DB lookup to shield PG.
+    // Django runs its permission checks before the throttle, so a caller that access control
+    // denies and that is over the limit gets 403 there and 429 here.
     if let Some(cred_key) = rate_limit_key {
         if !state
             .config
@@ -183,12 +186,32 @@ pub async fn remote_config(
         None => i64::from(scope_team_id),
     };
 
+    // Django checks the project and feature flag access before it looks up the flag, so a
+    // user without that access gets 403 for every key, whether the flag exists or not. Django
+    // reads the rules of the project's root team (`id == project_id`), also when `@current`
+    // resolves to another team of the project.
+    let access = match user_id {
+        Some(user_id) => {
+            let Ok(rules_team_id) = i32::try_from(scope_project_id) else {
+                return Ok(StatusCode::NOT_FOUND.into_response());
+            };
+            let access = FlagAccess::load(&state, rules_team_id, user_id).await?;
+            if !access.allows_flags() {
+                return Ok(access_denied("flags"));
+            }
+            Some(access)
+        }
+        None => None,
+    };
+
     // Flag lookup scoped to the project. 404 if missing or not a remote config flag (the query
     // filters on `is_remote_configuration`).
     // `resolved_key` is the flag's actual `key` column, not the URL segment (which may be a
     // numeric id when the caller addresses the flag by id), so decrypt-failure logs always carry
     // the human-readable key.
     let Some(RemoteConfigFlag {
+        id: flag_id,
+        created_by_id,
         filters,
         has_encrypted_payloads,
         key: resolved_key,
@@ -197,6 +220,13 @@ pub async fn remote_config(
     else {
         return Ok(StatusCode::NOT_FOUND.into_response());
     };
+
+    if access
+        .as_ref()
+        .is_some_and(|access| !access.allows_flag(flag_id, created_by_id))
+    {
+        return Ok(access_denied("flag"));
+    }
 
     // Raw filters, deliberately outside the fail-closed config-format boundary the
     // evaluation paths use: Django's own view reads `payloads["true"]` just as raw and is
@@ -266,6 +296,15 @@ pub async fn remote_config(
         Some(_) => Ok(json_ok_with_etag(body, &current_etag)),
         None => Ok(empty_ok_no_content_type(&current_etag)),
     }
+}
+
+fn access_denied(check: &str) -> Response {
+    inc(
+        REMOTE_CONFIG_ACCESS_DENIED_COUNTER,
+        &[("check".to_string(), check.to_string())],
+        1,
+    );
+    StatusCode::FORBIDDEN.into_response()
 }
 
 /// Content-derived ETag over the exact response body, using the same HyperCache helper
@@ -392,6 +431,7 @@ async fn authenticate(
             should_decrypt: false,
             team_id,
             rate_limit_key: None,
+            user_id: None,
         });
     }
 
@@ -412,8 +452,9 @@ async fn authenticate(
                 &fetched
             }
         };
-        let pak_id =
+        let validated =
             auth::validate_personal_api_key_with_scopes_for_team(state, &key, team).await?;
+        let pak_id = validated.key_id;
         inc(
             REMOTE_CONFIG_AUTH_COUNTER,
             &[("method".to_string(), "personal_api_key".to_string())],
@@ -433,6 +474,7 @@ async fn authenticate(
             should_decrypt: true,
             team_id: scope_team_id,
             rate_limit_key,
+            user_id: Some(validated.user_id),
         });
     }
 
@@ -490,6 +532,8 @@ async fn project_id_for_team(state: &AppState, team_id: i32) -> Result<Option<i6
 
 #[derive(sqlx::FromRow)]
 struct RemoteConfigFlag {
+    id: i32,
+    created_by_id: Option<i32>,
     filters: Value,
     has_encrypted_payloads: Option<bool>,
     key: String,
@@ -527,7 +571,7 @@ async fn load_remote_config_flag(
 
     let result = if let Some(id) = parsed_id {
         sqlx::query_as::<_, RemoteConfigFlag>(
-            "SELECT f.filters, f.has_encrypted_payloads, f.key, f.active \
+            "SELECT f.id, f.created_by_id, f.filters, f.has_encrypted_payloads, f.key, f.active \
              FROM posthog_featureflag f JOIN posthog_team t ON f.team_id = t.id \
              WHERE t.project_id = $1 AND f.deleted = false AND f.is_remote_configuration IS TRUE \
              AND f.id = $2 LIMIT 1",
@@ -538,7 +582,7 @@ async fn load_remote_config_flag(
         .await
     } else {
         sqlx::query_as::<_, RemoteConfigFlag>(
-            "SELECT f.filters, f.has_encrypted_payloads, f.key, f.active \
+            "SELECT f.id, f.created_by_id, f.filters, f.has_encrypted_payloads, f.key, f.active \
              FROM posthog_featureflag f JOIN posthog_team t ON f.team_id = t.id \
              WHERE t.project_id = $1 AND f.deleted = false AND f.is_remote_configuration IS TRUE \
              AND f.key = $2 LIMIT 1",

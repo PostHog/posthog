@@ -6,10 +6,11 @@ import { FEATURE_FLAGS } from 'lib/constants'
 
 import { mswDecorator } from '~/mocks/browser'
 
-import type { AEOKeywordApi, ContentAutopilotSiteProfileApi } from '../generated/api.schemas'
+import type { AEOKeywordApi } from '../generated/api.schemas'
 import { ContentAutopilot } from './ContentAutopilot'
 import { type CitationsLookup, contentAutopilotCitationsModalLogic } from './contentAutopilotCitationsModalLogic'
 import { contentAutopilotFiltersLogic } from './contentAutopilotFiltersLogic'
+import { contentAutopilotKeywordsLogic } from './contentAutopilotKeywordsLogic'
 import { type ContentAutopilotWorkspaceTab, contentAutopilotLogic } from './contentAutopilotLogic'
 import { contentAutopilotPromptDetailLogic } from './contentAutopilotPromptDetailLogic'
 import { contentAutopilotPromptsLogic } from './contentAutopilotPromptsLogic'
@@ -17,7 +18,6 @@ import {
     EXAMPLE_KEYWORD_MODIFIERS,
     EXAMPLE_KEYWORD_REPORT,
     EXAMPLE_KEYWORDS,
-    EXAMPLE_PROFILE,
     EXAMPLE_PROMPT_SET_CITATION_RESPONSE,
     EXAMPLE_PROMPT_SET_MOVERS,
     EXAMPLE_PROMPT_SET_OVERVIEW,
@@ -26,12 +26,12 @@ import {
     EXAMPLE_PROMPT_TOPICS,
     EXAMPLE_COMPETITOR_BRANDS,
     EXAMPLE_ENGINE_SETTINGS,
+    EXAMPLE_SETUP_CONTEXT,
     EXAMPLE_PROMPTS,
     EXAMPLE_PROMPT_CHECKS,
     EXAMPLE_PROMPT_CITATIONS,
     EXAMPLE_PROMPT_VERSIONS,
     EXAMPLE_PROMPT_STATS,
-    EXAMPLE_SECOND_PROFILE,
 } from './contentAutopilotStoryFixtures'
 
 const echoedFilters = (url: string): { branded: string; engine: string | null; topic: string | null } => {
@@ -69,18 +69,12 @@ const queryResponse = async ({ request }: { request: Request }): Promise<[number
 }
 
 const workspaceHandlers = ({
-    profiles,
     keywords = EXAMPLE_KEYWORDS,
 }: {
-    profiles: ContentAutopilotSiteProfileApi[]
     keywords?: AEOKeywordApi[]
-}): ReturnType<typeof mswDecorator> =>
+} = {}): ReturnType<typeof mswDecorator> =>
     mswDecorator({
         get: {
-            '/api/projects/:team_id/web_analytics_content_autopilot_profiles/': () => [
-                200,
-                { count: profiles.length, next: null, previous: null, results: profiles },
-            ],
             '/api/projects/:team_id/aeo_prompts/': () => [
                 200,
                 { count: EXAMPLE_PROMPTS.length, next: null, previous: null, results: EXAMPLE_PROMPTS },
@@ -127,6 +121,7 @@ const workspaceHandlers = ({
                 },
             ],
             '/api/projects/:team_id/aeo_engines/': () => [200, EXAMPLE_ENGINE_SETTINGS],
+            '/api/projects/:team_id/aeo_setup/context/': () => [200, EXAMPLE_SETUP_CONTEXT],
             '/api/projects/:team_id/aeo_prompts/:id/': () => [200, EXAMPLE_PROMPTS[0]],
             '/api/projects/:team_id/aeo_prompts/:id/stats/': () => [200, EXAMPLE_PROMPT_STATS],
             '/api/projects/:team_id/aeo_prompts/:id/versions/': () => [200, EXAMPLE_PROMPT_VERSIONS],
@@ -140,17 +135,6 @@ const workspaceHandlers = ({
             '/api/projects/:team_id/aeo_prompts/create_dashboard/': () => [
                 201,
                 { id: 1, name: 'AI visibility weekly' },
-            ],
-            '/api/projects/:team_id/web_analytics_content_autopilot_profiles/discover/': () => [
-                200,
-                {
-                    name: 'Example docs',
-                    domain: 'https://docs.example.com',
-                    source_urls: ['https://docs.example.com/sitemap.xml'],
-                    content_boundaries: ['/docs'],
-                    sitemap_detected: true,
-                    warnings: [],
-                },
             ],
         },
     })
@@ -197,20 +181,17 @@ const NeedsImprovementStory = (): JSX.Element => {
     )
 }
 
-export const MultipleSites: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="settings" />
-MultipleSites.decorators = [workspaceHandlers({ profiles: [EXAMPLE_PROFILE, EXAMPLE_SECOND_PROFILE] })]
-
-export const SiteSettings: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="settings" />
-SiteSettings.decorators = [workspaceHandlers({ profiles: [EXAMPLE_PROFILE] })]
+export const Settings: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="settings" />
+Settings.decorators = [workspaceHandlers()]
 
 export const PromptsTab: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="prompts" />
-PromptsTab.decorators = [workspaceHandlers({ profiles: [EXAMPLE_PROFILE] })]
+PromptsTab.decorators = [workspaceHandlers()]
 
 export const PromptsTabNeedsImprovement: StoryFn<typeof ContentAutopilot> = () => <NeedsImprovementStory />
 PromptsTabNeedsImprovement.decorators = PromptsTab.decorators
 
 export const OverviewTab: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="overview" />
-OverviewTab.decorators = [workspaceHandlers({ profiles: [EXAMPLE_PROFILE] })]
+OverviewTab.decorators = [workspaceHandlers()]
 // The visibility chart animates as it draws, so the overview tab stays out of the snapshots.
 OverviewTab.parameters = { testOptions: { snapshotBrowsers: [] } }
 
@@ -223,13 +204,13 @@ OverviewTabFiltered.parameters = {
 }
 
 export const RankingsTab: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="rankings" />
-RankingsTab.decorators = [workspaceHandlers({ profiles: [EXAMPLE_PROFILE] })]
+RankingsTab.decorators = [workspaceHandlers()]
 
 export const KeywordsTab: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="keywords" />
-KeywordsTab.decorators = [workspaceHandlers({ profiles: [EXAMPLE_PROFILE] })]
+KeywordsTab.decorators = [workspaceHandlers()]
 
 export const KeywordsTabEmpty: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="keywords" />
-KeywordsTabEmpty.decorators = [workspaceHandlers({ profiles: [EXAMPLE_PROFILE], keywords: [] })]
+KeywordsTabEmpty.decorators = [workspaceHandlers({ keywords: [] })]
 KeywordsTabEmpty.parameters = { testOptions: { snapshotBrowsers: [] } }
 
 const PromptPageStory = (): JSX.Element => {
@@ -245,7 +226,7 @@ const PromptPageStory = (): JSX.Element => {
 }
 
 export const PromptPage: StoryFn<typeof ContentAutopilot> = () => <PromptPageStory />
-PromptPage.decorators = [workspaceHandlers({ profiles: [EXAMPLE_PROFILE] })]
+PromptPage.decorators = [workspaceHandlers()]
 PromptPage.parameters = { testOptions: { snapshotBrowsers: [] } }
 
 const CitationsStory = ({
@@ -306,3 +287,20 @@ export const CitationsOfASearch: StoryFn<typeof ContentAutopilot> = () => (
 )
 CitationsOfASearch.decorators = OverviewTab.decorators
 CitationsOfASearch.parameters = { testOptions: { snapshotBrowsers: [] } }
+
+const KeywordsEditorStory = (): JSX.Element => {
+    const { setWorkspaceTab } = useActions(contentAutopilotLogic)
+    const { openKeywordsModal } = useActions(contentAutopilotKeywordsLogic)
+    useEffect(() => {
+        setWorkspaceTab('keywords')
+        openKeywordsModal()
+    }, [setWorkspaceTab, openKeywordsModal])
+    return (
+        <div className="p-6">
+            <ContentAutopilot />
+        </div>
+    )
+}
+
+export const KeywordsEditorQuill: StoryFn<typeof ContentAutopilot> = () => <KeywordsEditorStory />
+KeywordsEditorQuill.decorators = KeywordsTab.decorators

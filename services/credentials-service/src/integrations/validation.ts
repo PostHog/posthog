@@ -84,6 +84,78 @@ export const crossTeamBody = z.strictObject({
 })
 export type CrossTeamBody = z.infer<typeof crossTeamBody>
 
+export const MAX_MIRROR_ROWS = 100
+export const MIRROR_ORIGINS = ['write', 'retry', 'backfill', 'repair'] as const
+export type MirrorOrigin = (typeof MIRROR_ORIGINS)[number]
+
+const legacyId = z.int().min(1).max(Number.MAX_SAFE_INTEGER)
+// Django stores the external id as unbounded text, kept below the btree row limit by its own unique index.
+const legacyExternalId = z.string().max(2700)
+const sourceVersion = z.int().min(0).max(Number.MAX_SAFE_INTEGER)
+
+const mirrorUpsertRow = z.strictObject({
+    legacy_id: legacyId,
+    deleted: z.literal(false),
+    source_version: sourceVersion,
+    kind,
+    integration_id: legacyExternalId.nullable(),
+    auth_type: z.string(),
+    is_source_row: z.boolean(),
+    config: jsonObject,
+    sensitive_config: jsonObject,
+    legacy_unreadable_keys: keyList,
+    errors: z.string().max(MAX_ERRORS_LENGTH),
+    created_by_id: z.int().positive().nullable(),
+    created_at: z.iso.datetime({ offset: true }),
+})
+export type MirrorUpsertRow = z.infer<typeof mirrorUpsertRow>
+
+const mirrorDeleteRow = z.strictObject({
+    legacy_id: legacyId,
+    deleted: z.literal(true),
+    kind,
+    /** True inserts a deleted row for an unknown legacy id, so a late upsert of it is refused. */
+    tombstone: z.boolean(),
+    source_version: sourceVersion.optional(),
+})
+export type MirrorDeleteRow = z.infer<typeof mirrorDeleteRow>
+
+export type MirrorRowBody = MirrorUpsertRow | MirrorDeleteRow
+
+export const mirrorBody = z
+    .strictObject({
+        origin: z.enum(MIRROR_ORIGINS),
+        force: z.boolean().default(false),
+        rows: z
+            .array(z.discriminatedUnion('deleted', [mirrorUpsertRow, mirrorDeleteRow]))
+            .min(1)
+            .max(MAX_MIRROR_ROWS),
+    })
+    .superRefine((body, ctx) => {
+        // Two rows with one legacy id would race each other inside the request.
+        const seen = new Set<number>()
+        body.rows.forEach((row, index) => {
+            if (seen.has(row.legacy_id)) {
+                ctx.addIssue({ code: 'custom', path: ['rows', index, 'legacy_id'], message: 'appears more than once' })
+            }
+            seen.add(row.legacy_id)
+        })
+    })
+export type MirrorBody = z.infer<typeof mirrorBody>
+
+export const MAX_PURGE_PAGE_SIZE = 500
+export const MAX_PURGE_TEAM_IDS = 1000
+
+export const mirrorPurgeBody = z.strictObject({
+    kind,
+    /** The keyset cursor: the page starts after this legacy id. */
+    after_legacy_id: legacyId.nullable().default(null),
+    limit: z.int().min(1).max(MAX_PURGE_PAGE_SIZE).default(MAX_PURGE_PAGE_SIZE),
+    team_ids: z.array(z.int().positive()).min(1).max(MAX_PURGE_TEAM_IDS).nullable().default(null),
+    dry_run: z.boolean().default(false),
+})
+export type MirrorPurgeBody = z.infer<typeof mirrorPurgeBody>
+
 function validationError(error: z.ZodError): IntegrationApiError {
     // Paths and messages only: an issue never carries the rejected value back to the caller.
     const issues = error.issues.map((issue) => ({ path: issue.path.join('.'), message: issue.message }))
