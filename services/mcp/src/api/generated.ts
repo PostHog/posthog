@@ -38880,6 +38880,14 @@ export namespace Schemas {
       use_as_profile: boolean;
     }
 
+    export type UserTypeEnumApi = typeof UserTypeEnumApi[keyof typeof UserTypeEnumApi];
+
+
+    export const UserTypeEnumApi = {
+      Human: 'human',
+      ServiceAccount: 'service_account',
+    } as const;
+
     export interface UserBasicType {
       distinct_id: string;
       email: string;
@@ -38889,6 +38897,7 @@ export namespace Schemas {
       is_email_verified?: unknown;
       last_name?: string | null;
       role_at_organization?: string | null;
+      type: UserTypeEnumApi;
       uuid: string;
     }
 
