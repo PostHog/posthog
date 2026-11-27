@@ -395,7 +395,8 @@ class ExposureTotals:
     # Whether the totals come from precomputed exposures. These lag the events that the count without the test account
     # filter scans, so a burst of new users would read as users that the filter removes. Only the exposure query sets it.
     reads_precomputed_exposures: bool = False
-    # The end of the window that the totals count. Only the exposure query sets it.
+    # The end of the exposures that the totals count. Precomputed exposures of the current day end at the time of their
+    # last build. Only the exposure query sets it.
     data_until: datetime | None = None
 
     @property

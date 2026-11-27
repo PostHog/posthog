@@ -182,7 +182,7 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         self.bypass_warehouse_access_control = bypass_warehouse_access_control
         # The user id and whether that user may read the flag's history.
         self._flag_history_access: tuple[int, bool] | None = None
-        self._reads_precomputed_exposures = False
+        self._precomputed_exposures: LazyComputationResult | None = None
 
         if not self.query.experiment_id:
             raise ValidationError("experiment_id is required")
@@ -341,6 +341,11 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             feature_flag_rule_id=self._rule.rule_id if self._rule is not None else None,
         )
 
+    def _exposures_data_until(self) -> datetime:
+        if self._precomputed_exposures is not None:
+            return self._exposures_precompute.data_until(self._precomputed_exposures)
+        return ensure_utc(analysis_window_end(self.window_end_date, self.as_of))
+
     def _get_exposure_query(self, exposure_params: ExposureQueryParams) -> ast.SelectQuery:
         builder = self._query_builder(exposure_params)
 
@@ -354,7 +359,7 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
                 if result.ready:
                     job_ids = [str(job_id) for job_id in result.job_ids]
                     tag_queries(experiment_exposures_path="precomputed")
-                    self._reads_precomputed_exposures = True
+                    self._precomputed_exposures = result
                     return builder.get_daily_exposures_from_precomputed(job_ids)
                 else:
                     logger.warning("exposure_lazy_computation_not_ready", experiment_id=self.experiment.id)
@@ -755,7 +760,7 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             )
 
             # The precomputed exposures carry no library, and with an activation the timeseries reads none.
-            reads_library = not self._reads_precomputed_exposures and exposure_params.activation_config is None
+            reads_library = self._precomputed_exposures is None and exposure_params.activation_config is None
             exposed_by_library = _exposed_by_library(response.results) if reads_library else None
             results = self._fill_date_gaps([row[:3] for row in response.results])
         variant_series: dict[str, ExperimentExposureTimeSeries] = {}
@@ -813,8 +818,8 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
                     counts_groups=aggregates_by_group(self.group_type_index),
                     filters_test_accounts=applies_test_account_filters(self.team, self.exposure_criteria),
                     has_positive_test_account_filter=has_positive_test_account_filter(self.team),
-                    reads_precomputed_exposures=self._reads_precomputed_exposures,
-                    data_until=ensure_utc(analysis_window_end(self.window_end_date, self.as_of)),
+                    reads_precomputed_exposures=self._precomputed_exposures is not None,
+                    data_until=self._exposures_data_until(),
                 ),
                 exposure_params,
             )

@@ -722,12 +722,13 @@ export const getExperimentsHealthRetrieveUrl = (
  * each check, so a check that found no problem can be told from one that did not apply or could
  * not read an input.
  *
- * Each check's `as_of` is the end of the data it read. The checks on stored metric results
- * (`metric_calculation_failed`, `metric_all_zero`, `early_significance`, `result_ready`) read
- * the latest calculation, so their `as_of` can be a day or more before the request when the
- * results are out of date. A check that reads the flag's calls by release condition reads a
- * scan that is cached for up to a day. A check that reads only settings gives the time of the
- * request.
+ * Each check's `as_of` is the end of the data it read. `metric_calculation_failed` and
+ * `metric_all_zero` read the latest calculation. `early_significance` and `result_ready` read
+ * the primary metric's current result, and `split_changed_mid_run` reads the people that this
+ * result counts when the split changed. The `as_of` of these checks can be a day or more before
+ * the request when the results are out of date. A check that reads the flag's calls by release
+ * condition reads a scan that is cached for up to a day. A check that reads only settings gives
+ * the time of the request.
  *
  * The checks here read the experiment, its flag, its linked metrics, the project's event and
  * property definitions, the cohorts of the exposure criteria, and the changes of the flag's

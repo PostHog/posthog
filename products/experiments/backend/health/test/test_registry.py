@@ -959,6 +959,13 @@ class TestEvaluate(TestCase):
                 SCANNED_AT,
             ),
             ("a_rolled_out_flag_reads_no_scan", Key.FLAG_STATE, {}, CHECKED_AT),
+            ("a_flag_without_pins_reads_no_scan", Key.FORCED_VARIANT_RELEASE_CONDITION, {}, CHECKED_AT),
+            (
+                "a_copy_of_the_context_reads_no_scan",
+                Key.SRM,
+                {**ENDED, "exposures": replace(UNEVEN_SPLIT_TOTALS, sample_ratio_mismatch_p_value=0.0009)},
+                CHECKED_AT,
+            ),
             (
                 "the_latest_calculation_reads_to_the_end_of_its_data",
                 Key.METRIC_CALCULATION_FAILED,

@@ -21,6 +21,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingSeverity,
     ExperimentHealthValueKey,
 )
+from products.experiments.backend.health.as_of import copying_context
 from products.experiments.backend.health.checks.bias_risk import multiple_variant_count
 from products.experiments.backend.health.checks.change_wording import RESET_EFFECT, suggested_start_at
 from products.experiments.backend.health.checks.forced_variant import SOME_CONDITIONS_PINNED, set_names
@@ -445,7 +446,8 @@ def _during_the_run(ctx: HealthContext) -> HealthContext:
     """The context as the split check reads it before the end. After the end that check stops, because the flag often
     holds the shipped decision. Without a split change after the end, the flag's split is still the run's."""
     if ctx.has_ended and not _split_changed_after_the_end(ctx):
-        return replace(ctx, has_ended=False)
+        with copying_context():
+            return replace(ctx, has_ended=False)
     return ctx
 
 

@@ -16,6 +16,7 @@ from posthog.schema import PrecomputationMode
 
 from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
+from posthog.utils import ensure_utc
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationResult,
@@ -69,6 +70,19 @@ class ExposuresPrecompute:
             # High-volume teams' builds OOM even at capped window widths; spilling the
             # GROUP BY to disk degrades gracefully instead of failing the build.
             spill_to_disk=True,
+        )
+
+    def data_until(self, result: LazyComputationResult) -> datetime:
+        """The end of the exposures that `result` serves. A window that was built before its end, such as today's,
+        holds the exposures up to the time of its build."""
+        window_end = ensure_utc(self.window_end)
+        return min(
+            (
+                window.computed_at
+                for window in result.served_windows
+                if window.computed_at is not None and window.computed_at < min(window.end, window_end)
+            ),
+            default=window_end,
         )
 
     @property
