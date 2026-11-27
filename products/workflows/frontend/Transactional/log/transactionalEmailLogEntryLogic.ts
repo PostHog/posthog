@@ -43,9 +43,9 @@ export interface transactionalEmailLogEntryLogicValues {
     emailFailed: boolean
     emailLoading: boolean
     emailPageUrl: string | null
+    moreClicks: boolean
     otherEmails: TransactionalEmailLogEntryApi[]
     otherEmailsFailed: boolean
-    moreClicks: boolean
     otherEmailsLoading: boolean
     person: ActivityPerson | null | undefined
     personFailed: boolean
@@ -131,7 +131,6 @@ export interface transactionalEmailLogEntryLogicMeta {
             featureFlags: FeatureFlagsSet,
             searchParams: Record<string, any>
         ) => string | null
-        breadcrumbs: (messageId: string) => Breadcrumb[]
         clickRows: (
             email: TransactionalEmailLogDetailApi | null | undefined,
             activity: PersonActivity | null
@@ -144,6 +143,7 @@ export interface transactionalEmailLogEntryLogicMeta {
             activityLoading: boolean,
             activityFailed: boolean
         ) => EmailClickLinks
+        breadcrumbs: (messageId: string) => Breadcrumb[]
     }
 }
 

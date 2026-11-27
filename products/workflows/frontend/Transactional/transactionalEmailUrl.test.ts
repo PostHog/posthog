@@ -70,12 +70,12 @@ describe('transactionalEmailStatsRowUrl', () => {
 
     test.each([
         [
-            'a transactional send the log still keeps opens its send page',
+            'a transactional send inside the log window may open its send page',
             'transactional_email',
-            22,
+            29,
             '/transactional/log/msg-1',
         ],
-        ['a transactional send the log may have expired keeps the preview', 'transactional_email', 24, null],
+        ['a transactional send older than the log keeps the preview', 'transactional_email', 31, null],
         ['a workflow email keeps the preview', 'action_email_1', 1, null],
     ])('%s', (_name, actionId, daysAgo, expected) => {
         const sentAt = dayjs().subtract(daysAgo, 'day').toISOString()

@@ -1,16 +1,12 @@
-import { useValues } from 'kea'
-import { router } from 'kea-router'
-import { useState } from 'react'
+import { useActions, useValues } from 'kea'
 
 import * as greekPng from '@posthog/brand/hoggies/png/greek'
 import { LemonTable, Link } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { TZLabel } from 'lib/components/TZLabel'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { urls } from 'scenes/urls'
 
-import { transactionalSendPageUrl } from 'products/workflows/frontend/Transactional/transactionalEmailUrl'
 import { EmailViewerModal } from 'products/workflows/frontend/Workflows/EmailViewerModal'
 import { MessageAsset } from 'products/workflows/frontend/Workflows/messageAssetsApi'
 
@@ -37,27 +33,20 @@ function EmptyEmails(): JSX.Element {
 
 export function PersonEmailsTab({ teamId, personId }: PersonEmailsTabProps): JSX.Element {
     const logic = personEmailsLogic({ teamId, personId })
-    const { emails, emailsLoading } = useValues(logic)
-    const [selected, setSelected] = useState<MessageAsset | null>(null)
-    const sendTimeline = useFeatureFlag('WORKFLOWS_EMAIL_SEND_TIMELINE')
-    const transactionalLog = useFeatureFlag('WORKFLOWS_TRANSACTIONAL_EMAIL_API')
-
-    const openEmail = (asset: MessageAsset): void => {
-        const sendPageUrl = sendTimeline && transactionalLog ? transactionalSendPageUrl(asset) : null
-        if (sendPageUrl) {
-            router.actions.push(sendPageUrl)
-        } else {
-            setSelected(asset)
-        }
-    }
+    const { emails, emailsLoading, previewedEmail: selected, openingEmail } = useValues(logic)
+    const { openEmail, previewEmail } = useActions(logic)
 
     return (
         <>
             <LemonTable
-                loading={emailsLoading}
+                loading={emailsLoading || openingEmail}
                 dataSource={emails}
                 onRow={(asset: MessageAsset) => ({
-                    onClick: () => openEmail(asset),
+                    onClick: () => {
+                        if (!openingEmail) {
+                            openEmail(asset)
+                        }
+                    },
                     className: 'cursor-pointer',
                 })}
                 emptyState={<EmptyEmails />}
@@ -93,7 +82,7 @@ export function PersonEmailsTab({ teamId, personId }: PersonEmailsTabProps): JSX
                 invocationId={selected?.invocation_id ?? ''}
                 actionId={selected?.action_id ?? ''}
                 isOpen={!!selected}
-                onClose={() => setSelected(null)}
+                onClose={() => previewEmail(null)}
                 title={selected?.subject || 'Email'}
                 description={selected ? `Sent to ${selected.recipient}` : undefined}
             />

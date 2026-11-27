@@ -8,7 +8,6 @@ import type { TransactionalEmailStatsRowApi } from 'products/messaging/frontend/
 import { LOG_RETENTION_DAYS, SEND_FILTER_PARAMS } from './log/transactionalEmailLogLogic'
 
 const TRANSACTIONAL_EMAIL_ACTION_ID = 'transactional_email'
-const SCHEDULED_SEND_MAX_HOLD_DAYS = 7
 
 interface SentEmail {
     action_id: string
@@ -64,9 +63,7 @@ export function transactionalEmailStatsRowUrl(row: StatsRow): string | null {
 }
 
 export function transactionalSendPageUrl(email: SentEmail): string | null {
-    const queuedInsideTheLog = dayjs(email.sent_at).isAfter(
-        dayjs().subtract(LOG_RETENTION_DAYS - SCHEDULED_SEND_MAX_HOLD_DAYS, 'day')
-    )
-    const logged = email.action_id === TRANSACTIONAL_EMAIL_ACTION_ID && queuedInsideTheLog
-    return logged ? urls.transactionalEmailLogEntry(email.invocation_id) : null
+    const sentInsideTheLog = dayjs(email.sent_at).isAfter(dayjs().subtract(LOG_RETENTION_DAYS, 'day'))
+    const mayBeLogged = email.action_id === TRANSACTIONAL_EMAIL_ACTION_ID && sentInsideTheLog
+    return mayBeLogged ? urls.transactionalEmailLogEntry(email.invocation_id) : null
 }
