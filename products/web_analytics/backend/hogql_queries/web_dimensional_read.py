@@ -13,7 +13,6 @@ from enum import Enum, StrEnum, auto
 from typing import TYPE_CHECKING, Union
 from uuid import UUID
 
-from django.conf import settings
 from django.utils import timezone
 
 import structlog
@@ -26,7 +25,6 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
 from posthog.clickhouse.query_tagging import clear_tag, tag_queries
-from posthog.cloud_utils import is_cloud
 from posthog.errors import QueryErrorCategory, classify_query_error
 from posthog.models.team.event_retention import events_retention_months_for_team
 from posthog.ph_client import feature_enabled_or_false
@@ -84,13 +82,9 @@ _INEXACT_PROPERTY_KEYS = frozenset(
 
 
 # Page tiles group by path, and their cost grows with the number of distinct paths times the days read. The
-# dimensional tables keep every path, so past a week a page tile reads slower than today's path. A "last 7 days"
-# range spans 8 calendar days, because it includes today.
-DIMENSIONAL_PAGE_TILES_MAX_RANGE = timedelta(days=8)
-# Teams with so many distinct paths that their page tiles read slower than today's path at any range.
-LIVE_PAGE_TILES_TEAM_IDS_BY_REGION: dict[str, list[int]] = {
-    "EU": [1589],
-}
+# dimensional tables keep every path, so past a month a page tile can read slower than today's path. A "last 30 days"
+# range spans 31 calendar days, because it includes today.
+DIMENSIONAL_PAGE_TILES_MAX_RANGE = timedelta(days=31)
 _PAGE_BREAKDOWNS = frozenset({WebStatsBreakdown.PAGE, WebStatsBreakdown.INITIAL_PAGE, WebStatsBreakdown.EXIT_PAGE})
 
 
@@ -261,8 +255,6 @@ def _query_modifiers_flag_enabled(runner: "DimensionalReadRunner") -> bool:
 def _page_tile_stays_live(runner: "DimensionalReadRunner", periods: list["QueryDateRange"]) -> bool:
     if not _reads_page_tile(runner):
         return False
-    if runner.team.pk in _live_page_tiles_team_ids():
-        return True
     return any(period.date_to() - period.date_from() > DIMENSIONAL_PAGE_TILES_MAX_RANGE for period in periods)
 
 
@@ -274,13 +266,6 @@ def _reads_page_tile(runner: "DimensionalReadRunner") -> bool:
     # The stats runner can remap the requested breakdown, and the remapped one decides what the query groups by.
     effective_breakdown = getattr(runner, "_effective_breakdown", None)
     return effective_breakdown is not None and effective_breakdown() in _PAGE_BREAKDOWNS
-
-
-def _live_page_tiles_team_ids() -> list[int]:
-    # Team IDs are not unique across regions, and a self-hosted team can share an ID with a cloud team.
-    if not is_cloud():
-        return []
-    return LIVE_PAGE_TILES_TEAM_IDS_BY_REGION.get((settings.CLOUD_DEPLOYMENT or "").upper(), [])
 
 
 def _has_inexact_property_filter(runner: "DimensionalReadRunner") -> bool:

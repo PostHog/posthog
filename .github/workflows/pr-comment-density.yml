@@ -26,6 +26,7 @@ jobs:
                       .github/scripts/check_comment_density.py
                       .github/scripts/check_call_assertions.py
                       .github/scripts/post-diff-check-section.mjs
+                      .github/scripts/post-required-reviewers-section.mjs
                       frontend/bin/ci-report
                   sparse-checkout-cone-mode: false
 
@@ -73,3 +74,10 @@ jobs:
                   SUMMARY: ${{ steps.call-assertions.outputs.summary }}
                   BODY: ${{ steps.call-assertions.outputs.body }}
               run: node .github/scripts/post-diff-check-section.mjs
+
+            - name: Post ruleset required reviewers to the CI report
+              if: ${{ !cancelled() }}
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+                  BASE_REF: ${{ github.event.pull_request.base.ref }}
+              run: node .github/scripts/post-required-reviewers-section.mjs

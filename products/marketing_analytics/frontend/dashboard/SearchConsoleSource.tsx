@@ -7,6 +7,7 @@ import { LemonBanner, LemonButton, LemonCard, Spinner } from '@posthog/lemon-ui'
 import { pngHoggie } from 'lib/brand/hoggies'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { marketingAnalyticsLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 
@@ -14,6 +15,7 @@ import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/S
 import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
 
 import { marketingSourceConnectUrl } from '../components/marketingSourceConnectUrl'
+import { QuillSearchConsoleSource } from './QuillSearchConsoleSource'
 
 const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlass)
 
@@ -24,6 +26,9 @@ const SEARCH_SOURCES = [
 ]
 const SEARCH_SOURCE_TYPES = SEARCH_SOURCES.map((source) => source.type)
 
+const connectUrl = (sourceType: string): string =>
+    marketingSourceConnectUrl(sourceType, 'marketing_analytics_search_console_card')
+
 export function SearchConsoleSource({ headerAction }: { headerAction?: ReactNode }): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
     const { dataWarehouseSources } = useValues(marketingAnalyticsLogic)
@@ -33,10 +38,23 @@ export function SearchConsoleSource({ headerAction }: { headerAction?: ReactNode
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     if (!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS]) {
         return null
     }
     if (!dataWarehouseSources) {
+        if (todayRailNav) {
+            return (
+                <QuillSearchConsoleSource
+                    view={sourcesLoadError ? 'error' : 'checking'}
+                    headerAction={headerAction}
+                    sources={[]}
+                    restrictedReason={restrictedReason}
+                    retryLoading={dataWarehouseSourcesLoading}
+                    onRetry={loadSources}
+                />
+            )
+        }
         return (
             <section className="w-full mt-8 mb-6">
                 <h2 className="mb-4 flex items-center justify-between gap-2">
@@ -68,6 +86,18 @@ export function SearchConsoleSource({ headerAction }: { headerAction?: ReactNode
     if (dataWarehouseSources.results.some((connection) => SEARCH_SOURCE_TYPES.includes(connection.source_type))) {
         return null
     }
+    if (todayRailNav) {
+        return (
+            <QuillSearchConsoleSource
+                view="connect"
+                headerAction={headerAction}
+                sources={SEARCH_SOURCES.map((source) => ({ ...source, connectUrl: connectUrl(source.type) }))}
+                restrictedReason={restrictedReason}
+                retryLoading={dataWarehouseSourcesLoading}
+                onRetry={loadSources}
+            />
+        )
+    }
     return (
         <section className="w-full mt-8 mb-6">
             <h2 className="mb-4">Search performance</h2>
@@ -95,7 +125,7 @@ export function SearchConsoleSource({ headerAction }: { headerAction?: ReactNode
                                 type="secondary"
                                 size="small"
                                 disabledReason={restrictedReason}
-                                to={marketingSourceConnectUrl(source.type, 'marketing_analytics_search_console_card')}
+                                to={connectUrl(source.type)}
                             >
                                 Connect
                             </LemonButton>

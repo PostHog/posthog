@@ -47,7 +47,7 @@ function IssueTagsButtonStory({ tags, defaultOpen }: { tags: Tag[]; defaultOpen?
             <ButtonGroup>
                 <IssueStatusSelect status="active" onChange={() => {}} />
                 <IssueSeveritySelect severity="high" onChange={() => {}} />
-                <IssueTagsButton tags={tags} onTagClick={() => {}} defaultOpen={defaultOpen} />
+                <IssueTagsButton tags={tags} onTagClick={() => {}} surface="issues_list" defaultOpen={defaultOpen} />
             </ButtonGroup>
         </div>
     )
