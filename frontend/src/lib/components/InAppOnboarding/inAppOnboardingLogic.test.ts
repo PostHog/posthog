@@ -45,7 +45,6 @@ describe('inAppOnboardingLogic', () => {
             commandLogic.actions.closeCommand()
         }).toMatchValues({ activeProgress: { stepIndex: 2, count: 0 } })
 
-        // The same shortcut opens and closes, so practising three opens takes five presses.
         await expectLogic(logic, () => {
             pressCommandK()
             pressCommandK()

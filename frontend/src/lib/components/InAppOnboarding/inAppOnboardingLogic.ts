@@ -89,7 +89,6 @@ export const inAppOnboardingLogic = kea<inAppOnboardingLogicType>([
                 completeFlow: (state, { flowKey }) => [...state, flowKey],
             },
         ],
-        // Hides a flow at once, before the reloaded user says it was seen.
         closedFlowKeys: [
             [] as string[],
             {
