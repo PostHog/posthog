@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { ComponentType, useRef, useState } from 'react'
+import { ComponentType, useState } from 'react'
 
 import { IconChat, IconPulse, IconSparkles, IconSupport } from '@posthog/icons'
 import { Button, Kbd, Tooltip, TooltipContent, TooltipTrigger, cn } from '@posthog/quill'
@@ -12,7 +12,6 @@ import { SIDE_PANEL_TABS } from '~/layout/navigation-3000/sidepanel/sidePanelTab
 import { SidePanelTab } from '~/types'
 
 import { todayContextPanelLogic } from './todayContextPanelLogic'
-import { TodayOneTimeNotice } from './TodayOneTimeNotice'
 
 // The top bar's own icons where the side panel's would read wrong at this size. Support also stays static because the
 // side panel's icon reads the ticket logic for its unread count, and this bar renders on every page without live tickets.
@@ -40,7 +39,6 @@ export function TodayTopBarPanelTab({ tab }: { tab: SidePanelTab }): JSX.Element
     const { commentCount } = useValues(sidePanelDiscussionLogic)
     // Controlled, so PostHog AI's tooltip can also point here after the user dismisses the floating button.
     const [hovered, setHovered] = useState(false)
-    const anchorRef = useRef<HTMLSpanElement>(null)
     const isAi = tab === SidePanelTab.Max
     const launcherHint = isAi && launcherHintVisible
 
@@ -54,7 +52,7 @@ export function TodayTopBarPanelTab({ tab }: { tab: SidePanelTab }): JSX.Element
 
     return (
         // The unread dot sits beside the button, so it never shifts the button's centered icon.
-        <span ref={anchorRef} className="relative flex">
+        <span className="relative flex">
             <Tooltip
                 disableHoverablePopup
                 open={launcherHint || hovered}
@@ -99,19 +97,6 @@ export function TodayTopBarPanelTab({ tab }: { tab: SidePanelTab }): JSX.Element
                 <span
                     aria-hidden
                     className="pointer-events-none absolute top-0.5 right-0.5 size-2 rounded-full bg-primary"
-                />
-            )}
-            {/* The floating button's hint points here first, so the notice waits until that hint is gone. */}
-            {isAi && (
-                <TodayOneTimeNotice
-                    // pinned: key in the user's server-side `has_seen_product_intro_for`.
-                    noticeKey="today_chats_moved"
-                    anchor={anchorRef}
-                    side="bottom"
-                    align="end"
-                    hidden={launcherHint}
-                    title="Chats have moved"
-                    description="Open PostHog AI here to start a chat or pick up a past one."
                 />
             )}
         </span>
