@@ -220,6 +220,8 @@ pub fn health_router(
     liveness: lifecycle::LivenessHandler,
     render_metrics: Arc<dyn Fn() -> String + Send + Sync>,
 ) -> Router {
+    // Node serves its metrics on both paths, and the scrape annotation of the chart names `/_metrics`.
+    let metrics = get(move || ready(render_metrics()));
     Router::new()
         .route("/", get(|| async { SERVICE_NAME }))
         .route(
@@ -236,7 +238,8 @@ pub fn health_router(
                 async move { readiness.check().await }
             }),
         )
-        .route("/metrics", get(move || ready(render_metrics())))
+        .route("/_metrics", metrics.clone())
+        .route("/metrics", metrics)
 }
 
 /// A failed batch ends the process with an error, as the Node consumer crashes, so the restart replays from the last commit.
@@ -327,6 +330,33 @@ async fn join_or_abort<T>(name: &str, mut task: tokio::task::JoinHandle<T>) -> a
             Err(anyhow::anyhow!(
                 "{name} did not stop by the shutdown deadline"
             ))
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn metrics_are_served_on_both_paths_of_the_node_server() {
+        let manager = Manager::builder(SERVICE_NAME).build();
+        let app = health_router(
+            manager.readiness_handler(),
+            manager.liveness_handler(),
+            Arc::new(|| "sample 1\n".to_string()),
+        );
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .unwrap();
+        let address = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await });
+        for path in ["/_metrics", "/metrics"] {
+            let response = reqwest::get(format!("http://{address}{path}"))
+                .await
+                .unwrap();
+            assert_eq!(response.status(), 200, "{path}");
+            assert_eq!(response.text().await.unwrap(), "sample 1\n", "{path}");
         }
     }
 }
