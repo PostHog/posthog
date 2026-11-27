@@ -124272,6 +124272,8 @@ export namespace Schemas {
       deprecatedVersions: SourceVersionDeprecation[];
       /** Change data capture engine, which picks the CDC setup form and status panel. Null when the source has no CDC. */
       cdcEngine?: CDCEngine | null;
+      /** Whether the source can sync tables with xmin replication. Each table still needs a primary key and a physical `xmin` column, which the schema API checks per table. */
+      supportsXmin?: boolean;
       /** Credential-free documented table catalog, empty for SQL and file sources with user-defined schemas. The public endpoint sets it; the wizard omits it to keep its payload small. */
       tables?: SourceDocumentedTable[] | null;
     }
