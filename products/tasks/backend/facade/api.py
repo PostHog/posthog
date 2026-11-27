@@ -3479,6 +3479,7 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "github_credential_source",
         "token_cost",
         "token_cost_incomplete",
+        "token_cost_unpriced",
         "compute_cost",
         # Trial funding is stamped by admission, never by clients.
         "self_driving_funding",

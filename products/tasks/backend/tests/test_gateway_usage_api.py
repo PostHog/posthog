@@ -235,6 +235,7 @@ class TestTaskRunGatewayUsageAPI(APIBaseTest):
             "unprocessed_request_ids": ["existing"],
             "token_cost": {"model": {"provider": {"cost_microusd": 4, "request_ids": ["existing"]}}},
             "token_cost_incomplete": True,
+            "token_cost_unpriced": "dev_token",
             "compute_cost": 2,
         }
         run.save(update_fields=["state"])
@@ -246,6 +247,7 @@ class TestTaskRunGatewayUsageAPI(APIBaseTest):
                     "unprocessed_request_ids": ["forged"],
                     "token_cost": {},
                     "token_cost_incomplete": False,
+                    "token_cost_unpriced": "forged",
                     "compute_cost": 999,
                 },
                 "state_append": {"unprocessed_request_ids": "forged"},
@@ -253,6 +255,7 @@ class TestTaskRunGatewayUsageAPI(APIBaseTest):
                     "unprocessed_request_ids",
                     "token_cost",
                     "token_cost_incomplete",
+                    "token_cost_unpriced",
                     "compute_cost",
                 ],
             },
@@ -267,6 +270,7 @@ class TestTaskRunGatewayUsageAPI(APIBaseTest):
             "unprocessed_request_ids": ["existing"],
             "token_cost": {"model": {"provider": {"cost_microusd": 4, "request_ids": ["existing"]}}},
             "token_cost_incomplete": True,
+            "token_cost_unpriced": "dev_token",
             "compute_cost": 2,
         }
 

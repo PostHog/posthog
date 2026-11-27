@@ -92,6 +92,24 @@ class TestGatewayUsage(BaseTest):
             cost_microusd=None, complete=True
         )
 
+    @parameterized.expand([("dev_token_active", True, "phe_dev_mode_token", None), ("production", False, None, 7)])
+    def test_unpriced_marker_only_applies_while_the_dev_token_is_active(
+        self, _name: str, debug: bool, dev_token: str | None, expected_cost: int | None
+    ) -> None:
+        run = self._run(status=TaskRun.Status.COMPLETED)
+        TaskRun.update_state_atomic(
+            run.id,
+            updates={
+                "token_cost": {"model-a": {"provider-a": {"cost_microusd": 7, "request_ids": ["parent"]}}},
+                "token_cost_unpriced": "dev_token",
+            },
+        )
+
+        with override_settings(DEBUG=debug, SANDBOX_AI_GATEWAY_DEV_TOKEN=dev_token):
+            usage = get_task_run_token_usage(run_id=run.id, team_id=self.team.id)
+
+        assert usage == TaskRunTokenUsage(cost_microusd=expected_cost, complete=True)
+
     @patch.dict("os.environ", {"HTTPS_PROXY": "http://proxy.example.com:8080"})
     @patch("aiohttp.ClientSession._request", autospec=True)
     def test_records_cost_by_model_and_provider_and_removes_processed_ids(self, get: Mock) -> None:

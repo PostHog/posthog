@@ -312,7 +312,9 @@ def _bucket_cost_microusd(bucket: dict[str, Any], *, standard: bool = False) -> 
 
 def _recorded_cost_microusd(run: TaskRun, *, standard: bool = False) -> int | None:
     state = run.state or {}
-    if state.get(_UNPRICED_STATE_KEY) or not isinstance(state.get("token_cost"), dict):
+    if not isinstance(state.get("token_cost"), dict):
+        return None
+    if state.get(_UNPRICED_STATE_KEY) == _DEV_TOKEN_UNPRICED_REASON and sandbox_ai_gateway_dev_token():
         return None
     return sum(_bucket_cost_microusd(bucket, standard=standard) for bucket in _cost_buckets(state))
 
