@@ -1147,9 +1147,12 @@ class TestSlotInvalidationRecovery:
             ("lifted_marker_resumes_the_paused_schedules", 1, False, True),
             ("nothing_lifted_leaves_the_schedules", 0, False, False),
             ("another_marker_still_holds_the_source", 1, True, False),
+            ("a_failed_table_unpause_still_resumes_capture", 1, False, True, RuntimeError("temporal down")),
         ]
     )
-    def test_recovery_resumes_the_schedules_a_lost_slot_marker_paused(self, _name, cleared, still_held, resumed):
+    def test_recovery_resumes_the_schedules_a_lost_slot_marker_paused(
+        self, _name, cleared, still_held, resumed, table_unpause_error=None
+    ):
         source = _make_source()
         schema = _make_schema("users", cdc_mode="streaming", source=source)
         service = "products.data_warehouse.backend.logic.data_load.service"
@@ -1158,7 +1161,7 @@ class TestSlotInvalidationRecovery:
             self._invalidated_slot(source, schema) as capture,
             patch(f"{_ACTIVITIES}.tables_wait_for_repair", return_value=still_held),
             patch(f"{service}.unpause_cdc_extraction_schedule") as unpause_capture,
-            patch(f"{service}.unpause_external_data_schedule"),
+            patch(f"{service}.unpause_external_data_schedule", side_effect=table_unpause_error),
         ):
             capture.clear_markers.return_value = cleared
             capture.extract()
