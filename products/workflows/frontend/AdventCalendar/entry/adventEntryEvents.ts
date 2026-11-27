@@ -1,6 +1,6 @@
 import posthog from 'posthog-js'
 
-import type { CategorySuffixNav } from '~/layout/panel-layout/ProjectTree/customIconRegistry'
+import type { CategorySuffixNav } from '~/layout/panel-layout/ProjectTree/customCategorySuffixRegistry'
 
 // pinned: analytics event name, renaming it breaks the entry point dashboards
 const ENTRY_CLICKED = 'workflows advent entry clicked'
