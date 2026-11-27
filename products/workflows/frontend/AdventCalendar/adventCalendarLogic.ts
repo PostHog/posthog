@@ -399,7 +399,10 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
         ],
     }),
     selectors({
-        pollResults: [(s) => [s.pollReply], (pollReply): AdventCalendarResultsApi | null => pollReply.results],
+        pollResults: [
+            (s) => [s.pollReply],
+            (pollReply: adventCalendarLogicValues['pollReply']): AdventCalendarResultsApi | null => pollReply.results,
+        ],
         progress: [
             (s) => [s.progressByUser, s.user, s.previewProgress, s.isLive],
             (
