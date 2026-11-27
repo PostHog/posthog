@@ -178,7 +178,7 @@ export const s3Status: ValveDefinition = {
     apply: (context, _target, dose) => {
         const { code, op, ...amount } = S3StatusDose.parse(dose)
         const rule = ruleOf({ name: 's3.status', params: { code }, match: { op }, dose: amount })
-        return context.environment.actuate({ kind: 'edge.fault', rule })
+        return context.environment.actuate({ kind: 'edge.fault', rule: picking(rule, context) })
     },
 }
 
@@ -196,12 +196,12 @@ export const s3Stall: ValveDefinition = {
         const { op, ...amount } = S3StallDose.parse(dose)
         return context.environment.actuate({
             kind: 'edge.fault',
-            rule: ruleOf({ name: 's3.stall', match: { op }, dose: amount }),
+            rule: picking(ruleOf({ name: 's3.stall', match: { op }, dose: amount }), context),
         })
     },
 }
 
-const S3SlowDose = S3SlowParams.extend({ op: S3Op.optional() }).strict()
+const S3SlowDose = S3SlowParams.extend({ op: S3Op.exclude(['head']).optional() }).strict()
 
 export const s3Slow: ValveDefinition = {
     name: 's3.slow',

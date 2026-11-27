@@ -103,10 +103,10 @@ export const roleIdsOf = (replicas: Replicas = {}): RoleId[] =>
 
 export type EdgeAddress = { url: string; caCertPath?: string; attachmentStoreUrl?: string }
 
-const STACK_ATTACHMENT_STORE = 'http://localhost:19000'
-
 export const attachmentStoreUpstreamOf = (base: NodeJS.ProcessEnv, settings: Profile['settings'] = {}): string =>
-    settings.CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT || base.CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT || STACK_ATTACHMENT_STORE
+    settings.CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT ||
+    base.CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT ||
+    getDefaultCdpConfig().CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT
 
 export type ConsumerGroup = { group: string; topics: string[] }
 

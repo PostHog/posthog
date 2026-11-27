@@ -10,8 +10,10 @@ import {
 } from '~/cdp/services/messaging/attachment-store'
 import { InFlightRegistry, requireAdmission } from '~/cdp/services/messaging/in-flight-registry'
 import { FetchResponse, internalFetch } from '~/common/utils/request'
+import { waitForExpect } from '~/tests/helpers/expectations'
 
 import { CardFault, ruleOf } from './faults'
+import { paced } from './s3'
 
 jest.setTimeout(30000)
 
@@ -19,7 +21,7 @@ const config = getDefaultCdpConfig()
 const UPSTREAM = config.CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT
 const TEAM = 1
 const FILE_BYTES = 4096
-const PACE_BYTES_PER_SECOND = 8192
+const PACE_BYTES_PER_SECOND = 1_000_000
 const CALL_TIMEOUT_MS = 500
 
 type TestFile = { bytes: Buffer; sha256: string; sizeBytes: number; filename: string; contentType: string }
@@ -48,12 +50,6 @@ const roomForAnySend = new InFlightRegistry({
     maxInFlight: Number.MAX_SAFE_INTEGER,
 })
 
-const elapsedMs = async (work: () => Promise<unknown>): Promise<number> => {
-    const started = performance.now()
-    await work()
-    return performance.now() - started
-}
-
 describe('the edge in front of the attachment store', () => {
     let edge: ProviderEdge
     let store: S3AttachmentStore
@@ -63,7 +59,7 @@ describe('the edge in front of the attachment store', () => {
         return await put(slot, uploaded.bytes)
     }
 
-    const load = async (stored: TestFile, signal = AbortSignal.timeout(10_000)): Promise<Buffer> => {
+    const load = async (stored: TestFile, signal = new AbortController().signal): Promise<Buffer> => {
         const { started } = roomForAnySend.tryStart([stored], () =>
             store.load(TEAM, requireAdmission([stored]), signal)
         ) as { started: ReturnType<S3AttachmentStore['load']> }
@@ -97,41 +93,104 @@ describe('the edge in front of the attachment store', () => {
         expect(await load(uploaded)).toEqual(uploaded.bytes)
     })
 
-    test('answers the operation its fault matches with a server error, and passes every other one', async () => {
-        const uploaded = file()
-        fault({ name: 's3.status', params: { code: 503 }, match: { op: 'get' }, dose: { share: 1 } })
+    test.each<[string, CardFault[]]>([
+        ['alone', []],
+        ['behind a slowed store', [{ name: 's3.slow', params: { bytesPerSecond: PACE_BYTES_PER_SECOND } }]],
+    ])(
+        'answers the operation its fault matches with a server error %s, and passes every other one',
+        async (_, before) => {
+            const uploaded = file()
+            before.forEach(fault)
+            fault({ name: 's3.status', params: { code: 503 }, match: { op: 'get' }, dose: { share: 1 } })
 
-        const answer = await upload(uploaded)
-        const loaded = await load(uploaded).catch((error: unknown) => error)
+            const answer = await upload(uploaded)
+            const loaded = await load(uploaded).catch((error: unknown) => error)
 
-        expect(answer.status).toBe(200)
-        expect(loaded).toBeInstanceOf(AttachmentStoreUnavailableError)
-    })
+            expect(answer.status).toBe(200)
+            expect(loaded).toBeInstanceOf(AttachmentStoreUnavailableError)
+        }
+    )
 
-    test('stops answering a stalled request, so the caller times out', async () => {
+    test('holds a stalled request open until the caller gives up, and passes the next one', async () => {
         const uploaded = file()
         await upload(uploaded)
-        fault({ name: 's3.stall', match: { op: 'get' }, dose: { count: 1 } })
+        const stall = fault({ name: 's3.stall', match: { op: 'get' }, dose: { count: 1 } })
+        const caller = new AbortController()
 
-        const loaded = await load(uploaded, AbortSignal.timeout(CALL_TIMEOUT_MS)).catch((error: unknown) => error)
+        let settledBeforeAbort = false
+        const stalled = load(uploaded, caller.signal).catch((error: unknown) => error)
+        void stalled.then(() => (settledBeforeAbort = !caller.signal.aborted))
+        await waitForExpect(() => expect(edge.firstAppliedAt(stall)).toBeDefined(), 5000, 5)
+        caller.abort()
 
-        expect(loaded).toBeInstanceOf(AttachmentStoreUnavailableError)
+        expect({ failed: await stalled, settledBeforeAbort }).toEqual({
+            failed: expect.any(AttachmentStoreUnavailableError),
+            settledBeforeAbort: false,
+        })
         expect(await load(uploaded)).toEqual(uploaded.bytes)
     })
 
     test.each([
         ['an upload', 'put' as const, (uploaded: TestFile) => upload(uploaded)],
         ['a download', 'get' as const, (uploaded: TestFile) => load(uploaded)],
-    ])('paces the body of %s to its byte rate', async (_, op, transfer) => {
+    ])('passes the paced body of %s intact, and counts the pace observed', async (_, op, transfer) => {
         const uploaded = file()
         if (op === 'get') {
             await upload(uploaded)
         }
-        fault({ name: 's3.slow', params: { bytesPerSecond: PACE_BYTES_PER_SECOND }, match: { op } })
+        const slow = fault({ name: 's3.slow', params: { bytesPerSecond: PACE_BYTES_PER_SECOND }, match: { op } })
 
-        const tookMs = await elapsedMs(() => transfer(uploaded))
+        await transfer(uploaded)
 
-        expect(tookMs).toBeGreaterThanOrEqual(((FILE_BYTES / PACE_BYTES_PER_SECOND) * 1000) / 2)
+        expect(edge.firstAppliedAt(slow)).toBeDefined()
         expect(await load(uploaded)).toEqual(uploaded.bytes)
+    })
+
+    test('counts a slowed store observed only once it holds back a body, not on a HEAD with none', async () => {
+        const uploaded = file()
+        await upload(uploaded)
+        const slow = fault({ name: 's3.slow', params: { bytesPerSecond: PACE_BYTES_PER_SECOND } })
+        await internalFetch(`${await edge.s3ProxyOf(UPSTREAM)}/scenario-edge-missing-bucket/missing-key`, {
+            method: 'HEAD',
+        })
+        const afterHead = edge.firstAppliedAt(slow)
+        await load(uploaded)
+
+        expect({ afterHead, afterGet: edge.firstAppliedAt(slow) }).toEqual({
+            afterHead: undefined,
+            afterGet: expect.any(Number),
+        })
+    })
+
+    test.each(['https://store.example.com', 'http://localhost:19000/s3'])(
+        'refuses to stand in front of %s, which it cannot reach as the client would',
+        async (upstream) => {
+            await expect(edge.s3ProxyOf(upstream)).rejects.toThrow(
+                'the S3 edge forwards only to a plain HTTP store at its root'
+            )
+        }
+    )
+
+    test('releases a paced body one slice a tenth of a second, and leaves no timer once its reader hangs up', async () => {
+        jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] })
+        try {
+            const pace = paced(1000, () => undefined)
+            const received: number[] = []
+            pace.on('data', (slice: Buffer) => received.push(slice.length))
+
+            pace.write(Buffer.alloc(350))
+            await jest.advanceTimersByTimeAsync(100)
+            const afterOneTenth = [...received]
+            await jest.advanceTimersByTimeAsync(200)
+            pace.destroy()
+
+            expect({ afterOneTenth, received, timers: jest.getTimerCount() }).toEqual({
+                afterOneTenth: [100],
+                received: [100, 100, 100],
+                timers: 0,
+            })
+        } finally {
+            jest.useRealTimers()
+        }
     })
 })
