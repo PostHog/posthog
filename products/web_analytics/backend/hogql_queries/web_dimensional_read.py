@@ -82,8 +82,8 @@ _INEXACT_PROPERTY_KEYS = frozenset(
 
 
 # Page tiles group by path, and their cost grows with the number of distinct paths times the days read. The
-# dimensional tables keep every path, so past a month the page directory can read slower than today's path. A
-# "last 30 days" range spans 31 calendar days, because it includes today.
+# dimensional tables keep every path, so past a month a page tile can read slower than today's path. A "last 30 days"
+# range spans 31 calendar days, because it includes today.
 DIMENSIONAL_PAGE_TILES_MAX_RANGE = timedelta(days=31)
 # The path breakdowns group every path of the range, while the page directory reads only the paths under the
 # requested keys, so on a team with many paths a month of a path breakdown outruns the query timeout.
