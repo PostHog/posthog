@@ -16,7 +16,7 @@ from posthog.test.base import (
 from unittest.mock import ANY, MagicMock, patch
 
 from django.core.cache import cache
-from django.db import IntegrityError, connection
+from django.db import IntegrityError, connection, transaction
 from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils.timezone import now
@@ -16820,3 +16820,109 @@ class TestFeatureFlagServerOwnedTimestamps(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.content
         flag.refresh_from_db()
         assert getattr(flag, field) == original
+
+
+class TestFeatureFlagLaunchCheck(APIBaseTest):
+    def _flag(self, rollout: int) -> FeatureFlag:
+        return FeatureFlag.objects.create(
+            team=self.team,
+            key="launch-check",
+            name="Launch check",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": rollout}]},
+        )
+
+    def _patch(self, flag: FeatureFlag, body: dict[str, Any]) -> Response:
+        return self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", body, format="json")
+
+    def _launch_events(self, capture: MagicMock) -> list[dict[str, Any]]:
+        return [
+            dict(call.kwargs)
+            for call in capture.call_args_list
+            if call.kwargs.get("event") == "feature flag launch checked"
+        ]
+
+    @patch("posthog.event_usage.posthoganalytics.capture")
+    def test_qualifying_save_sends_one_event(self, capture: MagicMock):
+        flag = self._flag(50)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self._patch(flag, {"filters": {"groups": [{"properties": [], "rollout_percentage": 100}]}})
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert self._launch_events(capture) == [
+            {
+                "distinct_id": str(self.team.uuid),
+                "event": "feature flag launch checked",
+                "properties": {
+                    "qualified": True,
+                    "reason": None,
+                    "release_path": "conditions",
+                    "source": "web",
+                    "was_impersonated": False,
+                },
+                "groups": {
+                    "instance": ANY,
+                    "organization": str(self.team.organization_id),
+                    "project": str(self.team.uuid),
+                },
+            }
+        ]
+
+    @parameterized.expand(
+        [
+            ("name_only", 50, {"name": "Renamed"}),
+            ("rollout_short_of_everyone", 50, {"filters": {"groups": [{"properties": [], "rollout_percentage": 60}]}}),
+            ("re_save_at_everyone", 100, {"filters": {"groups": [{"properties": [], "rollout_percentage": 100}]}}),
+        ]
+    )
+    @patch("posthog.event_usage.posthoganalytics.capture")
+    def test_save_that_does_not_newly_reach_everyone_sends_nothing(
+        self, _name: str, rollout: int, body: dict[str, Any], capture: MagicMock
+    ):
+        flag = self._flag(rollout)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self._patch(flag, body)
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert self._launch_events(capture) == []
+
+    @patch("posthog.event_usage.posthoganalytics.capture")
+    def test_create_at_everyone_sends_nothing(self, capture: MagicMock):
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/",
+                {"key": "born-launched", "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]}},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        assert self._launch_events(capture) == []
+
+    @patch("posthog.event_usage.posthoganalytics.capture")
+    def test_outer_rollback_sends_nothing(self, capture: MagicMock):
+        flag = self._flag(50)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            with self.assertRaises(IntegrityError), transaction.atomic():
+                response = self._patch(flag, {"filters": {"groups": [{"properties": [], "rollout_percentage": 100}]}})
+                assert response.status_code == status.HTTP_200_OK, response.content
+                raise IntegrityError("outer rollback")
+
+        assert self._launch_events(capture) == []
+        flag.refresh_from_db()
+        assert flag.filters["groups"][0]["rollout_percentage"] == 50
+
+    @patch("products.feature_flags.backend.api.feature_flag.check_launch", side_effect=RuntimeError("broken rule"))
+    @patch("posthog.event_usage.posthoganalytics.capture")
+    def test_save_succeeds_when_the_rule_raises(self, capture: MagicMock, _check_launch: MagicMock):
+        flag = self._flag(50)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self._patch(flag, {"filters": {"groups": [{"properties": [], "rollout_percentage": 100}]}})
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        flag.refresh_from_db()
+        assert flag.filters["groups"][0]["rollout_percentage"] == 100
+        assert self._launch_events(capture) == []
