@@ -18,14 +18,18 @@ import {
     SelectTriggerIcon,
     Separator,
 } from 'lib/ui/quill'
+import { cn } from 'lib/utils/css-classes'
 import { pluralize } from 'lib/utils/strings'
 import type { SettingId } from 'scenes/settings/types'
 
 import type { ErrorTrackingIssueTag } from '~/queries/schema/schema-general'
 
 import { configurationRedirect } from '../../settingsRedirects'
+import { issueTagColor } from '../IssueTag/issueTagColors'
+import { IssueTagDot } from '../IssueTag/IssueTagDot'
 
 const TAG_RULES_SETTING_ID: SettingId = 'error-tracking-tag-rules'
+const MAX_BUTTON_DOTS = 3
 
 export function IssueTagsButton({
     tags,
@@ -34,7 +38,7 @@ export function IssueTagsButton({
     size = 'sm',
     defaultOpen = false,
 }: {
-    tags: Pick<ErrorTrackingIssueTag, 'key' | 'label'>[] | null | undefined
+    tags: Pick<ErrorTrackingIssueTag, 'key' | 'label' | 'color'>[] | null | undefined
     onTagClick: (key: string) => void
     surface: 'issues_list' | 'issue_page'
     size?: 'sm' | 'default'
@@ -46,6 +50,11 @@ export function IssueTagsButton({
     if (!tags?.length) {
         return null
     }
+
+    const buttonDotColors = [...new Set(tags.map((tag) => issueTagColor(tag.label, tag.color)))].slice(
+        0,
+        MAX_BUTTON_DOTS
+    )
 
     const onOpenChange = (nextOpen: boolean): void => {
         if (nextOpen) {
@@ -59,6 +68,15 @@ export function IssueTagsButton({
             <PopoverTrigger
                 render={<Button variant="outline" size={size} data-attr="error-tracking-issue-tags-button" />}
             >
+                <span className="flex">
+                    {buttonDotColors.map((color, index) => (
+                        <IssueTagDot
+                            key={color}
+                            color={color}
+                            className={cn('ring-1 ring-background', index > 0 && '-ms-1')}
+                        />
+                    ))}
+                </span>
                 <span className="text-secondary">{pluralize(tags.length, 'tag')}</span>
                 <SelectTriggerIcon />
             </PopoverTrigger>
@@ -81,6 +99,7 @@ export function IssueTagsButton({
                                         onTagClick(tag.key)
                                     }}
                                 >
+                                    <IssueTagDot color={issueTagColor(tag.label, tag.color)} />
                                     <ItemContent variant="menuItem" className="min-w-0">
                                         <ItemTitle
                                             className="block w-full min-w-0 truncate font-normal"

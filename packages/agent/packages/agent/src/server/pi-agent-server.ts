@@ -608,7 +608,7 @@ export class PiAgentServer {
             initMs: Date.now() - initStartedAt,
             requestedModel: this.config.model,
             gatewayConfigured: Boolean(
-              process.env.LLM_GATEWAY_URL || this.config.apiUrl,
+              process.env.AI_GATEWAY_URL && process.env.AI_GATEWAY_TOKEN,
             ),
             errorType:
               error instanceof Error && error.name === "TimeoutError"
@@ -624,7 +624,7 @@ export class PiAgentServer {
         initMs: Date.now() - initStartedAt,
         requestedModel: this.config.model ?? null,
         gatewayConfigured: Boolean(
-          process.env.LLM_GATEWAY_URL || this.config.apiUrl,
+          process.env.AI_GATEWAY_URL && process.env.AI_GATEWAY_TOKEN,
         ),
         taskId: payload.task_id,
         taskRunId: payload.run_id,
@@ -1176,10 +1176,7 @@ export class PiAgentServer {
         ? {
             type: "set_model",
             provider: "posthog",
-            modelId: modelIdForGatewayRoute(
-              value,
-              session.providerRoute.isAiGateway,
-            ),
+            modelId: modelIdForGatewayRoute(value),
           }
         : { type: "set_thinking_level", level: value as PiThinkingLevel },
     );

@@ -109,9 +109,9 @@ class PipelineRowsStatsResponseSerializer(serializers.Serializer):
     )
     billing_period_start = serializers.DateTimeField(allow_null=True, help_text="Start of the current billing period.")
     billing_period_end = serializers.DateTimeField(allow_null=True, help_text="End of the current billing period.")
-    total_rows = serializers.IntegerField(help_text="Rows synced in the billing period, billed and not yet billed.")
-    tracked_billing_rows = serializers.IntegerField(help_text="Rows billing has already counted.")
-    pending_billing_rows = serializers.IntegerField(help_text="Rows synced since billing last counted.")
+    total_rows = serializers.IntegerField(
+        help_text="Billable rows this project synced in the billing period. Other projects in the organization are not counted."
+    )
     materialized_rows_in_billing_period = serializers.IntegerField(
         help_text="Rows written by materialized view runs in the billing period."
     )

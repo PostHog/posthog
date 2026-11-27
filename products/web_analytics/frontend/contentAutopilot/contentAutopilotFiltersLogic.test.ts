@@ -63,8 +63,8 @@ describe('contentAutopilotFiltersLogic', () => {
         await expectLogic(logic).toMatchValues({ filters: expected })
     })
 
-    it('writes the filters to the URL and keeps the other params', async () => {
-        router.actions.push('/web/content-autopilot', { other: 'kept', days: 7 })
+    it('writes the filters to the URL and keeps the other params, the open tab included', async () => {
+        router.actions.push('/web/content-autopilot', { other: 'kept', tab: 'rankings', days: 7 })
         logic = contentAutopilotFiltersLogic()
         logic.mount()
 
@@ -77,6 +77,7 @@ describe('contentAutopilotFiltersLogic', () => {
         expect(router.values.location.pathname).toMatch(/\/web\/content-autopilot$/)
         expect(router.values.searchParams).toEqual({
             other: 'kept',
+            tab: 'rankings',
             date_from: '2026-10-01',
             date_to: '2026-10-07',
             engine: 'exa-answer',
@@ -88,7 +89,7 @@ describe('contentAutopilotFiltersLogic', () => {
         logic.actions.setEngine(null, 'overview')
         logic.actions.setTopic(null, 'overview')
         await expectLogic(logic).toFinishAllListeners()
-        expect(router.values.searchParams).toEqual({ other: 'kept', branded: 'branded' })
+        expect(router.values.searchParams).toEqual({ other: 'kept', tab: 'rankings', branded: 'branded' })
     })
 
     it.each([

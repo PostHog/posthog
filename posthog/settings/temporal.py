@@ -73,6 +73,12 @@ TEMPORAL_WORKFLOW_POLLER_AUTOSCALING_MAX: int | None = get_from_env(
     "TEMPORAL_WORKFLOW_POLLER_AUTOSCALING_MAX", None, optional=True, type_cast=int
 )
 
+# A worker that runs data warehouse syncs imports every source's vendor SDK when it starts. When
+# false, it imports only the sources that this instance has, which suits a host with little memory.
+TEMPORAL_PRELOAD_ALL_DATA_IMPORT_SOURCES: bool = get_from_env(
+    "TEMPORAL_PRELOAD_ALL_DATA_IMPORT_SOURCES", True, type_cast=str_to_bool
+)
+
 TEMPORAL_HEALTH_PORT: int | None = get_from_env("TEMPORAL_HEALTH_PORT", None, optional=True, type_cast=int)
 TEMPORAL_HEALTH_MAX_IDLE_SECONDS: float | None = get_from_env(
     "TEMPORAL_HEALTH_MAX_IDLE_SECONDS", None, optional=True, type_cast=float
@@ -109,18 +115,13 @@ HOGLAND_API_TOKEN: str | None = get_from_env("HOGLAND_API_TOKEN", None, optional
 # Projected ServiceAccount token file (rotating JWT). When set and readable it wins
 # over the static HOGLAND_API_TOKEN, which stays as a local-dev/bake-only fallback.
 HOGLAND_API_TOKEN_FILE: str | None = get_from_env("HOGLAND_API_TOKEN_FILE", None, optional=True)
-SANDBOX_LLM_GATEWAY_URL: str | None = get_from_env("SANDBOX_LLM_GATEWAY_URL", None, optional=True)
-# The Go ai-gateway runs on its own host (ai-gateway.*, vs the Python gateway.*), so the
-# base URL is what selects it: no product slug on the path, attribution as one
-# X-PostHog-Properties blob. SANDBOX_AI_GATEWAY_PRODUCTS limits the switch to named
-# ai_product values so one product migrates without moving every other sandbox caller.
-# Both must be set; clearing either rolls back to the Python gateway.
+# SANDBOX_AI_GATEWAY_PRODUCTS names the ai_product values the worker mints tokens for. A gateway-billed
+# run whose product is unlisted, or with either setting unset, fails with gateway_token_unavailable.
 SANDBOX_AI_GATEWAY_URL: str | None = get_from_env("SANDBOX_AI_GATEWAY_URL", None, optional=True)
 SANDBOX_AI_GATEWAY_WORKER_URL: str | None = get_from_env("SANDBOX_AI_GATEWAY_WORKER_URL", None, optional=True)
 SANDBOX_AI_GATEWAY_PRODUCTS: str | None = get_from_env("SANDBOX_AI_GATEWAY_PRODUCTS", None, optional=True)
 # Gateway credential (phs_) the worker uses to mint per-run phe_ scoped tokens for
-# gateway-routed sandbox runs. Unset: runs get no token and the agent server keeps them
-# on the Python gateway, so the routing allowlist above is inert without it.
+# gateway-routed sandbox runs. Unset: runs fail at provisioning like an unset URL above.
 SANDBOX_AI_GATEWAY_MINT_KEY: str | None = get_from_env("SANDBOX_AI_GATEWAY_MINT_KEY", None, optional=True)
 # Per-run spend cap and token lifetime for minted scoped tokens. The cap bounds one
 # runaway run; the daily bound per team is cap x the scheduler's runs-per-day limit.
@@ -535,6 +536,9 @@ LLMA_EVAL_BACKFILL_BATCH_SIZE: int = get_from_env("LLMA_EVAL_BACKFILL_BATCH_SIZE
 # Evaluations one backfill runs at once. A run holds one of the shared CLICKHOUSE_LLM_ANALYTICS_MAX_CONCURRENT_QUERIES
 # slots only while it reads its unit, so most runs wait on the judge. Lower this if backfills crowd out live work.
 LLMA_EVAL_BACKFILL_MAX_IN_FLIGHT: int = get_from_env("LLMA_EVAL_BACKFILL_MAX_IN_FLIGHT", 16, type_cast=int)
+# Character budget for a trace judge's transcript. Every judge runs on the customer's own key, so this sets what
+# a long trace costs them. Set it to 150000 to undo the larger budget without a deploy: workers read it at boot.
+LLMA_JUDGE_TRACE_MAX_CHARS: int = get_from_env("LLMA_JUDGE_TRACE_MAX_CHARS", 300_000, type_cast=int)
 # Defaults to the general-purpose fleet so dispatch always has a live worker; set the env to
 # "mcp-analytics-task-queue" to route MCP analytics clustering to a dedicated, separately-scalable
 # worker once one is deployed.

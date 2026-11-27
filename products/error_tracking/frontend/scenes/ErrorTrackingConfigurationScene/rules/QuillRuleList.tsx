@@ -2,10 +2,10 @@ import { DndContext } from '@dnd-kit/core'
 import { restrictToParentElement, restrictToVerticalAxis } from '@dnd-kit/modifiers'
 import { SortableContext, arrayMove, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { useActions, useValues } from 'kea'
-import { ReactNode } from 'react'
+import { KeyboardEvent, ReactNode } from 'react'
 
 import { IconTrash, IconWarning } from '@posthog/icons'
-import { Badge, Button, Card, CardContent, CardHeader, Checkbox, Skeleton, Text } from '@posthog/quill'
+import { Badge, Button, Card, CardContent, CardHeader, Checkbox, Skeleton, Text, cn } from '@posthog/quill'
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -213,21 +213,33 @@ export function QuillRuleList({
                                         ) : null
                                     }
                                 >
-                                    <Card size="sm">
+                                    <Card
+                                        size="sm"
+                                        className={cn(
+                                            rulesClickable &&
+                                                'cursor-pointer hover:bg-fill-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+                                        )}
+                                        {...(rulesClickable
+                                            ? {
+                                                  role: 'button',
+                                                  tabIndex: 0,
+                                                  onClick: () => openModal(rule),
+                                                  onKeyDown: (e: KeyboardEvent<HTMLDivElement>) => {
+                                                      if (
+                                                          e.target === e.currentTarget &&
+                                                          (e.key === 'Enter' || e.key === ' ')
+                                                      ) {
+                                                          e.preventDefault()
+                                                          openModal(rule)
+                                                      }
+                                                  },
+                                              }
+                                            : {})}
+                                    >
                                         <CardHeader>
-                                            {rulesClickable ? (
-                                                <button
-                                                    type="button"
-                                                    className="flex w-full cursor-pointer flex-wrap items-center justify-between gap-2 rounded-sm text-left hover:bg-fill-hover"
-                                                    onClick={() => openModal(rule)}
-                                                >
-                                                    {header}
-                                                </button>
-                                            ) : (
-                                                <div className="flex w-full flex-wrap items-center justify-between gap-2">
-                                                    {header}
-                                                </div>
-                                            )}
+                                            <div className="flex w-full flex-wrap items-center justify-between gap-2">
+                                                {header}
+                                            </div>
                                         </CardHeader>
                                         <CardContent>
                                             {filterValues.length > 0 ? (

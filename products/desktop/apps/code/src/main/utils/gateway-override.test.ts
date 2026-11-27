@@ -7,20 +7,20 @@ import {
 describe("takeGatewayOverride", () => {
   it("returns the override and removes both variables from the env", () => {
     const env: NodeJS.ProcessEnv = {
-      POSTHOG_CODE_AI_GATEWAY_URL: "http://localhost:3308/v1",
+      POSTHOG_CODE_AI_GATEWAY_URL: "http://localhost:8080/v1",
       POSTHOG_CODE_AI_GATEWAY_TOKEN: "phe_dev",
       OTHER: "kept",
     };
 
     expect(takeGatewayOverride(env)).toEqual({
-      url: "http://localhost:3308",
+      url: "http://localhost:8080",
       token: "phe_dev",
     });
     expect(env).toEqual({ OTHER: "kept" });
   });
 
   it.each([
-    [{ POSTHOG_CODE_AI_GATEWAY_URL: "http://localhost:3308" }],
+    [{ POSTHOG_CODE_AI_GATEWAY_URL: "http://localhost:8080" }],
     [{ POSTHOG_CODE_AI_GATEWAY_TOKEN: "phe_dev" }],
     [
       {
@@ -48,13 +48,13 @@ describe("takeGatewayOverride", () => {
 describe("desktopGatewayTokenHost", () => {
   it("enables the Go gateway and takes the override", () => {
     const env: NodeJS.ProcessEnv = {
-      POSTHOG_CODE_AI_GATEWAY_URL: "http://localhost:3308",
+      POSTHOG_CODE_AI_GATEWAY_URL: "http://localhost:8080",
       POSTHOG_CODE_AI_GATEWAY_TOKEN: "phe_dev",
     };
 
     expect(desktopGatewayTokenHost(env)).toEqual({
       goEnabled: true,
-      override: { url: "http://localhost:3308", token: "phe_dev" },
+      override: { url: "http://localhost:8080", token: "phe_dev" },
     });
     expect(env).toEqual({});
   });

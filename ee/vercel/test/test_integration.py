@@ -28,7 +28,7 @@ from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.organization_integration import OrganizationIntegration
 from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.team import Team
-from posthog.models.user import User
+from posthog.models.user import User, UserType
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.project_creation_limits import ORGANIZATION_PROJECT_LIMIT_MESSAGE, PLAN_PROJECT_LIMIT_MESSAGE
 from posthog.tasks.email import send_email_verification_code
@@ -627,9 +627,13 @@ class TestVercelIntegration(TestCase):
 
     @parameterized.expand(
         [
-            (f"{policy}_{mapped}", policy, mapped)
-            for policy in ("totp", "passkey", "sso", "inactive", "domain")
-            for mapped in (False, True)
+            *(
+                (f"{policy}_{account}", policy, account)
+                for policy in ("totp", "passkey", "sso", "inactive", "domain", "service_account")
+                for account in ("existing", "mapped")
+            ),
+            ("sso_new", "sso", "new"),
+            ("domain_new", "domain", "new"),
         ]
     )
     @override_settings(
@@ -637,9 +641,10 @@ class TestVercelIntegration(TestCase):
         SOCIAL_AUTH_GOOGLE_OAUTH2_KEY="synthetic-client",
         SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET="synthetic-secret",
     )
-    def test_sso_preserves_account_login_requirements(self, _name: str, policy: str, mapped: bool) -> None:
+    def test_sso_preserves_account_login_requirements(self, _name: str, policy: str, account: str) -> None:
+        mapped = account == "mapped"
         claims = self._create_user_claims("protected_user")
-        claims.user_email = self.user.email
+        claims.user_email = "new-sso-user@example.com" if account == "new" else self.user.email
         if mapped:
             self.installation.config["user_mappings"] = {claims.user_id: self.user.pk}
             self.installation.save()
@@ -667,6 +672,9 @@ class TestVercelIntegration(TestCase):
         elif policy == "inactive":
             self.user.is_active = False
             self.user.save()
+        elif policy == "service_account":
+            self.user.type = UserType.SERVICE_ACCOUNT
+            self.user.save(update_fields=["type"])
         elif policy == "domain":
             self.organization.enforce_verified_domains = True
             self.organization.save()
@@ -682,6 +690,7 @@ class TestVercelIntegration(TestCase):
         assert self.installation.config.get("user_mappings", {}).get(claims.user_id) == (
             self.user.pk if mapped else None
         )
+        assert not User.objects.filter(email="new-sso-user@example.com").exists()
 
     def test_sso_does_not_replace_an_inactive_users_mapping(self) -> None:
         inactive_user = User.objects.create_user(

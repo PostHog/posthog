@@ -1569,7 +1569,10 @@ async def _process_signal_batch(
                     get_embedding_activity,
                     GenerateEmbeddingInput(team_id=team_id, content=s.description),
                     start_to_close_timeout=timedelta(minutes=5),
-                    retry_policy=RetryPolicy(maximum_attempts=3),
+                    schedule_to_close_timeout=timedelta(hours=1),
+                    retry_policy=RetryPolicy(
+                        initial_interval=timedelta(seconds=5), maximum_interval=timedelta(minutes=1)
+                    ),
                 )
                 for s in batch
             ],
@@ -1622,7 +1625,10 @@ async def _process_signal_batch(
                         get_embedding_activity,
                         GenerateEmbeddingInput(team_id=team_id, content=q_text),
                         start_to_close_timeout=timedelta(minutes=5),
-                        retry_policy=RetryPolicy(maximum_attempts=3),
+                        schedule_to_close_timeout=timedelta(hours=1),
+                        retry_policy=RetryPolicy(
+                            initial_interval=timedelta(seconds=5), maximum_interval=timedelta(minutes=1)
+                        ),
                     )
                     for _, q_text in all_queries_flat
                 ]

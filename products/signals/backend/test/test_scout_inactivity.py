@@ -34,6 +34,15 @@ from products.skills.backend.models.skills import LLMSkill
 SKILL = "signals-scout-quiet"
 
 
+# Routes with no report destination: every report is written, and only messages reach Slack.
+_MESSAGE_ROUTED: dict = {
+    "slack": {"integration_id": 1},
+    "messages": [
+        {"key": "big-change", "when": "A large change lands", "to": [{"type": "slack_dm", "user": "U0123ABC456"}]}
+    ],
+}
+
+
 def test_scout_tasks_import_without_preloaded_harness_tools() -> None:
     result = subprocess.run(
         [sys.executable, "-c", "import django; django.setup(); import products.signals.backend.tasks"],
@@ -333,22 +342,27 @@ class TestScoutInactivitySweep(BaseTest):
 
     @parameterized.expand(
         [
-            ("slack_routed", {"slack": {"integration_id": 1, "channel": "C123"}}),
-            ("kept_out_of_inbox", {"inbox": False, "webhook": {"hog_function_id": "hog-fn-1"}}),
+            ("slack_routed", {"slack": {"integration_id": 1, "channel": "C123"}}, False, True),
+            ("kept_out_of_inbox", {"inbox": False, "webhook": {"hog_function_id": "hog-fn-1"}}, False, True),
+            ("message_routes", _MESSAGE_ROUTED, True, True),
+            # Stored routes do nothing while scout messaging is off, so they buy no exemption either.
+            ("message_routes_flag_off", _MESSAGE_ROUTED, False, False),
         ]
     )
     def test_a_scout_read_outside_the_inbox_is_not_judged_on_report_consumption(
-        self, _name: str, output_destinations: dict
+        self, _name: str, output_destinations: dict, messaging_on: bool, exempt: bool
     ) -> None:
         # This output is read outside the inbox, where no evidence flows back, so the unconsumed
         # verdict cannot be trusted for these scouts.
         SignalScoutConfig.all_teams.filter(pk=self.config.pk).update(output_destinations=output_destinations)
         self._emitting_runs(self._report())
 
-        outcome = sweep_inactive_scouts(now=self.now)
+        with patch(
+            "products.signals.backend.scout_harness.inactivity.scout_send_message_enabled", return_value=messaging_on
+        ):
+            outcome = sweep_inactive_scouts(now=self.now)
 
-        assert outcome.warned == []
-        assert self._reload().status == SignalScoutConfig.Status.ACTIVE
+        assert [c.pk for c in outcome.warned] == ([] if exempt else [self.config.pk])
 
     def test_sweep_transitions_are_activity_logged_without_pinning_them_on_a_user(self) -> None:
         self._emitting_runs(self._report())

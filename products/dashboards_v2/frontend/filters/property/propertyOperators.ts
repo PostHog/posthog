@@ -84,7 +84,10 @@ export function isCompleteCondition(condition: PropertyCondition): boolean {
     return isOperatorFlag(condition.operator) || valuesOf(condition.value).length > 0
 }
 
-export function describeCondition(condition: PropertyCondition): { operator: string; value: string } {
-    const label = [...STRING, ...NUMERIC, ...DATE].find((candidate) => candidate.operator === condition.operator)?.label
+export function describeCondition(
+    condition: PropertyCondition,
+    options: OperatorOption[]
+): { operator: string; value: string } {
+    const label = options.find((candidate) => candidate.operator === condition.operator)?.label
     return { operator: label ?? condition.operator, value: summarizeValues(valuesOf(condition.value)) }
 }

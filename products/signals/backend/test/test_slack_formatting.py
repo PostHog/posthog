@@ -8,6 +8,7 @@ from posthog.slack.formatting import escape_slack_mrkdwn
 from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN
 
 from products.signals.backend.slack_formatting import (
+    bare_misleading_link_labels,
     chunk_slack_text,
     defuse_slack_tokens,
     group_segments_to_limit,
@@ -94,6 +95,40 @@ class TestStripChartReferences(SimpleTestCase):
         strip_chart_references(summary)
 
         assert time.perf_counter() - started < 0.5
+
+
+class TestBareMisleadingLinkLabels(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("plain", "[github.com/org/repo](https://evil.example/x)", "https://evil.example/x"),
+            ("titled", '[github.com/org/repo](https://evil.example/x "PR #1")', "https://evil.example/x"),
+            ("balanced_parens", "[github.com/org](https://evil.example/(login))", "https://evil.example/(login)"),
+            ("emphasis", "[**github.com/org**](https://evil.example/x)", "https://evil.example/x"),
+            ("code_span", "[`github.com/org`](https://evil.example/x)", "https://evil.example/x"),
+            ("zero_width", "[git\u200bhub.com](https://evil.example/x)", "https://evil.example/x"),
+            (
+                "trailing_words_across_lines",
+                "[github.com/org/repo\nmerged](https://evil.example/x)",
+                "https://evil.example/x",
+            ),
+            # The fullwidth colon makes `urlparse` raise: the link is shown bare, and the message still renders.
+            (
+                "invalid_destination",
+                "[example.com](https://example.com\uff1a443/path)",
+                "https://example.com\uff1a443/path",
+            ),
+            (
+                "same_host",
+                "[github.com/org](https://github.com/org/repo)",
+                "[github.com/org](https://github.com/org/repo)",
+            ),
+            ("prose_label", "[the change](https://evil.example/x)", "[the change](https://evil.example/x)"),
+        ]
+    )
+    def test_a_label_that_reads_as_another_host_is_shown_as_the_url_it_opens(
+        self, _name: str, text: str, expected: str
+    ) -> None:
+        assert bare_misleading_link_labels(f"See {text} now.") == f"See {expected} now."
 
 
 class TestDefuseSlackTokens(SimpleTestCase):
