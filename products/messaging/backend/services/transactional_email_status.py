@@ -159,8 +159,7 @@ def get_email_status(team_id: int, message_id: UUID) -> EmailStatus | None:
 # Anyone can send these headers, and each extra id weakens the bloom index. References lists the newest ids last, and
 # those name the reply's parent, so only the last few of each header are read.
 _MAX_WIRE_IDS_PER_HEADER = 10
-# An RFC 5322 comment can quote another Message-ID, which names no parent of the reply.
-_HEADER_COMMENT = re.compile(r"\([^()]*\)")
+
 # SES writes `<MessageId@email.amazonses.com>` or `@<region>.amazonses.com`, and the sent row keeps only the MessageId.
 _SES_WIRE_MESSAGE_ID = re.compile(r"<([^<>@\s]+)@[a-z0-9-]+\.amazonses\.com>", re.IGNORECASE)
 _SENT_MESSAGE_QUERY = f"""
@@ -172,15 +171,28 @@ GROUP BY provider_message_id
 """
 
 
+def _without_comments(header: str) -> str:
+    """An RFC 5322 comment can quote another Message-ID, which names no parent of the reply. One pass, so nesting
+    in a header anyone can send costs no more than its length."""
+    depth = 0
+    kept = []
+    for char in header:
+        if char == "(":
+            depth += 1
+        elif char == ")" and depth:
+            depth -= 1
+        elif not depth:
+            kept.append(char)
+    return "".join(kept)
+
+
 @events_route_scope(HogQLQueryModifiers(useNewEventsSchema=False))
 def match_sent_message_ids(team_id: int, headers: Sequence[str]) -> tuple[SentMessageMatch, ...]:
     """The sends of this team named in these header values, such as a reply's raw In-Reply-To and References."""
     wire_ids: dict[str, str] = {}
     for header in headers:
-        while (uncommented := _HEADER_COMMENT.sub(" ", header)) != header:
-            header = uncommented
         newest: dict[str, str] = {}
-        for match in _SES_WIRE_MESSAGE_ID.finditer(header):
+        for match in _SES_WIRE_MESSAGE_ID.finditer(_without_comments(header)):
             newest.pop(match[1], None)
             newest[match[1]] = match[0]
             if len(newest) > _MAX_WIRE_IDS_PER_HEADER:

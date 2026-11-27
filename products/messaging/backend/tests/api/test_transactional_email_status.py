@@ -358,6 +358,11 @@ class TestMatchSentMessageIds(ClickhouseTestMixin, BaseTest):
                 set(),
             ),
             ("inside_a_comment", ["<a@example.com> (see <0100018c-ours-000000@email.amazonses.com>)"], set()),
+            (
+                "inside_a_nested_comment",
+                ["<a@example.com> (see (also <0100018c-ours-000000@email.amazonses.com>) here)"],
+                set(),
+            ),
             ("not_an_ses_domain", ["<0100018c-ours-000000@example.com>"], set()),
             ("unbracketed", ["0100018c-ours-000000@email.amazonses.com"], set()),
             ("another_teams_send", ["<0100018c-theirs-000000@email.amazonses.com>"], set()),
