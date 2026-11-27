@@ -120804,13 +120804,13 @@ export namespace Schemas {
          */
       report_id?: string | null;
       /**
-         * Short plain-text title. At most 150 characters.
-         * @maxLength 150
+         * Short plain-text title. At most 80 characters.
+         * @maxLength 80
          */
       title: string;
       /**
-         * Markdown body with the links the reader needs. At most 3000 characters. A link whose label looks like an address on another host is shown as the bare URL.
-         * @maxLength 3000
+         * Markdown body with the links the reader needs. At most 500 characters. A link whose label looks like an address on another host is shown as the bare URL.
+         * @maxLength 500
          */
       body: string;
       /**
