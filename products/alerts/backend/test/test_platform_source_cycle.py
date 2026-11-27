@@ -73,6 +73,7 @@ from products.alerts.backend.platform_source_cycle import (
     MAX_RATIONALE_CHARS,
     QUERY_ID_PREFIX,
     QUERY_INFLIGHT_KEY,
+    SHADOW_INFLIGHT_KEY,
     ChartRenderPoolFull,
     ChartRenderTimedOut,
     evaluate_insight_check,
@@ -589,16 +590,27 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         assert held_during_query == [{"test:1"}]
         assert inflight_alert_ids(QUERY_INFLIGHT_KEY) == set()
 
-    @parameterized.expand([("free_pool", False, [{"test:1:shadow"}], 0), ("full_pool", True, [], 1)])
-    @override_settings(ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS=1)
+    @parameterized.expand(
+        [
+            ("free_pool", [], [], [{"test:1:shadow"}], 0),
+            ("full_pool", [f"other-query-{n}" for n in range(5)], [], [], 1),
+            ("shadow_share_taken", [], ["other:shadow"], [], 1),
+        ]
+    )
+    @override_settings(ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS=5)
     def test_a_shadow_comparison_takes_a_query_slot_of_its_own_without_waiting(
-        self, _name: str, pool_is_full: bool, held_during_comparison: list[set[str]], skipped: int
+        self,
+        _name: str,
+        other_queries: list[str],
+        other_shadows: list[str],
+        held_during_comparison: list[set[str]],
+        skipped: int,
     ) -> None:
         configuration = self._copy(self._alert())
         slot = slot_of(configuration.next_check_at, CUTOFF)
         expires_at = time.time() + 3600
         (admitted,) = plan_insight_batch(self.team.id, slot, CUTOFF, expires_at=expires_at)
-        other_query_until = time.time() + 60
+        others_until = time.time() + 60
         held: list[set[str]] = []
         skips = 0
 
@@ -616,8 +628,8 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         ) -> AlertEvaluationResult:
             with query_slot():
                 pass
-            if pool_is_full:
-                admit_evaluation_slots(["other-query"], limit=1, expires_at=other_query_until, key=QUERY_INFLIGHT_KEY)
+            admit_evaluation_slots(other_queries, limit=5, expires_at=others_until, key=QUERY_INFLIGHT_KEY)
+            admit_evaluation_slots(other_shadows, limit=1, expires_at=others_until, key=SHADOW_INFLIGHT_KEY)
             return AlertEvaluationResult(value=1.0, breaches=[])
 
         with (
@@ -629,12 +641,16 @@ class TestPlatformInsightEvaluation(APIBaseTest):
                 self.team.id, slot, CUTOFF, admitted, held_until=expires_at, evaluation_id="test"
             )
             waited_seconds = time.monotonic() - started
-        release_evaluation_slot("other-query", held_until=other_query_until, key=QUERY_INFLIGHT_KEY)
+        for other in other_queries:
+            release_evaluation_slot(other, held_until=others_until, key=QUERY_INFLIGHT_KEY)
+        for other in other_shadows:
+            release_evaluation_slot(other, held_until=others_until, key=SHADOW_INFLIGHT_KEY)
 
         assert evaluation is not None and evaluation.outcomes[0].failure is None
         assert (held, skips) == (held_during_comparison, skipped)
         assert waited_seconds < 10
         assert inflight_alert_ids(QUERY_INFLIGHT_KEY) == set()
+        assert inflight_alert_ids(SHADOW_INFLIGHT_KEY) == set()
 
     @parameterized.expand(
         [

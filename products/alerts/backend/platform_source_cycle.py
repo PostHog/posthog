@@ -52,6 +52,9 @@ from products.alerts.backend.evaluation.contract import AlertDataUnavailableErro
 from products.alerts.backend.evaluation.dispatcher import PerSeriesEvaluation, check_alert_per_series
 from products.alerts.backend.evaluation.query_slot import QuerySlotFull
 from products.alerts.backend.evaluation.series_values_shadow import (
+    SHADOW_ATTEMPT_MARGIN_SECONDS,
+    SHADOW_BUILD_BUDGET_SECONDS,
+    SHADOW_READ_MAX_SECONDS,
     ShadowComparisonRequest,
     collecting_shadow_comparisons,
 )
@@ -142,6 +145,11 @@ logger = structlog.get_logger(__name__)
 INFLIGHT_KEY = "alerts:platform:insight:evaluations:inflight"
 QUERY_INFLIGHT_KEY = "alerts:platform:insight:queries:inflight"
 CHART_RENDER_INFLIGHT_KEY = "alerts:platform:insight:chart-renders:inflight"
+SHADOW_INFLIGHT_KEY = "alerts:platform:insight:shadows:inflight"
+# A shadow comparison holds its query slot through a build and a read, longer than a check waits for a slot.
+# Shadows may hold this share of the query pool, rounded down, so the rest stays free for checks.
+SHADOW_QUERY_POOL_SHARE = 0.2
+SHADOW_SLOT_LEASE_SECONDS = SHADOW_BUILD_BUDGET_SECONDS + SHADOW_READ_MAX_SECONDS + SHADOW_ATTEMPT_MARGIN_SECONDS
 # Under the one-minute tick, so a check that gave up is not still waiting when the next tick admits it.
 QUERY_SLOT_WAIT_SECONDS = 45.0
 QUERY_SLOT_POLL_SECONDS = 0.5
@@ -402,14 +410,41 @@ def _with_capacity_retries[T](run: Callable[[], T], alert: AlertConfiguration, q
     raise AssertionError("The retry loop returns or raises on its last try")
 
 
+@contextmanager
+def _shadow_query_slot(holder: str) -> Iterator[None]:
+    """Holds a place in the shadows' share of the query pool and a query slot, without waiting for either.
+
+    Raises `QuerySlotFull` when the share or the pool is full.
+    """
+    limit = int(settings.ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS * SHADOW_QUERY_POOL_SHARE)
+    held_until = time.time() + SHADOW_SLOT_LEASE_SECONDS
+    try:
+        admitted = limit > 0 and admit_evaluation_slots(
+            [holder], limit=limit, expires_at=held_until, key=SHADOW_INFLIGHT_KEY
+        )
+    except Exception as error:
+        # Redis is unreachable. A comparison decides nothing, so it is skipped rather than recorded as an error.
+        logger.exception("Could not take a shadow slot for a platform insight check", holder=holder)
+        raise QuerySlotFull() from error
+    if not admitted:
+        raise QuerySlotFull()
+    try:
+        with ClickHouseQuerySlot(holder, wait_seconds=0)():
+            yield
+    finally:
+        release_evaluation_slot(holder, held_until=held_until, key=SHADOW_INFLIGHT_KEY)
+
+
 def _run_shadow_comparisons(comparisons: Sequence[ShadowComparisonRequest], check_slot: ClickHouseQuerySlot) -> None:
     """Runs the stored series values comparisons that a check asked for, after its query slot is free.
 
-    Each one takes a slot of its own, so its build and read stay inside the ClickHouse query cap. It
-    does not wait for one: a comparison decides nothing, so it is skipped when every slot is taken.
+    Each one takes a slot of its own from the shadows' share of the query pool, so its build and read stay
+    inside the ClickHouse query cap and leave the rest of the pool to checks. It does not wait for one: a
+    comparison decides nothing, so it is skipped when the share or the pool is full.
     """
+    holder = f"{check_slot.holder}:shadow"
     for comparison in comparisons:
-        comparison.run(ClickHouseQuerySlot(f"{check_slot.holder}:shadow", wait_seconds=0))
+        comparison.run(lambda: _shadow_query_slot(holder))
 
 
 def _stop_query(team_id: int, configuration_id: str, query_id: str) -> None:
