@@ -496,16 +496,17 @@ class Experiment(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixi
         )
 
 
-def _live_experiments() -> "QuerySet[Experiment]":
+def _live_experiments() -> ExperimentQuerySet["Experiment"]:
     """Single source of truth for the `has_experiment` predicate: a flag has a linked
     experiment iff a non-deleted Experiment row references it. The Rust flags service
     (rust/feature-flags/src/flags/feature_flag_list.rs) mirrors this in hand-written SQL,
-    so keep the two in lockstep.
+    so keep the two in lockstep. That SQL tests `deleted = false`, so this reads
+    `deleted_is_false` and not `live`.
     """
-    return Experiment.objects.filter(deleted=False)
+    return Experiment.objects.deleted_is_false()
 
 
-def live_experiments_for_flag(feature_flag_id: int) -> "QuerySet[Experiment]":
+def live_experiments_for_flag(feature_flag_id: int) -> ExperimentQuerySet["Experiment"]:
     return _live_experiments().filter(feature_flag_id=feature_flag_id)
 
 
