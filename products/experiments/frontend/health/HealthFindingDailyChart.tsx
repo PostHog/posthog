@@ -14,7 +14,7 @@ export function HealthFindingDailyChart({
     units,
 }: {
     finding: HealthPanelFinding
-    splitCheck: HealthPanelCheck | null
+    splitCheck: HealthPanelCheck | undefined
     exposures: ExperimentExposureQueryResponse | null
     units: string
 }): JSX.Element | null {
@@ -26,8 +26,7 @@ export function HealthFindingDailyChart({
         return null
     }
     const startedOn = finding.evidence.mismatch_started_on
-    const splitChanged =
-        finding.subcode === 'split_changed' || (splitCheck !== null && healthChangedWhileExposed(splitCheck))
+    const splitChanged = finding.subcode === 'split_changed' || (!!splitCheck && healthChangedWhileExposed(splitCheck))
     return (
         <HealthDailyShareChart
             exposures={exposures}

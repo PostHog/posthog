@@ -22,7 +22,7 @@ export function HealthFindingDetail({
     finding: HealthPanelFinding
     /** The check that reported the finding. Missing on an exposure answer cached before findings named their check. */
     check: HealthPanelCheck | null
-    splitCheck: HealthPanelCheck | null
+    splitCheck: HealthPanelCheck | undefined
     units: string
     exposures: ExperimentExposureQueryResponse | null
     checkedAt: string | null
