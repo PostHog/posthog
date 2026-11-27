@@ -93,7 +93,8 @@ export function QuillCreateSlotModal(): JSX.Element {
                                 showClear={!!selectedProperty}
                                 autoFocus
                             />
-                            <ComboboxContent>
+                            {/* The popup sizes to its content by default, so it matches the full-width field instead. */}
+                            <ComboboxContent className="w-(--anchor-width) max-w-(--anchor-width)">
                                 <ComboboxEmpty>
                                     {availablePropertiesLoading
                                         ? 'Loading properties...'
@@ -104,7 +105,7 @@ export function QuillCreateSlotModal(): JSX.Element {
                                 <ComboboxList>
                                     {(property: PropertyDefinition) => (
                                         <ComboboxItem key={property.id} value={property}>
-                                            <span className="flex min-w-0 flex-1 items-center justify-between gap-2">
+                                            <span className="flex min-w-0 items-center gap-2">
                                                 <span className="truncate">{property.name}</span>
                                                 <Badge>{property.property_type}</Badge>
                                             </span>
