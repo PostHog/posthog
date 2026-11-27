@@ -132,7 +132,7 @@ function LiquidInput({
 }): JSX.Element {
     const { logicProps } = useValues(emailTemplaterLogic)
     return (
-        <InputGroup size="sm" className="min-w-0 overflow-hidden">
+        <InputGroup size="sm" className="min-w-0">
             <div data-slot="input-group-control" aria-invalid={invalid || undefined} className="flex-1 min-w-0 pl-2">
                 <LiquidSupportedText
                     value={value}

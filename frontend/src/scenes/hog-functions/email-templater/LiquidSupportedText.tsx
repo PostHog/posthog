@@ -35,6 +35,7 @@ export function LiquidSupportedText({
 
     const suggestions = (
         <CyclotronJobTemplateSuggestionsButton
+            size={plain ? 'xsmall' : 'small'}
             templating={templatingEngine}
             setTemplatingEngine={setTemplatingEngine}
             value={value}

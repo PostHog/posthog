@@ -150,8 +150,9 @@ export function CyclotronJobTemplateSuggestions({
 
 export function CyclotronJobTemplateSuggestionsButton({
     onOptionSelect,
+    size = 'small',
     ...props
-}: CyclotronJobTemplateSuggestionsProps): JSX.Element {
+}: CyclotronJobTemplateSuggestionsProps & { size?: 'xsmall' | 'small' }): JSX.Element {
     const [showPopover, setShowPopover] = useState(false) // TODO: Move this to the logic somehow
 
     const _onOptionSelect = (option: CyclotronJobTemplateOption): void => {
@@ -170,7 +171,7 @@ export function CyclotronJobTemplateSuggestionsButton({
             overflowHidden
         >
             <LemonButton
-                size="small"
+                size={size}
                 icon={<IconCode />}
                 tooltip="Supports templating - click to see available options"
             />
