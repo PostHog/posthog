@@ -3,24 +3,32 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 import '@testing-library/jest-dom'
 
 import { cleanup, render, screen } from '@testing-library/react'
-import { BindLogic } from 'kea'
-
-import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { AfterClickingCard } from './AfterClickingCard'
-import { emailImpactLogic } from './emailImpactLogic'
+import type { TransactionalEmailImpactApi } from 'products/messaging/frontend/generated/api.schemas'
+
+import { EmailImpactTab } from './EmailImpactTab'
+
+const WORKFLOW_ID = '0192c3a4-5b6c-7d8e-9f01-23456789abcd'
+
+const IMPACT: TransactionalEmailImpactApi = {
+    sent: 10,
+    delivered: 9,
+    opened: 5,
+    clicked: 2,
+    not_clicked: 7,
+    untracked: 0,
+    clicks_untracked: 0,
+    window_days: 7,
+    sessions: 2,
+    link_tagging_enabled: true,
+    after_click: null,
+    without_click: null,
+}
 
 describe('AfterClickingCard', () => {
-    beforeEach(() => {
-        useMocks({
-            get: { '/api/projects/:team_id/transactional_email_log/impact/': () => [200, null] },
-        })
-        initKeaTests()
-    })
-
     afterEach(() => {
         cleanup()
     })
@@ -28,15 +36,15 @@ describe('AfterClickingCard', () => {
     test.each([
         { replay: false, shown: true },
         { replay: true, shown: false },
-    ])('shows the card only while session replay is off (replay on: $replay)', ({ replay, shown }) => {
-        teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, session_recording_opt_in: replay })
+    ])('shows the card only while session replay is off (replay on: $replay)', async ({ replay, shown }) => {
+        useMocks({
+            get: { '/api/projects/:team_id/transactional_email_log/impact/': () => [200, IMPACT] },
+        })
+        initKeaTests(true, { ...MOCK_DEFAULT_TEAM, session_recording_opt_in: replay })
 
-        render(
-            <BindLogic logic={emailImpactLogic} props={{ workflowId: 'workflow-1' }}>
-                <AfterClickingCard />
-            </BindLogic>
-        )
+        render(<EmailImpactTab workflowId={WORKFLOW_ID} alwaysSensitive={false} />)
 
+        await screen.findByText('Sent')
         expect(screen.queryByText('What people did after clicking') !== null).toBe(shown)
     })
 })
