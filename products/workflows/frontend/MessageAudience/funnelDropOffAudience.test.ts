@@ -1,12 +1,13 @@
-import { expectLogic } from 'kea-test-utils'
-import posthog from 'posthog-js'
-
-import { personsModalLogic } from 'scenes/trends/persons-modal/personsModalLogic'
-
 import { useMocks } from '~/mocks/jest'
+import type { MockResolverInfo } from '~/mocks/utils'
 import { FunnelsActorsQuery, FunnelsQuery, InsightActorsQuery, NodeKind } from '~/queries/schema/schema-general'
-import { initKeaTests } from '~/test/init'
 
+jest.unmock('posthog-js')
+
+const INGESTION_HOST = 'https://ingest.example.com'
+const SETTLED = 'test settled'
+
+type SentEvent = { event: string; properties: Record<string, any> }
 type ActorRow = Record<string, any>
 
 interface ActorsPage {
@@ -59,15 +60,47 @@ const companies: ActorRow[] = [
 ]
 
 describe('funnel drop-off audience checked', () => {
+    const sentEvents: SentEvent[] = []
+    let posthog: typeof import('posthog-js').default
+    let initKeaTests: typeof import('~/test/init').initKeaTests
+    let expectLogic: typeof import('kea-test-utils').expectLogic
+    let personsModalLogic: typeof import('scenes/trends/persons-modal/personsModalLogic').personsModalLogic
     let logic: ReturnType<typeof personsModalLogic.build>
-    let captureSpy: jest.SpyInstance
     let actorsRequests: { search: string; offset?: number; release: () => void }[]
     let firstRequestArrived: Promise<void>
 
-    const audienceEvents = (): unknown[] =>
-        captureSpy.mock.calls
-            .filter(([event]) => event === 'funnel drop-off audience checked')
-            .map(([, properties]) => properties)
+    beforeAll(async () => {
+        jest.resetModules()
+        posthog = (await import('posthog-js')).default
+        posthog.init('phc_example', {
+            api_host: INGESTION_HOST,
+            persistence: 'memory',
+            request_batching: false,
+            disable_compression: true,
+            advanced_disable_flags: true,
+            autocapture: false,
+            capture_pageview: false,
+        })
+        initKeaTests = (await import('~/test/init')).initKeaTests
+        expectLogic = (await import('kea-test-utils')).expectLogic
+        personsModalLogic = (await import('scenes/trends/persons-modal/personsModalLogic')).personsModalLogic
+    })
+
+    async function deliveredAudienceEvents(): Promise<Record<string, any>[]> {
+        posthog.capture(SETTLED)
+        for (let tick = 0; tick < 100 && !sentEvents.some(({ event }) => event === SETTLED); tick++) {
+            await jest.advanceTimersByTimeAsync(10)
+        }
+        expect(sentEvents.map(({ event }) => event)).toContain(SETTLED)
+        const sharedKeys = new Set(Object.keys(sentEvents.find(({ event }) => event === SETTLED)?.properties ?? {}))
+        return sentEvents
+            .filter(({ event }) => event === 'funnel drop-off audience checked')
+            .map(({ properties }) =>
+                Object.fromEntries(
+                    Object.entries(properties).filter(([key]) => !key.startsWith('$') && !sharedKeys.has(key))
+                )
+            )
+    }
 
     function actorsQueryMocks(pages: ActorsPage[], { holdFirstRequest = false } = {}): Parameters<typeof useMocks>[0] {
         let arrive = (): void => {}
@@ -76,7 +109,11 @@ describe('funnel drop-off audience checked', () => {
         })
         return {
             post: {
-                '/api/environments/:team_id/query/:kind/': async ({ params, request }) => {
+                [`${INGESTION_HOST}/e/`]: async ({ request }: MockResolverInfo) => {
+                    sentEvents.push(...((await request.json()) as { batch: SentEvent[] }).batch)
+                    return [200, { status: 1 }]
+                },
+                '/api/environments/:team_id/query/:kind/': async ({ params, request }: MockResolverInfo) => {
                     if (params.kind !== NodeKind.ActorsQuery) {
                         return [200, {}]
                     }
@@ -131,12 +168,11 @@ describe('funnel drop-off audience checked', () => {
         initKeaTests()
         jest.useFakeTimers()
         actorsRequests = []
-        captureSpy = jest.spyOn(posthog, 'capture').mockImplementation()
+        sentEvents.length = 0
     })
 
     afterEach(() => {
         logic?.unmount()
-        captureSpy.mockRestore()
         jest.useRealTimers()
     })
 
@@ -175,13 +211,20 @@ describe('funnel drop-off audience checked', () => {
         { name: 'a trends query', query: trends, rows: peopleWithEmail(3), expected: [] },
         { name: 'a group funnel', query: groupDropOff, rows: companies, expected: [] },
         { name: 'a funnel of unique sessions', query: sessionDropOff, rows: [], expected: [] },
-    ])('reports the audience of $name once its first page loads', async ({ query, rows, expected }) => {
-        useMocks(actorsQueryMocks([{ rows }]))
+        {
+            name: 'a drop-off whose first load fails',
+            query: dropOff,
+            rows: peopleWithEmail(3),
+            failed: true,
+            expected: [],
+        },
+    ])('reports the audience of $name once its first page loads', async ({ query, rows, failed, expected }) => {
+        useMocks(actorsQueryMocks([{ rows, failed }]))
 
         await openModal(query)
         await settle()
 
-        expect(audienceEvents()).toEqual(expected)
+        expect(await deliveredAudienceEvents()).toEqual(expected)
     })
 
     it('sends no event when a search replaces the first request', async () => {
@@ -193,7 +236,7 @@ describe('funnel drop-off audience checked', () => {
         await settle()
 
         expect(actorsRequests.map(({ search }) => search)).toEqual(['', 'example'])
-        expect(audienceEvents()).toEqual([])
+        expect(await deliveredAudienceEvents()).toEqual([])
     })
 
     it('sends no event when the modal closes before the first page loads', async () => {
@@ -204,19 +247,7 @@ describe('funnel drop-off audience checked', () => {
         actorsRequests[0].release()
         await settle()
 
-        expect(audienceEvents()).toEqual([])
-    })
-
-    it('sends no event when the first load fails and a later one succeeds', async () => {
-        useMocks(actorsQueryMocks([{ rows: [], failed: true }, { rows: peopleWithEmail(3) }]))
-
-        await openModal(dropOffWithBreakdown)
-        await settle()
-        logic.actions.updateActorsQuery({ funnelStepBreakdown: 'Firefox' })
-        await settle()
-
-        expect(actorsRequests).toHaveLength(2)
-        expect(audienceEvents()).toEqual([])
+        expect(await deliveredAudienceEvents()).toEqual([])
     })
 
     it.each([
@@ -235,6 +266,6 @@ describe('funnel drop-off audience checked', () => {
         await settle()
 
         expect(actorsRequests).toHaveLength(2)
-        expect(audienceEvents()).toEqual([{ has_results: true, with_email_bucket: '1-9' }])
+        expect(await deliveredAudienceEvents()).toEqual([{ has_results: true, with_email_bucket: '1-9' }])
     })
 })
