@@ -136,6 +136,16 @@ describe('adventCalendarLogic', () => {
         expect(capture).not.toHaveBeenCalledWith('workflows advent answer picked', expect.anything())
     })
 
+    it('writes nothing back to storage when a door click adds no progress, so it cannot overwrite another tab', () => {
+        logic.actions.activateDoor('door-1')
+        const stored = logic.values.progressByUser
+
+        logic.actions.activateDoor('door-4-upper')
+        logic.actions.activateDoor('door-1')
+
+        expect(logic.values.progressByUser).toBe(stored)
+    })
+
     it.each(['[object Object]', 'undefined', '{"0190d8a2-1c4e-7b3a-9f21-5a6b7c8d9e01":{"opened":3}}'])(
         'keeps its progress when another tab stores %s',
         (newValue) => {

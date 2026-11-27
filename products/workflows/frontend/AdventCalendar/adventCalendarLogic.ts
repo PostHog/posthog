@@ -48,6 +48,16 @@ function storedProgress(value: string): Record<string, AdventProgress> | null {
     return Object.fromEntries(entries)
 }
 
+function sameAdventProgress(a: AdventProgress, b: AdventProgress): boolean {
+    const answered = Object.entries(b.answers)
+    return (
+        a.opened.length === b.opened.length &&
+        b.opened.every((day) => a.opened.includes(day)) &&
+        Object.keys(a.answers).length === answered.length &&
+        answered.every(([day, optionId]) => a.answers[Number(day)] === optionId)
+    )
+}
+
 function rewardsBehind(door: AdventDoor): AdventReward[] {
     const optionRewards = door.question?.options.map((option) => option.reward) ?? []
     return [door.reward, ...optionRewards].filter((reward): reward is AdventReward => !!reward)
@@ -174,8 +184,8 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
             {} as Record<string, AdventProgress>,
             { persist: true, storageKey: PROGRESS_STORAGE_KEY },
             {
-                syncProgress: (state, { progressByUser }) =>
-                    Object.fromEntries(
+                syncProgress: (state, { progressByUser }) => {
+                    const merged: Record<string, AdventProgress> = Object.fromEntries(
                         [...new Set([...Object.keys(state), ...Object.keys(progressByUser)])]
                             .sort()
                             .map((uuid) => [
@@ -185,7 +195,12 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
                                     progressByUser[uuid] ?? EMPTY_ADVENT_PROGRESS
                                 ),
                             ])
-                    ),
+                    )
+                    const addsNothing = Object.entries(merged).every(
+                        ([uuid, progress]) => !!state[uuid] && sameAdventProgress(state[uuid], progress)
+                    )
+                    return addsNothing ? state : merged
+                },
                 openDoor: (state, { userUuid, day, optionId }) => {
                     const progress = state[userUuid] ?? EMPTY_ADVENT_PROGRESS
                     if (progress.opened.includes(day)) {
