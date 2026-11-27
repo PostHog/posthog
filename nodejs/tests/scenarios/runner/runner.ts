@@ -38,6 +38,7 @@ import { BarResult, WriterCpu, judgeBars, stepReadingsOf } from '../judge/bars'
 import { COUNTER_READ, CounterRead, CounterReading, counterDrift, readCounters } from '../judge/drift'
 import { Convergence, InvariantResult, JournalEntry, JudgeOptions, createJudge } from '../judge/judge'
 import {
+    ActivitySample,
     DriveWindow,
     Measurement,
     Probed,
@@ -201,15 +202,26 @@ async function startProbes(
             (error: unknown) => ({ at, error: messageOf(error) })
         )
     })
+    const activity: Sampling<ActivitySample> = sampleEvery(QUEUE_PROBE_EVERY_MS, async () => {
+        const at = Date.now()
+        return probe.activity().then(
+            (backends) => ({ at, backends }),
+            (error: unknown) => ({ at, error: messageOf(error) })
+        )
+    })
     let stopping: Promise<Probed> | undefined
     return {
         commits: () => writer.taken(),
         queue: () => queue.taken(),
         stop: () =>
             (stopping ??= (async () => {
-                const [writerSamples, queueSamples] = await Promise.all([writer.stop(), queue.stop()])
+                const [writerSamples, queueSamples, activitySamples] = await Promise.all([
+                    writer.stop(),
+                    queue.stop(),
+                    activity.stop(),
+                ])
                 await writerProbe.end()
-                return { writer: writerSamples, queue: queueSamples }
+                return { writer: writerSamples, queue: queueSamples, activity: activitySamples }
             })()),
     }
 }

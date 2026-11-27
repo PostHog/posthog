@@ -935,7 +935,7 @@ export type JournalEntry = {
     - When the Judge could not read the job count at the deadline, the runner drops `no_loss` with `at_least_once` and `bounced_suppressed`, since deliveries may still have been in flight.
     - No ramp card lists it yet. A ramp judges its losses step by step, and a `no_loss` failure would replace the ramp's break reason.
 
-- **Measurements.** Each has a unit in its definition. Every measurement below but `step_claims_per_second` is better when lower; the definitions do not record that. The runner's sampler scrapes every role's `/_metrics` every 5 seconds from the drive's start to convergence, and `measure(measurements, evidence)` in `judge/measurements.ts` turns the samples and the Judge's evidence into values.
+- **Measurements.** Each has a unit in its definition. Every measurement below but the `step_` ones is better when lower; the definitions do not record that. The runner's sampler scrapes every role's `/_metrics` every 5 seconds from the drive's start to convergence, and `measure(measurements, evidence)` in `judge/measurements.ts` turns the samples and the Judge's evidence into values.
   - `role_cpu_seconds`, per role, seconds, lower is better: the sum of `process_cpu_seconds_total` increases, per process lifetime, so a killed role's restart does not reset it.
   - `role_rss_max_bytes`, per role, bytes, lower is better: the maximum of `process_resident_memory_bytes`.
   - `delivery_latency_ms`, `p50`, `p95` and `max`, milliseconds, lower is better: from the unit's offer to the edge's first 2xx record for each delivery.
@@ -954,6 +954,10 @@ export type JournalEntry = {
       - `email_bounced`: the edge records a bounce only after the SES webhook answers, so the sink can trail the counter while the read settles.
       - `email_failed` and `email_failed_sink`: the sink cannot tell a refused send that the worker retried and sent from a refused send that another invocation of the same unit sent, so it can miss a failure the counter holds. `email_failed_counted` stays.
   - `step_claims_per_second`, per queue and ramp step, jobs per second: the claim rate from `cdp_cyclotron_jobs_processed` in each step, keyed `<queue>_<scale>x`, such as `hogflow_10x`, from the samples inside the step, and incomplete when a replica has a scrape gap in it or restarts in it. Read it against the step's offered rate to see whether the workers kept up.
+  - `step_host_busy_percent`, per ramp step, percent: the run host's busy share in each step, from the `/proc/stat` samples the host ceiling also reads, keyed `<scale>x`.
+  - `step_role_cpu_cores` and `step_role_busiest_cpu_cores`, per role and ramp step, cores: the `process_cpu_seconds_total` rate in each step, summed over the role's replicas and for its busiest replica, keyed `<role>_<scale>x`, and incomplete as `step_claims_per_second` is. A busiest replica at about 1 core has no spare time on its event loop.
+  - `step_eventloop_lag_p99_ms`, per role and ramp step, milliseconds: the worst `nodejs_eventloop_lag_p99_seconds` any replica of the role served in the step, keyed `<role>_<scale>x`. A role that serves no such gauge has no key.
+  - `step_writer_backends` and `step_writer_active_waits`, per ramp step, backends: the Cyclotron database's client backends in `pg_stat_activity`, which the runner reads every 5 seconds with the queue probe, averaged over the step. The first is keyed by state, such as `active_<scale>x` or `idle_in_transaction_<scale>x`. The second counts only the active ones, keyed by what they wait on, such as `lock_<scale>x`, `io_<scale>x` or `cpu_<scale>x` when they wait on nothing. Both are incomplete when a read in the step failed. A database user that cannot see other users' backends reads them in state `unknown`.
 
 ### Cyclotron probe
 

@@ -6,10 +6,13 @@ type JobQuery = { teams: number[]; queues: Queue[] }
 
 export type QueueCounts = { due: number; running: number; oldestDueSeconds: number; inserted: number }
 
+export type WriterBackends = { state: string; wait: string; count: number }[]
+
 export interface CyclotronProbe {
     unfinishedJobs(query: JobQuery): Promise<number>
     runningJobs(query: JobQuery): Promise<number>
     counts(query: JobQuery): Promise<QueueCounts>
+    activity(): Promise<WriterBackends>
 }
 
 export function createCyclotronProbe(
@@ -52,6 +55,18 @@ export function createCyclotronProbe(
                     oldestDueSeconds: Number(oldestDueSeconds),
                     inserted: Number(inserted),
                 }
+            }, cyclotronUrl),
+        activity: () =>
+            withPostgres(async (client) => {
+                const { rows } = await client.query<{ state: string; wait: string; count: number }>(
+                    `SELECT coalesce(state, 'unknown') AS state, coalesce(lower(wait_event_type), 'cpu') AS wait,
+                            count(*)::int AS count
+                     FROM pg_stat_activity
+                     WHERE datname = current_database() AND backend_type = 'client backend' AND pid <> pg_backend_pid()
+                     GROUP BY 1, 2
+                     ORDER BY 1, 2`
+                )
+                return rows
             }, cyclotronUrl),
     }
 }

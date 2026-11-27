@@ -8,7 +8,7 @@ import type { CdpRole, Named, Step } from '../cards'
 import type { Definition } from '../cards/definitions'
 import type { ObservationName } from '../environment/failover'
 import { ReplicaOf, nameOf } from '../environment/identity'
-import type { QueueCounts } from '../probe/cyclotron-probe'
+import type { QueueCounts, WriterBackends } from '../probe/cyclotron-probe'
 import type { WriterSample } from '../probe/writer-probe'
 import type { ValveTimelineEntry } from '../valves/valves'
 import { CounterReading, counterDrift } from './drift'
@@ -22,6 +22,7 @@ export type MetricSample = {
     startedAt: number
     cpuSeconds: number
     rssBytes: number
+    eventLoopLagP99Seconds?: number
     processed: Record<string, number>
     pgClientErrors: number
     consumerLoopErrors: number
@@ -37,7 +38,9 @@ export type Sampled = { samples: MetricSample[]; missed: MissedScrape[]; host: H
 
 export type QueueSample = { at: number } & (QueueCounts | { error: string })
 
-export type Probed = { writer: WriterSample[]; queue: QueueSample[] }
+export type ActivitySample = { at: number } & ({ backends: WriterBackends } | { error: string })
+
+export type Probed = { writer: WriterSample[]; queue: QueueSample[]; activity?: ActivitySample[] }
 
 export type DriveWindow = { startedAt: number; endedAt: number; warmedAt?: number }
 
@@ -422,12 +425,12 @@ function busyShareOf(span: readonly HostSample[], before: Opened<HostSample>['be
 export const stepHostBusyShareOf = (host: readonly HostSample[], step: Phase): number | undefined =>
     busyShareOf(inside(byTime(host), step))
 
-function stepClaimRate(samples: readonly MetricSample[], queue: string, step: Phase): Measured {
-    let value = 0
+type StepRates = { rates: number[]; incomplete: boolean }
+
+function stepRatesOf(replicas: readonly MetricSample[][], read: Counter, step: Phase): StepRates {
+    const rates: number[] = []
     let incomplete = false
-    for (const ofReplica of replicasOf(samples).filter((series) =>
-        series.some(({ processed }) => queue in processed)
-    )) {
+    for (const ofReplica of replicas) {
         const window = inside(ofReplica, step)
         const span = spanOf(window)
         const edges = [step.from, ...window.map(({ at }) => at), step.to]
@@ -435,13 +438,80 @@ function stepClaimRate(samples: readonly MetricSample[], queue: string, step: Ph
             span <= 0 ||
             edges.some((at, i) => i > 0 && at - edges[i - 1] > SCRAPE_GAP_MS) ||
             window.some(({ startedAt }) => startedAt * 1000 > step.from)
-        if (span <= 0) {
-            continue
+        if (span > 0) {
+            rates.push(increaseOf(window, read, window[0].at) / seconds(span))
         }
-        value += increaseOf(window, ({ processed }) => processed[queue] ?? 0, window[0].at) / seconds(span)
     }
-    return { value, ...(incomplete ? { incomplete: true as const } : {}) }
+    return { rates, incomplete }
 }
+
+const measuredOf = (value: number, incomplete: boolean): Measured => ({
+    value,
+    ...(incomplete ? { incomplete: true as const } : {}),
+})
+
+function stepClaimRate(samples: readonly MetricSample[], queue: string, step: Phase): Measured {
+    const claiming = replicasOf(samples).filter((series) => series.some(({ processed }) => queue in processed))
+    const { rates, incomplete } = stepRatesOf(claiming, ({ processed }) => processed[queue] ?? 0, step)
+    return measuredOf(
+        rates.reduce((sum, rate) => sum + rate, 0),
+        incomplete
+    )
+}
+
+const stepCpuOf = (ofRole: readonly MetricSample[], step: Phase): StepRates =>
+    stepRatesOf(replicasOf(ofRole), ({ cpuSeconds }) => cpuSeconds, step)
+
+type ScaledPhase = { scale: number; step: Phase }
+
+const stepPhasesOf = (drive: DriveWindow, steps: readonly Step[]): ScaledPhase[] =>
+    steps.flatMap(({ scale, fromMs, toMs }) => {
+        const step = { from: drive.startedAt + fromMs, to: Math.min(drive.startedAt + toMs, drive.endedAt) }
+        return step.to <= step.from ? [] : [{ scale, step }]
+    })
+
+const perRoleStep = (
+    samples: readonly MetricSample[],
+    drive: DriveWindow,
+    steps: readonly Step[],
+    read: (ofRole: readonly MetricSample[], step: Phase) => Measured[]
+): Measured[] => {
+    const roles = [...byRole(samples)].sort(([a], [b]) => a.localeCompare(b))
+    return stepPhasesOf(drive, steps).flatMap(({ scale, step }) =>
+        roles.flatMap(([role, ofRole]) =>
+            read(ofRole, step).map((measured) => ({ key: `${role}_${scale}x`, ...measured }))
+        )
+    )
+}
+
+const meanBackendsOf = (
+    activity: readonly ActivitySample[],
+    step: Phase,
+    keyOf: (backend: WriterBackends[number]) => string | undefined
+): (Measured & { key: string })[] => {
+    const taken = inside(activity, step)
+    const read = taken.flatMap((sample) => ('backends' in sample ? [sample.backends] : []))
+    const totals = new Map<string, number>()
+    for (const backend of read.flat()) {
+        const key = keyOf(backend)
+        if (key !== undefined) {
+            totals.set(key, (totals.get(key) ?? 0) + backend.count)
+        }
+    }
+    return [...totals]
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([key, total]) => ({ key, ...measuredOf(total / read.length, read.length < taken.length) }))
+}
+
+const perWriterStep =
+    (keyOf: (backend: WriterBackends[number]) => string | undefined): MeasurementDefinition['measure'] =>
+    ({ activity = [], drive, steps }) =>
+        stepPhasesOf(drive, steps).flatMap(({ scale, step }) =>
+            meanBackendsOf(activity, step, keyOf).map(({ key, ...measured }) => ({
+                key: `${key}_${scale}x`,
+                ...measured,
+            }))
+        )
 
 export type Baseline = {
     seconds: number
@@ -571,14 +641,68 @@ export const RECOVERY_MEASUREMENTS: MeasurementDefinition[] = [
         params: z.object({}).strict(),
         unit: 'jobs/s',
         measure: ({ samples, drive, steps }) =>
-            steps.flatMap(({ scale, fromMs, toMs }) => {
-                const step = { from: drive.startedAt + fromMs, to: Math.min(drive.startedAt + toMs, drive.endedAt) }
-                return step.to <= step.from
-                    ? []
-                    : queuesOf(samples).map((queue) => ({
-                          key: `${queue}_${scale}x`,
-                          ...stepClaimRate(samples, queue, step),
-                      }))
+            stepPhasesOf(drive, steps).flatMap(({ scale, step }) =>
+                queuesOf(samples).map((queue) => ({
+                    key: `${queue}_${scale}x`,
+                    ...stepClaimRate(samples, queue, step),
+                }))
+            ),
+    },
+    {
+        name: 'step_writer_backends',
+        params: z.object({}).strict(),
+        unit: 'backends',
+        measure: perWriterStep(({ state }) => state.replace(/ /g, '_')),
+    },
+    {
+        name: 'step_writer_active_waits',
+        params: z.object({}).strict(),
+        unit: 'backends',
+        measure: perWriterStep(({ state, wait }) => (state === 'active' ? wait : undefined)),
+    },
+    {
+        name: 'step_host_busy_percent',
+        params: z.object({}).strict(),
+        unit: '%',
+        measure: ({ host, drive, steps }) =>
+            stepPhasesOf(drive, steps).flatMap(({ scale, step }) => {
+                const share = stepHostBusyShareOf(host, step)
+                return share === undefined ? [] : [{ key: `${scale}x`, value: share * 100 }]
+            }),
+    },
+    {
+        name: 'step_role_cpu_cores',
+        params: z.object({}).strict(),
+        unit: 'cores',
+        measure: ({ samples, drive, steps }) =>
+            perRoleStep(samples, drive, steps, (ofRole, step) => {
+                const { rates, incomplete } = stepCpuOf(ofRole, step)
+                return [
+                    measuredOf(
+                        rates.reduce((sum, rate) => sum + rate, 0),
+                        incomplete
+                    ),
+                ]
+            }),
+    },
+    {
+        name: 'step_role_busiest_cpu_cores',
+        params: z.object({}).strict(),
+        unit: 'cores',
+        measure: ({ samples, drive, steps }) =>
+            perRoleStep(samples, drive, steps, (ofRole, step) => {
+                const { rates, incomplete } = stepCpuOf(ofRole, step)
+                return [measuredOf(Math.max(0, ...rates), incomplete)]
+            }),
+    },
+    {
+        name: 'step_eventloop_lag_p99_ms',
+        params: z.object({}).strict(),
+        unit: 'ms',
+        measure: ({ samples, drive, steps }) =>
+            perRoleStep(samples, drive, steps, (ofRole, step) => {
+                const lags = inside(ofRole, step).flatMap(({ eventLoopLagP99Seconds }) => eventLoopLagP99Seconds ?? [])
+                return lags.length === 0 ? [] : [{ value: Math.max(...lags) * 1000 }]
             }),
     },
     {
@@ -659,6 +783,7 @@ export function sampleOf({ role, replica }: Target, at: number, text: string): M
     const startedAt = gauge(text, 'process_start_time_seconds')
     const cpuSeconds = gauge(text, 'process_cpu_seconds_total')
     const rssBytes = gauge(text, 'process_resident_memory_bytes')
+    const eventLoopLagP99Seconds = gauge(text, 'nodejs_eventloop_lag_p99_seconds')
     return startedAt === undefined || cpuSeconds === undefined || rssBytes === undefined
         ? undefined
         : {
@@ -668,6 +793,7 @@ export function sampleOf({ role, replica }: Target, at: number, text: string): M
               startedAt,
               cpuSeconds,
               rssBytes,
+              ...(eventLoopLagP99Seconds !== undefined && { eventLoopLagP99Seconds }),
               processed: processedOf(text),
               pgClientErrors: totalOf(text, 'cdp_cyclotron_v2_pg_client_errors_total'),
               consumerLoopErrors: totalOf(text, 'cdp_cyclotron_v2_consumer_loop_errors_total'),
