@@ -23,6 +23,7 @@ describe('provider edge SES feedback', () => {
     let received: Received[]
     let answer: number
     let holding: boolean
+    let cutsBody: boolean
     let releases: (() => void)[]
     let edge: ProviderEdge
     const signer = new EmailTrackingCodeSigner(TRACKING_KEYS, 'https://track.example.com')
@@ -32,6 +33,7 @@ describe('provider edge SES feedback', () => {
         received = []
         answer = 200
         holding = false
+        cutsBody = false
         releases = []
         receiver = http.createServer((req, res) => {
             let body = ''
@@ -39,6 +41,11 @@ describe('provider edge SES feedback', () => {
             req.on('end', () => {
                 const reply = (): void => {
                     received.push({ contentType: req.headers['content-type'], body })
+                    if (cutsBody) {
+                        res.writeHead(answer, { 'content-type': 'application/json', 'content-length': '64' })
+                        res.write('{', () => res.destroy())
+                        return
+                    }
                     res.writeHead(answer, { 'content-type': 'application/json' }).end('{}')
                 }
                 if (holding) {
@@ -417,8 +424,12 @@ describe('provider edge SES feedback', () => {
         ).toEqual([])
     })
 
-    it('records each notification with its event type and the answer it got', async () => {
-        answer = 503
+    it.each<[string, number, boolean]>([
+        ['an answer the webhook sent whole', 503, false],
+        ['the status of an answer whose body the webhook cut off', 429, true],
+    ])('records each notification with its event type and %s', async (_story, status, cut) => {
+        answer = status
+        cutsBody = cut
         await control('PUT', '/_feedback', { delivery: 1 })
 
         await sendTracked()
@@ -433,7 +444,7 @@ describe('provider edge SES feedback', () => {
             }))
         ).toEqual([
             {
-                status: 503,
+                status,
                 fault: undefined,
                 unitId: 'run-1-1',
                 eventType: 'Delivery',

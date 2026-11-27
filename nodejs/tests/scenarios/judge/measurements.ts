@@ -253,6 +253,10 @@ export const sesFeedbackPosts: MeasurementDefinition = {
         }
         const byStep = feedbackPostsByStep(evidence)
         const nonePosted = byStep.every(([, posts]) => posts.length === 0)
+        const noneUnmeasured =
+            evidence.feedbackInFlight === undefined
+                ? 'no SES feedback post went out in this run'
+                : 'every SES feedback post was still in flight at the final read'
         return byStep.flatMap(([{ scale }, posts]) =>
             [
                 { key: `posted_${scale}x`, value: posts.length },
@@ -266,9 +270,7 @@ export const sesFeedbackPosts: MeasurementDefinition = {
                 },
             ].map(({ key, value }) => ({
                 key,
-                ...(nonePosted
-                    ? { value: null, censored: true as const, unmeasured: 'no SES feedback post went out in this run' }
-                    : { value }),
+                ...(nonePosted ? { value: null, censored: true as const, unmeasured: noneUnmeasured } : { value }),
                 ...feedbackCompleteness(evidence),
             }))
         )

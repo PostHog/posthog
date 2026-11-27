@@ -197,10 +197,14 @@ export async function postFeedback(
             },
             body: JSON.stringify(envelope),
         })
-        const body = await response.text()
-        return response.status >= 200 && response.status < 300
-            ? { status: response.status }
-            : { status: response.status, error: body }
+        const answered = response.status >= 200 && response.status < 300
+        const body = await response.text().catch((error: unknown) => {
+            if (answered) {
+                throw error
+            }
+            return `the body could not be read: ${String(error)}`
+        })
+        return answered ? { status: response.status } : { status: response.status, error: body }
     } catch (error) {
         return { status: 0, error: String(error) }
     }
