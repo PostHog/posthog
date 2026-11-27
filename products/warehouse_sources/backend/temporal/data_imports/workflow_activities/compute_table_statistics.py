@@ -619,6 +619,7 @@ def compute_table_statistics_sync(team_id: int, schema_id: uuid.UUID) -> dict[st
         and stored_version == delta_version
         and timezone.now() - latest < MAX_RECOMPUTE_INTERVAL
     ):
+        WarehouseColumnStatistics.objects.for_team(team_id).filter(table_id=table.id).update(checked_at=timezone.now())
         emit_completed("skipped", reason="version_unchanged", delta_version=delta_version)
         return {"status": "skipped", "reason": "version_unchanged"}
 
@@ -830,6 +831,7 @@ def _upsert_statistics(
     how many folds happen in between.
     """
     null_fraction = (stat.null_count / row_count) if (stat.null_count is not None and row_count > 0) else None
+    now = timezone.now()
     defaults: dict[str, Any] = {
         "team": team,
         "column_type": stat.column_type,
@@ -839,12 +841,13 @@ def _upsert_statistics(
         "min_value": stat.min_value,
         "max_value": stat.max_value,
         "has_min_max": stat.has_min_max,
-        "computed_at": timezone.now(),
+        "computed_at": now,
+        "checked_at": now,
         "computed_for_delta_version": delta_version,
         "stats_basis": "delta_log" if basis == "full" else "incremental",
     }
     if basis == "full":
-        defaults["full_scan_at"] = timezone.now()
+        defaults["full_scan_at"] = now
     WarehouseColumnStatistics.objects.for_team(team.id).update_or_create(
         table=table,
         column_name=NamingConvention.normalize_identifier(column_name, max_length=COLUMN_NAME_DB_MAX_LENGTH),

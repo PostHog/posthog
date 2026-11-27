@@ -11776,10 +11776,10 @@ Diffed against: <https://api.planningcenteronline.com/people/v2/documentation>
 - [x] `People lookups (GET /people/v2/marital_statuses; GET /people/v2/membership_types; GET /people/v2/inactive_reasons; GET /people/v2/name_prefixes; GET /people/v2/school_options; GET /people/v2/note_categories; GET /people/v2/list_categories)` — resolve the status, membership, school and category IDs carried on the people and notes we sync (high)
 - [x] `Workflow steps and cards (GET /people/v2/workflows/{workflow_id}/steps; GET /people/v2/people/{person_id}/workflow_cards)` — we sync workflows but not their steps or the cards that move people through them, so follow-up pipelines cannot be analyzed (high)
 - [x] `Service plan items (GET /services/v2/service_types/{service_type_id}/plans/{plan_id}/items)` — the order of service for each plan: songs, headings, media and lengths; fan-out per plan (high)
-- [ ] `Volunteer schedules (GET /services/v2/people/{person_id}/schedules)` — who was scheduled to serve, in which team and position, and their response status (high)
-- [ ] `Donation designations and refunds (GET /giving/v2/donations/{donation_id}/designations; GET /giving/v2/donations/{donation_id}/refund)` — split of each donation across funds and refund records; we sync donations and funds but not the link between them; fan-out per donation (medium)
-- [ ] `Publishing episodes, series, channels and speakers (GET /publishing/v2/episodes; GET /publishing/v2/series; GET /publishing/v2/channels; GET /publishing/v2/speakers)` — the Publishing app is missing: sermon and media episodes with their series and speakers (medium)
-- [ ] `Form submissions and fields (GET /people/v2/forms/{form_id}/form_submissions; GET /people/v2/forms/{form_id}/fields)` — we sync forms but not what people submitted; fan-out per form (medium)
+- [x] `Volunteer schedules (GET /services/v2/people/{person_id}/schedules)` — who was scheduled to serve, in which team and position, and their response status (high)
+- [x] `Donation designations and refunds (GET /giving/v2/donations/{donation_id}/designations; GET /giving/v2/donations/{donation_id}/refund)` — split of each donation across funds and refund records; we sync donations and funds but not the link between them; fan-out per donation (medium)
+- [x] `Publishing episodes, series, channels and speakers (GET /publishing/v2/episodes; GET /publishing/v2/series; GET /publishing/v2/channels; GET /publishing/v2/speakers)` — the Publishing app is missing: sermon and media episodes with their series and speakers (medium)
+- [x] `Form submissions and fields (GET /people/v2/forms/{form_id}/form_submissions; GET /people/v2/forms/{form_id}/fields)` — we sync forms but not what people submitted; fan-out per form (medium)
 - [ ] `Check-in attendance types and labels (GET /check-ins/v2/events/{event_id}/attendance_types; GET /check-ins/v2/labels)` — lookups for how attendance is counted per event; attendance types fan out per event (low)
 - [ ] `Song arrangements and team positions (GET /services/v2/songs/{song_id}/arrangements; GET /services/v2/service_types/{service_type_id}/team_positions)` — song arrangement details and the position lookup for scheduled volunteers (low)
 
@@ -14619,13 +14619,13 @@ Diffed against: <https://developers.taboola.com/backstage-api/reference/campaign
 - [x] `GET /users/current/allowed-accounts` — Lookup table of accounts and their IDs - resolves the account_id every other table is scoped by, and enumerates what can be synced (high). Added as `allowed_accounts` (full refresh).
 - [x] `GET /{account_id}/advertisers` — Lookup table resolving the advertiser IDs carried on synced campaigns (high). Added as `advertisers` (full refresh; empty for non-network accounts, which get a 404).
 - [x] `GET /{account_id}/reports/campaign-summary/dimensions/country_breakdown` — Geo performance breakdown, one of the most commonly wanted report cuts (high). Added as `campaign_summary_by_country` (trailing 30-day snapshot, full refresh).
-- [ ] `GET /{account_id}/reports/campaign-summary/dimensions/item_breakdown` — Per-creative spend and conversion metrics, joining directly to the already-synced campaign_items (high)
+- ~~`GET /{account_id}/reports/campaign-summary/dimensions/item_breakdown` — Per-creative spend and conversion metrics, joining directly to the already-synced campaign_items (high)~~ — skipped: `item_breakdown` is not a Campaign Summary dimension (see the Dimensions Cheat Sheet); per-item performance comes from `top-campaign-content/dimensions/item_breakdown`, which is already synced as `top_campaign_content`
 - [ ] `GET /{account_id}/reports/campaign-summary/dimensions/platform_breakdown` — Desktop/mobile/tablet split, needed for device-level bid analysis (medium)
-- [ ] `GET /{account_id}/reports/campaign-summary/dimensions/region_breakdown and /dma_breakdown` — Sub-national geo dimensions for US and regional targeting analysis (medium)
+- [x] `GET /{account_id}/reports/campaign-summary/dimensions/region_breakdown and /dma_breakdown` — Sub-national geo dimensions for US and regional targeting analysis (medium). Added as `campaign_summary_by_region` and `campaign_summary_by_dma` (trailing 30-day snapshots, full refresh).
 - [ ] `GET /{account_id}/campaigns/{campaign_id}/items/{item_id}/children/` — Child creative variants under a parent item - spend is reported at this grain for motion and multi-variant ads (medium)
-- [ ] `GET /{account_id}/campaigns/{campaign_id}/targeting/audience_segments, /contextual_segments, /my_audiences, /postal_code` — Targeting configuration per campaign, required to explain why performance differs between campaigns (medium)
+- [x] `GET /{account_id}/campaigns/{campaign_id}/targeting/audience_segments, /contextual_segments, /my_audiences, /postal_code` — Targeting configuration per campaign, required to explain why performance differs between campaigns (medium). Added as `campaign_audience_segment_targeting`, `campaign_contextual_targeting`, `campaign_my_audience_targeting` and `campaign_postal_code_targeting` (fan-out over `campaigns`, one row per INCLUDE/EXCLUDE restriction, full refresh).
 - [ ] `GET /{account_id}/dictionary/audience_segments/{country} and /dictionary/contextual_segments/` — Lookup tables resolving the segment IDs used in campaign targeting (medium)
-- [ ] `GET /{account_id}/my_audiences and /{account_id}/combined_audiences/` — First-party and combined audience definitions with size, referenced by targeting rows (medium)
+- [x] `GET /{account_id}/my_audiences and /{account_id}/combined_audiences/` — First-party and combined audience definitions with size, referenced by targeting rows (medium). Added as `my_audiences` and `combined_audiences` (full refresh).
 - [ ] `GET /resources/campaigns_properties/category, /operating_systems, /platforms, /resources/countries, /resources/languages` — Static lookup tables decoding the enum codes stored on campaigns and campaign_items (low)
 
 Note: Full Backstage API path list extracted from the ReadMe reference page HTML (developers.taboola.com serves an SPA, so sitemap.xml 404s and sitemap-0.xml returns HTML). The connector pins a single dimension per report: sources/taboola/settings.py uses /reports/campaign-summary/dimensions/campaign_day_breakdown and /reports/top-campaign-content/dimensions/item_breakdown. The other campaign-summary dimensions documented on that page (site_breakdown, country_breakdown, region_breakdown, dma_breakdown, platform_breakdown, user_segment_breakdown, item_breakdown) are the same report re-cut and are unreachable today.
@@ -15161,14 +15161,14 @@ Note: Docs are a JS-rendered ReadMe site with no downloadable OAS, so the endpoi
 
 ## TrafficStars — gaps
 
-Today (3): `campaign_statistics_daily`, `campaigns`, `creatives`
+Today (9): `campaign_statistics_daily`, `campaigns`, `countries`, `country_statistics_daily`, `creative_statistics_daily`, `creatives`, `device_statistics_daily`, `os_statistics_daily`, `spot_statistics_daily`
 
 Diffed against: <https://docs.trafficstars.com/_reports.md>
 
-- [ ] `Advertiser custom report by group type (GET /v1.1/advertiser/custom/report/by-{group_type})` — Spend and results split by country, creative, spot, device, os, hour or subid, the breakdowns the daily campaign table lacks (high)
-- [ ] `Advertiser stats by section (GET /v1/stats/advertiser/{section})` — Older advertiser statistics by section, a second cut of campaign performance (low)
-- [ ] `Countries (GET /v1.1/countries)` — Code to name lookup for country values on the breakdown reports and campaign targeting (medium)
-- [ ] `Spots (GET /v1.1/spots)` — Ad placements with type and status, resolves spot ids in spot breakdown reports (medium)
+- [x] `Advertiser custom report by group type (GET /v1.1/advertiser/custom/report/by-{group_type})` — Spend and results split by country, creative, spot, device, os, hour or subid, the breakdowns the daily campaign table lacks (high)
+- [ ] `Advertiser stats by section (GET /v1/stats/advertiser/{section})` — Older advertiser statistics by section, a second cut of campaign performance (low) Skipped: the vendor marks this route deprecated in favor of the custom reports.
+- [x] `Countries (GET /v1.1/countries)` — Code to name lookup for country values on the breakdown reports and campaign targeting (medium)
+- [ ] `Spots (GET /v1.1/spots)` — Ad placements with type and status, resolves spot ids in spot breakdown reports (medium) Skipped: publisher spot management API, and spot_statistics_daily already carries the spot id and name.
 - [ ] `Retargeting lists (GET /v1/retargeting/list/{id})` — Retargeting audiences with their fields for an advertiser user id (low)
 - [ ] `User balance (GET /v2/userinfo/balance)` — Current account balance and credit, one row per snapshot, for spend monitoring (low)
 
