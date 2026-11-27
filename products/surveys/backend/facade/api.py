@@ -6,6 +6,7 @@ from uuid import UUID
 from django.db.models import QuerySet
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.surveys.backend.access import visible_surveys
 from products.surveys.backend.desktop_feedback import (
     DesktopFeedbackUnavailable,
     read_desktop_feedback_media,
@@ -77,5 +78,5 @@ def _linkable_surveys(
 ) -> QuerySet[Survey]:
     queryset = Survey.objects.filter(team_id=team_id, id__in=list(survey_ids)).exclude(product_tour__isnull=False)
     if access_control is not None:
-        queryset = access_control.filter_queryset_by_access_level(queryset, include_all_if_admin=True)
+        queryset = visible_surveys(access_control, queryset, include_all_if_admin=True)
     return queryset

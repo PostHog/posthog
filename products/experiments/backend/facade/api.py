@@ -28,8 +28,10 @@ from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import DEPRECATED_ATTRS
 from posthog.models.user import User
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.actions.backend.facade.api import get_actions
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import CheckRequest, Resource, Subject
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.flag_enrollment import enrolled_people_by_flag
 from products.experiments.backend.health.loader import evaluate_experiment_health
@@ -386,14 +388,19 @@ def viewable_experiment_names(*, team: Team, user: User, experiment_ids: Collect
         .exclude(deleted=True)
         .values_list("id", "name", "team_id", "created_by_id")
     )
-    denied = set(
-        UserAccessControl(user=user, team=team, organization_id=str(team.organization_id)).denied_object_ids(
-            "experiment",
-            ((str(id), team_id, created_by_id) for id, _name, team_id, created_by_id in rows),
-            "viewer",
-        )
+    viewable = authorization.check(
+        [
+            CheckRequest(
+                resource=Resource(
+                    type=ResourceType.EXPERIMENT, id=str(id), project_id=team_id, created_by_id=created_by_id
+                ),
+                action=Action.VIEW,
+                subject=Subject(user_id=user.pk),
+            )
+            for id, _name, team_id, created_by_id in rows
+        ]
     )
-    return {id: name for id, name, _team_id, _created_by_id in rows if str(id) not in denied}
+    return {id: name for (id, name, _team_id, _created_by_id), allowed in zip(rows, viewable, strict=True) if allowed}
 
 
 def count_enrolled_people(*, team: Team, user: User, flag_keys: list[str]) -> dict[str, int]:

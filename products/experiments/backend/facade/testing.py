@@ -23,9 +23,9 @@ from django.db.models import QuerySet
 
 from asgiref.sync import sync_to_async
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.experiments.backend import replay_linkage
 from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import ExposureQueryBuilder
+from products.experiments.backend.logic import access as experiment_access
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentHoldout,
@@ -113,13 +113,13 @@ def delete_experiment(*, team_id: int, experiment_id: int) -> None:
 
 @contextmanager
 def hide_experiment_from_access_filter(experiment_id: int) -> Iterator[None]:
-    """Patch `UserAccessControl.filter_queryset_by_access_level` so that it drops this experiment from
-    experiment querysets, as for a viewer without access to it, and passes every other queryset through."""
+    """Patch the experiment access filter so that it drops this experiment, as for a viewer without access to it,
+    and keeps every other experiment."""
 
-    def filter_queryset(queryset: QuerySet[Any], **_: Any) -> QuerySet[Any]:
-        return queryset.exclude(pk=experiment_id) if queryset.model is Experiment else queryset
+    def filter_queryset(queryset: QuerySet[Experiment], **_: Any) -> QuerySet[Experiment]:
+        return queryset.exclude(pk=experiment_id)
 
-    with patch.object(UserAccessControl, "filter_queryset_by_access_level", side_effect=filter_queryset):
+    with patch.object(experiment_access, "filter_queryset", side_effect=filter_queryset):
         yield
 
 

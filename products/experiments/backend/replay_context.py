@@ -26,6 +26,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentVariantPromptContext,
     SessionAttribution,
 )
+from products.experiments.backend.logic.access import visible_experiments
 from products.experiments.backend.metric_utils import get_default_metric_title
 from products.experiments.backend.models.experiment import Experiment, experiment_variants
 from products.experiments.backend.replay_linkage import (
@@ -52,7 +53,7 @@ def accessible_experiment_ids(
             return set()
         queryset = queryset.filter(id__in=experiment_ids)
     if access is not None:
-        queryset = access.filter_queryset_by_access_level(queryset)
+        queryset = visible_experiments(access, queryset)
     return set(queryset.values_list("id", flat=True))
 
 

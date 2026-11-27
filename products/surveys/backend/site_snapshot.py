@@ -23,7 +23,10 @@ from products.access_control.backend.facade.api import (
     get_restricted_properties_with_group_type_index_for_team,
     split_restricted_property_names,
 )
-from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import Action, ResourceType
+from products.authorization.backend.presentation.resources import resource_for_object
 from products.exports.backend.facade.api import (
     EXPORT_WORKFLOW_TIMEOUT,
     ExportedAsset,
@@ -290,11 +293,14 @@ def _snapshot_key(team: Team, target: UrlTarget, device: SnapshotDevice) -> str:
     return hashlib.sha256(json.dumps(targeting, sort_keys=True).encode()).hexdigest()
 
 
-def _may_view_recording(user_access_control: UserAccessControl, team: Team, session_id: str) -> bool:
+def _may_view_recording(user: User, team: Team, session_id: str) -> bool:
     recording = SessionRecording.objects.filter(team_id=team.id, session_id=session_id).first()
-    if recording is not None:
-        return user_access_control.check_access_level_for_object(recording, required_level="viewer")
-    return user_access_control.check_access_level_for_resource("session_recording", required_level="viewer")
+    resource = (
+        resource_for_object(recording)
+        if recording is not None
+        else Resource(type=ResourceType.SESSION_RECORDING, project_id=team.pk)
+    )
+    return authorization.check(resource=resource, action=Action.VIEW, subject=Subject(user_id=user.pk))
 
 
 def _cache() -> BaseCache:
@@ -380,7 +386,6 @@ def get_site_snapshot(
     team: Team, survey: Survey, device: SnapshotDevice, user: User, target: UrlTarget | None = None
 ) -> SiteSnapshot:
     """`target` overrides the survey's saved URL targeting, for an editor with unsaved changes."""
-    user_access_control = UserAccessControl(user, team)
     if not team.session_recording_opt_in or not _may_see_page_urls(user, team):
         return UNAVAILABLE
 
@@ -397,7 +402,7 @@ def get_site_snapshot(
     if cached is not None:
         session_id = (cached.export_context or {})["session_recording_id"]
         if (
-            _may_view_recording(user_access_control, team, session_id)
+            _may_view_recording(user, team, session_id)
             and not _may_render_again(cached)
             and not _recording_was_deleted(team, session_id)
         ):
@@ -410,7 +415,7 @@ def get_site_snapshot(
     if not _cache().add(render_claim_key, True, timeout=RENDER_CLAIM_TTL.total_seconds()):
         return SiteSnapshot(status=SnapshotStatus.RENDERING)
     try:
-        return _start_snapshot(team, target, device, user, user_access_control, key, no_snapshot_key)
+        return _start_snapshot(team, target, device, user, key, no_snapshot_key)
     finally:
         _cache().delete(render_claim_key)
 
@@ -426,7 +431,6 @@ def _start_snapshot(
     target: UrlTarget,
     device: SnapshotDevice,
     user: User,
-    user_access_control: UserAccessControl,
     key: str,
     no_snapshot_key: str,
 ) -> SiteSnapshot:
@@ -436,7 +440,7 @@ def _start_snapshot(
     if moment is None:
         _cache().set(no_snapshot_key, True, timeout=NO_SNAPSHOT_TTL.total_seconds())
         return UNAVAILABLE
-    if not _may_view_recording(user_access_control, team, moment.session_id):
+    if not _may_view_recording(user, team, moment.session_id):
         _cache().set(_denied_cache_key(team, user, key), True, timeout=NO_SNAPSHOT_TTL.total_seconds())
         return UNAVAILABLE
     asset = create_export_asset_async(

@@ -11,14 +11,16 @@ from posthog.api.routing import PathParameter, TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models import User
 from posthog.paging import Page, PageRequest
-from posthog.permissions import is_service_auth
+from posthog.permissions import is_service_auth, request_subject
 
 from products.access_control.backend.facade.contracts import ObjectAccessRef
-from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.experiments.backend.facade import saved_metrics as saved_metrics_facade
 from products.experiments.backend.facade.contracts import (
     ListAccess,
@@ -43,21 +45,37 @@ def _saved_metric_access_ref(saved_metric: SavedMetric, team_id: int) -> ObjectA
 
 
 def list_access(
-    user_access_control: UserAccessControl,
     resource: Literal["experiment", "experiment_saved_metric"],
     *,
-    viewer_id: int,
+    team_id: int,
+    subject: Subject | None,
     include_all_if_admin: bool = False,
 ) -> ListAccess | None:
-    access = user_access_control.list_access_filter(resource, include_all_if_admin=include_all_if_admin)
-    if access is None:
-        return None
-    return ListAccess(
-        viewer_id=viewer_id,
-        only_allowed=access.only_allowed,
-        allowed_ids=access.allowed_ids,
-        blocked_ids=access.blocked_ids,
+    """The narrowing that the SDK's QuerySet filter applies to a list of `resource`, for a facade that pages the list.
+
+    `team_id` is the team whose rules apply. None means no narrowing.
+    """
+    result = authorization.list_objects(
+        resource=Resource(type=ResourceType(resource), project_id=team_id),
+        action=Action.QUERY if include_all_if_admin else Action.VIEW,
+        subject=subject,
+        creator_exempt=True,
     )
+    if not result.complete:
+        # The SDK caps a list only when the caller passes a limit. The current rules never cap one and always keep
+        # the creator's records, so a capped answer keeps only the viewer's own records.
+        return ListAccess(
+            viewer_id=authorization.principal_user_id(subject=subject),
+            only_allowed=True,
+            allowed_ids=frozenset(),
+            blocked_ids=frozenset(),
+        )
+    if result.excluded and not result.ids:
+        return None
+    viewer_id = result.creator_user_id if result.creator_exempt else None
+    if result.excluded:
+        return ListAccess(viewer_id=viewer_id, only_allowed=False, allowed_ids=frozenset(), blocked_ids=result.ids)
+    return ListAccess(viewer_id=viewer_id, only_allowed=True, allowed_ids=result.ids, blocked_ids=frozenset())
 
 
 class ExperimentSavedMetricLinkedExperimentSerializer(serializers.Serializer):
@@ -140,10 +158,13 @@ class ExperimentSavedMetricSerializer(UserAccessControlSerializerMixin, serializ
         if view is None or getattr(view, "action", None) != "retrieve":
             return []
         # Experiments carry object-level access controls; drop the ones this user cannot view
-        user_access_control = self.user_access_control
         access = (
-            list_access(user_access_control, "experiment", viewer_id=self.context["request"].user.id)
-            if user_access_control
+            list_access(
+                "experiment",
+                team_id=self.context["get_team"]().id,
+                subject=request_subject(self.context["request"]),
+            )
+            if self.user_access_control
             else None
         )
         experiments = saved_metrics_facade.list_linked_experiments(
@@ -201,9 +222,9 @@ class ExperimentSavedMetricViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetM
         if is_service_auth(self.request):
             return None
         return list_access(
-            self.user_access_control,
             "experiment_saved_metric",
-            viewer_id=cast(User, self.request.user).id,
+            team_id=self.team.pk,
+            subject=request_subject(self.request),
             include_all_if_admin=self.request.GET.get("admin_include_all") == "true",
         )
 

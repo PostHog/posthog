@@ -5,6 +5,7 @@ from django.db.models import F
 from posthog.helpers.full_text_search import build_rank
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.experiments.backend.logic.access import visible_experiments
 from products.experiments.backend.models.experiment import Experiment
 
 # The weights and threshold core search applies to every entity it unions, so experiments rank the
@@ -27,7 +28,7 @@ def search(
 
     Without a query the rows come in name order.
     """
-    queryset = access_control.filter_queryset_by_access_level(Experiment.objects.filter(team__project_id=project_id))
+    queryset = visible_experiments(access_control, Experiment.objects.filter(team__project_id=project_id))
     if not include_deleted:
         queryset = queryset.filter(deleted=False)
     fields = ["id", "name", "description", "created_by_id"]
