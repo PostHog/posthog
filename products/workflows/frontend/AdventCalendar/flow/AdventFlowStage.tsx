@@ -34,6 +34,7 @@ import {
     AdventFlowNode,
 } from './adventFlowLayout'
 import { AdventFlowStep, AdventFlowStepProps } from './AdventFlowStep'
+import { useAdventCardFocus } from './useAdventCardFocus'
 
 const FACE_DOOR_SIZE = 56
 const DOT_GAP = 36
@@ -112,6 +113,7 @@ export function AdventFlowStage({ renderLastDoor, isEdgeEmphasized = noEmphasis 
         clearHover()
     }, [clearSelection, clearHover])
     useAdventEscape(!!revealingDoor, finishReveal, dismiss)
+    useAdventCardFocus(ref, card.isPinned ? (cardNode?.id ?? null) : null)
 
     const onTrackClick = (event: MouseEvent): void => {
         if (!(event.target as Element).closest('button')) {

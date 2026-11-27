@@ -1,0 +1,27 @@
+import { RefObject, useEffect, useRef } from 'react'
+
+// The card renders after the track, so without this a keyboard user tabs through every later door
+// before reaching the answers, and on the phone the first offscreen door scrolls the card away.
+export function useAdventCardFocus(stage: RefObject<HTMLElement>, pinnedNodeId: string | null): void {
+    const lastPinned = useRef<string | null>(null)
+
+    useEffect(() => {
+        const root = stage.current
+        if (!root) {
+            return
+        }
+        if (pinnedNodeId) {
+            lastPinned.current = pinnedNodeId
+            root.querySelector<HTMLElement>('[data-attr="advent-door-card-close"]')?.focus({ preventScroll: true })
+            return
+        }
+        const nodeId = lastPinned.current
+        lastPinned.current = null
+        const focusLeftTheStage = !document.activeElement || document.activeElement === document.body
+        if (nodeId && focusLeftTheStage) {
+            root.querySelector<HTMLElement>(`button[aria-describedby="advent-flow-caption-${nodeId}"]`)?.focus({
+                preventScroll: true,
+            })
+        }
+    }, [stage, pinnedNodeId])
+}

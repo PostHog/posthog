@@ -2,12 +2,12 @@ import './AdventFlowStage.scss'
 
 import { CSSProperties } from 'react'
 
-import { IconCalendar, IconLeave, IconLock } from '@posthog/icons'
+import { IconCalendar, IconLeave } from '@posthog/icons'
 
 import { cn } from 'lib/utils/css-classes'
 
 import { TileBadge } from '../../Workflows/hogflows/editor/tile-canvas/TileBadge'
-import { AdventDoor, adventDoorColor, adventWeekday } from '../adventGraph'
+import { AdventDoor, adventDayColor, adventWeekday } from '../adventGraph'
 import { AdventFlowNode, AdventFlowOrientation, AdventFlowRect } from './adventFlowLayout'
 
 export interface AdventFlowStepProps {
@@ -84,19 +84,14 @@ function doorTileClass(door: AdventDoor, today: number, isSelected: boolean): st
     return cn(
         'AdventFlowStep__tile absolute flex items-center justify-center rounded-xl border-2 p-0 text-2xl font-bold',
         door.status === 'open' && 'AdventFlowStep__tile--open',
-        door.lockReason === 'date' && 'AdventFlowStep__tile--faded',
-        door.status === 'ready' && door.day === today && 'AdventDoor--ready',
+        door.status === 'ready' && door.day === today && 'AdventFlowStep__tile--today',
         isSelected && 'outline outline-2 outline-offset-4 outline-accent'
     )
 }
 
 function doorTileStyle(node: AdventFlowNode, door: AdventDoor): CSSProperties {
-    const color = adventDoorColor(door)
-    return {
-        ...at(node.tile),
-        borderColor: color,
-        color: door.lockReason === 'date' ? 'var(--color-text-tertiary)' : color,
-    }
+    const color = adventDayColor(door.day)
+    return { ...at(node.tile), borderColor: color, color }
 }
 
 const doorBadge = (door: AdventDoor): string => (door.question ? '2 paths' : adventWeekday(door.day).slice(0, 3))
@@ -117,7 +112,6 @@ function DoorTile({ node, today, isSelected, onActivate, onEnter, onLeave }: Adv
             {...hover}
         >
             {door.day}
-            {door.status === 'locked' && <IconLock className="absolute right-1 top-1 text-xs" />}
             {door.status !== 'open' && (
                 <TileBadge placement="setting" color={style.color}>
                     {doorBadge(door)}
@@ -137,8 +131,7 @@ export function AdventFlowStep(props: AdventFlowStepProps): JSX.Element {
                 id={captionId(node)}
                 className={cn(
                     'AdventFlowStep__caption pointer-events-none absolute flex flex-col justify-center leading-tight',
-                    orientation === 'rows' ? 'items-center text-center' : 'items-start text-left',
-                    node.door?.lockReason === 'date' && 'opacity-60'
+                    orientation === 'rows' ? 'items-center text-center' : 'items-start text-left'
                 )}
                 style={at(node.caption)}
             >

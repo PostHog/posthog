@@ -57,7 +57,12 @@
 }
 
 .AdventFlowEdges__pill {
+    width: max-content;
+    padding-block: 2px;
+    font-size: 11px;
+    line-height: 1.25;
     color: var(--color-text-primary);
+    border-radius: 11px;
     transform: translate(-50%, -50%);
 }
 
@@ -69,9 +74,36 @@
     background: var(--color-bg-surface-primary);
 }
 
-.AdventFlowStep__tile--faded {
-    border-color: var(--advent-flow-edge) !important;
-    opacity: 0.55;
+// The glow is painted once on a layer of its own, and only its opacity and scale move, so the pulse runs on
+// the compositor and repaints nothing while the stage sits idle.
+.AdventFlowStep__tile--today::after {
+    position: absolute;
+    inset: -2px;
+    pointer-events: none;
+    content: '';
+    border-radius: inherit;
+    box-shadow: 0 0 0 5px color-mix(in oklab, var(--advent-gold) 45%, transparent);
+    opacity: 0;
+    animation: AdventFlowStep__today 1800ms ease-in-out infinite;
+}
+
+@keyframes AdventFlowStep__today {
+    0%,
+    100% {
+        opacity: 0;
+        transform: scale(0.97);
+    }
+
+    50% {
+        opacity: 1;
+        transform: scale(1.02);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .AdventFlowStep__tile--today::after {
+        animation: none;
+    }
 }
 
 .AdventFlowStep__tile:focus-visible {
