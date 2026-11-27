@@ -8,6 +8,7 @@ from products.workflows.backend.facade.contracts import FlowUtmUpdate, TeamUtmDe
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
+from products.workflows.backend.services.batch_jobs import broadcast_is_locked
 
 UTM_KEYS = ("utm_source", "utm_medium", "utm_campaign", "utm_content")
 # Lists the utm_params keys that follow the team default. Bulk updates rewrite only these keys, so a
@@ -43,12 +44,12 @@ def flow_has_active_schedule(team_id: int, hog_flow_id: UUID) -> bool:
 def is_apply_eligible(flow: HogFlow, has_active_schedule: bool) -> bool:
     if flow.status == HogFlow.State.ARCHIVED:
         return False
-    # A broadcast that already went out keeps the links it was sent with.
-    return not (
-        flow.origin_product == HogFlow.OriginProduct.BROADCASTS
-        and flow.status != HogFlow.State.DRAFT
-        and not has_active_schedule
-    )
+    if flow.origin_product != HogFlow.OriginProduct.BROADCASTS:
+        return True
+    # A broadcast that already went out keeps the links it was sent with, also once it is moved back to draft.
+    if flow.status != HogFlow.State.DRAFT:
+        return has_active_schedule
+    return not broadcast_is_locked(flow)
 
 
 def clean_utm_params(params: Any) -> dict[str, str]:

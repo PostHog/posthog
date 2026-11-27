@@ -16,6 +16,7 @@ from products.cdp.backend.templates.hog_function_template import sync_template_t
 from products.workflows.backend.facade.contracts import TeamUtmDefaults
 from products.workflows.backend.facade.writes import apply_email_utm_defaults
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
+from products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 from products.workflows.backend.models.workflow_proposal import WorkflowProposal
@@ -411,15 +412,20 @@ class TestHogFlowUtmDefaults(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("archived", HogFlow.State.ARCHIVED, None),
-            ("sent broadcast", HogFlow.State.ACTIVE, HogFlow.OriginProduct.BROADCASTS),
-            ("deleted", None, None),
+            ("archived", HogFlow.State.ARCHIVED, None, False),
+            ("sent broadcast", HogFlow.State.ACTIVE, HogFlow.OriginProduct.BROADCASTS, False),
+            ("sent broadcast back in draft", HogFlow.State.DRAFT, HogFlow.OriginProduct.BROADCASTS, True),
+            ("deleted", None, None, False),
         ]
     )
     def test_apply_skips_a_workflow_that_left_scope_after_the_scan(
-        self, _name: str, status: str | None, origin_product: str | None
+        self, _name: str, status: str | None, origin_product: str | None, ran: bool
     ) -> None:
         flow = self._flow("Changed mid-batch", HogFlow.State.ACTIVE)
+        if ran:
+            HogFlowBatchJob.objects.bulk_create(
+                [HogFlowBatchJob(team=self.team, hog_flow=flow, status="completed", filters={}, variables={})]
+            )
         if status is None:
             flow.delete()
         else:
