@@ -258,10 +258,14 @@ export const addUtmTagsToEmail = (html: string, tags: UtmTags, siteUrl: string, 
 
 // A link signed over its whole query, such as a framework signed route or a presigned storage URL, fails
 // verification once a parameter is added or removed. A sent email cannot be fixed, so these stay as written.
-const SIGNATURE_PARAMS = new Set(['signature', 'sig', 'x-amz-signature', 'x-goog-signature', 'hmac', '_hash'])
+const SIGNATURE_PARAMS = new Set(['signature', 'sig', 'x-amz-signature', 'x-goog-signature', 'hmac', '_hash', 'hash'])
 
 const isSigned = (parsed: URL): boolean =>
     [...parsed.searchParams.keys()].some((key) => SIGNATURE_PARAMS.has(key.toLowerCase()))
+
+// `decodeHtmlEntitiesInHref` reads only a few named references. Rewriting an href that still holds one, such as
+// `&lowbar;` in a login token, would escape its `&` and cut the token where the browser would have decoded it.
+const UNDECODED_NAMED_REFERENCE = /&[A-Za-z][A-Za-z0-9]*;/
 
 // The run tag always uses the fixed scanner: the legacy one only exists to keep UTM output unchanged for
 // teams outside CDP_EMAIL_UTM_LINK_SCANNER_TEAMS, and the run tag has its own allowlist.
@@ -276,6 +280,9 @@ export const addWorkflowRunTagToEmail = (html: string, { runId, senderEmail, sit
     return addTagsToEmailLinks(html, {
         isOptedOut: (anchor) => isNeverClickTracked(anchor.html) || isOptedOutOfUtmTags(anchor),
         tagUrl: (url) => {
+            if (UNDECODED_NAMED_REFERENCE.test(url)) {
+                return null
+            }
             if (runId !== null) {
                 return addTagsToUrl(removeWorkflowRunTag(url), { [WORKFLOW_RUN_PARAM]: runId }, isTaggable)
             }
