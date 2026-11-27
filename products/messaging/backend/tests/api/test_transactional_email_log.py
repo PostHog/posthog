@@ -583,15 +583,17 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             (
                 "every click with its link",
                 "UTC",
+                "jane",
                 NOW - timedelta(days=3),
                 [1200, 1500, 1800.57],
                 [
-                    (THIS_SEND, 1200, None),
-                    (THIS_SEND, 1200, "https://example.com/billing"),
-                    (THIS_SEND, 1200, "https://example.com/billing"),
-                    (ANOTHER_SEND, 1500, "https://example.com/other-send"),
-                    (THIS_SEND, 1500.0005, "https://example.com/another-instant"),
-                    (THIS_SEND, 1800.57, "https://example.com/docs"),
+                    (THIS_SEND, "jane", 1200, None),
+                    (THIS_SEND, "jane", 1200, "https://example.com/billing"),
+                    (THIS_SEND, "jane", 1200, "https://example.com/billing"),
+                    (ANOTHER_SEND, "jane", 1500, "https://example.com/other-send"),
+                    (THIS_SEND, "someone-else", 1500, "https://example.com/someone-else"),
+                    (THIS_SEND, "jane", 1500.0005, "https://example.com/another-instant"),
+                    (THIS_SEND, "jane", 1800.57, "https://example.com/docs"),
                 ],
                 [(1200, "https://example.com/billing"), (1500, None), (1800.57, "https://example.com/docs")],
                 False,
@@ -599,6 +601,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             (
                 "the newest 200 clicks",
                 "UTC",
+                "jane",
                 NOW - timedelta(days=3),
                 [1000 + i for i in range(201)],
                 [],
@@ -608,16 +611,27 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             (
                 "a click in the repeated hour of a fall-back night",
                 "America/New_York",
+                "jane",
                 datetime(2026, 11, 1, 6, 0, tzinfo=UTC),
                 [1800],
-                [(THIS_SEND, 1800, "https://example.com/billing")],
+                [(THIS_SEND, "jane", 1800, "https://example.com/billing")],
                 [(1800, "https://example.com/billing")],
+                False,
+            ),
+            (
+                "every click of a send that named no distinct ID",
+                "UTC",
+                "",
+                NOW - timedelta(days=3),
+                [1200, 1500],
+                [(THIS_SEND, "jane", 1200, "https://example.com/billing")],
+                [(1200, None), (1500, None)],
                 False,
             ),
         ]
     )
     def test_lists_the_newest_clicks_with_their_links(
-        self, _flag, _name, timezone, queued_at, click_seconds, events, expected_clicks, expected_has_more
+        self, _flag, _name, timezone, distinct_id, queued_at, click_seconds, events, expected_clicks, expected_has_more
     ):
         self.team.timezone = timezone
         self.team.save()
@@ -626,12 +640,13 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             "jane@example.com",
             [("sent", 1, ""), *[("clicked", seconds, "") for seconds in click_seconds]],
         )
-        self._record_distinct_id(message_id, "jane", "jane@example.com", queued_at + timedelta(seconds=1))
-        for send, seconds, link_url in events:
+        if distinct_id:
+            self._record_distinct_id(message_id, distinct_id, "jane@example.com", queued_at + timedelta(seconds=1))
+        for send, event_distinct_id, seconds, link_url in events:
             _create_event(
                 team=self.team,
                 event="$workflows_email_link_clicked",
-                distinct_id="jane",
+                distinct_id=event_distinct_id,
                 timestamp=queued_at + timedelta(seconds=seconds),
                 properties={
                     "$workflow_invocation_id": message_id if send == THIS_SEND else str(UUIDT()),
