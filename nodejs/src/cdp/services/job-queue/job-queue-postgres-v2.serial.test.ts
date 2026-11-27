@@ -4,6 +4,8 @@ import { Pool, PoolClient } from 'pg'
 import { register } from 'prom-client'
 import { v4 as uuidv4, v7 as uuidv7 } from 'uuid'
 
+import { defaultConfig } from '~/common/config/config'
+import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import * as posthogUtils from '~/common/utils/posthog'
 import { PubSub } from '~/common/utils/pubsub'
 import { waitForExpect } from '~/tests/helpers/expectations'
@@ -138,16 +140,17 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
     }
 
     async function startRateLimitedQueue(): Promise<CyclotronJobQueuePostgresV2> {
-        const valkeyThatGrantsEveryClaim = {
-            ping: () => Promise.resolve(),
-            claimUpTo: ({ requested }: { requested: number }) => Promise.resolve(requested),
-        } as unknown as RateLimiterService
+        const valkey = createRedisV2PoolFromConfig({
+            connection: { url: defaultConfig.REDIS_URL },
+            poolMinSize: 1,
+            poolMaxSize: 2,
+        })
         const queue = new CyclotronJobQueueRateLimitedPostgresV2(
             10,
             queueConfig(dbUrl(CYCLOTRON_DB.host, CYCLOTRON_DB.port), 1000),
             {
-                limiter: valkeyThatGrantsEveryClaim,
-                key: queueName,
+                limiter: new RateLimiterService(valkey, { name: 'job-queue-v2-test' }),
+                key: `@posthog-test/${queueName}/bucket`,
                 capacity: 10,
                 refillPerSecond: 10,
                 throttledPollDelayMs: 10,
