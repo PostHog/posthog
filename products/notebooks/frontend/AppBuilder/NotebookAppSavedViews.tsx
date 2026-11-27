@@ -11,6 +11,21 @@ import { fileSystemShortcutCreate, fileSystemShortcutDestroy } from '~/generated
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { escapePath, unescapePath } from '~/layout/panel-layout/ProjectTree/utils'
 
+function saveDisabledReason(loadFailed: boolean, dirty: boolean, path: string, duplicate: boolean): string | undefined {
+    if (loadFailed) {
+        return 'Load your saved views first.'
+    }
+    if (dirty) {
+        return 'Apply your filters before saving this view.'
+    }
+    if (!path) {
+        return 'Enter a name for this view.'
+    }
+    if (duplicate) {
+        return 'Choose a different name for this view.'
+    }
+}
+
 export default function NotebookAppSavedViews({
     project,
     shortId,
@@ -36,15 +51,12 @@ export default function NotebookAppSavedViews({
     const prefix = urls.project(project, urls.notebook(shortId)) + '?view=app#appView='
     const views = shortcutData.filter((item) => item.href?.startsWith(prefix))
     const path = escapePath(name.trim())
-    const disabledReason = shortcutLoadFailed
-        ? 'Load your saved views first.'
-        : dirty
-          ? 'Apply your filters before saving this view.'
-          : !path
-            ? 'Enter a name for this view.'
-            : views.some((view) => view.path === path)
-              ? 'Choose a different name for this view.'
-              : undefined
+    const disabledReason = saveDisabledReason(
+        shortcutLoadFailed,
+        dirty,
+        path,
+        views.some((view) => view.path === path)
+    )
 
     async function save(): Promise<void> {
         if (disabledReason || busy || shortcutDataLoading) {

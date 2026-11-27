@@ -675,6 +675,19 @@ export function getSidebarProduct(href: string | undefined): FileSystemImport | 
 
 let sidebarProductHrefsByName: Map<string, string> | undefined
 
+function sidebarProductHrefByName(path: string): string | undefined {
+    if (!sidebarProductHrefsByName) {
+        sidebarProductHrefsByName = new Map()
+        for (const item of [...getDefaultTreeProducts(), ...getDefaultTreeData()]) {
+            const name = item.path.split('/').pop()
+            if (item.href && name && !sidebarProductHrefsByName.has(name)) {
+                sidebarProductHrefsByName.set(name, item.href)
+            }
+        }
+    }
+    return sidebarProductHrefsByName.get(path)
+}
+
 // Stars created by the backend carry no href, because product URLs exist only in the frontend.
 export function withProductShortcutHref(entry: FileSystemEntry): FileSystemEntry {
     if (entry.type === 'notebook' && !entry.ref && entry.href) {
@@ -686,16 +699,7 @@ export function withProductShortcutHref(entry: FileSystemEntry): FileSystemEntry
     if (entry.href || entry.ref || entry.type === 'folder') {
         return entry
     }
-    if (!sidebarProductHrefsByName) {
-        sidebarProductHrefsByName = new Map()
-        for (const item of [...getDefaultTreeProducts(), ...getDefaultTreeData()]) {
-            const name = item.path.split('/').pop()
-            if (item.href && name && !sidebarProductHrefsByName.has(name)) {
-                sidebarProductHrefsByName.set(name, item.href)
-            }
-        }
-    }
-    const href = sidebarProductHrefsByName.get(entry.path)
+    const href = sidebarProductHrefByName(entry.path)
     return href ? { ...entry, href } : entry
 }
 
