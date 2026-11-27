@@ -1,10 +1,11 @@
 import base64
+import asyncio
 from pathlib import Path
 
 import pytest
 from posthog.test.base import APIBaseTest
 from unittest import TestCase
-from unittest.mock import MagicMock, patch
+from unittest.mock import DEFAULT, MagicMock, patch
 
 from django.test import override_settings
 
@@ -140,6 +141,12 @@ class TestExporterTask(APIBaseTest):
             return browser
 
         connect.side_effect = connect_after_recording_events
+        # Like the real sync_playwright, keep an asyncio loop running on the entering thread until exit.
+        playwright_loop = asyncio.new_event_loop()
+        self.addCleanup(playwright_loop.close)
+        playwright_cm = mock_sync_playwright.return_value
+        playwright_cm.__enter__.side_effect = lambda *args: asyncio._set_running_loop(playwright_loop) or DEFAULT
+        playwright_cm.__exit__.side_effect = lambda *exc_info: asyncio._set_running_loop(None) or False
 
         failures = exporter.export_image_assets_batched(
             assets, source=EventSource.SUBSCRIPTION, should_stop=lambda: False
@@ -164,6 +171,43 @@ class TestExporterTask(APIBaseTest):
             (assets[2].id, "export succeeded"),
         ]
         assert all(call.kwargs["properties"]["render_mode"] == "batched" for call in mock_capture.call_args_list)
+
+    @patch("posthog.tasks.exporter.posthoganalytics.capture")
+    @patch("products.exports.backend.tasks.image_exporter.sync_playwright")
+    def test_batched_export_renders_the_rest_when_recording_a_failure_fails(
+        self, mock_sync_playwright: MagicMock, mock_capture: MagicMock, mock_uuid: MagicMock
+    ) -> None:
+        mock_uuid.uuid4.side_effect = ["unrecorded_timeout", "rendered_after"]
+        assets = [
+            ExportedAsset.objects.create(
+                team=self.team,
+                dashboard_id=self.exported_asset.dashboard_id,
+                export_format="image/png",
+                created_by=self.user,
+            )
+            for _ in range(2)
+        ]
+        rendered_page = MagicMock()
+        rendered_page.screenshot.side_effect = lambda path: Path(path).write_bytes(self.example_png)
+        timed_out_page = MagicMock()
+        timed_out_page.goto.side_effect = PlaywrightTimeoutError("Timeout 40000ms exceeded")
+        browser = mock_sync_playwright.return_value.__enter__.return_value.chromium.connect_over_cdp.return_value
+        browser.new_context.return_value.new_page.side_effect = [timed_out_page, rendered_page]
+
+        def capture(**kwargs: object) -> None:
+            if kwargs["event"] == "export failed":
+                raise RuntimeError("analytics client unavailable")
+
+        mock_capture.side_effect = capture
+
+        failures = exporter.export_image_assets_batched(
+            assets, source=EventSource.SUBSCRIPTION, should_stop=lambda: False
+        )
+
+        assert {asset_id: type(error).__name__ for asset_id, error in failures.items()} == {
+            assets[0].id: "TimeoutError"
+        }
+        assert ExportedAsset.objects.get(pk=assets[1].pk).content_location is not None
 
     @patch("posthog.tasks.exporter.posthoganalytics.capture")
     @patch("products.exports.backend.tasks.image_exporter.sync_playwright")

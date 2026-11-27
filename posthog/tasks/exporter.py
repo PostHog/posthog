@@ -242,6 +242,15 @@ def export_asset_direct(
         raise
 
 
+def _fail_batched_export(run: _ExportRun, e: Exception, errors: dict[int, Exception]) -> None:
+    errors[run.exported_asset.id] = e
+    try:
+        _fail_export(run, e)
+    except Exception:
+        # The asset still counts as failed, so the rest of the batch continues and the caller settles it.
+        logger.exception("export_asset.failure_not_recorded", exported_asset_id=run.exported_asset.id)
+
+
 def _stopped_before_render(exported_assets: list[ExportedAsset]) -> dict[int, Exception]:
     return {
         exported_asset.id: RetryableExportError("The batch stopped before this asset rendered")
@@ -265,8 +274,7 @@ def export_image_assets_batched(
             _authorize_export(run)
             insight_cache_keys = image_exporter.warm_image_export(exported_asset, source=run.source)
         except Exception as e:
-            _fail_export(run, e)
-            errors[exported_asset.id] = e
+            _fail_batched_export(run, e, errors)
             continue
         warmed.append((run, insight_cache_keys))
 
@@ -281,7 +289,6 @@ def export_image_assets_batched(
                 image_exporter.render_image_export(run.exported_asset, insight_cache_keys, session=session)
                 _finish_export(run)
             except Exception as e:
-                _fail_export(run, e)
-                errors[run.exported_asset.id] = e
+                _fail_batched_export(run, e, errors)
 
     return errors

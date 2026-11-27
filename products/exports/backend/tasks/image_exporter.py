@@ -2,10 +2,13 @@ import os
 import json
 import time
 import uuid
+import functools
 import contextlib
+import contextvars
 from collections.abc import Callable, Iterator
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
-from typing import Literal, Optional
+from typing import Concatenate, Literal, Optional, ParamSpec, TypeVar
 from urllib.parse import parse_qsl, quote, quote_plus, urlencode, urlparse, urlunparse
 
 from django.conf import settings
@@ -626,8 +629,26 @@ _MAX_SESSION_CONNECTION_FAILURES = 2
 
 RenderSessionMode = Literal["single", "batched"]
 
+_P = ParamSpec("_P")
+_R = TypeVar("_R")
+
+
+def _on_playwright_thread(
+    method: Callable[Concatenate["BrowserlessRenderSession", _P], _R],
+) -> Callable[Concatenate["BrowserlessRenderSession", _P], _R]:
+    @functools.wraps(method)
+    def run(session: "BrowserlessRenderSession", *args: _P.args, **kwargs: _P.kwargs) -> _R:
+        return session._playwright_thread.submit(
+            contextvars.copy_context().run, method, session, *args, **kwargs
+        ).result()
+
+    return run
+
 
 class BrowserlessRenderSession:
+    # Playwright's sync API keeps its asyncio loop running on the thread that started it until the session closes.
+    # Django refuses ORM calls on a thread with a running loop, so all Playwright calls go to one dedicated thread.
+    # The caller can then save each asset between renders while a batched session stays open.
     def __init__(self, *, session_timeout_ms: int | None = None, mode: RenderSessionMode = "single") -> None:
         self._mode = mode
         self._endpoint = _build_cdp_endpoint(
@@ -639,11 +660,19 @@ class BrowserlessRenderSession:
         self._playwright: Playwright | None = None
         self._browser: Browser | None = None
         self._connection_failures = 0
+        self._playwright_thread = ThreadPoolExecutor(max_workers=1, thread_name_prefix="browserless-session")
 
     def __enter__(self) -> "BrowserlessRenderSession":
         return self
 
     def __exit__(self, *exc_info: object) -> None:
+        try:
+            self._close()
+        finally:
+            self._playwright_thread.shutdown()
+
+    @_on_playwright_thread
+    def _close(self) -> None:
         self._close_browser()
         self._exit_stack.close()
         self._playwright = None
@@ -685,6 +714,7 @@ class BrowserlessRenderSession:
             pass
         self._browser = None
 
+    @_on_playwright_thread
     def render(
         self,
         image_path: str,
