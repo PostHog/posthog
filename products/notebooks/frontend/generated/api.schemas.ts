@@ -971,7 +971,13 @@ export interface PatchedNotebookApi {
 export interface NotebookAppComputeWidgetInputApi {
     version_id: string
     /** @maxLength 128 */
-    slot: string
+    slot?: string
+    /**
+     * @minItems 1
+     * @maxItems 20
+     * @items.maxLength 128
+     */
+    slots?: string[]
 }
 
 export interface NotebookAppComputeRequestApi {
@@ -985,6 +991,7 @@ export interface NotebookAppComputeRequestApi {
 
 export interface NotebookAppComputeResultApi {
     widget_frame?: WidgetFrameApi
+    widget_frames?: WidgetFrameApi[]
     text?: string
     columns?: string[]
     rows?: unknown[][]

@@ -6,7 +6,7 @@ export interface WidgetFrameSession {
     revision: string
     privateInputs?: {
         key: string
-        compute: (slot: string, signal: AbortSignal) => Promise<WidgetFrameApi>
+        compute: (slots: string[], signal: AbortSignal) => Promise<WidgetFrameApi[]>
     }
     read: (
         slot: string,

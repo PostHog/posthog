@@ -78173,7 +78173,13 @@ export namespace Schemas {
     export interface NotebookAppComputeWidgetInput {
       version_id: string;
       /** @maxLength 128 */
-      slot: string;
+      slot?: string;
+      /**
+         * @minItems 1
+         * @maxItems 20
+         * @items.maxLength 128
+         */
+      slots?: string[];
     }
 
     export interface NotebookAppComputeRequest {
@@ -78230,6 +78236,7 @@ export namespace Schemas {
 
     export interface NotebookAppComputeResult {
       widget_frame?: WidgetFrame;
+      widget_frames?: WidgetFrame[];
       text?: string;
       columns?: string[];
       rows?: unknown[][];

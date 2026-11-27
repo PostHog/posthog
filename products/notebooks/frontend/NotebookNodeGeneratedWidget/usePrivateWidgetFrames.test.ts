@@ -7,7 +7,7 @@ const frame: WidgetFrameApi = {
     sourceNodeId: 'capacity',
     name: 'shifts',
     runId: '6ea91fd8-cc4e-4d66-b596-5e409d6ef677',
-    columns: [{ name: 'shifts', type: 'int64' }],
+    columns: [{ name: 'shifts', type: 'Int64' }],
     rows: [[5], [8]],
     offset: 0,
     includedRowCount: 2,
@@ -17,13 +17,15 @@ const frame: WidgetFrameApi = {
 }
 
 it('runs on demand, pages the same private result, and clears data when a widget version changes', async () => {
-    const compute = jest.fn().mockResolvedValue(frame)
+    const compute = jest.fn().mockResolvedValue([frame, { ...frame, name: 'comparison' }])
     const { result, rerender } = renderHook(
         ({ version, inputs }) => usePrivateWidgetFrames(version, { key: inputs, compute }),
         { initialProps: { version: 'first', inputs: '240' } }
     )
     expect(compute).not.toHaveBeenCalled()
-    await act(() => result.current.run(['shifts']))
+    await act(() => result.current.run(['shifts', 'comparison']))
+    expect(compute).toHaveBeenCalledWith(['shifts', 'comparison'], expect.any(AbortSignal))
+    expect(result.current.page('comparison', 0, 1)?.rows).toEqual([[5]])
     expect(result.current.page('shifts', 0, 1)).toMatchObject({ rows: [[5]], nextOffset: 1, runId: frame.runId })
     expect(result.current.page('shifts', 1, 1)).toMatchObject({ rows: [[8]], nextOffset: null, runId: frame.runId })
     expect(result.current.page('undeclared', 0, 1)).toBeUndefined()

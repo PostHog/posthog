@@ -49,7 +49,7 @@ function AppSession({ viewer, release }: { viewer: ViewerProps; release: Noteboo
     const { shortId, sessionId } = viewer
     const { layout } = release
     const logic = notebookAppViewerLogic(viewer)
-    const { variables, results, publishedResults, refreshFailed: error } = useValues(logic)
+    const { variables, results, nativeOutputIds, publishedResults, refreshFailed: error } = useValues(logic)
     const { changeInput } = useActions(logic)
     const cells = useMemo(() => appSourceCells(release.markdown), [release.markdown])
     const [activeTab, setActiveTab] = useState(layout.tabs[0]?.id || '')
@@ -107,12 +107,12 @@ function AppSession({ viewer, release }: { viewer: ViewerProps; release: Noteboo
                     privateInputs: versionId
                         ? {
                               key: JSON.stringify([release.revision, variables]),
-                              compute: async (slot, signal) => {
+                              compute: async (slots, signal) => {
                                   const request = {
                                       node_id: nodeId,
                                       revision: release.revision,
                                       variables,
-                                      widget_input: { version_id: versionId, slot },
+                                      widget_input: { version_id: versionId, slots },
                                   }
                                   const result = viewer.draft
                                       ? await notebooksAppDraftComputeCreate(
@@ -122,10 +122,10 @@ function AppSession({ viewer, release }: { viewer: ViewerProps; release: Noteboo
                                             { signal }
                                         )
                                       : await notebooksAppComputeCreate(viewer.project, shortId, request, { signal })
-                                  if (!result.widget_frame) {
+                                  if (!result.widget_frames) {
                                       throw new Error('The calculation did not return a dataframe.')
                                   }
-                                  return result.widget_frame
+                                  return result.widget_frames
                               },
                           }
                         : undefined,
@@ -161,13 +161,13 @@ function AppSession({ viewer, release }: { viewer: ViewerProps; release: Noteboo
                         if (
                             cell.tagName === 'PythonV2' ||
                             (sql &&
-                                (cell.props.connectionId || (results && !results.nativeOutputIds.includes(cell.id))))
+                                (cell.props.connectionId ||
+                                    (nativeOutputIds !== null && !nativeOutputIds.includes(cell.id))))
                         ) {
                             return (
                                 <ViewerComputeCell
                                     key={cell.id}
                                     viewer={viewer}
-                                    revision={release.revision}
                                     cell={cell}
                                     variables={variables}
                                     saved={savedOutput}

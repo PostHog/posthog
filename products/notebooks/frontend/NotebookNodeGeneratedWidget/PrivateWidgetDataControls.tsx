@@ -48,10 +48,8 @@ export function usePrivateWidgetFrames(
         setLoading(true)
         setError(undefined)
         try {
-            const frames = new Map<string, WidgetFrameApi>()
-            for (const name of names) {
-                frames.set(name, await inputs.compute(name, request.signal))
-            }
+            const computed = await inputs.compute(names, request.signal)
+            const frames = new Map(computed.map((frame) => [frame.name, frame]))
             if (!request.signal.aborted) {
                 setResult((previous) => ({
                     versionId,

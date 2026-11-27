@@ -1005,7 +1005,8 @@ class TestWidgetData(APIBaseTest):
     def test_private_widget_runs_only_its_versioned_input_in_published_and_draft_apps(self, _flag) -> None:
         instance = self._mapping()
         version = self._pinned_version(instance)
-        version.input_contract[0]["columns"] = [{"name": "shifts", "type": "int64"}]
+        version.input_contract[0]["columns"] = [{"name": "shifts", "type": "Int64"}]
+        version.input_contract.append({**version.input_contract[0], "slot": "also_shifts"})
         version.save(update_fields=["input_contract"])
         source = (
             f'<PythonV2 nodeId="capacity" code="import pandas as pd; {self.INPUT_NAME} = pd.DataFrame(dict(shifts=[orders // 48]))" returnVariable="{self.INPUT_NAME}" />\n\n'
@@ -1039,9 +1040,9 @@ class TestWidgetData(APIBaseTest):
         kernel.execute.return_value = SimpleNamespace(
             status="ok",
             result=None,
-            stdout='{"columns":["shifts"],"types":["int64"],"rows":[{"shifts":5}],"row_count":1}',
+            stdout='{"columns":["shifts"],"types":["Int64"],"rows":[{"shifts":5}],"row_count":1}',
         )
-        with patch("products.notebooks.backend.app_compute.get_kernel_runtime", return_value=kernel):
+        with patch("products.notebooks.backend.app_compute.get_kernel_runtime", return_value=kernel) as kernel_start:
             for path, context in [
                 ("app_compute/", {}),
                 ("app_draft_compute/", {"layout": layout, "revision": self.notebook.version}),
@@ -1050,8 +1051,16 @@ class TestWidgetData(APIBaseTest):
                 assert response.status_code == 200, response.content
                 frame = response.json()["widget_frame"]
                 assert frame["sourceNodeId"] == "capacity" and frame["name"] == self.INPUT_NAME
-                assert frame["rows"] == [[5]] and frame["columns"] == [{"name": "shifts", "type": "int64"}]
+                assert frame["rows"] == [[5]] and frame["columns"] == [{"name": "shifts", "type": "Int64"}]
                 assert frame["runId"] and not frame["truncated"]
+            kernel_start.reset_mock()
+            kernel.execute.reset_mock()
+            batch = {"slots": [self.INPUT_NAME, "also_shifts"], "version_id": str(version.pk)}
+            response = self.client.post(base + "app_compute/", {**payload, "widget_input": batch}, format="json")
+            assert response.status_code == 200, response.content
+            assert [frame["name"] for frame in response.json()["widget_frames"]] == [self.INPUT_NAME, "also_shifts"]
+            kernel_start.assert_called_once()
+            assert sum("shifts=[orders // 48]" in call.args[0] for call in kernel.execute.call_args_list) == 1
             invalid_requests: list[dict[str, object]] = [
                 {"widget_input": {**target, "slot": "unrelated"}},
                 {"widget_input": {**target, "version_id": str(uuid4())}},
@@ -1102,6 +1111,24 @@ class TestWidgetData(APIBaseTest):
         assert response.status_code == 200, response.content
         frame = response.json()["widget_frame"]
         assert frame["columns"] == [{"name": "shifts", "type": "unknown"}] and frame["rows"] == [[8]]
+
+        other = self._create_user("widget-author@example.com")
+        version.created_by = other
+        version.save(update_fields=["created_by"])
+        with (
+            patch(
+                "products.notebooks.backend.app_widget_compute.get_direct_connection_source", return_value=None
+            ) as grants,
+            patch("products.notebooks.backend.app_compute.execute_hogql_query") as execute,
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/app_draft_compute/",
+                payload,
+                format="json",
+            )
+        assert response.status_code == 400 and "access to the connected data source" in response.json()["detail"]
+        assert grants.call_args.kwargs["user"] == other
+        execute.assert_not_called()
 
     def test_frame_is_whitelisted_and_bounded(self) -> None:
         self._run()

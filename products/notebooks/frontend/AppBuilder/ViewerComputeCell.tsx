@@ -1,86 +1,39 @@
-import posthog from 'posthog-js'
-import { useEffect, useRef, useState } from 'react'
+import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonButton, LemonTable } from '@posthog/lemon-ui'
 
-import { readableErrorMessage } from 'lib/api-error'
 import type { NotebookComponentBlockNode } from 'lib/components/MarkdownNotebook/types'
 import { objectsEqual } from 'lib/utils/objects'
 import type { NotebookVariable } from 'scenes/notebooks/Notebook/notebookVariables'
 
-import { notebooksAppComputeCreate, notebooksAppDraftComputeCreate } from '../generated/api'
-import type { NotebookAppComputeResultApi } from '../generated/api.schemas'
-import type { ViewerProps } from './notebookAppViewerLogic'
-
-function computationKind(cell: NotebookComponentBlockNode): 'python' | 'connected_sql' | 'dataframe_sql' {
-    if (cell.tagName === 'PythonV2') {
-        return 'python'
-    }
-    return cell.props.connectionId ? 'connected_sql' : 'dataframe_sql'
-}
+import { notebookAppViewerLogic, type ViewerProps } from './notebookAppViewerLogic'
 
 export function ViewerComputeCell({
     viewer,
-    revision,
     cell,
     variables,
     saved,
 }: {
     viewer: ViewerProps
-    revision: number
     cell: NotebookComponentBlockNode
     variables: NotebookVariable[]
     saved: JSX.Element
 }): JSX.Element {
-    const [result, setResult] = useState<{ data: NotebookAppComputeResultApi; inputs: NotebookVariable[] }>()
-    const [loading, setLoading] = useState(false)
-    const [failure, setFailure] = useState<string>()
-    const controller = useRef<AbortController | null>(null)
-    useEffect(() => () => controller.current?.abort(), [])
-    const kind = computationKind(cell)
-
-    async function run(): Promise<void> {
-        controller.current?.abort()
-        const request = new AbortController()
-        controller.current = request
-        setLoading(true)
-        setFailure(undefined)
-        try {
-            const body = { node_id: cell.id, revision, variables }
-            const options = { signal: request.signal }
-            const data = viewer.draft
-                ? await notebooksAppDraftComputeCreate(
-                      viewer.project,
-                      viewer.shortId,
-                      { ...body, layout: viewer.draft.layout },
-                      options
-                  )
-                : await notebooksAppComputeCreate(viewer.project, viewer.shortId, body, options)
-            if (!request.signal.aborted) {
-                setResult({ data, inputs: variables })
-                posthog.capture('notebook app viewer calculation ran', {
-                    short_id: viewer.shortId,
-                    cell_type: kind,
-                })
-            }
-        } catch (error) {
-            if (!request.signal.aborted) {
-                setFailure(
-                    readableErrorMessage(error) ||
-                        'Could not run this calculation. Check your data access and try again.'
-                )
-            }
-        } finally {
-            if (!request.signal.aborted) {
-                setLoading(false)
-            }
-        }
-    }
+    const { privateCells } = useValues(notebookAppViewerLogic(viewer))
+    const { runPrivateCell } = useActions(notebookAppViewerLogic(viewer))
+    const { result, loading, error } = privateCells[cell.id] ?? {}
+    const kind = cell.tagName === 'PythonV2' ? 'python' : cell.props.connectionId ? 'connected_sql' : 'dataframe_sql'
+    const python = cell.tagName === 'PythonV2'
     return (
         <div>
             <div className="flex flex-wrap gap-2 items-center mb-2">
-                <LemonButton type="secondary" size="small" onClick={() => void run()} loading={loading}>
-                    {kind === 'python' ? 'Run Python for me' : 'Run query for me'}
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    onClick={() => runPrivateCell(cell.id, kind)}
+                    loading={loading}
+                >
+                    {python ? 'Run Python for me' : 'Run query for me'}
                 </LemonButton>
                 <span className="text-secondary">
                     {result && !objectsEqual(variables, result.inputs)
@@ -90,10 +43,12 @@ export function ViewerComputeCell({
                           : 'Uses your access to the connected data source.'}
                 </span>
             </div>
-            {failure && <LemonBanner type="error">{failure}</LemonBanner>}
+            {error && <LemonBanner type="error">{error}</LemonBanner>}
             {result?.data.rows && result.data.columns ? (
                 <LemonTable
                     dataSource={result.data.rows}
+                    pagination={{ pageSize: 20 }}
+                    virtualizedColumnWidth={160}
                     columns={result.data.columns.map((title, index) => ({
                         title,
                         key: String(index),

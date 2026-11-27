@@ -1229,6 +1229,10 @@ export const notebooksAppComputeCreateBodyVariablesItemNameMax = 200
 
 export const notebooksAppComputeCreateBodyWidgetInputSlotMax = 128
 
+export const notebooksAppComputeCreateBodyWidgetInputSlotsItemMax = 128
+
+export const notebooksAppComputeCreateBodyWidgetInputSlotsMax = 20
+
 export const notebooksAppComputeCreateBodyNodeIdMax = 200
 
 export const NotebooksAppComputeCreateBody = /* @__PURE__ */ zod.object({
@@ -1257,7 +1261,12 @@ export const NotebooksAppComputeCreateBody = /* @__PURE__ */ zod.object({
     widget_input: zod
         .object({
             version_id: zod.uuid(),
-            slot: zod.string().max(notebooksAppComputeCreateBodyWidgetInputSlotMax),
+            slot: zod.string().max(notebooksAppComputeCreateBodyWidgetInputSlotMax).optional(),
+            slots: zod
+                .array(zod.string().max(notebooksAppComputeCreateBodyWidgetInputSlotsItemMax))
+                .min(1)
+                .max(notebooksAppComputeCreateBodyWidgetInputSlotsMax)
+                .optional(),
         })
         .optional(),
     node_id: zod.string().max(notebooksAppComputeCreateBodyNodeIdMax),
@@ -1271,6 +1280,10 @@ export const notebooksAppDraftComputeCreateBodyRevisionMin = 0
 export const notebooksAppDraftComputeCreateBodyVariablesItemNameMax = 200
 
 export const notebooksAppDraftComputeCreateBodyWidgetInputSlotMax = 128
+
+export const notebooksAppDraftComputeCreateBodyWidgetInputSlotsItemMax = 128
+
+export const notebooksAppDraftComputeCreateBodyWidgetInputSlotsMax = 20
 
 export const notebooksAppDraftComputeCreateBodyNodeIdMax = 200
 
@@ -1342,7 +1355,12 @@ export const NotebooksAppDraftComputeCreateBody = /* @__PURE__ */ zod.object({
     widget_input: zod
         .object({
             version_id: zod.uuid(),
-            slot: zod.string().max(notebooksAppDraftComputeCreateBodyWidgetInputSlotMax),
+            slot: zod.string().max(notebooksAppDraftComputeCreateBodyWidgetInputSlotMax).optional(),
+            slots: zod
+                .array(zod.string().max(notebooksAppDraftComputeCreateBodyWidgetInputSlotsItemMax))
+                .min(1)
+                .max(notebooksAppDraftComputeCreateBodyWidgetInputSlotsMax)
+                .optional(),
         })
         .optional(),
     node_id: zod.string().max(notebooksAppDraftComputeCreateBodyNodeIdMax),

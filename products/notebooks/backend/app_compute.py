@@ -1,14 +1,16 @@
+import ast
 import json
 import secrets
 from contextlib import ExitStack
 from graphlib import CycleError, TopologicalSorter
 from time import monotonic
 from typing import Any
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from pydantic import JsonValue
 from rest_framework.exceptions import NotFound, ValidationError
 
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.direct_connection import get_direct_connection_source, raw_query_uses_organization_grant
 from posthog.hogql.direct_sql import get_raw_adapter_for_source
 from posthog.hogql.direct_sql.raw_sql import parse_direct_statements
@@ -21,6 +23,7 @@ from posthog.models import User
 
 from products.notebooks.backend.app_releases import read_release
 from products.notebooks.backend.app_viewer import draft_app_release, viewer_variables
+from products.notebooks.backend.facade.contracts import AppRelease
 from products.notebooks.backend.kernel_runtime import (
     APP_VIEWER_KERNEL_PREFIX,
     APP_VIEWER_MAX_OUTPUT_BYTES,
@@ -28,14 +31,11 @@ from products.notebooks.backend.kernel_runtime import (
     get_kernel_runtime,
 )
 from products.notebooks.backend.markdown_conversion import build_markdown_notebook_content
-from products.notebooks.backend.models import Notebook, NotebookWidgetInstance
+from products.notebooks.backend.models import Notebook
+from products.notebooks.backend.sandbox.kernel.envelope import DATAFRAME_TYPE_CHECKS
 from products.notebooks.backend.sql_v2_direct import apply_page_bounds, apply_raw_page_bounds
-from products.notebooks.backend.sql_v2_state import (
-    NotebookCellState,
-    build_dependency_edges,
-    extract_cells,
-    get_dataframe_owners,
-)
+from products.notebooks.backend.sql_v2_references import SQLV2ReferenceError, resolve_sql_v2_references
+from products.notebooks.backend.sql_v2_state import NotebookCellState, build_dependency_edges, extract_cells
 from products.notebooks.backend.sql_v2_variables import (
     NotebookVariable,
     NotebookVariableError,
@@ -45,19 +45,19 @@ from products.notebooks.backend.sql_v2_variables import (
     substitute_duckdb_variables,
     substitute_hogql_variables,
 )
-from products.notebooks.backend.widgets import bounded_widget_rows, widget_node_ids, widget_source_name
+from products.tasks.backend.facade.sandbox import SandboxOutputTooLarge, SandboxTimeoutError
 
 MAX_ROWS = 500
 MAX_CELLS = 20
 
 
-def _cell_chain(cells: list[NotebookCellState], target: str) -> list[NotebookCellState]:
+def source_cell_chain(cells: list[NotebookCellState], targets: set[str]) -> list[NotebookCellState]:
     by_id = {cell.node_id: cell for cell in cells}
-    if target not in by_id:
+    if not targets or not targets.issubset(by_id):
         raise ValidationError("This cell has no runnable source.")
     build_dependency_edges(cells)
     graph: dict[str, list[str]] = {}
-    pending = [target]
+    pending = list(targets)
     while pending:
         node_id = pending.pop()
         if node_id not in graph:
@@ -71,7 +71,7 @@ def _cell_chain(cells: list[NotebookCellState], target: str) -> list[NotebookCel
         raise ValidationError("These cells have a circular dependency.") from error
 
 
-def _bounded_json(value: Any) -> str:
+def bounded_frame_json(value: Any) -> str:
     try:
         encoded = json.dumps(value, ensure_ascii=False, default=str, allow_nan=False)
     except ValueError as error:
@@ -81,29 +81,32 @@ def _bounded_json(value: Any) -> str:
     return encoded
 
 
-def _execute_python(kernel: KernelRuntimeSession, code: str, deadline: float) -> str:
+def _remaining_seconds(deadline: float) -> int:
     remaining = int(deadline - monotonic())
     if remaining <= 0:
         raise ValidationError("The calculation timed out.")
-    result = kernel.execute(code, capture_variables=False, timeout=min(remaining, 30))
+    return remaining
+
+
+def _execute_python(kernel: KernelRuntimeSession, code: str, deadline: float) -> str:
+    try:
+        result = kernel.execute(code, capture_variables=False, timeout=min(_remaining_seconds(deadline), 30))
+    except SandboxOutputTooLarge as error:
+        raise ValidationError("The result is too large. Narrow the inputs or aggregate the source data.") from error
+    except (TimeoutError, SandboxTimeoutError) as error:
+        raise ValidationError("The calculation timed out.") from error
+    if result.status == "timeout":
+        raise ValidationError("The calculation timed out.")
     if result.status != "ok":
         raise ValidationError((result.stderr or result.error_name or "The calculation failed.")[-3000:])
     text = (result.stdout or "") + str((result.result or {}).get("text/plain", ""))
-    _bounded_json(text)
+    bounded_frame_json(text)
     return text
 
 
-def run_app_cell(
-    team_id: int,
-    notebook_id: UUID,
-    user: User,
-    revision: int,
-    node_id: str,
-    inputs: dict[str, NotebookVariableValue],
-    *,
-    draft_layout: dict[str, Any] | None = None,
-    widget_input: tuple[UUID, str] | None = None,
-) -> dict[str, JsonValue]:
+def app_release_for_output(
+    team_id: int, notebook_id: UUID, revision: int, node_id: str, draft_layout: dict[str, Any] | None
+) -> AppRelease:
     release = (
         draft_app_release(team_id, notebook_id, revision, draft_layout)
         if draft_layout is not None
@@ -120,34 +123,63 @@ def run_app_cell(
         for block in release.layout["blocks"]
     ):
         raise ValidationError("Choose an output in the published app.")
-    variables = viewer_variables(release, inputs)
-    content = build_markdown_notebook_content(release.markdown)
-    cells = extract_cells(content)
-    expected_columns = None
-    if widget_input:
-        if node_id not in widget_node_ids(content):
-            raise ValidationError("Choose a widget in this app.")
-        source, expected_columns = _widget_source(team_id, notebook_id, node_id, *widget_input)
-        owner = get_dataframe_owners(cells).get(source)
-        if owner is None:
-            raise ValidationError("This widget's dataframe is missing from the app.")
-        node_id = owner
-    chain = _cell_chain(cells, node_id)
+    return release
+
+
+def run_app_cell(
+    team_id: int,
+    notebook_id: UUID,
+    user: User,
+    revision: int,
+    node_id: str,
+    inputs: dict[str, NotebookVariableValue],
+    *,
+    draft_layout: dict[str, Any] | None = None,
+) -> dict[str, JsonValue]:
+    release = app_release_for_output(team_id, notebook_id, revision, node_id, draft_layout)
+    notebook = Notebook.objects.select_related("team").get(team_id=team_id, pk=notebook_id)
+    cells = extract_cells(build_markdown_notebook_content(release.markdown))
+    targets = {node_id}
+    results = run_source_cells(
+        notebook, user, viewer_variables(release, inputs), source_cell_chain(cells, targets), targets
+    )
+    return results[node_id]
+
+
+def run_source_cells(
+    notebook: Notebook,
+    user: User,
+    variables: list[NotebookVariable],
+    chain: list[NotebookCellState],
+    targets: set[str],
+    *,
+    include_types: bool = False,
+) -> dict[str, dict[str, JsonValue]]:
     if any(cell.cell_type not in ("python", "sql") for cell in chain):
         raise ValidationError("This calculation requires an unsupported source. Use Python or a HogQL select query.")
     if any(cell.send_raw_query and not cell.connection_id for cell in chain):
         raise ValidationError("Choose a direct connection for native SQL.")
     if any(cell.connection_id and cell.depends_on for cell in chain):
         raise ValidationError("A connected query cannot read a dataframe from another cell.")
-    notebook = Notebook.objects.select_related("team").get(team_id=team_id, pk=notebook_id)
-    needs_kernel = any(cell.cell_type == "python" or cell.depends_on for cell in chain)
+    local_frames: set[str] = set()
+    kernel_cells: set[str] = set()
+    materialize = set(targets)
+    upstream: set[str] = set()
+    for cell in chain:
+        if cell.cell_type == "python" or local_frames.intersection(cell.depends_on):
+            kernel_cells.add(cell.node_id)
+            materialize.update(cell.depends_on)
+            upstream.update(cell.depends_on)
+        if cell.node_id in kernel_cells or cell.connection_id:
+            local_frames.add(cell.node_id)
+    hogql_definitions: dict[str, str | None] = {}
     with (
         tags_context(product=Product.NOTEBOOKS, feature=Feature.QUERY, team_id=notebook.team_id),
         ExitStack() as cleanup,
     ):
         kernel = None
         deadline = monotonic() + 90
-        if needs_kernel:
+        if kernel_cells:
             scratch = Notebook(
                 team=notebook.team,
                 short_id=APP_VIEWER_KERNEL_PREFIX + secrets.token_urlsafe(8),
@@ -160,121 +192,118 @@ def run_app_cell(
                 f"import json, pandas as pd\nglobals().update(json.loads({json.dumps(python_variable_bindings(variables))!r}))",
                 deadline,
             )
-        result: dict[str, JsonValue] = {}
+        results: dict[str, dict[str, JsonValue]] = {}
         for cell in chain:
             try:
-                result = _run_cell(
-                    cell, notebook, user, variables, kernel, deadline, cell.node_id == node_id, widget_input is not None
+                _remaining_seconds(deadline)
+                if cell.node_id in kernel_cells:
+                    assert kernel is not None
+                    results[cell.node_id] = _run_kernel_cell(
+                        cell,
+                        variables,
+                        kernel,
+                        deadline,
+                        cell.node_id not in upstream,
+                        include_types and cell.node_id in targets,
+                    )
+                    continue
+                if cell.send_raw_query:
+                    query = _external_query(cell, notebook, user, variables)
+                else:
+                    code = substitute_hogql_variables(cell.code, variables)
+                    if cell.node_id not in materialize:
+                        hogql_definitions[cell.dataframe_name] = code
+                        continue
+                    query = apply_page_bounds(resolve_sql_v2_references(code, hogql_definitions), MAX_ROWS + 1, 0)
+                    if not cell.connection_id:
+                        hogql_definitions[cell.dataframe_name] = code
+                results[cell.node_id] = _run_sql_cell(
+                    cell,
+                    query,
+                    notebook,
+                    user,
+                    kernel,
+                    deadline,
+                    cell.node_id not in upstream,
+                    include_types and cell.node_id in targets,
                 )
-            except NotebookVariableError as error:
+            except (NotebookVariableError, SQLV2ReferenceError) as error:
                 raise ValidationError(str(error)) from error
-        if widget_input:
-            return _widget_frame(result, node_id, widget_input[1], expected_columns)
-        return result
+        return results
 
 
-def _widget_frame(
-    result: dict[str, JsonValue], node_id: str, slot: str, expected_columns: list[dict[str, str]] | None
-) -> dict[str, JsonValue]:
-    columns = result.get("columns")
-    types = result.get("types")
-    rows = result.get("rows")
-    if (
-        not isinstance(columns, list)
-        or not isinstance(types, list)
-        or not isinstance(rows, list)
-        or len(columns) != len(types)
-    ):
-        raise ValidationError("This cell must return a dataframe with named columns.")
-    schema = [{"name": str(name), "type": str(dtype)} for name, dtype in zip(columns, types, strict=True)]
-    if expected_columns is not None and (
-        len(expected_columns) != len(schema)
-        or any(
-            declared.get("name") != actual["name"] or declared.get("type") not in ("unknown", actual["type"])
-            for declared, actual in zip(expected_columns, schema, strict=True)
-        )
-    ):
-        raise ValidationError("The dataframe columns changed. Update the widget input to use this result.")
-    frame = bounded_widget_rows(
-        name=slot,
-        run_id=uuid4(),
-        columns=schema,
-        candidates=rows,
-        total_row_count=len(rows),
-        offset=0,
-    )
-    if frame["truncated"]:
-        raise ValidationError("The widget dataframe is too large. Narrow the inputs or aggregate the source data.")
-    return {"widget_frame": json.loads(json.dumps({**frame, "sourceNodeId": node_id}, default=str))}
+def _python_cell_code(code: str) -> tuple[str, bool]:
+    try:
+        module = ast.parse(code)
+    except SyntaxError:
+        return code, False
+    if not module.body or not isinstance(module.body[-1], ast.Expr):
+        return code, False
+    expression = module.body[-1]
+    assignment = ast.Assign(targets=[ast.Name(id="_app_last", ctx=ast.Store())], value=expression.value)
+    module.body[-1:] = [ast.copy_location(assignment, expression), ast.Expr(ast.Name(id="_app_last", ctx=ast.Load()))]
+    return ast.unparse(ast.fix_missing_locations(module)), True
 
 
-def _widget_source(
-    team_id: int, notebook_id: UUID, node_id: str, version_id: UUID, slot: str
-) -> tuple[str, list[dict[str, str]] | None]:
-    placement = (
-        NotebookWidgetInstance.objects.for_team(team_id)
-        .filter(notebook_id=notebook_id, node_id=node_id)
-        .select_related("pinned_version", "widget__current_version")
-        .first()
-    )
-    version = (placement.pinned_version or placement.widget.current_version) if placement else None
-    if placement is None or version is None or version.id != version_id:
-        raise ValidationError("Refresh the app to load the current widget version.")
-    for item in version.input_contract:
-        if isinstance(item, dict) and item.get("slot") == slot:
-            binding = (placement.input_bindings or {}).get(slot)
-            transformed = isinstance(binding, dict) and binding.get("hog")
-            return widget_source_name(placement, item), None if transformed else item.get("columns", [])
-    raise ValidationError("This dataframe is not declared by this widget version.")
-
-
-def _run_cell(
+def _run_kernel_cell(
     cell: NotebookCellState,
+    variables: list[NotebookVariable],
+    kernel: KernelRuntimeSession,
+    deadline: float,
+    final: bool,
+    include_types: bool,
+) -> dict[str, JsonValue]:
+    name = cell.dataframe_name
+    if cell.cell_type == "python":
+        code, has_last_expression = _python_cell_code(cell.code)
+        text = _execute_python(kernel, code, deadline)
+        if not name:
+            return {"text": text}
+        bind_frame = f"_app_result = globals().get({name!r})"
+        if has_last_expression:
+            bind_frame += (
+                "\nif isinstance(_app_last, pd.DataFrame):\n    _app_result = _app_last"
+                "\nelif isinstance(_app_last, pd.Series):\n    _app_result = _app_last.to_frame()"
+            )
+        _execute_python(kernel, bind_frame, deadline)
+    else:
+        text = ""
+        query, parameters = substitute_duckdb_variables(cell.code, variables)
+        _execute_python(
+            kernel,
+            f"_app_relation = _duckdb_connection.sql({query!r}, params=json.loads({json.dumps(parameters)!r}))\n"
+            f"_app_result = _app_relation.limit({MAX_ROWS + 1}).df()",
+            deadline,
+        )
+    frame = _kernel_frame(kernel, "_app_result", deadline, include_types)
+    if frame is None:
+        return {"text": text}
+    if name and not final:
+        _execute_python(
+            kernel,
+            f"globals()[{name!r}] = _app_result\nduck_save_table({name!r}, _app_result)",
+            deadline,
+        )
+    return frame
+
+
+def _run_sql_cell(
+    cell: NotebookCellState,
+    query: str,
     notebook: Notebook,
     user: User,
-    variables: list[NotebookVariable],
     kernel: KernelRuntimeSession | None,
     deadline: float,
     final: bool,
-    frame_output: bool,
+    include_types: bool,
 ) -> dict[str, JsonValue]:
-    if cell.cell_type == "python":
-        assert kernel is not None
-        text = _execute_python(kernel, cell.code, deadline)
-        if cell.dataframe_name and not final:
-            name = cell.dataframe_name
-            _execute_python(
-                kernel,
-                f"if isinstance(globals().get({name!r}), pd.DataFrame):\n    duck_save_table({name!r}, globals()[{name!r}])",
-                deadline,
-            )
-        if final and frame_output and cell.dataframe_name:
-            return _kernel_frame(kernel, cell.dataframe_name, deadline, include_types=True)
-        return {"text": text}
-    if cell.depends_on:
-        assert kernel is not None
-        query, parameters = substitute_duckdb_variables(cell.code, variables)
-        _execute_python(
-            kernel, f"_app_result = duck_execute({query!r}, json.loads({json.dumps(parameters)!r}))", deadline
-        )
-        if cell.dataframe_name and not final:
-            _execute_python(
-                kernel,
-                f"globals()[{cell.dataframe_name!r}] = _app_result\nduck_save_table({cell.dataframe_name!r}, _app_result)",
-                deadline,
-            )
-        return _kernel_frame(kernel, "_app_result", deadline, include_types=frame_output) if final else {}
-    query = (
-        _external_query(cell, notebook, user, variables)
-        if cell.send_raw_query
-        else apply_page_bounds(substitute_hogql_variables(cell.code, variables), MAX_ROWS + 1, 0)
-    )
     response = execute_hogql_query(
         query=query,
         team=notebook.team,
         user=user,
         connection_id=cell.connection_id,
         send_raw_query=cell.send_raw_query,
+        settings=HogQLGlobalSettings(max_execution_time=_remaining_seconds(deadline)),
         workload=Workload.ONLINE,
     )
     if response.error:
@@ -282,10 +311,10 @@ def _run_cell(
     if len(response.results) > MAX_ROWS:
         raise ValidationError("This calculation reads more than 500 rows. Aggregate the source data or add a limit.")
     frame = {"columns": response.columns or [], "rows": response.results}
-    if final and frame_output:
+    if include_types:
         types = dict(response.types or [])
         frame["types"] = [types.get(name, "unknown") for name in response.columns or []]
-    payload = _bounded_json(frame)
+    payload = bounded_frame_json(frame)
     if kernel is not None and cell.dataframe_name and not final:
         name = cell.dataframe_name
         _execute_python(
@@ -297,31 +326,32 @@ def _run_cell(
 
 
 def _kernel_frame(
-    kernel: KernelRuntimeSession, name: str, deadline: float, *, include_types: bool
-) -> dict[str, JsonValue]:
+    kernel: KernelRuntimeSession, name: str, deadline: float, include_types: bool
+) -> dict[str, JsonValue] | None:
     data = _execute_python(
         kernel,
-        f"_app_df = globals().get({name!r})\n"
-        f"_app_page = notebook_dataframe_page(_app_df, limit={MAX_ROWS})\n"
-        + (
-            "if _app_page is not None:\n    _app_page['types'] = [str(t) for t in pd.DataFrame(_app_df).dtypes]\n"
+        (
+            f"_app_page = notebook_dataframe_page(globals()[{name!r}], limit={MAX_ROWS})\n"
+            f"if _app_page is not None:\n    _app_page['types'] = [next((name for check, name in {DATAFRAME_TYPE_CHECKS!r} if getattr(pd.api.types, check)(dtype)), 'String') for dtype in globals()[{name!r}].dtypes]\n"
+            "print(json.dumps(_app_page))"
             if include_types
-            else ""
-        )
-        + "print(json.dumps(_app_page))",
+            else f"print(json.dumps(notebook_dataframe_page(globals()[{name!r}], limit={MAX_ROWS})))"
+        ),
         deadline,
     )
     page = json.loads(data)
-    if not isinstance(page, dict):
-        raise ValidationError("The source must assign a dataframe to its output variable.")
+    if page is None:
+        return None
     if page["row_count"] > MAX_ROWS:
         raise ValidationError("This calculation returns more than 500 rows. Aggregate the result or add a limit.")
     columns = page["columns"]
-    return {
+    result: dict[str, JsonValue] = {
         "columns": columns,
         "rows": [[row.get(col) for col in columns] for row in page["rows"]],
-        **({"types": page["types"]} if include_types else {}),
     }
+    if include_types:
+        result["types"] = page["types"]
+    return result
 
 
 def _external_query(cell: NotebookCellState, notebook: Notebook, user: User, variables: list[NotebookVariable]) -> str:
