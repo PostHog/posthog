@@ -4748,6 +4748,8 @@ describe('EmailService', () => {
             const TAGGED_HREF = 'https://app.posthog-test.com/?ref=email&amp;ph_workflow_run=invocation-1'
             const STRIPPED_HREF = 'https://app.posthog-test.com/?ref=email'
             const CLEAN_HREF = 'https://app.posthog-test.com/pricing'
+            const SIGNED_HREF = 'https://app.posthog-test.com/reset?token=reset-token&signature=abc'
+            const UNTRACKED_HREF = 'https://app.posthog-test.com/app?ph_workflow_run=earlier-run'
 
             it.each<{
                 case: string
@@ -4829,13 +4831,60 @@ describe('EmailService', () => {
                     href: STALE_HREF,
                 },
                 {
-                    case: 'leaves the links of a sensitive email that opts in to click tracking',
+                    case: 'tags the links of a sensitive email that opts in to click tracking',
                     trackingEnabled: true,
                     allowlisted: true,
                     isTest: false,
                     sensitive: true,
                     clickTrackingEnabled: true,
+                    href: TAGGED_HREF,
+                },
+                {
+                    case: 'tags the links of a sensitive code send that turns clicks on',
+                    trackingEnabled: true,
+                    allowlisted: true,
+                    isTest: false,
+                    sensitive: true,
+                    send: { tracking: { clicks: true } },
+                    href: TAGGED_HREF,
+                },
+                {
+                    case: "tags the links of a code send marked sensitive that turns clicks on, on a workflow that isn't sensitive",
+                    trackingEnabled: true,
+                    allowlisted: true,
+                    isTest: false,
+                    sensitive: false,
+                    send: { sensitive: true, tracking: { clicks: true } },
+                    href: TAGGED_HREF,
+                },
+                {
+                    case: 'leaves the links of a sensitive test send that turns clicks on',
+                    trackingEnabled: true,
+                    allowlisted: true,
+                    isTest: true,
+                    sensitive: true,
+                    send: { tracking: { clicks: true } },
                     href: STALE_HREF,
+                },
+                {
+                    case: 'drops the run ids of earlier sends from the links of a sensitive code send that turns clicks on, in a team that turned link tagging off',
+                    trackingEnabled: true,
+                    allowlisted: true,
+                    isTest: false,
+                    sensitive: true,
+                    send: { tracking: { clicks: true } },
+                    teamOptedOut: true,
+                    href: STRIPPED_HREF,
+                },
+                {
+                    case: 'drops the run ids of earlier sends from the links of a sensitive code send that turns clicks on, on an email that turned link tagging off',
+                    trackingEnabled: true,
+                    allowlisted: true,
+                    isTest: false,
+                    sensitive: true,
+                    send: { tracking: { clicks: true } },
+                    storedRunLinkTag: false,
+                    href: STRIPPED_HREF,
                 },
                 {
                     case: 'leaves the links of a template that turns click tracking off',
@@ -4914,7 +4963,7 @@ describe('EmailService', () => {
                     }
                     invocation.queueParameters = createEmailParams({
                         from: { integrationId: 1 },
-                        html: `<a href="${STALE_HREF}">a</a><a href="${CLEAN_HREF}">b</a><a href="https://example.com/">c</a>`,
+                        html: `<a href="${STALE_HREF}">a</a><a href="${CLEAN_HREF}">b</a><a href="https://example.com/">c</a><a href="${SIGNED_HREF}">d</a><a href="${UNTRACKED_HREF}" data-ph-no-track>e</a>`,
                     })
                     const result = await taggingService.executeSendEmail(invocation, isTest)
                     expect(result.error).toBeUndefined()
@@ -4922,6 +4971,8 @@ describe('EmailService', () => {
                         href,
                         href === TAGGED_HREF ? `${CLEAN_HREF}?ph_workflow_run=invocation-1` : CLEAN_HREF,
                         'https://example.com/',
+                        SIGNED_HREF,
+                        UNTRACKED_HREF,
                     ])
                 }
             )
