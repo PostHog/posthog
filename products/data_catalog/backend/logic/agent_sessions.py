@@ -142,6 +142,19 @@ async def gather_each(items: Iterable[Awaitable[T]], heartbeat: Callable[[], Non
     return await asyncio.gather(*(run(item) for item in items))
 
 
+def decode_nested_json(raw: str) -> Any:
+    """Telemetry stores a tool input as JSON inside a JSON string, so this decodes up to two levels."""
+    value: Any = raw
+    for _ in range(2):
+        if not isinstance(value, str):
+            break
+        try:
+            value = json.loads(value)
+        except ValueError:
+            break
+    return value
+
+
 def is_data_tool(tool: str) -> bool:
     return tool in DATA_TOOLS or tool.startswith(DATA_TOOL_PREFIX)
 
@@ -745,7 +758,6 @@ async def stitch_sessions_into_snapshot(
         team_id=team_id, snapshot_id=snapshot_id, telemetry_team_id=telemetry_team_id
     )
     async with build_async_anthropic_client(
-        product="django",
         ai_product="data_catalog_usage_stitch",
         team_id=team_id,
         trace_id=f"data-catalog-usage-{snapshot_id}",

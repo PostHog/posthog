@@ -1,21 +1,15 @@
-"""Forking a channel thread into a DM.
+"""Forking a thread into a DM or into another channel.
 
-Someone reading a thread wants to dig into it — understand the code, ask the
-obvious question — without turning the thread into their own tutorial. The "…"
-menu under a reply opens a private DM that has already read the thread, and
-carries on there.
+Someone reading a thread wants to continue it somewhere else: dig into it in private
+without turning the thread into their own tutorial, or move the work to the channel
+where it belongs. The "…" menu under a reply posts a seed message in the clicker's DM,
+or in the channel they pick, and starts a task in that message's thread at once.
 
-The run does not start here. The DM asks what the reader wants to know, because
-the menu has nowhere to type it, and their reply is the actual request. That
-reply arrives as an ordinary ``message.im`` with nothing on it to say the thread
-is a fork — the ``SlackThreadTaskMapping`` that would say so is written by task
-creation, which has not happened yet. So the forked thread is parked in
-``slack_fork_context``, and ``_handle_assistant_dm_message`` reads it back and starts
-the ordinary mention workflow against it.
-
-That workflow then answers in the DM while building its ``<slack_thread_context>``
-from the channel thread instead — everything downstream, from repo selection to
-follow-ups, is the mention path untouched.
+The task gets a link to the forked thread, not a copy of it. The agent reads the
+thread through the clicker's Slack MCP, with the clicker's own Slack access, and
+continues from where it stopped. The run is the ordinary mention workflow: the
+``fork_source_*`` inputs only change the task prompt. Everything downstream, from repo
+selection to follow-ups, is the mention path untouched.
 """
 
 import json

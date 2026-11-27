@@ -18,6 +18,7 @@ from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.tagged_items_relation import Taggable
 from posthog.models.utils import RootTeamManager, RootTeamMixin, UUIDModel
 
+from products.experiments.backend.facade.enums import LEGACY_METRIC_KINDS
 from products.feature_flags.backend.facade.filters import (
     CohortRestrictionBlocker,
     group_cohort_restriction_blocker,
@@ -541,9 +542,6 @@ def exposure_flag_key(feature_flag: Any, rule: ExperimentRuleConfig | None) -> s
     if rule is not None and rule.flag_key is not None:
         return rule.flag_key
     return feature_flag.key_without_tombstone()
-
-
-LEGACY_METRIC_KINDS: frozenset[str] = frozenset({"ExperimentTrendsQuery", "ExperimentFunnelsQuery"})
 
 
 def experiment_has_legacy_metrics(experiment: "Experiment") -> bool:

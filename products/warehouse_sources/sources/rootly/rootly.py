@@ -7,12 +7,14 @@ from products.warehouse_sources.sources.rootly.settings import ROOTLY_ENDPOINTS,
 from products.warehouse_sources.sources.sdk import (
     ClientConfig,
     Endpoint,
+    EndpointResource,
     JSONResponseCursorPaginator,
     JSONResponsePaginator,
     Resource,
     RESTAPIConfig,
     ResumableSourceManager,
     SourceResponse,
+    build_chained_resource,
     build_dependent_resource,
     flatten_jsonapi,
     make_tracked_session,
@@ -107,8 +109,8 @@ def probe_credentials(api_key: str, endpoint: str | None = None) -> int | None:
     """Cheap probe of a Rootly collection. Returns the HTTP status code, or None on a connection
     failure. Probes the given endpoint's path when set, else a generic, cheap collection."""
     config = ROOTLY_ENDPOINTS.get(endpoint) if endpoint else None
-    if config is not None and config.fanout is not None:
-        # A child path needs a parent id; access to the parent collection is the same scope check.
+    while config is not None and config.fanout is not None:
+        # A child path needs a parent id; access to the root collection is the same scope check.
         config = ROOTLY_ENDPOINTS[config.fanout.parent_name]
     path = config.path if config else "/users"
     url = _build_url(f"{ROOTLY_BASE_URL}{path}", {"page[size]": 1})
@@ -266,6 +268,84 @@ def _fanout_source(
     return _make_source_response(config, resource.add_map(_flatten_item))
 
 
+def _chained_fanout_source(config: RootlyEndpointConfig, api_key: str, team_id: int, job_id: str) -> SourceResponse:
+    """Two-level fan-out (root -> middle -> child). It runs without resume state, because the
+    framework withholds the resume hook once more than one resource is dependent."""
+    assert config.fanout is not None
+    middle_config = ROOTLY_ENDPOINTS[config.fanout.parent_name]
+    assert middle_config.fanout is not None
+    root_fanout = middle_config.fanout
+    root_config = ROOTLY_ENDPOINTS[root_fanout.parent_name]
+    fanout = config.fanout
+
+    root_resource: EndpointResource = {
+        "name": root_config.name,
+        "table_name": root_config.name,
+        "write_disposition": "replace",
+        "endpoint": {
+            "path": root_config.path,
+            "params": {"page[size]": root_config.page_size},
+            "data_selector": "data",
+        },
+        "table_format": "delta",
+    }
+    middle_resource: EndpointResource = {
+        "name": middle_config.name,
+        "table_name": middle_config.name,
+        "write_disposition": "replace",
+        "endpoint": {
+            "path": middle_config.path,
+            "params": {
+                root_fanout.resolve_param: {
+                    "type": "resolve",
+                    "resource": root_config.name,
+                    "field": root_fanout.resolve_field,
+                },
+                "page[size]": middle_config.page_size,
+            },
+            "data_selector": "data",
+            "response_actions": root_fanout.child_response_actions,
+        },
+        # Flattened before the child reads it, so the child can carry the `schedule_id` attribute.
+        "data_map": _flatten_item,
+        "table_format": "delta",
+    }
+    child_resource: EndpointResource = {
+        "name": config.name,
+        "table_name": config.name,
+        "write_disposition": "replace",
+        "include_from_parent": fanout.include_from_parent,
+        "endpoint": {
+            "path": config.path,
+            "params": {
+                fanout.resolve_param: {
+                    "type": "resolve",
+                    "resource": middle_config.name,
+                    "field": fanout.resolve_field,
+                },
+                "page[size]": config.page_size,
+            },
+            "data_selector": "data",
+            "response_actions": fanout.child_response_actions,
+        },
+        "table_format": "delta",
+    }
+
+    resource = cast(
+        Resource,
+        build_chained_resource(
+            resources=[root_resource, middle_resource, child_resource],
+            child_name=config.name,
+            parent_name=middle_config.name,
+            parent_field_renames={field: field for field in fanout.include_from_parent},
+            client_config=_client_config(api_key),
+            team_id=team_id,
+            job_id=job_id,
+        ),
+    )
+    return _make_source_response(config, resource.add_map(_flatten_item))
+
+
 def rootly_source(
     api_key: str,
     endpoint: str,
@@ -278,6 +358,8 @@ def rootly_source(
 ) -> SourceResponse:
     config = ROOTLY_ENDPOINTS[endpoint]
 
+    if config.fanout is not None and ROOTLY_ENDPOINTS[config.fanout.parent_name].fanout is not None:
+        return _chained_fanout_source(config, api_key, team_id, job_id)
     if config.fanout is not None:
         return _fanout_source(config, api_key, team_id, job_id, resumable_source_manager)
 

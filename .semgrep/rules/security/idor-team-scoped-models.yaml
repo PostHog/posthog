@@ -76,6 +76,7 @@ rules:
                               |AEOKeyword
                               |AEOPrompt
                               |AEOPromptVersion
+                              |AEOTeamConfig
                               |AgentApplication
                               |AgentArtifact
                               |AgentIdentityCredential
@@ -160,6 +161,7 @@ rules:
                               |UserInterfaceFragment
                               |Dashboard
                               |DashboardTemplate
+                              |DashboardV2Board
                               |DashboardWidget
                               |TeamHomeTabDashboardConfig
                               |DataColorTheme
@@ -196,6 +198,7 @@ rules:
                               |Endpoint
                               |EnterpriseEventDefinition
                               |EnterprisePropertyDefinition
+                              |EventDefinitionMetadata
                               |EventFilterConfig
                               |EventFilterPipelineOverride
                               |EventStream
@@ -228,6 +231,7 @@ rules:
                               |ExperimentHoldout
                               |ExperimentMetricsRecalculation
                               |ExperimentSavedMetric
+                              |ExperimentScoreSuiteDefault
                               |ExportedAsset
                               |ExportedRecording
                               |ExternalDataDestination
@@ -358,6 +362,7 @@ rules:
                               |Node
                               |NotificationEvent
                               |Notebook
+                              |NotebookAppRelease
                               |NotebookNodeRun
                               |NotebookModel
                               |NotebookRun
@@ -376,6 +381,7 @@ rules:
                               |ProviderImportRun
                               |ProjectSecretAPIKey
                               |PropertyAccessControl
+                              |PropertyDefinitionMetadata
                               |PullRequestAudience
                               |PurgedTicketThread
                               |QuarantineLiftRequest
@@ -466,6 +472,8 @@ rules:
                               |SignalScoutEmission
                               |SignalScoutNote
                               |SignalScoutStructuredOutput
+                              |SignalScoutMessage
+                              |SignalScoutMessageDelivery
                               |SignalScoutPendingTrigger
                               |SignalScoutSuggestionSet
                               |SignalScoutBackgroundBand
@@ -502,7 +510,6 @@ rules:
                               |SurveyResponseArchive
                               |TableCertification
                               |Tag
-                              |Tagger
                               |Task
                               |TaskActivity
                               |TaskArtifact
@@ -723,6 +730,7 @@ rules:
                         |UserInterfaceFragment
                         |Dashboard
                         |DashboardTemplate
+                        |DashboardV2Board
                         |DashboardWidget
                         |TeamHomeTabDashboardConfig
                         |DataColorTheme
@@ -759,6 +767,7 @@ rules:
                         |Endpoint
                         |EnterpriseEventDefinition
                         |EnterprisePropertyDefinition
+                        |EventDefinitionMetadata
                         |EventFilterConfig
                         |EventFilterPipelineOverride
                         |EventStream
@@ -791,6 +800,7 @@ rules:
                         |ExperimentHoldout
                         |ExperimentMetricsRecalculation
                         |ExperimentSavedMetric
+                        |ExperimentScoreSuiteDefault
                         |ExportedAsset
                         |ExportedRecording
                         |ExternalDataJob
@@ -908,6 +918,7 @@ rules:
                         |Node
                         |NotificationEvent
                         |Notebook
+                        |NotebookAppRelease
                         |NotebookNodeRun
                         |NotebookModel
                         |NotebookRun
@@ -926,6 +937,7 @@ rules:
                         |ProviderImportRun
                         |ProjectSecretAPIKey
                         |PropertyAccessControl
+                        |PropertyDefinitionMetadata
                         |PullRequestAudience
                         |PurgedTicketThread
                         |QuarantineLiftRequest
@@ -1016,6 +1028,8 @@ rules:
                         |SignalScoutEmission
                         |SignalScoutNote
                         |SignalScoutStructuredOutput
+                        |SignalScoutMessage
+                        |SignalScoutMessageDelivery
                         |SignalScoutPendingTrigger
                         |SignalScoutSuggestionSet
                         |SignalScoutBackgroundBand
@@ -1052,7 +1066,6 @@ rules:
                         |SurveyResponseArchive
                         |TableCertification
                         |Tag
-                        |Tagger
                         |Task
                         |TaskActivity
                         |TaskArtifact
@@ -1267,9 +1280,11 @@ rules:
                         |EvaluationContext
                         |EvaluationReport
                         |Event
+                        |EventDefinitionMetadata
                         |EventFilterConfig
                         |EventFilterPipelineOverride
                         |EventsHealthDaily
+                        |ExperimentScoreSuiteDefault
                         |ExperimentTimeseriesRecalculation
                         |ExplicitTeamMembership
                         |ExportedAsset
@@ -1349,6 +1364,7 @@ rules:
                         |ProductTour
                         |ProjectSecretAPIKey
                         |PropertyAccessControl
+                        |PropertyDefinitionMetadata
                         |QueryTabState
                         |QueueJob
                         |QueueSchedulerDecision
@@ -1396,7 +1412,6 @@ rules:
                         |SurveyResponseArchive
                         |TableCertification
                         |TaggedItem
-                        |Tagger
                         |Task
                         |TaskRun
                         |TeamAccessControlConfig
@@ -1498,7 +1513,8 @@ rules:
                       metavariable: $MODEL
                       regex: |
                           (?x)(
-                              BillingAlertConfiguration
+                              AgentTranscriptSubmission
+                              |BillingAlertConfiguration
                               |BillingAlertEvaluationClaim
                               |BillingAlertEvent
                               |CIMDVerificationToken
@@ -1529,6 +1545,7 @@ rules:
                               |RoleExternalReference
                               |RoleMembership
                               |SandboxSenderOrganizationBlock
+                              |SlackChannelSettings
                           )$
                 - focus-metavariable: $SINK
       pattern-sanitizers:
@@ -1585,7 +1602,8 @@ rules:
                 metavariable: $MODEL
                 regex: |
                     (?x)(
-                        BillingAlertConfiguration
+                        AgentTranscriptSubmission
+                        |BillingAlertConfiguration
                         |BillingAlertEvaluationClaim
                         |BillingAlertEvent
                         |CIMDVerificationToken
@@ -1616,6 +1634,7 @@ rules:
                         |RoleExternalReference
                         |RoleMembership
                         |SandboxSenderOrganizationBlock
+                        |SlackChannelSettings
                     )$
           - pattern-not: $M.objects. ... .$METHOD2(..., organization=$O, ...)
           - pattern-not: $M.objects. ... .$METHOD2(..., organization_id=$O, ...)

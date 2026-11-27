@@ -559,6 +559,13 @@ class PersonsTable(LazyTable):
         _Finder().visit(expr)
         return found
 
+    def moved_filter_conjuncts(self) -> list[Expr]:
+        """The conjuncts of `filter` that left the join constraint, which no traversal of the query tree reaches."""
+        if self.filter is None:
+            return []
+        conjuncts = self.filter.exprs if isinstance(self.filter, And) else [self.filter]
+        return conjuncts[len(self.filter_positions) :]
+
     def held_join_conjuncts(self, join: JoinExpr) -> list[Expr]:
         if self.filter is None or join.constraint is None or not isinstance(join.constraint.expr, And):
             return []

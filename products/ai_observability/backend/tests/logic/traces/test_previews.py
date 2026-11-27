@@ -21,6 +21,7 @@ from products.ai_observability.backend.logic.traces.previews import (
     PreviewReads,
     PreviewSource,
     TracePreviewSources,
+    page_turn_messages,
     page_turns,
     pick_preview_events,
     preview_sources,
@@ -170,6 +171,38 @@ def test_a_page_takes_the_answer_from_state_and_the_message_from_the_first_gener
         "with-state": Turn(message="First question", answer="From the state."),
         "without-state": Turn(message="First question", answer="Latest answer"),
     }
+
+
+def test_a_page_of_messages_never_normalizes_an_output() -> None:
+    normalized: list[Value] = []
+
+    class Recording(RecipeNormalizer):
+        def normalize_messages(self, value: Value, default_role: str, tools: Value = MISSING) -> RunOutcome:
+            normalized.append(value)
+            return super().normalize_messages(value, default_role, tools)
+
+    sources = {
+        "with-state": TracePreviewSources(
+            state=PreviewSource(
+                event_id="t", kind="trace", input=read("From the state?"), output=read([assistant("State answer")])
+            ),
+            first_generation=generation("g1", input=[user("Ignored")], output=[assistant("First answer")]),
+            latest_generation=generation("g2", input=[user("Later")], output=[assistant("Latest answer")]),
+        ),
+        "one-generation": TracePreviewSources(
+            state=None,
+            first_generation=generation("g1", input=[user("Only question")], output=[assistant("Only answer")]),
+            latest_generation=generation("g1", input=[user("Only question")], output=[assistant("Only answer")]),
+        ),
+    }
+
+    messages = page_turn_messages(sources, build_normalizer=Recording, team_id=TEAM_ID)
+
+    assert (messages, [value for value in normalized if "answer" in json.dumps(value)]) == (
+        {"with-state": "From the state?", "one-generation": "Only question"},
+        [],
+    )
+    assert [user("Later")] not in normalized
 
 
 VIDEO_PART = {"type": "video_url", "video_url": {"url": "https://example.com/clip.mp4"}}

@@ -54,6 +54,7 @@ from posthog.temporal.ai_observability.team_capture import (
     HYDRATING_EMIT_START_TO_CLOSE_TIMEOUT,
 )
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.errors import NonReportableApplicationError
 
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 from products.signals.backend.facade.temporal import (
@@ -256,6 +257,23 @@ async def handle_terminal_user_error_result(
     )
 
 
+def stopped_evaluation_error(evaluation: dict[str, Any]) -> NonReportableApplicationError:
+    """The failure of a backfill run whose evaluation was disabled or deleted after the backfill started.
+
+    The run fails instead of returning a skip. A backfill without rerun_existing starts its run under
+    the live path's workflow id with ALLOW_DUPLICATE_FAILED_ONLY, so a completed skip would hold that
+    id and a later backfill could not start the unit again once the evaluation is back on. The
+    backfill reads the error type as its stop reason.
+    """
+    reason = "evaluation_deleted" if evaluation["deleted"] else "evaluation_disabled"
+    return NonReportableApplicationError(
+        f"Backfill run stopped: {reason}",
+        {"evaluation_type": evaluation.get("evaluation_type", "llm_judge")},
+        type=reason,
+        non_retryable=True,
+    )
+
+
 def compact_backfill_result(result: WorkflowResult, backfill_id: str | None) -> WorkflowResult:
     # A backfill waits on its children, so each result lands in the backfill's own history. Hog
     # output has no size cap, and a page of large results can pass Temporal's history limit.
@@ -342,13 +360,15 @@ class RunEvaluationWorkflow(PostHogWorkflow):
         evaluation_type = evaluation.get("evaluation_type", "llm_judge")
 
         # A backfill can outlive the evaluation it runs, so it checks before the billed judge call.
-        # The skip also tells the backfill to stop the rest of its page.
+        # The run's outcome also tells the backfill to stop the rest of its page.
         if (
             result is None
             and inputs.backfill_id is not None
             and (evaluation["deleted"] or not evaluation["enabled"])
             and temporalio.workflow.patched("evaluation-backfill-skips-disabled-evaluation")
         ):
+            if temporalio.workflow.patched("evaluation-backfill-stopped-run-fails-2026-11"):
+                raise stopped_evaluation_error(evaluation)
             return build_skipped_workflow_result(
                 evaluation=evaluation,
                 evaluation_type=evaluation_type,

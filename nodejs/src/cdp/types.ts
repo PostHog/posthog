@@ -306,6 +306,7 @@ export type MinimalAppMetric = {
     // `parentRunId` for batch-triggered runs, so per-run views group by the run. A per-version rollup
     // has to key on the flow itself, or a broadcast's metrics never aggregate across its runs.
     app_source_version?: { id: string; version: number }
+    prometheus_metric_name?: 'email_sender_unverified'
 }
 
 export type AppMetricType = MinimalAppMetric & {
@@ -464,6 +465,8 @@ export type CyclotronJobInvocationHogFunctionContext = {
     actionId?: string // The hogflow action node ID, used for metrics instance_id when executing within a workflow
     // Set when a protected workflow step pauses mid-send, so its retries stay protected.
     sensitive?: boolean
+    trackingEnabled?: boolean
+    clickTrackingEnabled?: boolean
     actionStepCount?: number
     customerTaskIdempotencyVersion?: 1
     send?: QueuedSend
@@ -598,6 +601,8 @@ export type HogFlowInvocationContext = {
         // shortened ceiling is otherwise indistinguishable from the deadline arriving. Comparing the
         // parked ceiling with the action's current one tells the two apart.
         parkedMaxWaitDuration?: string
+        // Compared for the same reason: an edited condition can match at the deadline, before the sweep.
+        parkedConditionHash?: string
         // Set by hog-function action handler when it returns `finished: false` without an
         // explicit `queueScheduledAt` — i.e. the reschedule is purely to move the job onto a
         // dedicated queue (e.g. 'email' for SES rate-limit gating) and the next dequeue will

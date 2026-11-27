@@ -16,6 +16,7 @@ DOCS_BASE = "https://api-docs.serpstat.com/docs/serpstat-public-api/"
 SPEC_BASE = "https://raw.githubusercontent.com/SerpstatGlobal/serpstat-mcp-server-java/main/doc/openapi_spec/"
 DOMAIN_ANALYSIS_DOCS_URL = SPEC_BASE + "Serpstat-Domain-Analysis-API.json"
 BACKLINKS_DOCS_URL = SPEC_BASE + "Serpstat-Backlinks-API.json"
+RANK_TRACKER_DOCS_URL = SPEC_BASE + "Serpstat-RankTracker-API.json"
 DEFAULT_SEARCH_ENGINE = "g_us"
 # getDomainsHistory has no page parameter, so one request at the maximum size reads the whole history.
 DOMAIN_HISTORY_PAGE_SIZE = 1000
@@ -112,6 +113,42 @@ ENDPOINTS = {
         project_param=None,
         domain_param="query",
         stop_on_short_page=True,
+    ),
+    "ref_domains": SerpstatEndpoint(
+        method="SerpstatBacklinksProcedure.getRefDomains",
+        primary_keys=("domain_from",),
+        docs_url=BACKLINKS_DOCS_URL,
+        project_param=None,
+        domain_param="query",
+        stop_on_short_page=True,
+    ),
+    "lost_backlinks": SerpstatEndpoint(
+        method="SerpstatBacklinksProcedure.getLostBacklinks",
+        primary_keys=("url_from", "url_to", "link_type", "link_text", "date_del"),
+        docs_url=BACKLINKS_DOCS_URL,
+        project_param=None,
+        domain_param="query",
+        stop_on_short_page=True,
+    ),
+    # getCompetitors is deprecated, and getOrganicCompetitorsPage replaces it.
+    "competitors": SerpstatEndpoint(
+        method="SerpstatDomainProcedure.getOrganicCompetitorsPage",
+        primary_keys=("domain",),
+        docs_url=DOMAIN_ANALYSIS_DOCS_URL,
+        project_param=None,
+        domain_param="domain",
+        search_engine=True,
+        stop_on_short_page=True,
+    ),
+    "top_competitors_history": SerpstatEndpoint(
+        method="RtApiSerpResultsProcedure.getTopCompetitorsDomainsHistory",
+        primary_keys=("project_id", "project_region_id", "domain", "date"),
+        docs_url=RANK_TRACKER_DOCS_URL,
+        selector="result.data.competitors",
+        project_param="projectId",
+        total_pages_path="result.summary_info.page_total",
+        size_param="pageSize",
+        partition_key="date",
     ),
 }
 

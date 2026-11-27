@@ -65,6 +65,8 @@ export interface UseToolResultOptions {
      * result, before surfacing an error. Set to 0 to wait indefinitely.
      */
     waitTimeoutMs?: number
+    /** Reads the app's data from a successful result. Defaults to `parseToolResultContent`. */
+    readResult?: (structuredContent: unknown, meta: Record<string, unknown> | undefined) => unknown
 }
 
 export interface ContainerDimensions {
@@ -134,18 +136,15 @@ const TOOL_ERROR_MESSAGE = 'The tool call failed, so there are no results to sho
  * fallback. Never falls back to text content.
  */
 export function parseToolResultContent<T>(structuredContent: unknown, meta?: unknown): T | null {
-    // Prefer structuredContent when the host forwards it.
-    if (structuredContent !== undefined && structuredContent !== null) {
-        return structuredContent as T
-    }
-
-    // Coding-agent hosts suppress `structuredContent` so the model reads the
-    // compact text table; the app's data then rides on `_meta` instead.
+    // `_meta` wins because it always holds the complete data: `structuredContent` is suppressed
+    // for coding-agent hosts and shortened to the model's response budget.
     const appData = (meta as Record<string, unknown> | undefined)?.[APP_DATA_META_KEY]
     if (appData !== undefined && appData !== null) {
         return appData as T
     }
-
+    if (structuredContent !== undefined && structuredContent !== null) {
+        return structuredContent as T
+    }
     return null
 }
 
@@ -186,6 +185,7 @@ export function useToolResult<T = unknown>({
     appName,
     appVersion = '1.0.0',
     waitTimeoutMs = DEFAULT_WAIT_TIMEOUT_MS,
+    readResult = parseToolResultContent,
 }: UseToolResultOptions): UseToolResultReturn<T> {
     const [data, setData] = useState<T | null>(null)
     const [resultMeta, setResultMeta] = useState<Record<string, unknown> | null>(null)
@@ -246,7 +246,9 @@ export function useToolResult<T = unknown>({
             appInstance.ontoolresult = (params) => {
                 try {
                     const meta = (params as { _meta?: Record<string, unknown> })._meta
-                    const parsed = params.isError ? null : parseToolResultContent<T>(params.structuredContent, meta)
+                    const parsed = params.isError
+                        ? null
+                        : ((readResult(params.structuredContent, meta) ?? null) as T | null)
 
                     // Extract analytics metadata and identify the user
                     const analytics = extractAnalytics(parsed)

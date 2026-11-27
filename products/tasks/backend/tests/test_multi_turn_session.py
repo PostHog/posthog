@@ -383,6 +383,7 @@ class TestPollForTurnStaleSalvage:
             ),
             ("sandbox_output", [_console_line("npm install ...", method="_posthog/sandbox_output")]),
             ("setup_progress", [_console_line("cloning repo", method="_posthog/progress")]),
+            ("session_log_gap", [_console_line("", method="_posthog/session_log_gap")]),
         ]
     )
     async def test_salvages_dropped_finalization_despite_trailing_console_lines(self, _name, trailing):

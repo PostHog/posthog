@@ -309,6 +309,12 @@ pub static BLOCK_COLUMNS: LazyLock<Vec<Column>> = LazyLock::new(|| {
             name: "image_ref_sketch",
             leaf: Int32,
         }],
+        // A recorder from before the JSON-LD columns sends rows without them.
+        optional(Int32, &["json_ld_events"]),
+        vec![Column::NullableList {
+            name: "json_ld_root_types",
+            leaf: Utf8,
+        }],
     ]
     .concat()
 });

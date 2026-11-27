@@ -34,6 +34,7 @@ jest.mock('@posthog/lemon-ui', () => {
 
 const MOCK_IMPERSONATED_USER: UserType = {
     ...MOCK_DEFAULT_USER,
+    id: 123,
     is_impersonated: true,
     is_impersonated_read_only: true,
     is_impersonated_until: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
@@ -64,6 +65,25 @@ function mockMember(
     }
 }
 
+function mockLocationReload(): { reload: jest.Mock; restore: () => void } {
+    const originalLocation = window.location
+    const reload = jest.fn()
+    Object.defineProperty(window, 'location', {
+        configurable: true,
+        writable: true,
+        value: { ...originalLocation, reload },
+    })
+    return {
+        reload,
+        restore: () =>
+            Object.defineProperty(window, 'location', {
+                configurable: true,
+                writable: true,
+                value: originalLocation,
+            }),
+    }
+}
+
 describe('impersonationNoticeLogic', () => {
     let logic: ReturnType<typeof impersonationNoticeLogic.build>
 
@@ -75,7 +95,7 @@ describe('impersonationNoticeLogic', () => {
                 '/api/organizations/:org/members/': () => [200, { results: [], count: 0 }],
             },
             post: {
-                '/admin/login/user/:id/': () => [200, {}],
+                '/admin/login/user/:id/': () => [200, { success: true }],
             },
         })
         initKeaTests()
@@ -235,7 +255,7 @@ describe('impersonationNoticeLogic', () => {
                     '/admin/auth_check': () => [200, {}],
                 },
                 post: {
-                    '/admin/login/user/:id/': () => [200, {}],
+                    '/admin/login/user/:id/': () => [200, { success: true }],
                 },
             })
 
@@ -254,28 +274,84 @@ describe('impersonationNoticeLogic', () => {
                 .toFinishAllListeners()
         })
 
-        it('shows error toast and dispatches reImpersonateFailure on login failure', async () => {
-            logic.actions.setSessionExpired({ email: 'test@example.com', userId: 123, isImpersonatedUntil: null })
-
-            useMocks({
-                get: {
-                    '/admin/auth_check': () => [200, {}],
+        it.each(
+            [
+                { status: 403, probeStatus: 200, currentUser: MOCK_DEFAULT_USER, shouldReload: false },
+                { status: 200, probeStatus: 200, currentUser: MOCK_DEFAULT_USER, shouldReload: false },
+                {
+                    status: 200,
+                    probeStatus: 200,
+                    currentUser: { ...MOCK_IMPERSONATED_USER, is_impersonated: false },
+                    shouldReload: false,
                 },
-                post: {
-                    '/admin/login/user/:id/': () => [403, { detail: 'Forbidden' }],
+                {
+                    status: 200,
+                    probeStatus: 200,
+                    currentUser: { ...MOCK_IMPERSONATED_USER, id: 456 },
+                    shouldReload: true,
                 },
-            })
-
-            await expectLogic(logic, () => {
-                logic.actions.reImpersonate('reason', true)
-            })
-                .toFinishAllListeners()
-                .toMatchValues({
-                    isReImpersonating: false,
-                })
-
-            expect(lemonToast.error).toHaveBeenCalled()
-        })
+                { status: 200, probeStatus: 503, currentUser: MOCK_DEFAULT_USER, shouldReload: true },
+                { status: 500, probeStatus: 200, currentUser: MOCK_DEFAULT_USER, shouldReload: true },
+                {
+                    status: 200,
+                    probeStatus: 200,
+                    currentUser: { ...MOCK_IMPERSONATED_USER, is_impersonated_read_only: false },
+                    shouldReload: true,
+                },
+                ...[undefined, null, {}, { success: false }].map((loginResult) => ({
+                    status: 200,
+                    probeStatus: 200,
+                    currentUser: MOCK_IMPERSONATED_USER,
+                    loginResult,
+                    shouldReload: true,
+                })),
+                ...[
+                    undefined,
+                    null,
+                    {},
+                    { id: 123 },
+                    { is_impersonated: false },
+                    { id: '123', is_impersonated: false },
+                ].map((currentUser) => ({ status: 200, probeStatus: 200, currentUser, shouldReload: true })),
+            ].map((testCase) => ({ loginResult: { success: testCase.status === 200 }, ...testCase }))
+        )(
+            'handles login $status, probe $probeStatus, and identity $currentUser',
+            async ({ status, probeStatus, currentUser, loginResult, shouldReload }) => {
+                const { reload, restore } = mockLocationReload()
+                try {
+                    logic.actions.setSessionExpired({
+                        email: 'test@example.com',
+                        userId: 123,
+                        isImpersonatedUntil: null,
+                    })
+                    useMocks({
+                        get: {
+                            '/admin/auth_check': () => [200, {}],
+                            '/api/users/@me/': () =>
+                                currentUser === undefined ? [probeStatus] : [probeStatus, currentUser],
+                        },
+                        post: {
+                            '/admin/login/user/:id/': () =>
+                                loginResult === undefined ? [status] : [status, loginResult],
+                        },
+                    })
+                    await expectLogic(logic, () => {
+                        logic.actions.reImpersonate('reason', true)
+                    })
+                        .toFinishAllListeners()
+                        .toNotHaveDispatchedActions(['loadUser'])
+                    expect(logic.values.isReImpersonating).toBe(shouldReload)
+                    if (shouldReload) {
+                        expect(reload).toHaveBeenCalled()
+                    } else {
+                        expect(reload).not.toHaveBeenCalled()
+                        expect(lemonToast.error).toHaveBeenCalled()
+                    }
+                } finally {
+                    restore()
+                }
+            }
+        )
 
         it('shows error toast when OAuth2 popup is blocked', async () => {
             logic.actions.setSessionExpired({ email: 'test@example.com', userId: 123, isImpersonatedUntil: null })
@@ -312,7 +388,7 @@ describe('impersonationNoticeLogic', () => {
                     '/api/users/@me/': () => [200, MOCK_IMPERSONATED_USER],
                 },
                 post: {
-                    '/admin/login/user/:id/': () => [200, {}],
+                    '/admin/login/user/:id/': () => [200, { success: true }],
                 },
             })
 
@@ -351,7 +427,7 @@ describe('impersonationNoticeLogic', () => {
                     '/api/users/@me/': () => [200, MOCK_IMPERSONATED_USER],
                 },
                 post: {
-                    '/admin/login/user/:id/': () => [200, {}],
+                    '/admin/login/user/:id/': () => [200, { success: true }],
                 },
             })
 
@@ -564,10 +640,10 @@ describe('impersonationNoticeLogic', () => {
             useMocks({
                 get: {
                     '/admin/auth_check': () => [200, {}],
-                    '/api/users/@me/': () => [200, MOCK_IMPERSONATED_USER],
+                    '/api/users/@me/': () => [200, { ...MOCK_IMPERSONATED_USER, is_impersonated_read_only: readOnly }],
                 },
                 post: {
-                    '/admin/login/user/:id/': () => [200, {}],
+                    '/admin/login/user/:id/': () => [200, { success: true }],
                 },
             })
 
@@ -597,7 +673,7 @@ describe('impersonationNoticeLogic', () => {
                     '/api/users/@me/': () => [200, MOCK_IMPERSONATED_USER],
                 },
                 post: {
-                    '/admin/login/user/:id/': () => [200, {}],
+                    '/admin/login/user/:id/': () => [200, { success: true }],
                 },
             })
 
@@ -743,25 +819,6 @@ describe('impersonationNoticeLogic', () => {
     })
 
     describe('changeUser listener', () => {
-        function mockLocationReload(): { reload: jest.Mock; restore: () => void } {
-            const originalLocation = window.location
-            const reload = jest.fn()
-            Object.defineProperty(window, 'location', {
-                configurable: true,
-                writable: true,
-                value: { ...originalLocation, reload },
-            })
-            return {
-                reload,
-                restore: () =>
-                    Object.defineProperty(window, 'location', {
-                        configurable: true,
-                        writable: true,
-                        value: originalLocation,
-                    }),
-            }
-        }
-
         it.each([
             { readOnly: true, expected: 'true' },
             { readOnly: false, expected: 'false' },
@@ -777,10 +834,13 @@ describe('impersonationNoticeLogic', () => {
             useMocks({
                 get: {
                     '/admin/auth_check': () => [200, {}],
-                    '/api/users/@me/': () => [200, MOCK_IMPERSONATED_USER],
+                    '/api/users/@me/': () => [
+                        200,
+                        { ...MOCK_IMPERSONATED_USER, id: 456, is_impersonated_read_only: readOnly },
+                    ],
                 },
                 post: {
-                    '/admin/login/user/:id/': () => [200, {}],
+                    '/admin/login/user/:id/': () => [200, { success: true }],
                 },
             })
 
@@ -807,7 +867,12 @@ describe('impersonationNoticeLogic', () => {
             userLogic.actions.loadUserSuccess({ ...MOCK_IMPERSONATED_USER, is_impersonated_reason: 'persisted reason' })
 
             const fetchSpy = jest.spyOn(globalThis, 'fetch')
-            const { restore } = mockLocationReload()
+            const { reload, restore } = mockLocationReload()
+            useMocks({
+                get: {
+                    '/api/users/@me/': () => [200, { ...MOCK_IMPERSONATED_USER, id: 456 }],
+                },
+            })
 
             try {
                 await expectLogic(logic, () => {
@@ -819,6 +884,7 @@ describe('impersonationNoticeLogic', () => {
                 )
                 const body = new URLSearchParams(loginCall![1]?.body as string)
                 expect(body.get('reason')).toBe('fresh reason')
+                expect(reload).toHaveBeenCalled()
             } finally {
                 restore()
                 fetchSpy.mockRestore()

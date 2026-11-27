@@ -1,5 +1,6 @@
 import { router } from 'kea-router'
 
+import { helpMenuLogic } from 'lib/components/HelpMenu/helpMenuLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
@@ -21,6 +22,11 @@ describe('todayShellLogic', () => {
     beforeEach(() => {
         localStorage.clear()
         initKeaTests()
+    })
+
+    it('does not mount the help menu, which loads the health summary, so shared pages make no team-scoped call', () => {
+        todayShellLogic().mount()
+        expect(helpMenuLogic.isMounted()).toBe(false)
     })
 
     test.each([
@@ -207,6 +213,34 @@ describe('todayShellLogic', () => {
     )
 
     test.each([
+        ['/project/1/workflows', 'automate', 'products'],
+        ['/project/1/workflows/0190-flow/workflow', 'automate', 'products'],
+        ['/project/1/transactional/log', 'automate', 'products'],
+        ['/project/1/data-management/destinations', 'automate', 'products'],
+        ['/project/1/pipeline/batch-exports/0190-export', 'automate', null],
+        ['/project/1/subscriptions/12', 'automate', null],
+        ['/project/1/inbox/scouts/checkout-errors', 'automate', 'products'],
+        ['/project/1/inbox/reports', 'products', 'products'],
+        ['/project/1/functions/0190-function', null, null],
+    ])('puts %s under %s with data-area on, and under %s with it off', (pathname, pane, paneWithoutAutomate) => {
+        expect(railPaneForPath(pathname, { [FEATURE_FLAGS.DATA_AREA]: true })).toBe(pane)
+        expect(railPaneForPath(pathname, {})).toBe(paneWithoutAutomate)
+    })
+
+    test.each([
+        [true, 'automate'],
+        [false, 'products'],
+    ] as const)('with data-area %s, a workflow shows %s', (enabled, pane) => {
+        const flags = { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true, [FEATURE_FLAGS.DATA_AREA]: enabled }
+        featureFlagLogic.actions.setFeatureFlags(Object.keys(flags), flags)
+        const logic = todayShellLogic()
+        logic.mount()
+
+        router.actions.push('/project/1/workflows/0190-flow/workflow')
+        expect(logic.values.activePane).toBe(pane)
+    })
+
+    test.each([
         ['/project/1/data-management/sources', 'data', 'products'],
         ['/project/1/data-management/sources/managed-0190/schemas', 'data', 'products'],
         ['/project/1/data-warehouse/new-source', 'data', 'products'],
@@ -215,8 +249,6 @@ describe('todayShellLogic', () => {
         ['/project/1/data-management/properties', 'data', 'products'],
         ['/project/1/models/0190-model', 'data', 'products'],
         ['/project/1/data-catalog', 'data', 'products'],
-        ['/project/1/data-management/destinations', 'data', 'products'],
-        ['/project/1/pipeline/batch-exports/0190-export', 'data', null],
         ['/project/1/sql', 'products', 'products'],
     ])('puts %s under %s with data-area on, and under %s with it off', (pathname, pane, paneWithoutData) => {
         expect(railPaneForPath(pathname, { [FEATURE_FLAGS.DATA_AREA]: true })).toBe(pane)
@@ -224,7 +256,7 @@ describe('todayShellLogic', () => {
     })
 
     test.each([
-        [true, ['home', 'spaces', 'analytics', 'people', 'data', 'products'], 'analytics'],
+        [true, ['home', 'spaces', 'analytics', 'people', 'automate', 'data', 'products'], 'analytics'],
         [false, ['home', 'spaces', 'analytics', 'people', 'products'], 'products'],
     ] as const)(
         'with data-area %s, the rail shows %o and an event opened from an insight shows %s',
@@ -243,6 +275,39 @@ describe('todayShellLogic', () => {
             expect(logic.values.activePane).toBe(enabled ? 'data' : 'products')
         }
     )
+
+    test.each([
+        ['/project/1/inbox', 'home', 'products'],
+        ['/project/1/inbox/reports', 'home', 'products'],
+        ['/project/1/inbox/reports/0190-report', 'home', 'products'],
+        ['/project/1/inbox/reports/triage', 'home', 'products'],
+        ['/project/1/inbox/monitoring', 'home', 'products'],
+        ['/project/1/pulse', 'home', 'products'],
+        ['/project/1/inbox/sources', 'data', 'products'],
+        ['/project/1/inbox/scouts', 'automate', 'automate'],
+        ['/project/1/inbox/settings', 'home', 'products'],
+        ['/project/1/inboxes', null, null],
+    ])('puts %s under %s with today-home-pane on, and under %s with it off', (pathname, pane, paneWithoutHome) => {
+        const flags = { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true, [FEATURE_FLAGS.DATA_AREA]: true }
+        expect(railPaneForPath(pathname, { ...flags, [FEATURE_FLAGS.TODAY_HOME_PANE]: true })).toBe(pane)
+        expect(railPaneForPath(pathname, flags)).toBe(paneWithoutHome)
+    })
+
+    test.each([
+        ['products', '/project/1/inbox/reports', 'products'],
+        ['products', '/project/1/home', 'home'],
+        ['home', '/project/1/inbox/settings', 'home'],
+        ['analytics', '/project/1/inbox/settings', 'home'],
+    ] as const)('with today-home-pane on, the %s pane open on %s shows the %s pane', (openPane, pathname, pane) => {
+        const flags = { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true, [FEATURE_FLAGS.TODAY_HOME_PANE]: true }
+        featureFlagLogic.actions.setFeatureFlags(Object.keys(flags), flags)
+        const logic = todayShellLogic()
+        logic.mount()
+
+        logic.actions.pickPane(openPane)
+        router.actions.push(pathname)
+        expect(logic.values.activePane).toBe(pane)
+    })
 
     test.each([true, false])('with monitor-area %s, Error tracking opened from Products keeps Products', (enabled) => {
         const flags = { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true, [FEATURE_FLAGS.MONITOR_AREA]: enabled }
@@ -275,6 +340,7 @@ describe('todayShellLogic', () => {
         ['products', 'new', {}, undefined],
         ['settings', 'new', {}, urls.settings('project')],
         ['people', 'new', {}, urls.persons()],
+        ['automate', 'new', {}, urls.workflows()],
         ['data', 'new', {}, urls.sources()],
         ['people', 'new', { [FEATURE_FLAGS.CUSTOMER_ANALYTICS]: true }, urls.customerAnalyticsDashboard()],
         [
@@ -305,20 +371,32 @@ describe('todayShellLogic', () => {
         }
     )
 
-    it('never shows a sidebar on Home, so the page takes the full width', () => {
-        const logic = todayShellLogic()
-        logic.mount()
+    test.each([
+        [false, false, TODAY_RAIL_WIDTH],
+        [true, true, TODAY_RAIL_WIDTH + 300],
+    ])(
+        'with today-home-pane %s, a Home rail click opens the Today page and shows the sidebar: %s',
+        (homePane, sidebarVisible, leftNavWidth) => {
+            const flags = { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true, [FEATURE_FLAGS.TODAY_HOME_PANE]: homePane }
+            featureFlagLogic.actions.setFeatureFlags(Object.keys(flags), flags)
+            const logic = todayShellLogic()
+            logic.mount()
 
-        logic.actions.setSidebarOpen(true)
-        logic.actions.setSidebarWidth(300)
-        logic.actions.clickRailPane('home')
-        expect(logic.values.sidebarVisible).toBe(false)
-        expect(logic.values.sidebarBreadcrumbShown).toBe(false)
-        expect(logic.values.leftNavWidth).toBe(TODAY_RAIL_WIDTH)
+            logic.actions.pickPane('products')
+            router.actions.push('/project/1/airplane')
+            logic.actions.setSidebarOpen(true)
+            logic.actions.setSidebarWidth(300)
+            logic.actions.clickRailPane('home')
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe(urls.projectHomepage())
+            expect(logic.values.activePane).toBe('home')
+            expect(logic.values.sidebarVisible).toBe(sidebarVisible)
+            expect(logic.values.sidebarBreadcrumbShown).toBe(false)
+            expect(logic.values.leftNavWidth).toBe(leftNavWidth)
 
-        logic.actions.clickRailPane('products')
-        expect(logic.values.sidebarVisible).toBe(true)
-    })
+            logic.actions.clickRailPane('products')
+            expect(logic.values.sidebarVisible).toBe(true)
+        }
+    )
 
     it('keeps the last pane open on pages that belong to no pane', () => {
         const logic = todayShellLogic()

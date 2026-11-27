@@ -37,6 +37,7 @@ _WEB_DIMENSIONAL_UNMIRRORED_COLUMNS = frozenset(
         "bounces_count_state",
         "total_session_duration_state",
         "total_session_count_state",
+        "bounce_eligible_sessions_state",
     }
 )
 

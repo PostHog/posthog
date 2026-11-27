@@ -19,8 +19,8 @@ from django.utils import timezone
 
 import pydantic
 import structlog
-from rest_framework import status
-from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
+from rest_framework import serializers
+from rest_framework.exceptions import PermissionDenied, ValidationError
 
 from posthog.schema import (
     ActionsNode,
@@ -70,7 +70,8 @@ from products.approvals.backend.actions.experiments import LaunchExperimentActio
 from products.approvals.backend.ownership import scope_by_owner_enabled
 from products.approvals.backend.policies import PolicyEngine
 from products.cohorts.backend.models.cohort import Cohort
-from products.experiments.backend.facade.contracts import ExperimentHealthFinding
+from products.experiments.backend.facade.contracts import ExperimentHealthFinding, ExperimentVersionConflict
+from products.experiments.backend.facade.enums import FEATURE_FLAG_CONFIG_KEYS, LEGACY_METRIC_KINDS
 from products.experiments.backend.facade.launch_signals import experiment_launched
 from products.experiments.backend.flag_cleanup import build_cleanup_prompt, cleanup_plan
 from products.experiments.backend.flag_ownership import assert_experiment_deletable, assert_experiment_restorable
@@ -114,7 +115,6 @@ from products.experiments.backend.models.experiment import (
     EXPOSURE_FROZEN_COHORT_KEY,
     EXPOSURE_FROZEN_GROUP_KEY,
     EXPOSURE_FROZEN_GROUP_MARKER,
-    LEGACY_METRIC_KINDS,
     Experiment,
     ExperimentHoldout,
     ExperimentSavedMetric,
@@ -126,6 +126,7 @@ from products.experiments.backend.models.experiment import (
     experiment_variants,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+from products.experiments.backend.presentation.list_filters import parse_tag_names
 from products.experiments.backend.result_serialization import strip_step_sessions
 from products.experiments.backend.task_profiles import CLEANUP
 from products.experiments.backend.warehouse_access_control import validate_warehouse_metrics
@@ -170,9 +171,24 @@ from products.notifications.backend.facade.api import (
 )
 from products.tasks.backend.facade import api as tasks_facade
 
-from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
-
 logger = structlog.get_logger(__name__)
+
+
+class _SavedMetricLinkWriteSerializer(serializers.ModelSerializer):
+    # Checks that both ids exist and that the metadata is not null, and answers a 400 when they fail.
+    class Meta:
+        model = ExperimentToSavedMetric
+        fields = ["experiment", "saved_metric", "metadata"]
+
+
+def _create_saved_metric_link(*, experiment_id: int, saved_metric_id: int, metadata: Any, context: dict) -> None:
+    serializer = _SavedMetricLinkWriteSerializer(
+        data={"experiment": experiment_id, "saved_metric": saved_metric_id, "metadata": metadata},
+        context=context,
+    )
+    serializer.is_valid(raise_exception=True)
+    serializer.save()
+
 
 CleanupRepositorySource = Literal["explicit", "team_default", "single_repo", "ambiguous", "no_integration"]
 
@@ -205,21 +221,6 @@ BACKDATED_LAUNCH_THRESHOLD = timedelta(days=1)
 def _is_imported_concluded(experiment: Experiment) -> bool:
     """An experiment whose end_date has passed at create or launch never ran in PostHog: it is an import."""
     return experiment.end_date is not None and experiment.end_date <= timezone.now()
-
-
-def _parse_tag_names(value: Any) -> list[str]:
-    """Parse a tags query param that arrives as a list or a JSON-encoded string.
-
-    Anything that doesn't decode to a list is ignored rather than an error: a scalar like
-    ``?tags=5`` or ``?tags="growth"`` decodes fine but isn't a tag list.
-    """
-    try:
-        tags = value if isinstance(value, list) else json.loads(value) if isinstance(value, str) else []
-    except (json.JSONDecodeError, TypeError):
-        return []
-    if not isinstance(tags, list):
-        return []
-    return [tag for tag in tags if isinstance(tag, str)]
 
 
 DEFAULT_VARIANTS = [
@@ -428,35 +429,6 @@ def _tracked_health_finding(finding: ExperimentHealthFinding) -> str:
     return ":".join([finding.code.value, finding.subcode or "", finding.severity.value, finding.reason or ""])
 
 
-class ExperimentVersionConflict(APIException):
-    """A stale write raced a concurrent update and could not be applied safely."""
-
-    status_code = status.HTTP_409_CONFLICT
-    default_code = "conflict"
-    default_detail = "This experiment changed since you loaded it. Review the latest changes and try again."
-
-    def __init__(
-        self,
-        detail: str | None = None,
-        *,
-        current_version: int = 0,
-        conflicting_fields: list[str] | None = None,
-        conflicting_metric_uuids: list[str] | None = None,
-    ) -> None:
-        super().__init__(detail=detail)
-        self.current_version = current_version
-        self.conflicting_fields = conflicting_fields or []
-        self.conflicting_metric_uuids = conflicting_metric_uuids or []
-
-    def response_data(self) -> dict[str, Any]:
-        data: dict[str, Any] = {"detail": str(self.detail), "current_version": self.current_version}
-        if self.conflicting_fields:
-            data["conflicting_fields"] = self.conflicting_fields
-        if self.conflicting_metric_uuids:
-            data["conflicting_metric_uuids"] = self.conflicting_metric_uuids
-        return data
-
-
 # Fields a stale write may still change. The metric collections merge per uuid — each metric
 # carries a stable server-assigned uuid, so concurrent intent is preserved — and the ordering
 # arrays are a display hint, so the client's array is taken as sent. A stale write touching anything else conflicts
@@ -615,7 +587,7 @@ def _scalar_merge_view(field: str, value: Any) -> Any:
     """The value of one scalar payload field as compared for concurrency resolution.
 
     ``parameters`` needs shape normalization on top of value canonicalization: reads project
-    the linked flag's config into it (``ExperimentBaseSerializer._project_feature_flag_config``)
+    the linked flag's config into it (``projected_parameters`` in ``logic/experiments.py``)
     while writes strip that config before storage, so a client-echoed base only matches the
     stored column when all sides are compared flag-stripped, with empty and null collapsed.
     ``running_time_calculation`` is compared with its machine-recomputed estimate keys
@@ -625,7 +597,7 @@ def _scalar_merge_view(field: str, value: Any) -> Any:
         if value is None:
             return {}
         if isinstance(value, dict):
-            value = ExperimentService._strip_feature_flag_config(value)
+            value = ExperimentService.strip_feature_flag_config(value)
     if field == "running_time_calculation":
         if value is None:
             return {}
@@ -995,31 +967,17 @@ class ExperimentService:
             return stats_config
         return {**(stats_config or {}), "baseline_variant_key": baseline}
 
-    # Feature-flag config keys that historically lived on the deprecated `parameters` surface but
-    # belong on the linked FeatureFlag (the source of truth). A legacy caller still sending them in
-    # `parameters` input has them copied into the `feature_flag` config path (see
-    # ExperimentSerializer._deprecated_parameters_as_feature_flag_config) and stripped from the
-    # stored column; reads still project the flag's current config back into `parameters` for
-    # backward compatibility.
-    FEATURE_FLAG_CONFIG_KEYS = (
-        "feature_flag_variants",
-        "rollout_percentage",
-        "aggregation_group_type_index",
-        "feature_flag_payloads",
-        "ensure_experience_continuity",
-    )
-
-    @classmethod
-    def _strip_feature_flag_config(cls, parameters: dict | None) -> dict | None:
+    @staticmethod
+    def strip_feature_flag_config(parameters: dict | None) -> dict | None:
         """Return ``parameters`` without the feature-flag config keys, so they are not stored in the
         deprecated column. Callers consume those keys earlier to build/sync the flag; reads
         re-derive them from it. Returns a new dict, leaving the caller's input untouched."""
         if not parameters:
             return parameters
-        return {k: v for k, v in parameters.items() if k not in cls.FEATURE_FLAG_CONFIG_KEYS}
+        return {k: v for k, v in parameters.items() if k not in FEATURE_FLAG_CONFIG_KEYS}
 
-    @classmethod
-    def _feature_flag_config_from_parameters(cls, parameters: dict | None) -> dict | None:
+    @staticmethod
+    def feature_flag_config_from_parameters(parameters: dict | None) -> dict | None:
         """Translate deprecated ``parameters`` flag-config keys into a ``feature_flag`` config object
         (the flag's native write shape), or ``None`` when ``parameters`` carries no flag config.
 
@@ -1030,7 +988,7 @@ class ExperimentService:
         the HTTP path this returns ``None`` and the explicit ``feature_flag`` config is used instead."""
         if not parameters:
             return None
-        flag_config = {key: parameters[key] for key in cls.FEATURE_FLAG_CONFIG_KEYS if key in parameters}
+        flag_config = {key: parameters[key] for key in FEATURE_FLAG_CONFIG_KEYS if key in parameters}
         if not flag_config:
             return None
         filters: dict[str, Any] = {}
@@ -2050,16 +2008,12 @@ class ExperimentService:
         context = serializer_context or self._build_serializer_context()
 
         for saved_metric_data in saved_metrics_ids:
-            saved_metric_serializer = ExperimentToSavedMetricSerializer(
-                data={
-                    "experiment": experiment.id,
-                    "saved_metric": saved_metric_data["id"],
-                    "metadata": saved_metric_data.get("metadata"),
-                },
+            _create_saved_metric_link(
+                experiment_id=experiment.id,
+                saved_metric_id=saved_metric_data["id"],
+                metadata=saved_metric_data.get("metadata"),
                 context=context,
             )
-            saved_metric_serializer.is_valid(raise_exception=True)
-            saved_metric_serializer.save()
 
     # ------------------------------------------------------------------
     # Launch
@@ -2646,7 +2600,7 @@ class ExperimentService:
 
         Runs a synchronous scan of the experiment's exposure events, honoring
         ``exposure_criteria`` (custom exposure event or action plus its property filters) and the
-        $experiment_exposure rollout resolution via the same helpers the metrics pipeline uses,
+        resolved default exposure event via the same helpers the metrics pipeline uses,
         and requiring the exposure to have landed a variant — so the snapshot is the analyzed
         population, not everyone who fired the event.
         Capped at FREEZE_EXPOSURE_QUERY_TIMEOUT_SECONDS and returning at most
@@ -2665,7 +2619,7 @@ class ExperimentService:
         # The same rollout resolution the analysis queries apply: a post-cutoff experiment frozen
         # off $feature_flag_called would snapshot nobody once the two events stop being emitted
         # together, and an empty snapshot un-enrolls everyone.
-        default_exposure_event = resolve_default_exposure_event(self.team, start_date)
+        default_exposure_event = resolve_default_exposure_event(start_date)
         _, variant_property = get_exposure_event_and_property(
             flag_key, experiment.exposure_criteria, default_exposure_event=default_exposure_event
         )
@@ -3659,6 +3613,7 @@ class ExperimentService:
         ``update_data`` mirrors the DRF ``validated_data`` dict produced by
         ``ExperimentSerializer``.  The caller is responsible for DRF-level input
         validation (field types, metric schema, etc.) before calling this method.
+        It sets the holdout with ``holdout_id``: the id of a holdout of the team, or None to clear it.
 
         ``feature_flag_config`` is the flag's own write shape (``{filters, ensure_experience_continuity}``),
         synced onto the linked flag with object-PATCH semantics (config it omits is preserved).
@@ -3678,6 +3633,13 @@ class ExperimentService:
         without bumping ``version``. Without the keys the write applies as-is; ``version`` is
         bumped on every save.
         """
+        # The concurrency merge, the payload checks and the flag sync below read the holdout row under its model
+        # field name, so the row is loaded before any of them.
+        if "holdout_id" in update_data:
+            holdout_id = update_data.pop("holdout_id")
+            update_data["holdout"] = (
+                None if holdout_id is None else ExperimentHoldout.objects.get(pk=holdout_id, team_id=self.team.id)
+            )
         update_feature_flag_params = update_data.pop("update_feature_flag_params", False)
         client_version = update_data.pop("version", None)
         original_experiment = update_data.pop("original_experiment", None)
@@ -3859,7 +3821,7 @@ class ExperimentService:
         # silently dropped (and the gate bypassed). No double-write on the HTTP path: the serializer
         # strips these keys from `parameters` and passes an explicit `feature_flag_config`.
         if feature_flag_config is None:
-            derived_flag_config = self._feature_flag_config_from_parameters(update_data.get("parameters"))
+            derived_flag_config = self.feature_flag_config_from_parameters(update_data.get("parameters"))
             if derived_flag_config is not None:
                 feature_flag_config = derived_flag_config
                 deprecated_flag_config_changed = True
@@ -4048,16 +4010,12 @@ class ExperimentService:
                             existing_link.metadata = new_metadata
                             existing_link.save(update_fields=["metadata", "updated_at"])
                     else:
-                        saved_metric_serializer = ExperimentToSavedMetricSerializer(
-                            data={
-                                "experiment": experiment.id,
-                                "saved_metric": saved_metric_id,
-                                "metadata": new_metadata,
-                            },
+                        _create_saved_metric_link(
+                            experiment_id=experiment.id,
+                            saved_metric_id=saved_metric_id,
+                            metadata=new_metadata,
                             context=context,
                         )
-                        saved_metric_serializer.is_valid(raise_exception=True)
-                        saved_metric_serializer.save()
 
             # (stats_config / excluded_variants / duplicate-metric-uuid validation
             # runs before the flag write above so a 400 can't leave a committed flag
@@ -4095,7 +4053,7 @@ class ExperimentService:
             # Feature-flag config was already synced to the flag above; strip it so it is not mirrored
             # into the deprecated `parameters` column. Reads re-derive it from the flag.
             if update_data.get("parameters") is not None:
-                update_data["parameters"] = self._strip_feature_flag_config(update_data["parameters"])
+                update_data["parameters"] = self.strip_feature_flag_config(update_data["parameters"])
             for attr, value in update_data.items():
                 setattr(experiment, attr, value)
             experiment.save()
@@ -4662,7 +4620,7 @@ class ExperimentService:
                 if prop.type in ("event", "feature", "element", "hogql")
             ]
         else:
-            target_entities = exposure_event_names(resolve_default_exposure_event(self.team, experiment.start_date))
+            target_entities = exposure_event_names(resolve_default_exposure_event(experiment.start_date))
 
         context = serializer_context or self._build_serializer_context()
         # CohortSerializer expects "team" directly in context
@@ -4742,12 +4700,15 @@ class ExperimentService:
         action: str | None,
         query_params: Mapping[str, Any] | None = None,
         request_data: Mapping[str, Any] | None = None,
+        include_deleted: bool = False,
     ) -> QuerySet[Experiment]:
-        """Apply experiment list/detail filtering and ordering rules."""
+        """Apply experiment list/detail filtering and ordering rules.
+
+        Deleted experiments stay out unless `include_deleted` is set, or an update sends a falsy `deleted`.
+        """
         query_params = query_params or {}
         request_data = request_data or {}
 
-        include_deleted = False
         if action in ("partial_update", "update"):
             deleted_value = request_data.get("deleted")
             if deleted_value is not None:
@@ -4845,7 +4806,7 @@ class ExperimentService:
                 # narrow the queryset by primary key to preserve ordering and pagination.
                 queryset = queryset.filter(pk__in=self._experiments_matching_event(queryset, event))
 
-            tags = _parse_tag_names(query_params.get("tags"))
+            tags = parse_tag_names(query_params.get("tags"))
             if tags:
                 # Filter by ID subquery instead of join + .distinct(): the list queryset joins six
                 # tables (including jsonb columns), so SELECT DISTINCT over it dedupes every column.
@@ -4854,7 +4815,7 @@ class ExperimentService:
                 ).values("pk")
                 queryset = queryset.filter(pk__in=experiments_with_tags)
 
-            excluded_tags = _parse_tag_names(query_params.get("excluded_tags"))
+            excluded_tags = parse_tag_names(query_params.get("excluded_tags"))
             if excluded_tags:
                 # Exclude by ID subquery so an experiment carrying both an excluded and a
                 # non-excluded tag is still reliably filtered out.

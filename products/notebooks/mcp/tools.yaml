@@ -51,8 +51,8 @@ tools:
             existing tabs and blocks when making targeted edits. Cell blocks reference stable component node IDs
             returned by notebooks-get or notebooks-add-cell. Input blocks reference existing notebook variable names;
             use notebooks-set-variables to create or change those first. Never invent source IDs. To publish when the
-            user asks, send the complete layout as app_published; null unpublishes it. Publishing snapshots the layout,
-            not cell data or variable values. Omitted app fields stay unchanged. This tool does not edit notebook
+            user asks, send the complete layout as app_published; null unpublishes it. Publishing pins the saved layout,
+            notebook sources, and input defaults. Omitted app fields stay unchanged. This tool does not edit notebook
             content or run cells. It works with collaborative notebooks.
         include_params:
             - short_id

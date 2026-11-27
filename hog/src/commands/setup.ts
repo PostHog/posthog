@@ -24,7 +24,7 @@ const OPTIONS = {
         placeholder: 'text',
         parse: (raw: string, failure: ParseFailure) => parseOrThrow(Reason, raw, failure),
         description:
-            'What the user wants to use PostHog for, in their words. hog sends it to PostHog unless telemetry is off',
+            'What the project uses PostHog for, from the conversation or the code. hog sends it to PostHog unless telemetry is off',
     },
     products: {
         type: 'string',
@@ -93,11 +93,9 @@ function contextLines(out: Output, result: SetupResult): string[][] {
 }
 
 function nextLines(out: Output, next: NextAction): [string, ...string[]] {
-    const setupNext = out.style('hog setup next', 'bold')
+    const setupNext = out.style('hog setup', 'bold')
 
     switch (next.kind) {
-        case 'ask_user':
-            return [`Run ${setupNext} to answer this question at the terminal.`, `  ${escapeControls(next.ask)}`]
         case 'wait':
             return [
                 `Open this link and approve the code ${out.style(escapeControls(next.code ?? ''), 'bold')}. ${SIGN_UP_NOTE} Then run ${setupNext}.`,
@@ -112,8 +110,11 @@ function nextLines(out: Output, next: NextAction): [string, ...string[]] {
     }
 }
 
-function nextBlock(out: Output, next: NextAction): string[] {
-    const [first, ...rest] = nextLines(out, next)
+function nextBlock(out: Output, result: SetupResult): string[] {
+    const [first, ...rest] =
+        result.step === 'purpose'
+            ? [`Run ${out.style('hog setup', 'bold')} to say what you want to use PostHog for.`]
+            : nextLines(out, result.next)
     return [`${out.style('Next:', 'bold')} ${first}`, ...rest]
 }
 
@@ -126,7 +127,7 @@ function printSetup(out: Output, result: SetupResult, ranSteps: boolean): void {
         ...context.warnings.map(escapeControls),
         ...(context.events?.count === 0 ? [`No events since ${context.events.since}`] : []),
     ]
-    const notes = joinBlocks([...contextLines(out, result), nextBlock(out, result.next)])
+    const notes = joinBlocks([...contextLines(out, result), nextBlock(out, result)])
 
     if (result.status === 'connected') {
         out.report({
@@ -155,7 +156,7 @@ export default defineCommand({
     description: 'Set up PostHog in this folder, one step at a time',
     args: {
         action: {
-            description: '`next` runs the current step and every later step that needs no input',
+            description: '`status` shows the current step and changes nothing',
             optional: true,
         },
     },
@@ -167,36 +168,36 @@ export default defineCommand({
     },
     scopes: ['project:read', 'query:read'],
     notes: [
-        '`hog setup` shows the current step and what `hog setup next` will do, and changes nothing.',
-        '`hog setup next` does the current step and keeps going until a step needs you or your agent. Its output names that step.',
+        '`hog setup` guides you through setting up PostHog step by step. It does the current step and keeps going until a step needs you or your agent. Its output names that step and what to do before you run it again.',
+        '`hog setup status` shows the current step and changes nothing.',
         'The setup belongs to the folder of the closest posthog.json, or to this folder when there is none, so each app in a monorepo has its own.',
-        "An agent passes the answers as options and asks the user only what it can't tell. It runs `hog setup next` again only when a step stops.",
+        'An agent works out the answers from the conversation and the code, and passes them as options. It runs `hog setup` again only when a step stops.',
     ].join('\n'),
     examples: [
         'hog setup',
-        'hog setup next',
-        'hog setup next --reason "See where users drop off" --products product-analytics,session-replay',
-        'hog setup next --reason "Track errors in our EU app" --products error-tracking --region eu',
-        'hog setup next --reviewed',
+        'hog setup --reason "See where users drop off" --products product-analytics,session-replay',
+        'hog setup --reason "Track errors in our EU app" --products error-tracking --region eu',
+        'hog setup --reviewed',
+        'hog setup status',
     ],
 
     async run({ args, options, ctx }): Promise<SetupResult> {
-        if (args.action !== undefined && args.action !== 'next') {
+        if (args.action !== undefined && args.action !== 'status') {
             throw new HogError(
                 'invalid_setup_command',
                 `There is no \`hog setup ${escapeControls(args.action)}\`.`,
-                'Run `hog setup` to see the current step, or `hog setup next` to run it.',
+                '`hog setup` guides you through setting up PostHog step by step, and stops whenever it needs you or your agent. Run it to go on, or run `hog setup status` to see where you are.',
                 EXIT_USAGE
             )
         }
 
-        const next = args.action === 'next'
+        const next = args.action !== 'status'
         const given = Object.values(options).some((value) => value !== undefined && value !== false)
         if (!next && given) {
             throw new HogError(
-                'setup_options_need_next',
-                'These options only work with `hog setup next`.',
-                'Run `hog setup next` with the same options.',
+                'setup_status_takes_no_options',
+                '`hog setup status` takes no options.',
+                'Run `hog setup` with the same options.',
                 EXIT_USAGE
             )
         }
@@ -204,7 +205,7 @@ export default defineCommand({
         const { requireLatestForSetup } = await import('@/updates/check')
         const hog = await requireLatestForSetup(
             ctx.runtime,
-            next ? 'setup next' : 'setup',
+            next ? 'setup' : 'setup status',
             ctx.globals.skipSslVerification === true
         )
 
@@ -213,19 +214,18 @@ export default defineCommand({
     },
 
     human({ args, result, out }) {
-        printSetup(out, result, args.action === 'next')
+        printSetup(out, result, args.action !== 'status')
     },
 
     agent({ result, out }) {
         out.json(agentResult(result), { first: AGENT_LEADING_KEYS })
     },
 
-    // The agent does `run` and `read` itself, so only a question or an approval waits on the person.
-    exitCode: (result) =>
-        result.next.kind === 'ask_user' || result.next.kind === 'wait' ? EXIT_NEEDS_PERSON : EXIT_SUCCESS,
+    // The agent does `run` and `read` itself, so only an approval waits on the person.
+    exitCode: (result) => (result.next.kind === 'wait' ? EXIT_NEEDS_PERSON : EXIT_SUCCESS),
 
     telemetry: ({ args, result }) => ({
-        setup_action: args.action ?? 'status',
+        setup_action: args.action ?? 'run',
         setup_step: result.step,
         setup_status: result.status,
         setup_code: result.code,

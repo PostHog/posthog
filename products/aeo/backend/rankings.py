@@ -154,18 +154,27 @@ def get_rankings(
         resolve_effective_team_id(team_id), since=window_start, until=until, scope_params=scope_params
     )
     ranked_domains = citations.ranked_domains()
-    # Competitors a person confirmed in the brand catalog win; until there are any, derive them from citations.
-    # Our own domains always rank as the target, even when someone labeled one a competitor.
-    confirmed = {domain: name for domain, name in _confirmed_competitors(team_id).items() if domain not in targets}
+    # Competitors a person confirmed in the brand catalog win, then the ones setup suggested; until there are any,
+    # derive them from citations. Our own domains always rank as the target, even when someone labeled one a competitor.
+    confirmed = {
+        domain: name
+        for domain, name in _catalog_competitors(team_id, BrandStatus.CONFIRMED).items()
+        if domain not in targets
+    }
+    named = confirmed or {
+        domain: name
+        for domain, name in _catalog_competitors(team_id, BrandStatus.SUGGESTED).items()
+        if domain not in targets
+    }
     catalog_ids = _catalog_brand_ids(team_id)
     # Each competitor ranks by its catalog brand, so a domain the catalog does not have yet waits for the sync.
-    competitors = list(confirmed) or _competitors(
+    competitors = list(named) or _competitors(
         [(domain, count) for domain, count in ranked_domains if domain in catalog_ids],
         targets,
         brand_names(target_domains),
         catalog_excluded=_catalog_exclusions(team_id),
     )
-    names = {domain: confirmed[domain] if domain in confirmed else _brand_name(domain) for domain in competitors}
+    names = {domain: named[domain] if domain in named else _brand_name(domain) for domain in competitors}
     top_domains = ranked_domains[:MAX_RANKED_DOMAINS]
     domain_urls = citations.urls_per_domain([domain for domain, _ in top_domains])
     target_domain = registrable_domain(target_domains[0].lower()) if target_domains else None
@@ -193,7 +202,7 @@ def get_rankings(
                 is_target=is_target,
                 answers_mentioning=brand_days.current[domain][1],
                 visibility=_share(*brand_days.current[domain]),
-                previous_visibility=_share(*brand_days.previous[domain]),
+                previous_visibility=comparable_previous_share(brand_days.current[domain], brand_days.previous[domain]),
                 positive_share=positive_share if is_target else None,
             )
             for domain, _, is_target in brands
@@ -218,7 +227,8 @@ def get_rankings(
                 share_of_answers=count / answers if answers else 0.0,
                 urls=domain_urls.get(domain, 0),
                 is_target=domain in targets,
-                is_competitor=domain in competitors,
+                # Only a competitor in the catalog is labeled one. Brands the fallback ranks are only mentioned.
+                is_competitor=domain in named,
             )
             for domain, count in top_domains
         ),
@@ -254,7 +264,9 @@ class _Citations:
     """Cited registrable domains and pages across the answered checks in a window, counted in Postgres
     once per answer from the stored cited URL rows."""
 
-    def __init__(self, team_id: int, *, since: dt.datetime, until: dt.datetime, scope_params: list[str | None]) -> None:
+    def __init__(
+        self, team_id: int, *, since: dt.datetime, until: dt.datetime, scope_params: list[str | bool | None]
+    ) -> None:
         self._params: list[Any] = [team_id, since, until, team_id, since, until, *scope_params]
 
     def ranked_domains(self) -> list[tuple[str, int]]:
@@ -277,11 +289,10 @@ class _Citations:
             return [_CitedPage(url=url, domain=domain, answers=count) for url, domain, count in cursor.fetchall()]
 
 
-def _confirmed_competitors(team_id: int) -> dict[str, str]:
-    """Confirmed competitors from the brand catalog: their names by domain."""
+def _catalog_competitors(team_id: int, status: BrandStatus) -> dict[str, str]:
     rows = (
         AEOBrand.objects.for_team(team_id)
-        .filter(kind=BrandKind.COMPETITOR.value, status=BrandStatus.CONFIRMED.value)
+        .filter(kind=BrandKind.COMPETITOR.value, status=status.value)
         .order_by("domain")
         .values_list("domain", "name")[:MAX_RANKED_COMPETITORS]
     )
@@ -379,6 +390,19 @@ def _brand_name(domain: str) -> str:
 
 def _share(answers: int, mentioning: int) -> float | None:
     return mentioning / answers if answers else None
+
+
+# Tracking that started inside the window before leaves that window with a handful of answers, and a share of a
+# handful swings far enough to show a large change that is not real.
+MIN_PREVIOUS_ANSWERS_RATIO = 0.25
+
+
+def comparable_previous_share(current: list[int], previous: list[int]) -> float | None:
+    """The share in the window before, or None when that window has too few answers to compare with this one."""
+    current_answers, previous_answers = current[0], previous[0]
+    if previous_answers < current_answers * MIN_PREVIOUS_ANSWERS_RATIO:
+        return None
+    return _share(*previous)
 
 
 def _ranked(counter: Mapping[str, int], limit: int) -> list[tuple[str, int]]:

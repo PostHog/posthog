@@ -23,7 +23,7 @@ from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.contracts import TaskRunDTO
 
 from ..facade.contracts import DocsRequest
-from ..feature_flags import open_pull_requests_flag_state
+from ..feature_flags import open_pull_requests_author_flag_state, open_pull_requests_flag_state
 from ..settings import WriterSettings, docs_source_for, writer_settings
 from .docs_pages import (
     DOCS_SOURCE_EXTENSIONS,
@@ -96,6 +96,8 @@ DRAFT_FILE_PATCH_CHARACTERS = 4_000
 DRAFT_PATCH_BUDGET_CHARACTERS = 60_000
 MAX_DRAFTED_FILES = 200
 OPEN_PULL_REQUESTS_OFF = "open_pull_requests_off"
+AUTHOR_NOT_OPTED_IN = "author_not_opted_in"
+AUTHOR_FLAG_UNREADABLE = "author_flag_unreadable"
 NO_HUMAN_AUTHOR = "no_human_author"
 REVIEW_REQUEST_FAILED = "review_request_failed"
 REVIEW_REQUEST_REJECTED = "review_request_rejected"
@@ -457,6 +459,15 @@ def publish_change(
         capture_draft(draft, outcome="logged")
         record_pull_request_failure(task_id, team_id, OPEN_PULL_REQUESTS_OFF)
         return None
+    is_author_opted_in = author_opt_in_state(source_change.author_login)
+    if is_author_opted_in is None and not is_final_attempt:
+        raise WriterPullRequestFailed("knowledge writer could not read the open pull requests authors flag")
+    if not is_author_opted_in:
+        capture_draft(draft, outcome="logged")
+        record_pull_request_failure(
+            task_id, team_id, AUTHOR_NOT_OPTED_IN if is_author_opted_in is False else AUTHOR_FLAG_UNREADABLE
+        )
+        return None
     if run.created_at is None:
         refuse_draft(draft, "run_not_dated")
         return None
@@ -491,6 +502,12 @@ def publish_change(
         pull_request_number=pull_request.number,
     )
     return PublishedPullRequest(repository=writer.docs_repository, number=pull_request.number)
+
+
+def author_opt_in_state(author_login: str | None) -> bool | None:
+    if author_login is None or author_login.lower() == github_app_login():
+        return False
+    return open_pull_requests_author_flag_state(author_login)
 
 
 @dataclass(frozen=True)

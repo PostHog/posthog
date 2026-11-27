@@ -203,6 +203,24 @@ CYBERIMPACT_ENDPOINTS: dict[str, CyberimpactEndpointConfig] = {
             primary_keys=["mailing_id", "email"],
             fanout=_mailing_fanout(_RECIPIENT_PARAMS),
         ),
+        # One request per member, so a large account reads this table slowly.
+        CyberimpactEndpointConfig(
+            name="member_consents",
+            path="/members/{member_id}/consent",
+            data_selector=None,
+            primary_keys=["member_id"],
+            paginated=False,
+            fanout=DependentEndpointConfig(
+                parent_name="members",
+                resolve_param="member_id",
+                resolve_field="id",
+                include_from_parent=["id"],
+                parent_field_renames={"id": "member_id"},
+                parent_params={"limit": PAGE_SIZE, "status": "all", "sort": "date_asc", **DATE_PARAMS},
+                child_params=DATE_PARAMS,
+                child_response_actions=_MISSING_PARENT_IGNORE,
+            ),
+        ),
         CyberimpactEndpointConfig(
             name="templates",
             path="/templates",

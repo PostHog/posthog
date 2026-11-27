@@ -30,8 +30,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mongo import (
     DATABASE_NAME_REQUIRED_ERROR,
     MONGO_DOCUMENT_MISSING_ID_ERROR,
+    UNSUPPORTED_AUTH_OPTION_ERROR,
     UNSUPPORTED_FILE_OPTION_ERROR,
     MongoResumeConfig,
+    UnsupportedAuthOptionError,
     UnsupportedConnectionOptionError,
     _parse_connection_string,
     filter_mongo_incremental_fields,
@@ -39,6 +41,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mo
     get_index_keys_by_collection,
     get_schemas as get_mongo_schemas,
     get_server_metadata as get_mongo_server_metadata,
+    is_atlas_srv_name,
     mongo_client,
     mongo_source,
 )
@@ -82,6 +85,12 @@ _MONGO_UNSUPPORTED_FILE_OPTION_MESSAGE = (
     "sign in with a username and password, and try again."
 )
 
+_MONGO_UNSUPPORTED_AUTH_OPTION_MESSAGE = (
+    "Your connection string sets an authentication mechanism PostHog doesn't support. PostHog signs "
+    "in with the username and password in the connection string. Remove authMechanism and "
+    "authMechanismProperties, or set authMechanism=SCRAM-SHA-256, and try again."
+)
+
 _MONGO_GSSAPI_UNSUPPORTED_MESSAGE = (
     "Your connection string sets authMechanism=GSSAPI, which signs in with Kerberos. PostHog "
     "doesn't support that authentication mechanism. Sign in with a username and password "
@@ -98,6 +107,15 @@ _MONGO_HOST_UNRESOLVED_MESSAGE = (
     "The MongoDB host could not be resolved. Check that the cluster address in your connection "
     "string is spelled correctly."
 )
+
+_MONGO_SRV_SCHEME_REQUIRED_MESSAGE = (
+    "Your cluster address only works in a mongodb+srv:// connection string. In MongoDB Atlas, "
+    "click Connect on your cluster, copy the connection string it shows, then try again."
+)
+
+# The prefix the shared host check uses when a name has no addresses. Only then is the SRV probe
+# worth running: other refusals, such as a malformed host, must not reach the resolver.
+_HOST_UNRESOLVED_PREFIX = "Couldn't resolve the host"
 
 _MONGO_SRV_RECORD_MISSING_MESSAGE = (
     "PostHog couldn't find the DNS records that a mongodb+srv:// connection string needs. This "
@@ -333,6 +351,7 @@ class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], Val
         return {
             _SERVER_TOO_OLD_MARKER: _MONGO_SERVER_TOO_OLD_MESSAGE,
             UNSUPPORTED_FILE_OPTION_ERROR: _MONGO_UNSUPPORTED_FILE_OPTION_MESSAGE,
+            UNSUPPORTED_AUTH_OPTION_ERROR: _MONGO_UNSUPPORTED_AUTH_OPTION_MESSAGE,
             _GSSAPI_AUTH_UNSUPPORTED_MARKER: _MONGO_GSSAPI_UNSUPPORTED_MESSAGE,
             # pymongo raises InvalidURI("Username and password must be escaped according to RFC 3986,
             # use urllib.parse.quote_plus") before any network call when the credentials in the
@@ -576,6 +595,10 @@ class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], Val
             # This check allows an early failure for obviously invalid connection strings for non SRV connections.
             valid_host, host_errors = self.is_database_host_valid(connection_params["host"], team_id)
             if not valid_host:
+                if (host_errors or "").startswith(_HOST_UNRESOLVED_PREFIX) and is_atlas_srv_name(
+                    connection_params["host"]
+                ):
+                    return False, _MONGO_SRV_SCHEME_REQUIRED_MESSAGE
                 return False, host_errors
 
         try:
@@ -600,6 +623,8 @@ class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], Val
             # rather than mislabelling it as an authentication problem.
             capture_exception(e)
             return False, _MONGO_CONNECT_FAILED_MESSAGE
+        except UnsupportedAuthOptionError:
+            return False, _MONGO_UNSUPPORTED_AUTH_OPTION_MESSAGE
         except UnsupportedConnectionOptionError:
             return False, _MONGO_UNSUPPORTED_FILE_OPTION_MESSAGE
         except HostNotAllowedError:

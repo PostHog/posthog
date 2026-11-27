@@ -118,6 +118,9 @@ export const notebooksPartialUpdateBodyAppDraftOneBlocksItemTitleMax = 256
 export const notebooksPartialUpdateBodyAppDraftOneBlocksItemWidthDefault = 12
 export const notebooksPartialUpdateBodyAppDraftOneBlocksItemWidthMax = 12
 
+export const notebooksPartialUpdateBodyAppDraftOneBlocksItemHeightMin = 120
+export const notebooksPartialUpdateBodyAppDraftOneBlocksItemHeightMax = 1600
+
 export const notebooksPartialUpdateBodyAppDraftOneBlocksItemNodeIdDefault = ``
 export const notebooksPartialUpdateBodyAppDraftOneBlocksItemNodeIdMax = 160
 
@@ -158,6 +161,9 @@ export const notebooksPartialUpdateBodyAppPublishedOneBlocksItemTitleMax = 256
 
 export const notebooksPartialUpdateBodyAppPublishedOneBlocksItemWidthDefault = 12
 export const notebooksPartialUpdateBodyAppPublishedOneBlocksItemWidthMax = 12
+
+export const notebooksPartialUpdateBodyAppPublishedOneBlocksItemHeightMin = 120
+export const notebooksPartialUpdateBodyAppPublishedOneBlocksItemHeightMax = 1600
 
 export const notebooksPartialUpdateBodyAppPublishedOneBlocksItemNodeIdDefault = ``
 export const notebooksPartialUpdateBodyAppPublishedOneBlocksItemNodeIdMax = 160
@@ -212,7 +218,7 @@ export const NotebooksPartialUpdateBody = () => zod.object({
                     type: zod
                         .string()
                         .describe(
-                            "How to coerce the value: 'string', 'number', 'boolean', or 'date'. Unknown types read as 'string'."
+                            "Variable type: 'string', 'number', 'boolean', 'date', or 'list' (an array of strings). Unknown types read as 'string'."
                         ),
                     value: zod
                         .unknown()
@@ -227,6 +233,7 @@ export const NotebooksPartialUpdateBody = () => zod.object({
         .describe(
             'Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique.'
         ),
+    restore_previous_app_release: zod.boolean().optional(),
     app_draft: zod
         .union([
             zod.object({
@@ -288,6 +295,12 @@ export const NotebooksPartialUpdateBody = () => zod.object({
                                 .max(notebooksPartialUpdateBodyAppDraftOneBlocksItemWidthMax)
                                 .default(notebooksPartialUpdateBodyAppDraftOneBlocksItemWidthDefault)
                                 .describe('Width in a twelve-column grid.'),
+                            height: zod
+                                .number()
+                                .min(notebooksPartialUpdateBodyAppDraftOneBlocksItemHeightMin)
+                                .max(notebooksPartialUpdateBodyAppDraftOneBlocksItemHeightMax)
+                                .optional()
+                                .describe('Card height in pixels. Omit for automatic height.'),
                             node_id: zod
                                 .string()
                                 .max(notebooksPartialUpdateBodyAppDraftOneBlocksItemNodeIdMax)
@@ -404,6 +417,12 @@ export const NotebooksPartialUpdateBody = () => zod.object({
                                 .max(notebooksPartialUpdateBodyAppPublishedOneBlocksItemWidthMax)
                                 .default(notebooksPartialUpdateBodyAppPublishedOneBlocksItemWidthDefault)
                                 .describe('Width in a twelve-column grid.'),
+                            height: zod
+                                .number()
+                                .min(notebooksPartialUpdateBodyAppPublishedOneBlocksItemHeightMin)
+                                .max(notebooksPartialUpdateBodyAppPublishedOneBlocksItemHeightMax)
+                                .optional()
+                                .describe('Card height in pixels. Omit for automatic height.'),
                             node_id: zod
                                 .string()
                                 .max(notebooksPartialUpdateBodyAppPublishedOneBlocksItemNodeIdMax)
@@ -460,9 +479,7 @@ export const NotebooksPartialUpdateBody = () => zod.object({
             zod.null(),
         ])
         .optional()
-        .describe(
-            'Published app layout. Cell content and results remain linked to the notebook. Null unpublishes the app.'
-        ),
+        .describe('Publish this layout with the saved notebook sources and input defaults. Null unpublishes the app.'),
     app_revision: zod
         .number()
         .min(notebooksPartialUpdateBodyAppRevisionMin)
