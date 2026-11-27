@@ -152,6 +152,7 @@
         "latency": 2.0,
         "errored": false,
         "identified": [false, true],
+        "anonymous": [true, false],
         "cost": null,
         "person": "trace-a",
         "session": null
@@ -165,6 +166,7 @@
         "latency": 2.0,
         "errored": false,
         "identified": [false, true],
+        "anonymous": [false, false],
         "cost": null,
         "person": "user-1",
         "session": null
@@ -175,6 +177,7 @@
         "latency": 1.0,
         "errored": false,
         "identified": [true],
+        "anonymous": [false],
         "cost": null,
         "person": "user-2",
         "session": null

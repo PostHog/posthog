@@ -1,4 +1,4 @@
-import { IconChevronDown, IconExpand45, IconX } from '@posthog/icons'
+import { IconChevronDown, IconChevronLeft, IconExpand45, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { KeyboardShortcut } from 'lib/lemon-ui/KeyboardShortcut/KeyboardShortcut'
@@ -16,6 +16,8 @@ export interface TraceDrawerToolbarProps {
     fullPageHref: string
     fullPageInNewTab?: boolean
     onClose: () => void
+    /** For a trace opened from an entity drawer: returns to that drawer. */
+    back?: { label: string; onBack: () => void }
 }
 
 const NOT_IN_LIST_REASON = "This trace isn't in the list"
@@ -29,9 +31,28 @@ export function TraceDrawerToolbar({
     fullPageHref,
     fullPageInNewTab = false,
     onClose,
+    back,
 }: TraceDrawerToolbarProps): JSX.Element {
     return (
-        <div className="flex min-w-0 flex-1 items-center gap-1">
+        // Below the lg breakpoint the app's navigation button floats over the top left corner of the page, where a
+        // full-width drawer starts its toolbar, so the padding keeps the first button clear of it.
+        <div className="flex min-w-0 flex-1 items-center gap-1 max-lg:pl-7">
+            {back && (
+                <LemonButton
+                    size="small"
+                    type="tertiary"
+                    icon={<IconChevronLeft />}
+                    onClick={back.onBack}
+                    data-attr="trace-drawer-back"
+                    truncate
+                    className="min-w-0 max-w-60"
+                    tooltip={<span className="ph-sensitive ph-mask">{back.label}</span>}
+                >
+                    {/* The label can be customer text, such as an error message. ph-sensitive keeps the click in
+                    autocapture without its text, and ph-mask masks the text in session replay. */}
+                    <span className="ph-sensitive ph-mask">{back.label}</span>
+                </LemonButton>
+            )}
             {showNavigation && (
                 <>
                     <LemonButton
@@ -80,7 +101,7 @@ export function TraceDrawerToolbar({
                     ) : null}
                 </>
             )}
-            <div className="ml-auto flex items-center gap-1">
+            <div className="ml-auto flex shrink-0 items-center gap-1">
                 <LemonButton
                     size="small"
                     type="secondary"

@@ -135,20 +135,20 @@ def _period_traces(team: Team, selection: TraceSelection) -> ast.SelectQuery:
     )
 
 
-def _last_moment(window: TraceWindow) -> ast.Constant:
+def last_moment(window: TraceWindow) -> ast.Constant:
     return ast.Constant(value=shift(window.end, -timedelta(microseconds=1)))
 
 
-def _bucket(size: BucketSize, period_start: ast.Expr, period_last_moment: ast.Expr) -> ast.Expr:
-    # A trace starting before its period lands in the period's first bucket, which bucket_starts floors the same way.
-    # The period includes its end, and bucket_starts has no bucket starting there, so a trace starting exactly at the
-    # end lands in the last bucket.
+def period_bucket(size: BucketSize, moment: ast.Expr, period_start: ast.Expr, period_last_moment: ast.Expr) -> ast.Expr:
+    # A moment before its period lands in the period's first bucket, which bucket_starts floors the same way. The
+    # period includes its end, and bucket_starts has no bucket starting there, so a moment exactly at the end lands in
+    # the last bucket.
     return ast.Call(
         name=_BUCKET_FUNCTIONS[size],
         args=[
             parse_expr(
-                "least(greatest(first_timestamp, {start}), {last_moment})",
-                placeholders={"start": period_start, "last_moment": period_last_moment},
+                "least(greatest({moment}, {start}), {last_moment})",
+                placeholders={"moment": moment, "start": period_start, "last_moment": period_last_moment},
             )
         ],
     )
@@ -166,7 +166,7 @@ def _metrics_query(team: Team, selection: TraceSelection, size: BucketSize) -> a
     )
     period_last_moment = parse_expr(
         "if(in_current, {current_last}, {previous_last})",
-        placeholders={"current_last": _last_moment(current), "previous_last": _last_moment(previous)},
+        placeholders={"current_last": last_moment(current), "previous_last": last_moment(previous)},
     )
     # Each period yields one row per bucket and one total row, the one `grouping(bucket)` marks. p95, sessions and
     # users do not add up across buckets, so the totals come from that row.
@@ -181,7 +181,7 @@ def _metrics_query(team: Team, selection: TraceSelection, size: BucketSize) -> a
         LIMIT {most_rows}
         """,
         placeholders={
-            "bucket": _bucket(size, period_start, period_last_moment),
+            "bucket": period_bucket(size, ast.Field(chain=["first_timestamp"]), period_start, period_last_moment),
             "most_rows": ast.Constant(value=most_rows),
             "traces": _period_traces(team, selection),
         },
@@ -207,7 +207,9 @@ def _series_query(team: Team, selection: TraceSelection, size: BucketSize, key: 
         LIMIT {buckets}
         """,
         placeholders={
-            "bucket": _bucket(size, ast.Constant(value=window.start), _last_moment(window)),
+            "bucket": period_bucket(
+                size, ast.Field(chain=["first_timestamp"]), ast.Constant(value=window.start), last_moment(window)
+            ),
             "value": parse_expr(_SERIES[key]),
             "traces": grouped_traces(team, selection, _per_trace_values()),
             "first_bucket": ast.Call(name=floor, args=[ast.Constant(value=window.start)]),

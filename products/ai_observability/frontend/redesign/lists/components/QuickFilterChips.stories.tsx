@@ -33,6 +33,17 @@ export const CountsLoading: Story = {
     },
 }
 
+export const CountReadApart: Story = {
+    args: {
+        chips: [
+            { id: 'increasing', label: 'Increasing', count: 4, tone: 'danger' },
+            { id: 'new', label: 'New', count: null, countStatus: 'loading' },
+            { id: 'decreasing', label: 'Decreasing', count: null, countStatus: 'error' },
+        ],
+        active: null,
+    },
+}
+
 export const NarrowContainer: Story = {
     decorators: [
         (StoryComponent) => (

@@ -12,11 +12,12 @@ export function rawSearchParam(search: string, name: string): string | null {
 
 // kea-router loses the text of a number or boolean, so a typed `1.50` must stay raw. A JSON param such as `filters` must
 // stay parsed, because kea-router pads a string shaped like JSON and reads it back as a string. The drawer's own params
-// are ids and `trace_search` is typed text, so they stay raw whatever their shape.
+// are ids and every list's search param, such as `trace_search` or `error_search`, is typed text, so they stay raw
+// whatever their shape.
 function keepsRawText(name: string, value: unknown): boolean {
     return (
         TRACE_DRAWER_PARAMS.includes(name) ||
-        name === 'trace_search' ||
+        name.endsWith('_search') ||
         typeof value === 'number' ||
         typeof value === 'boolean'
     )

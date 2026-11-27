@@ -7,6 +7,7 @@ export interface ListToolbarProps {
     search: string
     onSearchChange?: (search: string) => void
     searchPlaceholder: string
+    scope?: ReactNode
     filters: ReactNode
     testAccounts: ReactNode
     dateRange: ReactNode
@@ -19,6 +20,7 @@ export function ListToolbar({
     search,
     onSearchChange,
     searchPlaceholder,
+    scope,
     filters,
     testAccounts,
     dateRange,
@@ -41,6 +43,7 @@ export function ListToolbar({
                     data-attr={`${dataAttr}-search`}
                 />
             ) : null}
+            {scope}
             {filters}
             {testAccounts}
             <div className="ml-auto flex flex-wrap items-center gap-2">

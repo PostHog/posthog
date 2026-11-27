@@ -14,7 +14,8 @@ export interface CellReaderOptions<Row, Read extends string, Item> {
 
 /**
  * Reads one kind of cell for some rows. A refresh reads rows that are already on screen, so two reads of one row can
- * overlap. Only the latest read of a row may fill it, or an older answer that lands last would overwrite a newer one.
+ * overlap. Only the latest read of a row may fill it or fail it, or an older answer that lands last would overwrite a
+ * newer one, and an older failure would report a cell that a newer read already filled.
  */
 export function createCellReader<Row, Read extends string, Item>({
     cache,
@@ -45,10 +46,14 @@ export function createCellReader<Row, Read extends string, Item>({
         if (cache.disposables.isDisposed) {
             return
         }
+        const isLatest = (id: string): boolean => latestReads.get(readKey(read, id)) === readId
         if ('failure' in result) {
-            failed(read, ids)
+            const latestIds = ids.filter(isLatest)
+            if (latestIds.length > 0) {
+                failed(read, latestIds)
+            }
         } else {
-            loaded(result.value.items.filter((item) => latestReads.get(readKey(read, itemIdOf(item))) === readId))
+            loaded(result.value.items.filter((item) => isLatest(itemIdOf(item))))
         }
     }
 }

@@ -15,8 +15,9 @@ import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types
 import type { SessionListApi, SessionListItemApi } from '../../generated/api.schemas'
 import { listFiltersLogic } from '../lists/listFiltersLogic'
 import { shellScopeLogic } from '../shell/shellScopeLogic'
+import { sessionPageLogic } from './sessionPageLogic'
 import { SESSIONS_LIST_FILTERS, sessionsListLogic } from './sessionsListLogic'
-import { makeSessionListItem, makeSessionListPage } from './testFixtures'
+import { makeSessionListItem, makeSessionListPage, sessionCellsMocks } from './testFixtures'
 
 const SESSIONS_URL = '/api/projects/:team_id/ai_observability/sessions/'
 const SESSION_URL = '/api/projects/:team_id/ai_observability/sessions/:id/'
@@ -77,6 +78,7 @@ describe('sessionsListLogic', () => {
                     return sessionAnswer
                 },
             },
+            post: sessionCellsMocks(),
         })
         initKeaTests()
     })
@@ -106,14 +108,19 @@ describe('sessionsListLogic', () => {
     it.each([
         ['sends', [SEARCH_FLAG], { search: 'refund' }],
         ['leaves out', [], {}],
-    ])('%s the search in the url by the search flag, and never the trace view', async (_name, flags, search) => {
-        await mountAt(
-            `${LIST_PATH}?filters=${encodeURIComponent(JSON.stringify([MODEL_FILTER]))}&view=errors&trace_search=refund`,
-            flags
-        )
+    ])(
+        '%s the search in the url by the search flag, with the person and never a trace view or scope',
+        async (_name, flags, search) => {
+            await mountAt(
+                `${LIST_PATH}?filters=${encodeURIComponent(JSON.stringify([MODEL_FILTER]))}&view=errors&trace_search=refund&error=boom&person=p1`,
+                flags
+            )
 
-        expect(requests).toEqual([{ ...FIRST_PAGE_PARAMS, properties: JSON.stringify([MODEL_FILTER]), ...search }])
-    })
+            expect(requests).toEqual([
+                { ...FIRST_PAGE_PARAMS, properties: JSON.stringify([MODEL_FILTER]), person_id: 'p1', ...search },
+            ])
+        }
+    )
 
     it('next page uses nextCursor and keeps the pages it has', async () => {
         await mountAt(LIST_PATH)
@@ -151,6 +158,22 @@ describe('sessionsListLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         expect(requests.at(-1)).toEqual(params)
         expect(ids()).toEqual(['session-a', 'session-b'])
+    })
+
+    it("keeps the list's person and filters on the way to a session's full page and back", async () => {
+        await mountAt(
+            `${LIST_PATH}?person=p1&date_from=-7d&session=session-a&timestamp=${LINK_TIMESTAMP}&trace=trace-9&ts=${LINK_TIMESTAMP}`
+        )
+        const pageUrl = combineUrl(logic.values.openSessionPageHref ?? '')
+        expect(pageUrl.searchParams).toEqual({ timestamp: expect.any(String), person: 'p1', date_from: '-7d' })
+
+        router.actions.push(pageUrl.url)
+        const page = sessionPageLogic({ sessionId: 'session-a' })
+        page.mount()
+        await expectLogic(page).toFinishAllListeners()
+
+        expect(combineUrl(page.values.sessionsHref).searchParams).toEqual({ person: 'p1', date_from: '-7d' })
+        page.unmount()
     })
 
     it('openSession and the session link carry the session and its start, drop drawer params and push', async () => {
@@ -271,6 +294,7 @@ describe('sessionsListLogic', () => {
         ['a property filter is on', `filters=${encodeURIComponent(JSON.stringify([MODEL_FILTER]))}`, 'empty-filtered'],
         ['a search is on', 'trace_search=refund', 'empty-filtered'],
         ['test accounts are filtered out', 'filter_test_accounts=true', 'empty-filtered'],
+        ['a person is picked', 'person=p1', 'empty-filtered'],
     ])('shows an empty first page as %s', async (_name, query, state) => {
         answer = () => [200, makeSessionListPage([])]
 

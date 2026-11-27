@@ -1,5 +1,6 @@
 from collections.abc import Mapping, Sequence
-from datetime import UTC, datetime, timedelta
+from dataclasses import replace
+from datetime import UTC, datetime, timedelta, tzinfo
 from enum import StrEnum
 
 from posthog.dataclasses import frozen
@@ -11,7 +12,7 @@ from products.ai_observability.backend.logic.instrumentation.signals import (
     answers_session,
     grade_signal,
 )
-from products.ai_observability.backend.logic.traces.trace_selection import TraceWindow, shift
+from products.ai_observability.backend.logic.traces.trace_selection import TraceSelection, TraceWindow, shift
 
 HOURLY_BUCKET_MAX_SPAN = timedelta(days=2)
 # The bucket list is built in memory before ClickHouse runs, where no query timeout bounds it, so a range with more
@@ -152,6 +153,12 @@ _METRICS = {
 def previous_window(window: TraceWindow) -> TraceWindow:
     length = window.end.astimezone(UTC) - window.start.astimezone(UTC)
     return TraceWindow(start=shift(window.start, -length), end=window.start)
+
+
+def zoned_selection(selection: TraceSelection, zone: tzinfo) -> TraceSelection:
+    """The selection with its window in the project's `zone`, where buckets start at midnight."""
+    window = selection.window
+    return replace(selection, window=TraceWindow(start=window.start.astimezone(zone), end=window.end.astimezone(zone)))
 
 
 def bucket_size_for(window: TraceWindow) -> BucketSize:

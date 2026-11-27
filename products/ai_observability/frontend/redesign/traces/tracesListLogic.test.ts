@@ -104,6 +104,26 @@ describe('tracesListLogic', () => {
         expect(requests).toEqual([{ ...FIRST_PAGE_PARAMS, properties: JSON.stringify([MODEL_FILTER]), view: 'errors' }])
     })
 
+    it('sends the first scope in the url it accepts', async () => {
+        await mountAt(`${LIST_PATH}?tool=search_docs&person=p1`)
+
+        expect(requests).toEqual([{ ...FIRST_PAGE_PARAMS, person_id: 'p1' }])
+    })
+
+    it('drops the pages and reads page one without the scope once it is cleared', async () => {
+        await mountAt(`${LIST_PATH}?error=a%25b%0Ac`)
+        expect(requests).toEqual([{ ...FIRST_PAGE_PARAMS, error: 'a%b\nc' }])
+        logic.actions.showNextPage()
+        await expectLogic(logic).toFinishAllListeners()
+
+        filtersLogic().actions.clearScope()
+        expect(logic.values).toMatchObject({ items: [], state: 'loading', pageIndex: 0 })
+
+        await expectLogic(logic).toFinishAllListeners()
+        expect(requests.at(-1)).toEqual(FIRST_PAGE_PARAMS)
+        expect(router.values.location.search).toEqual('')
+    })
+
     it('reads a page it has not shown yet and keeps the pages it has', async () => {
         await mountAt(LIST_PATH)
 
@@ -289,6 +309,7 @@ describe('tracesListLogic', () => {
         ['a search is on', 'trace_search=invoice', 'empty-filtered'],
         ['a quick filter is on', 'view=errors', 'empty-filtered'],
         ['test accounts are filtered out', 'filter_test_accounts=true', 'empty-filtered'],
+        ['a scope is on', 'tool=search_docs', 'empty-filtered'],
     ])('shows an empty first page as %s', async (_name, query, state) => {
         answer = () => [200, makeTraceListPage([])]
 

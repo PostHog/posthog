@@ -106,7 +106,7 @@ describe('cursorPaging', () => {
     })
 
     it('sends the search only when it is enabled', () => {
-        const filters: ListFilters = { propertyFilters: [], search: 'refund', quickFilter: null }
+        const filters: ListFilters = { propertyFilters: [], search: 'refund', quickFilter: null, scope: null }
         const scope = { dateFrom: '-7d', dateTo: null, filterTestAccounts: false }
 
         expect(listRequestParams(filters, { ...scope, searchEnabled: true }).search).toEqual('refund')
