@@ -456,6 +456,10 @@ describe('adventCalendarLogic', () => {
             signIn({ is_staff: isStaff })
             router.actions.push('/workflows/advent', searchParams)
             const storedBefore = window.localStorage.getItem('workflows-advent-calendar-progress')
+            const sent: string[] = []
+            capture.mockImplementation((event: string) => {
+                sent.push(event)
+            })
             logic.actions.activateDoor('door-1')
             logic.actions.finishReveal()
             logic.actions.answerDoor('door-2', ADVENT_QUESTIONS[2].options[0].id)
@@ -465,13 +469,12 @@ describe('adventCalendarLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             expect(doorOf(logic, 'door-2')?.status).toBe('open')
-            const captured = (event: string): number => capture.mock.calls.filter(([name]) => name === event).length
             expect({
                 opens: api.opens.map((open) => (open as { day: number }).day),
                 answers: api.answers.length,
                 storesProgress: window.localStorage.getItem('workflows-advent-calendar-progress') !== storedBefore,
-                openEvents: captured('workflows advent door opened'),
-                answerEvents: captured('workflows advent answer picked'),
+                openEvents: sent.filter((event) => event === 'workflows advent door opened').length,
+                answerEvents: sent.filter((event) => event === 'workflows advent answer picked').length,
             }).toEqual({ opens, answers, storesProgress: isLive, openEvents: opens.length, answerEvents: answers })
         }
     )
