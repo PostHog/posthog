@@ -70,6 +70,7 @@ export function useContentTilePlacementActions(id: string, panel: SavedPanel): M
             label: 'Slideshow',
             dataAttr: 'dashboard-v2-tile-slideshow-open',
             group: 'view',
+            needsLoaded: true,
             disabledReason: null,
             onSelect: () => showSlideshow(id),
         })

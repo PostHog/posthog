@@ -23,6 +23,8 @@ export type MenuAction = {
      * always sits last, on its own.
      */
     group?: MenuGroup
+    /** Draws or shows what the tile holds, so a tile's menu disables it while the tile is still loading. */
+    needsLoaded?: boolean
     /** Picking it leaves the menu open, for a choice someone may want to compare with the next one. */
     keepOpen?: boolean
 }

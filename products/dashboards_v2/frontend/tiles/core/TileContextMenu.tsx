@@ -1,4 +1,4 @@
-import type { MouseEvent, ReactNode } from 'react'
+import { type MouseEvent, type ReactNode, useMemo, useRef, useState } from 'react'
 
 import { IconEllipsis } from '@posthog/icons'
 import {
@@ -50,15 +50,32 @@ export function hasTileMenu(actions: MenuAction[]): boolean {
  * browser's own menu still shows.
  */
 export function TileContextMenu({ actions, children }: { actions: MenuAction[]; children: ReactNode }): JSX.Element {
+    const trigger = useRef<HTMLDivElement>(null)
+    const [loading, setLoading] = useState(false)
+    const shown = useMemo(
+        () =>
+            loading
+                ? actions.map((action) =>
+                      action.needsLoaded
+                          ? { ...action, disabledReason: action.disabledReason ?? 'Still loading' }
+                          : action
+                  )
+                : actions,
+        [actions, loading]
+    )
     if (!hasTileMenu(actions)) {
         return <>{children}</>
     }
     return (
-        <ContextMenu>
+        // The tile does not know what its panel is doing, so it reads the busy mark that every loading state sets.
+        <ContextMenu
+            onOpenChange={(open) => open && setLoading(!!trigger.current?.querySelector('[aria-busy="true"]'))}
+        >
             <ContextMenuTrigger
                 render={
                     // A tile inside a section has its own menu, so its right-click must not also open the section's.
                     <div
+                        ref={trigger}
                         className="TileContextMenu__trigger contents"
                         onContextMenu={(event) => event.stopPropagation()}
                     />
@@ -68,7 +85,7 @@ export function TileContextMenu({ actions, children }: { actions: MenuAction[]; 
             </ContextMenuTrigger>
             {/* Returning focus to the trigger would blur a rename input the menu just opened. */}
             <ContextMenuContent finalFocus={false}>
-                <MenuActionList actions={actions} parts={CONTEXT_MENU_PARTS} />
+                <MenuActionList actions={shown} parts={CONTEXT_MENU_PARTS} />
             </ContextMenuContent>
         </ContextMenu>
     )

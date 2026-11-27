@@ -40,13 +40,18 @@ function EntryLabel({ action }: { action: MenuAction }): JSX.Element {
     )
 }
 
+// A menu row has a fixed height, and a disabled entry needs a second line for its reason.
+function rowClass(action: MenuAction): string | undefined {
+    return action.disabledReason ? 'h-auto py-1' : undefined
+}
+
 function MenuEntry({ action, parts }: { action: MenuAction; parts: MenuParts }): JSX.Element {
     const { Item, CheckboxItem, Sub, SubTrigger, SubContent, RadioGroup, RadioItem } = parts
     if (action.submenu && action.choice) {
         const selected = action.submenu.find((child) => child.checked)?.key ?? null
         return (
             <Sub>
-                <SubTrigger data-attr={action.dataAttr} disabled={!!action.disabledReason}>
+                <SubTrigger data-attr={action.dataAttr} className={rowClass(action)} disabled={!!action.disabledReason}>
                     <EntryLabel action={action} />
                 </SubTrigger>
                 <SubContent>
@@ -59,6 +64,7 @@ function MenuEntry({ action, parts }: { action: MenuAction; parts: MenuParts }):
                                 key={child.key}
                                 value={child.key}
                                 data-attr={child.dataAttr}
+                                className={rowClass(child)}
                                 disabled={!!child.disabledReason}
                             >
                                 <EntryLabel action={child} />
@@ -72,7 +78,7 @@ function MenuEntry({ action, parts }: { action: MenuAction; parts: MenuParts }):
     if (action.submenu) {
         return (
             <Sub>
-                <SubTrigger data-attr={action.dataAttr} disabled={!!action.disabledReason}>
+                <SubTrigger data-attr={action.dataAttr} className={rowClass(action)} disabled={!!action.disabledReason}>
                     <EntryLabel action={action} />
                 </SubTrigger>
                 <SubContent>
@@ -87,6 +93,7 @@ function MenuEntry({ action, parts }: { action: MenuAction; parts: MenuParts }):
         return (
             <CheckboxItem
                 data-attr={action.dataAttr}
+                className={rowClass(action)}
                 checked={action.checked}
                 disabled={!!action.disabledReason}
                 onCheckedChange={() => action.onSelect?.()}
@@ -98,6 +105,7 @@ function MenuEntry({ action, parts }: { action: MenuAction; parts: MenuParts }):
     return (
         <Item
             data-attr={action.dataAttr}
+            className={rowClass(action)}
             variant={action.destructive ? 'destructive' : 'default'}
             disabled={!!action.disabledReason}
             closeOnClick={!action.keepOpen}
