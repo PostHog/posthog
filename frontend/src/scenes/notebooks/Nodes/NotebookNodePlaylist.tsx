@@ -1,5 +1,5 @@
 import { BuiltLogic, useActions, useValues } from 'kea'
-import { useEffect, useMemo } from 'react'
+import { type ComponentProps, useEffect, useMemo } from 'react'
 
 import { LemonTag } from '@posthog/lemon-ui'
 import { PostHogErrorBoundary } from '@posthog/react'
@@ -98,7 +98,7 @@ function NotebookPlaylistView({
             <LemonTag className="self-start" type="highlight">
                 Notebook filters applied
             </LemonTag>
-            <SessionRecordingsPlaylist
+            <NotebookReplayPlaylist
                 key={key}
                 logicKey={key}
                 filters={filters}
@@ -143,9 +143,16 @@ const PlaylistContent = ({
         [playerKey, universalFilters, pinned]
     )
 
+    return <NotebookReplayPlaylist {...recordingPlaylistLogicProps} logicKey={playerKey} />
+}
+
+function NotebookReplayPlaylist(
+    props: ComponentProps<typeof SessionRecordingsPlaylist> & { logicKey: string }
+): JSX.Element {
+    const playerKey = props.logicKey
     const { setActions, insertAfter, setMessageListeners } = useActions(notebookNodeLogic)
 
-    const logic = sessionRecordingsPlaylistLogic(recordingPlaylistLogicProps)
+    const logic = sessionRecordingsPlaylistLogic(props)
     const { activeSessionRecording } = useValues(logic)
     const { setSelectedRecordingId } = useActions(logic)
 
@@ -198,7 +205,7 @@ const PlaylistContent = ({
         }
     })
 
-    return <SessionRecordingsPlaylist {...recordingPlaylistLogicProps} />
+    return <SessionRecordingsPlaylist {...props} />
 }
 
 function usePlaylistNodeTitle(playlist: SessionRecordingPlaylistType | null): void {

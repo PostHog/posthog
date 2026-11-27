@@ -179,6 +179,35 @@ describe('sessionRecordingsPlaylistLogic', () => {
         localStorage.clear()
     })
 
+    it.each([
+        { enabled: true, ids: ['s1'], expected: '1' },
+        { enabled: false, ids: ['s1'], expected: null },
+        { enabled: true, ids: [], expected: null },
+    ])('sends the session ID date flag for enabled=$enabled and ids=$ids', async ({ enabled, ids, expected }) => {
+        let requestParams: URLSearchParams | undefined
+        useMocks({
+            get: {
+                '/api/environments/:team_id/session_recordings': ({ request }) => {
+                    requestParams = new URL(request.url).searchParams
+                    return [200, { results: [], has_next: false }]
+                },
+            },
+        })
+        const playlist = sessionRecordingsPlaylistLogic({
+            logicKey: 'notebook-date-bound',
+            filters: { ...DEFAULT_RECORDING_FILTERS, session_ids: ids },
+            filterSessionIdsByDate: enabled,
+            updateSearchParams: false,
+        })
+        const unmount = playlist.mount()
+        try {
+            await expectLogic(playlist).toDispatchActions(['loadSessionRecordingsSuccess'])
+            expect(requestParams?.get('filter_session_ids_by_date')).toBe(expected)
+        } finally {
+            unmount()
+        }
+    })
+
     describe('watch next', () => {
         it('selects the first unwatched recording when the URL asks for it', async () => {
             useMocks({
