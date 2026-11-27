@@ -110,7 +110,7 @@ def notebook_app_embed(request: HttpRequest, team_id: int, embed_id: UUID) -> Ht
         if request.headers.get("Sec-Fetch-Dest") != "iframe":
             raise Http404()
         try:
-            output = redeem_signed_embed(team_id, embed_id, request.POST.get("token", ""))
+            output = redeem_signed_embed(team_id, embed_id, request.POST.get("token", ""), client_ip=client_ip)
         except (Throttled, EmbedCapacityUnavailable) as exc:
             return HttpResponse(status=exc.status_code, headers={"Retry-After": str(getattr(exc, "wait", None) or 5)})
         if output is None:

@@ -260,7 +260,7 @@ def read_embed_audience(team_id: int, embed_id: UUID) -> AppEmbedAudience | None
     return AppEmbedAudience(origin=embed.origin, issued_by_id=embed.issued_by_id) if embed else None
 
 
-def redeem_signed_embed(team_id: int, embed_id: UUID, token: str) -> AppOutput | None:
+def redeem_signed_embed(team_id: int, embed_id: UUID, token: str, *, client_ip: str) -> AppOutput | None:
     embed = _active_embed(team_id, embed_id)
     if embed is None or len(token) > 4096:
         return None
@@ -282,7 +282,7 @@ def redeem_signed_embed(team_id: int, embed_id: UUID, token: str) -> AppOutput |
         or claims["tenant"] not in (tenant_digest(embed.tenant_value), embed.tenant_value)
     ):
         return None
-    require_capacity(f"notebooks:embed:verified:{embed_id}", VERIFIED_VIEW_BUDGET)
+    require_capacity(f"notebooks:embed:verified:{embed_id}:{client_ip}", VERIFIED_VIEW_BUDGET)
     stored = embed.snapshot
     if isinstance(stored, dict) and stored.get("version") == APP_OUTPUT_VERSION and stored.get("complete") is True:
         tabs = stored["tabs"]

@@ -516,14 +516,17 @@ class TestNotebookAppEmbeds(APIBaseTest):
             revoked = self.client.post(self.management, {**self.configuration("coast"), "revoke": True}, format="json")
             assert revoked.status_code == 200
 
-    def test_audience_budget_counts_authenticated_renders_and_issuance_requires_capacity(self) -> None:
+    def test_verified_renders_are_limited_per_client_and_issuance_requires_capacity(self) -> None:
         path, token = self.issue("coast")
+        first_client = Client(enforce_csrf_checks=True, REMOTE_ADDR="192.0.2.10", HTTP_SEC_FETCH_DEST="iframe")
+        second_client = Client(enforce_csrf_checks=True, REMOTE_ADDR="198.51.100.12", HTTP_SEC_FETCH_DEST="iframe")
         with patch("products.notebooks.backend.app_embeds.VERIFIED_VIEW_BUDGET", Budget(burst=1, per_hour=1)):
-            assert self.public.get(path).status_code == 200
-            assert self.public.get(path).status_code == 200
-            assert self.public.post(path, {"token": token}, HTTP_SEC_FETCH_DEST="iframe").status_code == 200
-            limited = self.public.post(path, {"token": token}, HTTP_SEC_FETCH_DEST="iframe")
+            assert first_client.get(path).status_code == 200
+            assert first_client.get(path).status_code == 200
+            assert first_client.post(path, {"token": token}).status_code == 200
+            limited = first_client.post(path, {"token": token})
             assert limited.status_code == 429 and int(limited.headers["Retry-After"]) > 0
+            self.assertContains(second_client.post(path, {"token": token}), "Tide pools")
         with patch(
             "products.notebooks.backend.app_embeds.consume", return_value=BucketUnavailable(error="unavailable")
         ):

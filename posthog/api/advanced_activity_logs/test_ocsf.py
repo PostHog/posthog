@@ -5,6 +5,7 @@ from posthog.test.base import APIBaseTest
 from parameterized import parameterized
 
 from posthog.api.advanced_activity_logs.ocsf import ActivityLogOCSFSerializer
+from posthog.models import OrganizationMembership
 from posthog.models.activity_logging.activity_log import ActivityLog, Change, Detail
 
 
@@ -138,6 +139,50 @@ class TestActivityLogOCSF(APIBaseTest):
 
         assert response.status_code == 200, response.json()
         assert response.json()["results"][0]["class_uid"] == 3004
+
+    def test_following_notebook_sharing_events_uses_the_readers_current_audit_access(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save(update_fields=["level"])
+        key = self.create_personal_api_key_with_scopes(["activity_log:read"])
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {key}")
+        start = self._log(scope="Notebook")
+        url = f"/api/projects/{self.team.id}/advanced_activity_logs/?ordering=created_at&follow=true&schema=ocsf&scope=Notebook"
+        first = self.client.get(url)
+        assert first.status_code == 200, first.content
+        assert [row["metadata"]["uid"] for row in first.json()["results"]] == [str(start.pk)]
+        checkpoint = first.json()["next"]
+        assert checkpoint
+        next_page = checkpoint
+
+        for field, credential_type, session_field in (
+            ("app_view_grant", "personal_api_key", "credential_uid"),
+            ("app_embed", "session", "uid"),
+        ):
+            entry = self._log(
+                scope="Notebook",
+                credential_type=credential_type,
+                credential_id="example-credential-id",
+                detail=Detail(changes=[Change(type="Notebook", action="created", field=field)]),
+            )
+            response = self.client.get(next_page)
+            assert response.status_code == 200, response.content
+            (event,) = response.json()["results"]
+            assert event["metadata"]["uid"] == str(entry.pk)
+            assert event["unmapped"]["changed_fields"] == [field]
+            assert event["src_endpoint"]["ip"] == entry.ip_address
+            assert event["actor"]["app_name"] == entry.client
+            assert event["unmapped"]["credential_type"] == credential_type
+            assert event["actor"]["session"] == {session_field: entry.credential_id}
+            next_page = response.json()["next"]
+            assert next_page
+
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save(update_fields=["level"])
+        ordinary_edit = self._log(scope="Notebook")
+        ordinary_page = self.client.get(checkpoint)
+        assert ordinary_page.status_code == 200, ordinary_page.content
+        assert [row["metadata"]["uid"] for row in ordinary_page.json()["results"]] == [str(ordinary_edit.pk)]
 
     def test_endpoint_include_values_is_opt_in(self):
         self._log(detail=self._detail_with_values())
