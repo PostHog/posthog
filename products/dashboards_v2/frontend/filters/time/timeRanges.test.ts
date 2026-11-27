@@ -1,7 +1,7 @@
 import { CUSTOM_RANGE } from '@posthog/quill'
 
-import type { TimeRange } from '../../dashboard/document/dashboardTypes'
 import { type QuickRange, fromPickerValue, toPickerValue } from './timeRanges'
+import { type TimeRange } from './timeRangeSchema'
 
 const RANGES: QuickRange[] = [
     { label: 'Last hour', from: 'now-1h' },

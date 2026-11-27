@@ -1,10 +1,5 @@
-import {
-    type ContentPanelParts,
-    type Dashboard,
-    type Tile,
-    type TileAppearance,
-    isSectionPanel,
-} from '../document/dashboardTypes'
+import { type ContentPanelParts, type TileAppearance } from '../../panels/core/panelSchema'
+import { type Dashboard, type Tile, isSectionPanel } from '../document/dashboardTypes'
 import { changeTilesWhere } from '../document/tileTree'
 
 /**

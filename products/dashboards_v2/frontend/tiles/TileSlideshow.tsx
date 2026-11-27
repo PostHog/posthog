@@ -6,8 +6,9 @@ import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
 import { Button, Dialog, DialogContent, DialogTitle } from '@posthog/quill'
 
 import { useDashboard } from '../dashboard/core/dashboardContext'
-import { type SavedPanel, type Tile, isSectionPanel } from '../dashboard/document/dashboardTypes'
+import { type Tile, isSectionPanel } from '../dashboard/document/dashboardTypes'
 import { inReadingOrder } from '../grid/layout/gridTiles'
+import { type SavedPanel } from '../panels/core/panelSchema'
 import { ContentTile } from './core/ContentTile'
 
 /** A tab's content tiles in the order a person reads them, the tiles in a section where the section sits. */
