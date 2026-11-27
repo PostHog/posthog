@@ -654,11 +654,14 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
         expect(await metric('cdp_cyclotron_v2_result_write_failures_total', { queue: queueName })).toBe(0)
     })
 
-    const stalledSes = (askedForCredentials: () => void = () => undefined): SesTransport =>
+    const stalledSes = (
+        askedForCredentials: () => void = () => undefined,
+        credentialsArrive: Promise<{ accessKeyId: string; secretAccessKey: string }> = new Promise(() => undefined)
+    ): SesTransport =>
         sesTransportFor(ses, {
             credentials: () => {
                 askedForCredentials()
-                return new Promise(() => undefined)
+                return credentialsArrive
             },
         })
 
@@ -697,14 +700,14 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
     describe('with a plain send that SES has not answered when the worker stops', () => {
         async function stopWhileItWaits(worker: CdpCyclotronWorkerEmail, id: string): Promise<JobRow> {
             let stopReturned = false
-            const stopDeadline = Date.now() + CONSUMER_STOP_DEADLINE_MS
+            const longerThanAnyStopDeadline = Date.now() + 10 * CONSUMER_STOP_DEADLINE_MS
             void worker.stop().then(() => (stopReturned = true))
             return await onTheFakeClock(async () => {
                 const returned = stopReturned
                 const row = await jobRow(id)
                 expect(returned).toBe(true)
                 return row
-            }, stopDeadline + 1_000)
+            }, longerThanAnyStopDeadline)
         }
 
         it('fails the send that SES took before the queue disconnects, so no worker sends it again', async () => {
@@ -732,9 +735,15 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
             const clockStarted = Date.now()
             useFakeClock()
             let callStarted = false
+            let credentialsArrive!: () => void
             const worker = await startWorker(
                 null,
-                stalledSes(() => (callStarted = true))
+                stalledSes(
+                    () => (callStarted = true),
+                    new Promise((resolve) => {
+                        credentialsArrive = () => resolve({ accessKeyId: 'fake-ses', secretAccessKey: 'fake-ses' })
+                    })
+                )
             )
             await onTheFakeClock(async () => {
                 expect((await jobRow(id)).status).toBe('running')
@@ -742,9 +751,14 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
             }, clockStarted + 1_000)
 
             const afterStop = await stopWhileItWaits(worker, id)
+            const stoppedAt = Date.now()
 
-            expect(afterStop.status).toBe('available')
+            expect({ status: afterStop.status, dueByTheStop: afterStop.scheduled.getTime() <= stoppedAt }).toEqual({
+                status: 'available',
+                dueByTheStop: true,
+            })
             expect(delivered()).toEqual([])
+            credentialsArrive()
             backToRealClock()
             await db.query(`UPDATE cyclotron_jobs SET scheduled = NOW() WHERE id = $1`, [id])
             await startWorker(null)
