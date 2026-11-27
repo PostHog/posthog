@@ -7905,7 +7905,7 @@ export namespace Schemas {
        * - `currency`: values are in the project's base currency (set in project settings, defaults to USD); rendered with that currency symbol. For values pinned to a specific currency regardless of project base (e.g. `$ai_total_cost_usd` is always USD), use `aggregationAxisPrefix` instead.
        * - `short`: compact notation for large counts (`1.2K`, `3.4M`). */
       aggregationAxisFormat?: AggregationAxisFormat | null;
-      /** Literal suffix applied to every value (e.g. ` req`). Reserve for units that `aggregationAxisFormat` cannot allow_broadcast. Do not use ` mins`, ` s`, ` ms`, `%` etc. — pick the matching `aggregationAxisFormat` instead so the underlying values stay numerically correct for breakdowns, formulas, and alerts. Include any leading space yourself. */
+      /** Literal suffix applied to every value (e.g. ` req`). Reserve for units that `aggregationAxisFormat` cannot express. Do not use ` mins`, ` s`, ` ms`, `%` etc. — pick the matching `aggregationAxisFormat` instead so the underlying values stay numerically correct for breakdowns, formulas, and alerts. Include any leading space yourself. */
       aggregationAxisPostfix?: string | null;
       /** Literal prefix applied to every value (e.g. `$`). Use to pin a unit or currency symbol that does not depend on `aggregationAxisFormat` — for example, when values are denominated in a fixed currency regardless of the project's base currency. Include any trailing space yourself. */
       aggregationAxisPrefix?: string | null;
@@ -24131,6 +24131,50 @@ export namespace Schemas {
     }
 
     /**
+     * * `slack_message` - Slack message
+     */
+    export type BroadcastRequestDeliveryKindEnum = typeof BroadcastRequestDeliveryKindEnum[keyof typeof BroadcastRequestDeliveryKindEnum];
+
+
+    export const BroadcastRequestDeliveryKindEnum = {
+      SlackMessage: 'slack_message',
+    } as const;
+
+    /**
+     * * `github` - Pull request comment
+     * * `slack` - Slack
+     * * `api` - API
+     */
+    export type BroadcastRequestSourceEnum = typeof BroadcastRequestSourceEnum[keyof typeof BroadcastRequestSourceEnum];
+
+
+    export const BroadcastRequestSourceEnum = {
+      Github: 'github',
+      Slack: 'slack',
+      Api: 'api',
+    } as const;
+
+    /**
+     * * `pending` - Waiting for Stamphog
+     * * `open` - Waiting for a person
+     * * `approved` - Approved by a person
+     * * `stamphog_approved` - Approved by Stamphog
+     * * `merged` - Merged
+     * * `closed` - Closed
+     */
+    export type BroadcastRequestStatusEnum = typeof BroadcastRequestStatusEnum[keyof typeof BroadcastRequestStatusEnum];
+
+
+    export const BroadcastRequestStatusEnum = {
+      Pending: 'pending',
+      Open: 'open',
+      Approved: 'approved',
+      StamphogApproved: 'stamphog_approved',
+      Merged: 'merged',
+      Closed: 'closed',
+    } as const;
+
+    /**
      * * `breaking_master` - Breaking Master
      * * `blocking_merge_queue` - Blocking Merge Queue
      * * `novel_burst` - Novel Burst
@@ -29847,60 +29891,6 @@ export namespace Schemas {
       readonly has_installation: boolean;
     }
 
-    /**
-     * One installation of the App the authorizing user can reach, offered for an explicit pick.
-     */
-    export interface CodeReviewApprovalDiscoveredInstallation {
-      /** GitHub installation id, as a string. */
-      readonly id: string;
-      /** Login of the org or user account the installation lives on. */
-      readonly account_login: string;
-    }
-
-    /**
-     * * `pending` - Waiting for Stamphog
-     * * `open` - Waiting for a person
-     * * `approved` - Approved by a person
-     * * `stamphog_approved` - Approved by Stamphog
-     * * `merged` - Merged
-     * * `closed` - Closed
-     */
-    export type BroadcastRequestStatusEnum = typeof BroadcastRequestStatusEnum[keyof typeof BroadcastRequestStatusEnum];
-
-
-    export const BroadcastRequestStatusEnum = {
-      Pending: 'pending',
-      Open: 'open',
-      Approved: 'approved',
-      StamphogApproved: 'stamphog_approved',
-      Merged: 'merged',
-      Closed: 'closed',
-    } as const;
-
-    /**
-     * * `github` - Pull request comment
-     * * `slack` - Slack
-     * * `api` - API
-     */
-    export type BroadcastRequestSourceEnum = typeof BroadcastRequestSourceEnum[keyof typeof BroadcastRequestSourceEnum];
-
-
-    export const BroadcastRequestSourceEnum = {
-      Github: 'github',
-      Slack: 'slack',
-      Api: 'api',
-    } as const;
-
-    /**
-     * * `slack_message` - Slack message
-     */
-    export type BroadcastRequestDeliveryKindEnum = typeof BroadcastRequestDeliveryKindEnum[keyof typeof BroadcastRequestDeliveryKindEnum];
-
-
-    export const BroadcastRequestDeliveryKindEnum = {
-      SlackMessage: 'slack_message',
-    } as const;
-
     export interface CodeReviewApprovalBroadcastRequestDelivery {
       /** Where the request was posted. 'slack_message' is a message in the repository's Slack channel.
        *
@@ -29950,6 +29940,16 @@ export namespace Schemas {
       readonly created_at: string;
       /** When the request last changed. */
       readonly updated_at: string;
+    }
+
+    /**
+     * One installation of the App the authorizing user can reach, offered for an explicit pick.
+     */
+    export interface CodeReviewApprovalDiscoveredInstallation {
+      /** GitHub installation id, as a string. */
+      readonly id: string;
+      /** Login of the org or user account the installation lives on. */
+      readonly account_login: string;
     }
 
     /**
@@ -52737,7 +52737,7 @@ export namespace Schemas {
      * Request body for the session-bucket endpoint.
      */
     export interface ExperimentSessionBucketRequest {
-      /** Which question the returned session set answers. 'fired_any': the session fired at least one event of any listed metric (an OR the recordings query itself can't allow_broadcast). 'no_metric_activity': the session fired none of them. 'funnel_dropoff': the session saw an exposure event but never fired the funnel metric's last step; the exposure is the funnel's implicit first step, the same as in the experiment analysis. All three are session-scoped and goal-free: they say what happened in the session, not whether it helped or hurt the metric.
+      /** Which question the returned session set answers. 'fired_any': the session fired at least one event of any listed metric (an OR the recordings query itself can't express). 'no_metric_activity': the session fired none of them. 'funnel_dropoff': the session saw an exposure event but never fired the funnel metric's last step; the exposure is the funnel's implicit first step, the same as in the experiment analysis. All three are session-scoped and goal-free: they say what happened in the session, not whether it helped or hurt the metric.
        *
        * * `fired_any` - fired_any
        * * `no_metric_activity` - no_metric_activity

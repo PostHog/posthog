@@ -307,7 +307,7 @@ export const CodeReviewApprovalsRepositoriesSyncInstallationCreateBody = /* @__P
  * History of auto-approval review runs, filterable by repository, PR number, and status, plus manual review requests.
  */
 
-export const codeReviewApprovalsRunsCreateBodyBroadcastDefault = false
+export const codeReviewApprovalsRunsCreateBodyAllowBroadcastDefault = false
 export const codeReviewApprovalsRunsCreateBodyNoteDefault = ``
 export const codeReviewApprovalsRunsCreateBodyNoteMax = 200
 
@@ -321,7 +321,7 @@ export const CodeReviewApprovalsRunsCreateBody = /* @__PURE__ */ zod
         pr_number: zod.number().min(1).describe('Pull request number on GitHub.'),
         allow_broadcast: zod
             .boolean()
-            .default(codeReviewApprovalsRunsCreateBodyBroadcastDefault)
+            .default(codeReviewApprovalsRunsCreateBodyAllowBroadcastDefault)
             .describe(
                 "Also ask people to review. Auto-approval reviews first. When it does not approve, it posts the pull request to the repository's Slack channel for people to review. When it approves, nothing is posted. The repository must have broadcasting turned on. Asking again returns the request that is already active. Only set it when the user asks for people to review."
             ),

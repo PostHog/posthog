@@ -206,7 +206,8 @@ export interface CodeReviewApprovalPullRequestRoutingApi {
  * * `merged` - Merged
  * * `closed` - Closed
  */
-export type BroadcastRequestStatusEnumApi = (typeof BroadcastRequestStatusEnumApi)[keyof typeof BroadcastRequestStatusEnumApi]
+export type BroadcastRequestStatusEnumApi =
+    (typeof BroadcastRequestStatusEnumApi)[keyof typeof BroadcastRequestStatusEnumApi]
 
 export const BroadcastRequestStatusEnumApi = {
     Pending: 'pending',
@@ -222,7 +223,8 @@ export const BroadcastRequestStatusEnumApi = {
  * * `slack` - Slack
  * * `api` - API
  */
-export type BroadcastRequestSourceEnumApi = (typeof BroadcastRequestSourceEnumApi)[keyof typeof BroadcastRequestSourceEnumApi]
+export type BroadcastRequestSourceEnumApi =
+    (typeof BroadcastRequestSourceEnumApi)[keyof typeof BroadcastRequestSourceEnumApi]
 
 export const BroadcastRequestSourceEnumApi = {
     Github: 'github',
