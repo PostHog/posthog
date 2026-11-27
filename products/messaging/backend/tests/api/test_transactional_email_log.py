@@ -72,6 +72,8 @@ LONG_ID_SENDS = 20
 CLICKED_SENDS_PAST_ONE_BATCH = 60
 SMALL_MAX_QUERY_SIZE = 16 * 1024
 TIED_SENDS = 30
+SENDS_PAST_THE_CAP = 10_001
+QUERY_SIZE_FOR_EVERY_CAPPED_SEND = 4 * 1024 * 1024
 
 
 @time_machine.travel(NOW, tick=False)
@@ -980,23 +982,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             :199
         ]
 
-    @parameterized.expand(
-        [
-            (
-                "past_one_query",
-                lambda team_id: patch.dict(
-                    CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, {str(team_id): {"max_query_size": SMALL_MAX_QUERY_SIZE}}
-                ),
-            ),
-            (
-                "past_the_send_cap",
-                lambda _team_id: patch(
-                    "products.messaging.backend.services.transactional_email_log.MAX_RESULTS_RECIPIENTS", 1
-                ),
-            ),
-        ]
-    )
-    def test_lists_only_the_sessions_of_the_newest_sends_read(self, _flag, _name, sends_left_out):
+    def test_lists_only_the_sessions_of_the_sends_in_the_first_query(self, _flag):
         clicked = [("sent", 1, ""), ("delivered", 2, ""), ("clicked", 60, "")]
         message_ids = [
             self._send(minutes_ago, f"reader-{minutes_ago}@example.com", clicked)
@@ -1007,7 +993,9 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         self._land("reader", "oldest-send-session", oldest_send, at=NOW - timedelta(minutes=20))
         flush_persons_and_events()
 
-        with sends_left_out(self.team.id):
+        with patch.dict(
+            CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, {str(self.team.id): {"max_query_size": SMALL_MAX_QUERY_SIZE}}
+        ):
             listed = self._impact_sessions(date_from=(NOW - timedelta(days=1)).isoformat())
 
         assert listed == {
@@ -1016,6 +1004,57 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
                     "session_id": "newest-send-session",
                     "message_id": newest_send,
                     "first_pageview_at": "2026-06-15T11:30:00Z",
+                }
+            ],
+            "has_more": True,
+        }
+
+    def test_reads_the_newest_10000_clicked_sends(self, _flag):
+        queued = [NOW - timedelta(minutes=10, seconds=n) for n in range(SENDS_PAST_THE_CAP)]
+        message_ids = [str(UUIDT(unix_time_ms=int(at.timestamp() * 1000))) for at in queued]
+        sync_execute(
+            f"""
+            INSERT INTO {EMAIL_STATUS_EVENTS_DATA_TABLE}
+                (team_id, message_id, status, version, created_at, status_at, recipient, function_id,
+                 _timestamp, _offset, _partition)
+            VALUES
+            """,
+            [
+                {
+                    "team_id": self.team.id,
+                    "message_id": message_id,
+                    "status": row_status,
+                    "version": RANK[row_status] * 2**48 + int(at.timestamp() * 1000) + seconds * 1000,
+                    "created_at": at,
+                    "status_at": at + timedelta(seconds=seconds),
+                    "recipient": f"capped-{n}@example.com" if row_status == "queued" else "",
+                    "function_id": self.workflow_id if row_status == "queued" else "",
+                    "_timestamp": at,
+                    "_offset": 0,
+                    "_partition": 0,
+                }
+                for n, (message_id, at) in enumerate(zip(message_ids, queued, strict=True))
+                for row_status, seconds in (("queued", 0), ("clicked", 60))
+            ],
+        )
+        last_send_read, first_send_left_out = message_ids[9_999], message_ids[10_000]
+        self._land("reader", "last-send-read-session", last_send_read, at=NOW - timedelta(minutes=20))
+        self._land("reader", "send-left-out-session", first_send_left_out, at=NOW - timedelta(minutes=15))
+        flush_persons_and_events()
+
+        # Every send the cap lets through fits one query, so only the cap can leave a send out.
+        with patch.dict(
+            CLICKHOUSE_PER_TEAM_QUERY_SETTINGS,
+            {str(self.team.id): {"max_query_size": QUERY_SIZE_FOR_EVERY_CAPPED_SEND}},
+        ):
+            listed = self._impact_sessions(date_from=(NOW - timedelta(days=1)).isoformat())
+
+        assert listed == {
+            "sessions": [
+                {
+                    "session_id": "last-send-read-session",
+                    "message_id": last_send_read,
+                    "first_pageview_at": "2026-06-15T11:40:00Z",
                 }
             ],
             "has_more": True,
