@@ -1,11 +1,11 @@
-import { LemonTable } from '@posthog/lemon-ui'
-
-import { percentage } from 'lib/utils/numbers'
+import { pluralize } from 'lib/utils/strings'
 
 import type { AEOPageMoverApi, BrandedSegmentEnumApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
+import { AiVisibilityTable } from './AiVisibilityTable'
 import { ContentAutopilotCitationsLink } from './ContentAutopilotCitationsLink'
 import { ContentAutopilotKpiDelta } from './ContentAutopilotKpiDelta'
+import { ContentAutopilotRateBar } from './ContentAutopilotRateBar'
 import { moverDelta } from './movers'
 
 /** The pages on your site that moved, gains first. A page opens the answers that cite it now. */
@@ -22,7 +22,7 @@ export const ContentAutopilotPageMoversTable = ({
     dateTo: string
     branded: BrandedSegmentEnumApi
 }): JSX.Element => (
-    <LemonTable<AEOPageMoverApi>
+    <AiVisibilityTable<AEOPageMoverApi>
         size="small"
         embedded
         dataSource={rows}
@@ -43,7 +43,7 @@ export const ContentAutopilotPageMoversTable = ({
                                     lookup={{ kind: 'url', value: url, dateFrom, dateTo, branded }}
                                     source="overview-movers"
                                     // A button sizes to its text, so it needs the cell's width to truncate.
-                                    className="block w-full truncate"
+                                    className="w-full"
                                 >
                                     {label}
                                 </ContentAutopilotCitationsLink>
@@ -60,10 +60,10 @@ export const ContentAutopilotPageMoversTable = ({
                 align: 'right',
                 tooltip: 'Share of all answers in this date range that link to this page.',
                 render: (_, { citation_rate, answers_citing }) => (
-                    <span className="tabular-nums whitespace-nowrap">
-                        {percentage(citation_rate, 1)}{' '}
-                        <span className="text-secondary">({answers_citing.toLocaleString()})</span>
-                    </span>
+                    <ContentAutopilotRateBar
+                        rate={citation_rate}
+                        tooltip={`Cited in ${pluralize(answers_citing, 'answer')}`}
+                    />
                 ),
             },
             {
@@ -72,10 +72,10 @@ export const ContentAutopilotPageMoversTable = ({
                 align: 'right',
                 tooltip: `Share of all answers in the ${days} days before that link to this page.`,
                 render: (_, { previous_citation_rate, previous_answers_citing }) => (
-                    <span className="tabular-nums whitespace-nowrap">
-                        {percentage(previous_citation_rate, 1)}{' '}
-                        <span className="text-secondary">({previous_answers_citing.toLocaleString()})</span>
-                    </span>
+                    <ContentAutopilotRateBar
+                        rate={previous_citation_rate}
+                        tooltip={`Cited in ${pluralize(previous_answers_citing, 'answer')}`}
+                    />
                 ),
             },
             {

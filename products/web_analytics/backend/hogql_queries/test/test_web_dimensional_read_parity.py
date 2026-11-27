@@ -10,6 +10,7 @@ from django.test import override_settings
 from parameterized import parameterized
 
 from posthog.schema import (
+    CohortPropertyFilter,
     CompareFilter,
     CustomChannelCondition,
     CustomChannelField,
@@ -36,11 +37,13 @@ from posthog.schema import (
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import get_query_tag_value
 from posthog.errors import CHQueryErrorQueryWasCancelled
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryTimeOut
 from posthog.models.utils import uuid7
 from posthog.models.web_preaggregated.sql import WEB_BOUNCES_INSERT_SQL, WEB_STATS_INSERT_SQL
 
+from products.cohorts.backend.models.cohort import Cohort
 from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
 from products.web_analytics.backend.hogql_queries.stats_table_pre_aggregated import StatsTablePreAggregatedQueryBuilder
 from products.web_analytics.backend.hogql_queries.test.web_preaggregated_test_base import (
@@ -53,7 +56,9 @@ from products.web_analytics.backend.hogql_queries.web_dimensional_precompute imp
     ensure_web_stats_dimensional_precomputed,
 )
 from products.web_analytics.backend.hogql_queries.web_dimensional_read import (
+    DIMENSIONAL_INELIGIBLE_REASON_TAG,
     WEB_ANALYTICS_QUERY_MODIFIERS_FLAG,
+    DimensionalIneligibleReason,
     ready_dimensional_job_ids,
 )
 from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
@@ -71,6 +76,8 @@ WINDOW_END = datetime(2024, 1, 3, tzinfo=UTC)
 
 LEGACY = HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=True)
 OPT_IN = WebAnalyticsQueryModifiers(useDimensionalTables=True)
+# The modifiers flag is on in these tests, which makes an unset request try the dimensional tables.
+OPT_OUT = WebAnalyticsQueryModifiers(useDimensionalTables=False)
 UNTAGGED_CHANNEL = HogQLQueryModifiers(
     customChannelTypeRules=[
         CustomChannelRule(
@@ -107,7 +114,7 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
             self.addCleanup(sync_execute, f"SYSTEM START TTL MERGES {table}")
         flag_patcher = patch(
             "products.web_analytics.backend.hogql_queries.web_dimensional_read.feature_enabled_or_false",
-            return_value=True,
+            side_effect=lambda key, *args, **kwargs: key == WEB_ANALYTICS_QUERY_MODIFIERS_FLAG,
         )
         flag_patcher.start()
         self.addCleanup(flag_patcher.stop)
@@ -223,6 +230,7 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
                 breakdownBy=breakdown,
                 limit=100,
                 includeBounceRate=include_bounce_rate,
+                webQueryModifiers=OPT_OUT,
             ),
             team=self.team,
         )
@@ -276,7 +284,7 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
     ):
         include_bounce_rate = expected_bounce_rates is not None
         v2_strategy, v2, v2_response = self._run(
-            breakdown, LEGACY, None, properties=properties, include_bounce_rate=include_bounce_rate
+            breakdown, LEGACY, OPT_OUT, properties=properties, include_bounce_rate=include_bounce_rate
         )
         # Only the request opt-in: the legacy modifier must not be needed to reach this path.
         dimensional_strategy, dimensional, dimensional_response = self._run(
@@ -338,18 +346,19 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
 
     @parameterized.expand(
         [
-            ("legacy_on_falls_back_to_v2", LEGACY, True),
-            ("legacy_off_falls_back_to_live", None, False),
+            ("legacy_on_falls_back_to_v2", LEGACY, "2024-01-01", "2024-01-03", True),
+            ("legacy_off_falls_back_to_live", None, "2024-01-01", "2024-01-03", False),
+            ("range_starts_before_the_oldest_job", None, "2023-12-31", "2024-01-02", False),
         ]
     )
-    def test_partial_coverage_does_not_read_dimensional(self, _name, modifiers, expect_v2):
+    def test_partial_coverage_does_not_read_dimensional(self, _name, modifiers, date_from, date_to, expect_v2):
         # Dimensional is precomputed for 2024-01-01 and 01-02 only (setUp). A window that
-        # also spans 2024-01-03 is only partially covered, so the job_id filter would
-        # silently drop the uncovered day. The runner must skip dimensional instead.
+        # also spans a day before or after those is only partially covered, so the job_id filter
+        # would silently drop the uncovered day. The runner must skip dimensional instead.
         runner = WebStatsTableQueryRunner(
             team=self.team,
             query=WebStatsTableQuery(
-                dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-03"),
+                dateRange=DateRange(date_from=date_from, date_to=date_to),
                 properties=[],
                 breakdownBy=WebStatsBreakdown.DEVICE_TYPE,
                 limit=100,
@@ -360,6 +369,7 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
         assert ready_dimensional_job_ids(runner, DIMENSIONAL_READ_TABLES) is None, (
             "partial coverage must not route to dimensional"
         )
+        assert get_query_tag_value(DIMENSIONAL_INELIGIBLE_REASON_TAG) == DimensionalIneligibleReason.NOT_READY
 
         runner.calculate()
         assert runner.used_preaggregated_tables is expect_v2
@@ -492,12 +502,57 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
             self.team.save()
         with override_settings(EVENTS_DATA_RETENTION_ENFORCED=retention_months is not None):
             opted_in_runner, opted_in = run(OPT_IN)
-            _live_runner, live = run(None)
+            _live_runner, live = run(OPT_OUT)
             assert ready_dimensional_job_ids(opted_in_runner, DIMENSIONAL_READ_TABLES) is None
 
         assert not opted_in_runner.used_preaggregated_tables
         assert opted_in == live
         assert self._counts(opted_in) == expected_counts
+
+    @parameterized.expand([("test_account_filters",), ("cohort_filter",), ("property_access_rules",)])
+    def test_guarded_query_stays_live(self, name):
+        properties: list = []
+        filter_test_accounts = False
+        access_rules = False
+        if name == "test_account_filters":
+            self.team.test_account_filters = [
+                {"key": "$host", "value": ["blog.example.com"], "operator": "is_not", "type": "event"}
+            ]
+            self.team.save()
+            filter_test_accounts = True
+        elif name == "cohort_filter":
+            cohort = Cohort.objects.create(team=self.team, is_static=True, name="user_a only")
+            cohort.insert_users_by_list(["user_a"])
+            properties = [CohortPropertyFilter(value=cohort.pk)]
+        else:
+            access_rules = True
+
+        def run(web_query_modifiers):
+            runner = WebStatsTableQueryRunner(
+                team=self.team,
+                query=WebStatsTableQuery(
+                    dateRange=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
+                    properties=properties,
+                    breakdownBy=WebStatsBreakdown.DEVICE_TYPE,
+                    filterTestAccounts=filter_test_accounts,
+                    includeBounceRate=True,
+                    limit=100,
+                    webQueryModifiers=web_query_modifiers,
+                ),
+            )
+            return runner, self._sort_results(runner.calculate().results)
+
+        with patch(
+            "products.web_analytics.backend.hogql_queries.web_dimensional_read.team_has_property_access_rules",
+            return_value=access_rules,
+        ):
+            opted_in_runner, opted_in = run(OPT_IN)
+        _live_runner, live = run(OPT_OUT)
+
+        assert not opted_in_runner.query_strategy().startswith("stats_table_dimensional")
+        assert opted_in == live
+        if name != "property_access_rules":
+            assert live != self._run_live(WebStatsBreakdown.DEVICE_TYPE, include_bounce_rate=True)
 
     @parameterized.expand(
         [
@@ -566,7 +621,7 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
             )
             return [(item.key, item.value) for item in overview_runner.calculate().results]
 
-        live = run(None)
+        live = run(OPT_OUT)
         with patch(
             f"products.web_analytics.backend.hogql_queries.web_dimensional_read.{builder_name}.get_query",
             side_effect=error,
@@ -602,7 +657,7 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
                 response = runner.calculate()
             return [call.kwargs["query_type"] for call in mock_execute.call_args_list], response
 
-        v2_query_types, v2 = run(LEGACY, None)
+        v2_query_types, v2 = run(LEGACY, OPT_OUT)
         dimensional_query_types, dimensional = run(None, OPT_IN)
 
         assert v2_query_types == ["web_overview_preaggregated_query"]
@@ -635,7 +690,7 @@ class TestPageDirectoryDimensionalParity(WebAnalyticsPreAggregatedTestBase):
             self.addCleanup(sync_execute, f"SYSTEM START TTL MERGES {table}")
         flag_patcher = patch(
             "products.web_analytics.backend.hogql_queries.web_dimensional_read.feature_enabled_or_false",
-            return_value=True,
+            side_effect=lambda key, *args, **kwargs: key == WEB_ANALYTICS_QUERY_MODIFIERS_FLAG,
         )
         flag_patcher.start()
         self.addCleanup(flag_patcher.stop)

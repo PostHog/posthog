@@ -31,12 +31,11 @@ Run this in your app's folder, or ask your coding agent to run it:
 
 ```bash
 hog setup
-hog setup next
 ```
 
-`hog setup` shows where the setup stands. `hog setup next` does the next step.
+`hog setup` does the next step, and `hog setup status` shows where the setup stands.
 The steps ask what you want to use PostHog for, log you in through the browser, give your agent the instructions to install the PostHog SDK, and check that events arrive.
-An agent runs `hog setup next` after each step and asks you only what it can't decide.
+An agent runs `hog setup` after each step and asks you only what it can't decide.
 
 ## Log in
 

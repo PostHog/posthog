@@ -16,6 +16,16 @@ from products.warehouse_sources.sources.serpstat.settings import (
 )
 from products.warehouse_sources.sources.serpstat.source import SerpstatSource
 
+DOMAIN_ENDPOINTS = [
+    "domain_info",
+    "domain_history",
+    "domain_keywords",
+    "backlinks",
+    "ref_domains",
+    "lost_backlinks",
+    "competitors",
+]
+
 CONFIG = SerpstatSourceConfig(
     api_key="example-token+/", project_id="123", project_region_id="456", domain="example.com"
 )
@@ -123,6 +133,78 @@ def drive(
             {"data": [{"url_from": "https://example.org/", "url_to": "https://example.com/"}]},
             {"url_from": "https://example.org/", "url_to": "https://example.com/"},
         ),
+        (
+            "ref_domains",
+            "SerpstatBacklinksProcedure.getRefDomains",
+            {
+                "query": "example.com",
+                "searchType": "domain_with_subdomains",
+                "sort": "domain_rank",
+                "order": "desc",
+                "size": 100,
+                "page": 1,
+            },
+            {"data": [{"domain_from": "example.org", "ref_pages": 2, "domainRank": 40}], "summary_info": {"total": 1}},
+            {"domain_from": "example.org", "ref_pages": 2, "domainRank": 40},
+        ),
+        (
+            "lost_backlinks",
+            "SerpstatBacklinksProcedure.getLostBacklinks",
+            {
+                "query": "example.com",
+                "searchType": "domain_with_subdomains",
+                "sort": "check",
+                "order": "desc",
+                "size": 100,
+                "page": 1,
+            },
+            {"data": [{"url_from": "https://example.org/", "date_del": "2026-02-01 10:00:00"}]},
+            {"url_from": "https://example.org/", "date_del": "2026-02-01 10:00:00"},
+        ),
+        (
+            "competitors",
+            "SerpstatDomainProcedure.getOrganicCompetitorsPage",
+            {"domain": "example.com", "se": "g_us", "size": 100, "page": 1},
+            {"data": [{"domain": "example.net", "common": {"currentValue": 5, "dynamicValue": 1}}]},
+            {"domain": "example.net", "common": {"currentValue": 5, "dynamicValue": 1}},
+        ),
+        (
+            "top_competitors_history",
+            "RtApiSerpResultsProcedure.getTopCompetitorsDomainsHistory",
+            {
+                "projectId": 123,
+                "projectRegionId": 456,
+                "pageSize": 100,
+                "page": 1,
+                "dateFrom": "2026-09-29",
+                "dateTo": "2026-10-05",
+                "sort": "sum_traffic",
+                "order": "desc",
+            },
+            {
+                "data": {
+                    "projectId": 123,
+                    "projectRegionId": 456,
+                    "competitors": [
+                        {
+                            "domain": "example.net",
+                            "dates": [{"date": "2026-10-05", "result": {"avg_position": {"value": 3.5}}}],
+                        }
+                    ],
+                },
+                "summary_info": {"page_total": 1},
+            },
+            {
+                "project_id": 123,
+                "project_region_id": 456,
+                "domain": "example.net",
+                "date": "2026-10-05",
+                "traffic_distribution": None,
+                "avg_position": 3.5,
+                "keywords_count": None,
+                "keywords_by_ranges": None,
+            },
+        ),
     ],
 )
 def test_request_and_rows(
@@ -173,7 +255,7 @@ def test_pagination_resume_and_caps(endpoint: str, total_key: str, start_page: i
         assert run.saved_states[-1].page == start_page + 1
 
 
-@pytest.mark.parametrize("endpoint", ["domain_keywords", "backlinks"])
+@pytest.mark.parametrize("endpoint", ["domain_keywords", "backlinks", "ref_domains", "lost_backlinks", "competitors"])
 @pytest.mark.parametrize(
     "page_sizes,expected_pages",
     [
@@ -216,7 +298,7 @@ def test_domain_and_search_engine_inputs(
 
 
 @pytest.mark.parametrize("domain", [None, "", "   ", "https://"])
-@pytest.mark.parametrize("endpoint", ["domain_info", "domain_history", "domain_keywords", "backlinks"])
+@pytest.mark.parametrize("endpoint", DOMAIN_ENDPOINTS)
 def test_domain_tables_fail_without_domain_before_any_request(endpoint: str, domain: str | None) -> None:
     config = SerpstatSourceConfig(api_key="example-token", project_id="123", project_region_id="456", domain=domain)
     run = drive(endpoint, [], config=config)
@@ -226,12 +308,65 @@ def test_domain_tables_fail_without_domain_before_any_request(endpoint: str, dom
 
 
 @pytest.mark.parametrize("code", [32017, -32017])
-@pytest.mark.parametrize("endpoint", ["domain_info", "domain_history", "domain_keywords", "backlinks"])
+@pytest.mark.parametrize("endpoint", DOMAIN_ENDPOINTS)
 def test_domain_tables_treat_data_not_found_as_empty(endpoint: str, code: int) -> None:
     run = drive(endpoint, [reply(200, {"id": "posthog", "error": {"code": code, "message": "Data not found"}})])
     assert run.raised is None
     assert run.rows == []
     assert len(run.requests) == 1
+
+
+@pytest.mark.parametrize(
+    "competitors,expected",
+    [
+        (
+            [
+                {
+                    "domain": "example.net",
+                    "dates": [
+                        {
+                            "date": "2026-10-04",
+                            "result": {
+                                "traffic_distribution": {"value": 19.4},
+                                "avg_position": {"value": 2.7},
+                                "keywords_count": {"value": 12},
+                                "keywords_by_ranges": {"top1": {"value": 5}, "top10": {"value": 1}},
+                            },
+                        },
+                        {"date": "2026-10-05", "result": {"keywords_count": {"value": 11}}},
+                    ],
+                },
+                {"domain": "example.org", "dates": []},
+                {"domain": "example.io"},
+            ],
+            [
+                ("example.net", "2026-10-04", 19.4, 2.7, 12, {"top1": 5, "top10": 1}),
+                ("example.net", "2026-10-05", None, None, 11, None),
+            ],
+        ),
+        ([], []),
+    ],
+)
+def test_top_competitors_history_explodes_one_row_per_domain_and_date(
+    competitors: list[dict[str, Any]], expected: list[tuple[Any, ...]]
+) -> None:
+    run = drive(
+        "top_competitors_history",
+        [reply(200, {"result": {"data": {"competitors": competitors}, "summary_info": {"page_total": 1}}})],
+    )
+    assert run.raised is None
+    assert [
+        (
+            row["domain"],
+            row["date"],
+            row["traffic_distribution"],
+            row["avg_position"],
+            row["keywords_count"],
+            row["keywords_by_ranges"],
+        )
+        for row in run.rows
+    ] == expected
+    assert {(row["project_id"], row["project_region_id"]) for row in run.rows} <= {(123, 456)}
 
 
 def test_positions_resume_keeps_original_date_window() -> None:

@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 32 enabled ops
+ * PostHog API - MCP 35 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -176,11 +176,11 @@ export const AeoEnginesPartialUpdateParams = () => zod.object({
 export const AeoEnginesPartialUpdateBody = () => zod.object({
     enabled: zod.boolean().optional().describe("Whether the daily run checks the project's prompts on this engine."),
     frequency: zod
-        .enum(['daily', 'weekly'])
-        .describe('\* `daily` - Daily\n\* `weekly` - Weekly')
+        .enum(['daily', 'every_3_days', 'weekly'])
+        .describe('\* `daily` - Daily\n\* `every_3_days` - Every 72 hours\n\* `weekly` - Weekly')
         .optional()
         .describe(
-            "'daily' or 'weekly'. Weekly checks each prompt once a week and costs a seventh as much.\n\n\* `daily` - Daily\n\* `weekly` - Weekly"
+            "'daily' or 'weekly'. Weekly checks each prompt once a week and costs a seventh as much.\n\n\* `daily` - Daily\n\* `every_3_days` - Every 72 hours\n\* `weekly` - Weekly"
         ),
 })
 
@@ -842,6 +842,7 @@ export const AeoPromptsOverviewParams = () => zod.object({
 })
 
 export const aeoPromptsOverviewQueryBrandedDefault = `all`
+export const aeoPromptsOverviewQueryCurrentPromptsDefault = false
 export const aeoPromptsOverviewQueryDateFromMax = 32
 
 export const aeoPromptsOverviewQueryDateToMax = 32
@@ -856,6 +857,12 @@ export const AeoPromptsOverviewQueryParams = () => zod.object({
         .default(aeoPromptsOverviewQueryBrandedDefault)
         .describe(
             "Which checks to count, by the prompt as it ran: 'all' (default), 'branded' (the prompt names the brand) or 'non_branded'. Every count, the window before included, uses the same checks. Use 'non_branded' to judge visibility, since a prompt that names the brand almost always gets an answer that mentions it. A prompt is branded when its text names the brand: the registrable name of a target domain as a word, case ignored, so 'example' and 'example.com' both name example.com. Branded prompts almost always get answers that mention the brand.\n\n\* `all` - All\n\* `branded` - Branded\n\* `non_branded` - Non-branded"
+        ),
+    current_prompts: zod
+        .boolean()
+        .default(aeoPromptsOverviewQueryCurrentPromptsDefault)
+        .describe(
+            "Count only the checks of prompts that aren't archived. Setup's first results use it, so the answers to prompts archived by a reset don't count."
         ),
     date_from: zod
         .string()
@@ -900,6 +907,7 @@ export const AeoPromptsRankingsParams = () => zod.object({
 })
 
 export const aeoPromptsRankingsQueryBrandedDefault = `all`
+export const aeoPromptsRankingsQueryCurrentPromptsDefault = false
 export const aeoPromptsRankingsQueryDateFromMax = 32
 
 export const aeoPromptsRankingsQueryDateToMax = 32
@@ -914,6 +922,12 @@ export const AeoPromptsRankingsQueryParams = () => zod.object({
         .default(aeoPromptsRankingsQueryBrandedDefault)
         .describe(
             "Which checks to count, by the prompt as it ran: 'all' (default), 'branded' (the prompt names the brand) or 'non_branded'. Every count, the window before included, uses the same checks. Use 'non_branded' to judge visibility, since a prompt that names the brand almost always gets an answer that mentions it. A prompt is branded when its text names the brand: the registrable name of a target domain as a word, case ignored, so 'example' and 'example.com' both name example.com. Branded prompts almost always get answers that mention the brand.\n\n\* `all` - All\n\* `branded` - Branded\n\* `non_branded` - Non-branded"
+        ),
+    current_prompts: zod
+        .boolean()
+        .default(aeoPromptsRankingsQueryCurrentPromptsDefault)
+        .describe(
+            "Count only the checks of prompts that aren't archived. Setup's first results use it, so the answers to prompts archived by a reset don't count."
         ),
     date_from: zod
         .string()
@@ -1035,7 +1049,7 @@ export const AeoPromptsTopicsParams = () => zod.object({
 })
 
 /**
- * Sets up AI visibility tracking for the project in one job. Requires AI data processing approved for the organization. In order, it adds the site as the project's own brand, has PostHog suggest 20 prompts and saves them, and has PostHog suggest 20 keywords and saves them. With run_first_check the prompts are saved active and a first citation check run is queued with the enabled engines; each check is a paid call to every enabled engine, and each engine keeps checking active prompts on its schedule. Prompts that would pass the project's max_active_prompts are saved paused. Without run_first_check, new prompts are saved paused, so nothing is checked or spent until they are turned on. A step the project already covers is skipped: an own brand exists, 10 or more unarchived prompts, 10 or more keywords, or any check already recorded. With engines, the chosen engines are turned on and every other one off before the job starts. Returns a pending job right away; poll GET aeo_setup/<id>/ until it completes, which takes a few minutes. Running it again only fills the gaps.
+ * Sets up AI visibility tracking for the project in one job. Requires AI data processing approved for the organization. In order, it adds the site as the project's own brand; has PostHog suggest 20 prompts and saves them, with the competitors the model found saved as suggested competitors for a person to confirm; queues the first citation check run when run_first_check is set; and has PostHog suggest 20 keywords and saves them. With run_first_check the prompts are saved active and the first run uses the enabled engines; each check is a paid call to every enabled engine, and each engine keeps checking active prompts on its schedule. Prompts that would pass the project's max_active_prompts are saved paused. Without run_first_check, new prompts are saved paused, so nothing is checked or spent until they are turned on. A step the project already covers is skipped: an own brand exists, 10 or more unarchived prompts, 10 or more keywords, or any check already recorded. With engines, the chosen engines are turned on and every other one off before the job starts. Returns a pending job right away; poll GET aeo_setup/<id>/ until it completes, which takes a few minutes. Running it again only fills the gaps.
  * @summary Set up AI visibility
  */
 export const AeoSetupCreateParams = () => zod.object({
@@ -1059,6 +1073,8 @@ export const aeoSetupCreateBodyEnginesMax = 20
 export const aeoSetupCreateBodyRunFirstCheckDefault = false
 export const aeoSetupCreateBodyOnlyFirstRunDefault = false
 export const aeoSetupCreateBodyActivatePausedPromptsDefault = false
+export const aeoSetupCreateBodyPromptCountDefault = 20
+export const aeoSetupCreateBodyPromptCountMax = 50
 
 export const AeoSetupCreateBody = () => zod.object({
     domain: zod
@@ -1105,6 +1121,14 @@ export const AeoSetupCreateBody = () => zod.object({
         .describe(
             "With only_first_run, turn on paused prompts before the run, such as the ones a setup without run_first_check saved paused, highest ranked first and up to the project's max_active_prompts. Turned-on prompts are checked on each engine's schedule from then on."
         ),
+    prompt_count: zod
+        .number()
+        .min(1)
+        .max(aeoSetupCreateBodyPromptCountMax)
+        .default(aeoSetupCreateBodyPromptCountDefault)
+        .describe(
+            "How many prompts setup asks PostHog to suggest and save. One run makes this many checks per enabled engine, so it sets the cost of each run. Prompts past the project's max_active_prompts are saved paused."
+        ),
 })
 
 /**
@@ -1123,10 +1147,49 @@ export const AeoSetupRetrieveParams = () => zod.object({
 })
 
 /**
+ * Cancels a pending setup job. It saves nothing more, and its first run is stopped, or skipped if it hasn't started. What the job already saved stays; POST aeo_setup/reset/ removes it. A finished job is returned unchanged.
+ * @summary Cancel AEO setup
+ */
+export const aeoSetupCancelPathIdRegExp = new RegExp('^[0-9a-f-]{36}$')
+
+export const AeoSetupCancelParams = () => zod.object({
+    id: zod.string().regex(aeoSetupCancelPathIdRegExp),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
  * Gets what PostHog already knows about the project for AI visibility setup: the domains it may be about, from its own brands, authorized URLs, recording domains and pageview hosts, and how many prompts, keywords and checks it has. Use the first website as the default domain for POST aeo_setup/.
  * @summary Get AEO setup context
  */
 export const AeoSetupContextParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Undoes what setup saved so the project can be set up again, such as for another site: archives the prompts that have answers, deletes the rest, removes every keyword, and turns the own site and the competitors suggested for it back into cited domains. Checks already collected, confirmed competitors and engine settings stay. Run POST aeo_setup/ afterwards to set up again.
+ * @summary Reset AEO setup
+ */
+export const AeoSetupResetParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Stops the project's check run, such as the first run that setup queued. Checks already in flight finish and are kept; the rest are dropped, so they cost nothing. If setup has yet to queue its run, that run is skipped. Prompts and engines stay on, so the next scheduled run checks them as usual.
+ * @summary Stop the AEO check run
+ */
+export const AeoSetupStopChecksParams = () => zod.object({
     project_id: zod
         .string()
         .describe(

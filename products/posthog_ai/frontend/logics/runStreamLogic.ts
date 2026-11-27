@@ -102,6 +102,7 @@ import { computeTurnTrailers } from '../utils/turnTrailers'
 import { debugLogsLogic } from './debugLogsLogic'
 import { registerHmrStreamAbort } from './devHmrStreamAbort'
 import { foregroundStreamLogic } from './foregroundStreamLogic'
+import { RunStreamFrameBuffer } from './runStreamFrameBuffer'
 import {
     RunStreamRecovery,
     type RecoveryPhase,
@@ -110,6 +111,7 @@ import {
     STREAM_HISTORY_TIMEOUT_MS,
     STREAM_IDLE_TIMEOUT_MS,
 } from './runStreamRecovery'
+import { observeRunUiPerformance } from './runUiPerformance'
 import { hasReplayListener, toolStreamEventsLogic } from './toolStreamEventsLogic'
 import type { ToolStreamSubscription } from './toolStreamEventsLogic'
 
@@ -4567,7 +4569,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
             }
             actions.setContextUsage(fold(values.contextUsage))
         }
-        const ingestFrame = (entry: StoredLogEntry, source: FrameSource): void => {
+        const ingestFrame = (entry: StoredLogEntry, source: FrameSource, append = true): void => {
             const notification = entry?.notification
             if (!notification) {
                 return
@@ -4609,7 +4611,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
             // deduped (see `bootstrapRun`) and steady-state live frames resume exclusively, so the
             // side effects below run exactly once per frame without a per-frame key; the
             // run-started/permission/tool-completion guards enforce fire-once on their own.
-            if (!cache.rebuildingHistory) {
+            if (!cache.rebuildingHistory && append) {
                 actions.appendEntries([{ entry, source }])
             }
 
@@ -5058,6 +5060,24 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 session.buffering = !skipHistory
                 actions.sseConnecting()
                 const controller = new AbortController()
+                const frames = new RunStreamFrameBuffer<StoredLogEntry>((entries) => {
+                    if (
+                        cache.recoverySession !== session ||
+                        cache.disposables.isDisposed ||
+                        values.currentProjectId !== session.projectId
+                    ) {
+                        return
+                    }
+                    actions.appendEntries(entries.map((entry) => ({ entry, source: 'live' as const })))
+                    for (const entry of entries) {
+                        ingestFrame(entry, 'live', false)
+                    }
+                })
+                let measuring = false
+                const stopMeasuring = (): void => {
+                    cache.disposables.dispose('run-ui-performance')
+                    measuring = false
+                }
                 let backlogRunId = session.committedBacklogRunId ?? (values.isBootstrapResumeRun ? undefined : runId)
                 const ownsStream = (): boolean => session.owns() && !controller.signal.aborted && !hasEnded(session)
                 const drop = (error?: StreamErrorEnvelope): void => {
@@ -5075,10 +5095,14 @@ export const runStreamLogic = kea<runStreamLogicType>([
                         return
                     }
                     if (event === STREAM_END_EVENT) {
+                        frames.flush()
+                        stopMeasuring()
                         actions.streamEnded()
                         return
                     }
                     if (event === 'error') {
+                        frames.flush()
+                        stopMeasuring()
                         try {
                             const envelope: SseErrorFrameData = JSON.parse(data)
                             drop({
@@ -5092,6 +5116,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                         return
                     }
                     if (event === 'end') {
+                        frames.flush()
                         let control: unknown
                         try {
                             control = JSON.parse(data)
@@ -5154,7 +5179,30 @@ export const runStreamLogic = kea<runStreamLogicType>([
                             !(cache.eventCoverage as RunEventCoverage).covers(entry)
                         ) {
                             ;(cache.eventCoverage as RunEventCoverage).add(entry)
-                            if (entry.first_event_id) {
+                            const update = entry.notification?.params?.update
+                            const isTextChunk =
+                                isRecord(update) &&
+                                (update.sessionUpdate === 'agent_message_chunk' ||
+                                    update.sessionUpdate === 'agent_thought_chunk')
+                            if (!id?.startsWith('log-') && !measuring) {
+                                measuring = true
+                                cache.disposables.add(
+                                    () =>
+                                        observeRunUiPerformance((metrics) =>
+                                            posthog.capture('sandbox_run_ui_performance', {
+                                                ...metrics,
+                                                run_id: runId,
+                                                task_id: taskId,
+                                                conversation_id: props.conversationId,
+                                            })
+                                        ),
+                                    'run-ui-performance'
+                                )
+                            }
+                            if (isTextChunk && !entry.first_event_id) {
+                                frames.push(entry)
+                            } else if (entry.first_event_id) {
+                                frames.flush()
                                 const log = mergeCoalescedRunLog(values.log, entry)
                                 cache.rebuildingHistory = true
                                 try {
@@ -5164,10 +5212,15 @@ export const runStreamLogic = kea<runStreamLogicType>([
                                 }
                                 actions.replaceLog(log)
                             } else {
+                                frames.flush()
                                 actions.ingestAcpFrame(entry, 'live')
+                            }
+                            if (entry.notification?.method === '_posthog/turn_complete') {
+                                stopMeasuring()
                             }
                         }
                     } else if (isPermissionRequestFrame(parsed)) {
+                        frames.flush()
                         if (session.buffering) {
                             session.buffer.push({
                                 type: 'notification',
@@ -5189,6 +5242,10 @@ export const runStreamLogic = kea<runStreamLogicType>([
                             actions.routePermissionRequest(record)
                         }
                     } else if (isTaskRunStateFrame(parsed)) {
+                        frames.flush()
+                        if (isTerminalRunStatus(parsed.status as RunStatus)) {
+                            stopMeasuring()
+                        }
                         if (parsed.stage !== undefined) {
                             actions.setCurrentStage(parsed.stage ?? null)
                         }
@@ -5315,6 +5372,8 @@ export const runStreamLogic = kea<runStreamLogicType>([
                         liveStreamControllers.add(entry)
                         void streamRun()
                         return () => {
+                            frames.flush()
+                            stopMeasuring()
                             liveStreamControllers.delete(entry)
                             controller.abort()
                             cache.disposables.dispose('stream-reader')

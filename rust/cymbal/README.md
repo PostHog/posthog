@@ -40,6 +40,8 @@ The estimate assumes that the events of that oldest bucket were spread evenly.
 Adaptive ingestion marks the exceptions of a spike. It runs in shadow mode only: it never drops or samples an exception.
 It is off by default.
 A project is included when `ADAPTIVE_INGESTION_MODE=shadow` and its `adaptive_ingestion_enabled` setting is true.
+`ADAPTIVE_INGESTION_SHADOW_TEAM_PERCENT` also includes the projects whose ID modulo 100 is below it, whatever their setting.
+A query selects the same projects with `team_id % 100`, so their exceptions can be compared with the others.
 
 The stage runs after the manual rate limits and counts the exceptions they admit, through the shared counters above.
 It compares rolling counts with the project's typical day: the median of the days that had exceptions among the previous 29 UTC days.
@@ -60,6 +62,7 @@ Within a batch, only the exceptions that arrive after a line is crossed are over
 | `ADAPTIVE_INGESTION_ISSUE_HOUR_MULTIPLE` | `12` | Issue line, in typical hours per rolling hour. |
 | `ADAPTIVE_INGESTION_ISSUE_DAY_MULTIPLE` | `2` | Issue line, in typical days per rolling 24 hours. |
 | `ADAPTIVE_INGESTION_PROJECT_DAY_MULTIPLE` | `3` | Project line, in typical days per rolling 24 hours. |
+| `ADAPTIVE_INGESTION_SHADOW_TEAM_PERCENT` | `0` | Share of projects that are included without the setting, from 0 to 100. |
 | `ADAPTIVE_INGESTION_MIN_HISTORY_DAYS` | `7` | Days with exceptions a project needs before it has a typical day, from 1 to 29. |
 
 Each exception of an included project that has a typical day gets these properties.

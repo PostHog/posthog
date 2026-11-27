@@ -1,4 +1,3 @@
-import { IconExternal } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 import { LemonBanner } from '@posthog/lemon-ui'
 import { Button, Item, ItemContent, ItemDescription } from '@posthog/quill'
@@ -47,11 +46,8 @@ const getLinkUrl = (link: ValidationWarningLink): JSX.Element | null => {
             return (
                 <>
                     Check{' '}
-                    <Link to={urls.settings('environment-marketing-analytics')} target="_blank">
-                        marketing analytics settings
-                        <IconExternal />
-                    </Link>{' '}
-                    for more details.
+                    <Link to={urls.settings('environment-marketing-analytics')}>marketing analytics settings</Link> for
+                    more details.
                 </>
             )
         default:
@@ -69,10 +65,9 @@ const getQuillLink = (link: ValidationWarningLink): JSX.Element | null => {
                         variant="link"
                         size="inline"
                         nativeButton={false}
-                        render={<LinkPrimitive to={urls.settings('environment-marketing-analytics')} target="_blank" />}
+                        render={<LinkPrimitive to={urls.settings('environment-marketing-analytics')} />}
                     >
                         marketing analytics settings
-                        <IconExternal />
                     </Button>{' '}
                     for more details.
                 </>

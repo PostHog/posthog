@@ -1,20 +1,10 @@
-"""
-TEMPORARY: This file is in transition.
-
-Current state: Moved from ee/clickhouse/views/experiments.py to products/experiments/backend/presentation/
-to break down the monolith incrementally. Serializers split into serializers.py (PR #2) but this file
-still directly imports from service/models layers (violating product architecture temporarily).
-
-This will be refactored incrementally in subsequent PRs to match the product architecture pattern.
-"""
-
 import json
 import logging
-from collections.abc import Mapping
-from dataclasses import fields
+from collections.abc import Mapping, Sequence
+from dataclasses import asdict, fields
 from typing import Any, Literal, cast
 
-from django.db.models import Prefetch, Q, QuerySet
+from django.db.models import Q
 from django.utils.text import slugify
 
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_view
@@ -29,11 +19,16 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.pagination import DefaultLimitOffsetPagination, FacadeLimitOffsetPagination, facade_page_response
 from posthog.api.routing import PathParameter, TeamAndOrgViewSetMixin
-from posthog.api.tagged_item import TaggedItemViewSetMixin
+from posthog.api.tagged_item import (
+    BULK_UPDATE_TAGS_SKIPPED_REASON,
+    BulkUpdateTagsRequestSerializer,
+    BulkUpdateTagsResponseSerializer,
+    TaggedItemViewSetMixin,
+)
 from posthog.api.utils import MAX_LISTED_IDS, action
 from posthog.auth import ProjectSecretAPIKeyAuthentication
 from posthog.exceptions_capture import capture_exception
-from posthog.helpers.impersonation import get_original_user_from_session
+from posthog.helpers.impersonation import get_original_user_from_session, is_impersonated
 from posthog.models.activity_logging.activity_log import ActivityLog, get_activity_page
 from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
 from posthog.models.organization import OrganizationMembership
@@ -64,45 +59,47 @@ from posthog.rate_limit import (
 from posthog.scopes.checks import scopes_not_covered
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.user_permissions import UserPermissions
+from posthog.utils import str_to_bool
 
 from products.access_control.backend.facade.api import (
     get_restricted_properties_with_group_type_index_for_team,
     split_restricted_property_names,
 )
 from products.access_control.backend.facade.contracts import ObjectAccessRef
-from products.access_control.backend.facade.user_access_control import (
-    UserAccessControl,
-    access_level_satisfied_for_resource,
-)
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.approvals.backend.presentation.mixins import ApprovalHandlingMixin
 from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import CheckRequest
 from products.authorization.backend.facade.enums import Action
-from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.facade import (
     experiments as experiments_facade,
     lifecycle,
 )
 from products.experiments.backend.facade.api import (
+    RECALCULATION_TRIGGER_AGENT_MCP,
     get_experiment_health,
     get_latest_recalculation,
     get_recalculation_run,
     get_running_time_target,
-    request_metrics_recalculation,
-    start_metrics_recalculation_workflow,
+    start_metrics_recalculation,
     start_timeseries_recalculation_workflow,
 )
 from products.experiments.backend.facade.contracts import (
     EXPERIMENT_BEHAVIOR_COMPARISON_FLAG,
     EXPERIMENT_SETUP_CONTEXT_FLAG,
     BaselineStats,
+    CreateExperimentInput,
     ExperimentBasic,
     ExperimentDetail,
     ExperimentHandle,
     ExperimentHealthReaderAccess,
     ExperimentListFilters,
     ExperimentNotFound,
+    ExperimentRef,
     ExperimentSessionBucket,
+    ExperimentUpdateTarget,
+    ExperimentValidationError,
     ExperimentVersionConflict,
     LegacyMigrationError,
     ListAccess,
@@ -112,6 +109,7 @@ from products.experiments.backend.facade.contracts import (
     SetupContextInputs,
     WarehouseNativeResultAccessDenied,
 )
+from products.experiments.backend.facade.enums import FEATURE_FLAG_CONFIG_KEYS
 from products.experiments.backend.facade.legacy_migration import (
     experiment_uses_legacy_metrics,
     migrate_experiment as migrate_legacy_experiment,
@@ -136,13 +134,6 @@ from products.experiments.backend.facade.sessions import (
 )
 from products.experiments.backend.facade.setup_context import build_setup_context
 from products.experiments.backend.facade.warehouse_native_access import validate_warehouse_native_connection_access
-
-# TODO: Route through facade instead of direct import
-from products.experiments.backend.models.experiment import (
-    Experiment,
-    ExperimentMetricsRecalculation,
-    ExperimentToSavedMetric,
-)
 from products.experiments.backend.presentation.saved_metrics import list_access
 from products.experiments.backend.presentation.scout_writes import (
     is_true,
@@ -191,37 +182,16 @@ from products.experiments.backend.presentation.serializers import (
 )
 from products.feature_flags.backend.facade.config import ConfigFormatError
 from products.feature_flags.backend.facade.rules import ExperimentRuleError
-from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.tasks.backend.facade import api as tasks_facade
 
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
 
-# Heavy JSON columns that bulk_update_tags defers, because it does not read them.
-LIST_DEFERRED_FIELDS = (
-    "metrics",
-    "metrics_secondary",
-    "secondary_metrics",
-    "exposure_criteria",
-    "stats_config",
-    "scheduling_config",
-    "filters",
-    "primary_metrics_ordered_uuids",
-    "secondary_metrics_ordered_uuids",
-)
-
 # The viewset's `list` method shadows the builtin `list` in the class namespace, so a
 # `list[str]` annotation there resolves to that method (a runtime crash, and a mypy error).
 # Reference this module-level alias instead.
 RequiredScopes = list[str]
-
-
-def flag_evaluation_contexts_prefetch() -> Prefetch:
-    return Prefetch(
-        "feature_flag__flag_evaluation_contexts",
-        queryset=FeatureFlagEvaluationContext.objects.select_related("evaluation_context"),
-    )
 
 
 class ExperimentsPagination(FacadeLimitOffsetPagination, DefaultLimitOffsetPagination):
@@ -431,7 +401,6 @@ class ExperimentProjectSecretApiKeyTeamSustainedThrottle(ProjectSecretApiKeyTeam
 
 @extend_schema_view(
     # PATCH /experiments/{id}/
-    # DRF mixin calls implementation at ExperimentSerializer.update
     # request=ExperimentWriteSerializer is schema-only: it adds the writable feature_flag input
     # to the OpenAPI request body; runtime validation stays on ExperimentSerializer.
     partial_update=extend_schema(
@@ -440,7 +409,6 @@ class ExperimentProjectSecretApiKeyTeamSustainedThrottle(ProjectSecretApiKeyTeam
     ),
     # PUT /experiments/{id}/, same request shape as PATCH
     update=extend_schema(request=ExperimentWriteSerializer),
-    # POST /experiments/ — DRF mixin calls ExperimentSerializer.create
     create=extend_schema(
         description="Create a new experiment in draft status with optional metrics.",
         request=ExperimentWriteSerializer,
@@ -465,13 +433,11 @@ class EnterpriseExperimentsViewSet(
     ForbidDestroyModel,
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,
-    TaggedItemViewSetMixin,
     viewsets.ModelViewSet,
 ):
     scope_object: Literal["experiment"] = "experiment"
-    # bulk_update_tags comes from TaggedItemViewSetMixin and must be opted into PAT access explicitly.
+    # bulk_update_tags declares no required_scopes, so it must be opted into PAT access explicitly.
     scope_object_write_actions = ["create", "update", "partial_update", "patch", "destroy", "bulk_update_tags"]
-    bulk_tag_activity_scope = "Experiment"
     # Extends the default authenticators (TeamAndOrgViewSetMixin appends session/PAT/OAuth).
     authentication_classes = [ProjectSecretAPIKeyAuthentication]
     # A project secret API key with experiment:read can export experiment definitions
@@ -489,46 +455,46 @@ class EnterpriseExperimentsViewSet(
     path_parameters = {
         "pk": PathParameter(type=int, description="A unique integer value identifying this experiment."),
     }
-    queryset = (
-        Experiment.objects.select_related(
-            "team",
-            "feature_flag",
-            "created_by",
-            "exposure_cohort",
-            "holdout__created_by",
-        )
-        .prefetch_related(
-            flag_evaluation_contexts_prefetch(),
-            Prefetch(
-                # order_by("id") keeps saved metrics in insertion order — select_related below adds
-                # joins that would otherwise leave the row order unspecified.
-                "experimenttosavedmetric_set",
-                queryset=ExperimentToSavedMetric.objects.select_related("saved_metric", "experiment__team").order_by(
-                    "id"
-                ),
-            ),
-        )
-        .all()
-    )
-    ordering = "-created_at"
 
     def get_serializer_class(self):
         if self.action == "list":
             return ExperimentBasicSerializer
         return ExperimentSerializer
 
-    def read_object(self) -> ExperimentDetail | ExperimentHandle | None:
+    def read_object(self) -> ExperimentDetail | ExperimentHandle | ExperimentUpdateTarget | None:
         if self.action == "retrieve":
             return experiments_facade.get_experiment(team=self.team, experiment_id=self.kwargs["pk"])
-        # NotImplementedError makes get_object() fall back to the queryset, which gives the update its model.
         if self.action in ("update", "partial_update"):
-            raise NotImplementedError()
+            return experiments_facade.get_experiment_update_target(
+                team=self.team, experiment_id=self.kwargs["pk"], include_deleted=self._update_includes_deleted()
+            )
         return experiments_facade.get_experiment_handle(team=self.team, experiment_id=self.kwargs["pk"])
 
-    def object_access_ref(self, record: ExperimentDetail | ExperimentHandle) -> ObjectAccessRef:
+    def _update_includes_deleted(self) -> bool:
+        # An update that sends a `deleted` that is not true restores a deleted experiment, so it must find one.
+        data = self.request.data
+        deleted = data.get("deleted") if isinstance(data, Mapping) else None
+        return deleted is not None and not str_to_bool(deleted)
+
+    def object_access_ref(
+        self, record: ExperimentDetail | ExperimentHandle | ExperimentRef | ExperimentUpdateTarget
+    ) -> ObjectAccessRef:
         return ObjectAccessRef(
             resource="experiment", id=str(record.id), team_id=self.team.id, created_by_id=record.created_by_id
         )
+
+    def _can_edit_by_id(self, experiments: Sequence[ExperimentRef]) -> dict[int, bool]:
+        subject = request_subject(self.request)
+        checks = [
+            CheckRequest(
+                resource=resource_for_ref(self.object_access_ref(experiment)), action=Action.EDIT, subject=subject
+            )
+            for experiment in experiments
+        ]
+        return {
+            experiment.id: can_edit
+            for experiment, can_edit in zip(experiments, authorization.check(checks), strict=True)
+        }
 
     def _experiment_response(self, experiment_id: int, *, team: Team | None = None, status_code: int = 200) -> Response:
         """The experiment with the id as the detail endpoint shows it, read again after a write."""
@@ -542,16 +508,37 @@ class EnterpriseExperimentsViewSet(
         )
 
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        serializer = self.get_serializer(data=request.data)
+        serializer = cast(ExperimentSerializer, self.get_serializer(data=request.data))
         serializer.is_valid(raise_exception=True)
-        return self._experiment_response(serializer.save().id, status_code=201)
+        try:
+            experiment_id = experiments_facade.add_experiment(
+                team=self.team,
+                user=cast(User, request.user),
+                experiment=serializer.to_create(),
+                tags=serializer.validated_data.get("tags"),
+            )
+        except ExperimentValidationError as error:
+            raise ValidationError(str(error)) from error
+        return self._experiment_response(experiment_id, status_code=201)
 
     def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         if is_scout_sandbox_request(request) and isinstance(request.data, Mapping):
             self._check_scout_update(request)
-        serializer = self.get_serializer(self.get_object(), data=request.data, partial=kwargs.pop("partial", False))
+        experiment: ExperimentUpdateTarget = self.get_object()
+        serializer = cast(
+            ExperimentSerializer,
+            self.get_serializer(experiment, data=request.data, partial=kwargs.pop("partial", False)),
+        )
         serializer.is_valid(raise_exception=True)
-        return self._experiment_response(serializer.save().id)
+        experiments_facade.edit_experiment(
+            team=self.team,
+            user=cast(User, request.user),
+            experiment_id=experiment.id,
+            update=serializer.to_update(),
+            include_deleted=self._update_includes_deleted(),
+            serializer_context=serializer.context,
+        )
+        return self._experiment_response(experiment.id)
 
     def handle_exception(self, exc: Exception) -> Response:
         # Structured 409 body ({detail, current_version, conflicting_*}) so clients can refetch
@@ -582,21 +569,18 @@ class EnterpriseExperimentsViewSet(
         if is_true(request.data.get("deleted", False)):
             refuse_scout_experiment_delete(True)
         if update_carries_flag_config(
-            request.data, legacy_flag_config_keys=ExperimentService.FEATURE_FLAG_CONFIG_KEYS
+            request.data, legacy_flag_config_keys=FEATURE_FLAG_CONFIG_KEYS
         ) and not self._token_can_write_feature_flag(request):
-            experiment: Experiment = self.get_object()
+            experiment: ExperimentUpdateTarget = self.get_object()
             refuse_scout_live_flag_config_change(
                 True,
                 can_write_feature_flag=False,
-                flag_is_live=not experiment.is_draft
-                or (experiment.feature_flag is not None and experiment.feature_flag.active),
+                flag_is_live=not experiment.is_draft or experiment.feature_flag_active,
             )
 
     @tracer.start_as_current_span("ExperimentViewSet.list")
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        list_filters = ExperimentListFilters(
-            **{field.name: request.query_params.get(field.name) for field in fields(ExperimentListFilters)}
-        )
+        list_filters = _list_filters(request)
         # The access control narrowing a queryset list gets from TeamAndOrgViewSetMixin, with the same gates.
         access = (
             None
@@ -619,28 +603,6 @@ class EnterpriseExperimentsViewSet(
             include_all_if_admin=include_all_if_admin,
         )
 
-    @tracer.start_as_current_span("ExperimentViewSet.safely_get_queryset")
-    def safely_get_queryset(self, queryset) -> QuerySet:
-        request = getattr(self, "request", None)
-        if self.action == "bulk_update_tags":
-            # The bulk tag mutation reads only id/team_id/name and the tags themselves (which the
-            # mixin prefetches). Drop the detail joins and heavy JSON columns so selecting up to
-            # 500 experiments doesn't drag every metrics/filters payload along.
-            queryset = (
-                queryset.select_related(None)
-                .prefetch_related(None)
-                .select_related("created_by")
-                .defer(*LIST_DEFERRED_FIELDS)
-            )
-        service = ExperimentService(team=self.team, user=getattr(request, "user", None))
-        return service.filter_experiments_queryset(
-            queryset,
-            action=self.action,
-            # Only the list narrows by the query string, so a lookup of one experiment gets the same answer for any query.
-            query_params=getattr(request, "query_params", None) if self.action == "list" else None,
-            request_data=getattr(request, "data", None),
-        )
-
     @extend_schema(
         responses={200: ExperimentMatchingIdsResponseSerializer},
         parameters=EXPERIMENT_LIST_FILTER_PARAMETERS,
@@ -652,33 +614,41 @@ class EnterpriseExperimentsViewSet(
         Accepts the same query params as the list endpoint and returns only
         IDs of experiments the user has permission to edit.
         """
-        service = ExperimentService(team=self.team, user=request.user)
-        queryset = service.filter_experiments_queryset(
-            self.get_queryset(),
-            action="list",
-            query_params=request.query_params,
+        can_edit = self._can_edit_by_id(
+            experiments_facade.list_experiment_refs(team=self.team, filters=_list_filters(request))
         )
-
-        # Drop the class queryset's joins/prefetches; the access check below reads only the
-        # experiment ID and its creator, so load exactly those (a bare only("id") would leave
-        # created_by deferred and cost two refresh queries per row).
-        queryset = (
-            queryset.select_related(None).prefetch_related(None).select_related("created_by").only("id", "created_by")
-        )
-
-        if not self.user_access_control:
-            editable_ids = list(queryset.values_list("id", flat=True))
-        else:
-            experiments = list(queryset)
-            self.user_access_control.preload_object_access_controls(cast(list, experiments))
-            editable_ids = [
-                experiment.id
-                for experiment in experiments
-                if (user_access_level := self.user_access_control.get_user_access_level(experiment))
-                and access_level_satisfied_for_resource("experiment", user_access_level, "editor")
-            ]
-
+        editable_ids = [experiment_id for experiment_id, editable in can_edit.items() if editable]
         return Response(ExperimentMatchingIdsResponseSerializer({"ids": editable_ids, "total": len(editable_ids)}).data)
+
+    @extend_schema(
+        request=BulkUpdateTagsRequestSerializer,
+        responses={200: BulkUpdateTagsResponseSerializer},
+    )
+    @action(methods=["POST"], detail=False)
+    def bulk_update_tags(self, request: Request, **kwargs: Any) -> Response:
+        serializer = BulkUpdateTagsRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        experiment_ids: list[int] = serializer.validated_data["ids"]
+
+        can_edit = self._can_edit_by_id(
+            experiments_facade.experiment_refs_among(team=self.team, experiment_ids=experiment_ids)
+        )
+        skipped_ids = [experiment_id for experiment_id, editable in can_edit.items() if not editable]
+        skipped_ids += [experiment_id for experiment_id in experiment_ids if experiment_id not in can_edit]
+
+        changes = experiments_facade.change_experiment_tags(
+            team=self.team,
+            user=cast(User, request.user),
+            was_impersonated=is_impersonated(request),
+            experiment_ids=[experiment_id for experiment_id, editable in can_edit.items() if editable],
+            tag_action=serializer.validated_data["action"],
+            tags=serializer.validated_data["tags"],
+        )
+        skipped = [{"id": experiment_id, "reason": BULK_UPDATE_TAGS_SKIPPED_REASON} for experiment_id in skipped_ids]
+        return Response(BulkUpdateTagsResponseSerializer({"updated": changes, "skipped": skipped}).data)
+
+    # Shared so this endpoint is documented like every TaggedItemViewSetMixin bulk tag endpoint.
+    bulk_update_tags.__doc__ = TaggedItemViewSetMixin.bulk_update_tags.__doc__
 
     def dangerously_get_required_scopes(self, request: Request, view: Any) -> RequiredScopes | None:
         # Archiving with disable_feature_flag=true also disables and archives the linked flag,
@@ -1525,31 +1495,35 @@ class EnterpriseExperimentsViewSet(
             for variant, version in zip(variants, versions)
         }
 
-        service = ExperimentService(team=self.team, user=request.user)
-        experiment = service.create_experiment(
-            name=name,
-            feature_flag_key=feature_flag_key,
-            description=data.get("description", ""),
-            parameters={
-                "prompt_metadata": {
-                    "name": prompt_name,
-                    "templates": templates,
-                    "versions": versions,
+        experiment_id = experiments_facade.add_experiment(
+            team=self.team,
+            user=cast(User, request.user),
+            experiment=CreateExperimentInput(
+                name=name,
+                feature_flag_key=feature_flag_key,
+                description=data.get("description", ""),
+                parameters={
+                    "prompt_metadata": {
+                        "name": prompt_name,
+                        "templates": templates,
+                        "versions": versions,
+                    },
                 },
-            },
-            feature_flag_config={
-                "filters": {
-                    "multivariate": {"variants": variants},
-                    "groups": [{"properties": [], "rollout_percentage": 100}],
-                    "payloads": feature_flag_payloads,
+                feature_flag_config={
+                    "filters": {
+                        "multivariate": {"variants": variants},
+                        "groups": [{"properties": [], "rollout_percentage": 100}],
+                        "payloads": feature_flag_payloads,
+                    },
                 },
-            },
-            metrics=metrics,
-            serializer_context=self.get_serializer_context(),
-            allow_unknown_events=True,
+                metrics=metrics,
+                serializer_context=self.get_serializer_context(),
+                allow_unknown_events=True,
+            ),
+            tags=None,
         )
 
-        return self._experiment_response(experiment.id, status_code=201)
+        return self._experiment_response(experiment_id, status_code=201)
 
     @extend_schema(
         request=None,
@@ -1742,31 +1716,18 @@ class EnterpriseExperimentsViewSet(
         request_serializer.is_valid(raise_exception=True)
 
         is_mcp_client = request.headers.get("x-posthog-client") == "mcp"
-        trigger = (
-            ExperimentMetricsRecalculation.Trigger.AGENT_MCP
-            if is_mcp_client
-            else request_serializer.validated_data["trigger"]
-        )
+        trigger = RECALCULATION_TRIGGER_AGENT_MCP if is_mcp_client else request_serializer.validated_data["trigger"]
 
         # request.user is User | AnonymousUser at the DRF level; the viewset enforces auth so it's a User here.
         experiments_facade.assert_user_may_run_warehouse_native_sources(
             team=self.team, user=cast(User, request.user), experiment_id=experiment.id
         )
-        result = request_metrics_recalculation(
+        result = start_metrics_recalculation(
             team_id=experiment.team_id,
             experiment_id=experiment.id,
             user_id=cast(User, request.user).id,
             trigger=trigger,
         )
-
-        # A rejected run is new but already FAILED, so it gets a 201 and no workflow.
-        if not result.is_existing and result.status == ExperimentMetricsRecalculation.Status.PENDING:
-            start_metrics_recalculation_workflow(
-                result.id,
-                team_id=experiment.team_id,
-                organization_id=str(self.team.organization_id),
-            )
-
         return Response(
             ExperimentMetricsRecalculationJobSerializer(result).data,
             status=200 if result.is_existing else 201,
@@ -1829,8 +1790,7 @@ class EnterpriseExperimentsViewSet(
 
     @action(methods=["GET"], detail=False, url_path="stats", required_scopes=["experiment:read"])
     def stats(self, request: Request, **kwargs: Any) -> Response:
-        service = ExperimentService(team=self.team, user=request.user)
-        return Response(service.get_velocity_stats())
+        return Response(asdict(experiments_facade.get_velocity_stats(team=self.team)))
 
     @validated_request(
         query_serializer=RunningTimeTargetQuerySerializer,
@@ -2233,6 +2193,12 @@ class EnterpriseExperimentsViewSet(
         except Exception:
             logger.warning("Failed to evaluate the experiment behavior comparison flag", exc_info=True)
             return False
+
+
+def _list_filters(request: Request) -> ExperimentListFilters:
+    return ExperimentListFilters(
+        **{field.name: request.query_params.get(field.name) for field in fields(ExperimentListFilters)}
+    )
 
 
 def _request_user_id(request: Request) -> int | None:

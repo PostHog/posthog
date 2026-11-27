@@ -5906,6 +5906,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 True,
                 status.HTTP_201_CREATED,
                 None,
+                None,
             ),
             (
                 "realtime_not_backfilled_flag_on",
@@ -5913,7 +5914,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 False,
                 True,
                 status.HTTP_400_BAD_REQUEST,
-                "isn't ready for feature flags yet",
+                "realtime_cohort_not_ready",
+                "isn't ready for feature flags yet. Preparing a cohort usually takes under 30 minutes.",
             ),
             (
                 "non_realtime_flag_on",
@@ -5921,7 +5923,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 False,
                 True,
                 status.HTTP_400_BAD_REQUEST,
-                "has an event-based condition",
+                "behavioral_cohort_found",
+                "isn't a realtime cohort, so feature flags can't target it. Open the cohort's page to see why it isn't realtime.",
             ),
             (
                 "realtime_backfilled_flag_off",
@@ -5929,7 +5932,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 True,
                 False,
                 status.HTTP_400_BAD_REQUEST,
-                "has an event-based condition",
+                "behavioral_cohort_found",
+                "has an event-based condition on '$pageview' (performed_event_first_time) and cannot be used in feature flags.",
             ),
             (
                 "realtime_off",
@@ -5937,6 +5941,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 True,
                 True,
                 status.HTTP_400_BAD_REQUEST,
+                "realtime_cohort_not_ready",
                 "Realtime is off for cohort",
             ),
         ]
@@ -5952,6 +5957,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         is_backfilled,
         flag_enabled,
         expected_status,
+        expected_code,
         expected_detail_fragment,
         mock_feature_enabled,
         mock_realtime_gate,
@@ -6005,6 +6011,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.status_code, expected_status)
 
         if expected_detail_fragment is not None:
+            self.assertEqual(expected_code, response.json()["code"])
             self.assertIn(expected_detail_fragment, response.json()["detail"])
 
     def test_snapshot_cohort_referencing_behavioral_cohort_is_allowed_in_flag(self):

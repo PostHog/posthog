@@ -13,13 +13,19 @@ from google.protobuf.json_format import MessageToDict
 from google.protobuf.message import Message
 from structlog.types import FilteringBoundLogger
 from temporalio.api.activity.v1 import ActivityExecutionListInfo
+from temporalio.api.batch.v1 import BatchOperationInfo
 from temporalio.api.schedule.v1 import ScheduleListEntry
+from temporalio.api.worker.v1 import WorkerHeartbeat, WorkerListInfo
 from temporalio.api.workflowservice.v1 import (
     DescribeNamespaceRequest,
     DescribeNamespaceResponse,
     ListActivityExecutionsRequest,
+    ListBatchOperationsRequest,
+    ListBatchOperationsResponse,
     ListNamespacesRequest,
     ListSchedulesRequest,
+    ListWorkersRequest,
+    ListWorkersResponse,
 )
 from temporalio.client import Client
 from temporalio.converter import decode_search_attributes
@@ -43,6 +49,8 @@ class TemporalIOResource(StrEnum):
     Schedules = "schedules"
     Namespaces = "namespaces"
     StandaloneActivities = "standalone_activities"
+    BatchOperations = "batch_operations"
+    Workers = "workers"
 
 
 ENDPOINTS = (
@@ -51,6 +59,8 @@ ENDPOINTS = (
     TemporalIOResource.Schedules,
     TemporalIOResource.Namespaces,
     TemporalIOResource.StandaloneActivities,
+    TemporalIOResource.BatchOperations,
+    TemporalIOResource.Workers,
 )
 INCREMENTAL_ENDPOINTS = (TemporalIOResource.Workflows, TemporalIOResource.WorkflowHistories)
 
@@ -513,6 +523,44 @@ def _activity_row(info: ActivityExecutionListInfo) -> dict[str, Any]:
     }
 
 
+def _batch_operation_row(info: BatchOperationInfo) -> dict[str, Any]:
+    return {
+        **_message_to_row(info),
+        "start_time": _proto_datetime(info, "start_time"),
+        "close_time": _proto_datetime(info, "close_time"),
+    }
+
+
+def _worker_list_info_from_heartbeat(heartbeat: WorkerHeartbeat) -> WorkerListInfo:
+    info = WorkerListInfo(
+        worker_instance_key=heartbeat.worker_instance_key,
+        worker_identity=heartbeat.worker_identity,
+        task_queue=heartbeat.task_queue,
+        sdk_name=heartbeat.sdk_name,
+        sdk_version=heartbeat.sdk_version,
+        status=heartbeat.status,
+        host_name=heartbeat.host_info.host_name,
+        worker_grouping_key=heartbeat.host_info.worker_grouping_key,
+        process_id=heartbeat.host_info.process_id,
+        plugins=heartbeat.plugins,
+        drivers=heartbeat.drivers,
+    )
+    for field in ("deployment_version", "start_time"):
+        if heartbeat.HasField(field):
+            getattr(info, field).CopyFrom(getattr(heartbeat, field))
+    return info
+
+
+def _worker_rows(response: ListWorkersResponse) -> Iterable[dict[str, Any]]:
+    # Servers that predate the `workers` field fill only the deprecated `workers_info`, so map its
+    # heartbeats to the same row shape rather than return an empty table.
+    infos = list(response.workers) or [
+        _worker_list_info_from_heartbeat(info.worker_heartbeat) for info in response.workers_info
+    ]
+    for info in infos:
+        yield {**_message_to_row(info), "start_time": _proto_datetime(info, "start_time")}
+
+
 async def _paged_rows(
     fetch_page: Callable[[bytes], Awaitable[Any]],
     to_rows: Callable[[Any], Iterable[dict[str, Any]]],
@@ -589,6 +637,47 @@ async def _get_standalone_activities(
         resumable_source_manager,
         logger,
     ):
+        yield item
+
+
+async def _get_batch_operations(
+    config: TemporalIOSourceConfig,
+    resumable_source_manager: ResumableSourceManager[TemporalIOResumeConfig],
+    logger: FilteringBoundLogger,
+    team_id: int,
+):
+    client = await _get_temporal_client(config, team_id)
+
+    def fetch_page(page_token: bytes):
+        return client.workflow_service.list_batch_operations(
+            ListBatchOperationsRequest(
+                namespace=config.namespace, page_size=_LIST_PAGE_SIZE, next_page_token=page_token
+            ),
+            retry=True,
+        )
+
+    def to_rows(response: ListBatchOperationsResponse):
+        return (_batch_operation_row(info) for info in response.operation_info)
+
+    async for item in _paged_rows(fetch_page, to_rows, resumable_source_manager, logger):
+        yield item
+
+
+async def _get_workers(
+    config: TemporalIOSourceConfig,
+    resumable_source_manager: ResumableSourceManager[TemporalIOResumeConfig],
+    logger: FilteringBoundLogger,
+    team_id: int,
+):
+    client = await _get_temporal_client(config, team_id)
+
+    def fetch_page(page_token: bytes):
+        return client.workflow_service.list_workers(
+            ListWorkersRequest(namespace=config.namespace, page_size=_LIST_PAGE_SIZE, next_page_token=page_token),
+            retry=True,
+        )
+
+    async for item in _paged_rows(fetch_page, _worker_rows, resumable_source_manager, logger):
         yield item
 
 
@@ -726,5 +815,34 @@ def temporalio_source(
             partition_format="day",
             partition_keys=["schedule_time"],
         )
+    elif resource == TemporalIOResource.BatchOperations:
+
+        async def get_batch_operations_iterator():
+            return _get_batch_operations(config, resumable_source_manager, logger, team_id)
+
+        batch_operations = _async_iter_to_sync(
+            asyncio.run(get_batch_operations_iterator()), save_resume_state=resumable_source_manager.save_state
+        )
+
+        return SourceResponse(
+            name=resource.value,
+            items=lambda: batch_operations,
+            primary_keys=["job_id"],
+            partition_count=1,  # this enables partitioning
+            partition_size=1,  # this enables partitioning
+            partition_mode="datetime",
+            partition_format="day",
+            partition_keys=["start_time"],
+        )
+    elif resource == TemporalIOResource.Workers:
+
+        async def get_workers_iterator():
+            return _get_workers(config, resumable_source_manager, logger, team_id)
+
+        workers = _async_iter_to_sync(
+            asyncio.run(get_workers_iterator()), save_resume_state=resumable_source_manager.save_state
+        )
+
+        return SourceResponse(name=resource.value, items=lambda: workers, primary_keys=["worker_instance_key"])
     else:
         raise Exception(f"TemporalIOResource '{resource}' not recognised")
