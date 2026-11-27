@@ -18,6 +18,9 @@ const Opacity = <span className="text-destructive/80" />
 // ruleid: quill-status-text-needs-foreground
 const Svg = <path className="stroke-success" />
 
+// ruleid: quill-status-text-needs-foreground
+const Completed = <span className="text-completed" />
+
 // ok: quill-status-text-needs-foreground
 const Foreground = <p className="text-destructive-foreground">{error}</p>
 

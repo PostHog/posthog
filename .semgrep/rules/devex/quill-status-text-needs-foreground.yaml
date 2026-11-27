@@ -1,7 +1,7 @@
 rules:
     - id: quill-status-text-needs-foreground
       message: |
-          In quill, `destructive`, `success`, `warning` and `info` are pale background tints, not text
+          In quill, `destructive`, `success`, `warning`, `info` and `completed` are pale background tints, not text
           colors. This is the opposite of shadcn. Text in one of these colors comes out at about
           1.1–1.4:1 contrast, which nobody can read, in both light and dark mode.
 
@@ -18,4 +18,4 @@ rules:
               - /products/*/mcp/apps
               - /services/mcp/src/ui-apps
       # The lookbehind skips CSS variable names such as `--color-text-info`.
-      pattern-regex: (?<![\w-])(text|fill|stroke)-(destructive|success|warning|info)(?![\w-])
+      pattern-regex: (?<![\w-])(text|fill|stroke)-(destructive|success|warning|info|completed)(?![\w-])
