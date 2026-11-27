@@ -15115,6 +15115,7 @@ class TestTaskHandoffAPI(BaseTaskAPITest):
         recipient_client.force_authenticate(recipient)
         run_url = f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/"
         self.assertEqual(recipient_client.get(run_url).status_code, status.HTTP_200_OK)
+        self.assertEqual(recipient_client.get(f"{run_url}compute_usage/").status_code, status.HTTP_200_OK)
         self.assertEqual(
             recipient_client.patch(run_url, {"stage": "build"}, format="json").status_code,
             status.HTTP_404_NOT_FOUND,

@@ -507,6 +507,14 @@ def _requests_signal_report_origin(data: dict) -> bool:
 _REPORT_RUN_REFUSING_THROTTLE_ATTR = "report_task_run_refusing_throttle"
 
 
+class TaskRunComputeUsageThrottle(UserRateThrottle):
+    """Bounds reads of a run's compute cost per user, session and OAuth callers included, which
+    the default personal-API-key throttles skip. Each read prices the run's sandbox sessions again."""
+
+    scope = "task_run_compute_usage"
+    rate = "120/minute"
+
+
 class _SignalReportTaskThrottle(UserRateThrottle):
     """Rate-limits only signal-report task creation and sandbox warming on the shared endpoints.
 
@@ -2407,6 +2415,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         "log_entries",
         "session_logs",
         "task_session",
+        "compute_usage",
         "stream",
         "stream_token",
         "artifacts_presign",
@@ -3018,7 +3027,13 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         description="Return the estimated sandbox compute cost of a task run and the credits meter that bills it. "
         "Unlike the task usage endpoint, it does not read model spend.",
     )
-    @action(detail=True, methods=["get"], url_path="compute_usage", required_scopes=["task:read"])
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path="compute_usage",
+        required_scopes=["task:read"],
+        throttle_classes=[TaskRunComputeUsageThrottle],
+    )
     def compute_usage(self, request, pk=None, **kwargs):
         run = self._get_run_or_404(pk)
         compute = get_task_compute_cost(team_id=self.team_id, task_id=run.task, run_id=run.id)
