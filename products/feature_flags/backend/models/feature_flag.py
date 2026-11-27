@@ -188,6 +188,7 @@ class FeatureFlag(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMix
     # `archived_flag_must_be_disabled` check constraint below, so writers that bypass the
     # serializer (e.g. the experiment service) can't persist an archived-but-still-serving flag.
     archived = models.BooleanField(default=False, db_default=False)
+    rollback_suggestions_disabled = models.BooleanField(default=False, db_default=False)
 
     version = models.IntegerField(default=1, null=True)
     last_modified_by = models.ForeignKey(

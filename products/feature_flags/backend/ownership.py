@@ -68,6 +68,8 @@ _REFERENCE_ACCESSORS: frozenset[str] = frozenset(
         "featureflagdashboards_set",
         # A code analysis reads where the repository checks the flag. It doesn't own the flag.
         "code_analyses",
+        # An observation window watches an edit of the flag for rollback suggestions. It doesn't own the flag.
+        "observation_windows",
     }
 )
 

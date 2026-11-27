@@ -705,6 +705,11 @@
     "task_queues": "DATA_WAREHOUSE_CDP_PRODUCER_TASK_QUEUE,DATA_WAREHOUSE_TASK_QUEUE"
   },
   {
+    "temporal_workflow_type": "feature-flags-tick-flag-windows",
+    "product": "feature_flags",
+    "task_queues": "GENERAL_PURPOSE_TASK_QUEUE"
+  },
+  {
     "temporal_workflow_type": "fetch-depot-job-log",
     "product": "engineering_analytics",
     "task_queues": "GENERAL_PURPOSE_TASK_QUEUE"

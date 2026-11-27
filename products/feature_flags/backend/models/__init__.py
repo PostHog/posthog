@@ -1,6 +1,7 @@
 from .code_analysis import FeatureFlagCodeAnalysis
 from .evaluation_context import EvaluationContext, FeatureFlagEvaluationContext, TeamDefaultEvaluationContext
 from .feature_flag import FeatureFlag, FeatureFlagDashboards, FeatureFlagHashKeyOverride, FeatureFlagOverride
+from .observation_window import FlagObservationWindow, FlagWindowsCursor, FlagWindowState
 from .organization_feature_flags_config import OrganizationFeatureFlagsConfig
 from .scheduled_change import ScheduledChange
 from .team_feature_flag_defaults_config import TeamFeatureFlagDefaultsConfig
@@ -15,6 +16,9 @@ __all__ = [
     "FeatureFlagEvaluationContext",
     "FeatureFlagHashKeyOverride",
     "FeatureFlagOverride",
+    "FlagObservationWindow",
+    "FlagWindowState",
+    "FlagWindowsCursor",
     "OrganizationFeatureFlagsConfig",
     "ScheduledChange",
     "TeamFeatureFlagDefaultsConfig",
