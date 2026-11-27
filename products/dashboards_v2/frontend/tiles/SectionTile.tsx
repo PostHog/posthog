@@ -1,7 +1,7 @@
 import './SectionTile.css'
 
 import clsx from 'clsx'
-import { type CSSProperties, type ReactNode, useCallback, useMemo, useState } from 'react'
+import { type ReactNode, useCallback, useMemo, useState } from 'react'
 
 import { IconChevronRight } from '@posthog/icons'
 import {
@@ -25,7 +25,7 @@ import { GRID, type SectionPanel, type Tile, isSection, spanPx } from '../dashbo
 import { everyTile } from '../dashboard/document/tileTree'
 import type { OnSectionRows } from '../grid/TileGrid'
 import { TileActions } from './core/TileActions'
-import { NO_BACKGROUND, showsBorder } from './core/tileAppearance'
+import { showsBorder, tileBackgroundStyle } from './core/tileAppearance'
 import { TileContextMenu, hasTileMenu } from './core/TileContextMenu'
 import { AddTileMenu } from './menu/AddTileMenu'
 import { useSectionActions, useSectionPlacementActions } from './menu/tileMenuActions'
@@ -154,19 +154,12 @@ export function Section({
     backgroundColor?: string
     children: ReactNode
 }): JSX.Element {
-    const tint = backgroundColor === NO_BACKGROUND ? undefined : backgroundColor
     return (
         <Card
             size="sm"
             role="group"
-            className={clsx(
-                'SectionTile',
-                !border && 'SectionTile--no-border',
-                backgroundColor === NO_BACKGROUND && 'SectionTile--no-background',
-                tint && 'SectionTile--tinted'
-            )}
-            // A saved color can be any CSS color, so no class can carry it.
-            style={tint ? ({ '--dv2-tile-background-color': tint } as CSSProperties) : undefined}
+            className={border ? 'SectionTile' : 'SectionTile SectionTile--no-border'}
+            style={tileBackgroundStyle(backgroundColor)}
             data-attr="dashboard-v2-section"
         >
             {children}

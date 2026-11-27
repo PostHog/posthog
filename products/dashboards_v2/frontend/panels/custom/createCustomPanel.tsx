@@ -1,6 +1,5 @@
 import { type PanelType, definePanel } from '../core/panelDefinition'
 import type { ContentPanel } from '../core/panelSchema'
-import type { TileCustomization } from '../core/panelSpec'
 import { PanelLoading } from '../core/PanelView'
 import {
     type ContentPackage,
@@ -13,13 +12,7 @@ import {
 
 // The content is the owning team's own UI, so people get no menu entries or customizations unless that team opts in.
 // No "add tile" entry either: the team's code decides where its contents go.
-export function createCustomPanel({
-    packages,
-    allowedCustomizations = ['backgroundColor'],
-}: {
-    packages: ContentPackage[]
-    allowedCustomizations?: TileCustomization[]
-}): PanelType {
+export function createCustomPanel({ packages }: { packages: ContentPackage[] }): PanelType {
     const contents = contentsByName(packages)
     const contentOf = (panel: ContentPanel<CustomConfig>): CustomContent | undefined =>
         contents.get(panel.config.content)
@@ -34,7 +27,7 @@ export function createCustomPanel({
         return content?.Loading && props ? <content.Loading {...props} /> : <PanelLoading />
     }
     return definePanel<CustomConfig, 'custom'>({
-        ...customSpec(packages, allowedCustomizations),
+        ...customSpec(packages),
         addTileOptions: [],
         Component: Custom,
         Loading: CustomLoading,

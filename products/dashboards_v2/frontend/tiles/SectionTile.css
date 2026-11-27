@@ -51,15 +51,6 @@
     border-radius: var(--radius);
 }
 
-/* Mixed into the card's own background, as a content tile does, so a theme color reads in light and dark mode. */
-.SectionTile--tinted {
-    background-color: color-mix(in oklab, var(--dv2-tile-background-color) 8%, var(--card));
-}
-
-.SectionTile--no-background {
-    background-color: transparent;
-}
-
 /* Without its outline, a section reads as a heading over its tiles. */
 .SectionTile--no-border {
     box-shadow: none;

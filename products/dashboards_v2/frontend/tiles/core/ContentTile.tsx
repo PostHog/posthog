@@ -22,7 +22,7 @@ import { type SavedPanel } from '../../panels/core/panelSchema'
 import { type TileCustomization, findPanel } from '../../panels/core/panelSpec'
 import { PanelView } from '../../panels/core/PanelView'
 import { TileActions } from './TileActions'
-import { NO_BACKGROUND, showsBorder, tileBackgroundColor } from './tileAppearance'
+import { NO_BACKGROUND, showsBorder, tileBackgroundColor, tileBackgroundStyle } from './tileAppearance'
 import { TileContextMenu, hasTileMenu } from './TileContextMenu'
 import { isPartShown } from './tileParts'
 
@@ -35,15 +35,12 @@ function cardLook(
     customizations: TileCustomization[]
 ): { className: string; style: CSSProperties | undefined } {
     const color = tileBackgroundColor(panel, customizations)
-    const tint = color === NO_BACKGROUND ? null : color
     return {
         className: clsx(
             color === NO_BACKGROUND && 'dash-ContentTile--no-background',
-            !showsBorder(panel) && 'dash-ContentTile--no-border',
-            tint && 'dash-ContentTile--tinted'
+            !showsBorder(panel) && 'dash-ContentTile--no-border'
         ),
-        // A saved color can be any CSS color, so no class can carry it.
-        style: tint ? ({ '--dv2-tile-background-color': tint } as CSSProperties) : undefined,
+        style: tileBackgroundStyle(color),
     }
 }
 
