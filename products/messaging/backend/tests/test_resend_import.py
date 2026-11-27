@@ -2,7 +2,9 @@ import re
 import copy
 import json
 import threading
+from collections.abc import Callable
 from datetime import timedelta
+from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -680,25 +682,32 @@ class TestResendImport(BaseTest):
         self.resend.failures["/contacts/c0000000-0000-4000-8000-000000000003/topics"] = [(503, {})] * 4
         run = runs.start_run(self.team.id, "resend", ["opt_outs", "topic_opt_outs"], API_KEY, self.user.id)
 
+        def steps() -> list[tuple[int, int | None, int | None]]:
+            state = get_provider_import_run(self.team.id, run.id)
+            assert state is not None
+            return [(step.processed, step.total, step.seconds_left) for step in state.steps]
+
+        def edit_progress(edit: Callable[[dict[str, Any]], None]) -> None:
+            stored = ProviderImportRun.objects.unscoped().get(id=run.id)
+            edit(stored.progress["topic_opt_outs"])
+            stored.save(update_fields=["progress"])
+
         with time_machine.travel(timezone.now(), tick=False) as clock:
             runs.run_step(self.team.id, run.id, "opt_outs", attempt=1)
             with self.assertRaises(ImportProviderUnavailable):
                 runs.run_step(self.team.id, run.id, "topic_opt_outs", attempt=1)
             clock.shift(timedelta(minutes=1))
-            state = get_provider_import_run(self.team.id, run.id)
 
-        assert state is not None
-        opt_outs, topic_opt_outs = state.steps
-        assert (opt_outs.total, opt_outs.seconds_left) == (None, None)
-        assert (topic_opt_outs.processed, topic_opt_outs.total, topic_opt_outs.seconds_left) == (2, 4, 60)
+            # Waiting to retry after the error reads nothing, so it gives no time left.
+            assert steps() == [(4, None, None), (2, 4, None)]
 
-        # A worker from before this field existed still shows the total, with no time left.
-        stored = ProviderImportRun.objects.unscoped().get(id=run.id)
-        del stored.progress["topic_opt_outs"]["reading_since"]
-        stored.save(update_fields=["progress"])
-        old_worker_state = get_provider_import_run(self.team.id, run.id)
-        assert old_worker_state is not None
-        assert (old_worker_state.steps[1].total, old_worker_state.steps[1].seconds_left) == (4, None)
+            # Still reading: half of the contacts the opt-outs step read took a minute, so the other half should too.
+            edit_progress(lambda progress: progress.update(last_error=None))
+            assert steps() == [(4, None, None), (2, 4, 60)]
+
+            # A worker from before this field existed still shows the total, with no time left.
+            edit_progress(lambda progress: progress.pop("reading_since"))
+            assert steps() == [(4, None, None), (2, 4, None)]
 
     def test_no_time_left_when_the_step_it_counts_from_continued_an_earlier_import(self) -> None:
         self.resend.page_size = 1
@@ -1400,6 +1409,36 @@ class TestResendClientPace(SimpleTestCase):
                 client.each(lambda contact_id: client.get(f"/contacts/{contact_id}"), [f"c{i}" for i in range(100)])
 
         assert len(reads) < 10
+
+    def test_a_stopped_import_skips_the_rest_of_the_page_it_was_reading(self) -> None:
+        reads: list[str] = []
+        second_page_started = threading.Event()
+
+        def get(url: str, **_: Any) -> MagicMock:
+            reads.append(url)
+            if url.endswith("/contacts/p1-c0"):
+                second_page_started.set()
+            threading.Event().wait(0.01)
+            return FakeResend._response(200, {"properties": {"plan": "pro"}})
+
+        pages = iter(
+            resend_client.ResendPage(data=[{"id": f"p{page}-c{i}"} for i in range(100)], next_after=None)
+            for page in range(2)
+        )
+        client_module = "products.messaging.backend.services.resend_client"
+        with (
+            patch(f"{client_module}.time.sleep"),
+            patch(f"{client_module}.REQUESTS_PER_SECOND", 100000),
+            patch(f"{client_module}.requests.get", side_effect=get),
+        ):
+            client = resend_client.ResendClient(API_KEY)
+            batches = resend_client.read_ahead(pages, partial(resend._read_page_properties, client))
+            next(batches)
+            assert second_page_started.wait(timeout=5)
+            # What a failed save does: the step stops taking pages.
+            batches.close()
+
+        assert len([url for url in reads if "/contacts/p1-" in url]) < 10
 
 
 class TestResendImportBudget(SimpleTestCase):

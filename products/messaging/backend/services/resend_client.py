@@ -219,12 +219,15 @@ class ResendClient:
                 self._hold_until(now + min(float(reset or window), MAX_RETRY_AFTER_SECONDS))
 
 
-def read_ahead(pages: Iterator[ResendPage], read: Callable[[ResendPage], R]) -> Iterator[list[tuple[ResendPage, R]]]:
+def read_ahead(
+    pages: Iterator[ResendPage], read: Callable[[ResendPage, threading.Event], R]
+) -> Iterator[list[tuple[ResendPage, R]]]:
     """`read` for each page in a thread of its own, so the requests go on while the caller saves what it was handed.
 
     Each batch holds the pages read since the last one, at least one and at most MAX_PAGES_AHEAD, in page order. An
     error in the thread is raised once the pages read before it are handed over. The thread stops when the caller
-    stops iterating. `read` must not use the database, whose connection belongs to the caller's transaction.
+    stops iterating, and `read` gets an event that is set then, so it can skip the rest of its page. `read` must not
+    use the database, whose connection belongs to the caller's transaction.
     """
     ready: queue.Queue[tuple[ResendPage, R] | BaseException | None] = queue.Queue(maxsize=MAX_PAGES_AHEAD)
     stop = threading.Event()
@@ -241,7 +244,7 @@ def read_ahead(pages: Iterator[ResendPage], read: Callable[[ResendPage], R]) -> 
     def produce() -> None:
         try:
             for page in pages:
-                if not hand_over((page, read(page))):
+                if not hand_over((page, read(page, stop))):
                     return
             hand_over(None)
         except BaseException as e:
