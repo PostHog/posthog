@@ -331,6 +331,27 @@ class TestNotebookAppViewAccess(APIBaseTest):
             self.assertNotContains(output, value.strip())
             self.assertContains(self.client.get(url), "This app exceeds the shared output limit")
 
+    def test_notebook_readers_can_see_normal_edits_without_sharing_recipient_details(self) -> None:
+        self.grant()
+        ordinary = ActivityLog.objects.create(
+            team_id=self.team.pk,
+            organization_id=self.organization.pk,
+            user=self.user,
+            item_id=self.notebook.short_id,
+            scope="Notebook",
+            activity="updated",
+            detail={"name": "Weekly summary"},
+        )
+        notebook = f"/api/projects/{self.team.pk}/notebooks/{self.notebook.short_id}/"
+        self.assertContains(self.client.get(notebook + "activity/"), self.recipient.email)
+
+        self.client.force_login(self.recipient)
+        assert self.client.get(notebook).status_code == 200
+        history = self.client.get(notebook + "activity/")
+        self.assertContains(history, str(ordinary.pk))
+        self.assertNotContains(history, "app_view_grant")
+        self.assertNotContains(history, self.recipient.email)
+
     def test_grant_audits_are_scoped_to_the_notebook(self) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.AUDIT_LOGS, "name": "Audit logs"},

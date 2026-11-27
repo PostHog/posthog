@@ -176,6 +176,7 @@ class TestActivityLogModel(BaseTest):
         assert "item_id" not in properties
         assert recipient not in json.dumps(properties)
         log.refresh_from_db()
+        assert isinstance(log.detail, dict)
         assert log.detail["changes"][0]["after"]["recipient"] == recipient
 
     def test_client_is_populated_from_activity_storage(self) -> None:
