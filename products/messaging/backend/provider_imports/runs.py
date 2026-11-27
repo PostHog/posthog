@@ -3,8 +3,7 @@
 import hmac
 import hashlib
 import logging
-from collections.abc import Callable, Mapping
-from contextlib import closing
+from collections.abc import Callable, Generator, Mapping
 from dataclasses import asdict, replace
 from datetime import timedelta
 from typing import Any
@@ -181,13 +180,17 @@ def run_step(team_id: int, run_id: UUID, step: str, attempt: int) -> list[People
     )
     try:
         _check_required_steps(provider, run, step)
-        # Closed on a failed save too, so a provider reading ahead stops sending requests before the step retries.
-        with closing(provider.run_step(step, context, claim.checkpoint)) as pages:
+        pages = provider.run_step(step, context, claim.checkpoint)
+        try:
             for page in pages:
                 _check_creator_access(team_id, run.created_by_id)
                 _save_page(team_id, run_id, step, attempt, page)
                 if page.checkpoint is None:
                     return _people_imports(team_id, run_id, step)
+        finally:
+            # Closed on a failed save too, so a provider reading ahead stops sending requests before the step retries.
+            if isinstance(pages, Generator):
+                pages.close()
         _update_owned_step(team_id, run_id, step, attempt, _mark_completed)
         return _people_imports(team_id, run_id, step)
     except (StaleImportAttempt, ImportRunClosed):
