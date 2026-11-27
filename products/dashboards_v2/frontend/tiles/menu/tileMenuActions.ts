@@ -204,6 +204,14 @@ export function useSectionPlacementActions(id: string, panel: SectionPanel, onCo
     const empty = panel.tiles.length === 0
     const actions: MenuAction[] = [
         {
+            key: 'duplicate',
+            label: 'Duplicate',
+            dataAttr: 'dashboard-v2-section-duplicate',
+            group: 'dashboard',
+            disabledReason: disabledReasonFor('duplicateTile'),
+            onSelect: () => onEdit({ edit: 'duplicateTile', id }),
+        },
+        {
             key: 'remove',
             label: empty ? 'Remove section' : 'Remove section and its tiles',
             dataAttr: 'dashboard-v2-section-remove',
