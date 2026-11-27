@@ -280,6 +280,8 @@ class WorkFocusSummaryItem:
     text: str
     channel_id: str
     permalink: str | None
+    # Set only by the agent. A DM whose items carry a section shows them under its heading; the pipeline's do not.
+    section: Literal["for_you", "news"] | None = None
 
 
 @frozen
@@ -985,6 +987,9 @@ def _safe_mrkdwn(text: str) -> str:
     )
 
 
+SUMMARY_SECTION_HEADINGS = {"for_you": "For you", "news": "In your channels"}
+
+
 def work_focus_blocks(
     integration: WorkspaceIntegration, focus: WorkFocus, slack_user_id: str, *, privacy: str = ONBOARDING_PRIVACY_LINE
 ) -> list[dict]:
@@ -992,11 +997,16 @@ def work_focus_blocks(
         blocks: list[dict] = [section_block(f"{_safe_mrkdwn(focus.intro)} Here's where I can jump in:")]
     else:
         # Slackbot's own search answers: one line per finding, the channel after it, a small numbered link to the thread.
-        lines = [
-            f"• {_safe_mrkdwn(item.text.rstrip('.'))} in <#{item.channel_id}>."
-            + (f" <{item.permalink}|[{number}]>" if item.permalink else "")
-            for number, item in enumerate(focus.summary, start=1)
-        ]
+        lines: list[str] = []
+        heading: str | None = None
+        for number, item in enumerate(focus.summary, start=1):
+            if item.section is not None and SUMMARY_SECTION_HEADINGS[item.section] != heading:
+                heading = SUMMARY_SECTION_HEADINGS[item.section]
+                lines.append(f"*{heading}*")
+            lines.append(
+                f"• {_safe_mrkdwn(item.text.rstrip('.'))} in <#{item.channel_id}>."
+                + (f" <{item.permalink}|[{number}]>" if item.permalink else "")
+            )
         blocks = [section_block(_safe_mrkdwn(focus.intro) + "\n" + "\n".join(lines))]
         if focus.suggestions:
             blocks.append(section_block("Here's where I can jump in:"))

@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from typing import Literal
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -14,7 +15,12 @@ from products.slack_app.backend.logic.onboarding.daily_focus_agent import (
     run_daily_focus_agent,
     to_work_focus,
 )
-from products.slack_app.backend.logic.onboarding.work_focus import find_and_send_daily_focus
+from products.slack_app.backend.logic.onboarding.work_focus import (
+    WorkFocus,
+    WorkFocusSummaryItem,
+    find_and_send_daily_focus,
+    work_focus_blocks,
+)
 from products.slack_app.backend.models import SlackDailyFocus, SlackUserProfileCache
 from products.slack_app.backend.services.workspace_integrations import (
     WorkspaceIntegration,
@@ -59,50 +65,101 @@ def _turn_on_daily(integration: WorkspaceIntegration) -> None:
     )
 
 
-def _offer(n: int, author: str = "U_ANA", resolved: bool = False) -> AgentSuggestion:
+def _offer(n: int, author: str = "U_ANA", resolved: bool = False, has_reaction: bool = False) -> AgentSuggestion:
     return AgentSuggestion(
         offer=f"Offer {n}. Want me to look?",
         request=f"Look into {n}.",
         source_permalink=LINK,
         source_author_id=author,
         resolved=resolved,
+        has_reaction=has_reaction,
     )
 
 
-def _item(text: str, channel_id: str = "C1", permalink: str | None = LINK, resolved: bool = False) -> AgentSummaryItem:
-    return AgentSummaryItem(text=text, channel_id=channel_id, permalink=permalink, resolved=resolved)
+def _item(
+    text: str,
+    kind: str = "news",
+    channel_id: str = "C1",
+    permalink: str | None = LINK,
+    resolved: bool = False,
+    seen: bool = False,
+) -> AgentSummaryItem:
+    return AgentSummaryItem(
+        text=text,
+        kind=kind,
+        channel_id=channel_id,
+        permalink=permalink,
+        resolved=resolved,
+        seen_by_person=seen,
+    )
 
 
-def test_the_agent_answer_keeps_the_pipeline_limits() -> None:
+def test_the_agent_answer_keeps_only_what_is_new_to_the_person() -> None:
     output = DailyFocusAgentOutput(
         intro="👀 A busy day.",
         summary=[
-            _item("<@U_ANA> rolled back the release", permalink="https://evil.example/x"),
-            _item("<@U_BEN> fixed the export, merged", resolved=True),
-            _item("a DM is not a channel", channel_id="D1"),
-            _item("  "),
-            *(_item(f"<@U_ANA> did {n}") for n in range(6)),
+            # News comes first in the answer, but what is for the person still leads the DM.
+            *(_item(f"<@U_BEN> launched {n}") for n in range(4)),
+            _item("<@U_ANA> asked you about the pricing page", kind="for_you", permalink="https://evil.example/x"),
+            _item("<@U_ANA> pinged you about trial length", kind="for_you", seen=True),
+            _item("<@U_BEN> fixed the export, merged", kind="for_you", resolved=True),
+            _item("a DM is not a channel", kind="for_you", channel_id="D1"),
+            _item("  ", kind="for_you"),
+            *(_item(f"<@U_ANA> asked you {n}", kind="for_you") for n in range(3)),
         ],
-        suggestions=[_offer(0, author=SLACK_USER_ID), _offer(9, resolved=True), *(_offer(n) for n in range(1, 6))],
+        suggestions=[
+            _offer(0, author=SLACK_USER_ID),
+            _offer(8, resolved=True),
+            _offer(9, has_reaction=True),
+            *(_offer(n) for n in range(1, 5)),
+        ],
     )
 
     focus = to_work_focus(output, SLACK_USER_ID)
 
-    assert [item.text for item in focus.summary] == [
-        "<@U_ANA> rolled back the release",
-        "<@U_ANA> did 0",
-        "<@U_ANA> did 1",
-        "<@U_ANA> did 2",
-        "<@U_ANA> did 3",
+    assert [(item.section, item.text) for item in focus.summary] == [
+        ("for_you", "<@U_ANA> asked you about the pricing page"),
+        ("for_you", "<@U_ANA> asked you 0"),
+        ("for_you", "<@U_ANA> asked you 1"),
+        ("news", "<@U_BEN> launched 0"),
+        ("news", "<@U_BEN> launched 1"),
+        ("news", "<@U_BEN> launched 2"),
     ]
     # A link the model made up off Slack never renders as a link.
     assert focus.summary[0].permalink is None
-    # Resolved work and the person's own message never become offers, and at most three go out.
+    # Work someone already reacted to, resolved work and the person's own message never become offers.
     assert [suggestion.offer for suggestion in focus.suggestions] == [
         "Offer 1. Want me to look?",
         "Offer 2. Want me to look?",
         "Offer 3. Want me to look?",
     ]
+
+
+@pytest.mark.parametrize("agent", [True, False], ids=["agent DM", "pipeline DM"])
+def test_only_the_agent_dm_shows_its_summary_in_two_sections(agent: bool) -> None:
+    def item(text: str, section: Literal["for_you", "news"]) -> WorkFocusSummaryItem:
+        return WorkFocusSummaryItem(text=text, channel_id="C1", permalink=LINK, section=section if agent else None)
+
+    focus = WorkFocus(
+        intro="👀 Hi.",
+        suggestions=[],
+        summary=[item("<@U_ANA> asked you", "for_you"), item("<@U_BEN> launched", "news")],
+    )
+
+    summary_block = work_focus_blocks(MagicMock(id=1), focus, SLACK_USER_ID)[0]
+
+    lines = summary_block["text"]["text"].split("\n")
+    expected = (
+        [
+            "*For you*",
+            f"• <@U_ANA> asked you in <#C1>. <{LINK}|[1]>",
+            "*In your channels*",
+            f"• <@U_BEN> launched in <#C1>. <{LINK}|[2]>",
+        ]
+        if agent
+        else [f"• <@U_ANA> asked you in <#C1>. <{LINK}|[1]>", f"• <@U_BEN> launched in <#C1>. <{LINK}|[2]>"]
+    )
+    assert lines[1:] == expected
 
 
 @pytest.mark.django_db

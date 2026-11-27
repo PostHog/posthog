@@ -11,6 +11,7 @@ import asyncio
 import functools
 from datetime import datetime
 from pathlib import Path
+from typing import Literal
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
@@ -29,7 +30,6 @@ from products.slack_app.backend.logic.onboarding.work_focus import (
     MAX_REQUEST_CHARS,
     MAX_SUGGESTIONS,
     MAX_SUMMARY_CHARS,
-    MAX_SUMMARY_ITEMS,
     WorkFocus,
     WorkFocusSuggestion,
     WorkFocusSummaryItem,
@@ -50,6 +50,9 @@ AGENT_POLL_SECONDS = 8 * 60
 AGENT_CPU_CORES = 2
 AGENT_MEMORY_GB = 4
 
+# Per section, so news from the person's channels always gets room next to what is for them.
+MAX_ITEMS_PER_SECTION = 3
+
 PROMPTS_DIR = Path(__file__).parent / "prompts"
 
 
@@ -57,8 +60,12 @@ class AgentSummaryItem(BaseModel):
     text: str
     channel_id: str
     permalink: str | None = None
-    # Required, so the agent states it for every item and the code can drop what is resolved.
+    # "for_you" mentions, replies to or asks the person; "news" is a thread in their channels they took no part in.
+    kind: Literal["for_you", "news"]
+    # The flags are required, so the agent states each for every item and the code drops what fails them.
     resolved: bool
+    # The person posted or reacted after the newest message, so they have seen it.
+    seen_by_person: bool
 
 
 class AgentSuggestion(BaseModel):
@@ -68,6 +75,8 @@ class AgentSuggestion(BaseModel):
     source_author_id: str | None = None
     source_channel_name: str | None = None
     resolved: bool
+    # Anyone, the person included, replied, reacted or took the work.
+    has_reaction: bool
 
 
 class DailyFocusAgentOutput(BaseModel):
@@ -119,18 +128,24 @@ def start_daily_focus_agent(
 
 
 def to_work_focus(output: DailyFocusAgentOutput, slack_user_id: str) -> WorkFocus:
-    """The agent's answer within the limits the pipeline holds itself to. Anything the agent marked resolved is
-    dropped, whatever the prompt said. So is a link that is not a Slack link, and an offer whose source the person
-    wrote, because they already know about their own work."""
+    """The agent's answer within the pipeline's limits, whatever the prompt said. A summary item the person already
+    saw, and an offer someone already reacted to, are dropped like resolved ones, so the DM holds only what is new to
+    the person. So is a link that is not a Slack link, and an offer whose source the person wrote."""
+    kept = [
+        item
+        for item in output.summary
+        if not item.resolved and not item.seen_by_person and item.text.strip() and item.channel_id[:1] in ("C", "G")
+    ]
     summary = [
         WorkFocusSummaryItem(
             text=item.text.strip()[:MAX_SUMMARY_CHARS],
             channel_id=item.channel_id,
             permalink=_slack_link(item.permalink),
+            section=kind,
         )
-        for item in output.summary
-        if not item.resolved and item.text.strip() and item.channel_id[:1] in ("C", "G")
-    ][:MAX_SUMMARY_ITEMS]
+        for kind in ("for_you", "news")
+        for item in [item for item in kept if item.kind == kind][:MAX_ITEMS_PER_SECTION]
+    ]
     suggestions = [
         WorkFocusSuggestion(
             offer=item.offer.strip()[:MAX_OFFER_CHARS],
@@ -140,7 +155,11 @@ def to_work_focus(output: DailyFocusAgentOutput, slack_user_id: str) -> WorkFocu
             source_channel_name=item.source_channel_name,
         )
         for item in output.suggestions
-        if not item.resolved and item.offer.strip() and item.request.strip() and item.source_author_id != slack_user_id
+        if not item.resolved
+        and not item.has_reaction
+        and item.offer.strip()
+        and item.request.strip()
+        and item.source_author_id != slack_user_id
     ][:MAX_SUGGESTIONS]
     return WorkFocus(intro=output.intro.strip()[:MAX_INTRO_CHARS], suggestions=suggestions, summary=summary)
 
@@ -186,7 +205,7 @@ async def _ask_agent(
         person=f"<@{slack_user_id}>",
         since=since.astimezone(zone).strftime("%A %H:%M"),
         zone=zone.key,
-        max_summary_items=MAX_SUMMARY_ITEMS,
+        max_items_per_section=MAX_ITEMS_PER_SECTION,
         max_suggestions=MAX_SUGGESTIONS,
     )
     session, output = await MultiTurnSession.start(
