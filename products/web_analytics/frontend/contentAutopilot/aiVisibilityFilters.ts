@@ -6,7 +6,7 @@ import type { DateMappingOption } from '~/types'
 
 import { BrandedSegmentEnumApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
-export type AiVisibilityFilterTab = 'overview' | 'rankings' | 'prompts' | 'keywords'
+export type AiVisibilityFilterTab = 'overview' | 'rankings' | 'prompts' | 'keywords' | 'brand'
 
 export type AiVisibilityFilter = 'dateRange' | 'engine' | 'topic' | 'branded'
 
@@ -51,6 +51,7 @@ export const AI_VISIBILITY_TAB_FILTERS: Record<
     overview: ['dateRange', 'engine', 'topic', 'branded'],
     rankings: ['dateRange', 'engine', 'topic', 'branded'],
     keywords: ['dateRange', 'engine', 'topic', 'branded'],
+    brand: ['dateRange', 'engine', 'topic', 'branded'],
 }
 
 /** The prompts tab lists prompts, not answers, so the window and the engine only narrow the needs-improvement view. */

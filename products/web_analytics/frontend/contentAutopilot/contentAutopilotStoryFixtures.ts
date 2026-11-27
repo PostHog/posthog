@@ -592,6 +592,7 @@ export const EXAMPLE_PROMPT_SET_OVERVIEW: AEOPromptSetOverviewApi = {
 const RANKED_BRANDS: AEOPromptSetRankingsApi['brands'] = [
     {
         domain: 'example.com',
+        brand_id: '01900000-0000-7000-8000-000000000001',
         name: 'example',
         is_target: true,
         answers_mentioning: 1012,
@@ -601,6 +602,7 @@ const RANKED_BRANDS: AEOPromptSetRankingsApi['brands'] = [
     },
     {
         domain: 'rival.example.org',
+        brand_id: '01900000-0000-7000-8000-000000000002',
         name: 'rival',
         is_target: false,
         answers_mentioning: 457,
@@ -610,6 +612,7 @@ const RANKED_BRANDS: AEOPromptSetRankingsApi['brands'] = [
     },
     {
         domain: 'metrics.example.net',
+        brand_id: '01900000-0000-7000-8000-000000000003',
         name: 'metrics',
         is_target: false,
         answers_mentioning: 425,
@@ -619,6 +622,7 @@ const RANKED_BRANDS: AEOPromptSetRankingsApi['brands'] = [
     },
     {
         domain: 'flagship.example.io',
+        brand_id: '01900000-0000-7000-8000-000000000004',
         name: 'flagship',
         is_target: false,
         answers_mentioning: 306,

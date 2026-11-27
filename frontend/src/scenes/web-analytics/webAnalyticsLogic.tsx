@@ -3762,8 +3762,12 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
             '/web/agents': (_, searchParams) => {
                 toAction({ productTab: ProductTab.AGENTS }, searchParams)
             },
-            // The prompt detail page belongs to the AI visibility tab; the prompt detail logic opens the prompt.
+            // The prompt detail page belongs to the AI visibility tab; the prompt and brand detail logics open
+            // their page.
             '/web/ai-visibility/prompts/:promptId': (_, searchParams) => {
+                toAction({ productTab: ProductTab.CONTENT_AUTOPILOT }, searchParams)
+            },
+            '/web/ai-visibility/brands/:brandId': (_, searchParams) => {
                 toAction({ productTab: ProductTab.CONTENT_AUTOPILOT }, searchParams)
             },
             '/web/:productTab': toAction,

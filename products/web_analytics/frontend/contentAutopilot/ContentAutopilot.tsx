@@ -2,6 +2,8 @@ import { useActions, useValues } from 'kea'
 
 import { AiVisibilityBanner } from './AiVisibilityBanner'
 import { AI_VISIBILITY_TAB_FILTERS, type AiVisibilityFilterTab } from './aiVisibilityFilters'
+import { ContentAutopilotBrandDetail } from './ContentAutopilotBrandDetail'
+import { contentAutopilotBrandDetailLogic } from './contentAutopilotBrandDetailLogic'
 import { ContentAutopilotCitationsModal } from './ContentAutopilotCitationsModal'
 import { ContentAutopilotFilterBar } from './ContentAutopilotFilterBar'
 import { ContentAutopilotKeywords } from './ContentAutopilotKeywords'
@@ -24,7 +26,7 @@ const FilteredTab = ({
     tab,
     children,
 }: {
-    tab: Exclude<AiVisibilityFilterTab, 'prompts'>
+    tab: Exclude<AiVisibilityFilterTab, 'prompts' | 'brand'>
     children: JSX.Element
 }): JSX.Element => (
     <div className="flex flex-col gap-4">
@@ -34,8 +36,9 @@ const FilteredTab = ({
 )
 
 export const ContentAutopilot = (): JSX.Element => {
-    // Mounted here, so a prompt's own URL opens it whatever tab was last open.
+    // Mounted here, so a prompt's or a brand's own URL opens it whatever tab was last open.
     const { promptId } = useValues(contentAutopilotPromptDetailLogic)
+    const { brandId } = useValues(contentAutopilotBrandDetailLogic)
     const { workspaceTab } = useValues(contentAutopilotLogic)
     const { onboarding, setupContext, setupContextError, setupContextLoading } = useValues(contentAutopilotSetupLogic)
     const { setWorkspaceTab } = useActions(contentAutopilotLogic)
@@ -91,6 +94,8 @@ export const ContentAutopilot = (): JSX.Element => {
         <div className="flex flex-col gap-4 pb-4" data-quill>
             {promptId ? (
                 <ContentAutopilotPromptDetail />
+            ) : brandId ? (
+                <ContentAutopilotBrandDetail />
             ) : setupContextError && !setupContext ? (
                 // Without the context neither the setup wizard nor the overview can tell what to show.
                 <div data-attr="content-autopilot-setup-context-error">
