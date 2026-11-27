@@ -597,10 +597,11 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         queued_at = NOW - timedelta(days=3)
         self._record_distinct_id(message_id, "jane", "jane@example.com", queued_at + timedelta(seconds=1))
         for invocation_id, seconds, link_url in [
-            (message_id, 1200, "https://example.com/billing"),
+            (message_id, 1200, None),
             (message_id, 1200, "https://example.com/billing"),
             (message_id, 1200, "https://example.com/billing"),
             (str(UUIDT()), 1500, "https://example.com/other-send"),
+            (message_id, 1500.0005, "https://example.com/another-instant"),
             (message_id, 1800.57, "https://example.com/docs"),
         ]:
             _create_event(
@@ -608,7 +609,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
                 event="$workflows_email_link_clicked",
                 distinct_id="jane",
                 timestamp=queued_at + timedelta(seconds=seconds),
-                properties={"$workflow_invocation_id": invocation_id, "$link_url": link_url},
+                properties={"$workflow_invocation_id": invocation_id, **({"$link_url": link_url} if link_url else {})},
             )
         flush_persons_and_events()
 

@@ -31,7 +31,6 @@ ACTIVITY_AFTER_LIMIT = 100
 MAX_DISTINCT_IDS = 100
 MAX_CLICKS = 200
 CLICK_EVENT = "$workflows_email_link_clicked"
-EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 
 # Events that describe the SDK rather than something the person did.
 HIDDEN_EVENTS = (
@@ -249,31 +248,25 @@ def _clicks(
     team: Team, user: User | None, detail: TransactionalEmailLogDetail, click_times: list[datetime]
 ) -> list[TransactionalEmailClick]:
     links = _links_by_click_time(team, user, detail, click_times)
-    return [TransactionalEmailClick(at=at, link_url=links.get(_epoch_ms(at))) for at in click_times]
-
-
-def _epoch_ms(at: datetime) -> int:
-    return (at - EPOCH) // timedelta(milliseconds=1)
+    return [TransactionalEmailClick(at=at, link_url=links.get(at.astimezone(UTC))) for at in click_times]
 
 
 def _links_by_click_time(
     team: Team, user: User | None, detail: TransactionalEmailLogDetail, click_times: list[datetime]
-) -> dict[int, str]:
+) -> dict[datetime, str]:
     if not click_times or not detail.distinct_id:
         return {}
     tag_queries(product=Product.MESSAGING, feature=Feature.QUERY)
     response = execute_hogql_query(
         """
-        SELECT toUnixTimestamp64Milli(timestamp) AS at_ms, properties.$link_url
+        SELECT timestamp, max(properties.$link_url)
         FROM events
         WHERE event = {event}
           AND distinct_id = {distinct_id}
           AND properties.$workflow_invocation_id = {message_id}
-          AND properties.$link_url != ''
           AND timestamp >= {start} AND timestamp <= {end}
-          AND at_ms IN {click_ms}
-        ORDER BY at_ms
-        LIMIT 1 BY at_ms
+          AND timestamp IN {click_times}
+        GROUP BY timestamp
         LIMIT {limit}
         """,
         team=team,
@@ -284,10 +277,10 @@ def _links_by_click_time(
             "message_id": ast.Constant(value=detail.entry.message_id),
             "start": ast.Constant(value=click_times[0]),
             "end": ast.Constant(value=click_times[-1]),
-            "click_ms": ast.Constant(value=sorted({_epoch_ms(at) for at in click_times})),
+            "click_times": ast.Tuple(exprs=[ast.Constant(value=at) for at in sorted(set(click_times))]),
             "limit": ast.Constant(value=len(click_times)),
         },
         query_type="transactional_email_activity_clicks",
         workload=Workload.ONLINE,
     )
-    return dict(response.results or [])
+    return {timestamp.astimezone(UTC): link_url for timestamp, link_url in response.results or [] if link_url}
