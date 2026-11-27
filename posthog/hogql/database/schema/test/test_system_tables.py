@@ -22,6 +22,7 @@ from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.resolver import resolve_types
 
 from posthog.auth import ProjectSecretAPIKeyUser
 from posthog.constants import AvailableFeature
@@ -2870,6 +2871,13 @@ class TestAsteriskTraversers(SimpleTestCase):
         )
 
         assert list(table.get_asterisk()) == expected
+
+    def test_column_aliased_star_leaves_out_the_traversers(self):
+        context = HogQLContext(database=Database(), enable_select_queries=True)
+        query = resolve_types(parse_select("SELECT * FROM system.event_definitions AS d (a, b)"), context, "clickhouse")
+
+        assert isinstance(query.type, ast.SelectQueryType)
+        assert list(query.type.columns) == ["a", "b", "created_at", "last_seen_at"]
 
 
 class TestSystemAccountsLazyJoins(NonAtomicBaseTest):

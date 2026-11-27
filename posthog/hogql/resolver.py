@@ -15,7 +15,14 @@ from posthog.hogql.constants import SQL_TARGET_DIALECTS, HogQLDialect
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.direct_clickhouse_table import DirectClickHouseTable
-from posthog.hogql.database.models import FunctionCallTable, LazyTable, SavedQuery, StringJSONDatabaseField, Table
+from posthog.hogql.database.models import (
+    FieldTraverser,
+    FunctionCallTable,
+    LazyTable,
+    SavedQuery,
+    StringJSONDatabaseField,
+    Table,
+)
 from posthog.hogql.database.s3_table import (
     DataWarehouseTable as HogQLDataWarehouseTable,
     S3Table,
@@ -1694,8 +1701,11 @@ class Resolver(CloningVisitor):
             # Always add an alias for function call tables. This way `select table.* from table` is replaced with
             # `select table.* from something() as table`, and not with `select something().* from something()`.
             if node.column_aliases:
-                # Build alias→original mapping from the table's visible columns
-                asterisk_fields = list(database_table.get_asterisk().keys())
+                # Build alias→original mapping from the table's visible columns. A column-aliased table cannot
+                # resolve a field through a join, so the mapping leaves out the traversers that `SELECT *` returns.
+                asterisk_fields = [
+                    key for key, field in database_table.get_asterisk().items() if not isinstance(field, FieldTraverser)
+                ]
                 if len(node.column_aliases) > len(asterisk_fields):
                     raise QueryError(
                         f"Table has {len(asterisk_fields)} column(s) available for aliasing "
