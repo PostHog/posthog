@@ -39,13 +39,9 @@ def new_team_captures_engagement_events(
         TeamWorkflowsConfig.objects.create(team=instance, capture_workflows_engagement_events=True)
 
 
-@receiver(post_delete, sender=User, dispatch_uid="workflows_deleted_user_drops_advent_calendar_answers")
-def deleted_user_drops_advent_calendar_answers(sender: type, instance: User, **kwargs: object) -> None:
+@receiver(post_delete, sender=User, dispatch_uid="workflows_deleted_user_drops_advent_calendar_rows")
+def deleted_user_drops_advent_calendar_rows(sender: type, instance: User, **kwargs: object) -> None:
     AdventCalendarAnswer.objects.filter(user_id=instance.pk).delete()
-
-
-@receiver(post_delete, sender=User, dispatch_uid="workflows_deleted_user_drops_advent_calendar_door_opens")
-def deleted_user_drops_advent_calendar_door_opens(sender: type, instance: User, **kwargs: object) -> None:
     AdventCalendarDoorOpen.objects.filter(user_id=instance.pk).delete()
 
 
