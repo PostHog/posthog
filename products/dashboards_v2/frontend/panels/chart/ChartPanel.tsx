@@ -47,7 +47,7 @@ export function shownFramesOf(panel: ContentPanel<ChartConfig>): DataFrame[] | u
     return shownFrames.get(panel)
 }
 
-function hasNoValues(frames: DataFrame[]): boolean {
+export function hasNoValues(frames: DataFrame[]): boolean {
     return frames.every((frame) => frame.fields.every((field) => field.values.length === 0))
 }
 
@@ -84,7 +84,8 @@ function ChartData({
     useEffect(() => {
         if (result.status === 'ready') {
             shownFrames.set(panel, result.frames)
-        } else {
+        }
+        return () => {
             shownFrames.delete(panel)
         }
     }, [panel, result])
