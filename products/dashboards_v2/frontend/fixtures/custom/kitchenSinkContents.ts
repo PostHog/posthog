@@ -22,7 +22,7 @@ export const kitchenSinkContents = defineContentPackage('kitchen-sink', {
         size: { w: 24, h: 3, minW: 8, minH: 3 },
         showOnInteractiveOnly: true,
     },
-    'health-checklist': { Component: HealthChecklist, size: { w: 8, h: 8, minW: 6, minH: 6 }, duplicable: true },
+    'health-checklist': { Component: HealthChecklist, size: { w: 8, h: 8, minW: 6, minH: 6 }, duplicable: true, backgroundColor: true },
     'top-issues': {
         Component: TopIssuesList,
         size: { w: 12, h: 10, minW: 8, minH: 6 },

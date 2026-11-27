@@ -92,12 +92,9 @@ export function backgroundColorAction(
     onEdit: (edit: PresentationEdit) => void
 ): MenuAction | null {
     const applies = tiles.flatMap(({ id, panel }) => {
-        if (isSectionPanel(panel)) {
-            return []
-        }
-        return findPanel(panels, panel.type)?.allowedCustomizations?.includes('backgroundColor')
-            ? [{ id, color: panel.appearance?.backgroundColor ?? null }]
-            : []
+        const allowed =
+            isSectionPanel(panel) || findPanel(panels, panel.type)?.allowedCustomizations?.includes('backgroundColor')
+        return allowed ? [{ id, color: panel.appearance?.backgroundColor ?? null }] : []
     })
     if (applies.length === 0) {
         return null
