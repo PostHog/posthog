@@ -6817,8 +6817,14 @@ describe('CDP API', () => {
                 secret,
                 expiresIn === null ? { audience } : { audience, expiresIn }
             )
-        const pushFlow = (status: HogFlow['status'] = 'active', stepType = 'function_push'): HogFlow =>
-            new FixtureHogFlowBuilder()
+        const toRequestPerson = { distinctId: { value: '{{ event.distinct_id }}', templating: 'liquid' } }
+        const pushFlow = (
+            status: HogFlow['status'] = 'active',
+            stepType = 'function_push',
+            inputs: Record<string, unknown> = toRequestPerson,
+            pushSteps = 1
+        ): HogFlow => {
+            const flow = new FixtureHogFlowBuilder()
                 .withTeamId(team.id)
                 .withStatus(status)
                 .withExitCondition('exit_only_at_end')
@@ -6829,7 +6835,7 @@ describe('CDP API', () => {
                             type: stepType as any,
                             config: {
                                 template_id: stepType === 'function_push' ? 'template-native-push' : 'template-email',
-                                inputs: {},
+                                inputs,
                                 message_category_type: 'transactional',
                             },
                         },
@@ -6837,6 +6843,12 @@ describe('CDP API', () => {
                     edges: [{ from: 'trigger', to: 'push', type: 'continue' }],
                 })
                 .build()
+            const step = flow.actions.find((action) => action.id === 'push')!
+            for (let i = 1; i < pushSteps; i++) {
+                flow.actions.push({ ...step, id: `push-${i}` })
+            }
+            return flow
+        }
         const send = (
             flowId: string,
             payload: Record<string, unknown> = body,
@@ -6981,10 +6993,19 @@ describe('CDP API', () => {
         })
 
         it.each([
-            ['a workflow that is turned off', 'draft', 'function_push', {}],
-            ['a workflow that no longer only sends a push', 'active', 'function_email', {}],
-        ])('refuses %s', async (_name, status, stepType) => {
-            const hogFlow = await insertHogFlow(pushFlow(status as HogFlow['status'], stepType))
+            ['a workflow that is turned off', 'draft', 'function_push', toRequestPerson, 1],
+            ['a workflow that no longer only sends a push', 'active', 'function_email', toRequestPerson, 1],
+            [
+                'a push to a person the request does not name',
+                'active',
+                'function_push',
+                { distinctId: { value: '{{ variables.target }}', templating: 'liquid' } },
+                1,
+            ],
+            ['a push step without a recipient', 'active', 'function_push', {}, 1],
+            ['a workflow with two push steps', 'active', 'function_push', toRequestPerson, 2],
+        ])('refuses %s', async (_name, status, stepType, inputs, pushSteps) => {
+            const hogFlow = await insertHogFlow(pushFlow(status as HogFlow['status'], stepType, inputs, pushSteps))
 
             const res = await send(hogFlow.id)
 
