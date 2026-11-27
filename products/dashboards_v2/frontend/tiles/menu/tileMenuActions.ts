@@ -199,16 +199,18 @@ export function useSectionActions(id: string, panel: SectionPanel, onStartRename
     return tileActions ? tileActions(actions, { id, panel }) : actions
 }
 
-export function useSectionPlacementActions(id: string, panel: SectionPanel): MenuAction[] {
+/** `onConfirmRemove` asks the person first. It is called for a section that holds tiles, which go with it. */
+export function useSectionPlacementActions(id: string, panel: SectionPanel, onConfirmRemove: () => void): MenuAction[] {
     const { disabledReasonFor, onEdit, tilePlacementActions } = useDashboard()
+    const empty = panel.tiles.length === 0
     const actions: MenuAction[] = [
         {
             key: 'remove',
-            label: 'Remove section and its tiles',
+            label: empty ? 'Remove section' : 'Remove section and its tiles',
             dataAttr: 'dashboard-v2-section-remove',
             disabledReason: disabledReasonFor('removeTile'),
             destructive: true,
-            onSelect: () => onEdit({ edit: 'removeTile', id }),
+            onSelect: empty ? () => onEdit({ edit: 'removeTile', id }) : onConfirmRemove,
         },
     ]
     return tilePlacementActions ? tilePlacementActions(actions, { id, panel }) : actions
