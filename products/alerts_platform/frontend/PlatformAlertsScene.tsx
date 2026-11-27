@@ -30,6 +30,8 @@ import {
 import { PlatformAlertGroupRowMenu } from './PlatformAlertGroupRowMenu'
 import { PlatformAlertMuteMarker } from './PlatformAlertMuteMarker'
 import { PlatformAlertRowMenu } from './PlatformAlertRowMenu'
+import { PlatformAlertsFacetRail } from './PlatformAlertsFacetRail'
+import { PlatformAlertsFacetRailToggle } from './PlatformAlertsFacetRailToggle'
 import { PLATFORM_ALERTS_PAGE_SIZE, PlatformAlertsTab, platformAlertsLogic } from './platformAlertsLogic'
 import { PlatformAlertStateLabel } from './PlatformAlertStateLabel'
 import { PlatformAlertStateSummary } from './PlatformAlertStateSummary'
@@ -171,6 +173,7 @@ export function PlatformAlertsScene(): JSX.Element {
         activeTab,
         listRows,
         expandedIds,
+        filters,
     } = useValues(platformAlertsLogic)
     const { loadConfigurations, setPage, setActiveTab, toggleExpanded } = useActions(platformAlertsLogic)
     const columns = useMemo(() => listColumns(expandedIds, toggleExpanded), [expandedIds, toggleExpanded])
@@ -204,7 +207,8 @@ export function PlatformAlertsScene(): JSX.Element {
         return <NotFound object="page" />
     }
 
-    const configurations = configurationsError ? (
+    const filtered = Object.values(filters).some((values) => values.length > 0)
+    const list = configurationsError ? (
         <LemonBanner
             type="error"
             action={{
@@ -223,9 +227,26 @@ export function PlatformAlertsScene(): JSX.Element {
                 loading={configurationsPageLoading || configurationsPage === null}
                 rowKey={(row) => (row.kind === 'group' ? row.group.id : row.configuration.id)}
                 rowClassName={(row) => (row.kind === 'group' ? 'bg-surface-secondary' : null)}
-                emptyState="No alert configurations on the platform for this project yet."
+                emptyState={
+                    filtered
+                        ? 'No alerts match these filters.'
+                        : 'No alert configurations on the platform for this project yet.'
+                }
             />
             <PaginationControl {...alertPagination} nouns={['alert', 'alerts']} bordered />
+        </div>
+    )
+    const configurations = (
+        <div className="@container/facet-rail-host">
+            <div className="flex flex-row gap-2 @max-[48rem]/facet-rail-host:flex-col">
+                <PlatformAlertsFacetRail />
+                <div className="flex flex-col gap-2 flex-1 min-w-0">
+                    <div className="flex">
+                        <PlatformAlertsFacetRailToggle />
+                    </div>
+                    {list}
+                </div>
+            </div>
         </div>
     )
 

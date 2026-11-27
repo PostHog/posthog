@@ -11,6 +11,7 @@ import { platformAlertsLogic } from './platformAlertsLogic'
 
 jest.mock('posthog-js')
 jest.mock('./generated/api', () => ({
+    platformAlertsFacetsRetrieve: jest.fn().mockResolvedValue({ states: [], mutes: [], source_kinds: [], labels: [] }),
     platformAlertsList: jest.fn(),
     platformAlertsPartialUpdate: jest.fn(),
     platformAlertsSnoozeCreate: jest.fn(),
@@ -207,6 +208,24 @@ describe('platformAlertsLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(listed(SNOOZED.id)?.snooze_until).toBeNull()
+    })
+
+    it('lists only the alerts with every chosen facet value, from the first page', async () => {
+        logic.actions.setPage(2)
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.toggleFilterValue('state', 'firing')
+        logic.actions.toggleFilterValue('label', 'team:apm')
+        logic.actions.toggleFilterValue('state', 'broken')
+        logic.actions.toggleFilterValue('state', 'firing')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(mockList).toHaveBeenLastCalledWith(expect.any(String), {
+            limit: 50,
+            offset: 0,
+            state: ['broken'],
+            label: ['team:apm'],
+        })
     })
 
     it('disables the alert and shows it in the reloaded list', async () => {

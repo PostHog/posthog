@@ -14,6 +14,7 @@ import {
     AlertRouteApi,
     AlertRouteMatchApi,
     PlatformAlertConfigurationApi,
+    PlatformAlertFacetsApi,
 } from './generated/api.schemas'
 import { routingUrl } from './routing/platformAlertRoutingFormat'
 
@@ -249,6 +250,35 @@ const ROUTES: AlertRouteApi[] = [
     },
 ]
 
+const FACETS: PlatformAlertFacetsApi = {
+    states: [
+        { value: 'broken', count: 0 },
+        { value: 'errored', count: 0 },
+        { value: 'firing', count: 2 },
+        { value: 'snoozed', count: 1 },
+        { value: 'not_firing', count: 3 },
+        { value: 'disabled', count: 1 },
+        { value: 'not_checked', count: 0 },
+    ],
+    mutes: [
+        { value: 'snoozed', count: 1 },
+        { value: 'quiet_hours', count: 1 },
+    ],
+    source_kinds: [
+        { value: 'logs', count: 3 },
+        { value: 'metrics', count: 1 },
+    ],
+    labels: [
+        {
+            key: 'team',
+            values: [
+                { value: 'apm', count: 2 },
+                { value: 'billing', count: 1 },
+            ],
+        },
+    ],
+}
+
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/PlatformAlerts',
@@ -272,6 +302,7 @@ const meta: Meta = {
                         ...SOURCE_KIND_CONFIGURATIONS,
                     ],
                 },
+                '/api/projects/:team_id/platform_alerts/facets/': FACETS,
                 [`/api/projects/:team_id/platform_alerts/${CONFIGURATION.id}/`]: CONFIGURATION,
                 [`/api/projects/:team_id/platform_alerts/${GROUPED_CONFIGURATION.id}/`]: GROUPED_CONFIGURATION,
                 [`/api/projects/:team_id/platform_alerts/${ROUTED_CONFIGURATION.id}/`]: ROUTED_CONFIGURATION,
