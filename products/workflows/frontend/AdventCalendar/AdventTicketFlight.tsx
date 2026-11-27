@@ -4,6 +4,7 @@ import { AdventPoint } from './adventGraph'
 import { AdventTicketIcon } from './AdventTicketIcon'
 
 const ARC_HEIGHT = 70
+const TOP_CLEARANCE = 18
 
 export interface AdventTicketFlightProps {
     from: AdventPoint
@@ -18,7 +19,7 @@ export function AdventTicketFlight({ from, to, onLand }: AdventTicketFlightProps
         top: to.y,
         '--advent-fly-dx': `${from.x - to.x}px`,
         '--advent-fly-dy': `${dy}px`,
-        '--advent-fly-peak': `${Math.min(dy, 0) - ARC_HEIGHT}px`,
+        '--advent-fly-peak': `${Math.max(Math.min(dy, 0) - ARC_HEIGHT, TOP_CLEARANCE - to.y)}px`,
     } as CSSProperties
     const land = (event: AnimationEvent): void => {
         if (event.target === event.currentTarget) {

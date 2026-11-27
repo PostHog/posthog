@@ -133,7 +133,7 @@ export const ADVENT_TIPS: Record<number, AdventTip> = {
     },
     9: {
         kind: 'Workflows tip',
-        text: 'You can send transactional emails from your code with PostHog. Sends, opens, and clicks arrive as events, with no extra tracking to set up.',
+        text: 'You can send transactional emails from your code with PostHog. PostHog records sends, deliveries, and bounces, and you choose whether to track opens and clicks.',
         link: {
             label: 'Transactional emails docs',
             url: 'https://posthog.com/docs/workflows/transactional-emails',

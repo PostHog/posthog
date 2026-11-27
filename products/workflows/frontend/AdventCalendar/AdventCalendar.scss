@@ -261,3 +261,27 @@
         animation-duration: 1ms;
     }
 }
+
+.AdventFlowEdges__edge[data-emphasized='true'] {
+    opacity: 1;
+    stroke: var(--advent-gold);
+    stroke-width: 2.5;
+}
+
+.AdventFlowPresent__count {
+    position: absolute;
+    z-index: 1;
+    pointer-events: none;
+    transform: translate(-50%, -50%);
+}
+
+.AdventFlowStep__exitNote {
+    max-width: 16rem;
+    font-size: 0.8125rem;
+}
+
+.AdventFlowStep__columnNote {
+    margin-top: 0.25rem;
+    font-size: 11px;
+    line-height: 1.35;
+}

@@ -7,27 +7,35 @@ import { cn } from 'lib/utils/css-classes'
 
 import { adventCalendarLogic } from '../adventCalendarLogic'
 import { ADVENT_LAST_DAY } from '../adventContent'
-import { AdventDoor } from '../adventGraph'
+import { AdventDoor, AdventPoint } from '../adventGraph'
 import { adventPaletteStyle } from '../adventPalette'
 import { useAdventEscape } from '../useAdventEscape'
 import { useAdventStageSize } from '../useAdventStageSize'
 import { AdventFlowCard } from './AdventFlowCard'
 import { AdventFlowEdges } from './AdventFlowEdges'
 import { AdventFlowFit, adventFlowOrientation } from './adventFlowFit'
-import { AdventFlowEdge, adventFlowLayout, AdventFlowNode } from './adventFlowLayout'
-import { AdventFlowStep, AdventFlowStepProps } from './AdventFlowStep'
+import { AdventFlowEdge, AdventFlowLayout, adventFlowLayout, AdventFlowNode } from './adventFlowLayout'
+import { AdventFlowExitNote, AdventFlowStep, AdventFlowStepProps } from './AdventFlowStep'
 import { useAdventFlowHover } from './useAdventFlowHover'
 import { useAdventFlowViewport } from './useAdventFlowViewport'
 import { useAdventFlowWake } from './useAdventFlowWake'
 
 const DOT_GAP = 36
-const OPENING_MS = 2400
+export const ADVENT_FLOW_OPENING_MS = 2400
+const SHOWN_NODE_AT = 0.65
+
+export interface AdventFlowView {
+    toStage: (point: AdventPoint) => AdventPoint
+    showNode: (nodeId: string) => void
+}
 
 export interface AdventFlowStageProps {
     // Draws the last door in place of the peek door. While it opens, the stage holds the card back until the
     // drawn door calls `onOpened`, so that door sets the length of its own opening.
     renderLastDoor?: (step: AdventFlowStepProps) => ReactNode
     isEdgeEmphasized?: (edge: AdventFlowEdge) => boolean
+    renderOverlay?: (view: AdventFlowView, layout: AdventFlowLayout) => ReactNode
+    exitNote?: AdventFlowExitNote
 }
 
 const noEmphasis = (): boolean => false
@@ -49,12 +57,17 @@ function useOpening(revealingDoor: AdventDoor | null, drawsLastDoor: boolean, fi
         if (!revealingDoorId || isHandedOff) {
             return
         }
-        const timer = window.setTimeout(finishReveal, OPENING_MS)
+        const timer = window.setTimeout(finishReveal, ADVENT_FLOW_OPENING_MS)
         return () => window.clearTimeout(timer)
     }, [revealingDoorId, isHandedOff, finishReveal])
 }
 
-export function AdventFlowStage({ renderLastDoor, isEdgeEmphasized = noEmphasis }: AdventFlowStageProps): JSX.Element {
+export function AdventFlowStage({
+    renderLastDoor,
+    isEdgeEmphasized = noEmphasis,
+    renderOverlay,
+    exitNote,
+}: AdventFlowStageProps): JSX.Element {
     const { graph, today, selectedDoorId, revealingDoor, pollShares } = useValues(adventCalendarLogic)
     const { activateDoor, clearSelection, finishReveal } = useActions(adventCalendarLogic)
     const { ref, stage } = useAdventStageSize()
@@ -73,6 +86,15 @@ export function AdventFlowStage({ renderLastDoor, isEdgeEmphasized = noEmphasis 
     useAdventEscape(!!revealingDoor, finishReveal, dismiss)
     useAdventFlowWake(ref)
 
+    const view: AdventFlowView = {
+        toStage: ({ x, y }) => rectOnStage({ x, y, width: 0, height: 0 }),
+        showNode: (nodeId) => {
+            const node = layout.nodes.find((candidate) => candidate.id === nodeId)
+            if (!isRows && node && track.current) {
+                track.current.scrollTop = (node.tile.y + node.tile.height) * zoom - stage.height * SHOWN_NODE_AT
+            }
+        },
+    }
     const onTrackClick = (event: MouseEvent): void => {
         if (!(event.target as Element).closest('button')) {
             dismiss()
@@ -94,6 +116,7 @@ export function AdventFlowStage({ renderLastDoor, isEdgeEmphasized = noEmphasis 
         onActivate: activateDoor,
         onEnter: hover.onEnter,
         onLeave: hover.onLeave,
+        exitNote: node.kind === 'exit' ? exitNote : undefined,
     })
 
     return (
@@ -145,6 +168,7 @@ export function AdventFlowStage({ renderLastDoor, isEdgeEmphasized = noEmphasis 
                         hover={hover}
                         onDismiss={dismiss}
                     />
+                    {renderOverlay?.(view, layout)}
                 </>
             )}
         </div>
