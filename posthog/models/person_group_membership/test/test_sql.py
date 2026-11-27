@@ -19,10 +19,12 @@ from posthog.clickhouse.schema import (
 from posthog.models.person_group_membership.sql import (
     DISTRIBUTED_PERSON_GROUP_MEMBERSHIP_CONFIG_TABLE,
     KAFKA_PERSON_GROUP_MEMBERSHIP_COLUMNS,
+    KAFKA_PERSON_GROUP_MEMBERSHIP_TABLE,
     KAFKA_PERSON_GROUP_MEMBERSHIP_TABLE_SQL,
     PERSON_GROUP_MEMBERSHIP_CONFIG_DICTIONARY,
     PERSON_GROUP_MEMBERSHIP_CONFIG_DICTIONARY_SQL,
     PERSON_GROUP_MEMBERSHIP_CONFIG_TABLE,
+    PERSON_GROUP_MEMBERSHIP_MV,
     PERSON_GROUP_MEMBERSHIP_MV_SELECT_SQL,
     PERSON_GROUP_MEMBERSHIP_MV_SQL,
     PERSON_GROUP_MEMBERSHIP_TABLE,
@@ -33,6 +35,7 @@ from posthog.models.person_group_membership.sql import (
 MIGRATION = "posthog.clickhouse.migrations.0343_person_group_membership"
 INGESTION_MIGRATION = "posthog.clickhouse.migrations.0369_person_group_membership_ingestion"
 ACTIVITY_MIGRATION = "posthog.clickhouse.migrations.0375_person_group_membership_activity"
+FLAG_CALLS_MIGRATION = "posthog.clickhouse.migrations.0396_person_group_membership_exclude_flag_calls"
 SOURCE_TABLE = "test_source_person_group_membership"
 
 
@@ -72,8 +75,9 @@ def test_ingestion_sql(build_sql: Callable[[], str], snapshot, settings) -> None
         ),
         (INGESTION_MIGRATION, [[NodeRole.INGESTION_EVENTS]] * 5, True),
         (ACTIVITY_MIGRATION, [[NodeRole.INGESTION_EVENTS]], False),
+        (FLAG_CALLS_MIGRATION, [[NodeRole.INGESTION_EVENTS]] * 4, True),
     ],
-    ids=["storage", "ingestion", "activity"],
+    ids=["storage", "ingestion", "activity", "flag_calls"],
 )
 @pytest.mark.parametrize("deployment", ["", "DEV", "US", "EU"])
 @pytest.mark.parametrize("multinode", [False, True])
@@ -98,10 +102,18 @@ def test_migration_placement(
                     assert op._sharded is False
                     assert op._is_alter_on_replicated_table is False
                     assert "JSONExtractRaw(properties, '$update_person_last_seen_at') != 'false'" in op._sql
-                else:
+                    assert "event" not in op._sql
+                elif migration != FLAG_CALLS_MIGRATION:
                     assert "IF NOT EXISTS" in op._sql
             assert any("Kafka" in op._sql for op in operations) == consumes_kafka
             assert any("kafka_events_json_ws" in op._sql for op in operations) is False
+            if migration == FLAG_CALLS_MIGRATION:
+                assert [op._sql for op in operations] == [
+                    f"DROP TABLE IF EXISTS {django_settings.CLICKHOUSE_DATABASE}.{PERSON_GROUP_MEMBERSHIP_MV}",
+                    f"DROP TABLE IF EXISTS {django_settings.CLICKHOUSE_DATABASE}.{KAFKA_PERSON_GROUP_MEMBERSHIP_TABLE}",
+                    KAFKA_PERSON_GROUP_MEMBERSHIP_TABLE_SQL(),
+                    PERSON_GROUP_MEMBERSHIP_MV_SQL(),
+                ]
     finally:
         importlib.reload(module)
 
@@ -338,10 +350,26 @@ def test_ingestion_admits_only_eligible_events(group_type_index: int) -> None:
         )
         for index, value in enumerate((True, "false", 0, None))
     )
+    named_events = [
+        (2001, "$feature_flag_called", "identified", every_group, datetime(2023, 11, 1, tzinfo=UTC), "full"),
+        (2001, "$feature_flag_called", "identified", every_group, datetime(2024, 3, 1, tzinfo=UTC), "full"),
+        (2001, "$feature_flag_called", "flag-calls-only", every_group, datetime(2024, 1, 1, tzinfo=UTC), "full"),
+        (
+            2001,
+            "$pageview",
+            "flag-property",
+            json.dumps({**json.loads(every_group), "$feature_flag": "example-flag"}),
+            datetime(2024, 1, 2, tzinfo=UTC),
+            "full",
+        ),
+    ]
     sync_execute(f"DROP TABLE IF EXISTS {SOURCE_TABLE}")
     sync_execute(f"CREATE TABLE {SOURCE_TABLE} ({KAFKA_PERSON_GROUP_MEMBERSHIP_COLUMNS}) ENGINE = Memory")
     try:
-        sync_execute(f"INSERT INTO {SOURCE_TABLE} VALUES", events)
+        sync_execute(
+            f"INSERT INTO {SOURCE_TABLE} (team_id, distinct_id, properties, timestamp, person_mode) VALUES", events
+        )
+        sync_execute(f"INSERT INTO {SOURCE_TABLE} VALUES", named_events)
         for _ in range(2):
             sync_execute(
                 f"INSERT INTO {WRITABLE_PERSON_GROUP_MEMBERSHIP_TABLE} {PERSON_GROUP_MEMBERSHIP_MV_SELECT_SQL(SOURCE_TABLE)}",
@@ -354,6 +382,14 @@ def test_ingestion_admits_only_eligible_events(group_type_index: int) -> None:
         FROM {PERSON_GROUP_MEMBERSHIP_TABLE} GROUP BY team_id, group_type_index, group_key, distinct_id
         ORDER BY distinct_id"""
     ) == [
+        (
+            2001,
+            group_type_index,
+            f"account-{group_type_index}",
+            "flag-property",
+            datetime(2024, 1, 2, tzinfo=UTC),
+            datetime(2024, 1, 2, tzinfo=UTC),
+        ),
         (
             2001,
             group_type_index,

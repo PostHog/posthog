@@ -11,6 +11,7 @@ from posthog.clickhouse.kafka_engine import (
 )
 from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplacingMergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
+from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_SOURCE_EVENT
 
 PERSON_GROUP_MEMBERSHIP_TABLE = "person_group_membership"
 SHARDED_PERSON_GROUP_MEMBERSHIP_TABLE = f"sharded_{PERSON_GROUP_MEMBERSHIP_TABLE}"
@@ -37,6 +38,7 @@ PERSON_GROUP_MEMBERSHIP_COLUMNS = """
 
 KAFKA_PERSON_GROUP_MEMBERSHIP_COLUMNS = """
     team_id Int64,
+    event String,
     distinct_id String,
     properties String,
     timestamp DateTime64(6, 'UTC'),
@@ -188,6 +190,7 @@ def PERSON_GROUP_MEMBERSHIP_MV_SELECT_SQL(source_table: str) -> str:
     # The dictionary holds only enabled, valid configs, so dictHas fails closed for every other team.
     # dictHas also avoids the inverse dictionary lookup rewrite, which rejects dictGet comparisons on complex keys.
     # Personless events cannot be backed by a person profile. The read path keeps identified persons only.
+    # Flag calls never count on any flag evaluations mode, because on mode 2 ingestion does not write them to this topic.
     dictionary = f"{settings.CLICKHOUSE_DATABASE}.{PERSON_GROUP_MEMBERSHIP_CONFIG_DICTIONARY}"
     return f"""SELECT
     team_id,
@@ -205,6 +208,7 @@ FROM (
         timestamp
     FROM {source_table}
     WHERE dictHas('{dictionary}', tuple(team_id)) AND (person_mode != 'propertyless')
+      AND event != {escape_clickhouse_string(FLAG_EVALUATIONS_SOURCE_EVENT)}
       AND JSONExtractRaw(properties, '$update_person_last_seen_at') != 'false'
 )
 WHERE notEmpty(group_key)

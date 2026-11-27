@@ -10,6 +10,9 @@ database "posthog" {
     column "team_id" {
       type = "Int64"
     }
+    column "event" {
+      type = "String"
+    }
     column "distinct_id" {
       type = "String"
     }
@@ -56,6 +59,7 @@ FROM (
     timestamp
   FROM posthog.kafka_person_group_membership
   WHERE dictHas('posthog.person_group_membership_config_dict', tuple(team_id)) AND (person_mode != 'propertyless')
+    AND (event != '$feature_flag_called')
     AND (JSONExtractRaw(properties, '$update_person_last_seen_at') != 'false')
 )
 WHERE notEmpty(group_key)

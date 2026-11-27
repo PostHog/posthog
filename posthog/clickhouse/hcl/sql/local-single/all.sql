@@ -788,6 +788,7 @@ CREATE TABLE posthog.kafka_person_distinct_id_overrides (
 ) ENGINE = Kafka(msk_cluster) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse-person-distinct-id-overrides', kafka_topic_list = 'clickhouse_person_distinct_id';
 CREATE TABLE posthog.kafka_person_group_membership (
   team_id Int64,
+  event String,
   distinct_id String,
   properties String,
   timestamp DateTime64(6, 'UTC'),
@@ -5638,6 +5639,8 @@ FROM
       dictHas('posthog.person_group_membership_config_dict', tuple(team_id))
     AND
       (person_mode != 'propertyless')
+    AND
+      (event != '$feature_flag_called')
     AND
       (JSONExtractRaw(properties, '$update_person_last_seen_at') != 'false')
   )
