@@ -13,6 +13,7 @@ CASES = [
     ("https://example.com/docs?UTM_Source=openai#install", "https://example.com/docs#install"),
     ("https://example.com/docs?gclid=abc&page=2&fbclid=x", "https://example.com/docs?page=2"),
     ("https://example.com/docs?utm_content", "https://example.com/docs"),
+    ("https://example.com/docs?trk=article-ssr-frontend-pulse_little-text-block", "https://example.com/docs"),
     # A parameter that only starts like a tracking one picks content, so it stays.
     ("https://example.com/search?utmost=1", "https://example.com/search?utmost=1"),
     ("https://example.com/docs", "https://example.com/docs"),

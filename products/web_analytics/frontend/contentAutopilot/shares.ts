@@ -2,10 +2,9 @@ import { percentage } from 'lib/utils/numbers'
 
 import type { KpiDelta } from './promptReport'
 
-// Under this share a whole percent rounds a small share to 0%, so it keeps one decimal.
-const DECIMAL_BELOW = 0.1
-
-const shareDecimals = (share: number): number => (Math.abs(share) < DECIMAL_BELOW ? 1 : 0)
+// Under 10% a whole percent rounds a small share to 0%, so it keeps one decimal. The test runs on the value
+// rounded to one decimal, so 9.96% reads 10% and not 10.0%.
+const shareDecimals = (share: number): number => (Math.abs(Math.round(share * 1000)) < 100 ? 1 : 0)
 
 /** A share of answers (0-1) in percent, rounded the way `formatShare` shows it. */
 export const displayedPercent = (share: number): number => {
@@ -13,8 +12,10 @@ export const displayedPercent = (share: number): number => {
     return Math.round(share * 100 * factor) / factor
 }
 
-/** A share of answers (0-1): one decimal under 10%, so 0.005 reads 0.5% and not 0%, and whole percents above. */
-export const formatShare = (share: number): string => percentage(share, shareDecimals(share))
+/** A share of answers (0-1): one decimal under 10%, so 0.005 reads 0.5% and not 0%, and whole percents above.
+ *  The decimal stays when it is a zero, so 8.0% sits in a column of 7.4% and 9.1%. */
+export const formatShare = (share: number): string =>
+    share === 0 ? '0%' : percentage(share, shareDecimals(share), shareDecimals(share) === 1)
 
 /** The change between two shares in percentage points, taken from the values as `formatShare` shows them,
  *  so a row never reads 1% then 0% with +1.1 pts. Null when either side is missing. */

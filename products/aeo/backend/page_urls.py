@@ -13,7 +13,7 @@ import re
 # Parameters that only say where a click came from. Parameters that pick the content, such as `?id=` or
 # `?page=`, stay, so two different pages never merge.
 _TRACKING_PARAMS = (
-    r"utm_[^=&#]*|gclid|gbraid|wbraid|dclid|fbclid|msclkid|yclid|igshid|srsltid|mc_cid|mc_eid|_hsenc|_hsmi"
+    r"utm_[^=&#]*|gclid|gbraid|wbraid|dclid|fbclid|msclkid|yclid|igshid|srsltid|mc_cid|mc_eid|_hsenc|_hsmi|trk"
 )
 
 _PARAM = re.compile(rf"([?&])(?:{_TRACKING_PARAMS})(?:=[^&#]*)?(?=[&#]|$)", re.IGNORECASE)
