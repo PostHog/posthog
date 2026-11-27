@@ -22,8 +22,10 @@ function loopingAnimationNames(roots: Root[]): Set<string> {
     const names = new Set<string>()
     for (const root of roots) {
         root.walkDecls(/^animation(-name)?$/, (declaration) => {
-            if (declaration.prop === 'animation-name' || declaration.value.includes('infinite')) {
-                declaration.value.split(/[\s,]+/).forEach((token) => names.add(token))
+            for (const layer of postcss.list.comma(declaration.value)) {
+                if (declaration.prop === 'animation-name' || layer.includes('infinite')) {
+                    postcss.list.space(layer).forEach((token) => names.add(token))
+                }
             }
         })
     }
