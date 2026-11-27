@@ -72,8 +72,12 @@ class MCPClient:
 
         try:
             await self._connect_sse()
-        except Exception:
+        except Exception as e:
             await self._close_transport()
+            sse_error = _transport_error(e)
+            # An SSE-only server can reject the Streamable HTTP POST with a 405 before it checks credentials.
+            if sse_error.status_code == 401:
+                raise sse_error
             raise streamable_error or MCPClientError("Failed to connect to MCP server")
 
     async def _connect_streamable_http(self) -> None:

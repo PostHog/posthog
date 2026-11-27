@@ -606,6 +606,19 @@ def _fake_mcp_server(*, failing_method: str, status_code: int):
             result = {"content": [{"type": "text", "text": "ok"}], "isError": False}
         return httpx.Response(200, json={"jsonrpc": "2.0", "id": message["id"], "result": result})
 
+    return _patch_http(handle)
+
+
+def _fake_sse_only_server_rejecting_old_token():
+    def handle(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST":
+            return httpx.Response(405)
+        return httpx.Response(401 if request.headers["Authorization"] == "Bearer old-access-token" else 500)
+
+    return _patch_http(handle)
+
+
+def _patch_http(handle):
     transport = httpx.MockTransport(handle)
     return patch.object(
         httpx, "AsyncClient", side_effect=lambda **kwargs: _RealAsyncClient(transport=transport, **kwargs)
@@ -760,6 +773,23 @@ class TestAuthRefresh(TestCallMCPServerTool):
         self.assertIn("HTTP 500", str(ctx.exception))
         await sync_to_async(installation.refresh_from_db)()
         self.assertFalse(installation.sensitive_configuration.get("needs_reauth"))
+
+    async def test_http_401_from_sse_fallback_refreshes_token(self):
+        installation = await sync_to_async(self._install_server)(url=self.SERVER_URL, tool_names=("some_tool",))
+        inst = _make_oauth_installation(server_url=self.SERVER_URL, installation_id=str(installation.id))
+        tool = self._create_tool(installations=[inst])
+
+        with (
+            _fake_sse_only_server_rejecting_old_token(),
+            patch(
+                "ee.hogai.tools.call_mcp_server.tool._refresh_token_sync",
+                return_value={"access_token": "new-access-token"},
+            ) as refresh,
+            self.assertRaises(MaxToolRetryableError),
+        ):
+            await tool._arun_impl(server_url=self.SERVER_URL, tool_name="some_tool")
+
+        refresh.assert_called_once()
 
     async def test_refresh_failure_raises_fatal(self):
         inst = _make_oauth_installation(server_url=self.SERVER_URL)
