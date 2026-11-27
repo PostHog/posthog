@@ -11,7 +11,13 @@ const {
     mockGetApiKey,
     mockAnalyticsContext,
     mockDistinctId,
+    flagsBoundary,
 } = vi.hoisted(() => ({
+    flagsBoundary: {
+        response: {} as Record<string, unknown>,
+        flagsRequests: [] as Record<string, unknown>[],
+        events: [] as { event: string; properties: Record<string, unknown> }[],
+    },
     mockGetApiKey: vi.fn(),
     mockAnalyticsContext: { current: undefined as MCPAnalyticsContext | undefined },
     mockDistinctId: { current: 'distinct-id' },
@@ -39,6 +45,26 @@ const {
     // The request-scoped context the last resolve handed to RequestContext.
     mockPinned: { last: undefined as { orgId?: string; projectId?: string; sessionScoped: boolean } | undefined },
 }))
+
+vi.mock('@/lib/posthog/client', async () => {
+    const { PostHogMCP } = await import('@posthog/mcp-analytics')
+    const client = new PostHogMCP('phc_test', {
+        host: 'https://flags.posthog.invalid',
+        flushAt: 1,
+        flushInterval: 0,
+        disableCompression: true,
+        fetch: async (url, options) => {
+            const body = JSON.parse(String(options.body))
+            if (url.includes('/flags/')) {
+                flagsBoundary.flagsRequests.push(body)
+                return { status: 200, text: async () => '', json: async () => flagsBoundary.response }
+            }
+            flagsBoundary.events.push(...(body.batch ?? []))
+            return { status: 200, text: async () => '{"results":{}}', json: async () => ({ results: {} }) }
+        },
+    })
+    return { getPostHogClient: () => client }
+})
 
 vi.mock('@/lib/posthog/flags', () => ({
     evaluateFeatureFlags: vi.fn(async () => ({ flags: {}, payloads: {} })),
@@ -166,6 +192,7 @@ import { RequestStateResolver } from '@/hono/request-state-resolver'
 import { ToolCatalog } from '@/hono/tool-catalog'
 import { StateLookupCache } from '@/lib/cache/StateLookupCache'
 import type { MCPAnalyticsContext } from '@/lib/posthog/analytics'
+import { getPostHogClient } from '@/lib/posthog/client'
 import { evaluateFeatureFlags, resolveFeatureFlagOverrides } from '@/lib/posthog/flags'
 import { PROJECT_SECRET_KEY_SCOPES, PROJECT_SECRET_KEY_TOOLS } from '@/lib/project-secret-key'
 import { parseRequestProperties, type RequestProperties } from '@/lib/request-properties'
@@ -296,35 +323,43 @@ describe('RequestStateResolver MCP client contexts', () => {
         { request: 'an impersonated request', impersonated: true, reported: false },
         { request: 'a request with analytics suppressed', suppressed: true, reported: false },
     ])(
-        'keeps guidance flag payloads from the one flag lookup and reports exposure only when analytics are allowed: $request',
+        'keeps guidance flag payloads from the one flags request and reports exposure only when analytics are allowed: $request',
         async (input) => {
             mockApiKey.is_impersonated = input.impersonated
             mockApiKey.suppress_analytics = input.suppressed
+            mockDistinctId.current = `distinct-id for ${input.request}`
             const guidanceFlag = GUIDANCE_RULE_FLAGS[0]!
-            const reported: string[] = []
-            const evaluate = vi
-                .mocked(evaluateFeatureFlags)
-                .mockClear()
-                .mockResolvedValueOnce({
-                    flags: { [guidanceFlag]: 'treated', [MCP_INTENT_PROMPT_FLAG]: 'variant' },
-                    payloads: {
-                        [guidanceFlag]: { label: 'Guidance copy' },
-                        [MCP_INTENT_PROMPT_FLAG]: { prompt: 'Intent' },
+            const actual = await vi.importActual<typeof import('@/lib/posthog/flags')>('@/lib/posthog/flags')
+            vi.mocked(evaluateFeatureFlags).mockImplementationOnce(actual.evaluateFeatureFlags)
+            flagsBoundary.flagsRequests.length = 0
+            flagsBoundary.events.length = 0
+            flagsBoundary.response = {
+                flags: {
+                    [guidanceFlag]: {
+                        key: guidanceFlag,
+                        value: 'treated',
+                        reason: { code: 'condition_match' },
+                        metadata: { id: 1, version: 1, payload: JSON.stringify({ label: 'Guidance copy' }) },
                     },
-                    reportExposure: (flagKey) => reported.push(flagKey),
-                })
+                },
+                errorsWhileComputingFlags: false,
+                requestId: 'request-1',
+            }
 
             const state = await makeResolver().resolve(makeProps())
             state.reportFlagExposure?.(guidanceFlag)
+            await getPostHogClient().flush()
 
             expect({
-                lookups: evaluate.mock.calls.length,
+                flagsRequests: flagsBoundary.flagsRequests.length,
                 payloads: state.guidanceFlagPayloads,
-                reported,
+                exposures: flagsBoundary.events
+                    .filter((event) => event.event === '$feature_flag_called')
+                    .map((event) => [event.properties.$feature_flag, event.properties.$feature_flag_response]),
             }).toEqual({
-                lookups: 1,
+                flagsRequests: 1,
                 payloads: { [guidanceFlag]: { label: 'Guidance copy' } },
-                reported: input.reported ? [guidanceFlag] : [],
+                exposures: input.reported ? [[guidanceFlag, 'treated']] : [],
             })
         }
     )

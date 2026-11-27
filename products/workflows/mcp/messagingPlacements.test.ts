@@ -1,8 +1,15 @@
-import { type FlagReader, PLACEMENTS, placementState } from './messagingPlacements'
+import { type FlagReader, placementState } from './messagingPlacements'
 
 const DEFAULT_COPY = {
     label: 'Email the people in this cohort',
     description: 'The user can send this cohort an email. They review and launch it in the broadcast editor.',
+}
+
+const COHORT_PLACEMENT = {
+    key: 'mcp.after_cohorts_create',
+    area: 'mcp',
+    variant: 'after_cohorts_create',
+    defaultCopy: DEFAULT_COPY,
 }
 
 function flagReader(values: Record<string, boolean | string>, payloads: Record<string, unknown> = {}): FlagReader {
@@ -42,7 +49,7 @@ describe('placementState', () => {
         {
             name: 'this variant without a payload shows the default copy',
             flags: flagReader({ 'xpm-mcp-placement': 'after_cohorts_create' }),
-            expected: { active: true, placement: PLACEMENTS[0], copy: DEFAULT_COPY },
+            expected: { active: true, placement: COHORT_PLACEMENT, copy: DEFAULT_COPY },
         },
         {
             name: 'this variant with a valid payload shows its copy',
@@ -50,7 +57,7 @@ describe('placementState', () => {
                 { 'xpm-mcp-placement': 'after_cohorts_create' },
                 { 'xpm-mcp-placement': { label: 'Send this cohort an email' } }
             ),
-            expected: { active: true, placement: PLACEMENTS[0], copy: { label: 'Send this cohort an email' } },
+            expected: { active: true, placement: COHORT_PLACEMENT, copy: { label: 'Send this cohort an email' } },
         },
         {
             name: 'this variant with an invalid payload falls back to the default copy',
@@ -58,7 +65,7 @@ describe('placementState', () => {
                 { 'xpm-mcp-placement': 'after_cohorts_create' },
                 { 'xpm-mcp-placement': { label: '', description: 'An empty label' } }
             ),
-            expected: { active: true, placement: PLACEMENTS[0], copy: DEFAULT_COPY },
+            expected: { active: true, placement: COHORT_PLACEMENT, copy: DEFAULT_COPY },
         },
         {
             name: 'this variant with a blank label falls back to the default copy',
@@ -66,7 +73,7 @@ describe('placementState', () => {
                 { 'xpm-mcp-placement': 'after_cohorts_create' },
                 { 'xpm-mcp-placement': { label: '  ' } }
             ),
-            expected: { active: true, placement: PLACEMENTS[0], copy: DEFAULT_COPY },
+            expected: { active: true, placement: COHORT_PLACEMENT, copy: DEFAULT_COPY },
         },
         {
             name: 'this variant with a payload that is not an object falls back to the default copy',
@@ -74,7 +81,7 @@ describe('placementState', () => {
                 { 'xpm-mcp-placement': 'after_cohorts_create' },
                 { 'xpm-mcp-placement': 'Email this cohort' }
             ),
-            expected: { active: true, placement: PLACEMENTS[0], copy: DEFAULT_COPY },
+            expected: { active: true, placement: COHORT_PLACEMENT, copy: DEFAULT_COPY },
         },
     ])('$name', ({ flags, expected }) => {
         expect(placementState('mcp.after_cohorts_create', flags)).toEqual(expected)
