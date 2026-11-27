@@ -81,7 +81,7 @@ describe('cloud controller', () => {
         cloud: options = {},
         onMaster = true,
         arrange = () => undefined,
-        env = { SCENARIO_PUBLISH_IN_WORKFLOW: '1' },
+        env = api.credentials,
         uncommitted,
         cards = {},
     }: Setup = {}): {
@@ -516,7 +516,7 @@ describe('cloud controller', () => {
         ],
         ['no card', undefined, 'Usage:', {}],
     ])('refuses %s before it leases anything', async (_story, card, problem, setup) => {
-        const { controller } = prepare(setup)
+        const { controller } = prepare({ ...setup, env: { ...api.credentials, ...setup.env } })
 
         await expect(main(['run', profilePath(), ...(card ? [card] : [])], controller)).resolves.toBe(2)
 
@@ -610,7 +610,7 @@ describe('cloud controller', () => {
     })
 
     it('refuses a second lease on a given run id, and leaves the first lease as it was', async () => {
-        const { controller } = prepare({ env: { SCENARIO_RUN_ID: GIVEN_RUN_ID } })
+        const { controller } = prepare({ env: { ...api.credentials, SCENARIO_RUN_ID: GIVEN_RUN_ID } })
         await leaseAt(T, controller)
         const objects = new Map(cloud.objects)
         const schedules = schedulesFor(GIVEN_RUN_ID)
@@ -663,7 +663,7 @@ describe('cloud controller', () => {
     ])(
         "keeps the first run's schedules when a lease of its id in another evidence bucket fails, while the first run %s",
         async (_story, arrange) => {
-            const { controller } = prepare({ env: { SCENARIO_RUN_ID: GIVEN_RUN_ID } })
+            const { controller } = prepare({ env: { ...api.credentials, SCENARIO_RUN_ID: GIVEN_RUN_ID } })
             await leaseAt(T, controller)
             arrange(cloud)
             const schedules = schedulesFor(GIVEN_RUN_ID)
@@ -914,8 +914,8 @@ describe('cloud controller', () => {
         expect(released(runId)).toBe(1)
     })
 
-    it('cleanup <run id> releases a live lease', async () => {
-        const { controller } = prepare()
+    it('cleanup <run id> releases a live lease without publishing credentials', async () => {
+        const { controller } = prepare({ env: {} })
         const runId = await leaseAt(T, controller)
         now = new Date(T.getTime() + HOUR_MS)
 
@@ -2032,25 +2032,18 @@ describe('cloud controller', () => {
         expect(api.captured).toEqual([])
     })
 
-    it('warns and exits with a write failure when no Scenario runs credentials are set', async () => {
-        const { controller } = prepare({ env: {} })
+    it.each<[string, NodeJS.ProcessEnv, RegExp]>([
+        ['missing', {}, /Scenario runs credentials are not set/],
+        ['partial', { SCENARIO_RUNS_PROJECT_ID: '1' }, /Missing: .*SCENARIO_RUNS_READ_KEY/],
+    ])('refuses a direct run before admission when Scenario runs credentials are %s', async (_story, env, reason) => {
+        const { controller } = prepare({ env })
 
         await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(3)
 
-        const key = `runs/${leasedRunId()}/scorecard.json`
-        expect(parseJSON(cloud.objects.get(key)!)).toMatchObject({ origin: 'cloud-manual', status: 'passed' })
-        expect(out.join('\n')).toContain(`s3://test-evidence/${key}`)
-        expect(err.join('\n')).toContain('Scenario runs credentials are not set')
-        expect(api.captured).toEqual([])
-    })
-
-    it('keeps the verdict and saves the scorecard for a workflow that publishes separately', async () => {
-        const { controller } = prepare({ env: { ...api.credentials, SCENARIO_PUBLISH_IN_WORKFLOW: '1' } })
-
-        await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(0)
-
-        const key = `runs/${leasedRunId()}/scorecard.json`
-        expect(parseJSON(cloud.objects.get(key)!)).toMatchObject({ status: 'passed' })
+        expect(out.join('\n')).not.toMatch(/Admitted estimate|Leased run/)
+        expect(cloud.objects.size).toBe(0)
+        expect(cloud.resources).toEqual([])
+        expect(err.join('\n')).toMatch(reason)
         expect(api.captured).toEqual([])
     })
 
@@ -2072,6 +2065,19 @@ describe('cloud controller', () => {
         })
 
         afterAll(() => store.close())
+
+        it('keeps the verdict and saves the scorecard for a workflow that publishes separately', async () => {
+            const { controller } = prepare({
+                env: { ...api.credentials, ...store.envOf(dir), SCENARIO_PUBLISH_IN_WORKFLOW: '1' },
+            })
+
+            await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(0)
+
+            const runId = leasedRunId()
+            expect(parseJSON(cloud.objects.get(`runs/${runId}/scorecard.json`)!)).toMatchObject({ status: 'passed' })
+            expect(api.captured).toEqual([])
+            expect(await store.read(runId)).toBeUndefined()
+        })
 
         it.each<[string, NodeJS.ProcessEnv]>([
             ['a new run id', {}],
