@@ -38,8 +38,9 @@ def _flag(
     holdout: bool = False,
     enrollment: bool = False,
     runtime: str | None = "all",
+    extra: dict[str, Any] | None = None,
 ) -> FlagLaunchSide:
-    filters: dict[str, Any] = {"groups": list(conditions)}
+    filters: dict[str, Any] = {"groups": list(conditions), **(extra or {})}
     if variants is not None:
         filters["multivariate"] = {"variants": variants}
     if aggregation is not None:
@@ -146,6 +147,24 @@ class TestCheckLaunch(TestCase):
                 _not_qualified(LaunchReason.ENROLLMENT, ReleasePath.CONDITIONS),
             ),
             (
+                "person_condition_opened_beside_open_group_condition",
+                _flag(_condition(100, aggregation=0), _condition(50)),
+                _flag(_condition(100, aggregation=0), _condition(100)),
+                _qualified(ReleasePath.CONDITIONS),
+            ),
+            (
+                "re_enabled_flag_with_shadowed_partial_condition",
+                _flag(_condition(100), _condition(50), active=False),
+                _flag(_condition(100), _condition(50)),
+                _not_qualified(LaunchReason.NOT_STAGED_BEFORE, ReleasePath.ENABLED),
+            ),
+            (
+                "partial_group_condition_ahead_under_early_exit",
+                _flag(_condition(50), early_exit=True),
+                _flag(_condition(0, aggregation=0), _condition(100), early_exit=True),
+                _not_qualified(LaunchReason.EARLY_EXIT, ReleasePath.CONDITIONS),
+            ),
+            (
                 "variant_rolled_out_from_staged_flag",
                 _flag(_condition(50), variants=SPLIT_50_50),
                 _flag(_condition(100), variants=SPLIT_ALL_A),
@@ -172,6 +191,31 @@ class TestCheckLaunch(TestCase):
                 "re_save_of_full_group_flag",
                 _flag(_condition(100), aggregation=0),
                 _flag(_condition(100), aggregation=0),
+            ),
+            (
+                "group_condition_opened_on_flag_that_reached_everyone",
+                _flag(_condition(100), _condition(50, aggregation=0)),
+                _flag(_condition(100), _condition(100, aggregation=0)),
+            ),
+            (
+                "re_save_of_full_server_flag",
+                _flag(_condition(100), runtime="server"),
+                _flag(_condition(100), runtime="server"),
+            ),
+            (
+                "re_save_of_full_holdout_flag",
+                _flag(_condition(50), _condition(100), holdout=True),
+                _flag(_condition(100), holdout=True),
+            ),
+            (
+                "super_groups_dropped_from_full_flag",
+                _flag(_condition(100), extra={"super_groups": [_condition(100, EMAIL)]}),
+                _flag(_condition(100)),
+            ),
+            (
+                "holdout_groups_dropped_from_full_flag",
+                _flag(_condition(100), extra={"holdout_groups": [_condition(10)]}),
+                _flag(_condition(100)),
             ),
             (
                 "variant_split_change_on_full_flag",

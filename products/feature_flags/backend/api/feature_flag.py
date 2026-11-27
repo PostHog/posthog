@@ -81,7 +81,7 @@ from posthog.ip_restrictions import ip_restrictions_exempt_for_secret_keys
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Detail, Trigger, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
-from posthog.models.activity_logging.model_activity import ImpersonatedContext, is_impersonated_session
+from posthog.models.activity_logging.model_activity import ImpersonatedContext
 from posthog.models.person.point_in_time_properties import (
     build_person_properties_at_time,
     get_person_and_distinct_ids_for_identifier,
@@ -2940,7 +2940,7 @@ class FeatureFlagSerializer(
                 "reason": launch.reason,
                 "release_path": launch.release_path,
                 "source": get_event_source(request),
-                "was_impersonated": is_impersonated_session(request),
+                "was_impersonated": is_impersonated(request),
             }
             transaction.on_commit(
                 functools.partial(report_team_action, flag.team, "feature flag launch checked", properties),

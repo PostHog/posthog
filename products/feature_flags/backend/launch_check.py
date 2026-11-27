@@ -61,55 +61,85 @@ class _Side:
 
     @property
     def has_holdout(self) -> bool:
-        return bool(self._filters.get("holdout") or self._filters.get("holdout_groups"))
+        return bool(self._filters.get("holdout"))
 
     @property
     def has_enrollment(self) -> bool:
-        return bool(self._filters.get("feature_enrollment") or self._filters.get("super_groups"))
+        return bool(self._filters.get("feature_enrollment"))
 
     @property
     def runtime_restricted(self) -> bool:
         return self._side.evaluation_runtime not in (None, "all")
 
-    def is_open_to_all(self, condition: Mapping[str, Any]) -> bool:
-        return not condition.get("properties") and condition_rollout_percentage(condition) >= 100
+    def _first_open_condition(self, *, for_persons: bool) -> int | None:
+        return next(
+            (
+                index
+                for index, condition in enumerate(self.conditions)
+                if not condition.get("properties")
+                and condition_rollout_percentage(condition) >= 100
+                and (condition_aggregation(condition, self.flag_aggregation) is None) == for_persons
+            ),
+            None,
+        )
 
-    def aggregation(self, condition: Mapping[str, Any]) -> int | None:
-        return condition_aggregation(condition, self.flag_aggregation)
+    @property
+    def person_catch_all(self) -> int | None:
+        return self._first_open_condition(for_persons=True)
 
-    def first_open_condition(self) -> int | None:
-        return next((index for index, condition in enumerate(self.conditions) if self.is_open_to_all(condition)), None)
+    @property
+    def group_catch_all(self) -> int | None:
+        return self._first_open_condition(for_persons=False)
 
-    def gives_false_ahead_of(self, index: int) -> bool:
-        aggregation = self.aggregation(self.conditions[index])
-        return self.early_exit and any(
-            condition_rollout_percentage(condition) < 100
-            for condition in self.conditions[:index]
-            if self.aggregation(condition) == aggregation
+    def gives_false_ahead_of(self, index: int | None) -> bool:
+        return (
+            index is not None
+            and self.early_exit
+            and any(condition_rollout_percentage(condition) < 100 for condition in self.conditions[:index])
         )
 
     def reaches_everyone(self) -> bool:
-        index = self.first_open_condition()
         return (
             self.is_on
-            and index is not None
+            and self.person_catch_all is not None
             and not self.has_holdout
             and not self.has_enrollment
             and not self.runtime_restricted
-            and not self.gives_false_ahead_of(index)
+            and not self.gives_false_ahead_of(self.person_catch_all)
+        )
+
+    def reach_state(self) -> tuple[bool, ...]:
+        return (
+            self.is_on,
+            self.person_catch_all is not None,
+            self.group_catch_all is not None,
+            self.has_holdout,
+            self.has_enrollment,
+            self.runtime_restricted,
+            self.gives_false_ahead_of(self.person_catch_all),
         )
 
     def is_staged(self) -> bool:
+        catch_all = self.person_catch_all
+        reachable = self.conditions if catch_all is None else self.conditions[: catch_all + 1]
         return self.has_enrollment or any(
-            condition.get("properties") or condition_rollout_percentage(condition) < 100
-            for condition in self.conditions
+            condition.get("properties") or condition_rollout_percentage(condition) < 100 for condition in reachable
         )
 
 
-def _reason(old: _Side, new: _Side, open_index: int) -> LaunchReason | None:
+def _is_candidate(old: _Side, new: _Side) -> bool:
+    return (
+        new.is_on
+        and (new.person_catch_all is not None or new.group_catch_all is not None)
+        and not old.reaches_everyone()
+        and old.reach_state() != new.reach_state()
+    )
+
+
+def _reason(old: _Side, new: _Side) -> LaunchReason | None:
     if new.split:
         return LaunchReason.MULTIVARIATE
-    if new.aggregation(new.conditions[open_index]) is not None:
+    if new.person_catch_all is None:
         return LaunchReason.GROUP
     if new.has_holdout:
         return LaunchReason.HOLDOUT
@@ -117,7 +147,7 @@ def _reason(old: _Side, new: _Side, open_index: int) -> LaunchReason | None:
         return LaunchReason.ENROLLMENT
     if new.runtime_restricted:
         return LaunchReason.RUNTIME_RESTRICTED
-    if new.gives_false_ahead_of(open_index):
+    if new.gives_false_ahead_of(new.person_catch_all):
         return LaunchReason.EARLY_EXIT
     if not old.is_staged():
         return LaunchReason.NOT_STAGED_BEFORE
@@ -139,8 +169,7 @@ def check_launch(before: FlagLaunchSide, after: FlagLaunchSide) -> LaunchCheck |
         return None
     old = _Side(before)
     new = _Side(after)
-    open_index = new.first_open_condition()
-    if not new.is_on or open_index is None or old.reaches_everyone():
+    if not _is_candidate(old, new):
         return None
-    reason = _reason(old, new, open_index)
+    reason = _reason(old, new)
     return LaunchCheck(qualified=reason is None, reason=reason, release_path=_release_path(old, new))

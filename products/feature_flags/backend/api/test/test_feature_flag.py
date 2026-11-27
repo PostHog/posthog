@@ -16914,10 +16914,14 @@ class TestFeatureFlagLaunchCheck(APIBaseTest):
         flag.refresh_from_db()
         assert flag.filters["groups"][0]["rollout_percentage"] == 50
 
-    @patch("products.feature_flags.backend.api.feature_flag.check_launch", side_effect=RuntimeError("broken rule"))
     @patch("posthog.event_usage.posthoganalytics.capture")
-    def test_save_succeeds_when_the_rule_raises(self, capture: MagicMock, _check_launch: MagicMock):
-        flag = self._flag(50)
+    def test_save_succeeds_when_the_stored_flag_breaks_the_rule(self, capture: MagicMock):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="launch-check",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": "50"}]},
+        )
 
         with self.captureOnCommitCallbacks(execute=True):
             response = self._patch(flag, {"filters": {"groups": [{"properties": [], "rollout_percentage": 100}]}})
