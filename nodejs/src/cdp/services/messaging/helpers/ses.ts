@@ -140,6 +140,26 @@ const toHeaderAddresses = (rec: SesEventRecord): Set<string> => mailboxAddresses
 const reachesToRecipient = (to: Set<string>, addresses: string[]): boolean =>
     [...mailboxAddresses(addresses)].some((address) => to.has(address))
 
+const MAX_REPORTED_RECIPIENT_LENGTH = 512
+
+// Parsing a bare entry would unquote its local part twice, and parsing is super-linear, so only short named ones are.
+const reportedAddress = (entry: string): string | null => {
+    if (entry.length > MAX_REPORTED_RECIPIENT_LENGTH) {
+        return null
+    }
+    if (!entry.trimEnd().endsWith('>')) {
+        return unquoteMailbox(entry) || null
+    }
+    const parsed = parseAddressList(entry)
+    return parsed.length === 1 ? parsed[0].email : null
+}
+
+const reportsToRecipient = (to: Set<string>, entries: string[]): boolean =>
+    entries.some((entry) => {
+        const address = reportedAddress(entry)
+        return address !== null && to.has(address.toLowerCase())
+    })
+
 const sesDeliveriesNotToRecipientCounter = new Counter({
     name: 'email_tracking_deliveries_not_to_recipient_total',
     help: 'SES Delivery records left out of email_delivered because they reached only cc or bcc recipients',
@@ -164,15 +184,12 @@ const sesRecipientsNotSentToCounter = new Counter({
 })
 
 // SES reports a bounce or complaint recipient from the receiving server's report, which can name any address.
-// Only an address this send went to may change suppression state. SES can report the recipient with the display
-// name it was sent with, so only its address is kept. An entry with more than one address names no single recipient.
+// Only an address this send went to may change suppression state.
 export const sentToRecipients = <T extends { emailAddress: string }>(rec: SesEventRecord, recipients: T[]): T[] => {
     const sentTo = mailboxAddresses(rec.mail.destination)
     const kept = recipients.flatMap((r) => {
-        const parsed = parseAddressList(r.emailAddress)
-        return parsed.length === 1 && sentTo.has(parsed[0].email.toLowerCase())
-            ? [{ ...r, emailAddress: parsed[0].email }]
-            : []
+        const address = reportedAddress(r.emailAddress)
+        return address !== null && sentTo.has(address.toLowerCase()) ? [{ ...r, emailAddress: address }] : []
     })
     if (kept.length < recipients.length) {
         sesRecipientsNotSentToCounter.inc({ event_type: rec.eventType }, recipients.length - kept.length)
@@ -197,7 +214,7 @@ const resolveEmailStatusUpdate = (
                 ? { status: 'delivered', timestamp: rec.delivery.timestamp }
                 : null
         case 'Bounce':
-            return reachesToRecipient(
+            return reportsToRecipient(
                 to,
                 rec.bounce.bouncedRecipients.map((r) => r.emailAddress)
             )
@@ -210,7 +227,7 @@ const resolveEmailStatusUpdate = (
         case 'Complaint':
             // A "not-spam" feedback type corrects an earlier spam report, so it is not a complaint.
             return rec.complaint.complaintFeedbackType?.toLowerCase() !== 'not-spam' &&
-                reachesToRecipient(
+                reportsToRecipient(
                     to,
                     rec.complaint.complainedRecipients.map((r) => r.emailAddress)
                 )
