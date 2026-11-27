@@ -68,6 +68,17 @@ function projectMocks(
     })
 }
 
+// LemonButton wraps a button that has a disabled reason in a tooltip, so React mounts a new button element when the
+// reason clears. Look the button up again on every check, because a button found while it was disabled leaves the
+// document and never becomes enabled.
+async function findEnabledButton(canvas: ReturnType<typeof within>, label: string): Promise<HTMLButtonElement> {
+    return await waitFor(() => {
+        const button = canvas.getByText(label).closest('button')
+        expect(button).toHaveAttribute('aria-disabled', 'false')
+        return button!
+    })
+}
+
 const meta: Meta<typeof InboxSetupFlow> = {
     title: 'Scenes-App/Inbox/Focused setup',
     component: InboxSetupFlow,
@@ -433,7 +444,7 @@ export const QuickEntryWithGithubAccessExplanation: Story = {
         const positions = controls.map((element) => element.getBoundingClientRect().y)
         await userEvent.click(explanation)
         const accessSummary = await within(document.body).findByText(
-            'We use GitHub access to research issues and may automatically open pull requests with proposed fixes.'
+            'We use GitHub access to research issues and, optionally, open pull requests with proposed fixes.'
         )
         await waitFor(() => expect(accessSummary).toBeVisible())
         controls.forEach((element, index) => {
@@ -471,8 +482,8 @@ export const GithubOptional: Story = {
         },
     },
     play: async ({ canvas }) => {
-        await canvas.findByText('Activate Self-driving')
-        await expect(canvas.queryByText('Connect GitHub')).not.toBeInTheDocument()
+        await canvas.findByText('Connect GitHub')
+        await expect(canvas.queryByText('Activate Self-driving')).not.toBeInTheDocument()
     },
     decorators: [
         mswDecorator({
@@ -489,13 +500,64 @@ export const GithubOptional: Story = {
     ],
 }
 
+export const GithubOptionalReview: Story = {
+    name: 'Review without GitHub in the GitHub-optional pilot',
+    play: async ({ canvas }) => {
+        await findEnabledButton(canvas, 'Activate without GitHub')
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/signals/onboarding/': {
+                    draft: { ...draft, step: 'github' },
+                    completed_at: null,
+                    github_optional_available: true,
+                },
+            },
+        }),
+    ],
+}
+
+export const GithubOptionalSkipConfirmation: Story = {
+    ...GithubOptionalReview,
+    name: 'Confirming activation without GitHub in the GitHub-optional pilot',
+    play: async ({ canvas, userEvent }) => {
+        await userEvent.click(await findEnabledButton(canvas, 'Activate without GitHub'))
+        const page = within(document.body)
+        // The dialog is in the document one frame before it turns visible.
+        await waitFor(() => expect(page.getByText('Activate without GitHub?')).toBeVisible())
+        await expect(page.getByText('Pull requests only when you ask.')).toBeVisible()
+        await expect(page.getByText('security docs')).toBeVisible()
+    },
+}
+
+export const GithubOptionalReviewWithImplementation: Story = {
+    ...GithubOptionalReview,
+    name: 'Review without GitHub blocked by automatic implementation',
+    parameters: { testOptions: { snapshotBrowsers: [] } },
+    play: async ({ canvas }) => {
+        const activate = (await canvas.findByText('Activate Self-driving')).closest('button')
+        await waitFor(() => expect(activate).toHaveAttribute('aria-disabled', 'true'))
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/signals/onboarding/': {
+                    draft: { ...draft, step: 'github', automatic_implementation: true },
+                    completed_at: null,
+                    github_optional_available: true,
+                },
+            },
+        }),
+    ],
+}
+
 export const QuickConnected: Story = {
     ...QuickEntry,
     name: 'Quick setup with GitHub connected',
     play: async ({ canvas }) => {
         // Nothing is prefetched for the welcome screen, so the button is enabled as soon as the project loads.
-        const activate = (await canvas.findByText('Activate Self-driving')).closest('button')
-        await waitFor(() => expect(activate).toHaveAttribute('aria-disabled', 'false'))
+        await findEnabledButton(canvas, 'Activate Self-driving')
         await expect(canvas.getByText('Start manually')).toBeVisible()
     },
     decorators: [
@@ -586,9 +648,7 @@ export const QuickActivationFailed: Story = {
         quickActivationCompleted = false
     },
     play: async ({ canvas, userEvent }) => {
-        const activate = (await canvas.findByText('Activate Self-driving')).closest('button')!
-        await waitFor(() => expect(activate).toHaveAttribute('aria-disabled', 'false'))
-        await userEvent.click(activate)
+        await userEvent.click(await findEnabledButton(canvas, 'Activate Self-driving'))
         const message = await canvas.findByText('Activation interrupted')
         await waitFor(() => {
             expect(inboxSetupLogic.values.saving).toBe(false)

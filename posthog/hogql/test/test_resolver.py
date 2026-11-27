@@ -2523,6 +2523,58 @@ class TestResolver(BaseTest):
 
     @parameterized.expand(
         [
+            (
+                "datetime_not_eq_empty",
+                "SELECT event FROM events WHERE timestamp != ''",
+                "'timestamp', which holds dates and times",
+            ),
+            (
+                "date_column_not_eq_empty",
+                "SELECT rate FROM exchange_rate WHERE date != ''",
+                "'date', which holds dates",
+            ),
+            (
+                "blank_literal_on_left_ordering",
+                "SELECT event FROM events WHERE ' ' < timestamp",
+                "'timestamp', which holds dates and times",
+            ),
+            (
+                "in_tuple",
+                "SELECT rate FROM exchange_rate WHERE date IN ('2026-01-31', '')",
+                "'date', which holds dates",
+            ),
+        ]
+    )
+    def test_blank_date_literal_raises(self, _name, query, subject):
+        expr = self._select(query)
+        with self.assertRaisesRegex(QueryError, f"can never match {subject}\\."):
+            resolve_types(expr, self.context, dialect="clickhouse")
+
+    def test_blank_date_literal_hint_quotes_the_column(self):
+        expr = self._select("SELECT date AS `Ordered At` FROM exchange_rate WHERE `Ordered At` = ''")
+        with self.assertRaisesRegex(QueryError, "use `Ordered At` IS NOT NULL\\."):
+            resolve_types(expr, self.context, dialect="clickhouse")
+
+    @parameterized.expand(
+        [
+            ("loose_date_form", "SELECT rate FROM exchange_rate WHERE date = '2026-1-5'", "clickhouse"),
+            ("datetime_month_name", "SELECT event FROM events WHERE timestamp < 'December'", "clickhouse"),
+            ("string_column_untouched", "SELECT event FROM events WHERE distinct_id != ''", "clickhouse"),
+            ("non_clickhouse_dialect", "SELECT event FROM events WHERE timestamp != ''", "postgres"),
+            (
+                # Direct queries resolve as HogQL, then run on their own database.
+                "hogql_dialect_cte",
+                "WITH q AS (SELECT timestamp FROM events) SELECT timestamp FROM q WHERE timestamp != ''",
+                "hogql",
+            ),
+        ]
+    )
+    def test_date_literal_comparison_allows(self, _name, query, dialect):
+        expr = self._select(query)
+        resolve_types(expr, self.context, dialect=dialect)
+
+    @parameterized.expand(
+        [
             ("direct", "SELECT properties.$browser, count() FROM events GROUP BY timestamp, properties", None),
             ("ordinal", "SELECT properties, count() FROM events GROUP BY 1", None),
             ("alias", "SELECT properties AS p, count() FROM events GROUP BY p", None),

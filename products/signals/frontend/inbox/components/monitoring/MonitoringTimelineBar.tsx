@@ -63,7 +63,11 @@ export function MonitoringTimelineBar({
                     key={reading.measured_at}
                     className={clsx(
                         'absolute top-1/2 size-2 -translate-x-1/2 -translate-y-1/2 rounded-full border border-primary',
-                        reading.matches === false ? 'bg-warning' : 'bg-surface-primary'
+                        reading.matches === true
+                            ? 'bg-success'
+                            : reading.matches === false
+                              ? 'bg-warning'
+                              : 'bg-surface-primary'
                     )}
                     style={{ left: `${axisPercent(Date.parse(reading.measured_at), axisStart, axisEnd)}%` }}
                 />

@@ -3501,7 +3501,7 @@ export const PushTokenImportsCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * How people answer the questions of the Workflows advent calendar.
+ * How people open the doors of the Workflows advent calendar and answer its questions.
  */
 export const WorkflowAdventCalendarAnswerBody = /* @__PURE__ */ zod.object({
     day: zod
@@ -3519,6 +3519,39 @@ export const WorkflowAdventCalendarAnswerBody = /* @__PURE__ */ zod.object({
         )
         .describe(
             "The option the person picks. It must be one of the two options of that day's question.\n\n\* `james` - James\n\* `tim` - Tim\n\* `yes` - Yes\n\* `no` - No\n\* `tabs` - Tabs\n\* `spaces` - Spaces\n\* `dark` - Dark mode\n\* `light` - Light mode\n\* `coffee` - Coffee\n\* `tea` - Tea"
+        ),
+})
+
+/**
+ * How people open the doors of the Workflows advent calendar and answer its questions.
+ */
+export const workflowAdventCalendarOpenBodyDayMax = 24
+
+export const workflowAdventCalendarOpenBodyHoggyMax = 64
+
+export const workflowAdventCalendarOpenBodyHoggyRegExp = new RegExp('^[a-z0-9-]+$')
+export const workflowAdventCalendarOpenBodyUtcOffsetMinutesMin = -720
+export const workflowAdventCalendarOpenBodyUtcOffsetMinutesMax = 840
+
+export const WorkflowAdventCalendarOpenBody = /* @__PURE__ */ zod.object({
+    day: zod
+        .number()
+        .min(1)
+        .max(workflowAdventCalendarOpenBodyDayMax)
+        .describe('The calendar day of the door, 1 to 24.'),
+    hoggy: zod
+        .string()
+        .max(workflowAdventCalendarOpenBodyHoggyMax)
+        .regex(workflowAdventCalendarOpenBodyHoggyRegExp)
+        .describe(
+            'The slug of the hoggy the door showed: lowercase letters, digits and hyphens, at most 64 characters.'
+        ),
+    utc_offset_minutes: zod
+        .number()
+        .min(workflowAdventCalendarOpenBodyUtcOffsetMinutesMin)
+        .max(workflowAdventCalendarOpenBodyUtcOffsetMinutesMax)
+        .describe(
+            "The browser's offset from UTC in minutes, east positive, from -720 to 840. A later rule uses it to tell which local day the person opened the door on."
         ),
 })
 

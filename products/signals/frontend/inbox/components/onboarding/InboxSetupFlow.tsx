@@ -1,7 +1,7 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconArrowLeft, IconArrowRight } from '@posthog/icons'
+import { IconArrowLeft } from '@posthog/icons'
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { GuidedWizardPanel } from 'lib/components/GuidedWizard/GuidedWizardPanel'
@@ -10,14 +10,14 @@ import { cn } from 'lib/utils/css-classes'
 
 import { inboxSetupLogic } from '../../logics/inboxSetupLogic'
 import { scoutSuggestionsLogic } from '../../logics/scoutSuggestionsLogic'
+import { InboxSetupContinueButton } from './InboxSetupContinueButton'
 import { InboxSetupGithubStep } from './InboxSetupGithubStep'
 import { InboxSetupScoutsStep } from './InboxSetupScoutsStep'
 import { InboxSetupSourcesStep } from './InboxSetupSourcesStep'
 
 export function InboxSetupFlow(): JSX.Element {
-    const { draft, ready, saving, error, activationDisabledReason, isFinalStep, currentTeamId } =
-        useValues(inboxSetupLogic)
-    const { startSetup, goToStep, activate, retry, reportStepViewed } = useActions(inboxSetupLogic)
+    const { draft, ready, saving, error, currentTeamId } = useValues(inboxSetupLogic)
+    const { startSetup, goToStep, retry, reportStepViewed } = useActions(inboxSetupLogic)
     useMountedLogic(scoutSuggestionsLogic)
     useEffect(() => {
         startSetup()
@@ -80,26 +80,7 @@ export function InboxSetupFlow(): JSX.Element {
                                 Back
                             </LemonButton>
                         )}
-                        <LemonButton
-                            type="primary"
-                            className="ml-auto"
-                            status="alt"
-                            loading={saving}
-                            disabledReason={
-                                !ready ? 'Loading your setup' : isFinalStep ? activationDisabledReason : undefined
-                            }
-                            sideIcon={isFinalStep ? undefined : <IconArrowRight />}
-                            onClick={() =>
-                                isFinalStep ? activate() : goToStep(draft.step === 'signals' ? 'scouts' : 'github')
-                            }
-                            data-attr="inbox-setup-continue"
-                        >
-                            {isFinalStep
-                                ? 'Activate Self-driving'
-                                : draft.step === 'signals'
-                                  ? 'Continue to scouts'
-                                  : 'Continue'}
-                        </LemonButton>
+                        <InboxSetupContinueButton />
                     </div>
                 </GuidedWizardPanel>
             </div>

@@ -1,5 +1,5 @@
 import json
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -12,7 +12,14 @@ from products.warehouse_sources.sources.pennylane._config import PennylaneSource
 from products.warehouse_sources.sources.pennylane.pennylane import PennylaneResumeConfig, validate_credentials
 from products.warehouse_sources.sources.pennylane.settings import AUTH_ERROR, FORBIDDEN_ERROR, scope_error
 from products.warehouse_sources.sources.pennylane.source import PennylaneSource
-from products.warehouse_sources.sources.sdk.testing import DriveResult, ScriptedResponse, SourceDriver, scripted_network
+from products.warehouse_sources.sources.sdk.testing import (
+    DriveResult,
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    route,
+    scripted_network,
+)
 
 NOW = datetime(2026, 6, 15, 12, 0, tzinfo=UTC)
 API_PATH = "/api/external/v2"
@@ -38,7 +45,11 @@ def _change(record_id: int, operation: str = "update") -> dict[str, Any]:
     }
 
 
-def _run(schema_name: str, script: list[ScriptedResponse], **inputs: Any) -> DriveResult:
+def _run(
+    schema_name: str,
+    script: list[ScriptedResponse] | Callable[[RecordedRequest], ScriptedResponse],
+    **inputs: Any,
+) -> DriveResult:
     result = SourceDriver(PennylaneSource(), PennylaneSourceConfig(api_key="pl_token")).run(
         schema_name, script, **inputs
     )
@@ -166,6 +177,73 @@ class TestResume:
         assert result.params("start_date") == [expected_start_date]
 
 
+_FANOUT_TABLES = [
+    ("customer_invoice_lines", "customer_invoices", "invoice_lines", "customer_invoice_id"),
+    ("customer_invoice_payments", "customer_invoices", "payments", "customer_invoice_id"),
+    ("supplier_invoice_lines", "supplier_invoices", "invoice_lines", "supplier_invoice_id"),
+    ("customer_contacts", "customers", "contacts", "customer_id"),
+]
+
+
+def _child_path(parent: str, parent_id: int, child: str) -> str:
+    return f"{API_PATH}/{parent}/{parent_id}/{child}"
+
+
+class TestFanOut:
+    @parameterized.expand(_FANOUT_TABLES)
+    def test_walks_every_parent_and_child_page_and_skips_a_deleted_parent(
+        self, schema_name: str, parent: str, child: str, parent_id_column: str
+    ) -> None:
+        result = _run(
+            schema_name,
+            route(
+                {
+                    f"{API_PATH}/{parent}": [_page([{"id": 1}, {"id": 2}], next_cursor="p2"), _page([{"id": 3}])],
+                    _child_path(parent, 1, child): [_page([{"id": 10}], next_cursor="c2"), _page([{"id": 11}])],
+                    _child_path(parent, 2, child): [ScriptedResponse(status=404, json={"error": "not found"})],
+                    _child_path(parent, 3, child): [_page([{"id": 10}])],
+                }
+            ),
+        )
+
+        assert [(row[parent_id_column], row["id"]) for row in result.rows] == [(1, 10), (1, 11), (3, 10)]
+        assert all(f"_{parent}_id" not in row for row in result.rows)
+        assert result.response is not None
+        assert result.response.primary_keys == [parent_id_column, "id"]
+        parent_requests = [r for r in result.requests if r.path == f"{API_PATH}/{parent}"]
+        assert [r.param("cursor") for r in parent_requests] == [None, "p2"]
+        assert [r.param("cursor") for r in result.requests if r.path == _child_path(parent, 1, child)] == [None, "c2"]
+        assert {(r.param("sort"), r.param("limit")) for r in result.requests} == {("id", "100")}
+
+    def test_resume_restarts_the_parent_listing_near_the_saved_page_and_skips_finished_parents(self) -> None:
+        parent_pages = [
+            _page([{"id": 1}], next_cursor="p2"),
+            _page([{"id": 2}], next_cursor="p3"),
+            _page([{"id": 3}, {"id": 4}]),
+        ]
+        children = {_child_path("customers", n, "contacts"): [_page([{"id": n * 10}])] for n in range(1, 5)}
+        first = _run("customer_contacts", route({f"{API_PATH}/customers": parent_pages, **children}))
+        after_customer_3 = next(
+            state
+            for state in first.saved_states
+            if state.fanout_state and "/customers/3/contacts" in state.fanout_state["completed"]
+        )
+
+        result = _run(
+            "customer_contacts",
+            route(
+                {
+                    f"{API_PATH}/customers": parent_pages[1:],
+                    _child_path("customers", 4, "contacts"): [_page([{"id": 40}])],
+                }
+            ),
+            resume_state=after_customer_3,
+        )
+
+        assert [r.param("cursor") for r in result.requests if r.path == f"{API_PATH}/customers"] == ["p2", "p3"]
+        assert [row["id"] for row in result.rows] == [40]
+
+
 class TestValidateCredentials:
     @parameterized.expand(
         [
@@ -174,6 +252,13 @@ class TestValidateCredentials:
             ("token_refused", None, 403, (False, FORBIDDEN_ERROR), "/me"),
             ("table_readable", "transactions", 200, (True, None), "/transactions"),
             ("table_missing_scope", "transactions", 403, (False, scope_error("transactions")), "/transactions"),
+            (
+                "child_table_reads_its_parent",
+                "customer_invoice_lines",
+                403,
+                (False, scope_error("customer_invoice_lines")),
+                "/customer_invoices",
+            ),
         ]
     )
     def test_maps_the_probe_status(

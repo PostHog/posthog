@@ -132,25 +132,34 @@ def _overlaps_rows(layout: GridLayout, top: int, bottom: int) -> bool:
     return layout.y < bottom and layout.y + layout.h > top
 
 
-def close_dropped_gaps(kept: list[RequestedBox], dropped: list[GridLayout]) -> dict[str, GridLayout]:
-    """Widen the tiles of a band to fill the grid when a panel in the band got no tile.
+def _covers_column(layout: GridLayout, column: int) -> bool:
+    return layout.x <= column < layout.x + layout.w
 
-    A band is the tiles that share a top row. A band keeps its boxes when a tile from another band
-    reaches into its rows, so that no two tiles overlap.
+
+def close_dropped_gaps(kept: list[RequestedBox], dropped: list[GridLayout]) -> dict[str, GridLayout]:
+    """Widen tiles into the columns that panels with no tile left empty beside them.
+
+    A tile grows one column at a time while no other tile uses that column in its rows and a dropped
+    panel did, so tiles of different heights never block each other and never overlap.
     """
     placed = {box.key: box.layout for box in kept}
-    bands: dict[int, list[RequestedBox]] = {}
-    for box in kept:
-        bands.setdefault(box.layout.y, []).append(box)
-    for top, band in bands.items():
-        bottom = max(box.layout.y + box.layout.h for box in band)
-        crossed = any(box.layout.y != top and _overlaps_rows(box.layout, top, bottom) for box in kept)
-        lost = any(_overlaps_rows(layout, top, bottom) for layout in dropped)
-        if crossed or not lost or sum(box.min_w for box in band) > GRID_COLUMNS:
-            continue
-        band.sort(key=lambda box: box.layout.x)
-        cursor = 0
-        for box, width in zip(band, _fit_widths([box.layout.w for box in band], [box.min_w for box in band])):
-            placed[box.key] = GridLayout(x=cursor, y=top, w=width, h=box.layout.h)
-            cursor += width
+
+    def can_take(key: str, column: int) -> bool:
+        layout = placed[key]
+        top, bottom = layout.y, layout.y + layout.h
+        return (
+            0 <= column < GRID_COLUMNS
+            and not any(
+                other != key and _covers_column(box, column) and _overlaps_rows(box, top, bottom)
+                for other, box in placed.items()
+            )
+            and any(_covers_column(box, column) and _overlaps_rows(box, top, bottom) for box in dropped)
+        )
+
+    for key in sorted(placed, key=lambda key: placed[key].x, reverse=True):
+        while can_take(key, placed[key].x + placed[key].w):
+            placed[key] = placed[key].model_copy(update={"w": placed[key].w + 1})
+    for key in sorted(placed, key=lambda key: placed[key].x):
+        while can_take(key, placed[key].x - 1):
+            placed[key] = placed[key].model_copy(update={"x": placed[key].x - 1, "w": placed[key].w + 1})
     return placed

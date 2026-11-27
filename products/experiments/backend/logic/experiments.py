@@ -194,8 +194,8 @@ def replace_tags(*, team: Team, experiment_id: int, tags: list[str]) -> None:
     replace_tags_on_object(tags, _one_in_project(team, experiment_id, include_deleted=True).get())
 
 
-# The update data of the service names these fields by the sources of the experiment serializer fields.
-_UPDATE_DATA_KEYS = {"feature_flag_key": "get_feature_flag_key", "create_in_folder": "_create_in_folder"}
+# The service refuses a folder on an update and names the field in the error, so it gets the request field name.
+_UPDATE_DATA_KEYS = {"create_in_folder": "_create_in_folder"}
 _NOT_UPDATE_DATA = frozenset({"allow_unknown_events", "feature_flag_config", "tags", "feature_flag_rule_id"})
 
 

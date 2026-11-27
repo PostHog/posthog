@@ -1,5 +1,5 @@
 import { IconInfo } from '@posthog/icons'
-import { LemonSkeleton, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 import { LineChart, ReferenceLines, useChartTheme } from '@posthog/quill-charts'
 
 import { makeChartErrorHandler } from 'lib/charts/chartErrorHandler'
@@ -10,12 +10,18 @@ import { AlertConditionType, InsightThresholdType } from '~/queries/schema/schem
 import { AlertFormType } from 'products/alerts/frontend/logic/alertFormLogic'
 import { FunnelAlertPreview } from 'products/alerts/frontend/logic/funnelAlertPreview'
 import { HogQLAlertPreview } from 'products/alerts/frontend/logic/hogqlAlertPreview'
+import { MetricsAlertPreviewSeries } from 'products/alerts/frontend/logic/metricsAlertPreview'
 import {
     deriveTrendsAlertPreviewSeries,
     deriveTrendsBreakdownAlertPreview,
     TrendsAlertPreviewSeries,
 } from 'products/alerts/frontend/logic/trendsAlertPreview'
-import { isFunnelsAlertConfig, isHogQLAlertConfig, isTrendsAlertConfig } from 'products/alerts/frontend/types'
+import {
+    isFunnelsAlertConfig,
+    isHogQLAlertConfig,
+    isMetricsAlertConfig,
+    isTrendsAlertConfig,
+} from 'products/alerts/frontend/types'
 
 import { FunnelAlertPreviewBanner } from './AlertDefinitionFields'
 import { AlertThresholdLine, shouldUseLogScale, thresholdReferenceLines } from './AlertPreviewCard.utils'
@@ -74,6 +80,9 @@ export interface AlertPreviewCardProps {
     trendsBreakdownSeries?: AlertPreviewChartSeries[] | null
     funnelPreview: FunnelAlertPreview | null
     hogqlPreview: HogQLAlertPreview | null
+    metricsPreview?: MetricsAlertPreviewSeries | null
+    metricsPreviewFailed?: boolean
+    onRetryMetricsPreview?: () => void
     checkPreview?: TrendsAlertPreviewSeries
     previewHistoryTooShort?: boolean
     // Keeps the card visible with a skeleton while data loads instead of popping in once it arrives.
@@ -88,6 +97,9 @@ export function AlertPreviewCard({
     trendsBreakdownSeries,
     funnelPreview,
     hogqlPreview,
+    metricsPreview,
+    metricsPreviewFailed,
+    onRetryMetricsPreview,
     checkPreview,
     previewHistoryTooShort,
     loading,
@@ -99,14 +111,16 @@ export function AlertPreviewCard({
         ? deriveTrendsAlertPreviewSeries(trendsValues, trendsLabels ?? undefined, conditionType, thresholdType)
         : null
     const isBreakdownPreview = isTrendsAlertConfig(config) && isBreakdown
+    const metricsSeries = isMetricsAlertConfig(config) && checkPreview === undefined ? metricsPreview : null
+    const isMultiSeriesPreview = isBreakdownPreview || !!metricsSeries
     const referenceLines = thresholdReferenceLines(alertForm)
     const useLogScale = Boolean(
         !isBreakdownPreview && trendsPreview && shouldUseLogScale(trendsPreview.values, referenceLines)
     )
     const checkPreviewValues = checkPreview?.values
     const breakdownPreview = deriveTrendsBreakdownAlertPreview(
-        trendsBreakdownSeries ?? undefined,
-        trendsLabels ?? undefined,
+        metricsSeries ? metricsSeries.rows : (trendsBreakdownSeries ?? undefined),
+        metricsSeries ? metricsSeries.labels : (trendsLabels ?? undefined),
         conditionType,
         thresholdType
     )
@@ -126,7 +140,16 @@ export function AlertPreviewCard({
         !trendsValues?.some((value) => value !== 0)
 
     let body: JSX.Element | null = null
-    if (isUnconfiguredAbsoluteThreshold) {
+    if (isMetricsAlertConfig(config) && checkPreview === undefined && metricsPreviewFailed && !loading) {
+        body = (
+            <div className="flex h-24 flex-col items-center justify-center gap-2 rounded border border-dashed border-border text-sm text-muted">
+                <span>Couldn't load metric data for the preview.</span>
+                <LemonButton size="small" type="secondary" onClick={onRetryMetricsPreview}>
+                    Try again
+                </LemonButton>
+            </div>
+        )
+    } else if (isUnconfiguredAbsoluteThreshold) {
         body = (
             <div className="flex h-24 items-center justify-center rounded border border-dashed border-border text-sm text-muted">
                 Set less than or more than to preview this alert.
@@ -138,20 +161,20 @@ export function AlertPreviewCard({
                 The insight's date range is too short to preview this delay. The alert loads more history when it runs.
             </div>
         )
-    } else if (isBreakdownPreview && breakdownPreview && breakdownPreviewValues.length > 0) {
+    } else if (isMultiSeriesPreview && breakdownPreview && breakdownPreviewValues.length > 0) {
         body = (
             <AlertPreviewChart
                 series={breakdownPreview.rows}
                 labels={breakdownPreview.labels}
                 referenceLines={referenceLines}
-                relative={trendsPreview?.relative ?? false}
+                relative={conditionType !== AlertConditionType.ABSOLUTE_VALUE}
                 useLogScale={breakdownUseLogScale}
             />
         )
-    } else if (isBreakdownPreview && !loading) {
+    } else if (isMultiSeriesPreview && !loading) {
         body = (
             <div className="flex h-24 items-center justify-center rounded border border-dashed border-border text-sm text-muted">
-                No activity to preview across breakdown values.
+                {isBreakdownPreview ? 'No activity to preview across breakdown values.' : 'No metric data to preview.'}
             </div>
         )
     } else if (checkPreviewValues && checkPreviewValues.length > 0) {
@@ -223,12 +246,16 @@ export function AlertPreviewCard({
         previewTooltip = 'Every breakdown value is shown. The dashed lines are your thresholds.'
     } else if (checkPreview !== undefined) {
         previewTooltip = 'Values recorded by recent alert evaluations.'
+    } else if (metricsSeries && metricsSeries.rows.length > 1) {
+        previewTooltip = 'Every series the query returns is checked. The dashed lines are your thresholds.'
     }
     let previewTitle = 'Preview'
     if (isBreakdownPreview) {
         previewTitle = 'All breakdown values'
     } else if (checkPreview !== undefined) {
         previewTitle = 'Recent evaluations'
+    } else if (metricsSeries && metricsSeries.rows.length > 1) {
+        previewTitle = 'All series'
     }
 
     return (
