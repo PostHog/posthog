@@ -2853,11 +2853,113 @@ export interface PlatformAlertGroupSnoozeApi {
     snooze_until: string | null
 }
 
+/**
+ * * `broken` - Broken
+ * * `errored` - Errored
+ * * `firing` - Firing
+ * * `snoozed` - Snoozed
+ * * `not_firing` - Not firing
+ * * `disabled` - Disabled
+ * * `not_checked` - Not checked yet
+ */
+export type PlatformAlertListStateEnumApi =
+    (typeof PlatformAlertListStateEnumApi)[keyof typeof PlatformAlertListStateEnumApi]
+
+export const PlatformAlertListStateEnumApi = {
+    Broken: 'broken',
+    Errored: 'errored',
+    Firing: 'firing',
+    Snoozed: 'snoozed',
+    NotFiring: 'not_firing',
+    Disabled: 'disabled',
+    NotChecked: 'not_checked',
+} as const
+
+export interface PlatformAlertStateFacetValueApi {
+    /** The state, as `state` takes it.
+     *
+     * * `broken` - Broken
+     * * `errored` - Errored
+     * * `firing` - Firing
+     * * `snoozed` - Snoozed
+     * * `not_firing` - Not firing
+     * * `disabled` - Disabled
+     * * `not_checked` - Not checked yet */
+    value: PlatformAlertListStateEnumApi
+    /** How many alerts are in this state. */
+    count: number
+}
+
+/**
+ * * `snoozed` - Snoozed
+ * * `quiet_hours` - Quiet hours
+ */
+export type PlatformAlertMuteEnumApi = (typeof PlatformAlertMuteEnumApi)[keyof typeof PlatformAlertMuteEnumApi]
+
+export const PlatformAlertMuteEnumApi = {
+    Snoozed: 'snoozed',
+    QuietHours: 'quiet_hours',
+} as const
+
+export interface PlatformAlertMuteFacetValueApi {
+    /** The reason, as `muted` takes it.
+     *
+     * * `snoozed` - Snoozed
+     * * `quiet_hours` - Quiet hours */
+    value: PlatformAlertMuteEnumApi
+    /** How many alerts hold their messages for this reason. */
+    count: number
+}
+
+export interface PlatformAlertSourceKindFacetValueApi {
+    /** The source kind, as `source_kind` takes it.
+     *
+     * * `logs` - Logs
+     * * `insight` - Insight
+     * * `warehouse_source` - Warehouse source
+     * * `warehouse_destination` - Warehouse destination
+     * * `metrics` - Metrics
+     * * `traces` - Traces
+     * * `error_tracking` - Error tracking */
+    value: PlatformAlertConfigurationSourceKindEnumApi
+    /** How many alerts are of this source kind. */
+    count: number
+}
+
+export interface PlatformAlertLabelFacetValueApi {
+    /** One value of the label key. */
+    value: string
+    /** How many alerts have the label with this value. */
+    count: number
+}
+
+export interface PlatformAlertLabelFacetApi {
+    /** The label key. Filter on it with `label=key:value`. */
+    key: string
+    /** Each value of the key, sorted by value. */
+    values: PlatformAlertLabelFacetValueApi[]
+}
+
+export interface PlatformAlertFacetsApi {
+    /** Each state, most urgent first. */
+    states: PlatformAlertStateFacetValueApi[]
+    /** Each reason an alert holds its messages. */
+    mutes: PlatformAlertMuteFacetValueApi[]
+    /** Each source kind with at least one alert. */
+    source_kinds: PlatformAlertSourceKindFacetValueApi[]
+    /** Each label key with at least one alert, by key. */
+    labels: PlatformAlertLabelFacetApi[]
+}
+
 export type PlatformAlertsListParams = {
     /**
      * Only alerts created by the user with this UUID.
      */
     created_by?: string
+    /**
+     * Only alerts with this label, as key:value, such as team:billing. Repeat the parameter for more than one label. An alert matches when it has any of the values given for a key, and a match for every key.
+     */
+    label?: string[]
     /**
      * Only the alert copied from, or created with, this source configuration, such as a logs alert's id.
      */
@@ -2868,28 +2970,47 @@ export type PlatformAlertsListParams = {
      */
     limit?: number
     /**
+     * Only alerts that hold their messages for any of these reasons. snoozed: the alert or one of its groups is snoozed now. quiet_hours: the alert has quiet hours. Repeat the parameter for more than one reason.
+     */
+    muted?: PlatformAlertsListMutedItem[]
+    /**
      * The initial index from which to return the results.
      */
     offset?: number
     /**
-     * Only alerts of this source kind, such as metrics. A kind the caller cannot read returns no alerts.
-     *
-     * * `logs` - Logs
-     * * `insight` - Insight
-     * * `warehouse_source` - Warehouse source
-     * * `warehouse_destination` - Warehouse destination
-     * * `metrics` - Metrics
-     * * `traces` - Traces
-     * * `error_tracking` - Error tracking
-     * @minLength 1
+     * Only alerts of these source kinds, such as metrics. Repeat the parameter for more than one kind. A kind the caller cannot read returns no alerts.
      */
-    source_kind?: PlatformAlertsListSourceKind
+    source_kind?: PlatformAlertsListSourceKindItem[]
+    /**
+     * Only alerts in any of these states. An enabled alert is in each state that one of its groups is in. An alert with no group is not_checked, and a disabled alert is only disabled. Repeat the parameter for more than one state.
+     */
+    state?: PlatformAlertsListStateItem[]
 }
 
-export type PlatformAlertsListSourceKind =
-    (typeof PlatformAlertsListSourceKind)[keyof typeof PlatformAlertsListSourceKind]
+/**
+ * * `snoozed` - Snoozed
+ * * `quiet_hours` - Quiet hours
+ */
+export type PlatformAlertsListMutedItem = (typeof PlatformAlertsListMutedItem)[keyof typeof PlatformAlertsListMutedItem]
 
-export const PlatformAlertsListSourceKind = {
+export const PlatformAlertsListMutedItem = {
+    Snoozed: 'snoozed',
+    QuietHours: 'quiet_hours',
+} as const
+
+/**
+ * * `logs` - Logs
+ * * `insight` - Insight
+ * * `warehouse_source` - Warehouse source
+ * * `warehouse_destination` - Warehouse destination
+ * * `metrics` - Metrics
+ * * `traces` - Traces
+ * * `error_tracking` - Error tracking
+ */
+export type PlatformAlertsListSourceKindItem =
+    (typeof PlatformAlertsListSourceKindItem)[keyof typeof PlatformAlertsListSourceKindItem]
+
+export const PlatformAlertsListSourceKindItem = {
     Logs: 'logs',
     Insight: 'insight',
     WarehouseSource: 'warehouse_source',
@@ -2897,6 +3018,27 @@ export const PlatformAlertsListSourceKind = {
     Metrics: 'metrics',
     Traces: 'traces',
     ErrorTracking: 'error_tracking',
+} as const
+
+/**
+ * * `broken` - Broken
+ * * `errored` - Errored
+ * * `firing` - Firing
+ * * `snoozed` - Snoozed
+ * * `not_firing` - Not firing
+ * * `disabled` - Disabled
+ * * `not_checked` - Not checked yet
+ */
+export type PlatformAlertsListStateItem = (typeof PlatformAlertsListStateItem)[keyof typeof PlatformAlertsListStateItem]
+
+export const PlatformAlertsListStateItem = {
+    Broken: 'broken',
+    Errored: 'errored',
+    Firing: 'firing',
+    Snoozed: 'snoozed',
+    NotFiring: 'not_firing',
+    Disabled: 'disabled',
+    NotChecked: 'not_checked',
 } as const
 
 export type PlatformAlertsEventsListParams = {

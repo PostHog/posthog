@@ -371,14 +371,14 @@ class PlatformAlertConfigurationListQuerySerializer(serializers.Serializer):
         "than one label. An alert matches when it has any of the values given for a key, and a match for every key.",
     )
 
-    def validate_label(self, value: list[str]) -> list[tuple[str, str]]:
-        pairs = []
+    def validate_label(self, value: list[str]) -> dict[str, tuple[str, ...]]:
+        values_by_key: dict[str, tuple[str, ...]] = {}
         for item in value:
             key, separator, label_value = item.partition(":")
             if not separator or not key:
                 raise serializers.ValidationError(f"Write each label as key:value, such as team:billing. Got {item!r}.")
-            pairs.append((key, label_value))
-        return pairs
+            values_by_key[key] = (*values_by_key.get(key, ()), label_value)
+        return values_by_key
 
 
 class PlatformAlertStateFacetValueSerializer(serializers.Serializer):
@@ -1381,7 +1381,7 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
             filters=PlatformAlertListFilters(
                 states=tuple(query.validated_data.get("state", ())),
                 mutes=tuple(query.validated_data.get("muted", ())),
-                labels=tuple(query.validated_data.get("label", ())),
+                labels=query.validated_data.get("label", {}),
             ),
         )
         paginator.set_count(page.total)

@@ -187,10 +187,7 @@ def _filtered(
     if filters.mutes:
         now = timezone.now()
         readable = readable.filter(_any_of(_mute_matches(mute, team_id, now) for mute in filters.mutes))
-    values_by_key: dict[str, list[str]] = {}
-    for key, value in filters.labels:
-        values_by_key.setdefault(key, []).append(value)
-    for key, values in values_by_key.items():
+    for key, values in filters.labels.items():
         readable = readable.filter(_any_of(Q(labels__contains={key: value}) for value in values))
     return readable
 
@@ -212,14 +209,16 @@ def configuration_facets(*, team_id: int, source_kinds: Sequence[str]) -> Platfo
         labels.update((key, value) for key, value in (stored or {}).items() if isinstance(value, str))
     keys = sorted({key for key, _ in labels})
     return PlatformAlertFacets(
-        states=tuple(PlatformAlertFacetValue(state, counts[f"state_{state}"]) for state in PlatformAlertListState),
-        mutes=tuple(PlatformAlertFacetValue(mute, counts[f"mute_{mute}"]) for mute in PlatformAlertMute),
-        source_kinds=tuple(PlatformAlertFacetValue(kind, kinds[kind]) for kind in sorted(kinds)),
+        states=tuple(
+            PlatformAlertFacetValue(value=state, count=counts[f"state_{state}"]) for state in PlatformAlertListState
+        ),
+        mutes=tuple(PlatformAlertFacetValue(value=mute, count=counts[f"mute_{mute}"]) for mute in PlatformAlertMute),
+        source_kinds=tuple(PlatformAlertFacetValue(value=kind, count=kinds[kind]) for kind in sorted(kinds)),
         labels=tuple(
             PlatformAlertLabelFacet(
-                key,
-                tuple(
-                    PlatformAlertFacetValue(value, count)
+                key=key,
+                values=tuple(
+                    PlatformAlertFacetValue(value=value, count=count)
                     for (label_key, value), count in sorted(labels.items())
                     if label_key == key
                 ),

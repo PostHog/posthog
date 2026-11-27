@@ -104380,6 +104380,105 @@ export namespace Schemas {
       condition: PlatformAlertEventCondition;
     }
 
+    /**
+     * * `broken` - Broken
+     * * `errored` - Errored
+     * * `firing` - Firing
+     * * `snoozed` - Snoozed
+     * * `not_firing` - Not firing
+     * * `disabled` - Disabled
+     * * `not_checked` - Not checked yet
+     */
+    export type PlatformAlertListStateEnum = typeof PlatformAlertListStateEnum[keyof typeof PlatformAlertListStateEnum];
+
+
+    export const PlatformAlertListStateEnum = {
+      Broken: 'broken',
+      Errored: 'errored',
+      Firing: 'firing',
+      Snoozed: 'snoozed',
+      NotFiring: 'not_firing',
+      Disabled: 'disabled',
+      NotChecked: 'not_checked',
+    } as const;
+
+    export interface PlatformAlertStateFacetValue {
+      /** The state, as `state` takes it.
+       *
+       * * `broken` - Broken
+       * * `errored` - Errored
+       * * `firing` - Firing
+       * * `snoozed` - Snoozed
+       * * `not_firing` - Not firing
+       * * `disabled` - Disabled
+       * * `not_checked` - Not checked yet */
+      value: PlatformAlertListStateEnum;
+      /** How many alerts are in this state. */
+      count: number;
+    }
+
+    /**
+     * * `snoozed` - Snoozed
+     * * `quiet_hours` - Quiet hours
+     */
+    export type PlatformAlertMuteEnum = typeof PlatformAlertMuteEnum[keyof typeof PlatformAlertMuteEnum];
+
+
+    export const PlatformAlertMuteEnum = {
+      Snoozed: 'snoozed',
+      QuietHours: 'quiet_hours',
+    } as const;
+
+    export interface PlatformAlertMuteFacetValue {
+      /** The reason, as `muted` takes it.
+       *
+       * * `snoozed` - Snoozed
+       * * `quiet_hours` - Quiet hours */
+      value: PlatformAlertMuteEnum;
+      /** How many alerts hold their messages for this reason. */
+      count: number;
+    }
+
+    export interface PlatformAlertSourceKindFacetValue {
+      /** The source kind, as `source_kind` takes it.
+       *
+       * * `logs` - Logs
+       * * `insight` - Insight
+       * * `warehouse_source` - Warehouse source
+       * * `warehouse_destination` - Warehouse destination
+       * * `metrics` - Metrics
+       * * `traces` - Traces
+       * * `error_tracking` - Error tracking */
+      value: PlatformAlertConfigurationSourceKindEnum;
+      /** How many alerts are of this source kind. */
+      count: number;
+    }
+
+    export interface PlatformAlertLabelFacetValue {
+      /** One value of the label key. */
+      value: string;
+      /** How many alerts have the label with this value. */
+      count: number;
+    }
+
+    export interface PlatformAlertLabelFacet {
+      /** The label key. Filter on it with `label=key:value`. */
+      key: string;
+      /** Each value of the key, sorted by value. */
+      values: PlatformAlertLabelFacetValue[];
+    }
+
+    export interface PlatformAlertFacets {
+      /** Each state, most urgent first. */
+      states: PlatformAlertStateFacetValue[];
+      /** Each reason an alert holds its messages. */
+      mutes: PlatformAlertMuteFacetValue[];
+      /** Each source kind with at least one alert. */
+      source_kinds: PlatformAlertSourceKindFacetValue[];
+      /** Each label key with at least one alert, by key. */
+      labels: PlatformAlertLabelFacet[];
+    }
+
     export interface PlatformAlertGroupSnooze {
       /**
          * Key of the group to snooze, as the grouping_key of one of the alert's instances.
@@ -152289,6 +152388,10 @@ export namespace Schemas {
      */
     created_by?: string;
     /**
+     * Only alerts with this label, as key:value, such as team:billing. Repeat the parameter for more than one label. An alert matches when it has any of the values given for a key, and a match for every key.
+     */
+    label?: string[];
+    /**
      * Only the alert copied from, or created with, this source configuration, such as a logs alert's id.
      */
     legacy_configuration_id?: string;
@@ -152298,12 +152401,36 @@ export namespace Schemas {
      */
     limit?: number;
     /**
+     * Only alerts that hold their messages for any of these reasons. snoozed: the alert or one of its groups is snoozed now. quiet_hours: the alert has quiet hours. Repeat the parameter for more than one reason.
+     */
+    muted?: PlatformAlertsListMutedItem[];
+    /**
      * The initial index from which to return the results.
      */
     offset?: number;
     /**
-     * Only alerts of this source kind, such as metrics. A kind the caller cannot read returns no alerts.
-     *
+     * Only alerts of these source kinds, such as metrics. Repeat the parameter for more than one kind. A kind the caller cannot read returns no alerts.
+     */
+    source_kind?: PlatformAlertsListSourceKindItem[];
+    /**
+     * Only alerts in any of these states. An enabled alert is in each state that one of its groups is in. An alert with no group is not_checked, and a disabled alert is only disabled. Repeat the parameter for more than one state.
+     */
+    state?: PlatformAlertsListStateItem[];
+    };
+
+    /**
+     * * `snoozed` - Snoozed
+     * * `quiet_hours` - Quiet hours
+     */
+    export type PlatformAlertsListMutedItem = typeof PlatformAlertsListMutedItem[keyof typeof PlatformAlertsListMutedItem];
+
+
+    export const PlatformAlertsListMutedItem = {
+      Snoozed: 'snoozed',
+      QuietHours: 'quiet_hours',
+    } as const;
+
+    /**
      * * `logs` - Logs
      * * `insight` - Insight
      * * `warehouse_source` - Warehouse source
@@ -152311,15 +152438,11 @@ export namespace Schemas {
      * * `metrics` - Metrics
      * * `traces` - Traces
      * * `error_tracking` - Error tracking
-     * @minLength 1
      */
-    source_kind?: PlatformAlertsListSourceKind;
-    };
-
-    export type PlatformAlertsListSourceKind = typeof PlatformAlertsListSourceKind[keyof typeof PlatformAlertsListSourceKind];
+    export type PlatformAlertsListSourceKindItem = typeof PlatformAlertsListSourceKindItem[keyof typeof PlatformAlertsListSourceKindItem];
 
 
-    export const PlatformAlertsListSourceKind = {
+    export const PlatformAlertsListSourceKindItem = {
       Logs: 'logs',
       Insight: 'insight',
       WarehouseSource: 'warehouse_source',
@@ -152327,6 +152450,28 @@ export namespace Schemas {
       Metrics: 'metrics',
       Traces: 'traces',
       ErrorTracking: 'error_tracking',
+    } as const;
+
+    /**
+     * * `broken` - Broken
+     * * `errored` - Errored
+     * * `firing` - Firing
+     * * `snoozed` - Snoozed
+     * * `not_firing` - Not firing
+     * * `disabled` - Disabled
+     * * `not_checked` - Not checked yet
+     */
+    export type PlatformAlertsListStateItem = typeof PlatformAlertsListStateItem[keyof typeof PlatformAlertsListStateItem];
+
+
+    export const PlatformAlertsListStateItem = {
+      Broken: 'broken',
+      Errored: 'errored',
+      Firing: 'firing',
+      Snoozed: 'snoozed',
+      NotFiring: 'not_firing',
+      Disabled: 'disabled',
+      NotChecked: 'not_checked',
     } as const;
 
     export type PlatformAlertsEventsListParams = {

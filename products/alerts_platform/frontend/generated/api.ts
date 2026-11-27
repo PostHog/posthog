@@ -27,6 +27,7 @@ import type {
     PlatformAlertDeleteDestinationApi,
     PlatformAlertDestinationApi,
     PlatformAlertEventApi,
+    PlatformAlertFacetsApi,
     PlatformAlertGroupSnoozeApi,
     PlatformAlertSnoozeApi,
     PlatformAlertsEventsListParams,
@@ -486,5 +487,23 @@ export const platformAlertsSnoozeGroupCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(platformAlertGroupSnoozeApi),
+    })
+}
+
+export const getPlatformAlertsFacetsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/platform_alerts/facets/`
+}
+
+/**
+ * How many alerts match each value the list filters on: state, muted, source_kind and label. The counts cover every alert the caller can read, and no filter narrows them. An alert counts once for each value it matches.
+ * @summary Count alerts for each filter value
+ */
+export const platformAlertsFacetsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<PlatformAlertFacetsApi> => {
+    return apiMutator<PlatformAlertFacetsApi>(getPlatformAlertsFacetsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }

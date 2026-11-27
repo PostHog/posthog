@@ -1598,8 +1598,8 @@ class PlatformAlertListFilters:
 
     states: tuple[str, ...] = ()
     mutes: tuple[str, ...] = ()
-    # `(key, value)` pairs. Values of one key widen the match, and different keys narrow it.
-    labels: tuple[tuple[str, str], ...] = ()
+    # The values wanted for each label key. Values of one key widen the match, and different keys narrow it.
+    labels: dict[str, tuple[str, ...]] = field(default_factory=dict)
 
 
 @frozen
