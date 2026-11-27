@@ -1670,8 +1670,29 @@ def test_select_alias_chains_the_layering_skips_keep_their_results(query: str, e
 
 
 @pytest.mark.parametrize(
+    "date_alias",
+    [
+        "toMonday(toDate('2026-11-27'))",
+        "toLastDayOfMonth(toDate('2026-11-27'))",
+        "(SELECT max(d) FROM (SELECT toDate('2026-11-27') AS d))",
+    ],
+)
+def test_layered_select_aliases_keep_the_date_type_the_printer_inferred(date_alias: str) -> None:
+    sql, _ = prepare_and_print_ast(
+        parse_select(f"WITH s AS (SELECT 1 AS id) SELECT {date_alias} AS a, a + 1 AS b, a + 2 AS c FROM s"),
+        _context_with_trino_table(),
+        "trino",
+    )
+    assert sql.count("date_add('day'") == 2
+
+
+@pytest.mark.parametrize(
     "query, expected",
     [
+        (
+            "SELECT id AS a, a + a AS b FROM (SELECT 1 AS id, 2 AS unused, 3 AS UNUSED) AS src",
+            'SELECT "src"."id" AS "a", ("src"."id" + "src"."id") AS "b" FROM',
+        ),
         (
             "WITH seed AS (SELECT 1 AS id) SELECT id AS a, arrayMap(a -> a + a, [2]) AS b FROM seed AS src",
             'transform(ARRAY[2], "a" -> ("a" + "a"))',

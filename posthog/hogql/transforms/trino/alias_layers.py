@@ -35,21 +35,22 @@ def _layered(query: ast.SelectQuery) -> ast.SelectQuery | None:
     aliases = {expr.alias: expr.expr for expr in query.select if isinstance(expr, ast.Alias) and not expr.hidden}
     if not aliases or _names_collide(aliases, source_columns) or any(map(_reads_a_property, aliases.values())):
         return None
+    names = set(aliases)
     total_reads: Counter[str] = Counter()
     for expr in query.select:
-        reads = _sibling_reads(_unwrap_projection(expr), aliases)
+        reads = _sibling_reads(_unwrap_projection(expr), names)
         if reads is None:
             return None
         total_reads.update(reads)
     if max(total_reads.values(), default=0) < _MIN_SIBLING_READS_TO_LAYER:
         return None
-    if query.where is not None and _sibling_reads(query.where, aliases) != Counter():
+    if query.where is not None and _sibling_reads(query.where, names) != Counter():
         return None
-    depths = _alias_depths(aliases)
+    depths = _alias_depths(aliases, names)
     layer_count = max(depths.values()) + 1
     if layer_count > _MAX_LAYERS or layer_count * (len(source_columns) + len(aliases)) > _MAX_LAYERED_COLUMNS:
         return None
-    qualifier = _SiblingAliasQualifier(set(aliases), source_alias)
+    qualifier = _SiblingAliasQualifier(names, source_alias)
     layer = source
     for depth in range(layer_count):
         layer_select: list[ast.Expr] = [ast.Field(chain=[source_alias, "*"])]
@@ -100,8 +101,11 @@ def _subquery_columns(source_type: ast.Type | None) -> set[str] | None:
 
 def _names_collide(aliases: dict[str, ast.Expr], source_columns: set[str]) -> bool:
     folded_aliases = {name.casefold() for name in aliases}
-    return len(folded_aliases) < len(aliases) or not folded_aliases.isdisjoint(
-        column.casefold() for column in source_columns
+    folded_columns = {column.casefold() for column in source_columns}
+    return (
+        len(folded_aliases) < len(aliases)
+        or len(folded_columns) < len(source_columns)
+        or not folded_aliases.isdisjoint(folded_columns)
     )
 
 
@@ -127,18 +131,18 @@ def _unwrap_projection(expr: ast.Expr) -> ast.Expr:
     return expr.expr if isinstance(expr, ast.Alias) else expr
 
 
-def _sibling_reads(expr: ast.Expr, aliases: dict[str, ast.Expr]) -> Counter[str] | None:
-    finder = _SiblingAliasReadFinder(set(aliases))
+def _sibling_reads(expr: ast.Expr, names: set[str]) -> Counter[str] | None:
+    finder = _SiblingAliasReadFinder(names)
     finder.visit(expr)
     return None if finder.defines_inline_alias or finder.has_lambda else finder.reads
 
 
-def _alias_depths(aliases: dict[str, ast.Expr]) -> dict[str, int]:
+def _alias_depths(aliases: dict[str, ast.Expr], names: set[str]) -> dict[str, int]:
     depths: dict[str, int] = {}
 
     def depth_of(name: str) -> int:
         if name not in depths:
-            reads = _sibling_reads(aliases[name], aliases) or Counter()
+            reads = _sibling_reads(aliases[name], names) or Counter()
             depths[name] = 1 + max((depth_of(read) for read in reads), default=-1)
         return depths[name]
 
