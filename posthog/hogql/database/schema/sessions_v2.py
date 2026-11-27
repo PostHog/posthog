@@ -476,7 +476,7 @@ def select_from_sessions_table_v2(
     )
 
 
-def _single_sessions_occurrence_type(node: ast.SelectQuery, lazy_table: "SessionsTableV2") -> Optional[ast.Type]:
+def _single_sessions_occurrence_type(node: ast.SelectQuery, lazy_table: LazyTable) -> Optional[ast.Type]:
     """The resolved type of the query's only ``sessions`` occurrence, or None.
 
     Returns None when the sessions table appears more than once in the FROM/JOIN
@@ -500,7 +500,7 @@ def _single_sessions_occurrence_type(node: ast.SelectQuery, lazy_table: "Session
 
 
 def build_direct_session_id_in_pushdown(
-    node: ast.SelectQuery, context: HogQLContext, lazy_table: "SessionsTableV2"
+    node: ast.SelectQuery, context: HogQLContext, lazy_table: LazyTable, raw_table_name: str = "raw_sessions"
 ) -> Optional[ast.Expr]:
     """Push a top-level ``session_id IN (SELECT …)`` filter below the per-session GROUP BY.
 
@@ -619,7 +619,7 @@ def build_direct_session_id_in_pushdown(
 
         return ast.CompareOperation(
             op=ast.CompareOperationOp.GlobalIn,
-            left=ast.Field(chain=["raw_sessions", "session_id_v7"]),
+            left=ast.Field(chain=[raw_table_name, "session_id_v7"]),
             right=wrapped,
         )
     return None

@@ -3052,6 +3052,103 @@ class TestWebStatsTableNoJoinFastPath(ClickhouseTestMixin, APIBaseTest):
         assert two_phase == join
         assert len(join) >= 2
 
+    def _create_server_only_sessions(self, count: int) -> None:
+        # Sessions whose only events are server-side, like a team that also sends AI or backend events with a
+        # $session_id. They sit in the sessions table but no web analytics query reads them.
+        for index in range(count):
+            _create_event(
+                team=self.team,
+                event="$ai_generation",
+                distinct_id="organic",
+                timestamp=f"2025-01-1{index % 5}T08:00:00Z",
+                properties={"$session_id": str(uuid7(f"2025-01-1{index % 5}"))},
+            )
+        flush_persons_and_events()
+
+    @parameterized.expand(
+        [
+            ("two_phase", True, True, [], "stats_table_channel_type_two_phase"),
+            (
+                "two_phase_event_filter",
+                True,
+                True,
+                [EventPropertyFilter(key="$pathname", operator=PropertyOperator.EXACT, value="/")],
+                "stats_table_channel_type_two_phase",
+            ),
+            ("join", False, True, [], "stats_table_channel_type"),
+            ("join_with_bounce_rate", True, False, [], "stats_table_channel_type"),
+            ("two_phase_sessions_v3", True, True, [], "stats_table_channel_type_two_phase", "v3"),
+            ("join_sessions_v3", False, True, [], "stats_table_channel_type", "v3"),
+        ]
+    )
+    def test_session_restriction_keeps_channel_results(
+        self,
+        _name: str,
+        no_join_rollout: bool,
+        two_phase_shape: bool,
+        properties: list,
+        expected_strategy: str,
+        session_table_version: str = "v2",
+    ):
+        self.team.modifiers = {"sessionTableVersion": session_table_version}
+        self.team.save()
+        raw_table = "raw_sessions_v3" if session_table_version == "v3" else "raw_sessions"
+        self._create_channel_sessions()
+        self._create_server_only_sessions(10)
+
+        def run(restrict: bool) -> tuple[list, str]:
+            with (
+                override_settings(WEB_ANALYTICS_NO_JOIN_TEAM_IDS=[self.team.pk] if no_join_rollout else []),
+                patch.object(WebStatsTableQueryRunner, "_session_restriction_flag_enabled", restrict),
+                patch(
+                    "products.web_analytics.backend.hogql_queries.web_analytics_query_runner.SESSION_RESTRICTION_MIN_SESSIONS_IN_RANGE",
+                    0,
+                ),
+            ):
+                runner = self._make_runner(
+                    breakdownBy=WebStatsBreakdown.INITIAL_CHANNEL_TYPE,
+                    includeBounceRate=not two_phase_shape,
+                    properties=properties,
+                )
+                assert runner.query_strategy() == expected_strategy
+                original_execute = runner.paginator.execute_hogql_query
+                executed_sql: list[str] = []
+
+                def record_sql(*args, **kwargs):
+                    response = original_execute(*args, **kwargs)
+                    executed_sql.append(response.clickhouse or "")
+                    return response
+
+                with patch.object(runner.paginator, "execute_hogql_query", side_effect=record_sql):
+                    results = runner.calculate().results
+                return sorted(results, key=str), " ".join(executed_sql[0].split())
+
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
+            restricted, restricted_sql = run(True)
+            unrestricted, unrestricted_sql = run(False)
+
+        assert f"globalIn({raw_table}.session_id_v7" in restricted_sql, restricted_sql
+        assert f"globalIn({raw_table}.session_id_v7" not in unrestricted_sql, unrestricted_sql
+        assert restricted == unrestricted
+        assert len(unrestricted) >= 2
+
+    def test_session_restriction_skipped_when_events_match_most_sessions(self):
+        self._create_channel_sessions()
+
+        with (
+            time_machine.travel(self.QUERY_TIMESTAMP, tick=False),
+            override_settings(WEB_ANALYTICS_NO_JOIN_TEAM_IDS=[self.team.pk]),
+            patch.object(WebStatsTableQueryRunner, "_session_restriction_flag_enabled", True),
+            patch(
+                "products.web_analytics.backend.hogql_queries.web_analytics_query_runner.SESSION_RESTRICTION_MIN_SESSIONS_IN_RANGE",
+                0,
+            ),
+        ):
+            runner = self._make_runner(breakdownBy=WebStatsBreakdown.INITIAL_CHANNEL_TYPE, includeBounceRate=False)
+            runner.calculate()
+
+        assert runner.restrict_sessions is False
+
     @parameterized.expand(
         [
             ("visitors_and_views", {}, True, "stats_table_channel_type_two_phase"),

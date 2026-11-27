@@ -64,7 +64,17 @@ request
   │ needs session fields with filters
   ▼
 [5] Full events↔sessions join (unconditional fallback)
+      session restriction: team on the `web-analytics-session-restriction` flag,
+        preflight (web_analytics_session_restriction_preflight) finds ≥ 2M sessions
+        in range and events matching ≤ half of them ──▶ the sessions side reads
+        only the matching sessions (also the two-phase channel query)
 ```
+
+**The session restriction** keeps results identical, because the join and the two-phase channel query read a session only for its matching events.
+It applies to the strategies in `SESSION_RESTRICTABLE_STRATEGIES` and to the overview join, and it runs on sessions v2 and v3.
+It costs one more scan of the matching events, so it helps teams whose sessions table also holds sessions without web events, such as server-side or AI events, and queries with a selective filter.
+The no-join shapes count sessions on their own and are never restricted.
+A restricted read carries the `web_analytics_sessions_restricted` query tag.
 
 **Conversion goals on the overview** run ahead of this ladder as two independent reads: the goal-less overview (which climbs the ladder above for visitors) plus a scan of goal events only (`web_overview_conversion_goal_query`). The joined shape grouped every pageview session in range to count the goal, so its memory scaled with traffic; the split scales with conversions. Visitors therefore equal the goal-less visitors card, and a session with a goal event but no pageview or screenview no longer counts as a visitor. Legacy sessions v1 and queries with session or cohort filters keep the joined shape.
 
@@ -250,6 +260,7 @@ The eager and demand jobs can still overlap if either pass runs long.
 | `WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS`                                      | Env allowlist            | Filtered fast path (live tier)                                                                                                            |
 | `web-analytics-session-id-set`                                               | Team rollout flag        | Filtered fast path enrollment without the env allowlist — either gate admits the team                                                     |
 | `WEB_ANALYTICS_NO_JOIN_TEAM_IDS` + rollout %                                 | Env + percentage         | Unfiltered fast path — 100% on Cloud                                                                                                      |
+| `web-analytics-session-restriction`                                          | Team rollout flag        | Live join reads restrict their sessions side to the sessions the events side matched, when the preflight finds it pays                    |
 | `useWebAnalyticsPrecompute`                                                  | Per-query field          | User opt-out switch (WebAnalyticsMenu toggle); explicit `false` always wins                                                               |
 | `useWebAnalyticsPreAggregatedTables`                                         | Query modifier           | Preaggregated-tables tier (deprecated — largest existing customers only, no new enrollments)                                              |
 | `webQueryModifiers.useDimensionalTables`                                     | Per-query field          | Browser toggle: `true` tries the dimensional tables (behind `web-analytics-query-modifiers`), `false` opts out of the writer-list default |
@@ -259,6 +270,7 @@ The eager and demand jobs can still overlap if either pass runs long.
 ## query_type tag reference
 
 Suffix conventions: `*_lazy_query` = bucket read (served from precompute), `*_lazy_insert` = bucket build (background only), `*_preflight` = selectivity probe.
+`web_analytics_session_restriction_preflight` is the session restriction's probe, shared by the overview and the stats table.
 
 | Family          | Precompute                                                                                                                             | Live tags                                                                                                                                                                                                                                                                                                                                       |
 | --------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

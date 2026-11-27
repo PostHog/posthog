@@ -25,9 +25,11 @@ from posthog.hogql.database.schema.sessions_v1 import (
     finalize_aggregation,
     select_session_property_values,
 )
+from posthog.hogql.database.schema.sessions_v2 import build_direct_session_id_in_pushdown
 from posthog.hogql.database.schema.util.where_clause_extractor import (
     SessionMinTimestampWhereClauseExtractorV3,
     build_global_sessions_join_filter,
+    build_session_id_v7_pushdown_predicate,
 )
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
@@ -271,7 +273,10 @@ class RawSessionsTableV3(Table):
 
 
 def select_from_sessions_table_v3(
-    requested_fields: dict[str, list[str | int]], node: ast.SelectQuery, context: HogQLContext
+    requested_fields: dict[str, list[str | int]],
+    node: ast.SelectQuery,
+    context: HogQLContext,
+    extra_where: Optional[ast.Expr] = None,
 ):
     from posthog.hogql import ast
 
@@ -480,6 +485,8 @@ def select_from_sessions_table_v3(
             group_by_fields.append(ast.Field(chain=cast(list[str | int], [table_name]) + chain))
 
     where = SessionMinTimestampWhereClauseExtractorV3(context).get_inner_where(node)
+    if extra_where is not None:
+        where = ast.And(exprs=[where, extra_where]) if where is not None else extra_where
 
     return ast.SelectQuery(
         select=select_fields,
@@ -511,7 +518,8 @@ class SessionsTableV3(LazyTable):
         context,
         node: ast.SelectQuery,
     ):
-        return select_from_sessions_table_v3(table_to_add.fields_accessed, node, context)
+        extra_where = build_direct_session_id_in_pushdown(node, context, self, raw_table_name="raw_sessions_v3")
+        return select_from_sessions_table_v3(table_to_add.fields_accessed, node, context, extra_where=extra_where)
 
     def to_printed_clickhouse(self, context):
         return "sessions"
@@ -551,7 +559,16 @@ def join_events_table_to_sessions_table_v3(
     if not join_to_add.fields_accessed:
         raise ResolutionError("No fields requested from events")
 
-    sessions_query = select_from_sessions_table_v3(join_to_add.fields_accessed, node, context)
+    extra_where: Optional[ast.Expr] = None
+    if context.modifiers.sessionIdPushdown:
+        extra_where = build_session_id_v7_pushdown_predicate(
+            node,
+            join_to_add,
+            context,
+            session_id_v7_field=ast.Field(chain=["raw_sessions_v3", "session_id_v7"]),
+            events_session_id_field=["$session_id_uuid"],
+        )
+    sessions_query = select_from_sessions_table_v3(join_to_add.fields_accessed, node, context, extra_where=extra_where)
     join_expr = ast.JoinExpr(table=sessions_query)
     join_expr.join_type = "LEFT JOIN"
     # A plain join from a distributed events table runs the sessions subquery on every events shard, and each

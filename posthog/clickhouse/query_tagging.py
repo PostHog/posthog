@@ -510,6 +510,9 @@ class QueryTags(BaseModel):
     web_analytics_precompute_ineligible_reason: Optional[str] = None
     # Why a web analytics read that tried the dimensional tables fell back: a `DimensionalIneligibleReason` value.
     web_analytics_dimensional_ineligible_reason: Optional[str] = None
+    # True when a live web analytics read restricted its sessions side to the sessions the events side matched,
+    # so query_log can compare restricted and unrestricted reads of the same shape.
+    web_analytics_sessions_restricted: Optional[bool] = None
     entity_math: Optional[list[str]] = None
 
     # replays

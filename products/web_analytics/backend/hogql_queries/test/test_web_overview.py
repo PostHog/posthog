@@ -1513,6 +1513,60 @@ class TestWebOverviewSessionIdSetFastPath(ClickhouseTestMixin, APIBaseTest):
         for fast, join in zip(fast_results, join_results):
             assert fast.value == join.value, f"{fast.key}: {fast.value} != {join.value}"
 
+    @parameterized.expand(
+        [
+            ("unfiltered", [], False),
+            ("unfiltered_compare", [], True),
+            ("filtered", None, False),
+        ]
+    )
+    def test_session_restriction_keeps_join_results(self, _name: str, properties: Optional[list], compare: bool):
+        self._create_pageviews()
+        # Sessions with only server-side events: the restriction drops them from the sessions side.
+        for day in ("2025-01-09", "2025-01-10", "2025-01-11", "2025-01-12", "2025-01-13"):
+            _create_event(
+                team=self.team,
+                event="$ai_generation",
+                distinct_id="user_a",
+                timestamp=f"{day}T08:00:00Z",
+                properties={"$session_id": str(uuid7(day))},
+            )
+        kwargs: dict[str, Any] = {"compareFilter": CompareFilter(compare=True)} if compare else {}
+        if properties is not None:
+            kwargs["properties"] = properties
+
+        def run(restrict: bool) -> tuple[list, str]:
+            executed_sql: list[str] = []
+
+            def record_sql(*args, **query_kwargs):
+                response = execute_hogql_query(*args, **query_kwargs)
+                if query_kwargs.get("query_type") == "web_overview_query":
+                    executed_sql.append(" ".join((response.clickhouse or "").split()))
+                return response
+
+            with (
+                patch.object(WebOverviewQueryRunner, "_session_restriction_flag_enabled", restrict),
+                patch(
+                    "products.web_analytics.backend.hogql_queries.web_analytics_query_runner.SESSION_RESTRICTION_MIN_SESSIONS_IN_RANGE",
+                    0,
+                ),
+                patch(
+                    "products.web_analytics.backend.hogql_queries.web_overview.execute_hogql_query",
+                    side_effect=record_sql,
+                ),
+            ):
+                results = self._make_runner(**kwargs).calculate().results
+            assert len(executed_sql) == 1
+            return [(r.key, r.value, r.previous) for r in results], executed_sql[0]
+
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
+            restricted, restricted_sql = run(True)
+            unrestricted, unrestricted_sql = run(False)
+
+        assert "globalIn(raw_sessions.session_id_v7" in restricted_sql, restricted_sql
+        assert "globalIn(raw_sessions.session_id_v7" not in unrestricted_sql, unrestricted_sql
+        assert restricted == unrestricted
+
     def test_session_id_set_requires_team_allowlist(self):
         runner = self._make_runner()
         assert not runner.should_use_session_id_set

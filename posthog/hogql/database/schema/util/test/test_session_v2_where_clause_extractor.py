@@ -767,6 +767,48 @@ WHERE events.timestamp >= '2026-03-27 00:00:00'
         else:
             assert "or(" not in in_subquery, f"Expected no OR in narrowed IN; got:\n{in_subquery}"
 
+    @parameterized.expand(
+        [("v2", SessionTableVersion.V2, "raw_sessions"), ("v3", SessionTableVersion.V3, "raw_sessions_v3")]
+    )
+    def test_join_pushdown_preserves_results(self, _name: str, version: SessionTableVersion, raw_table: str):
+        web_session = str(uuid7("2026-03-27"))
+        server_only_session = str(uuid7("2026-03-27"))
+        for session_id, event, url in [
+            (web_session, "$pageview", "/a"),
+            (web_session, "$pageview", "/b"),
+            (server_only_session, "$ai_generation", None),
+        ]:
+            _create_event(
+                team=self.team,
+                event=event,
+                distinct_id="d1",
+                timestamp="2026-03-27T10:00:00Z",
+                properties={"$session_id": session_id, "$current_url": url},
+            )
+
+        query = (
+            "SELECT events.$session_id AS sid, events.session.$entry_current_url AS entry, events.session.$pageview_count "
+            "FROM events WHERE event = '$pageview' AND timestamp >= '2026-03-26' AND properties.$current_url = '/b' "
+            "ORDER BY sid"
+        )
+        results = {}
+        for pushdown in (True, False):
+            modifiers = create_default_modifiers_for_team(self.team)
+            modifiers.sessionTableVersion = version
+            modifiers.sessionIdPushdown = pushdown
+            response = execute_hogql_query(query=query, team=self.team, modifiers=modifiers)
+            results[pushdown] = response.results
+            assert response.clickhouse is not None
+            normalized = " ".join(response.clickhouse.split())
+            pushed = (
+                f"in({raw_table}.session_id_v7, (SELECT" in normalized
+                or f"globalIn({raw_table}.session_id_v7, (SELECT" in normalized
+            )
+            assert pushed == pushdown, normalized
+
+        assert results[True] == results[False]
+        assert results[True] == [(web_session, "/a", 2)]
+
 
 class TestDirectSessionIdInPushdownV2(ClickhouseTestMixin, APIBaseTest):
     # Locks build_direct_session_id_in_pushdown, the rewrite behind the web
@@ -795,9 +837,14 @@ class TestDirectSessionIdInPushdownV2(ClickhouseTestMixin, APIBaseTest):
         assert prepared_ast is not None
         return " ".join(print_prepared_ast(prepared_ast, context=context, dialect="clickhouse", pretty=True).split())
 
-    def test_rewrites_id_subquery_below_group_by_exactly_once(self):
-        sql = self.print_query(self.ID_SUBQUERY_SHAPE, pushdown=True)
-        assert sql.count("globalIn(raw_sessions.session_id_v7") == 1, sql
+    @parameterized.expand(
+        [("v2", SessionTableVersion.V2, "raw_sessions"), ("v3", SessionTableVersion.V3, "raw_sessions_v3")]
+    )
+    def test_rewrites_id_subquery_below_group_by_exactly_once(
+        self, _name: str, version: SessionTableVersion, raw_table: str
+    ):
+        sql = self.print_query(self.ID_SUBQUERY_SHAPE, pushdown=True, version=version)
+        assert sql.count(f"globalIn({raw_table}.session_id_v7") == 1, sql
         # Moved, not copied: a retained outer copy of the id subquery makes
         # ClickHouse run the identical filtered-events scan a second time.
         assert sql.count("FROM events") == 1, sql
@@ -892,12 +939,12 @@ class TestDirectSessionIdInPushdownV2(ClickhouseTestMixin, APIBaseTest):
         without_pushdown = self.print_query(query, pushdown=False)
         assert with_pushdown == without_pushdown
 
-    def test_v3_sessions_are_not_rewritten(self):
-        with_pushdown = self.print_query(self.ID_SUBQUERY_SHAPE, pushdown=True, version=SessionTableVersion.V3)
-        without_pushdown = self.print_query(self.ID_SUBQUERY_SHAPE, pushdown=False, version=SessionTableVersion.V3)
-        assert with_pushdown == without_pushdown
-
-    def test_pushdown_preserves_results_for_direct_sessions_query(self):
+    @parameterized.expand(
+        [("v2", SessionTableVersion.V2, "raw_sessions"), ("v3", SessionTableVersion.V3, "raw_sessions_v3")]
+    )
+    def test_pushdown_preserves_results_for_direct_sessions_query(
+        self, _name: str, version: SessionTableVersion, raw_table: str
+    ):
         # The SQL-editor safety proof: a team that persists sessionIdPushdown in
         # team.modifiers gets this rewrite on every matching query, so the modifier
         # must never change which rows come back — including for malformed
@@ -931,7 +978,7 @@ class TestDirectSessionIdInPushdownV2(ClickhouseTestMixin, APIBaseTest):
         results = {}
         for pushdown in (True, False):
             modifiers = create_default_modifiers_for_team(self.team)
-            modifiers.sessionTableVersion = SessionTableVersion.V2
+            modifiers.sessionTableVersion = version
             modifiers.sessionIdPushdown = pushdown
             response = execute_hogql_query(query=query, team=self.team, modifiers=modifiers)
             results[pushdown] = response.results
@@ -939,7 +986,7 @@ class TestDirectSessionIdInPushdownV2(ClickhouseTestMixin, APIBaseTest):
             # so also pin that the pushed shape actually executed (and only when
             # the modifier is on).
             assert response.clickhouse is not None
-            assert ("globalIn(raw_sessions.session_id_v7" in response.clickhouse) == pushdown
+            assert (f"globalIn({raw_table}.session_id_v7" in response.clickhouse) == pushdown
 
         assert results[True] == results[False]
         assert results[True] == [(matching_session,)]
