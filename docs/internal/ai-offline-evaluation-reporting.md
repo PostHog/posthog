@@ -924,6 +924,7 @@ Higher pass rates are better. For numeric means, the pinned passing rule determi
 Numeric scorers without a passing rule show a neutral difference.
 These are whole-run aggregates, so check the dataset revision and coverage when the runs contain different cases or numbers of trials.
 Experiment names, scorer names, and coverage counts open in a new tab so the comparison stays open.
+For runs linked to a hosted dataset revision, the dataset label also opens the dataset in a new tab.
 Select a scorer name for its pinned version's history, or a coverage count to inspect that scorer's items in the experiment.
 The comparison URL preserves the runs, baseline, and shared-score filter.
 

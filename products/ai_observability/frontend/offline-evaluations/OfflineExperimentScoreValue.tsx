@@ -1,6 +1,8 @@
 import { IconInfo } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
+import { cn } from 'lib/utils/css-classes'
+
 import type { ExperimentScoreApi } from '../generated/api.schemas'
 import { experimentScoreLabel } from './ExperimentScoreResult'
 import { explainMixedScorerVersions, formatItemScorerVersions } from './offlineExperimentPresentation'
@@ -36,7 +38,14 @@ export function OfflineExperimentScoreValue({ score }: { score: ExperimentScoreA
         >
             <span className="inline-flex max-w-full flex-col align-middle" tabIndex={0}>
                 <span className="inline-flex items-center gap-1 font-medium tabular-nums">
-                    <span className="break-words min-w-0">{label}</span>
+                    <span
+                        className={cn(
+                            'break-words min-w-0',
+                            score.status === 'ok' && typeof score.value === 'number' && 'font-bold'
+                        )}
+                    >
+                        {label}
+                    </span>
                     {score.inputs.length > 0 && <IconInfo className="shrink-0 text-muted" aria-label="Score details" />}
                 </span>
             </span>

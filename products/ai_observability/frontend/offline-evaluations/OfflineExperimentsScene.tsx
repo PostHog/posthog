@@ -58,6 +58,7 @@ export function OfflineExperimentsScene(): JSX.Element {
                     <OfflineExperimentComparison
                         teamId={currentTeam.id}
                         experimentIds={comparisonIds(searchParams.compare)}
+                        canOpenDatasets={!datasetsDisabledReason}
                     />
                 </>
             ) : (

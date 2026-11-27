@@ -18,7 +18,10 @@ import { offlineScoreMetricLabel } from './offlineScoreTrends'
 
 type ComparisonRow = { kind: 'coverage'; id: string } | { kind: 'dataset'; id: string } | ComparisonScoreRow
 
-export function OfflineExperimentComparison(props: OfflineComparisonProps): JSX.Element {
+export function OfflineExperimentComparison({
+    canOpenDatasets,
+    ...props
+}: OfflineComparisonProps & { canOpenDatasets: boolean }): JSX.Element {
     const { experimentIds } = props
     const { runs, runsLoading, error } = useValues(offlineComparisonLogic(props))
     const { loadComparison } = useActions(offlineComparisonLogic(props))
@@ -43,24 +46,20 @@ export function OfflineExperimentComparison(props: OfflineComparisonProps): JSX.
             render: (_, row) => {
                 if (row.kind === 'item' || row.kind === 'experiment') {
                     return (
-                        <div className="flex flex-col items-start gap-0.5">
-                            <Link
-                                to={
-                                    combineUrl(urls.aiObservabilityOfflineScorerHistory(row.scorer.definition_id), {
+                        <div className="flex flex-col items-start gap-0.5 font-semibold">
+                            <ScorerLabel
+                                scorer={row.scorer}
+                                historyLink={{
+                                    to: combineUrl(urls.aiObservabilityOfflineScorerHistory(row.scorer.definition_id), {
                                         version: row.id,
                                         date_from: 'all',
                                         statuses: OFFLINE_ALL_UPLOAD_STATES,
                                         tags: [],
-                                    }).url
-                                }
-                                target="_blank"
-                                targetBlankIcon
-                                className="inline-flex max-w-full items-center gap-0.5 font-semibold"
-                                data-attr="offline-comparison-open-scorer"
-                            >
-                                <ScorerLabel scorer={row.scorer} />
-                            </Link>
-                            <span className="text-xs text-muted">
+                                    }).url,
+                                    'data-attr': 'offline-comparison-open-scorer',
+                                }}
+                            />
+                            <span className="text-xs font-normal text-muted">
                                 {row.kind === 'experiment' ? 'Experiment score' : offlineScoreMetricLabel(row.scorer)}
                             </span>
                         </div>
@@ -103,11 +102,30 @@ export function OfflineExperimentComparison(props: OfflineComparisonProps): JSX.
                         )
                     }
                     if (row.kind === 'dataset') {
+                        const datasetLabel =
+                            [experiment.dataset_source, experiment.dataset_identifier].filter(Boolean).join(' / ') ||
+                            'Unspecified'
+                        const datasetUrl =
+                            canOpenDatasets &&
+                            experiment.dataset_source === 'posthog' &&
+                            experiment.dataset_revision_id &&
+                            experiment.dataset_identifier
+                                ? urls.aiObservabilityDataset(experiment.dataset_identifier)
+                                : null
                         return (
                             <div className="max-w-72 break-words">
-                                {[experiment.dataset_source, experiment.dataset_identifier]
-                                    .filter(Boolean)
-                                    .join(' / ') || 'Unspecified'}
+                                {datasetUrl ? (
+                                    <Link
+                                        to={datasetUrl}
+                                        target="_blank"
+                                        targetBlankIcon
+                                        data-attr="offline-comparison-open-dataset"
+                                    >
+                                        {datasetLabel}
+                                    </Link>
+                                ) : (
+                                    datasetLabel
+                                )}
                                 {(experiment.dataset_revision_identifier || experiment.dataset_revision_id) && (
                                     <div className="text-xs text-muted">
                                         Revision{' '}

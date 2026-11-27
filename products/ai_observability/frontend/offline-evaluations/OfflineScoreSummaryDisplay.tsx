@@ -34,7 +34,7 @@ function SummaryMetric({
                 </span>
             )}
             <Tooltip title={title}>
-                <strong className="tabular-nums font-semibold" tabIndex={title ? 0 : undefined}>
+                <strong className="self-baseline tabular-nums font-semibold" tabIndex={title ? 0 : undefined}>
                     {value}
                     {passed != null && <span className="sr-only">{passed ? ' Passed' : ' Failed'}</span>}
                 </strong>
