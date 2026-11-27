@@ -1,6 +1,6 @@
 import { HogFlow, isRowScopedTrigger } from '~/cdp/schema/hogflow'
 import { hasPushActions } from '~/cdp/services/hogflows/hogflow-utils'
-import { TRANSACTIONAL_PUSH_EVENT, sendsOnlyPush } from '~/cdp/services/hogflows/transactional-push'
+import { TRANSACTIONAL_PUSH_EVENT, sendsOnePushToRequestPerson } from '~/cdp/services/hogflows/transactional-push'
 import type { PersonsManagerService } from '~/cdp/services/managers/persons-manager.service'
 import { CyclotronJobInvocationHogFlow, CyclotronPerson } from '~/cdp/types'
 import { DEVICE_SUBSCRIPTION_PREFIX } from '~/cdp/utils/push-subscription-utils'
@@ -56,7 +56,7 @@ export function hogFlowPersonLookup(hogFlow: HogFlow, state: HogFlowState): HogF
         // A wait woken by a match advances without re-evaluating, so the steps after it would
         // otherwise read the person cached when the wait parked, without the write that woke it.
         forceFresh: hasPushActions(hogFlow.actions) || state.currentAction?.eventMatched === true,
-        readsDevices: state.event.event === TRANSACTIONAL_PUSH_EVENT && sendsOnlyPush(hogFlow),
+        readsDevices: state.event.event === TRANSACTIONAL_PUSH_EVENT && sendsOnePushToRequestPerson(hogFlow),
     }
 }
 
