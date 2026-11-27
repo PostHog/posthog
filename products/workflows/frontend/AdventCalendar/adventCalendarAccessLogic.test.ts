@@ -79,6 +79,11 @@ describe('adventCalendarAccessLogic', () => {
             false,
         ],
         [
+            'an error record from before mount that is not a list keeps the flag',
+            { pageFlags: { [FLAG]: true }, failedBeforeMount: 'connection_error', loads: [noOutcome()] },
+            false,
+        ],
+        [
             'a failed load on a page without the identity object keeps the stored flag',
             { pageFlags: 'no page object', loads: [failed({ [FLAG]: true })] },
             true,
