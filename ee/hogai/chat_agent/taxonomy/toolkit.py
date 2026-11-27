@@ -35,6 +35,7 @@ from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP, CoreFilt
 
 from products.actions.backend.facade.api import list_actions
 from products.actions.backend.facade.contracts import Action, ActionNotFound
+from products.event_definitions.backend.facade.api import get_property_descriptions
 from products.event_definitions.backend.models.property_definition import (
     PropertyDefinition,
     PropertyType,
@@ -229,20 +230,10 @@ class TaxonomyAgentToolkit:
         """
         if not names:
             return {}
-
-        qs = (
-            PropertyDefinition.objects.alias(effective_project_id=effective_project_id_expr())
-            .filter(effective_project_id=self._team.project_id, type=property_type, name__in=names)
-            .exclude(metadata__description__isnull=True)
-            .exclude(metadata__description="")
+        descriptions = await database_sync_to_async(get_property_descriptions)(
+            project_id=self._team.project_id, type=property_type, names=names, group_type_index=group_type_index
         )
-        if group_type_index is not None:
-            qs = qs.filter(group_type_index=group_type_index)
-        return {
-            name: sanitize_event_description(description)
-            async for name, description in qs.values_list("name", "metadata__description")
-            if description
-        }
+        return {name: sanitize_event_description(description) for name, description in descriptions.items()}
 
     def _format_property_values(
         self,

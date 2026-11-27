@@ -56,6 +56,18 @@ def get_property_type(
     )
 
 
+def get_property_descriptions(
+    *, project_id: int, type: PropertyDefinitionType, names: Sequence[str], group_type_index: int | None = None
+) -> dict[str, str]:
+    """The descriptions people wrote for the project's properties of this type with these names, keyed by name.
+
+    A property without a description is left out. A `group_type_index` keeps only that group type.
+    """
+    return property_definitions.get_property_descriptions(
+        project_id=project_id, type=type, names=names, group_type_index=group_type_index
+    )
+
+
 def get_event_descriptions(*, project_id: int, names: Sequence[str]) -> dict[str, str]:
     """The descriptions people wrote for the project's events with these names, keyed by name.
 

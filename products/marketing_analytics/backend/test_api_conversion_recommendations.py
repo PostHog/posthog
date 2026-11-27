@@ -455,7 +455,7 @@ class TestConversionRecommendations(APIBaseTest):
         hidden = EnterpriseEventDefinition.objects.create(team=self.team, name="hidden_event", hidden=True)
         copy_definition_metadata("event", [booking.pk, hidden.pk])
         # Stale ee rows make the test fail if the catalog reads the ee table again
-        EnterpriseEventDefinition.objects.filter(pk__in=[booking.pk, hidden.pk]).update(
+        EnterpriseEventDefinition.objects.filter(team=self.team, pk__in=[booking.pk, hidden.pk]).update(
             description="stale", hidden=False
         )
         EventDefinition.objects.create(team=self.team, name="$pageview", last_seen_at=now)
