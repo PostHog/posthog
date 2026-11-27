@@ -3,6 +3,7 @@ import type { PresentationEdit } from '../../dashboard/edits/presentationEdits'
 import type { MenuAction } from '../../menu/menuAction'
 import { type PanelType, panelSlots } from '../../panels/core/panelDefinition'
 import { findPanel } from '../../panels/core/panelSpec'
+import { TILE_BACKGROUND_COLORS } from '../../panels/core/tileBackground'
 import { NO_BACKGROUND, showsBorder } from '../core/tileAppearance'
 import { hasPart, showsPart } from '../core/tileParts'
 
@@ -15,13 +16,12 @@ const SETTINGS: { setting: TileSetting; label: string }[] = [
     { setting: 'border', label: 'Border' },
 ]
 
-/** The colors the menu offers. Each is a theme color, so the tint follows light and dark mode. */
 const BACKGROUND_COLOR_PRESETS: { key: string; label: string; color: string }[] = [
-    { key: 'blue', label: 'Blue', color: 'var(--color-blue-500)' },
-    { key: 'green', label: 'Green', color: 'var(--color-green-500)' },
-    { key: 'yellow', label: 'Yellow', color: 'var(--color-yellow-500)' },
-    { key: 'red', label: 'Red', color: 'var(--color-red-500)' },
-    { key: 'purple', label: 'Purple', color: 'var(--color-purple-500)' },
+    { key: 'blue', label: 'Blue', color: TILE_BACKGROUND_COLORS.blue },
+    { key: 'green', label: 'Green', color: TILE_BACKGROUND_COLORS.green },
+    { key: 'yellow', label: 'Yellow', color: TILE_BACKGROUND_COLORS.yellow },
+    { key: 'red', label: 'Red', color: TILE_BACKGROUND_COLORS.red },
+    { key: 'purple', label: 'Purple', color: TILE_BACKGROUND_COLORS.purple },
 ]
 
 /** Null when the setting does not apply to the tile. */
