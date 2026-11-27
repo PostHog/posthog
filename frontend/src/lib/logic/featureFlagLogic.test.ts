@@ -2,6 +2,7 @@ import posthog, { type PostHog } from 'posthog-js'
 
 import { FEATURE_FLAGS, FeatureFlagKey } from 'lib/constants'
 
+import { recordFeatureFlagsLoad } from '~/loadPostHogJS'
 import { initKeaTests } from '~/test/init'
 import type { AppContext } from '~/types'
 
@@ -64,12 +65,13 @@ describe('featureFlagLogic', () => {
         const FLAG = 'flag-created-after-the-last-visit'
         const OTHER_FLAG = 'some-other-flag'
 
-        type FlagsAnswer = Record<string, boolean> | 'blocked' | 'in flight'
+        type FlagsAnswer = Record<string, boolean> | 'blocked' | 'server error' | 'in flight'
         type PageVisit = {
             pageFlags: Record<string, boolean>
             flagsAnswers: FlagsAnswer[]
             afterLoad?: (sdk: PostHog) => void
             mountAfterLoad?: boolean
+            beforeMount?: (sdk: PostHog) => void
             flagErrors?: boolean
         }
 
@@ -87,6 +89,9 @@ describe('featureFlagLogic', () => {
                 const answer = flagsAnswers.shift() ?? 'blocked'
                 if (answer === 'blocked') {
                     throw new TypeError('Failed to fetch')
+                }
+                if (answer === 'server error') {
+                    return new Response('{}', { status: 500 })
                 }
                 if (answer === 'in flight') {
                     return new Promise<Response>(() => {})
@@ -115,8 +120,8 @@ describe('featureFlagLogic', () => {
                 disable_surveys: true,
             })
             sdk.onFeatureFlags((_flags, _variants, context) => {
-                if (context?.errorsLoading) {
-                    window.POSTHOG_GLOBAL_ERRORS = { onFeatureFlagsLoadError: true }
+                if (context?.errorsLoading !== undefined) {
+                    recordFeatureFlagsLoad(context.errorsLoading)
                 }
             })
             return sdk
@@ -240,6 +245,28 @@ describe('featureFlagLogic', () => {
                 undefined,
             ],
             [
+                'a successful retry before the app mounts wins over the page decision',
+                [{ pageFlags: { [OTHER_FLAG]: true }, flagsAnswers: [{ [OTHER_FLAG]: true }] }],
+                {
+                    pageFlags: { [OTHER_FLAG]: true, [FLAG]: true },
+                    flagsAnswers: ['blocked', { [OTHER_FLAG]: true, [FLAG]: false }],
+                    mountAfterLoad: true,
+                    beforeMount: (sdk) => sdk.reloadFeatureFlags(),
+                },
+                undefined,
+            ],
+            [
+                'a successful load still wins after a refresh fails before the app mounts',
+                [{ pageFlags: { [OTHER_FLAG]: true }, flagsAnswers: [{ [OTHER_FLAG]: true }] }],
+                {
+                    pageFlags: { [OTHER_FLAG]: true, [FLAG]: true },
+                    flagsAnswers: [{ [OTHER_FLAG]: true, [FLAG]: false }, 'server error'],
+                    mountAfterLoad: true,
+                    beforeMount: (sdk) => sdk.reloadFeatureFlags(),
+                },
+                undefined,
+            ],
+            [
                 'a successful load still wins after a later refresh fails',
                 [{ pageFlags: { [OTHER_FLAG]: true }, flagsAnswers: [{ [OTHER_FLAG]: true }] }],
                 {
@@ -258,6 +285,8 @@ describe('featureFlagLogic', () => {
             jest.mocked(posthog.get_property).mockImplementation((key) => sdk.get_property(key))
             if (today.mountAfterLoad) {
                 sdk.reloadFeatureFlags()
+                await jest.advanceTimersByTimeAsync(100)
+                today.beforeMount?.(sdk)
                 await jest.advanceTimersByTimeAsync(100)
             }
             initKeaTests()

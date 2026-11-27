@@ -127,7 +127,10 @@ function withPageDecisions(variants: Record<string, boolean | string>): Record<s
     const overriddenFlags = posthog.get_property(POSTHOG_JS_FLAG_OVERRIDES) ?? {}
     const decidedVariants = { ...variants }
     for (const [flag, value] of Object.entries(window.POSTHOG_USER_IDENTITY_WITH_FLAGS?.featureFlags ?? {})) {
-        if (!(flag in overriddenFlags) && !(ENROLLMENT_PROPERTY_PREFIX + flag in storedPersonProperties)) {
+        if (
+            !Object.hasOwn(overriddenFlags, flag) &&
+            !Object.hasOwn(storedPersonProperties, ENROLLMENT_PROPERTY_PREFIX + flag)
+        ) {
             decidedVariants[flag] = value
         }
     }
@@ -190,10 +193,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         // The app shell keeps this logic mounted for the page lifetime, so a new mount is a new page that
         // starts from the server decision again.
         posthogAiAccessRevoked = false
-        let flagsLoadedOnThisPage = false
-        posthog.onFeatureFlags((flags, variants, context) => {
-            flagsLoadedOnThisPage ||= context?.errorsLoading === false
-            if (flagsLoadedOnThisPage || !window.POSTHOG_GLOBAL_ERRORS?.onFeatureFlagsLoadError) {
+        posthog.onFeatureFlags((flags, variants) => {
+            if (!window.POSTHOG_GLOBAL_ERRORS?.onFeatureFlagsLoadError) {
                 actions.setFeatureFlags(flags, variants)
                 return
             }

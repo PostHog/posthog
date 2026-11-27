@@ -88,6 +88,12 @@ function sendsLocalDevelopmentToCloud(): boolean {
     return window.POSTHOG_APP_CONTEXT?.run_mode === 'LOCAL' && !window.JS_POSTHOG_SELF_CAPTURE
 }
 
+export function recordFeatureFlagsLoad(errorsLoading: boolean): void {
+    window.POSTHOG_GLOBAL_ERRORS ||= {}
+    window.POSTHOG_GLOBAL_ERRORS['onFeatureFlagsLoadError'] =
+        errorsLoading && window.POSTHOG_GLOBAL_ERRORS['onFeatureFlagsLoadError'] !== false
+}
+
 function readLastSeenFeatureFlags(): LastSeenFeatureFlags | null {
     try {
         const stored = window.localStorage.getItem(LAST_SEEN_FEATURE_FLAGS_KEY)
@@ -300,15 +306,14 @@ export function loadPostHogJS(): void {
                 writeLastSeenFeatureFlags({ distinctId: posthog.get_distinct_id(), featureFlags: variants })
             }
 
-            if (inStorybook() || !context?.errorsLoading) {
+            if (inStorybook() || context?.errorsLoading === undefined) {
                 return
             }
 
-            posthog.capture('onFeatureFlags error')
-
-            // Track that we failed to load feature flags
-            window.POSTHOG_GLOBAL_ERRORS ||= {}
-            window.POSTHOG_GLOBAL_ERRORS['onFeatureFlagsLoadError'] = true
+            recordFeatureFlagsLoad(context.errorsLoading)
+            if (context.errorsLoading) {
+                posthog.capture('onFeatureFlags error')
+            }
         })
 
         loadFeatureFlagsForPage()
