@@ -60,14 +60,13 @@ class _GroupLookup:
 
 
 def _workspace_group_handles(slack: SlackIntegration, wanted: set[str]) -> _GroupLookup:
-    # `usergroups.list` returns every group in the workspace, so one read serves all its channels for a day.
     workspace_id = slack.integration.integration_id
     key = f"slack_app_usergroup_handles:{workspace_id}"
     cached: dict[str, str] | None = cache.get(key)
     if cached is not None and wanted <= cached.keys():
         return _GroupLookup(handles=cached, answered=True)
-    # At most one read per workspace in the retry window, so a burst of refreshes, a group created after the
-    # cache was filled, or a read that always fails cannot spend the workspace's rate limit.
+    # One read returns every group in the workspace and serves all its channels. At most one read per retry
+    # window, so a burst of refreshes, a new group or a read that always fails cannot spend the rate limit.
     if not cache.add(f"{key}:read", 1, timeout=GROUP_LOOKUP_RETRY_SECONDS):
         return _GroupLookup(handles=cached or {}, answered=False)
     try:
@@ -180,7 +179,6 @@ def refresh_channel_metadata(slack: SlackIntegration, *, slack_workspace_id: str
         group_lookup = _workspace_group_handles(slack, wanted)
         known = {**known, **group_lookup.handles}
         lookup_answered = group_lookup.answered
-    # Without `usergroups:read` a group the channel never named keeps its id and an empty handle.
     groups = [group if group.handle else OwnerGroup(id=group.id, handle=known.get(group.id, "")) for group in groups]
     SlackChannel.objects.update_or_create(
         slack_workspace_id=slack_workspace_id,
@@ -192,6 +190,5 @@ def refresh_channel_metadata(slack: SlackIntegration, *, slack_workspace_id: str
         },
     )
     if not lookup_answered:
-        # The handles may arrive in a moment, so the next mention may retry before the day is over.
         cache.set(_refresh_slot_key(slack.integration.id, slack_channel_id), 1, timeout=GROUP_LOOKUP_RETRY_SECONDS)
     return True
