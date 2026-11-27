@@ -587,8 +587,7 @@ def load_due_list(
         .filter(team_rank__lte=_MAX_SCORE_READY_DUE_ROWS_PER_TEAM)
         .order_by("next_due_at", "insight_id")[: scored_slots // _SCORE_READY_SHARE]
     )
-    in_share = {row.insight_id for row in score_ready}
-    others = [row for row in scored_due[:scored_slots] if row.insight_id not in in_share]
+    others = scored_due.exclude(insight_id__in=[row.insight_id for row in score_ready])
     scored = [*score_ready, *others[: scored_slots - len(score_ready)]]
     backlog = scored_due.order_by().aggregate(
         ready_rows=Count("id", filter=Q(score_ready=True)),
