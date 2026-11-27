@@ -2067,17 +2067,3 @@ expose = [
 from = [
     "products.release",
 ]
-
-[[modules]]
-path = "products.investigations"
-depends_on = ["posthog", "products.access_control"]
-layer = "modules"
-
-[[interfaces]]
-expose = [
-    "backend\\.facade.*",
-    "backend\\.presentation\\.views.*",
-]
-from = [
-    "products.investigations",
-]

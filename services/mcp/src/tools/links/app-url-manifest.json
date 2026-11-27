@@ -1149,16 +1149,6 @@
         "params": ["kind"],
         "scope": "project"
     },
-    "investigation": {
-        "template": "/investigations/{id}",
-        "params": ["id"],
-        "scope": "project"
-    },
-    "investigations": {
-        "template": "/investigations",
-        "params": [],
-        "scope": "project"
-    },
     "inviteSignup": {
         "template": "/signup/{id}",
         "params": ["id"],

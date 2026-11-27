@@ -1,9 +1,14 @@
 import { z } from 'zod'
 
 const documentEncoder = new TextEncoder()
+const MAX_DOCUMENT_BYTES = 500_000
+
+function serializedBytes(value: unknown): number {
+    return documentEncoder.encode(JSON.stringify(value)).byteLength
+}
 
 export function isInvestigationWithinSizeLimit(document: InvestigationDocument): boolean {
-    return documentEncoder.encode(JSON.stringify(document)).byteLength <= 500_000
+    return serializedBytes(document) <= MAX_DOCUMENT_BYTES
 }
 
 const text = z.string().max(10000)
@@ -98,11 +103,36 @@ export function newInvestigation(question = ''): InvestigationDocument {
 
 export function appendInvestigationRun(document: InvestigationDocument, run: InvestigationRun): InvestigationDocument {
     const runs = [...document.runs, run]
-    while (runs.length > 10) {
-        const removable = runs.findIndex((item) => item.id !== document.baselineId)
-        runs.splice(removable, 1)
+    let bytes = serializedBytes({ ...document, runs })
+    while (runs.length > 10 || bytes > MAX_DOCUMENT_BYTES) {
+        const index = runs.findIndex((item) => item !== run && item.id !== document.baselineId)
+        if (index === -1) {
+            break
+        }
+        const [removed] = runs.splice(index, 1)
+        bytes -= serializedBytes(removed) + 1
+    }
+    if (bytes > MAX_DOCUMENT_BYTES) {
+        runs[runs.length - 1] = { ...run, results: run.results.map((result) => ({ ...result, rows: [] })) }
+        const available = MAX_DOCUMENT_BYTES - serializedBytes({ ...document, runs })
+        runs[runs.length - 1].results = fitResultRows(run.results, available)
     }
     return { ...document, runs }
+}
+
+function fitResultRows(results: InvestigationResult[], available: number): InvestigationResult[] {
+    return results.map((result) => {
+        const rows: InvestigationResult['rows'] = []
+        for (const row of result.rows) {
+            const bytes = serializedBytes(row) + (rows.length ? 1 : 0)
+            if (bytes > available) {
+                break
+            }
+            rows.push(row)
+            available -= bytes
+        }
+        return { ...result, rows, truncated: result.truncated || rows.length < result.rows.length }
+    })
 }
 
 export function removeInvestigationEvidence(

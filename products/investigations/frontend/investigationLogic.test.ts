@@ -136,7 +136,7 @@ describe('investigationLogic', () => {
         expect(logic.values.running).toBe(false)
     })
 
-    it('keeps the current document open when the new run exceeds its byte limit', async () => {
+    it('shows a partial result when the new run exceeds the document byte limit', async () => {
         useMocks({
             post: {
                 '/api/environments/:team_id/query/:kind': {
@@ -146,10 +146,13 @@ describe('investigationLogic', () => {
             },
         })
         await expectLogic(logic, () => logic.actions.runEvidence()).toFinishAllListeners()
-        expect(logic.values.error).toContain('too large to save')
-        expect(logic.values.tab).toBe('overview')
-        expect(logic.values.document).toEqual(document)
-        expect(persisted).toEqual([])
+        const result = logic.values.document.runs[0].results[0]
+        expect(logic.values.error).toBeNull()
+        expect(logic.values.tab).toBe('history')
+        expect(result.truncated).toBe(true)
+        expect(result.rows.length).toBeGreaterThan(0)
+        expect(result.rows.length).toBeLessThan(50)
+        expect(persisted.at(-1)).toEqual(logic.values.document)
     })
 
     it('cannot change or execute an investigation through a read-only host', async () => {

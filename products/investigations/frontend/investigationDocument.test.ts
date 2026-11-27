@@ -4,6 +4,7 @@ import {
     compareInvestigationResults,
     getInvestigationLink,
     investigationRunSchema,
+    isInvestigationWithinSizeLimit,
     newInvestigation,
     removeInvestigationEvidence,
     snapshotInvestigationResult,
@@ -50,6 +51,18 @@ describe('investigation documents', () => {
             })
         }
         expect(document.runs.map((run) => run.id)).toEqual(['0', '3', '4', '5', '6', '7', '8', '9', '10', '11'])
+    })
+
+    it('evicts older runs to fit the byte budget and preserves the pinned baseline', () => {
+        const largeResult = { ...baseline, rows: Array.from({ length: 50 }, () => ['é'.repeat(1000)]) }
+        const run = { id: 'pinned', at: '2026-11-01T00:00:00.000Z', conclusion: '', results: [largeResult] }
+        let document: InvestigationDocument = { ...newInvestigation(), baselineId: run.id, runs: [run] }
+        for (let index = 1; index <= 6; index++) {
+            document = appendInvestigationRun(document, { ...run, id: String(index) })
+        }
+        expect(document.runs.map((item) => item.id)).toEqual(['pinned', '4', '5', '6'])
+        expect(document.runs[0]).toEqual(run)
+        expect(isInvestigationWithinSizeLimit(document)).toBe(true)
     })
 
     it('removes dangling hypothesis references while preserving historical evidence', () => {
