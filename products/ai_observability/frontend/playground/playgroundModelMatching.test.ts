@@ -138,8 +138,12 @@ describe('playgroundModelMatching', () => {
 
         it.each([
             ['the prompt names it', { model: 'gpt-6-luna', selectedProviderKeyId: 'their-key' }, [option]],
-            ['the model is linked to it', { model: 'gpt-6-luna' }, [{ ...option, providerKeyId: 'their-key' }]],
-            ['it is the only key for the provider', { model: 'gpt-6-luna' }, [option]],
+            [
+                'the model is linked to it',
+                { model: 'gpt-6-luna', selectedProviderKeyId: null },
+                [{ ...option, providerKeyId: 'their-key' }],
+            ],
+            ['it is the only key for the provider', { model: 'gpt-6-luna', selectedProviderKeyId: null }, [option]],
         ])('skips a key the person cannot use when %s', (_, prompt, options) => {
             expect(resolveProviderKeyForPrompt(prompt, options, [teammatesKey])).toBeNull()
         })
