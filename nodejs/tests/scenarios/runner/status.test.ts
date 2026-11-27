@@ -362,6 +362,23 @@ describe('statusOf', () => {
             `the ramp broke: refused_at_intake broke at the 2x step; no_loss was not judged: ${IN_FLIGHT}`,
         ],
         [
+            'a ramp that hit a harness limit while SES feedback was still in flight at the final read',
+            {
+                convergence: { converged: true, unfinishedJobs: 0, unrecorded: [], tookMs: 1000, feedbackInFlight: 2 },
+                invariants: [
+                    { ...BROKEN, crossedBy: 'run-1' },
+                    { ...UNJUDGED, unjudged: IN_FLIGHT },
+                ],
+                ramp: {
+                    end: 'harness_limit',
+                    sustainedScale: 1,
+                    reason: 'the generator offered 0 of 600 units in the 2x step, under minOffered 0.9',
+                },
+            },
+            'invalid',
+            `the ramp hit a harness limit: the generator offered 0 of 600 units in the 2x step, under minOffered 0.9; no_loss was not judged: ${IN_FLIGHT}`,
+        ],
+        [
             'a run that held but whose judge could not read the final state',
             {
                 convergence: {
