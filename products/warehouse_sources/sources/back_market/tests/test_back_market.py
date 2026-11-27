@@ -175,22 +175,50 @@ class TestBackMarketSourceListings:
 class TestBackMarketAddedTables:
     @parameterized.expand(
         [
-            (endpoint, field, param, expected, mode)
-            for endpoint, field, param, expected in [
-                ("care_folders", "date_modification", "last_modification_date", "2026-01-02-01-04"),
-                ("returns", "dateCreation", "start_date", "2026-01-02T01:04:59+00:00"),
-                ("buyback_orders", "modificationDate", "modificationDate", "2026-01-02"),
+            (endpoint, field, param, watermark, expected, mode)
+            for endpoint, field, param, watermark, expected in [
+                (
+                    "care_folders",
+                    "date_modification",
+                    "last_modification_date",
+                    "2026-01-02T03:04:59.123+02:00",
+                    "2026-01-02-01-03",
+                ),
+                (
+                    "care_folders",
+                    "date_modification",
+                    "last_modification_date",
+                    "2026-01-02T03:04:00+02:00",
+                    "2026-01-02-01-03",
+                ),
+                (
+                    "care_folders",
+                    "date_modification",
+                    "last_modification_date",
+                    "2026-01-01T00:00:00Z",
+                    "2025-12-31-23-59",
+                ),
+                ("returns", "dateCreation", "start_date", "2026-01-02T03:04:59.123+02:00", "2026-01-02T01:04:59+00:00"),
+                (
+                    "buyback_orders",
+                    "modificationDate",
+                    "modificationDate",
+                    "2026-01-02T03:04:59.123+02:00",
+                    "2026-01-02",
+                ),
             ]
             for mode in ("incremental", "full_refresh", "first_sync")
         ]
     )
-    def test_filters_every_page(self, endpoint: str, field: str, param: str, expected: str, mode: str) -> None:
+    def test_filters_every_page(
+        self, endpoint: str, field: str, param: str, watermark: str, expected: str, mode: str
+    ) -> None:
         result = _driver().run(
             endpoint,
             [_page("more", [{field: "2026-01-02T01:05:00Z"}]), _page(None, [])],
             incremental_field=field,
             should_use_incremental_field=mode != "full_refresh",
-            db_incremental_field_last_value=None if mode == "first_sync" else "2026-01-02T03:04:59.123+02:00",
+            db_incremental_field_last_value=None if mode == "first_sync" else watermark,
         )
 
         assert result.raised is None

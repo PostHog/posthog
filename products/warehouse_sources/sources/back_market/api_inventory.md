@@ -37,8 +37,9 @@ Resume state includes parent pagination and child progress.
 ## Incremental limits
 
 - Care Folders accept `last_modification_date` in `YYYY-MM-DD-hh-mm` format.
-  The specification says the filter returns more recent cases. The source truncates the watermark to minute precision.
-  Exact minute boundaries need care because the documented filter is exclusive.
+  The specification says the filter returns more recent cases, so the lower bound is exclusive.
+  The source subtracts one minute before formatting the watermark to retain cases at exact minute boundaries.
+  Repeated rows require deduplication by the primary key when storing incremental results.
 - Returns accept `start_date` as an inclusive creation timestamp.
   This filter cannot capture later changes to older returns. Use full refresh to retrieve those changes.
 - BuyBack orders accept `modificationDate` as a date.

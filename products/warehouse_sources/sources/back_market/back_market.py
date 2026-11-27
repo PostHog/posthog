@@ -1,4 +1,4 @@
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional, cast
 
 from requests import PreparedRequest, Request, Response
@@ -146,7 +146,8 @@ def _build_params(
             timestamp = parse_datetime_value(db_incremental_field_last_value)
             if timestamp is None:
                 raise ValueError("Invalid Care Folder timestamp")
-            params["last_modification_date"] = timestamp.strftime("%Y-%m-%d-%H-%M")
+            # The exclusive minute filter must include cases at the saved watermark.
+            params["last_modification_date"] = (timestamp - timedelta(minutes=1)).strftime("%Y-%m-%d-%H-%M")
         elif config.name == "returns":
             params["start_date"] = format_datetime(db_incremental_field_last_value, "iso_offset")
         elif config.name == "buyback_orders":
