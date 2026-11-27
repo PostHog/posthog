@@ -14663,7 +14663,7 @@ Note: The folders and form-analytics endpoints were announced in the June 2026 r
 
 ## Tavus — gaps
 
-Today (9): `canvas_interactions`, `conversations`, `faces`, `memory_stores`, `pals`, `personas`, `replicas`, `transcriptions`, `videos`
+Today (14): `canvas_interactions`, `conversations`, `deployments`, `documents`, `faces`, `memory_stores`, `objectives`, `pal_skills`, `pals`, `personas`, `replicas`, `skills`, `transcriptions`, `videos`
 
 Diffed against: <https://docs.tavus.io/openapi.yaml>
 
@@ -14671,10 +14671,10 @@ Diffed against: <https://docs.tavus.io/openapi.yaml>
 - [x] `GET /v2/faces` — Current replacement for replicas - the lookup table for the face/avatar ID on conversations and videos (high) → `faces` (full refresh)
 - [x] `GET /v2/transcriptions` — Conversation transcripts, the primary analytical output of a conversational-video product and completely uncovered (high) → `transcriptions` (full refresh; the endpoint lists speech-to-text jobs for video files, not conversation transcripts)
 - [x] `GET /v2/conversations/{conversation_id}/canvas/interactions` — Per-conversation interaction events (clicks, inputs, component responses) - the event stream under the synced conversations table (high) → `canvas_interactions` (full refresh, fan-out over `conversations`)
-- [ ] `GET /v2/deployments` — Deployments group conversations by embed/widget surface; needed to attribute conversation volume to a channel (medium)
-- [ ] `GET /v2/objectives` — Lookup table for the objectives a PAL is scored against, the basis of conversation outcome analysis (medium)
-- [ ] `GET /v2/documents` — Knowledge-base documents attached to PALs, with crawl status (medium)
-- [ ] `GET /v2/skills and GET /v2/pals/{pal_id}/skills` — Skill catalog plus the PAL-to-skill membership table (medium)
+- [x] `GET /v2/deployments` — Deployments group conversations by embed/widget surface; needed to attribute conversation volume to a channel (medium) → `deployments` (full refresh)
+- [x] `GET /v2/objectives` — Lookup table for the objectives a PAL is scored against, the basis of conversation outcome analysis (medium) → `objectives` (full refresh)
+- [x] `GET /v2/documents` — Knowledge-base documents attached to PALs, with crawl status (medium) → `documents` (full refresh)
+- [x] `GET /v2/skills and GET /v2/pals/{pal_id}/skills` — Skill catalog plus the PAL-to-skill membership table (medium) → `skills` (full refresh) and `pal_skills` (full refresh, fan-out over `pals`)
 - [ ] `GET /v2/tools and GET /v2/pals/{pal_id}/tools` — Tool definitions and PAL-to-tool membership, needed to interpret tool-call activity (medium)
 - [ ] `GET /v2/voices` — Lookup table resolving the voice ID configured on PALs and videos (medium)
 - [ ] `GET /v2/lipsync` — Lipsync generation jobs with status and duration, a sibling of the synced videos table (low)
