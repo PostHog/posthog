@@ -205,7 +205,7 @@ async function startProbes(
     const activity: Sampling<ActivitySample> = sampleEvery(QUEUE_PROBE_EVERY_MS, async () => {
         const at = Date.now()
         return probe.activity().then(
-            (backends) => ({ at, backends }),
+            (backends) => ({ at: Date.now(), backends }),
             (error: unknown) => ({ at, error: messageOf(error) })
         )
     })
