@@ -9,7 +9,7 @@ from posthog.models.team import Team
 
 from products.experiments.backend.facade import testing
 from products.experiments.backend.models.experiment import Experiment, ExperimentQuerySet
-from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.feature_flags.backend.facade.api import create_flag
 
 ALL_DELETED_STATES: frozenset[bool | None] = frozenset({False, True, None})
 
@@ -70,7 +70,7 @@ class TestExperimentLookups(BaseTest):
         cls.flags = {}
         for placement, team in teams.items():
             for deleted in ALL_DELETED_STATES:
-                flag = FeatureFlag.objects.create(team=team, key=f"flag-{placement}-{deleted}", created_by=cls.user)
+                flag = create_flag({"key": f"flag-{placement}-{deleted}"}, team=team, user=cls.user)
                 cls.flags[placement, deleted] = flag.id
                 cls.ids[placement, deleted] = testing.create_experiment(
                     team_id=team.id, feature_flag_id=flag.id, deleted=deleted
