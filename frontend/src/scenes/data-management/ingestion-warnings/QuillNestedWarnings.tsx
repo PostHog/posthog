@@ -2,8 +2,8 @@ import { DataTable, DataTableProps } from '@posthog/quill'
 
 import { TZLabel } from 'lib/components/TZLabel'
 
+import { renderWarningDescription } from './ingestionWarningDisplay'
 import { IngestionWarning } from './ingestionWarningsLogic'
-import { renderWarningDescription } from './ingestionWarningTypes'
 
 // In production this list can be huge, so it is paged rather than rendered at once.
 const PAGE_SIZE = 20

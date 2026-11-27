@@ -19,8 +19,8 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { renderWarningDescription, warningDocsUrl, warningTypeLabel } from './ingestionWarningDisplay'
 import { IngestionWarning, IngestionWarningSummary, ingestionWarningsLogic } from './ingestionWarningsLogic'
-import { renderWarningDescription, warningDocsUrl, warningTypeLabel } from './ingestionWarningTypes'
 import { QuillIngestionWarnings } from './QuillIngestionWarnings'
 
 const HedgehogReadingIsMagic = pngHoggie(readingIsMagicPng)

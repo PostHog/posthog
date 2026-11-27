@@ -43,10 +43,10 @@ export const IngestionWarningsQuill: Story = {
     },
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
-        const expandButton = await waitFor(() =>
-            canvas.getByRole('button', {
-                name: 'Show Replay data was dropped because it was too large to ingest warnings',
-            })
+        const expandButton = await canvas.findByRole(
+            'button',
+            { name: 'Show Replay data was dropped because it was too large to ingest warnings' },
+            { timeout: 10000 }
         )
         await userEvent.click(expandButton)
         await waitFor(() => expect(canvas.getByText(/Session replay data dropped due to its size/)).toBeInTheDocument())

@@ -25,8 +25,8 @@ import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { AnalyticsSearchInput } from 'scenes/analytics/AnalyticsSearchInput'
 import { urls } from 'scenes/urls'
 
+import { warningDocsUrl, warningTypeLabel } from './ingestionWarningDisplay'
 import { IngestionWarningSummary, ingestionWarningsLogic } from './ingestionWarningsLogic'
-import { warningDocsUrl, warningTypeLabel } from './ingestionWarningTypes'
 import { QuillNestedWarnings } from './QuillNestedWarnings'
 
 const HedgehogReadingIsMagic = pngHoggie(readingIsMagicPng)
