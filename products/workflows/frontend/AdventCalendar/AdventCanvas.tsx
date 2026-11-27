@@ -31,7 +31,6 @@ export interface AdventCanvasProps {
     viewport: Viewport
     today: number
     selectedDoorId: string | null
-    openingDoorId: string | null
     onActivateDoor: (doorId: string) => void
     onEnterDoor: (doorId: string) => void
     onLeaveDoor: () => void
@@ -43,7 +42,6 @@ export function AdventCanvas({
     viewport,
     today,
     selectedDoorId,
-    openingDoorId,
     onActivateDoor,
     onEnterDoor,
     onLeaveDoor,
@@ -61,13 +59,12 @@ export function AdventCanvas({
                         door,
                         isSelected: door.id === selectedDoorId,
                         isToday: door.day === today,
-                        isOpening: door.id === openingDoorId,
                     },
                     selectable: false,
                 })
             ),
         ],
-        [graph, selectedDoorId, openingDoorId, today]
+        [graph, selectedDoorId, today]
     )
 
     const edges = useMemo<Edge[]>(() => graph.links.map((link) => edgeOf(link, adventPalette())), [graph])

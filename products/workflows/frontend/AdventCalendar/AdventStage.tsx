@@ -4,8 +4,6 @@ import { ReactFlowProvider } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
 import { useCallback } from 'react'
 
-import { cn } from 'lib/utils/css-classes'
-
 import { adventCalendarLogic } from './adventCalendarLogic'
 import { AdventCanvas } from './AdventCanvas'
 import { AdventCardFace, AdventDoorCard } from './AdventDoorCard'
@@ -14,7 +12,6 @@ import { adventPaletteStyle } from './adventPalette'
 import { AdventPictureBackdrop } from './AdventPictureBackdrop'
 import { useAdventCard } from './useAdventCard'
 import { useAdventEscape } from './useAdventEscape'
-import { useAdventReveal } from './useAdventReveal'
 import { AdventStageFit, useAdventStageFit } from './useAdventStageFit'
 
 function faceOf(door: AdventDoor, { zoom, box }: AdventStageFit): AdventCardFace {
@@ -27,30 +24,23 @@ function faceOf(door: AdventDoor, { zoom, box }: AdventStageFit): AdventCardFace
 }
 
 export function AdventStage(): JSX.Element {
-    const { graph, today, selectedDoor, revealingDoor } = useValues(adventCalendarLogic)
-    const { activateDoor, answerDoor, clearSelection, finishReveal, clickTip } = useActions(adventCalendarLogic)
+    const { graph, today, selectedDoor } = useValues(adventCalendarLogic)
+    const { activateDoor, answerDoor, clearSelection, clickTip } = useActions(adventCalendarLogic)
     const fit = useAdventStageFit()
     const { ref, zoom, box, stage } = fit
-    const revealingDoorId = revealingDoor?.id ?? null
     const selectedDoorId = selectedDoor?.id ?? null
-    const reveal = useAdventReveal(revealingDoorId, finishReveal)
-    const card = useAdventCard(selectedDoorId, !revealingDoor)
-    const cardDoor = revealingDoor ? null : (graph.doors.find((door) => door.id === card.doorId) ?? null)
+    const card = useAdventCard(selectedDoorId, true)
+    const cardDoor = graph.doors.find((door) => door.id === card.doorId) ?? null
     const { clearHover } = card
 
     const dismiss = useCallback((): void => {
         clearSelection()
         clearHover()
     }, [clearSelection, clearHover])
-    useAdventEscape(!!revealingDoor, finishReveal, dismiss)
+    useAdventEscape(dismiss)
 
     return (
-        <div
-            ref={ref}
-            className={cn('AdventStage', reveal.phase && 'AdventStage--revealing')}
-            style={adventPaletteStyle()}
-            data-attr="advent-stage"
-        >
+        <div ref={ref} className="AdventStage" style={adventPaletteStyle()} data-attr="advent-stage">
             {zoom > 0 && (
                 <>
                     <div className="AdventPicture" style={box}>
@@ -63,7 +53,6 @@ export function AdventStage(): JSX.Element {
                                 viewport={{ x: box.left, y: box.top, zoom }}
                                 today={today}
                                 selectedDoorId={selectedDoorId}
-                                openingDoorId={revealingDoorId}
                                 onActivateDoor={activateDoor}
                                 onEnterDoor={card.onEnterDoor}
                                 onLeaveDoor={card.onLeaveDoor}
@@ -71,14 +60,6 @@ export function AdventStage(): JSX.Element {
                             />
                         </ReactFlowProvider>
                     </div>
-                    {reveal.phase && (
-                        <button
-                            type="button"
-                            className="AdventStage__scrim"
-                            aria-label="Continue"
-                            onClick={reveal.advance}
-                        />
-                    )}
                     {cardDoor && (
                         <AdventDoorCard
                             key={cardDoor.id}

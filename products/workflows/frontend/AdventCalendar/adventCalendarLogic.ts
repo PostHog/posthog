@@ -48,10 +48,6 @@ function storedProgress(value: string): Record<string, AdventProgress> | null {
     return Object.fromEntries(entries)
 }
 
-function prefersReducedMotion(): boolean {
-    return window.matchMedia('(prefers-reduced-motion: reduce)').matches
-}
-
 function rewardsBehind(door: AdventDoor): AdventReward[] {
     const optionRewards = door.question?.options.map((option) => option.reward) ?? []
     return [door.reward, ...optionRewards].filter((reward): reward is AdventReward => !!reward)
@@ -73,8 +69,6 @@ export interface adventCalendarLogicValues {
     openCount: number
     progress: AdventProgress
     progressByUser: Record<string, AdventProgress>
-    revealingDoor: AdventDoor | null
-    revealingDoorId: string | null
     rewards: AdventRewards
     selectedDoor: AdventDoor | null
     selectedDoorId: string | null
@@ -112,9 +106,6 @@ export interface adventCalendarLogicActions {
     clickTip: (day: number) => {
         day: number
     }
-    finishReveal: () => {
-        value: true
-    }
     openDoor: (
         userUuid: string,
         day: number,
@@ -129,9 +120,6 @@ export interface adventCalendarLogicActions {
     }
     refreshClock: () => {
         localDate: number
-    }
-    startReveal: (doorId: string) => {
-        doorId: string
     }
     syncProgress: (progressByUser: Record<string, AdventProgress>) => {
         progressByUser: Record<string, AdventProgress>
@@ -152,7 +140,6 @@ export interface adventCalendarLogicMeta {
         graph: (progress: AdventProgress, today: number, rewards: AdventRewards) => AdventGraph
         openCount: (graph: AdventGraph) => number
         selectedDoor: (graph: AdventGraph, selectedDoorId: string | null) => AdventDoor | null
-        revealingDoor: (graph: AdventGraph, revealingDoorId: string | null) => AdventDoor | null
     }
 }
 
@@ -178,8 +165,6 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
             const now = new Date()
             return { localDate: new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime() }
         },
-        startReveal: (doorId: string) => ({ doorId }),
-        finishReveal: true,
         clearSelection: true,
         clickTip: (day: number) => ({ day }),
         preloadImages: true,
@@ -229,13 +214,6 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
                 clearSelection: () => null,
             },
         ],
-        revealingDoorId: [
-            null as string | null,
-            {
-                startReveal: (_, { doorId }) => doorId,
-                finishReveal: () => null,
-            },
-        ],
     }),
     selectors({
         progress: [
@@ -278,23 +256,12 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
                 selectedDoorId: adventCalendarLogicValues['selectedDoorId']
             ): AdventDoor | null => graph.doors.find((door) => door.id === selectedDoorId) ?? null,
         ],
-        revealingDoor: [
-            (s) => [s.graph, s.revealingDoorId],
-            (
-                graph: adventCalendarLogicValues['graph'],
-                revealingDoorId: adventCalendarLogicValues['revealingDoorId']
-            ): AdventDoor | null =>
-                graph.doors.find((door) => door.id === revealingDoorId && door.status === 'open') ?? null,
-        ],
     }),
     listeners(({ actions, values, cache }) => ({
         activateDoor: ({ doorId }) => {
             const door = values.graph.doors.find((candidate) => candidate.id === doorId)
             if (door?.status === 'ready' && !door.question) {
                 actions.openDoor(values.user?.uuid ?? '', door.day, null)
-                if (!prefersReducedMotion()) {
-                    actions.startReveal(door.id)
-                }
             }
         },
         answerDoor: ({ doorId, optionId }) => {
@@ -305,9 +272,6 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
             }
             posthog.capture(EVENTS.answerPicked, { day: door.day, option: optionId })
             actions.openDoor(values.user?.uuid ?? '', door.day, optionId)
-            if (!prefersReducedMotion()) {
-                actions.startReveal(door.id)
-            }
         },
         openDoor: ({ day }) => {
             posthog.capture(EVENTS.doorOpened, { day })
