@@ -26,6 +26,7 @@ struct Pending {
     record_id: String,
     quantity: f64,
     unit: String,
+    timestamp_ms: Option<i64>,
 }
 
 #[derive(Default)]
@@ -167,6 +168,18 @@ impl GrpcUsageRecordBatch {
 #[async_trait]
 impl UsageRecordBatch for GrpcUsageRecordBatch {
     fn add(&self, team_id: i64, usage_key: &str, record_id: &str, quantity: f64, unit: &str) {
+        self.add_at(team_id, usage_key, record_id, quantity, unit, None);
+    }
+
+    fn add_at(
+        &self,
+        team_id: i64,
+        usage_key: &str,
+        record_id: &str,
+        quantity: f64,
+        unit: &str,
+        timestamp_ms: Option<i64>,
+    ) {
         if quantity <= 0.0 || !self.accepts(team_id) {
             return;
         }
@@ -179,6 +192,7 @@ impl UsageRecordBatch for GrpcUsageRecordBatch {
                 record_id: record_id.to_string(),
                 quantity,
                 unit: unit.to_string(),
+                timestamp_ms,
             });
         }
     }
@@ -203,7 +217,7 @@ impl UsageRecordBatch for GrpcUsageRecordBatch {
             }
             records.push(BillingUsageRecord {
                 team_id: p.team_id,
-                timestamp_ms: flushed_at,
+                timestamp_ms: p.timestamp_ms.unwrap_or(flushed_at),
                 producer_id: self.producer_id.to_string(),
                 usage_key: p.usage_key,
                 record_id: p.record_id,
