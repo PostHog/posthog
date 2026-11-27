@@ -1008,25 +1008,33 @@ class EmailSetDefaultView(APIView):
         return Response({"ok": True})
 
 
+_SUPPORT_CHANNEL_SETTING_RESPONSES = {
+    200: EmailChannelOperationResponseSerializer,
+    400: OpenApiResponse(response=EmailChannelErrorSerializer),
+    404: OpenApiResponse(response=EmailChannelErrorSerializer),
+}
+
+
+def _resolve_support_config(request: ValidatedRequest, not_support_error: str) -> ResolvedEmailConfig | Response:
+    result = _resolve_config(request, request.validated_data["config_id"])
+    if isinstance(result, ResolvedEmailConfig) and result.config.kind != EmailChannelKind.SUPPORT:
+        return Response({"error": not_support_error}, status=400)
+    return result
+
+
 class EmailSetTrustedRelayView(APIView):
     permission_classes = [IsAuthenticated, IsConversationsAdmin]
 
     @validated_request(
         tags=["conversations"],
         request_serializer=EmailSetTrustedRelaySerializer,
-        responses={
-            200: EmailChannelOperationResponseSerializer,
-            400: OpenApiResponse(response=EmailChannelErrorSerializer),
-            404: OpenApiResponse(response=EmailChannelErrorSerializer),
-        },
+        responses=_SUPPORT_CHANNEL_SETTING_RESPONSES,
     )
     def post(self, request: ValidatedRequest, *args, **kwargs) -> Response:
-        result = _resolve_config(request, request.validated_data["config_id"])
+        result = _resolve_support_config(request, "Only support email channels can use a trusted relay.")
         if isinstance(result, Response):
             return result
         user, team, config = result.user, result.team, result.config
-        if config.kind != EmailChannelKind.SUPPORT:
-            return Response({"error": "Only support email channels can use a trusted relay."}, status=400)
 
         trusted_relay_sender: str = request.validated_data["trusted_relay_sender"]
         config.trusted_relay_sender = trusted_relay_sender
@@ -1082,19 +1090,13 @@ class EmailSetSenderNameTemplateView(APIView):
     @validated_request(
         tags=["conversations"],
         request_serializer=EmailSetSenderNameTemplateSerializer,
-        responses={
-            200: EmailChannelOperationResponseSerializer,
-            400: OpenApiResponse(response=EmailChannelErrorSerializer),
-            404: OpenApiResponse(response=EmailChannelErrorSerializer),
-        },
+        responses=_SUPPORT_CHANNEL_SETTING_RESPONSES,
     )
     def post(self, request: ValidatedRequest, *args, **kwargs) -> Response:
-        result = _resolve_config(request, request.validated_data["config_id"])
+        result = _resolve_support_config(request, "Only support email channels can show the agent's name.")
         if isinstance(result, Response):
             return result
         user, team, config = result.user, result.team, result.config
-        if config.kind != EmailChannelKind.SUPPORT:
-            return Response({"error": "Only support email channels can show the agent's name."}, status=400)
 
         config.sender_name_template = request.validated_data["sender_name_template"]
         config.save(update_fields=["sender_name_template"])

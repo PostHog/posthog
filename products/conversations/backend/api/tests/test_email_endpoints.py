@@ -1755,6 +1755,19 @@ class TestEmailSenderNameTemplate(SimpleTestCase):
             ("no_template_uses_the_display_name", "", "Sam", "Acme Support"),
             ("template_names_the_agent", "{author_first_name} at Acme", " Sam ", "Sam at Acme"),
             ("template_without_an_author_uses_the_display_name", "{author_first_name} at Acme", "", "Acme Support"),
+            (
+                "full_name_in_first_name_keeps_the_first_word",
+                "{author_first_name} at Acme",
+                "Sam Taylor",
+                "Sam at Acme",
+            ),
+            (
+                "line_break_in_first_name_is_cut",
+                "{author_first_name} at Acme",
+                "Sam\r\nBcc: a@example.com",
+                "Sam at Acme",
+            ),
+            ("control_character_falls_back", "{author_first_name} at Acme", "S\x00am", "Acme Support"),
         ]
     )
     def test_sender_name_for(self, _name, template, first_name, expected):

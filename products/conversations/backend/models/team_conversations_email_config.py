@@ -1,3 +1,5 @@
+import unicodedata
+
 from django.db import models
 
 from posthog.models.team import Team
@@ -57,7 +59,12 @@ class EmailChannel(UUIDModel):
 
     def sender_name_for(self, author_first_name: str) -> str:
         """Return the From display name for a reply written by a person with this first name."""
-        author_first_name = author_first_name.strip()
+        # SSO and SCIM store unvalidated names, often the full name, in User.first_name.
+        # Keep the first word only, and drop a name the email header policy would refuse.
+        words = author_first_name.split()
+        author_first_name = words[0] if words else ""
+        if any(unicodedata.category(c) == "Cc" for c in author_first_name):
+            author_first_name = ""
         if self.sender_name_template and author_first_name:
             # str.replace, not str.format: the template is admin input and must not reach attribute lookups.
             return self.sender_name_template.replace(SENDER_NAME_AUTHOR_PLACEHOLDER, author_first_name)
