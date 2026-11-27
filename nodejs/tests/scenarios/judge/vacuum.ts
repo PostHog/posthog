@@ -161,7 +161,6 @@ const UNIT_SCALE: Record<string, number> = {
     d: 86_400_000,
 }
 
-// PostgreSQL takes one value in many spellings: 60s and 1min, 5 in a setting whose unit is s, true and on.
 function settingValueOf(value: string, { unit, vartype }: SettingType): string {
     const text = value.trim()
     if (vartype === 'bool') {
