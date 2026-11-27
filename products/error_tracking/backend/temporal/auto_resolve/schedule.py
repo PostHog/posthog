@@ -7,7 +7,6 @@ from temporalio.client import (
     Schedule,
     ScheduleActionStartWorkflow,
     ScheduleCalendarSpec,
-    ScheduleIntervalSpec,
     ScheduleOverlapPolicy,
     SchedulePolicy,
     ScheduleRange,
@@ -20,26 +19,15 @@ from products.error_tracking.backend.temporal.auto_resolve.workflow import WORKF
 
 
 async def create_error_tracking_auto_resolve_schedules(client: Client) -> None:
-    for schedule_id, inputs, spec in (
-        (
-            "error-tracking-auto-resolve-schedule",
-            AutoResolveInputs(),
-            ScheduleSpec(calendars=[ScheduleCalendarSpec(hour=[ScheduleRange(start=6)])]),
+    schedule_id = "error-tracking-auto-resolve-schedule"
+    schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            WORKFLOW_NAME, AutoResolveInputs(), id=schedule_id, task_queue=settings.ERROR_TRACKING_TASK_QUEUE
         ),
-        (
-            "error-tracking-auto-resolve-sync-schedule",
-            AutoResolveInputs(sync_only=True),
-            ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(minutes=15))]),
-        ),
-    ):
-        schedule = Schedule(
-            action=ScheduleActionStartWorkflow(
-                WORKFLOW_NAME, inputs, id=schedule_id, task_queue=settings.ERROR_TRACKING_TASK_QUEUE
-            ),
-            spec=spec,
-            policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
-        )
-        if await a_schedule_exists(client, schedule_id):
-            await a_update_schedule(client, schedule_id, schedule, keep_paused=True)
-        else:
-            await a_create_schedule(client, schedule_id, schedule, trigger_immediately=False)
+        spec=ScheduleSpec(calendars=[ScheduleCalendarSpec(hour=[ScheduleRange(start=6)])]),
+        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP, catchup_window=timedelta(days=1)),
+    )
+    if await a_schedule_exists(client, schedule_id):
+        await a_update_schedule(client, schedule_id, schedule, keep_paused=True)
+    else:
+        await a_create_schedule(client, schedule_id, schedule, trigger_immediately=False)

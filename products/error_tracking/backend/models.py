@@ -883,12 +883,10 @@ def _clickhouse_status(issue_status: str) -> str:
     return issue_status
 
 
-def sync_issues_to_clickhouse(*, issue_ids: list, team_id: int, wait_for_delivery: bool = False) -> None:
+def sync_issues_to_clickhouse(*, issue_ids: list, team_id: int) -> None:
     if not issue_ids:
         return
 
-    # Take the version before reading issue state so a stale snapshot cannot outrank a later read.
-    version = int(time.time() * 1000)
     issues = {
         i.id: i
         for i in ErrorTrackingIssue.objects.filter(id__in=issue_ids, team_id=team_id).select_related("assignment")
@@ -896,7 +894,10 @@ def sync_issues_to_clickhouse(*, issue_ids: list, team_id: int, wait_for_deliver
     fingerprints = ErrorTrackingIssueFingerprintV2.objects.filter(issue_id__in=issue_ids, team_id=team_id)
 
     producer = ClickhouseProducer()
-    deliveries = []
+    version = int(
+        time.time() * 1000
+    )  # ReplacingMergeTree version — match rust/cymbal FingerprintIssueState::new (Utc::now().timestamp_millis())
+
     for fp in fingerprints:
         issue = issues.get(fp.issue_id)
         if issue is None:
@@ -913,7 +914,7 @@ def sync_issues_to_clickhouse(*, issue_ids: list, team_id: int, wait_for_deliver
 
         first_seen_raw = fp.first_seen or issue.created_at
         first_seen = format_clickhouse_timestamp(first_seen_raw) if first_seen_raw else None
-        delivery = producer.produce(
+        producer.produce(
             sql=INSERT_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE,
             topic=KAFKA_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE,
             data={
@@ -931,10 +932,6 @@ def sync_issues_to_clickhouse(*, issue_ids: list, team_id: int, wait_for_deliver
                 "version": version,
             },
         )
-        if wait_for_delivery:
-            deliveries.append(delivery)
-    if deliveries:
-        producer.wait_for_delivery(deliveries, timeout=30)
 
 
 def delete_symbol_set_contents(upload_path: str) -> None:

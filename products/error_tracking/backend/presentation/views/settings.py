@@ -60,7 +60,7 @@ class ErrorTrackingSettingsSerializer(serializers.Serializer):
         max_value=365,
         help_text=(
             "Days without a new exception before an active issue resolves automatically. "
-            "Observation starts when you turn on auto-resolve. Null turns it off."
+            "Exceptions before you turn on auto-resolve count. Null turns it off."
         ),
     )
 

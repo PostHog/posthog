@@ -20,7 +20,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Days without a new exception before an active issue resolves automatically. Observation starts when you turn on auto-resolve. Null turns it off."
+            "description": "Days without a new exception before an active issue resolves automatically. Exceptions before you turn on auto-resolve count. Null turns it off."
         },
         "ingestion_enabled": {
             "description": "Whether the project ingests exception events. When false, ingestion drops every $exception event for this project before it is stored or billed, and the events cannot be recovered.",

@@ -5,7 +5,6 @@ from uuid import UUID
 from django.conf import settings
 from django.db import DEFAULT_DB_ALIAS, transaction
 from django.db.models import Count, Q, QuerySet
-from django.utils import timezone
 
 from posthog.models.event_filter_config import EventFilterPipelineOverride
 from posthog.models.event_ingestion_restriction_config import IngestionPipeline
@@ -253,27 +252,11 @@ def update_settings(team_id: int, fields: dict[str, int | bool | None]) -> Error
         settings, _ = ErrorTrackingSettings.objects.select_for_update().get_or_create(team_id=team_id)
         ingestion_enabled = fields.get("ingestion_enabled")
         if isinstance(ingestion_enabled, bool):
-            was_ingesting = is_exception_ingestion_enabled(team_id)
             set_exception_ingestion_enabled(team_id, ingestion_enabled)
-        else:
-            was_ingesting = ingestion_enabled = is_exception_ingestion_enabled(team_id)
-
-        after_days = updates.get("auto_resolve_after_days", settings.auto_resolve_after_days)
-        update_fields = list(updates)
-        if after_days is None or not ingestion_enabled:
-            observation_started_at = None
-        elif not was_ingesting or settings.auto_resolve_observation_started_at is None:
-            observation_started_at = timezone.now()
-        else:
-            observation_started_at = settings.auto_resolve_observation_started_at
-        if observation_started_at != settings.auto_resolve_observation_started_at:
-            settings.auto_resolve_observation_started_at = observation_started_at
-            update_fields.append("auto_resolve_observation_started_at")
-
         for key, value in updates.items():
             setattr(settings, key, value)
-        if update_fields:
-            settings.save(update_fields=update_fields)
+        if updates:
+            settings.save(update_fields=list(updates))
         return settings
 
 

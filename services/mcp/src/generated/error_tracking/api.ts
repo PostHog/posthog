@@ -8897,7 +8897,7 @@ export const ErrorTrackingSettingsUpdateSettingsPartialUpdateBody = () => zod.ob
         .max(errorTrackingSettingsUpdateSettingsPartialUpdateBodyAutoResolveAfterDaysMax)
         .nullish()
         .describe(
-            'Days without a new exception before an active issue resolves automatically. Observation starts when you turn on auto-resolve. Null turns it off.'
+            'Days without a new exception before an active issue resolves automatically. Exceptions before you turn on auto-resolve count. Null turns it off.'
         ),
 })
 

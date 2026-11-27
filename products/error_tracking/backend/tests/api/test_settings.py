@@ -1,6 +1,3 @@
-from datetime import UTC, datetime, timedelta
-
-import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -39,35 +36,13 @@ class TestErrorTrackingSettingsAPI(APIBaseTest):
         self.assertIsNone(response.json()["auto_resolve_after_days"])
 
     @patch("products.error_tracking.backend.facade.api.auto_resolve_available", return_value=True)
-    def test_auto_resolve_observation_restarts_after_a_gap(self, _flag):
-        start = datetime(2026, 10, 1, tzinfo=UTC)
-        later = start + timedelta(days=1)
+    def test_auto_resolve_threshold_can_be_changed_or_disabled(self, _flag):
         url = f"{self._base_url()}/update_settings/"
-
-        with time_machine.travel(start, tick=False):
-            response = self.client.patch(url, {"auto_resolve_after_days": 14}, format="json")
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-        self.assertEqual(response.json()["auto_resolve_after_days"], 14)
-        self.assertEqual(ErrorTrackingSettings.objects.get(team=self.team).auto_resolve_observation_started_at, start)
-
-        with time_machine.travel(later, tick=False):
-            response = self.client.patch(url, {"auto_resolve_after_days": 7}, format="json")
+        for days in (14, 7, None):
+            response = self.client.patch(url, {"auto_resolve_after_days": days}, format="json")
             self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-            self.assertEqual(
-                ErrorTrackingSettings.objects.get(team=self.team).auto_resolve_observation_started_at, start
-            )
-
-            self.assertEqual(self.client.patch(url, {"ingestion_enabled": False}, format="json").status_code, 200)
-            self.assertIsNone(ErrorTrackingSettings.objects.get(team=self.team).auto_resolve_observation_started_at)
-            self.assertEqual(self.client.patch(url, {"ingestion_enabled": True}, format="json").status_code, 200)
-            self.assertEqual(
-                ErrorTrackingSettings.objects.get(team=self.team).auto_resolve_observation_started_at, later
-            )
-
-            response = self.client.patch(url, {"auto_resolve_after_days": None}, format="json")
-            self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-            self.assertIsNone(response.json()["auto_resolve_after_days"])
-            self.assertIsNone(ErrorTrackingSettings.objects.get(team=self.team).auto_resolve_observation_started_at)
+            self.assertEqual(response.json()["auto_resolve_after_days"], days)
+        self.assertIsNone(ErrorTrackingSettings.objects.get(team=self.team).auto_resolve_after_days)
 
     @parameterized.expand([("zero", 0, True), ("over_maximum", 366, True), ("not_rolled_out", 14, False)])
     def test_auto_resolve_rejects_invalid_or_unavailable_threshold(self, _name, days, flag_enabled):
