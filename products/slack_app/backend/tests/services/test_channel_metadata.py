@@ -15,8 +15,12 @@ from products.slack_app.backend.services.channel_metadata import (
 )
 
 
-def _slack(channel: dict | None = None, error: Exception | None = None) -> MagicMock:
+def _slack(
+    channel: dict | None = None, error: Exception | None = None, missing_scopes: frozenset = frozenset()
+) -> MagicMock:
     slack = MagicMock()
+    slack.missing_scopes.return_value = missing_scopes
+    slack.client.usergroups_list.return_value = {"usergroups": [{"id": "S0123", "handle": "team-replay"}]}
     if error is not None:
         slack.client.conversations_info.side_effect = error
     else:
@@ -61,6 +65,22 @@ class TestRefreshChannelMetadata:
         channel = SlackChannel.objects.get(slack_workspace_id="T01", slack_channel_id="C01")
         assert (channel.topic, channel.purpose) == ("Replays and <!subteam^S0123|@team-replay>", "Session replay R&D")
         assert channel.owner_groups == [{"id": "S0123", "handle": "team-replay"}]
+
+    @pytest.mark.parametrize(
+        "missing_scopes,expected_handle",
+        [(frozenset(), "team-replay"), (frozenset({"usergroups:read"}), "")],
+    )
+    def test_names_an_unlabeled_group_only_with_the_usergroups_scope(
+        self, missing_scopes: frozenset, expected_handle: str
+    ) -> None:
+        slack = _slack(
+            {"is_channel": True, "topic": {"value": "Owned by <!subteam^S0123>"}}, missing_scopes=missing_scopes
+        )
+
+        assert refresh_channel_metadata(slack, slack_workspace_id="T01", slack_channel_id="C01")
+
+        channel = SlackChannel.objects.get(slack_channel_id="C01")
+        assert channel.owner_groups == [{"id": "S0123", "handle": expected_handle}]
 
     @pytest.mark.parametrize(
         "channel",

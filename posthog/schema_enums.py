@@ -3219,9 +3219,8 @@ class SlackIntegrationScope(StrEnum):
     USERS_READ_EMAIL = "users:read.email"
 
 
-# Add the Slack scopes that wait on Slack app review to SlackIntegrationScopeInReview in frontend/src/types.ts.
 class SlackIntegrationScopeInReview(StrEnum):
-    pass
+    USERGROUPS_READ = "usergroups:read"
 
 
 class SlashCommandName(StrEnum):
