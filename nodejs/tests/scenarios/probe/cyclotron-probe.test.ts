@@ -218,7 +218,7 @@ describe('cyclotron probe', () => {
             }
             const probe = createCyclotronProbe(PROBE_URL, undefined, isolated.toString())
 
-            expect(await probe.activity()).toEqual([
+            expect((await probe.activity()).backends).toEqual([
                 { state: 'active', wait: 'lock', count: 1 },
                 { state: 'idle', wait: 'client', count: 1 },
                 { state: 'idle in transaction', wait: 'client', count: 1 },
