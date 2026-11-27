@@ -568,9 +568,7 @@ class CDCExtractActivity:
             self.log.warning("cdc_setup_transient_app_db_error", exc_info=True)
             raise NonReportableError(str(exc)) from exc
 
-        # A run that died after a write triggered nothing, so the tables it wrote wait for this one.
-        if any((schema.sync_type_config or {}).get(BUFFER_WRITE_OPEN_KEY) for schema in self.cdc_schemas):
-            self._trigger_loads()
+        self._trigger_loads_a_dead_run_left()
 
         completed = False
         try:
@@ -1082,8 +1080,7 @@ class CDCExtractActivity:
             # hold, grow the window so an oversized single transaction can complete in one peek (or
             # trip the decoder's MAX_TX_BUFFER_EVENTS guard) instead of re-peeking the same page.
             advanced = self._drain_and_advance_page()
-            if self._should_stop is None or not self._should_stop():
-                self._trigger_loads_during_a_long_read()
+            self._trigger_loads_during_a_long_read()
 
             # Checked after the page advance, so the slot is already past every change this run wrote
             # to the buffer and the next run starts at the first unread change.
@@ -1743,8 +1740,15 @@ class CDCExtractActivity:
         except Exception:
             self.log.warning("cdc_load_trigger_run_failed", exc_info=True)
 
+    def _trigger_loads_a_dead_run_left(self) -> None:
+        """A run that died after a write triggered nothing, so the tables it wrote wait for this one."""
+        if any((schema.sync_type_config or {}).get(BUFFER_WRITE_OPEN_KEY) for schema in self.cdc_schemas):
+            self._trigger_loads()
+
     def _trigger_loads_during_a_long_read(self) -> None:
         """Keep loads on the capture cadence while one run drains a backlog over several intervals."""
+        if self._should_stop is not None and self._should_stop():
+            return
         try:
             interval = data_warehouse_api.cdc_min_interval(s.sync_frequency_interval for s in self.cdc_schemas)
             since = time.monotonic() - (self._last_load_trigger or self._run_started_at or 0.0)

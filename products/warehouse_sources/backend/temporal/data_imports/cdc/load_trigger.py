@@ -45,9 +45,8 @@ LOAD_TRIGGERED_AT_KEY = "cdc_load_triggered_at"
 # changes over several capture runs. Giving a table its own cadence back is never capped.
 MAX_SCHEDULE_SLOWDOWNS_PER_RUN = 50
 
-# Both steps run inside the capture activity, which must get back to reading the change stream
-# also when Temporal is slow or down. A table left out is picked up by the next capture run: one
-# that owes a load stays owed, and one still on a slowed schedule keeps being triggered.
+# Both steps run inside the capture activity, which must get back to the change stream also when
+# Temporal is slow or down. The next capture run picks up a table left out.
 RECONCILE_BUDGET_SECONDS = 60.0
 TRIGGER_BUDGET_SECONDS = 120.0
 
@@ -222,7 +221,6 @@ def trigger_loads(
     schemas = list(
         ExternalDataSchema.objects.select_related("source")
         .filter(source=source, team_id=source.team_id)
-        # A table that left CDC still carries the record of its slowed schedule.
         .filter(
             Q(sync_type=ExternalDataSchema.SyncType.CDC) | Q(sync_type_config__has_key=SCHEDULE_INTERVAL_SECONDS_KEY)
         )

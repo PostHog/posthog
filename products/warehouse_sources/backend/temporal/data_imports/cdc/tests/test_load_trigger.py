@@ -162,7 +162,6 @@ class TestLoadTrigger(BaseTest):
             update_sync_type_config_keys(schema.id, self.team.id, updates={"cdc_mode": "snapshot"})
             assert reconcile_schedule(self._fresh(schema), enabled=True)
 
-        # Neither call may pause or unpause the schedule.
         assert applied == [(dt.timedelta(hours=6), True, True), (_CAPTURE_EVERY, True, True)]
         assert SCHEDULE_INTERVAL_SECONDS_KEY not in self._fresh(schema).sync_type_config
 
@@ -186,7 +185,6 @@ class TestLoadTrigger(BaseTest):
 
         assert sorted(triggered) == sorted([str(owed.id), str(hourly.id)])
         assert self._fresh(owed).schedule_interval_override == dt.timedelta(hours=6)
-        # The stamp is what spaces a table's triggers out, and a skipped trigger must not count.
         assert LOAD_TRIGGERED_AT_KEY in self._fresh(hourly).sync_type_config
         assert LOAD_TRIGGERED_AT_KEY not in self._fresh(paused).sync_type_config
 
