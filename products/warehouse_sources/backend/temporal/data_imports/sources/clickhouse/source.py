@@ -844,6 +844,12 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             sync_type=inputs.sync_type,
         )
 
+    def get_schemas_for_sync(
+        self, config: ClickHouseSourceConfig, source: "ExternalDataSource", names: list[str]
+    ) -> list[SourceSchema]:
+        """Introspect the named tables over a connection as secure as the source's sync uses."""
+        return self.get_schemas(config, source.team_id, names=names)
+
     def reconcile_schema_metadata(
         self,
         source: "ExternalDataSource",

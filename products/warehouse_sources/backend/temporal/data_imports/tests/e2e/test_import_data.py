@@ -275,7 +275,7 @@ async def test_a_column_added_at_the_source_syncs_in_the_next_run_under_include(
     )
 
     with (
-        mock.patch.object(PostgresSource, "get_schemas", return_value=[discovered]),
+        mock.patch.object(PostgresSource, "get_schemas", return_value=[discovered]) as get_schemas,
         mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.postgres_source"
         ) as mock_postgres_source,
@@ -290,6 +290,11 @@ async def test_a_column_added_at_the_source_syncs_in_the_next_run_under_include(
         await activity_environment.run(import_data_activity_sync, activity_inputs)
 
     assert mock_postgres_source.call_args.kwargs["enabled_columns"] == expected_enabled_columns
+    # The lookup connects under the same TLS requirement as the extraction.
+    assert [call.kwargs.get("require_ssl") for call in get_schemas.call_args_list] == (
+        [mock_postgres_source.call_args.kwargs["require_ssl"]] if policy == "include" else []
+    )
+    assert mock_postgres_source.call_args.kwargs["require_ssl"] is True
     schema = await ExternalDataSchema.objects.aget(id=activity_inputs.schema_id)
     assert schema.enabled_columns == expected_enabled_columns
 

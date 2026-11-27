@@ -91,7 +91,7 @@ def include_new_columns_before_sync(
         or effective_new_column_policy(schema, source) != NewColumnPolicy.INCLUDE
     ):
         return schema.enabled_columns
-    source_schemas = source_impl.get_schemas(config, schema.team_id, names=[schema.name])
+    source_schemas = source_impl.get_schemas_for_sync(config, source, [schema.name])
     source_impl.reconcile_schema_metadata(source=source, source_schemas=source_schemas, team_id=schema.team_id)
     return (
         ExternalDataSchema.objects.filter(id=schema.id, team_id=schema.team_id)

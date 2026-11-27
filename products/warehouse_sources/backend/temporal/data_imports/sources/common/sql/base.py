@@ -154,6 +154,12 @@ class SQLSource(SimpleSource[ConfigType], Generic[ConfigType]):
     def source_for_pipeline(self, config: ConfigType, inputs: SourceInputs) -> SourceResponse:
         return self.get_implementation.build_pipeline(config, inputs)
 
+    def get_schemas_for_sync(
+        self, config: ConfigType, source: ExternalDataSource, names: list[str]
+    ) -> list[SourceSchema]:
+        """Introspect the named tables over a connection as secure as the source's sync uses."""
+        return self.get_schemas(config, source.team_id, names=names)
+
     def reconcile_schema_metadata(
         self,
         source: ExternalDataSource,
