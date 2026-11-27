@@ -41,6 +41,7 @@ export function TransactionalEmailLogEntryScene(): JSX.Element {
         emailPageUrl,
         impactUrl,
         outcomesShown,
+        clickTracking,
         outcomeRows,
         activityFailed,
         activityDenied,
@@ -114,7 +115,7 @@ export function TransactionalEmailLogEntryScene(): JSX.Element {
                                     failed={activityFailed && !activityLoading}
                                     denied={activityDenied && !activityLoading}
                                     onRetry={loadActivity}
-                                    clickTracking={email.tracking.clicks}
+                                    clickTracking={clickTracking}
                                 />
                             )}
                             {/* A send that never went out kept no copy, so nothing links it to a person. */}

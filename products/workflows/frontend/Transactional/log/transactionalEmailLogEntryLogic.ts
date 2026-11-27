@@ -37,6 +37,7 @@ export interface transactionalEmailLogEntryLogicValues {
     afterExpanded: boolean
     beforeExpanded: boolean
     breadcrumbs: Breadcrumb[]
+    clickTracking: boolean | null
     email: TransactionalEmailLogDetailApi | null | undefined
     emailFailed: boolean
     emailLoading: boolean
@@ -146,6 +147,7 @@ export interface transactionalEmailLogEntryLogicMeta {
             email: TransactionalEmailLogDetailApi | null | undefined,
             featureFlags: FeatureFlagsSet
         ) => boolean
+        clickTracking: (email: TransactionalEmailLogDetailApi | null | undefined) => boolean | null
         outcomeRows: (
             email: TransactionalEmailLogDetailApi | null | undefined,
             activity: SendActivity | null
@@ -304,6 +306,11 @@ export const transactionalEmailLogEntryLogic = kea<transactionalEmailLogEntryLog
             (s) => [s.email, s.featureFlags],
             (email: TransactionalEmailLogDetailApi | null | undefined, featureFlags: FeatureFlagsSet): boolean =>
                 !!email && !!featureFlags[FEATURE_FLAGS.WORKFLOWS_EMAIL_SEND_TIMELINE] && emailWentOut(email),
+        ],
+        clickTracking: [
+            (s) => [s.email],
+            (email: TransactionalEmailLogDetailApi | null | undefined): boolean | null =>
+                email?.timeline.some((step) => step.kind === 'sent') ? email.tracking.clicks : null,
         ],
         outcomeRows: [
             (s) => [s.email, s.activity],
