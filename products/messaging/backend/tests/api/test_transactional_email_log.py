@@ -920,8 +920,8 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("every_session", True, 200, ["b-session", "a-session", "old-session"], False),
-            ("newest_only", True, 1, ["b-session"], True),
+            ("every_session", True, 200, ["b-tied-session", "b-session", "a-session", "old-session"], False),
+            ("newest_only", True, 1, ["b-tied-session"], True),
             ("link_tagging_off", False, 200, [], False),
         ]
     )
@@ -939,6 +939,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         self._land("a", "a-session", a, at=NOW - timedelta(minutes=50))
         self._land("a", "a-session", b, at=NOW - timedelta(minutes=10))
         self._land("b", "b-session", b, at=NOW - timedelta(minutes=20))
+        self._land("b", "b-tied-session", b, at=NOW - timedelta(minutes=20))
         self._land("b", "old-session", b, at=NOW - timedelta(minutes=100))
         self._land("c", "not-clicked-session", not_clicked)
         self._land("d", "welcome-session", welcome)
@@ -951,38 +952,37 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         first_pageviews = {
             "a-session": {"session_id": "a-session", "message_id": a, "first_pageview_at": "2026-06-15T11:10:00Z"},
             "b-session": {"session_id": "b-session", "message_id": b, "first_pageview_at": "2026-06-15T11:40:00Z"},
+            "b-tied-session": {
+                "session_id": "b-tied-session",
+                "message_id": b,
+                "first_pageview_at": "2026-06-15T11:40:00Z",
+            },
             "old-session": {"session_id": "old-session", "message_id": b, "first_pageview_at": "2026-06-15T10:20:00Z"},
         }
         assert listed == {"sessions": [first_pageviews[session] for session in expected], "has_more": has_more}
 
-    def test_lists_a_session_by_its_first_pageview_across_query_batches(self, _flag):
+    def test_lists_only_the_sessions_of_the_newest_sends_one_query_reads(self, _flag):
         clicked = [("sent", 1, ""), ("delivered", 2, ""), ("clicked", 60, "")]
         message_ids = [
             self._send(minutes_ago, f"reader-{minutes_ago}@example.com", clicked)
             for minutes_ago in range(10, 10 + CLICKED_SENDS_PAST_ONE_BATCH)
         ]
-        first_batch, second_batch = message_ids[0], message_ids[-1]
-        self._land("reader", "shared-session", first_batch, at=NOW - timedelta(minutes=50))
-        self._land("reader", "first-batch-session", first_batch, at=NOW - timedelta(minutes=40))
-        self._land("reader", "another-first-batch-session", first_batch, at=NOW - timedelta(minutes=30))
-        self._land("reader", "shared-session", second_batch, at=NOW - timedelta(minutes=10))
-        self._land("reader", "second-batch-session", second_batch, at=NOW - timedelta(minutes=20))
+        newest_send, oldest_send = message_ids[0], message_ids[-1]
+        self._land("reader", "newest-send-session", newest_send, at=NOW - timedelta(minutes=30))
+        self._land("reader", "oldest-send-session", oldest_send, at=NOW - timedelta(minutes=20))
         flush_persons_and_events()
 
-        with (
-            patch.dict(
-                CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, {str(self.team.id): {"max_query_size": SMALL_MAX_QUERY_SIZE}}
-            ),
-            patch("products.messaging.backend.services.transactional_email_log.MAX_IMPACT_SESSIONS", 1),
+        with patch.dict(
+            CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, {str(self.team.id): {"max_query_size": SMALL_MAX_QUERY_SIZE}}
         ):
             listed = self._impact_sessions(date_from=(NOW - timedelta(days=1)).isoformat())
 
         assert listed == {
             "sessions": [
                 {
-                    "session_id": "second-batch-session",
-                    "message_id": second_batch,
-                    "first_pageview_at": "2026-06-15T11:40:00Z",
+                    "session_id": "newest-send-session",
+                    "message_id": newest_send,
+                    "first_pageview_at": "2026-06-15T11:30:00Z",
                 }
             ],
             "has_more": True,

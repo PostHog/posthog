@@ -801,36 +801,19 @@ def transactional_email_impact_sessions(
     batches = list(
         _batches_by_query_size(team.id, _clicked_message_ids(team, workflow_id, period), _escaped_literal_bytes)
     )
-    batch_limit = _sessions_to_rank_exactly(len(batches))
-    first_pageviews: dict[str, TransactionalEmailImpactSession] = {}
-    truncated = False
-    for batch in batches:
-        landings = _session_landings_in_batch(team, user, batch, period, batch_limit)
-        truncated = truncated or len(landings) >= batch_limit
-        for landing in landings:
-            known = first_pageviews.get(landing.session_id)
-            if known is None or _landing_order(landing) < _landing_order(known):
-                first_pageviews[landing.session_id] = landing
-    newest = sorted(
-        first_pageviews.values(), key=lambda session: (session.first_pageview_at, session.session_id), reverse=True
-    )
+    if not batches:
+        return TransactionalEmailImpactSessions(sessions=(), has_more=False)
+    newest_sends, sends_past_one_query = batches[0], len(batches) > 1
+    landings = _session_landings_in_batch(team, user, newest_sends, period)
+    newest = sorted(landings, key=lambda session: (session.first_pageview_at, session.session_id), reverse=True)
     return TransactionalEmailImpactSessions(
-        sessions=tuple(newest[:MAX_IMPACT_SESSIONS]), has_more=truncated or len(newest) > MAX_IMPACT_SESSIONS
+        sessions=tuple(newest[:MAX_IMPACT_SESSIONS]),
+        has_more=len(newest) > MAX_IMPACT_SESSIONS or sends_past_one_query,
     )
-
-
-def _sessions_to_rank_exactly(batch_count: int) -> int:
-    one_past_the_page = MAX_IMPACT_SESSIONS + 1
-    a_session_can_land_from_two_batches = batch_count > 1
-    return MAX_SELECT_RETURNED_ROWS if a_session_can_land_from_two_batches else one_past_the_page
-
-
-def _landing_order(landing: TransactionalEmailImpactSession) -> tuple[datetime, str]:
-    return landing.first_pageview_at, landing.message_id
 
 
 def _session_landings_in_batch(
-    team: Team, user: User | None, message_ids: list[str], period: _Period, limit: int
+    team: Team, user: User | None, message_ids: list[str], period: _Period
 ) -> list[TransactionalEmailImpactSession]:
     response = execute_hogql_query(
         """
@@ -848,7 +831,7 @@ def _session_landings_in_batch(
               AND extractURLParameter(properties.$current_url, 'ph_workflow_run') IN {message_ids}
         )
         GROUP BY $session_id
-        ORDER BY first_pageview_at DESC, $session_id DESC
+        ORDER BY first_pageview_at DESC
         LIMIT {limit}
         """,
         team=team,
@@ -857,7 +840,7 @@ def _session_landings_in_batch(
             "start": ast.Constant(value=period.start),
             "end": ast.Constant(value=period.end + timedelta(days=IMPACT_WINDOW_DAYS)),
             "message_ids": ast.Constant(value=message_ids),
-            "limit": ast.Constant(value=limit),
+            "limit": ast.Constant(value=MAX_IMPACT_SESSIONS + 1),
         },
         query_type="transactional_email_impact_session_list",
         workload=Workload.ONLINE,

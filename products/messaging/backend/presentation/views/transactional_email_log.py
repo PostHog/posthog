@@ -306,7 +306,8 @@ class TransactionalEmailImpactSessionsSerializer(serializers.Serializer):
         "tagging is off, when `impact` returns no session count.",
     )
     has_more = serializers.BooleanField(
-        help_text="True when sessions were left out: there are more than 200, or too many to rank them all."
+        help_text="True when sessions were left out: there are more than 200, or the clicked sends are more than one "
+        "query reads, so only the newest ones were read."
     )
 
 

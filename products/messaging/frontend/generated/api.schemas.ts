@@ -1787,7 +1787,7 @@ export interface TransactionalEmailImpactSessionApi {
 export interface TransactionalEmailImpactSessionsApi {
     /** The sessions `impact` counts, newest first pageview first, 200 at most. Each had a pageview whose URL carries the ph_workflow_run tag of a clicked send, up to 7 days after the period. Empty while link tagging is off, when `impact` returns no session count. */
     sessions: TransactionalEmailImpactSessionApi[]
-    /** True when sessions were left out: there are more than 200, or too many to rank them all. */
+    /** True when sessions were left out: there are more than 200, or the clicked sends are more than one query reads, so only the newest ones were read. */
     has_more: boolean
 }
 
