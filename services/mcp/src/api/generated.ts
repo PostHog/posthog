@@ -10556,6 +10556,8 @@ export namespace Schemas {
     }
 
     export interface WebVitalsPathBreakdownResultItem {
+      /** Number of `$web_vitals` samples for this metric and page in the period. Unset when served from precomputed buckets. */
+      count?: number | null;
       path: string;
       value: number;
     }
@@ -11739,6 +11741,8 @@ export namespace Schemas {
       interval?: IntervalType | null;
       kind?: 'WebVitalsPathBreakdownQuery';
       metric: WebVitalsMetric;
+      /** Drop pages with fewer samples than this in the period, so a page with a handful of slow loads does not outrank a busy page with a real problem. No floor when omitted. */
+      minSamples?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       orderBy?: (WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection)[] | null;
@@ -42000,7 +42004,7 @@ export namespace Schemas {
       date_to: string;
       /** Project timezone for the period boundaries. */
       timezone: string;
-      /** True when the headline metrics, top pages and top sources exclude events from test accounts. Goal conversions include them. */
+      /** True when the headline metrics, top pages and top sources exclude events from test accounts. Follows the project's "Filter out internal and test users" default, like the query-web-* tools. Goal conversions include them either way. */
       filter_test_accounts: boolean;
       /** Metric definitions to use when you compare the digest with a direct query. */
       notes: string[];
@@ -157634,11 +157638,11 @@ export namespace Schemas {
 
     export type WebAnalyticsWeeklyDigestParams = {
     /**
-     * When true (default), include period-over-period change for each metric comparing against the prior equal-length period. Set to false to skip the comparison query (faster).
+     * When true (default), include period-over-period change for each metric comparing against the `days` complete days before the window. Set to false to skip the comparison query (faster).
      */
     compare?: boolean;
     /**
-     * Lookback window in days (1–90). Defaults to 7.
+     * Number of complete days to summarize (1–90), ending yesterday in the project timezone. Defaults to 7.
      */
     days?: number;
     };
