@@ -249,6 +249,29 @@ describe('measurements', () => {
         )
     })
 
+    it('leaves role_exit_ms unmeasured on a card with a second terminate entry that never fired', () => {
+        const pending: ValveTimelineEntry = {
+            valve: 'role.terminate',
+            target: 'cdp-cyclotron-worker-email',
+            requestedAt: at(0),
+        }
+
+        expect(
+            measure(
+                [{ name: 'role_exit_ms', params: {} }],
+                evidence({ timeline: [terminated({ exitedAt: at(8000), code: 0 }), pending] })
+            )
+        ).toEqual([
+            {
+                name: 'role_exit_ms',
+                unit: 'ms',
+                value: null,
+                censored: true,
+                unmeasured: 'the card terminates more than one role, so its exits have no stable key',
+            },
+        ])
+    })
+
     it.each([
         [
             'times each send that was in flight at the signal and went out again under the same invocation id',
@@ -294,6 +317,31 @@ describe('measurements', () => {
                 },
             ],
             { timeline: [terminated({ exitedAt: at(10_000), code: 0 }), killed('cdp-api')] },
+        ],
+        [
+            'leaves unmeasured the terminate of a role that sends no email',
+            resent,
+            [
+                {
+                    value: null,
+                    censored: true,
+                    unmeasured: 'only a stop of cdp-cyclotron-worker-email strands a send',
+                },
+            ],
+            { timeline: [{ ...terminated({ exitedAt: at(10_000), code: 0 }), target: 'cdp-api' }] },
+        ],
+        [
+            'leaves unmeasured a role that exited in the millisecond of its signal',
+            [{ ...record(1, 'run-a-1', 5000), invocationId: 'inv-a' }],
+            [
+                {
+                    value: null,
+                    censored: true,
+                    unmeasured:
+                        'the role exited in the millisecond of its signal, so a resend cannot be told from the send',
+                },
+            ],
+            { timeline: [terminated({ exitedAt: at(5000), code: 0 })] },
         ],
         [
             'leaves unmeasured a truth it could not read',

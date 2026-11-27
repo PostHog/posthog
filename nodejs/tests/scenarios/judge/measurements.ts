@@ -181,7 +181,7 @@ export const roleExitMs: MeasurementDefinition = {
     unit: 'ms',
     measure: ({ timeline }) => {
         const terminations = terminationsOf(timeline)
-        if (terminations.length > 1) {
+        if (timeline.filter(({ valve }) => valve === 'role.terminate').length > 1) {
             return [unmeasured('the card terminates more than one role, so its exits have no stable key')]
         }
         return terminations.map(({ target, exit }) =>
@@ -194,6 +194,8 @@ export const roleExitMs: MeasurementDefinition = {
         )
     },
 }
+
+const SENDING_ROLE = 'cdp-cyclotron-worker-email'
 
 const STOPS = new Set(['role.kill', 'role.terminate', 'role.freeze'])
 
@@ -222,8 +224,18 @@ export const leaseReclaimMs: MeasurementDefinition = {
             if (unattributable !== undefined) {
                 return [unmeasured(unattributable)]
             }
+            if (target !== SENDING_ROLE) {
+                return [unmeasured(`only a stop of ${SENDING_ROLE} strands a send`)]
+            }
             const signalledAt = Date.parse(exit.signalledAt)
             const exitedAt = Date.parse(exit.exitedAt)
+            if (exitedAt <= signalledAt) {
+                return [
+                    unmeasured(
+                        'the role exited in the millisecond of its signal, so a resend cannot be told from the send'
+                    ),
+                ]
+            }
             const sends = Map.groupBy(
                 truth.filter(({ invocationId, unitId }) => invocationId !== undefined && unitId !== undefined),
                 ({ unitId, invocationId }) => `${unitId} ${invocationId}`
