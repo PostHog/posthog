@@ -287,7 +287,7 @@ export const slackChannelScoutLogic = kea<slackChannelScoutLogicType>([
             })
         },
         pickSlackScoutSource: ({ sourceId }) => {
-            // Keep the picked channels that the new source also syncs, so a switch back and forth loses nothing it can keep.
+            // Only synced channels can be picked, so an unsynced channel of the new source is dropped too.
             const syncedChannelIds = new Set(
                 values.channelSources
                     ?.find((source) => source.id === sourceId)
