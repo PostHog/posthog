@@ -13,11 +13,14 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { urls } from 'scenes/urls'
 import { formatMarketingMoney } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/utils'
 
 import { MarketingAnalyticsRecommendation } from '~/queries/schema/schema-general'
 
+import { QuillRecommendationRows } from './QuillRecommendationRows'
+import { QuillRecommendationsModal } from './QuillRecommendationsModal'
 import { RecommendationCpa } from './RecommendationCpa'
 import { RecommendationDataGapButton } from './RecommendationDataGapButton'
 import { RecommendationDataGapDescription } from './RecommendationDataGapDescription'
@@ -78,10 +81,12 @@ function ImpactTotals({ totals }: { totals: RecommendationTotal[] }): JSX.Elemen
 function RecommendationRows({
     rows,
     keepOnly,
+    quill = false,
     showRule = false,
 }: {
     rows: MarketingAnalyticsRecommendation[]
     keepOnly: boolean
+    quill?: boolean
     showRule?: boolean
 }): JSX.Element {
     const { reportRecommendationsActionClicked } = useActions(recommendationsLogic)
@@ -97,6 +102,17 @@ function RecommendationRows({
             }
             return next
         })
+    }
+    if (quill) {
+        return (
+            <QuillRecommendationRows
+                rows={rows}
+                keepOnly={keepOnly}
+                showRule={showRule}
+                expanded={expanded}
+                onToggle={toggle}
+            />
+        )
     }
     return (
         <LemonTable<MarketingAnalyticsRecommendation>
@@ -212,12 +228,27 @@ export function RecommendationsModal(): JSX.Element {
     }
     const navRef = useRef<HTMLElement>(null)
     const detailRef = useRef<HTMLElement>(null)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const selectGroup = (group: RecommendationGroup): void => {
         selectRule(group.rule, group.recommendations.length)
         // In a narrow modal the rule list sits above the table, so the table has to come into view.
         if ((detailRef.current?.offsetTop ?? 0) > (navRef.current?.offsetTop ?? 0) + 8) {
             requestAnimationFrame(() => detailRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' }))
         }
+    }
+    if (todayRailNav) {
+        return (
+            <QuillRecommendationsModal
+                navRef={navRef}
+                detailRef={detailRef}
+                selectedGroupSubjectCount={selectedGroup ? subjectCount(selectedGroup) : null}
+                onToggleResolved={toggleResolved}
+                onSelectGroup={selectGroup}
+                renderRows={(rows, { keepOnly, showRule }) => (
+                    <RecommendationRows rows={rows} keepOnly={keepOnly} showRule={showRule} quill />
+                )}
+            />
+        )
     }
     return (
         <LemonModal

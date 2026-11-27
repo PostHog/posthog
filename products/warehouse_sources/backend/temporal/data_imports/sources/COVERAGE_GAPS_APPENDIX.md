@@ -4794,7 +4794,7 @@ Note: The public spec has 447 paths, but a large share is GenAI, monitoring metr
 
 ## DingConnect — gaps
 
-Today (11): `Balance`, `Countries`, `Currencies`, `ErrorCodeDescriptions`, `ProductDescriptions`, `Products`, `Promotions`, `Providers`, `ProviderStatus`, `Regions`, `TransferRecords`
+Today (12): `Balance`, `Countries`, `Currencies`, `ErrorCodeDescriptions`, `ProductDescriptions`, `Products`, `PromotionDescriptions`, `Promotions`, `Providers`, `ProviderStatus`, `Regions`, `TransferRecords`
 
 Diffed against: <http://web.archive.org/web/20250213144221/https://www.dingconnect.com/Api/Description>
 
@@ -4802,7 +4802,7 @@ Diffed against: <http://web.archive.org/web/20250213144221/https://www.dingconne
 - [x] `api/V1/GetErrorCodeDescriptions` — lookup decoding the ErrorCode/Context values returned on transfer records, so failed top-ups can be categorized (medium) — added as `ErrorCodeDescriptions` (the endpoint returns a Code/Message pair; Context codes are documented prose, not API data)
 - [x] `api/V1/GetProviderStatus` — per-provider availability, the dimension that explains transfer failure spikes (medium) — added as `ProviderStatus` (a current-state snapshot per sync, not a history)
 - [x] `api/V1/GetProductDescriptions` — localized long-form product text keyed by LocalizationKey — resolves the descriptions deliberately split out of GetProducts (medium) — added as `ProductDescriptions`
-- [ ] `api/V1/GetPromotionDescriptions` — localized promotion terms keyed by LocalizationKey, the companion to the synced promotions table (low)
+- [x] `api/V1/GetPromotionDescriptions` — localized promotion terms keyed by LocalizationKey, the companion to the synced promotions table (low) — added as `PromotionDescriptions`
 
 Note: The live docs page returns Cloudflare 403 to non-browser clients and the swagger definition (/swagger/docs/v1) is auth-gated, so this was diffed against a Wayback capture of the official API description. The full readable method set is GetBalance, GetCountries, GetCurrencies, GetProducts, GetProductDescriptions, GetPromotions, GetPromotionDescriptions, GetProviders, GetProviderStatus, GetRegions, GetErrorCodeDescriptions, ListTransferRecords; GetAccountLookup and EstimatePrices are per-request lookups rather than tables, and SendTransfer/CancelTransfers are mutations.
 
@@ -14181,11 +14181,11 @@ Note: Sprig's public read surface is genuinely tiny: GET /v1/surveys, GET /v1/re
 
 Re-audited 2026-11-19 against: <https://docs.sprig.com/llms.txt>
 
-- [ ] `Questions (GET /v2/studies/{studyId}/questions)` — question text and type per study, the dimension behind each answer in Responses; fan-out over studies (high)
-- [ ] `Studies v2 (GET /v2/studies)` — richer study list with type and status than the v1 surveys export; cursor paginated (low)
-- [ ] `Event definitions (GET /v2/events)` — tracked and page-URL events available for study targeting (low)
+- [x] `Questions (GET /v2/studies/{studyId}/questions)` — question text and type per study, the dimension behind each answer in Responses; fan-out over studies (high)
+- [x] `Studies v2 (GET /v2/studies)` — richer study list with type and status than the v1 surveys export; cursor paginated (low)
+- [x] `Event definitions (GET /v2/events)` — tracked and page-URL events available for study targeting (low)
 - [ ] `Attribute definitions (GET /v2/attributes)` — visitor attribute catalog for the environment (low)
-- [ ] `Invitations (GET /v2/studies/{studyId}/invitations)` — invitation sends per study; SURVEY studies only (low)
+- [x] `Invitations (GET /v2/studies/{studyId}/invitations)` — invitation sends per study; SURVEY studies only (low)
 
 Note (2026-11-19): The earlier audit missed the newer v2 Study API, now listed in llms.txt with OpenAPI blocks on each .md page. All routes are cursor paginated. The v2 API may need a different credential than v1, so check auth before building. Excluded targeting, assets, panels, translations and all write routes.
 
@@ -14475,16 +14475,16 @@ Note: Diffed against the vendor's own OpenAPI 3.0 spec (294 paths). The synced c
 
 ## Superwall — gaps
 
-Today (6): `campaigns`, `entitlements`, `paywalls`, `products`, `surveys`, `webhook_events`
+Today (9): `audit_logs`, `campaigns`, `entitlement_grants`, `entitlements`, `paywalls`, `products`, `projects`, `surveys`, `webhook_events`
 
 Diffed against: <https://api.superwall.com/openapi.json>
 
-- [ ] `Projects (GET /v2/projects)` — the project list, the parent that products, entitlements and events are scoped to and that our other tables carry IDs for (high)
-- [ ] `Users (POST /v2/users/query)` — list-style query of app users, to join to events and subscriptions (high)
-- [ ] `Entitlement grants (GET /v2/entitlements/{id}/grants)` — which users hold each entitlement we already sync; fan-out per entitlement (medium)
+- [x] `Projects (GET /v2/projects)` — the project list, the parent that products, entitlements and events are scoped to and that our other tables carry IDs for (high) → `projects` (full refresh, every project in the organization)
+- [ ] `Users (POST /v2/users/query)` — list-style query of app users, to join to events and subscriptions (high) — skipped 2026-11-27: the query takes no cursor, offset or limit and returns one capped page with dynamic attribute columns, so it cannot list every user
+- [x] `Entitlement grants (GET /v2/entitlements/{id}/grants)` — which users hold each entitlement we already sync; fan-out per entitlement (medium) → `entitlement_grants` (full refresh, fan-out over `entitlements`, includes expired and revoked grants)
 - [ ] `Store products (GET /v2/products/store-products)` — App Store and Play products behind the products table, with store product IDs (medium)
 - [ ] `Store product prices (GET /v2/products/store-product-prices)` — price points per store product (medium)
-- [ ] `Audit logs (GET /v2/audit-logs)` — change history of paywalls, campaigns and settings (medium)
+- [x] `Audit logs (GET /v2/audit-logs)` — change history of paywalls, campaigns and settings (medium) → `audit_logs` (incremental on `timestamp` via `start_time`, mutations only, organization from the configured project)
 - [ ] `Paywall templates (GET /v2/paywalls/templates)` — template lookup for paywalls (low)
 - [ ] `Chart annotations (GET /v2/applications/{application_id}/chart_annotations)` — notes users pin to metric charts, for release and campaign context (low)
 - [ ] `Retention messages (GET /v2/retention-messages)` — App Store retention message definitions (low)

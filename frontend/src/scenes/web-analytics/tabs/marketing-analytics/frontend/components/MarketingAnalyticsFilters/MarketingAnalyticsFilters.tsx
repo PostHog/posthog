@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 
 import { IconGear } from '@posthog/icons'
 import { LemonButton, Popover } from '@posthog/lemon-ui'
+import { Button, PopoverContent, PopoverTrigger, Popover as QuillPopover } from '@posthog/quill'
 
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -10,6 +11,7 @@ import { FilterBar } from 'lib/components/FilterBar'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Scene } from 'scenes/sceneTypes'
 
@@ -37,6 +39,10 @@ export const MarketingAnalyticsFilters = ({
     const showMetricEditor = !searchOnly && activeTab !== MarketingAnalyticsTab.SEARCH_PERFORMANCE
     const showSearch = isPerformanceTab && !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS]
     const { setCompareFilter, setDates, setOptionsOpen } = useActions(marketingAnalyticsLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const optionsMenu = (
+        <MarketingAnalyticsOptionsMenu showMetricEditor={showMetricEditor} showIntegrations={!showSearch} />
+    )
 
     return (
         <BindLogic logic={dataNodeCollectionLogic} props={{ key: MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
@@ -77,27 +83,34 @@ export const MarketingAnalyticsFilters = ({
                         >
                             <AddIntegrationButton />
                         </Shortcut>
-                        <Popover
-                            visible={optionsOpen}
-                            onClickOutside={() => setOptionsOpen(false)}
-                            placement="bottom-end"
-                            overlay={
-                                <MarketingAnalyticsOptionsMenu
-                                    showMetricEditor={showMetricEditor}
-                                    showIntegrations={!showSearch}
-                                />
-                            }
-                        >
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                icon={<IconGear />}
-                                onClick={() => setOptionsOpen(!optionsOpen)}
-                                data-attr="marketing-analytics-options"
+                        {todayRailNav ? (
+                            <QuillPopover open={optionsOpen} onOpenChange={(open) => setOptionsOpen(open)}>
+                                <PopoverTrigger
+                                    render={<Button variant="outline" data-attr="marketing-analytics-options" />}
+                                >
+                                    <IconGear />
+                                    Options
+                                </PopoverTrigger>
+                                <PopoverContent align="end">{optionsMenu}</PopoverContent>
+                            </QuillPopover>
+                        ) : (
+                            <Popover
+                                visible={optionsOpen}
+                                onClickOutside={() => setOptionsOpen(false)}
+                                placement="bottom-end"
+                                overlay={optionsMenu}
                             >
-                                Options
-                            </LemonButton>
-                        </Popover>
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    icon={<IconGear />}
+                                    onClick={() => setOptionsOpen(!optionsOpen)}
+                                    data-attr="marketing-analytics-options"
+                                >
+                                    Options
+                                </LemonButton>
+                            </Popover>
+                        )}
                     </>
                 }
             />
