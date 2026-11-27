@@ -63,9 +63,15 @@ from products.messaging.backend.facade.api import (
     render_design_html,
     validate_design,
 )
+from products.messaging.backend.facade.categories import (
+    MARKETING_CATEGORY_TYPE,
+    MessageCategoryMissing,
+    get_category_by_key,
+)
 from products.messaging.backend.facade.templates import (
     MessageCategoryNotInTeam,
     MessageTemplateBasicRow,
+    MessageTemplateListFilter,
     MessageTemplateMissing,
     MessageTemplateRow,
     create_template,
@@ -85,6 +91,7 @@ from products.messaging.backend.facade.transactional_email import (
     CodeEmail,
     DeliveryUnavailable,
     EmailAttachment,
+    EmailCategory,
     EmailTracking,
     FieldNotAccepted,
     MessageTooLarge,
@@ -112,6 +119,7 @@ from products.messaging.backend.presentation.views.code_send_fields import (
     AddressListField,
     AttachmentListField,
     EmailTrackingField,
+    NullableOmittableBooleanField,
     attachment_size,
     field_not_accepted_refusal,
     refused_attachment,
@@ -119,6 +127,7 @@ from products.messaging.backend.presentation.views.code_send_fields import (
     validate_pipeline_address,
     with_code_send_reason,
 )
+from products.messaging.backend.presentation.views.docs_order import MessagingDocsOrder
 from products.messaging.backend.presentation.views.refusals import (
     ExplainedRefusal,
     RequestBodyCapMixin,
@@ -437,10 +446,18 @@ class MessageTemplateSerializer(serializers.Serializer):
     deleted = serializers.BooleanField(
         required=False, help_text="Soft-delete flag. Set true to remove the template from the library."
     )
-    sensitive = serializers.BooleanField(
+    sensitive = OmittableBooleanField(
         required=False,
         help_text="For emails that carry login codes, reset links or other secrets. PostHog keeps no copy of each sent "
-        "email's body or filled-in subject, and clicked links keep only the site address. Can change at any time.",
+        "email's body or filled-in subject, turns click tracking off by default, and records only the site address "
+        "when click tracking is on. Can change at any time.",
+    )
+    click_tracking_enabled = NullableOmittableBooleanField(
+        required=False,
+        help_text="Whether links in emails sent from this template are rewritten to count clicks. Null uses the "
+        "default: off when `sensitive` is true, on when `sensitive` is false. Set true to opt a sensitive template "
+        "into click tracking, or false to turn click tracking off. Changing `sensitive` resets this to null unless "
+        "`click_tracking_enabled` is sent in the same request.",
     )
     transactional_hog_flow_id = serializers.UUIDField(
         read_only=True,
@@ -536,6 +553,25 @@ class MessageTemplateListQuerySerializer(serializers.Serializer):
         help_text="With true, leave out `content` and `draft_content` from each template, for lists that show "
         "names and metadata only. `has_draft` still says whether a draft exists.",
     )
+    search = serializers.CharField(
+        required=False,
+        default="",
+        allow_blank=True,
+        max_length=400,
+        help_text="List only templates whose name, description or a tag contains this text, ignoring case.",
+    )
+    created_by = serializers.IntegerField(
+        required=False,
+        default=None,
+        help_text="List only templates created by the user with this ID.",
+    )
+    tags = serializers.ListField(
+        child=serializers.CharField(max_length=255),
+        required=False,
+        default=list,
+        max_length=500,
+        help_text="List only templates that carry at least one of these tags. Repeat the parameter for each tag.",
+    )
 
 
 class DesignPatchSerializer(serializers.Serializer):
@@ -574,6 +610,7 @@ EMAIL_SCHEDULED_SENDS_FLAG = "workflows-email-scheduled-sends"
 SCHEDULED_SEND_MAX_LEAD = timedelta(days=7)
 EMAIL_IMPACT_FLAG = "workflows-email-impact"
 EMAIL_BATCH_FLAG = "workflows-email-batch-sends"
+CODE_SEND_CATEGORIES_FLAG = "workflows-code-send-categories"
 FIRST_CODE_SEND_EVENT = "email first code send"
 INTEGRATION_MARKER = re.compile(r"([a-z0-9-]{1,40})/[0-9A-Za-z.+-]{1,40}", re.ASCII)
 USER_AGENT_PRODUCT = re.compile(r"([!#$%&'*+.^_`|~0-9A-Za-z-]+)(?:/|\s|\Z)", re.ASCII)
@@ -806,9 +843,12 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
         required=False,
         help_text="What PostHog tracks for the email your code rendered. `true` tracks opens and clicks and captures "
         "engagement events. `false` turns off all of it, now and for any kind of tracking added later. An object "
-        "sets each kind on its own, and a kind it leaves out keeps its default. Without this field, PostHog tracks "
-        "opens and clicks and captures engagement events, for sensitive emails too. A link with `data-ph-no-track` "
-        "keeps its own address, so an app link still opens the app. Click tracking needs open "
+        "sets each kind on its own, and a kind it leaves out keeps its default. Without `clicks`, PostHog follows "
+        "the matched template's `click_tracking_enabled` setting (unless the send marks `sensitive: true` on a "
+        "non-sensitive template), and otherwise tracks clicks only when the email is not sensitive. Pass "
+        "`tracking: true` or `tracking: { clicks: true }` to opt a sensitive email into click tracking, or "
+        "`tracking: { clicks: false }` to keep links direct even if its matched template opted in. A link with "
+        "`data-ph-no-track` keeps its own address, so an app link still opens the app. Click tracking needs open "
         "tracking. A project whose admin turned engagement capture off captures nothing, whatever the send "
         "says. The object form needs a JSON body.",
     )
@@ -825,9 +865,22 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
     sensitive = OmittableBooleanField(
         required=False,
         help_text="Mark the email as sensitive when it carries login links, reset tokens, or codes. Sensitive emails "
-        "leave the subject off engagement events, record only the site address of a clicked link, and keep the "
-        "content out of logs. They are tracked like any other email unless `tracking` turns tracking off. Defaults to the matched template's setting, or true when no template matches. "
-        "It can't be false when the matched template is sensitive.",
+        "leave the subject off engagement events, turn click tracking off by default (unless the matched sensitive "
+        "template opted in or `tracking` enables clicks), record only the site address of a clicked link when click "
+        "tracking is on, and keep the content out of logs. Pass `tracking: { clicks: false }` to keep links direct "
+        "even on a sensitive template that opted in. Defaults to the matched template's setting, or true when no "
+        "template matches. It can't be false when the matched template is sensitive.",
+    )
+
+    category = serializers.CharField(
+        required=False,
+        max_length=64,
+        help_text="Key of one of the project's message categories, such as `newsletter`, for the email your code "
+        "rendered. A marketing category skips recipients who opted out of it or of all marketing email, fills "
+        "`{{ unsubscribe_url }}` with the recipient's preferences link, and adds List-Unsubscribe headers. A marketing "
+        "email can't have `cc` or `bcc`. A send with `template_id` ignores this field and uses the template's own "
+        "category. Categories on emails your code rendered are on only in some projects so far, and a project without "
+        "them refuses this field with a 400.",
     )
 
     def to_internal_value(self, data: Any) -> Any:
@@ -844,6 +897,8 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
     def get_fields(self) -> dict[str, serializers.Field]:
         fields = super().get_fields()
         fields["from"] = fields.pop("from_address")
+        if _is_template_send(getattr(self, "initial_data", None)):
+            fields.pop("category")
         return fields
 
     def validate_html(self, value: str) -> str:
@@ -891,11 +946,19 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
             raise serializers.ValidationError(
                 {"message_data": "A send with `template_key` carries content your code rendered, not `message_data`."}
             )
+        if "category" in sent and not data.get("category"):
+            raise serializers.ValidationError({"category": "`category` needs the key of a message category."})
         if not data.get("subject"):
             raise serializers.ValidationError({"subject": "A send with `template_key` needs a subject."})
         if not (data.get("html") or data.get("text")):
             raise serializers.ValidationError({"html": "A send with `template_key` needs `html`, `text` or both."})
         return data
+
+
+def _is_template_send(initial_data: Any) -> bool:
+    return isinstance(initial_data, Mapping) and (
+        "template_id" in initial_data or isinstance(initial_data.get("template"), Mapping)
+    )
 
 
 def _sent_fields(initial_data: Any) -> set[str]:
@@ -1515,11 +1578,15 @@ class MessageTemplatesViewSet(
     )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         query = cast(ValidatedRequest, request).validated_query_data
-        basic, transactional = query["basic"], query["transactional"]
+        basic = query["basic"]
+        filters = MessageTemplateListFilter(
+            transactional=query["transactional"],
+            search=query["search"],
+            created_by_id=query["created_by"],
+            tags=tuple(query["tags"]),
+        )
         templates: Sequence[MessageTemplateRow] | Sequence[MessageTemplateBasicRow] = (
-            list_basic_templates(self.team_id, transactional=transactional)
-            if basic
-            else list_templates(self.team_id, transactional=transactional)
+            list_basic_templates(self.team_id, filters) if basic else list_templates(self.team_id, filters)
         )
         serializer_class = MessageTemplateBasicSerializer if basic else MessageTemplateSerializer
         context = self.get_serializer_context()
@@ -1781,6 +1848,7 @@ class MessageTemplatesViewSet(
 
 
 class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, viewsets.ViewSet):
+    schema_docs_order = MessagingDocsOrder.SEND
     scope_object = "hog_flow"
     permission_classes = [IsAuthenticated]
     authentication_classes = [ProjectSecretAPIKeyAuthentication]
@@ -1837,9 +1905,10 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
         with transactional_email_stage("feature_flag"):
             require_email_from_code(self.team)
             self._check_scheduled_at(request.validated_data.get("scheduled_at"))
+            self._require_categories_flag(request.validated_data)
         data = request.validated_data
         self._require_code_email_access(data["template_key"])
-        email = code_email(data)
+        email = code_email(data, self._send_category(data, request.headers.get("Idempotency-Key")))
         return self._queue_send(
             request,
             lambda idempotency_key: send_code_email(
@@ -1854,6 +1923,42 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
             unavailable=unconfirmed_email_send,
         )
 
+    def _require_categories_flag(self, data: Mapping[str, Any]) -> None:
+        if "category" in data and not _flag_enabled(self.team, CODE_SEND_CATEGORIES_FLAG):
+            raise serializers.ValidationError(
+                {"category": "Categories are off for this project, so PostHog didn't send the email."}
+            )
+
+    def _send_category(self, data: Mapping[str, Any], idempotency_key: str | None) -> EmailCategory | None:
+        if "category" not in data:
+            return None
+        key = data["category"]
+        try:
+            try:
+                row = get_category_by_key(self.team_id, key)
+            except MessageCategoryMissing:
+                if not idempotency_key:
+                    raise
+                row = get_category_by_key(self.team_id, key, deleted=True)
+        except MessageCategoryMissing:
+            raise ExplainedRefusal(
+                f"This project has no message category with the key `{key}`, so PostHog didn't send the email.",
+                code="category_not_found",
+                attr="category",
+                why="A send names a category by the key it has in the project's message categories.",
+                fix="Send the key of a category that exists and isn't deleted.",
+            ) from None
+        copies = next((field for field in ("cc", "bcc") if data.get(field)), None)
+        if row.category_type == MARKETING_CATEGORY_TYPE and copies:
+            raise ExplainedRefusal(
+                f"A marketing email can't have `{copies}`, so PostHog didn't send it.",
+                code="marketing_copies_unsupported",
+                attr=copies,
+                why="PostHog checks opt-outs and builds the unsubscribe link for the `to` recipient only.",
+                fix="Send each copy as its own email, with its recipient in `to`.",
+            )
+        return EmailCategory(id=row.id, type=row.category_type, archived=row.deleted)
+
     def _require_code_email_access(self, key: str) -> None:
         with transactional_email_stage("workflow_access"):
             require_code_email_access(
@@ -1864,7 +1969,7 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
             )
 
 
-def code_email(data: Mapping[str, Any]) -> CodeEmail:
+def code_email(data: Mapping[str, Any], category: EmailCategory | None = None) -> CodeEmail:
     return CodeEmail(
         key=data["template_key"],
         subject=data["subject"],
@@ -1879,6 +1984,7 @@ def code_email(data: Mapping[str, Any]) -> CodeEmail:
         cc=tuple(data.get("cc") or ()),
         bcc=tuple(data.get("bcc") or ()),
         attachments=tuple(EmailAttachment(**attachment) for attachment in data.get("attachments") or ()),
+        category=category,
     )
 
 

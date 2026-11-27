@@ -143,6 +143,9 @@ REVIEW_MIN_SPEND_SHARE = 0.05
 BRAND_OVERLAP_MIN_SPEND_SHARE = 0.0025
 BRAND_LEAK_MIN_SPEND_SHARE = 0.05
 MINOR_IMPACT_SHARE = 0.01
+# Above this share of a Search campaign's spend with no search term, its search term savings are flagged as a floor.
+HIDDEN_SEARCH_SPEND_MIN_SHARE = 0.2
+HIDDEN_SEARCH_SPEND_CAMPAIGNS_SHOWN = 3
 # From this many non-brand conversions a campaign's own CPA is stable enough to judge its search terms by.
 MIN_CAMPAIGN_BENCHMARK_CONVERSIONS = 15
 # Below this many Google Ads sessions, a missing utm_term can be a few visits from links shared without it.
@@ -531,6 +534,41 @@ def _pool_account_agnostic_rules(
 
 def recommend(inputs: RecommendationInputs) -> list[MarketingAnalyticsRecommendation]:
     return _Recommender(inputs).run()
+
+
+def hidden_search_spend(
+    campaigns: Sequence[CampaignStats], term_cost_by_campaign: Mapping[str, float], currency: str | None
+) -> str | None:
+    account_cost = sum(campaign.cost for campaign in campaigns)
+    hidden = sorted(
+        (
+            (campaign, cost)
+            for campaign in campaigns
+            if campaign.channel_type == "SEARCH"
+            and (cost := campaign.cost - term_cost_by_campaign.get(campaign.id, 0.0)) > 0
+            and cost >= HIDDEN_SEARCH_SPEND_MIN_SHARE * campaign.cost
+            and cost >= MINOR_IMPACT_SHARE * account_cost
+        ),
+        key=lambda pair: -pair[1],
+    )
+    if not hidden:
+        return None
+    shown = ", ".join(
+        f"{campaign.name} {format_money(cost, currency)} ({cost / campaign.cost:.0%} of the campaign)"
+        for campaign, cost in hidden[:HIDDEN_SEARCH_SPEND_CAMPAIGNS_SHOWN]
+    )
+    rest = len(hidden) - HIDDEN_SEARCH_SPEND_CAMPAIGNS_SHOWN
+    more = f" and {rest} more campaign{'s' if rest != 1 else ''}" if rest > 0 else ""
+    return (
+        "Some spend has no search term in Google Ads, usually because Google hides search terms with few searches "
+        "for privacy, so savings from search terms can be higher than shown. "
+        f"Spend without a search term: {shown}{more}."
+    )
+
+
+def format_money(amount: float, currency: str | None) -> str:
+    currency = currency or ""
+    return f"${amount:,.0f}" if currency in ("USD", "") else f"{amount:,.0f} {currency}"
 
 
 class _Recommender:
@@ -2030,8 +2068,7 @@ class _Recommender:
         return f", with {conversions:,.0f} conversions" if self.inputs.search_term_conversions else ""
 
     def _money(self, amount: float) -> str:
-        currency = self.inputs.currency or ""
-        return f"${amount:,.0f}" if currency in ("USD", "") else f"{amount:,.0f} {currency}"
+        return format_money(amount, self.inputs.currency)
 
 
 def _serves_search(channel_type: str | None, primary_status: str | None) -> bool:

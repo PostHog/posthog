@@ -266,6 +266,15 @@ class WidgetFrameQuerySerializer(serializers.Serializer):
     limit = serializers.IntegerField(default=100, min_value=1, max_value=500, help_text="Maximum rows in this page.")
 
 
+class LiveWidgetFrameQuerySerializer(WidgetFrameQuerySerializer):
+    limit = serializers.IntegerField(
+        default=100,
+        min_value=0,
+        max_value=500,
+        help_text="Maximum rows to return. Use zero to check the binding and schema only.",
+    )
+
+
 class WidgetFrameColumnSerializer(serializers.Serializer):
     name = serializers.CharField(help_text="Column name.")
     type = serializers.CharField(help_text="Column type reported by the completed notebook run.")

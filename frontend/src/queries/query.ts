@@ -242,15 +242,14 @@ export async function pollForResults(
         try {
             let pollTiming: ApiRequestTiming | undefined
             const statusResponse = (
-                await api.queryStatus.get(
-                    queryId,
-                    true,
-                    onResultPollTiming && {
-                        onRequestTiming: (timing) => {
+                await api.queryStatus.get(queryId, true, {
+                    parseJSON: methodOptions?.parseJSON,
+                    onRequestTiming:
+                        onResultPollTiming &&
+                        ((timing) => {
                             pollTiming = timing
-                        },
-                    }
-                )
+                        }),
+                })
             ).query_status
             if (statusResponse.complete) {
                 if (pollTiming) {

@@ -2,9 +2,9 @@ import { DESTINATION_OPTIONS } from 'scenes/hog-functions/list/newNotificationDi
 
 import type { SubscriptionApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
-import type { ResolvedWeeklyReportOffer } from '../notifications/weeklyReportOffer'
+import type { ActionableWeeklyReportOffer, ResolvedWeeklyReportOffer } from '../notifications/weeklyReportOffer'
 import { buildActivitySummary } from './activitySummary'
-import { EarlyStats, buildNextSteps } from './nextSteps'
+import { EarlyStats, buildNextSteps, weeklyReportStep } from './nextSteps'
 
 const stats = (overrides: Partial<EarlyStats>): EarlyStats => ({
     totalCalls: 0,
@@ -95,16 +95,12 @@ describe('early data derivations', () => {
         [stats({ totalCalls: 5, callsWithIntent: 0, distinctSessions: 5 }), false, []],
         // Everything wired and an alert in place: nothing to do, so the row disappears.
         [stats({ totalCalls: 40, callsWithIntent: 35, distinctSessions: 8, errorCalls: 3 }), true, []],
-        // No intent + stateless sessions + failures without an alert: priority order.
+        // No intent + failures without an alert: priority order.
         [
-            stats({ totalCalls: 40, callsWithIntent: 2, distinctSessions: 40, errorCalls: 3 }),
+            stats({ totalCalls: 40, callsWithIntent: 2, distinctSessions: 8, errorCalls: 3 }),
             false,
-            ['intent', 'notification', 'sessions'],
+            ['notification', 'intent'],
         ],
-        // Calls without any session ID need conversation IDs as much as one-session-per-call does.
-        [stats({ totalCalls: 40, callsWithIntent: 35, distinctSessions: 0 }), true, ['sessions']],
-        // 90% of calls being sessions is already degenerate, not just 100%.
-        [stats({ totalCalls: 100, callsWithIntent: 90, distinctSessions: 90 }), true, ['sessions']],
         // Failures never prompt an alert while the count is still unknown.
         [stats({ totalCalls: 40, callsWithIntent: 35, distinctSessions: 8, errorCalls: 3 }), null, []],
         [stats({ totalCalls: 40, callsWithIntent: 35, distinctSessions: 8, errorCalls: 3 }), false, ['notification']],
@@ -115,22 +111,22 @@ describe('early data derivations', () => {
     })
 
     it.each([
-        ['leads from the first call', stats({ totalCalls: 1 }), false, READY, ['weekly-report']],
+        ['asks for setup from the first call', stats({ totalCalls: 1 }), false, READY, ['notification']],
         [
-            'leads ahead of instrumentation and pushes the last step out',
-            stats({ totalCalls: 40, callsWithIntent: 2, distinctSessions: 40, errorCalls: 3 }),
+            'shares one step with a missing alert, ahead of instrumentation',
+            stats({ totalCalls: 40, callsWithIntent: 2, distinctSessions: 8, errorCalls: 3 }),
             false,
             READY,
-            ['weekly-report', 'intent', 'notification'],
+            ['notification', 'intent'],
         ],
         [
-            'stays for a consent prompt',
+            'asks for setup behind a consent prompt',
             stats({ totalCalls: 1 }),
             false,
             { state: 'needs-ai-consent', email: 'me@example.com' },
-            ['weekly-report'],
+            ['notification'],
         ],
-        ['stays once created', stats({ totalCalls: 1 }), false, CREATED, ['weekly-report']],
+        ['drops out once created', stats({ totalCalls: 1 }), false, CREATED, []],
     ] as const)('the weekly report %s', (_name, input, alert, offer, keys) => {
         expect(
             buildNextSteps({ stats: input, hasFailureNotification: alert, weeklyReport: offer }).map((step) => step.key)
@@ -141,19 +137,19 @@ describe('early data derivations', () => {
         [
             READY,
             'Get a weekly report in your inbox',
-            'Volume, error rate and latency per tool, with the failures worth acting on. First one tomorrow morning to me@example.com, then every week.',
+            'A subscription that recaps how each of your tools performed. Each week PostHog AI writes it from your tool calls and sends it to you. First one tomorrow morning to me@example.com, then every week.',
             undefined,
         ],
         [
             { state: 'failed', email: 'me@example.com', message: 'Your plan is limited to 5 subscriptions.' },
             'Get a weekly report in your inbox',
-            'Volume, error rate and latency per tool, with the failures worth acting on. First one tomorrow morning to me@example.com, then every week.',
+            'A subscription that recaps how each of your tools performed. Each week PostHog AI writes it from your tool calls and sends it to you. First one tomorrow morning to me@example.com, then every week.',
             'Your plan is limited to 5 subscriptions.',
         ],
         [
             { state: 'needs-ai-consent', email: 'me@example.com' },
             'Get a weekly report in your inbox',
-            'Volume, error rate and latency per tool, with the failures worth acting on. First one tomorrow morning to me@example.com, then every week.',
+            'A subscription that recaps how each of your tools performed. Each week PostHog AI writes it from your tool calls and sends it to you. First one tomorrow morning to me@example.com, then every week.',
             undefined,
         ],
         [
@@ -169,11 +165,7 @@ describe('early data derivations', () => {
             undefined,
         ],
     ] as const)('writes the weekly report step for %j', (offer, title, detail, error) => {
-        const [step] = buildNextSteps({
-            stats: stats({ totalCalls: 1 }),
-            hasFailureNotification: false,
-            weeklyReport: offer as ResolvedWeeklyReportOffer,
-        })
+        const step = weeklyReportStep(offer as ActionableWeeklyReportOffer)
 
         expect(step).toMatchObject({
             key: 'weekly-report',
@@ -192,14 +184,16 @@ describe('early data derivations', () => {
         })
 
         expect(steps.map((step) => [step.key, step.action.kind])).toEqual([
-            ['intent', 'agent-prompt'],
             ['notification', 'link'],
+            ['intent', 'agent-prompt'],
         ])
-        expect(steps[0].action).toMatchObject({
-            prompt: expect.stringContaining('posthog.com/docs/mcp-analytics/intent'),
-            docsUrl: expect.stringContaining('posthog.com/docs/mcp-analytics/intent'),
+        expect(steps[0].action).toMatchObject({ to: '/mcp-analytics/notifications' })
+        expect(steps[1].action).toMatchObject({
+            fix: {
+                prompt: expect.stringContaining('posthog.com/docs/mcp-analytics/intent'),
+                docsUrl: expect.stringContaining('posthog.com/docs/mcp-analytics/intent'),
+            },
         })
-        expect(steps[1].action).toMatchObject({ to: '/mcp-analytics/notifications' })
     })
 
     describe('alert step copy', () => {
@@ -212,10 +206,6 @@ describe('early data derivations', () => {
         // Hog function alerts can only go to the destinations the new-alert dialog lists.
         it.each(DESTINATION_OPTIONS.map(({ label }) => label))('offers %s', (label) => {
             expect(alertStep.detail.toLowerCase()).toContain(label.toLowerCase())
-        })
-
-        it('does not offer email', () => {
-            expect(alertStep.detail).not.toMatch(/email/i)
         })
     })
 })

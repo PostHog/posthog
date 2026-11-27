@@ -44,6 +44,9 @@ class WizardInstallViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "task"
     scope_object_read_actions = ["retrieve"]
     scope_object_write_actions = ["create"]
+    # The run executes the fixed setup program on a repository, not instructions the caller writes, so an agent
+    # signed in with ID-JAG may start one.
+    id_jag_may_write_tasks = True
     http_method_names = ["get", "post", "head", "options"]
     lookup_field = "run_id"
     lookup_value_regex = "[0-9a-fA-F-]{36}"

@@ -502,20 +502,15 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
                         has_more: snapshotPage.has_more,
                     }
                 } else {
-                    const personsPage = await instrumentFn('cdpBatchResolve.getBlastRadiusPersons', () =>
-                        this.hogFlowBatchPersonQueryService.getBlastRadiusPersons(
-                            team,
-                            state.filters,
-                            state.groupTypeIndex,
-                            state.cursor,
-                            state.dedupeKey
-                        )
+                    await this.transitionToFailedTerminal(
+                        job,
+                        state,
+                        'audience_query_failed',
+                        state.totalEnqueued > 0
+                            ? `This run has no stored audience, so it stopped after enrolling ${state.totalEnqueued} people. Starting it again can send to them a second time.`
+                            : 'This run has no stored audience. Start the run again.'
                     )
-                    page = {
-                        ids: personsPage.users_affected,
-                        cursor: personsPage.cursor,
-                        has_more: personsPage.has_more,
-                    }
+                    return
                 }
             }
         } catch (err) {

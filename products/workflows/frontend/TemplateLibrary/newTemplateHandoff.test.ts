@@ -11,20 +11,24 @@ describe('findCreatedTemplateId', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/environments/:team_id/messaging_templates/': {
-                    results: [
-                        { id: 'other', name: `${NAME} v2`, created_at: '2026-09-16T00:00:00Z' },
-                        { id: TEMPLATE_ID, name: NAME, created_at: '2026-09-15T00:00:00Z' },
-                        { id: OLDER_ID, name: NAME, created_at: '2026-09-01T00:00:00Z' },
-                    ],
-                    count: 3,
+                '/api/environments/:team_id/messaging_templates/': ({ request }) => {
+                    const search = new URL(request.url).searchParams.get('search')
+                    // Without a search, the first page holds only newer templates with other names.
+                    const results = search
+                        ? [
+                              { id: 'other', name: `${NAME} v2`, created_at: '2026-09-16T00:00:00Z' },
+                              { id: TEMPLATE_ID, name: NAME, created_at: '2026-09-15T00:00:00Z' },
+                              { id: OLDER_ID, name: NAME, created_at: '2026-09-01T00:00:00Z' },
+                          ].filter((template) => template.name.toLowerCase().includes(search.toLowerCase()))
+                        : [{ id: 'newer', name: 'Newsletter', created_at: '2026-09-20T00:00:00Z' }]
+                    return [200, { results, count: results.length }]
                 },
             },
         })
         initKeaTests()
     })
 
-    // The list has no search, so only the exact name counts, and the newest of those is the template just made.
+    // The search matches any name that contains it, so only the exact name counts, and the newest of those is the template just made.
     it.each([
         { name: 'the newest exact match', input: NAME, expected: TEMPLATE_ID },
         { name: 'null for a blank name', input: '  ', expected: null },

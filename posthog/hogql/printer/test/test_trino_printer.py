@@ -909,6 +909,8 @@ def test_tracks_every_registered_function_without_a_trino_mapping(snapshot: Snap
         ("intDiv(1.5, 2)", "TRINO_INT_DIV_TYPE_UNSUPPORTED"),
         ("roundBankers(1, length(user_id))", "TRINO_ROUND_BANKERS_PRECISION_UNSUPPORTED"),
         ("roundBankers(1, 19)", "TRINO_ROUND_BANKERS_PRECISION_UNSUPPORTED"),
+        ("toDecimal(1, 19)", "TRINO_DECIMAL_SCALE_OUT_OF_RANGE"),
+        ("accurateCastOrNull(1, 'Decimal32(10)')", "TRINO_CAST_TARGET_UNSUPPORTED"),
         ("arrayZip([1], [2, 3])", "TRINO_FUNCTION_ARGUMENTS_UNSUPPORTED"),
         ("arrayZip([1], [2], [3], [4], [5], [6])", "TRINO_ARRAY_ZIP_DYNAMIC_UNSUPPORTED"),
         ("extractAllGroups(user_id, user_id)", "TRINO_REGEX_CONSTANT_REQUIRED"),
@@ -1093,7 +1095,12 @@ def test_regex_character_classes_keep_clickhouse_meaning(pattern: str, expected:
             "= truncate(TRY_CAST(__hogql_accurate_cast_value AS DECIMAL(38, 18)))",
             "TRY_CAST(truncate(",
         ),
-        ("SELECT toInt(toDecimal(id, 2)) FROM users", "TRY_CAST(truncate(CAST(", "__hogql_accurate_cast_value"),
+        ("SELECT toInt(toDecimal(id, 2)) FROM users", "TRY_CAST(truncate(element_at(", "TRY_CAST(truncate(CAST("),
+        (
+            "SELECT toDecimal(1 / 0, 8)",
+            "BETWEEN DECIMAL '-92233720368.54775808' AND DECIMAL '92233720368.54775807'",
+            "CAST((CAST(1 AS DOUBLE) / CAST(0 AS DOUBLE)) AS DECIMAL(38, 8))",
+        ),
         # Trino rejects SELECT DISTINCT ordered by an unselected expression, so each distinct row keeps its first match.
         (
             "SELECT DISTINCT user_id FROM users ORDER BY created_at DESC",
@@ -1129,6 +1136,11 @@ def test_regex_character_classes_keep_clickhouse_meaning(pattern: str, expected:
             "SELECT id FROM (SELECT a.id, b.user_id AS id FROM users AS a JOIN users AS b ON a.user_id = b.user_id)",
             '"a"."id" AS "__hogql_duplicate_id_1"',
             '"b"."user_id" AS "__hogql_duplicate_id_',
+        ),
+        (
+            "WITH cm AS (SELECT id, user_id AS x FROM users) SELECT cm.*, cm.x FROM cm",
+            'SELECT "cm"."id", "cm"."x", "cm"."x" AS "x" FROM "cm"',
+            '"cm"."x" AS "x", "cm"."x" AS "x"',
         ),
         # Trino rejects an aggregate inside a lambda, so the aggregate is computed outside and passed in.
         (
@@ -3138,7 +3150,7 @@ def test_prints_all_median_aggregate_combinators(name: str, window: str) -> None
         ("JSONExtractString(properties)", 'json_extract_scalar("users"."properties",'),
         ("created_at + 2", "date_add('second', CAST(2 AS BIGINT)"),
         ("['a'][3]", "element_at(ARRAY['a'], 3)"),
-        ("divideDecimal(toDecimal(1, 10), toDecimal(100, 10))", "(CAST(1 AS DECIMAL(38, 10)) /"),
+        ("divideDecimal(toDecimal(1, 10), toDecimal(100, 10))", "1) / element_at(transform(ARRAY[100],"),
         (
             "divideDecimal(toDecimal(1, 10), toDecimal(100, 10), 4)",
             "AS DECIMAL(38, 4))",

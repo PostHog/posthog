@@ -26,7 +26,6 @@ import { HogQLQueryString } from 'lib/utils/hogql'
 import { getBackendHost, getStoredSession, isOAuthMode, refreshAccessToken } from 'lib/utils/oauthClient'
 import { objectClean } from 'lib/utils/objects'
 import { toParams } from 'lib/utils/url'
-import { CohortCalculationHistoryResponse } from 'scenes/cohorts/cohortCalculationHistorySceneLogic'
 import { EventSchema } from 'scenes/data-management/events/eventDefinitionSchemaLogic'
 import { SchemaPropertyGroup } from 'scenes/data-management/schema/schemaManagementLogic'
 import type { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
@@ -225,6 +224,7 @@ import type {
 } from 'products/integrations/frontend/generated/api.schemas'
 import type { LogExplanation } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/Tabs/ExploreWithAI/types'
 import type { TasksRunsLogsRetrieveParams } from 'products/logs/frontend/generated/api.schemas'
+import type { MessagingTemplatesListParams } from 'products/messaging/frontend/generated/api.schemas'
 import type { NotebookCollabCursorApi, NotebookVariableApi } from 'products/notebooks/frontend/generated/api.schemas'
 import type { Task, TaskListParams, TaskRun, TaskUpsertProps } from 'products/posthog_ai/frontend/types/taskTypes'
 import type {
@@ -308,6 +308,7 @@ export interface ActivityLogPaginatedResponse<T> extends PaginatedResponse<T> {
 }
 
 export interface ApiMethodOptions {
+    parseJSON?: (text: string) => unknown
     signal?: AbortSignal
     headers?: Record<string, any>
     onRequestTiming?: (timing: ApiRequestTiming) => void
@@ -416,7 +417,8 @@ export async function getJSONFromSuccessResponse(
     response: Response,
     method: string,
     url: string,
-    timing?: ApiRequestTimingRecorder
+    timing?: ApiRequestTimingRecorder,
+    parseJSON: (text: string) => unknown = JSON.parse
 ): Promise<any> {
     const requestContext = (): string =>
         `[${method} ${new URL(url, location.origin).pathname}] (status ${response.status})`
@@ -452,7 +454,7 @@ export async function getJSONFromSuccessResponse(
         return null
     }
     try {
-        return timing ? timing.parseJSON(text) : JSON.parse(text)
+        return timing ? timing.parseJSON(text, parseJSON) : parseJSON(text)
     } catch {
         throw new ApiError(`Malformed JSON response ${requestContext()}`)
     }
@@ -912,10 +914,6 @@ export class ApiRequest {
 
     public cohortsRemovePersonFromStatic(cohortId: CohortType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.cohorts(teamId).addPathComponent(cohortId).addPathComponent('remove_person_from_static_cohort')
-    }
-
-    public cohortsCalculationHistory(cohortId: CohortType['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.cohortsDetail(cohortId, teamId).addPathComponent('calculation_history')
     }
 
     // # Customer Profile Configs
@@ -3344,7 +3342,10 @@ const api = {
             return new ApiRequest().cohorts().assembleEndpointUrl()
         },
         determineListUrl(cohortId: number | 'new', params: PersonListParams): string {
-            return `/api/cohort/${cohortId}/persons?${toParams(params)}`
+            return new ApiRequest()
+                .cohortsDetailPersons(cohortId)
+                .withQueryString(toParams(params))
+                .assembleFullUrl(true)
         },
         async listPaginated(
             params: {
@@ -3381,9 +3382,6 @@ const api = {
         async removePersonFromCohort(cohortId: CohortType['id'], personId: string): Promise<{ success: boolean }> {
             const payload = { person_id: personId }
             return await new ApiRequest().cohortsRemovePersonFromStatic(cohortId).update({ data: payload })
-        },
-        async getCalculationHistory(cohortId: CohortType['id']): Promise<CohortCalculationHistoryResponse> {
-            return await new ApiRequest().cohortsCalculationHistory(cohortId).get()
         },
     },
 
@@ -6409,8 +6407,10 @@ const api = {
         },
     },
     messaging: {
-        async getTemplates(): Promise<PaginatedResponse<MessageTemplate>> {
-            return await new ApiRequest().messagingTemplates().get()
+        async getTemplates(
+            params: MessagingTemplatesListParams = {}
+        ): Promise<CountedPaginatedResponse<MessageTemplate>> {
+            return await new ApiRequest().messagingTemplates().withQueryString(toParams(params, true)).get()
         },
         async getTemplate(templateId: MessageTemplate['id']): Promise<MessageTemplate> {
             return await new ApiRequest().messagingTemplate(templateId).get()
@@ -6845,7 +6845,7 @@ const api = {
     async get<T = any>(url: string, options?: ApiMethodOptions): Promise<T> {
         return await withRequestTiming(options, async (timing) => {
             const res = await api.getResponse(url, options, timing)
-            return await getJSONFromSuccessResponse(res, 'GET', url, timing)
+            return await getJSONFromSuccessResponse(res, 'GET', url, timing, options?.parseJSON)
         })
     },
 
@@ -6919,7 +6919,7 @@ const api = {
     async create<T = any, P = any>(url: string, data?: P, options?: ApiMethodOptions): Promise<T> {
         return await withRequestTiming(options, async (timing) => {
             const res = await api.createResponse(url, data, options, timing)
-            return await getJSONFromSuccessResponse(res, 'POST', url, timing)
+            return await getJSONFromSuccessResponse(res, 'POST', url, timing, options?.parseJSON)
         })
     },
 
@@ -6969,13 +6969,14 @@ const api = {
         return await getJSONFromSuccessResponse(response, 'POST', url)
     },
 
-    async delete(url: string): Promise<any> {
+    async delete(url: string, options?: ApiMethodOptions): Promise<any> {
         url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
         return await handleFetch(url, 'DELETE', async () =>
             fetch(url, {
                 method: 'DELETE',
                 headers: {
+                    ...objectClean(options?.headers ?? {}),
                     'Content-Type': 'application/x-www-form-urlencoded',
                     'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
                     ...tracingHeaders(),
@@ -6983,6 +6984,7 @@ const api = {
                     ...newEventsTableHeader(url),
                     ...oauthAuthHeaders(url),
                 },
+                signal: options?.signal,
             })
         )
     },

@@ -1,5 +1,9 @@
 import json
+import tempfile
+import subprocess
 from copy import deepcopy
+from html.parser import HTMLParser
+from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 import unittest
@@ -34,41 +38,69 @@ if TYPE_CHECKING:
 Survey = cast("type[SurveyModel]", apps.get_model("surveys", "Survey"))
 
 
+class _RenderedHTML(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.tags: list[tuple[str, dict[str, str | None]]] = []
+        self.text: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self.tags.append((tag, dict(attrs)))
+
+    def handle_data(self, data: str) -> None:
+        if data.strip():
+            self.text.append(data.strip())
+
+    def structure(self) -> list[tuple[str, list[str]]]:
+        return [(tag, sorted(attrs)) for tag, attrs in self.tags]
+
+    def attribute(self, tag: str, name: str) -> str | None:
+        return next(attrs[name] for found, attrs in self.tags if found == tag and name in attrs)
+
+
 class TestEarlyAccessFeatureSiteAppTemplate(unittest.TestCase):
-    def test_site_app_template_escapes_user_controlled_fields(self):
-        import re
+    PLAIN_ITEM = {
+        "name": "Dark mode",
+        "description": "A darker theme",
+        "flagKey": "dark-mode",
+        "documentationUrl": "https://docs.example.com/dark-mode",
+    }
 
+    def _render_list(self, item: dict[str, str]) -> _RenderedHTML:
         from products.cdp.backend.templates._siteapps.template_early_access_features import template
 
-        code = template.code
+        with tempfile.TemporaryDirectory() as directory:
+            script = Path(directory) / "site_app.mts"
+            script.write_text(f"{template.code}\nconsole.log(listItemComponents({json.dumps([item])}, () => false))\n")
+            html = subprocess.check_output(["node", str(script)], text=True)
 
-        assert "escapeHTML" in code, "escapeHTML function must be defined in the template"
+        rendered = _RenderedHTML()
+        rendered.feed(html)
+        rendered.close()
+        return rendered
 
-        for field in ["item.name", "item.description"]:
-            raw_pattern = re.compile(r"\$\{" + re.escape(field) + r"\}")
-            escaped_pattern = re.compile(r"\$\{escapeHTML\(" + re.escape(field) + r"\)\}")
+    @parameterized.expand(
+        [
+            ("documentationUrl", "https://docs.example.com/what's-new", "https://docs.example.com/what's-new"),
+            ("documentationUrl", "https://docs.example.com/a%20b?x=1&y=2", "https://docs.example.com/a%20b?x=1&y=2"),
+            ("documentationUrl", "ftp://docs.example.com/dark-mode", ""),
+            ("name", 'Bob\'s <i>new</i> "beta"', 'Bob\'s <i>new</i> "beta"'),
+            ("description", "Now <i>faster</i> & 'lighter'", "Now <i>faster</i> & 'lighter'"),
+        ]
+    )
+    def test_site_app_list_renders_field_as_plain_value(self, field: str, value: str, expected: str) -> None:
+        plain = self._render_list(self.PLAIN_ITEM)
+        rendered = self._render_list({**self.PLAIN_ITEM, field: value})
 
-            raw_count = len(raw_pattern.findall(code))
-            escaped_count = len(escaped_pattern.findall(code))
-
-            assert raw_count == 0, f"Found {raw_count} unescaped interpolation(s) of {field}"
-            assert escaped_count > 0, f"No escaped interpolation of {field} found"
-
-    def test_site_app_template_uses_safe_url_for_documentation_url_href(self):
-        """safeUrl validates the protocol (http/https only) and encodes the URL,
-        unlike raw encodeURI which would allow javascript: URLs through."""
-        import re
-
-        from products.cdp.backend.templates._siteapps.template_early_access_features import template
-
-        code = template.code
-
-        raw_pattern = re.compile(r"\$\{item\.documentationUrl\}")
-        safe_url_pattern = re.compile(r"\$\{safeUrl\(item\.documentationUrl\)\}")
-
-        assert "safeUrl" in code, "safeUrl function must be defined in the template"
-        assert len(raw_pattern.findall(code)) == 0, "Found unescaped interpolation of item.documentationUrl"
-        assert len(safe_url_pattern.findall(code)) > 0, "item.documentationUrl must be wrapped in safeUrl"
+        assert rendered.structure() == plain.structure()
+        shown = {
+            "documentationUrl": rendered.attribute("a", "href"),
+            "name": rendered.attribute("div", "data-name"),
+            "description": rendered.text[1],
+        }
+        assert shown[field] == expected
+        if field == "name":
+            assert rendered.text[0] == expected
 
 
 class TestEarlyAccessFeature(APIBaseTest):

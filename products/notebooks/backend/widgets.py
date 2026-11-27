@@ -1872,6 +1872,20 @@ def read_widget_frame(
             f"Widget data is limited to {MAX_FRAME_TOTAL_ROWS:,} rows per dataframe.",
             "frame_row_limit",
         )
+    if limit == 0:
+        return WidgetFrameRead(
+            frame={
+                "sourceNodeId": node_id_for_frame,
+                **_bounded_rows(
+                    name=frame_name,
+                    run_id=run.id,
+                    columns=columns,
+                    candidates=[],
+                    total_row_count=total_row_count,
+                    offset=offset,
+                ),
+            }
+        )
     page_limit = min(max(limit, 1), MAX_FRAME_PAGE_ROWS, MAX_FRAME_TOTAL_ROWS - offset)
     if envelope.get("delivery") == DELIVERY_DIRECT and envelope.get("has_more"):
         rows = sync_direct_run(run)

@@ -356,6 +356,7 @@ export function NotebookAppBuilder({ shortId }: { shortId: string }): JSX.Elemen
                             selectedId={selectedBlockId}
                             canInteract={canEditNotebook && !isTemplate}
                             onSelect={selectBlock}
+                            onResize={updateBlock}
                             onMove={moveBlock}
                             onMoveBy={moveBlockBy}
                             onDuplicate={duplicateBlock}

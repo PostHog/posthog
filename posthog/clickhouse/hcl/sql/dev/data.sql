@@ -70,7 +70,7 @@ CREATE TABLE posthog.ai_events (
   _timestamp DateTime,
   _offset UInt64,
   _partition UInt64
-) ENGINE = Distributed('ai_events', 'posthog', 'sharded_ai_events', cityHash64(concat(toString(team_id), '-', trace_id, '-', toString(toDate(timestamp)))));
+) ENGINE = Distributed('ai_events', 'posthog', 'sharded_ai_events', rand());
 CREATE TABLE posthog.async_deletion_run (
   id UInt64,
   deletion_type UInt8,

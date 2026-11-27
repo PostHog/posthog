@@ -702,6 +702,8 @@ export class HogFlowExecutorService {
                             : `[Person:${invocation.person?.id ?? 'unknown'}|${invocation.person?.name ?? 'unknown'}] matches conversion filters`
                 }
                 break
+            case 'exit_only_at_end':
+                break
         }
 
         if (shouldExit && hogFlow.trigger.type === 'cohort' && triggerMatch === false) {

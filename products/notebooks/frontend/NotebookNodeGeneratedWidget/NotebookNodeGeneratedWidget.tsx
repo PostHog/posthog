@@ -1,5 +1,5 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { type ReactNode, useContext, useEffect } from 'react'
+import { type ReactNode, useContext, useEffect, useRef } from 'react'
 
 import { LemonBanner, LemonButton, LemonSelect } from '@posthog/lemon-ui'
 
@@ -146,6 +146,13 @@ function ExpandedWidget({
     }
     const { open: openDashboardModal } = useActions(notebookWidgetDashboardLogic(dashboardProps))
     const frameSession = useContext(WidgetFrameSessionContext)(attributes.nodeId, selectedVersionId)
+    const previousFrameRevision = useRef(frameSession.revision)
+    useEffect(() => {
+        if (previousFrameRevision.current !== frameSession.revision) {
+            previousFrameRevision.current = frameSession.revision
+            setRuntimeError(null)
+        }
+    }, [frameSession.revision, setRuntimeError])
     const selectedArtifactUrl =
         selectedVersionId === status?.current_version_id ? status?.artifact_url : selectedVersion?.artifact_url
     const canAddToDashboard =
@@ -347,18 +354,22 @@ function ExpandedWidget({
                             title="Widget"
                             allowedFrames={activeFrameNames}
                             onReadFrame={async (name, offset, limit, runId, signal) => {
-                                const frame = await frameSession.read(name, offset, limit, (pageOffset, pageLimit) =>
-                                    loadWidgetFrame(
-                                        String(currentTeamId),
-                                        notebookShortId,
-                                        attributes.nodeId,
-                                        selectedVersionId,
-                                        name,
-                                        pageOffset,
-                                        pageLimit,
-                                        runId,
-                                        signal
-                                    )
+                                const frame = await frameSession.read(
+                                    name,
+                                    offset,
+                                    limit,
+                                    (pageOffset, pageLimit, pinnedRunId) =>
+                                        loadWidgetFrame(
+                                            String(currentTeamId),
+                                            notebookShortId,
+                                            attributes.nodeId,
+                                            selectedVersionId,
+                                            name,
+                                            pageOffset,
+                                            pageLimit,
+                                            pinnedRunId ?? runId,
+                                            signal
+                                        )
                                 )
                                 return applyReusableWidgetBinding(
                                     frame,
