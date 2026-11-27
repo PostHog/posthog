@@ -36,6 +36,7 @@ export type Convergence = {
     tookMs: number
     unread?: string
     feedbackInFlight?: number
+    feedbackPending?: true
 }
 
 export const feedbackInFlightReasonOf = (posts: number): string =>
@@ -265,14 +266,16 @@ export function createJudge({
             }
             for (;;) {
                 let jobs: number | undefined
+                let feedbackPending = false
                 const quiet = await read(async () => {
                     const feedbackLanded = await awaitFeedbackLanded(withinMs - (now() - startedAt))
                     await pullTruth()
                     const settled = runRecords()
                     jobs = await probe.unfinishedJobs({ teams, queues: ['hogflow', 'email'] })
                     const feedbackStillLanded = await awaitFeedbackLanded(withinMs - (now() - startedAt))
+                    feedbackPending = !(feedbackLanded && feedbackStillLanded)
                     await pullTruth()
-                    return runRecords() === settled && feedbackLanded && feedbackStillLanded
+                    return runRecords() === settled && !feedbackPending
                 })
                 const unrecorded = unrecordedUnits()
                 const tookMs = now() - startedAt
@@ -289,6 +292,7 @@ export function createJudge({
                         unrecorded,
                         tookMs,
                         ...(unread !== undefined && { unread }),
+                        ...(!converged && feedbackPending ? { feedbackPending: true as const } : {}),
                     }
                 }
                 await sleep(Math.min(pollMs, withinMs - tookMs), undefined, { signal }).catch(() => undefined)

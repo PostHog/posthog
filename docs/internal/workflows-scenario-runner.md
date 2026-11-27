@@ -533,7 +533,7 @@ It stops the ramp only on a hard failure, which `ramp_stop` names:
 
 - `intake_refused`: refusals went over the `refused_at_intake` gate.
 - `step_loss`: a step lost more than 5% of the deliveries its accepted units expected.
-- `backlog_undrained`: jobs stayed unfinished past `convergeWithin`.
+- `backlog_undrained`: jobs stayed unfinished past `convergeWithin`, or, on a profile with SES feedback, the edge was still posting feedback at that deadline.
 - `harness_limit`: the harness could not drive or read a step, as below.
 
 A broken bar, a lost or duplicated delivery under that limit, and any other failed invariant do not stop the ramp: the run records them and drives to its last step.
@@ -555,7 +555,7 @@ Only `intake_refused` and `harness_limit` cut the drive short.
 - A refusal count over its gate whose crossing unit falls in no step leaves no sustained scale, also beside a break in a step, because it could have failed at any scale.
 - A first step that fails its admission is a harness limit at that step, with no sustained scale, because no scale was measured against the profile.
 - A drive that ends partway through a step, such as an interrupted one, is a harness limit at that step, never a ceiling, and that limit outranks a bar the run host could not read in the step.
-- A run that broke is `failed`, a run that held through its last step is `passed`, and a run that stopped at a harness limit with nothing broken is `invalid`. The ramp judges the bars, the invariants a unit crossed and the offered share step by step, so its end sets the status, and a later step that fell short or could not be read does not make a run that broke earlier `invalid`. An invariant no unit crossed, such as `resident_backlog_intact`, still fails the run. An invariant that could not be judged, such as `no_loss` while SES feedback is still in flight, does not hide how a ramp that broke or stopped at a harness limit ended either: the status reason adds it after the ramp's own reason. The ramp owns the convergence too, so a unit that never delivered does not make a run that stopped at a harness limit `failed`. A run that held through every step but left a job unfinished past `convergeWithin` reaches no ceiling: `ramp_end` is `broke` with no scale, `ramp_broke_by` is `convergence`, and `ramp_stop` is `backlog_undrained`.
+- A run that broke is `failed`, a run that held through its last step is `passed`, and a run that stopped at a harness limit with nothing broken is `invalid`. The ramp judges the bars, the invariants a unit crossed and the offered share step by step, so its end sets the status, and a later step that fell short or could not be read does not make a run that broke earlier `invalid`. An invariant no unit crossed, such as `resident_backlog_intact`, still fails the run. An invariant that could not be judged, such as `no_loss` while SES feedback is still in flight, does not hide how a ramp that broke or stopped at a harness limit ended either: the status reason adds it after the ramp's own reason. The ramp owns the convergence too, so a unit that never delivered does not make a run that stopped at a harness limit `failed`. A run that held through every step but left a job unfinished past `convergeWithin`, or SES feedback still posting at that deadline, reaches no ceiling: `ramp_end` is `broke` with no scale, `ramp_broke_by` is `convergence`, and `ramp_stop` is `backlog_undrained`.
 
 ```yaml
 id: email-worker-killed
