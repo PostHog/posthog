@@ -4,6 +4,7 @@ import { IconWarning } from '@posthog/icons'
 import { LemonBanner, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
+import { projectLogic } from 'scenes/projectLogic'
 
 import type {
     ReportMonitoringSummaryApi,
@@ -86,6 +87,7 @@ function MonitoringMetricEvidence({
     now: number
 }): JSX.Element {
     const lead = summary.lead_check
+    const { currentProjectId } = useValues(projectLogic)
     const logic = monitoringRowLogic({ reportId: report.id, loadChecks: lead != null })
     const { reportChecks, reportChecksLoadFailed } = useValues(logic)
     const { loadReportChecks } = useActions(logic)
@@ -117,6 +119,7 @@ function MonitoringMetricEvidence({
             }
             version={`${check.id}.monitoring-tab`}
             timeline={timeline}
+            queryTeamId={currentProjectId ?? undefined}
             monitoring={
                 checkMetric.config.monitoring
                     ? {

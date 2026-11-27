@@ -16,15 +16,18 @@ import { MonitoringEvidence } from './MonitoringEvidence'
 function MockReportCheckMetricChart({
     timeline,
     monitoring,
+    queryTeamId,
 }: {
     timeline: { endsAt: string }
     monitoring?: { endsAt: string | null }
+    queryTeamId?: number
 }): JSX.Element {
     return (
         <div>
             Sidebar metric chart
             <span data-attr="timeline-ends-at">{timeline.endsAt}</span>
             <span data-attr="monitoring-ends-at">{monitoring?.endsAt}</span>
+            <span data-attr="query-team-id">{queryTeamId}</span>
         </div>
     )
 }
@@ -85,7 +88,7 @@ describe('MonitoringEvidence', () => {
         expect(screen.queryByText("Couldn't load the monitoring chart.")).not.toBeInTheDocument()
     })
 
-    it('loads checks from the selected child environment', async () => {
+    it('loads checks and chart data from the parent project when a child environment is selected', async () => {
         const report = monitoringRows[3]! as unknown as SignalReportListApi
         const requestedPaths: string[] = []
         useMocks({
@@ -108,7 +111,8 @@ describe('MonitoringEvidence', () => {
         )
 
         expect(await screen.findByText('Sidebar metric chart')).toBeInTheDocument()
-        expect(requestedPaths).toEqual([`/api/projects/4242/signals/reports/${report.id}/checks/`])
+        expect(requestedPaths).toEqual([`/api/projects/99/signals/reports/${report.id}/checks/`])
+        expect(screen.getByTestId('query-team-id')).toHaveTextContent('99')
     })
 
     it('loads evidence when the lead check has a stored query but no report metric ID', async () => {

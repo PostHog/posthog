@@ -109,7 +109,7 @@ describe('monitoringTabLogic', () => {
         expect(logic.values.page?.hasMore).toBe(false)
     })
 
-    it('loads reports from the selected child environment', async () => {
+    it('loads parent project reports from a selected child environment', async () => {
         const requestedPaths: string[] = []
         useMocks({
             get: {
@@ -127,7 +127,7 @@ describe('monitoringTabLogic', () => {
             logic.mount()
         }).toFinishAllListeners()
 
-        expect(requestedPaths).toEqual(['/api/projects/4242/signals/reports/'])
+        expect(requestedPaths).toEqual(['/api/projects/99/signals/reports/'])
     })
 
     it('does not refresh unused metric snapshots when monitoring rows load', async () => {
