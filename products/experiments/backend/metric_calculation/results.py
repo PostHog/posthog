@@ -600,9 +600,8 @@ class MetricResultStore:
         team_id = calculation_config.settings.team_id
         with transaction.atomic():
             # Match request_recalculation's lock order; result inserts also take an experiment FK lock.
-            Experiment.objects.for_team(team_id).including_deleted().select_for_update(no_key=True).filter(
-                id=self.experiment_id
-            ).exists()
+            experiments = Experiment.objects.for_team(team_id).including_deleted()
+            experiments.select_for_update(no_key=True).filter(id=self.experiment_id).exists()
             current_status = (
                 ExperimentMetricsRecalculation.objects.select_for_update()
                 .filter(id=recalculation_id, experiment_id=self.experiment_id, team_id=team_id)

@@ -114,9 +114,8 @@ def get_detail(*, team: Team, experiment_id: int, include_deleted: bool) -> Expe
 
 def get_handle(*, team: Team, experiment_id: int) -> Experiment | None:
     """The live experiment of the project with the id, with only the columns that `ExperimentHandle` reads."""
-    experiments = Experiment.objects.in_project(team.project_id).live()
     return (
-        experiments.filter(pk=experiment_id)
+        _one_in_project(team, experiment_id, include_deleted=False)
         .select_related("feature_flag")
         .only(
             "id",

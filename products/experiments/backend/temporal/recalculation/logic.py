@@ -1086,9 +1086,8 @@ def _record_metric_out_of_time_failure_sync(failure: MetricOutOfTimeFailure) -> 
             # The last attempt can write its result and die before it reports success, which Temporal sees as a
             # timeout. Its thread can also still be running. Take the result store's run-write locks, in its order,
             # so that no result write lands between this check and the two failure writes.
-            Experiment.objects.for_team(state.team_id).including_deleted().select_for_update(no_key=True).filter(
-                id=experiment.id
-            ).exists()
+            experiments = Experiment.objects.for_team(state.team_id).including_deleted()
+            experiments.select_for_update(no_key=True).filter(id=experiment.id).exists()
             ExperimentMetricsRecalculation.objects.select_for_update().filter(id=failure.recalculation_id).exists()
             completed = results.has_completed(calculation_config, window=state.query_to)
             if not completed:
