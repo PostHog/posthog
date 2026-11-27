@@ -2334,7 +2334,12 @@ export namespace Schemas {
         scope?: (Scope | null) | undefined;
         value: number;
     };
-    export type LegendPosition = "top" | "bottom" | "left" | "right";
+    export type LegendPosition =
+        | "top"
+        | "bottom"
+        | "left"
+        | "right"
+        | "surrounding";
     export type MetricSummary = "total" | "average" | "latest";
     export type ResultCustomizationBy = "value" | "position";
     export type DataColorToken =
