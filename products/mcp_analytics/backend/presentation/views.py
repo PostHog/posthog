@@ -19,9 +19,11 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.permissions import PostHogFeatureFlagPermission, get_authenticator_scoped_team_ids
+from posthog.permissions import PostHogFeatureFlagPermission, get_authenticator_scoped_team_ids, request_subject
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.mcp_analytics.backend import logic
 from products.mcp_analytics.backend.facade import api, contracts, enums
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPCustomHarness
@@ -483,21 +485,22 @@ class MCPWrappedViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         """The team that owns the wrap: the parent project when the URL names one of its environments."""
         return self.team.parent_team or self.team
 
-    @cached_property
-    def user_access_control(self) -> UserAccessControl:
-        # The resource-level `mcp_analytics` check reads its rules from here. Bind it to the team that owns the
-        # wrap, so a child environment's own grant can't read data its parent denies.
-        return UserAccessControl(
-            user=cast(User, self.request.user), team=self.data_team, organization_id=self.organization_id
-        )
-
     def _can_read_data_team(self, request: Request) -> bool:
+        # The view's own checks ran on the URL's team, whose access rules are its own. A child environment's
+        # grant must not open data its parent denies, so the parent's project and `mcp_analytics` rules apply too.
         if self.data_team.id == self.team.id:
             return True
         scoped_team_ids = get_authenticator_scoped_team_ids(request.successful_authenticator)
         if scoped_team_ids and self.data_team.id not in scoped_team_ids:
             return False
-        return self.user_permissions.team(self.data_team).effective_membership_level is not None
+        subject = request_subject(request)
+        return all(
+            authorization.check(resource=resource, action=Action.VIEW, subject=subject)
+            for resource in (
+                Resource.project(self.data_team.pk),
+                Resource(type=ResourceType.MCP_ANALYTICS, project_id=self.data_team.pk),
+            )
+        )
 
     @extend_schema(
         operation_id="mcp_analytics_wrapped_retrieve",
