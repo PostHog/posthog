@@ -1,0 +1,13 @@
+/* Only an image or a printed page shows the text, because on screen the icon next to the title opens the description.
+   `dashboardImage.ts` sets `dash-capturing` while it takes an image. */
+@media screen {
+    .dash-DescriptionIcon__image-text:not(.dash-capturing *) {
+        display: none;
+    }
+}
+
+@media print {
+    .dash-DescriptionIcon {
+        display: none;
+    }
+}

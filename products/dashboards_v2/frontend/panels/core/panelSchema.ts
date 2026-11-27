@@ -43,6 +43,15 @@ export type TileAppearance = z.infer<typeof tileAppearanceSchema>
 
 export type TileDescriptionMode = (typeof TILE_DESCRIPTION_MODES)[number]
 
+/** Where a tile or a section shows its description, and the text to show: none when it has no description or hides it. */
+export function shownDescription(panel: { description?: string; appearance?: TileAppearance }): {
+    mode: TileDescriptionMode
+    text: string | undefined
+} {
+    const mode = panel.appearance?.description ?? 'icon'
+    return { mode, text: mode === 'hidden' ? undefined : panel.description || undefined }
+}
+
 export type ContentPanel<Config> = Omit<z.infer<typeof contentPanelSchema>, 'config'> & { config: Config }
 
 /** A panel as saved. Its `config` is checked against its type's `configSchema` before the type's own code uses it. */
