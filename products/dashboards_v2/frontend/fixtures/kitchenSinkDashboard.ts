@@ -1,10 +1,11 @@
 import { NodeKind } from '~/queries/schema/schema-general'
 import { BaseMathType } from '~/types'
 
-import type { PanelQuery } from '../dashboard/document/dashboardSchema'
-import { type ContentPanel, type SavedPanel, type Dashboard, GRID, type Tile } from '../dashboard/document/dashboardTypes'
+import { type Dashboard, GRID, type Tile } from '../dashboard/document/dashboardTypes'
 import type { ChartConfig } from '../panels/chart/chartSpec'
 import { type StatOptions, statSpec } from '../panels/chart/viz/stat/statSpec'
+import { type PanelQuery } from '../query/querySchema'
+import { type ContentPanel, type SavedPanel } from '../panels/core/panelSchema'
 
 // TODO(2026-11-25): Delete once the board list can open saved boards.
 // It stands in for a saved dashboard and shows every panel and layout case.

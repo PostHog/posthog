@@ -1,12 +1,12 @@
 import { type FilterEdit, applyFilterEdit } from '../../filters/filterEdits'
 import { arrangeInColumns, contentRows, dropIntoGrid, resizeSection, settleGrid } from '../../grid/layout/gridTiles'
 import { bottomOf } from '../../grid/layout/placeTiles'
+import { type SizeOf } from '../../panels/core/panelSpec'
 import { linkTabSchema } from '../document/dashboardSchema'
 import {
     type Dashboard,
     GRID,
     type SectionPanel,
-    type SizeOf,
     type Tile,
     type TilePlace,
     type Panel,

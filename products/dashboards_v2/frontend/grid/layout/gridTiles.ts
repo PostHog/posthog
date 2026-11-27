@@ -1,12 +1,12 @@
 import {
     type SectionTile,
     type SectionPanel,
-    type SizeOf,
     type Tile,
     GRID,
     isSection,
     panelSize,
 } from '../../dashboard/document/dashboardTypes'
+import { type SizeOf } from '../../panels/core/panelSpec'
 import { type PlacedItem, bottomOf, placeTiles } from './placeTiles'
 
 function minWidthOf(tile: Tile, sizeOf: SizeOf): number {

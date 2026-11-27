@@ -1,4 +1,5 @@
-import type { SavedPanel, SectionPanel } from '../../dashboard/document/dashboardTypes'
+import type { SectionPanel } from '../../dashboard/document/dashboardTypes'
+import { type SavedPanel } from '../../panels/core/panelSchema'
 import type { TileCustomization } from '../../panels/core/panelSpec'
 
 export function showsBorder(panel: SavedPanel | SectionPanel): boolean {
