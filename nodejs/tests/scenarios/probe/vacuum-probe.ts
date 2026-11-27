@@ -15,7 +15,6 @@ export type VacuumSample = {
 export type VacuumSettings = {
     settings: Record<string, string>
     storage: Record<string, string[] | null>
-    workersVisible: boolean
 }
 
 export type VacuumRead = { at: number } & (VacuumSample | { error: string })
@@ -81,13 +80,9 @@ export function createVacuumProbe(cyclotronUrl: string): VacuumProbe {
                      WHERE c.oid = 'cyclotron_jobs'::regclass
                         OR c.oid IN (SELECT indexrelid FROM pg_index WHERE indrelid = 'cyclotron_jobs'::regclass)`
                 )
-                const visibility = await client.query<{ visible: boolean }>(
-                    `SELECT pg_has_role('pg_read_all_stats', 'USAGE') AS visible`
-                )
                 return {
                     settings: Object.fromEntries(settings.rows.map(({ name, value }) => [name, value])),
                     storage: Object.fromEntries(storage.rows.map(({ name, options }) => [name, options])),
-                    workersVisible: visibility.rows[0].visible,
                 }
             }, cyclotronUrl),
     }

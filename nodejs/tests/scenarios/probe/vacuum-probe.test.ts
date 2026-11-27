@@ -67,24 +67,19 @@ describe('vacuum probe', () => {
         expect(after.deadTuples).toBe(0)
     })
 
-    it('reads the autovacuum settings, the storage options of the table and its indexes, and whether autovacuum workers are visible', async () => {
+    it('reads the autovacuum settings, and the storage options of the table and its indexes', async () => {
         await run('ALTER INDEX cyclotron_jobs_pkey SET (fillfactor = 80)')
         const server = await withPostgres(
             async (client) =>
-                (
-                    await client.query<{ autovacuum: string; visible: boolean }>(
-                        `SELECT current_setting('autovacuum') AS autovacuum,
-                                pg_has_role('pg_read_all_stats', 'USAGE') AS visible`
-                    )
-                ).rows[0],
+                (await client.query<{ autovacuum: string }>(`SELECT current_setting('autovacuum') AS autovacuum`))
+                    .rows[0],
             PROBE_URL
         )
         const probe = createVacuumProbe(PROBE_URL)
 
-        const { settings, storage, workersVisible } = await probe.settings()
+        const { settings, storage } = await probe.settings()
 
         expect(settings.autovacuum).toBe(server.autovacuum)
-        expect(workersVisible).toBe(server.visible)
         expect(settings).toHaveProperty('autovacuum_vacuum_scale_factor')
         expect(settings).toHaveProperty('vacuum_cost_limit')
         expect(storage).toMatchObject({

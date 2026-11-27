@@ -1943,7 +1943,6 @@ describe('runner through seed, drive and judge', () => {
                 vacuumSettings: expect.objectContaining({
                     settings: expect.objectContaining({ autovacuum: expect.stringMatching(/^(on|off)$/) }),
                     storage: expect.objectContaining({ cyclotron_jobs: null }),
-                    workersVisible: expect.any(Boolean),
                 }),
                 dependencies: [],
             })
