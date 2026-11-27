@@ -304,6 +304,22 @@ def lookup_cte_by_name(global_scopes: list[ast.SelectQueryType], name: str) -> O
     return None
 
 
+def _lazy_join_alias(select: ast.SelectQueryType, alias: str) -> str:
+    """Make the alias of a lazy join differ from every table that the query names itself.
+
+    A query can name its own table like a lazy join, for example `d__tags`. The lazy join then takes `d__tags_2`.
+    Callers compute the alias again after the join is added, so the check skips the aliases that lazy table
+    resolution registered on the scope.
+    """
+    lazy_join_aliases = select.lazy_join_aliases or set()
+    candidate = alias
+    index = 1
+    while candidate in select.tables and candidate not in lazy_join_aliases:
+        index += 1
+        candidate = f"{alias}_{index}"
+    return candidate
+
+
 def get_long_table_name(select: ast.SelectQueryType, type: ast.Type) -> str:
     match type:
         case ast.TableType():
@@ -324,7 +340,7 @@ def get_long_table_name(select: ast.SelectQueryType, type: ast.Type) -> str:
             ast.LazyJoinType(table_type=table_type, field=field)
             | ast.VirtualTableType(table_type=table_type, field=field)
         ):
-            return f"{get_long_table_name(select, table_type)}__{field}"
+            return _lazy_join_alias(select, f"{get_long_table_name(select, table_type)}__{field}")
         case _:
             raise ResolutionError(f"Unknown table type in LazyTableResolver: {type.__class__.__name__}")
 

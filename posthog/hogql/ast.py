@@ -386,12 +386,18 @@ class SelectQueryType(Type):
     is_lambda_type: bool = False
 
     implicit_table_aliases: set[str] | None = field(default=None, compare=False, repr=False)
+    lazy_join_aliases: set[str] | None = field(default=None, compare=False, repr=False)
 
     def register_implicit_table_alias(self, alias: str) -> str:
         if self.implicit_table_aliases is None:
             self.implicit_table_aliases = set()
         self.implicit_table_aliases.add(alias)
         return alias
+
+    def register_lazy_join_alias(self, alias: str) -> None:
+        if self.lazy_join_aliases is None:
+            self.lazy_join_aliases = set()
+        self.lazy_join_aliases.add(alias)
 
     def get_alias_for_table_type(self, table_type: TableOrSelectType) -> Optional[str]:
         for key, value in self.tables.items():
