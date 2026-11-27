@@ -8,6 +8,7 @@ import type { CdpRole, Named, Step } from '../cards'
 import type { Definition } from '../cards/definitions'
 import type { ObservationName } from '../environment/failover'
 import { ReplicaOf, nameOf } from '../environment/identity'
+import type { AttachmentBudget } from '../environment/roles'
 import type { QueueCounts } from '../probe/cyclotron-probe'
 import type { WriterSample } from '../probe/writer-probe'
 import type { ValveTimelineEntry } from '../valves/valves'
@@ -59,6 +60,7 @@ export type MeasureEvidence = Omit<JudgeEvidence, 'janitorResets' | 'boundary'> 
         steps: readonly Step[]
         timeline: readonly ValveTimelineEntry[]
         counters?: CounterReading
+        attachmentBudgets?: readonly AttachmentBudget[]
         unread?: string
         horizonAt?: number
         converged?: boolean
@@ -157,6 +159,59 @@ export const attachmentReservedBytesMax = peakPerRole(
     'bytes',
     ({ attachments }) => attachments?.reservedBytes
 )
+
+const unbudgeted = (role: string, budgets: readonly AttachmentBudget[] | undefined): Measured | undefined => {
+    const ofRole = (budgets ?? []).filter((budget) => budget.role === role)
+    const refused = ofRole.find((budget) => 'refusal' in budget)
+    return ofRole.length === 0
+        ? { key: role, value: null, censored: true, unmeasured: 'the run target computes no budget for this role' }
+        : refused && 'refusal' in refused
+          ? {
+                key: role,
+                value: null,
+                censored: true,
+                unmeasured: `the worker admits no sends with files: ${refused.refusal}`,
+            }
+          : undefined
+}
+
+const budgetOf = (budgets: readonly AttachmentBudget[], { role, replica }: { role: string; replica: number }): number =>
+    budgets.flatMap((budget) =>
+        budget.role === role && budget.replica === replica && 'budgetBytes' in budget ? [budget.budgetBytes] : []
+    )[0]
+
+export const attachmentBudgetBytes: MeasurementDefinition = {
+    name: 'attachment_budget_bytes',
+    params: z.object({}).strict(),
+    unit: 'bytes',
+    measure: ({ attachmentBudgets = [] }) =>
+        [...Map.groupBy(attachmentBudgets, ({ role }) => role)].map(
+            ([role, ofRole]) =>
+                unbudgeted(role, ofRole) ?? {
+                    key: role,
+                    value: Math.min(
+                        ...ofRole.flatMap((budget) => ('budgetBytes' in budget ? [budget.budgetBytes] : []))
+                    ),
+                }
+        ),
+}
+
+export const attachmentReservedShareMax: MeasurementDefinition = {
+    name: 'attachment_reserved_share_max',
+    params: z.object({}).strict(),
+    unit: 'share',
+    measure: ({ samples, missed, attachmentBudgets }) =>
+        [...byRole(samples.filter(({ attachments }) => attachments !== undefined))].map(
+            ([role, ofRole]) =>
+                unbudgeted(role, attachmentBudgets) ?? {
+                    key: role,
+                    value: maxOf(
+                        ofRole.map((sample) => sample.attachments!.reservedBytes / budgetOf(attachmentBudgets!, sample))
+                    ),
+                    ...completeness(role, missed),
+                }
+        ),
+}
 
 export const roleRestarts: MeasurementDefinition = {
     name: 'role_restarts',
@@ -835,6 +890,8 @@ export const MEASUREMENTS: MeasurementDefinition[] = [
     attachmentDeferralWindowS,
     attachmentSendsInFlightMax,
     attachmentReservedBytesMax,
+    attachmentBudgetBytes,
+    attachmentReservedShareMax,
     stepDeliveryLatencyMs,
     stepAttachmentDeferralsPerSecond,
     rampOnsetScale,

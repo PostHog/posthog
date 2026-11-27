@@ -217,6 +217,46 @@ describe('measurements', () => {
         expect(measure([{ name, params: {} }], evidence({ samples }))).toEqual([{ name, key: ROLE, value, unit }])
     })
 
+    it.each<[string, MeasureEvidence['attachmentBudgets'], Omit<Measurement, 'name' | 'unit'>[]]>([
+        [
+            "budgets that differ by replica, so each replica's reserved bytes count against its own",
+            [
+                { role: ROLE, replica: 0, budgetBytes: 100_000_000 },
+                { role: ROLE, replica: 1, budgetBytes: 120_000_000 },
+            ],
+            [
+                { name: 'attachment_budget_bytes', key: ROLE, value: 100_000_000 },
+                { name: 'attachment_reserved_share_max', key: ROLE, value: 0.5 },
+            ],
+        ],
+        [
+            'a worker that refused sends with files',
+            [{ role: ROLE, replica: 0, refusal: 'no attachment store is set' }],
+            ['attachment_budget_bytes', 'attachment_reserved_share_max'].map((name) => ({
+                name,
+                key: ROLE,
+                value: null,
+                censored: true as const,
+                unmeasured: 'the worker admits no sends with files: no attachment store is set',
+            })),
+        ],
+    ])(
+        'states the email worker budget and how close reserved bytes came to it, for %s',
+        (_story, attachmentBudgets, measured) => {
+            const samples = [
+                withGauges(sample(0, -60, 1), 1, { reservedBytes: 20_000_000 }),
+                withGauges(sample(5, -60, 1, 100, 1), 1, { reservedBytes: 60_000_000 }),
+            ]
+
+            expect(
+                measure(
+                    ['attachment_budget_bytes', 'attachment_reserved_share_max'].map((name) => ({ name, params: {} })),
+                    evidence({ samples, attachmentBudgets })
+                ).map(({ unit: _unit, ...value }) => value)
+            ).toEqual(measured)
+        }
+    )
+
     it.each<[string, MetricSample[], Omit<Measurement, 'name' | 'unit'>[]]>([
         [
             'one process that deferred for two reasons while sampled',

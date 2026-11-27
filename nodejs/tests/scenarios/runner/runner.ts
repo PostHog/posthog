@@ -19,10 +19,12 @@ import { durationMs } from '../duration'
 import { Environment, RunConfig, defaultStateDir } from '../environment/environment'
 import { nameOf } from '../environment/identity'
 import {
+    AttachmentBudget,
     ConsumerGroup,
     INTAKE_GROUPS,
     RoleSpec,
     SES_WEBHOOKS_GROUP,
+    attachmentBudgetsOf,
     consumerGroupsOf,
     fetchRetriesOf,
     roleSpecs,
@@ -85,6 +87,7 @@ const EDGE_HOSTS = ['ses', WEBHOOK_HOST]
 export type TargetRun = Pick<JudgeOptions, 'truth' | 'fetchRetries' | 'residentBacklog'> & {
     probe: Pick<CyclotronProbe, 'unfinishedJobs' | 'runningJobs'>
     counters?: CounterProbe
+    attachmentBudgets?: AttachmentBudget[]
     groups: ConsumerGroup[]
     connect(): Promise<void>
     seed(signal: AbortSignal): Promise<SeedState>
@@ -428,6 +431,7 @@ function localTarget(
                 counters: createCounterProbe(clickhouseOf(env)),
                 residentBacklog: () => residentBacklogOf(profile, stateDir, cyclotronUrl),
                 fetchRetries: fetchRetriesOf(specs.find(({ role }) => role === 'cdp-cyclotron-worker-hogflow')!),
+                attachmentBudgets: attachmentBudgetsOf(specs),
                 groups,
                 async connect() {
                     producer = await KafkaProducerWrapper.createWithConfig(undefined, producerConfigOf(specs[0].env))
@@ -793,6 +797,7 @@ export function createRunner(
                     drive: driveWindow,
                     steps,
                     timeline: valves.timeline(),
+                    ...(opened.attachmentBudgets && { attachmentBudgets: opened.attachmentBudgets }),
                 }
                 const measurements = measure(card.measure, evidence)
                 const admissions = admissionsOf(

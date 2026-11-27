@@ -2,6 +2,7 @@ import { createHash } from 'crypto'
 import { z } from 'zod'
 
 import { getDefaultCdpConfig } from '~/cdp/config'
+import { MachineMemory, inFlightLimitsFor } from '~/cdp/services/messaging/in-flight-registry'
 import { PluginServerMode } from '~/common/config'
 import { getDefaultConfig, overrideConfigWithEnv } from '~/common/config/config'
 
@@ -203,6 +204,28 @@ export function roleSpecs(
             },
         }
     })
+}
+
+export type AttachmentBudget = RoleId & ({ budgetBytes: number } | { refusal: string })
+
+export function attachmentBudgetsOf(specs: RoleSpec[], machine?: MachineMemory): AttachmentBudget[] {
+    return specs
+        .filter(({ role }) => role === 'cdp-cyclotron-worker-email')
+        .map(({ role, replica, env }) => {
+            const config = overrideConfigWithEnv(getDefaultCdpConfig(), env)
+            const admission = inFlightLimitsFor(
+                {
+                    memoryFraction: config.CDP_EMAIL_ATTACHMENTS_MEMORY_BUDGET_FRACTION,
+                    maxInFlight: config.CDP_EMAIL_ATTACHMENTS_MAX_IN_FLIGHT,
+                    heartbeatIntervalMs: config.CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS,
+                    attachmentStoreBucket: config.CDP_EMAIL_ATTACHMENTS_S3_BUCKET,
+                },
+                machine
+            )
+            return 'refusal' in admission
+                ? { role, replica, refusal: admission.refusal }
+                : { role, replica, budgetBytes: admission.limits.budgetBytes }
+        })
 }
 
 export function fetchRetriesOf({ env }: RoleSpec): number {

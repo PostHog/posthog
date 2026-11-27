@@ -51,4 +51,6 @@ measure:
     - name: attachment_deferrals
     - name: attachment_sends_in_flight_max
     - name: attachment_reserved_bytes_max
+    - name: attachment_budget_bytes
+    - name: attachment_reserved_share_max
 unpaired: a ramp has no control run; each step reads plain mail against its first step
