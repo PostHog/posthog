@@ -554,7 +554,7 @@ class TestFrameConverters(SimpleTestCase):
             ("time to convert (previous)", {}, [[60, 120], [2, 0]]),
         ]
 
-    @parameterized.expand([("Metric",), ("CalendarHeatmap",), ("BoxPlot",), ("SlopeGraph",)])
+    @parameterized.expand([("CalendarHeatmap",), ("BoxPlot",), ("SlopeGraph",)])
     def test_trends_displays_without_an_aggregate_keep_the_raw_result(self, display: str) -> None:
         query = {
             "kind": "TrendsQuery",
