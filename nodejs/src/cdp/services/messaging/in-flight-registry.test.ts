@@ -1,3 +1,5 @@
+import { Registry } from 'prom-client'
+
 import { settleBeforeAbortEvenWhileCredentialsStall } from './attachment-store'
 import {
     InFlightLimits,
@@ -43,6 +45,22 @@ describe('InFlightRegistry', () => {
         await (started as { started: Promise<void> }).started
 
         expect(registry.tryStart(MIB, () => Promise.resolve())).toHaveProperty('started')
+    })
+
+    it('exports every deferral reason at zero when the module loads', async () => {
+        let registry: Registry | undefined
+        jest.isolateModules(() => {
+            registry = require('prom-client').register
+            require('./in-flight-registry')
+        })
+
+        const metric = await registry!.getSingleMetric('cdp_email_attachments_deferral_tokens_total')!.get()
+        expect(Object.fromEntries(metric.values.map(({ labels, value }) => [labels.reason, value]))).toEqual({
+            over_budget: 0,
+            over_heap: 0,
+            at_cap: 0,
+            refused: 0,
+        })
     })
 
     it('defers every send when the worker refused sends with files', () => {
