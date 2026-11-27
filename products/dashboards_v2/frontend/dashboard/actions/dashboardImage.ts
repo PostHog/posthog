@@ -81,6 +81,7 @@ export function imageActions({
             label: downloadLabel,
             dataAttr,
             group: 'view',
+            needsLoaded: true,
             disabledReason: busy,
             submenu: IMAGE_FORMATS.filter(({ format }) => canWriteImage(format)).map(({ format, label }) => ({
                 key: format,
@@ -97,6 +98,7 @@ export function imageActions({
             label: copyLabel,
             dataAttr: `${dataAttrPrefix}-copy-image`,
             group: 'view',
+            needsLoaded: true,
             disabledReason: busy,
             onSelect: copy,
         })
