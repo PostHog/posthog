@@ -2036,15 +2036,18 @@ class TestBufferedIngressCapture:
 
     @parameterized.expand(
         [
-            ("completed_run", None, [1]),
-            ("failed_run", RuntimeError("s3 down"), [None]),
+            ("completed_run", False, None, [1]),
+            ("failed_run", False, RuntimeError("s3 down"), [None]),
+            ("run_after_one_that_died_mid_write", True, None, [None, 1]),
         ]
     )
     def test_a_run_triggers_loads_after_it_counted_its_writes_and_also_when_it_fails(
-        self, _name: str, write_error: Exception | None, generation_at_trigger: list[int | None]
+        self, _name: str, write_left_open: bool, write_error: Exception | None, generation_at_trigger: list[int | None]
     ) -> None:
         source = _make_source()
         schema = _make_schema("users", source=source)
+        if write_left_open:
+            schema.sync_type_config[BUFFER_WRITE_OPEN_KEY] = True
         seen: list[int | None] = []
 
         with (
@@ -2064,6 +2067,19 @@ class TestBufferedIngressCapture:
                     capture.extract()
 
         assert seen == generation_at_trigger
+
+    def test_a_trigger_that_raises_does_not_fail_the_run(self) -> None:
+        source = _make_source()
+        schema = _make_schema("users", source=source)
+
+        with (
+            _capture_harness(source, [schema], [_make_event(position="0/100")]) as capture,
+            patch(f"{_ACTIVITIES}.load_trigger_enabled", return_value=True),
+            patch(f"{_ACTIVITIES}.trigger_loads", side_effect=RuntimeError("temporal down")),
+        ):
+            capture.extract()
+
+        assert schema.sync_type_config[BUFFER_GENERATION_KEY] == 1
 
     @parameterized.expand(
         [

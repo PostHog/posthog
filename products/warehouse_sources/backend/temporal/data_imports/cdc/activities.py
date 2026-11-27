@@ -36,6 +36,7 @@ from products.warehouse_sources.backend.logic.source_inputs import SourceInputsS
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
     CDC_SNAPSHOT_LANE_KEY,
+    SCHEDULE_INTERVAL_SECONDS_KEY,
     ExternalDataSchema,
     update_sync_type_config_keys,
 )
@@ -82,6 +83,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import 
     purge_buffer_prefix,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.dispatch import (
+    BUFFER_WRITE_OPEN_KEY,
     close_buffer_write,
     data_driven_load_enabled,
     open_buffer_write,
@@ -100,7 +102,6 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.history_table import SourceHistoryNamings
 from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import has_engine_seq
 from products.warehouse_sources.backend.temporal.data_imports.cdc.load_trigger import (
-    applied_schedule_interval,
     load_trigger_enabled,
     trigger_loads,
 )
@@ -566,6 +567,10 @@ class CDCExtractActivity:
             # here, so it still retries; this only keeps a self-resolving blip out of error tracking.
             self.log.warning("cdc_setup_transient_app_db_error", exc_info=True)
             raise NonReportableError(str(exc)) from exc
+
+        # A run that died after a write triggered nothing, so the tables it wrote wait for this one.
+        if any((schema.sync_type_config or {}).get(BUFFER_WRITE_OPEN_KEY) for schema in self.cdc_schemas):
+            self._trigger_loads()
 
         completed = False
         try:
@@ -1077,7 +1082,8 @@ class CDCExtractActivity:
             # hold, grow the window so an oversized single transaction can complete in one peek (or
             # trip the decoder's MAX_TX_BUFFER_EVENTS guard) instead of re-peeking the same page.
             advanced = self._drain_and_advance_page()
-            self._trigger_loads_during_a_long_read()
+            if self._should_stop is None or not self._should_stop():
+                self._trigger_loads_during_a_long_read()
 
             # Checked after the page advance, so the slot is already past every change this run wrote
             # to the buffer and the next run starts at the first unread change.
@@ -1730,9 +1736,10 @@ class CDCExtractActivity:
             if self._load_trigger is None:
                 self._load_trigger = load_trigger_enabled(self.source)
             # With the flag off the only work left is to restore a schedule it slowed down earlier.
-            if not self._load_trigger and not any(applied_schedule_interval(s) for s in self.cdc_schemas):
+            slowed = any(SCHEDULE_INTERVAL_SECONDS_KEY in (s.sync_type_config or {}) for s in self.cdc_schemas)
+            if not self._load_trigger and not slowed:
                 return
-            trigger_loads(self.source, self.log, enabled=self._load_trigger)
+            trigger_loads(self.source, self.log, enabled=self._load_trigger, heartbeat=self._safe_heartbeat)
         except Exception:
             self.log.warning("cdc_load_trigger_run_failed", exc_info=True)
 

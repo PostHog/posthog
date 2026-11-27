@@ -148,12 +148,9 @@ def consumer_tick_stands_down(schema_id: Any, team_id: int, logger: Any) -> bool
     """
     from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
     from products.warehouse_sources.backend.temporal.data_imports.cdc import metrics
-    from products.warehouse_sources.backend.temporal.data_imports.cdc.load_trigger import restore_own_schedule
 
     try:
         schema = ExternalDataSchema.objects.select_related("source").filter(id=schema_id, team_id=team_id).first()
-        if schema is not None:
-            restore_own_schedule(schema, logger)
         decision = consumer_tick_decision(schema, dt.datetime.now(dt.UTC)) if schema is not None else None
     except Exception as e:
         logger.warning("cdc_consumer_tick_gate_failed", schema_id=str(schema_id), error=str(e))
