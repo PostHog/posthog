@@ -1728,10 +1728,16 @@ export interface TransactionalEmailClickSessionApi {
     landed_at: string
     /** The URL of that page, with the email's run tag. */
     landing_url: string
-    /** From the session's first event to its last, in seconds. */
-    duration_seconds: number
-    /** How many pages the session viewed. */
-    pageview_count: number
+    /**
+     * From the session's first event to its last, in seconds. Null until the session's totals are ready.
+     * @nullable
+     */
+    duration_seconds: number | null
+    /**
+     * How many pages the session viewed. Null until the session's totals are ready.
+     * @nullable
+     */
+    pageview_count: number | null
     /**
      * Such as `Desktop` or `Mobile`. Null when unknown.
      * @nullable
