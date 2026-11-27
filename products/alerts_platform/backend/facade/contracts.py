@@ -1588,6 +1588,9 @@ class SourceConfigSpec:
     # Narrows a read through the platform API to the alerts whose watched object the reader may view.
     # None when read access to the kind is enough.
     object_access: SourceObjectAccess | None = None
+    # The platform API reads the kind's alerts and refuses writes to them: its source's own API makes them.
+    # It reads only the ones the platform holds, as a copy the source owns is a stale shadow.
+    read_only: bool = False
 
     @property
     def creatable(self) -> bool:

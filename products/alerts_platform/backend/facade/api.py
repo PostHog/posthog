@@ -220,7 +220,8 @@ def list_configurations(
     `legacy_configuration_id`, only the copy of that source row. With `configuration_ids`, only those.
     With `created_by_uuid`, only the ones that user created. With `held_only`, only the ones whose
     settings the platform holds: those with no source row, and the copies it owns. With a `reader`,
-    only the ones whose watched object the reader may view, for a kind with `object_access`."""
+    only the ones whose watched object the reader may view, for a kind with `object_access`, and only
+    the held ones, for a `read_only` kind."""
     return platform_reads.list_configurations(
         team_id=team_id,
         source_kinds=source_kinds,
@@ -457,7 +458,8 @@ def get_configuration(
     reader: PlatformAlertReader | None = None,
 ) -> PlatformAlertConfigurationView | None:
     """One configuration, or None when it does not exist or the caller may not read it. With a
-    `reader`, None also when the reader may not view its watched object, for a kind with `object_access`.
+    `reader`, None also when the reader may not view its watched object, for a kind with `object_access`,
+    or when the platform does not hold it, for a `read_only` kind.
 
     With `lock`, call it inside a transaction: the row stays locked until it ends, so a delete waits.
     """

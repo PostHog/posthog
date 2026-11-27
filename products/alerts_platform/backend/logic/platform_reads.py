@@ -12,6 +12,7 @@ from typing import Any, cast
 from uuid import UUID
 
 from django.db.models import Case, Exists, FloatField, Max, OuterRef, Prefetch, Q, QuerySet, Subquery, Value, When
+from django.db.models.fields.json import KeyTransform, KeyTransformIn
 from django.db.models.functions import Coalesce
 
 from posthog.helpers.full_text_search import build_rank
@@ -129,8 +130,14 @@ def _readable(
         where, source_kind__in=list(source_kinds)
     )
     if reader is not None:
+        rows = rows.filter(_held_if_read_only(source_kinds))
         rows = rows.filter(_viewable_objects(rows, team_id, source_kinds, reader))
     return rows.prefetch_related(Prefetch("alerts", queryset=instances)).order_by("-created_at", "-id")
+
+
+def _held_if_read_only(source_kinds: Sequence[str]) -> Q:
+    read_only = [kind for kind in source_kinds if (spec := source_configs.spec(SourceKind(kind))) and spec.read_only]
+    return (~Q(source_kind__in=read_only) | _HELD) if read_only else Q()
 
 
 def _viewable_objects(
@@ -148,8 +155,9 @@ def _viewable_objects(
         key = access.source_config_key
         configs = rows.filter(source_kind=source_kind).values_list("source_config", flat=True)
         watched = {config.get(key) for config in configs}
-        allowed = access.viewable(team_id=team_id, object_ids=watched, reader=reader)
-        viewable &= ~Q(source_kind=source_kind) | (_source_config_in(key, allowed) if allowed else Q(pk__in=[]))
+        allowed = access.viewable(team_id=team_id, object_ids=watched, reader=reader) if watched else ()
+        watched_in = Q(KeyTransformIn(KeyTransform(key, "source_config"), list(allowed))) if allowed else Q(pk__in=[])
+        viewable &= ~Q(source_kind=source_kind) | watched_in
     return viewable
 
 
