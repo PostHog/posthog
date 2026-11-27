@@ -29,6 +29,13 @@ type MenuActionBase = {
     exclusive?: boolean
     /** Makes a picture of what the tile holds, so a tile's menu disables it while the tile is still loading. */
     needsLoaded?: boolean
+    /**
+     * The color a choice shows. When every choice of a `choice` submenu has one, they show as a row of swatches in the
+     * menu itself. Null shows a crossed-out swatch, for no color.
+     */
+    swatch?: string | null
+    /** Set on a swatch row to end it with a swatch that opens a field for any hex color. */
+    customColor?: { value: string | null; onPick: (hex: string) => void }
     /** Picking it leaves the menu open, for a choice someone may want to compare with the next one. */
     keepOpen?: boolean
 }

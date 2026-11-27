@@ -1,7 +1,6 @@
 import { type FilterEdit, applyFilterEdit } from '../../filters/filterEdits'
 import { arrangeInColumns, contentRows, dropIntoGrid, resizeSection, settleGrid } from '../../grid/layout/gridTiles'
 import { bottomOf } from '../../grid/layout/placeTiles'
-import type { AccentColor } from '../../panels/core/accentColors'
 import { type SizeOf } from '../../panels/core/panelSpec'
 import { linkTabSchema } from '../document/dashboardSchema'
 import {
@@ -40,7 +39,7 @@ export type LayoutEdit =
     /** With `href`, the new tab is a link elsewhere and holds no tiles. */
     | { edit: 'addTab'; title: string; href?: string }
     | { edit: 'renameTab'; id: string; title: string }
-    | { edit: 'setTabColor'; id: string; color: AccentColor | null }
+    | { edit: 'setTabColor'; id: string; color: string | null }
     | { edit: 'removeTab'; id: string }
     /** `before` is the tab it lands in front of; null puts it last. */
     | { edit: 'moveTab'; id: string; before: string | null }

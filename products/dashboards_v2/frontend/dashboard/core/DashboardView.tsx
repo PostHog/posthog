@@ -14,7 +14,18 @@ import {
 } from 'react'
 import { useContainerWidth } from 'react-grid-layout'
 
-import { Button } from '@posthog/quill'
+import { IconDashboard } from '@posthog/icons'
+import {
+    Button,
+    Empty,
+    EmptyContent,
+    EmptyDescription,
+    EmptyHeader,
+    EmptyMedia,
+    EmptyTitle,
+    IconStack,
+    IconStackItem,
+} from '@posthog/quill'
 
 import { getJSHeapMemory } from 'lib/utils/dom'
 
@@ -28,6 +39,7 @@ import { CapturingTileContext, TileMountContext, createTileMountScheduler } from
 import { ErrorBoundary } from '../../panels/core/ErrorBoundary'
 import { PanelHostContext } from '../../panels/core/panelHostContext'
 import { sizeOfPanels } from '../../panels/core/panelSpec'
+import { AddTileMenu } from '../../tiles/menu/AddTileMenu'
 import { TileSlideshow } from '../../tiles/TileSlideshow'
 import { useDashboardImage } from '../actions/useDashboardImage'
 import { useDashboardRefresh } from '../actions/useDashboardRefresh'
@@ -86,6 +98,33 @@ function DashboardFailed({ history }: { history: DashboardController['history'] 
                 )
             }
         />
+    )
+}
+
+function EmptyTab({ gridId, canAdd }: { gridId: string; canAdd: boolean }): JSX.Element {
+    return (
+        <Empty className="border-none py-16" data-attr="dashboard-v2-empty-tab">
+            <EmptyHeader>
+                <EmptyMedia>
+                    <IconStack>
+                        <IconStackItem color="var(--color-product-product-analytics-light)">
+                            <IconDashboard />
+                        </IconStackItem>
+                    </IconStack>
+                </EmptyMedia>
+                <EmptyTitle>This tab is empty</EmptyTitle>
+                <EmptyDescription>
+                    {canAdd
+                        ? 'Add a chart, text or section to get started.'
+                        : 'No tiles have been added to this tab yet.'}
+                </EmptyDescription>
+            </EmptyHeader>
+            {canAdd && (
+                <EmptyContent>
+                    <AddTileMenu gridId={gridId} label="Add tile" />
+                </EmptyContent>
+            )}
+        </Empty>
     )
 }
 
@@ -292,6 +331,9 @@ function DashboardViewContent({ header, surface, ...props }: DashboardViewProps)
                                                         width={width}
                                                         editable={can('placeTiles')}
                                                     />
+                                                )}
+                                                {activeTab.tiles.length === 0 && (
+                                                    <EmptyTab gridId={activeTab.id} canAdd={can('addTile')} />
                                                 )}
                                             </ErrorBoundary>
                                         </div>

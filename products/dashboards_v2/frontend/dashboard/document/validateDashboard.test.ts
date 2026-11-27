@@ -106,7 +106,7 @@ describe('validateDashboard', () => {
             expected: [
                 {
                     path: 'tabs[0].tiles[0].place',
-                    message: 'This markdown tile is at least 3 columns wide and 4 rows tall',
+                    message: 'This markdown tile is at least 3 columns wide and 3 rows tall',
                 },
             ],
         },
@@ -211,7 +211,7 @@ describe('validateDashboard', () => {
             expected: [
                 {
                     path: 'tabs[0].tiles[0].place',
-                    message: 'This markdown tile is at least 3 columns wide and 4 rows tall',
+                    message: 'This markdown tile is at least 3 columns wide and 3 rows tall',
                 },
             ],
         },

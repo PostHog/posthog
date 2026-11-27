@@ -11,3 +11,11 @@ export const ACCENT_COLORS: Record<AccentColor, { label: string; css: string }> 
     red: { label: 'Red', css: 'var(--color-red-500)' },
     purple: { label: 'Purple', css: 'var(--color-purple-500)' },
 }
+
+/** A custom color is saved as a hex code, so it can be checked as plain data. */
+export const HEX_COLOR = /^#[0-9a-f]{6}$/i
+
+/** A named color's CSS, or a custom hex color as it is. */
+export function colorCss(color: string): string {
+    return color in ACCENT_COLORS ? ACCENT_COLORS[color as AccentColor].css : color
+}

@@ -11,19 +11,9 @@ import { hasDangerousScheme } from 'lib/utils/url'
 import { useGridDrag } from '../../grid/drag/gridDrag'
 import { ActionContextMenu } from '../../menu/ActionContextMenu'
 import type { MenuAction } from '../../menu/menuAction'
-import { ACCENT_COLOR_KEYS, ACCENT_COLORS, type AccentColor } from '../../panels/core/accentColors'
+import { ACCENT_COLOR_KEYS, ACCENT_COLORS, HEX_COLOR, colorCss } from '../../panels/core/accentColors'
 import { type DashboardTab, isGridTab } from '../document/dashboardTypes'
 import { useDashboard } from './dashboardContext'
-
-function AccentColorDot({ color }: { color: AccentColor | undefined }): JSX.Element | null {
-    return color ? (
-        <span
-            className="size-[7px] shrink-0 rounded-full"
-            style={{ background: ACCENT_COLORS[color].css }}
-            aria-hidden
-        />
-    ) : null
-}
 
 /**
  * Replaces the browser's faded copy of a dragged tab with one that looks lifted, like a dragged tile. The browser
@@ -147,8 +137,7 @@ export function DashboardTabs(): JSX.Element | null {
             )
         }
         if (can('setTabColor')) {
-            const setColor = (color: AccentColor | null) => (): void =>
-                onEdit({ edit: 'setTabColor', id: tab.id, color })
+            const setColor = (color: string | null) => (): void => onEdit({ edit: 'setTabColor', id: tab.id, color })
             actions.push({
                 key: 'color',
                 label: 'Color',
@@ -156,6 +145,10 @@ export function DashboardTabs(): JSX.Element | null {
                 disabledReason: disabledReasonFor('setTabColor'),
                 group: 'display',
                 choice: true,
+                customColor: {
+                    value: tab.color && HEX_COLOR.test(tab.color) ? tab.color : null,
+                    onPick: (hex) => setColor(hex)(),
+                },
                 submenu: [
                     {
                         key: 'none',
@@ -163,6 +156,8 @@ export function DashboardTabs(): JSX.Element | null {
                         dataAttr: 'dashboard-v2-tab-color-none',
                         disabledReason: null,
                         checked: !tab.color,
+                        swatch: null,
+                        keepOpen: true,
                         onSelect: setColor(null),
                     },
                     ...ACCENT_COLOR_KEYS.map((color) => ({
@@ -171,6 +166,8 @@ export function DashboardTabs(): JSX.Element | null {
                         dataAttr: `dashboard-v2-tab-color-${color}`,
                         disabledReason: null,
                         checked: tab.color === color,
+                        swatch: ACCENT_COLORS[color].css,
+                        keepOpen: true,
                         onSelect: setColor(color),
                     })),
                 ],
@@ -199,7 +196,7 @@ export function DashboardTabs(): JSX.Element | null {
                 className="DashboardTabs__scroller hide-scrollbar min-w-0 overflow-x-auto"
                 style={
                     activeTab.color
-                        ? ({ '--dv2-active-tab-color': ACCENT_COLORS[activeTab.color].css } as React.CSSProperties)
+                        ? ({ '--dv2-active-tab-color': colorCss(activeTab.color) } as React.CSSProperties)
                         : undefined
                 }
                 value={activeTab.id}
@@ -286,7 +283,6 @@ export function DashboardTabs(): JSX.Element | null {
                                 data-attr="dashboard-v2-link-tab"
                                 {...dragProps}
                             >
-                                <AccentColorDot color={tab.color} />
                                 {tab.title}
                                 <IconExternal className="size-3 text-secondary" aria-hidden />
                             </a>
@@ -304,7 +300,6 @@ export function DashboardTabs(): JSX.Element | null {
                                 onDoubleClick={() => startRename(tab.id, tab.title)}
                                 {...dragProps}
                             >
-                                <AccentColorDot color={tab.color} />
                                 {tab.title}
                             </TabsTrigger>
                         )
