@@ -242,6 +242,8 @@ export function createJudge({
             for (;;) {
                 let jobs: number | undefined
                 const quiet = await read(async () => {
+                    // The edge answers its head only once the feedback it is still posting has landed, so the lag probe below counts its notifications.
+                    await source.head()
                     await pullTruth()
                     const settled = runRecords()
                     jobs = await probe.unfinishedJobs({ teams, queues: ['hogflow', 'email'] })

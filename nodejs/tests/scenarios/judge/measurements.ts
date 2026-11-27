@@ -250,37 +250,61 @@ export const sesFeedbackPosts: MeasurementDefinition = {
               ),
 }
 
-const SES_NOTIFICATION_STAGES = ['queued', 'recorded', 'skipped'] as const
+const SES_NOTIFICATION_STAGES = ['queued', 'recorded', 'skipped', 'failed'] as const
+
+// cdp-api counts queued notifications and cdp-ses-webhooks counts the rest.
+const SES_COUNTING_ROLES: readonly string[] = ['cdp-api', 'cdp-ses-webhooks']
+
+const lossUnknown = (converged: boolean | undefined, failed: number, lost: number): string | undefined =>
+    converged === false
+        ? 'the run did not converge, so the consumer may still have been recording'
+        : failed > 0
+          ? `the consumer failed ${failed} notifications and replayed their batches, so recorded may count some twice`
+          : lost < 0
+            ? 'the consumer recorded more notifications than the webhook queued, so a replayed batch counted some twice'
+            : undefined
 
 export const sesNotificationsLost: MeasurementDefinition = {
     name: 'ses_notifications_lost',
     params: z.object({}).strict(),
     unit: 'notifications',
     measure: ({ samples, missed, sampledFrom, converged }) => {
-        const replicas = [...byRole(samples).values()].flatMap(replicasOf)
-        const counting = replicas.filter((ofReplica) =>
-            ofReplica.some(({ sesNotifications }) => Object.keys(sesNotifications).length > 0)
-        )
-        if (counting.length === 0) {
+        const replicas = [...byRole(samples).values()]
+            .flatMap(replicasOf)
+            .filter((ofReplica) => SES_COUNTING_ROLES.includes(ofReplica[0].role))
+        if (
+            !replicas.some((ofReplica) =>
+                ofReplica.some(({ sesNotifications }) => Object.keys(sesNotifications).length > 0)
+            )
+        ) {
             return []
         }
-        const [queued, recorded, skipped] = SES_NOTIFICATION_STAGES.map((stage) =>
-            increaseAcrossReplicas(counting, ({ sesNotifications }) => sesNotifications[stage] ?? 0, sampledFrom)
+        const [queued, recorded, skipped, failed] = SES_NOTIFICATION_STAGES.map((stage) =>
+            increaseAcrossReplicas(replicas, ({ sesNotifications }) => sesNotifications[stage] ?? 0, sampledFrom)
         )
-        const incomplete = counting.some((ofReplica) => lostCpu(ofReplica, missed)) ? { incomplete: true as const } : {}
-        const lost =
-            converged === false
-                ? {
-                      value: null,
-                      censored: true as const,
-                      unmeasured: 'the run did not converge, so the consumer may still have been recording',
-                  }
-                : { value: queued - recorded - skipped }
+        const neverScraped = missed.some(
+            (miss) =>
+                SES_COUNTING_ROLES.includes(miss.role) &&
+                !replicas.some((ofReplica) => ofReplica[0].role === miss.role && ofReplica[0].replica === miss.replica)
+        )
+        const incomplete =
+            neverScraped || replicas.some((ofReplica) => lostCpu(ofReplica, missed))
+                ? { incomplete: true as const }
+                : {}
+        const lost = queued - recorded - skipped
+        const unknown = lossUnknown(converged, failed, lost)
         return [
-            { key: 'lost', ...lost, ...incomplete },
+            {
+                key: 'lost',
+                ...(unknown === undefined
+                    ? { value: lost }
+                    : { value: null, censored: true as const, unmeasured: unknown }),
+                ...incomplete,
+            },
             { key: 'queued', value: queued, ...incomplete },
             { key: 'recorded', value: recorded, ...incomplete },
             { key: 'skipped', value: skipped, ...incomplete },
+            { key: 'failed', value: failed, ...incomplete },
         ]
     },
 }

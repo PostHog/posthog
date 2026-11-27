@@ -35,6 +35,7 @@ describe('judge', () => {
     let truthLoses: number | undefined
     let duringProbe: (() => Promise<unknown>) | undefined
     let duringFinalPage: (() => Promise<unknown>) | undefined
+    let duringHead: (() => void) | undefined
     let polls: number
     let probeAnswers: number
     let judge: Judge
@@ -51,7 +52,10 @@ describe('judge', () => {
     const judgeOf = (): Judge =>
         createJudge({
             truth: {
-                head: (read) => edgeTruth(edge.url).head(read),
+                head: (read) => {
+                    duringHead?.()
+                    return edgeTruth(edge.url).head(read)
+                },
                 after: async (cursor, read) => {
                     if (read?.final) {
                         await duringFinalPage?.()
@@ -108,6 +112,7 @@ describe('judge', () => {
         truthLoses = undefined
         duringProbe = undefined
         duringFinalPage = undefined
+        duringHead = undefined
         polls = 0
         probeAnswers = Infinity
         judge = judgeOf()
@@ -124,11 +129,13 @@ describe('judge', () => {
         actionId = 'email',
         flowId = 'flow-1',
         cc: string[] = [],
-        invocationId = `invocation-${unitId}`
+        invocationId = `invocation-${unitId}`,
+        configurationSet?: string
     ): Promise<unknown> =>
         ses
             .send(
                 new SendEmailCommand({
+                    ConfigurationSetName: configurationSet,
                     FromEmailAddress: 'flows@www.example.com',
                     Destination: { ToAddresses: [`${unitId}@${UNIT_EMAIL_DOMAIN}`], CcAddresses: cc },
                     Content: {
@@ -1205,6 +1212,52 @@ describe('judge', () => {
             expect(await judge.converge(50, NEVER_ABORTED)).toMatchObject(expected)
         }
     )
+
+    it('converges only once the SES feedback the edge is still posting has landed in the truth', async () => {
+        let release = (): void => undefined
+        const answered = new Promise<void>((resolve) => {
+            release = resolve
+        })
+        const webhook = http.createServer((_req, res) => void answered.then(() => res.end('queued')))
+        await new Promise<void>((resolve) => webhook.listen(0, '127.0.0.1', resolve))
+        try {
+            ses.destroy()
+            await edge.close()
+            edgeRecords = new Truth()
+            edge = await startProviderEdge({
+                port: 0,
+                trackingKeys: TRACKING_KEYS,
+                caDir,
+                feedbackUrl: `http://127.0.0.1:${(webhook.address() as AddressInfo).port}/public/m/ses_webhook`,
+                truth: edgeRecords,
+            })
+            ses = new SESv2Client({
+                endpoint: edge.url,
+                region: 'us-east-1',
+                credentials: { accessKeyId: 'edge', secretAccessKey: 'edge' },
+                maxAttempts: 1,
+            })
+            judge = judgeOf()
+            await judge.open(SEED)
+            await internalFetch(`${edge.url}/_feedback`, {
+                method: 'PUT',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ delivery: 1 }),
+            })
+            judge.record(offered())
+            await deliver(UNIT, 'email', 'flow-1', [], `invocation-${UNIT}`, 'scenario-tracked')
+            duringHead = release
+
+            expect(await judge.converge(1000, NEVER_ABORTED)).toMatchObject({ converged: true })
+            expect(judge.evidence().truth.map(({ kind, status }) => [kind, status])).toEqual([
+                ['ses.send', 200],
+                ['ses.feedback', 200],
+            ])
+        } finally {
+            release()
+            await new Promise((resolve) => webhook.close(resolve))
+        }
+    })
 
     it('ends at its deadline with the truth it read and the read that failed, rather than throwing', async () => {
         judge.record(offered())

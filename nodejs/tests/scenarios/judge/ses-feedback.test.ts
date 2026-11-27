@@ -166,10 +166,11 @@ describe('SES notifications lost', () => {
         role: string,
         atS: number,
         sesNotifications: Record<string, number>,
-        startedAtS = -60
+        startedAtS = -60,
+        replica = 0
     ): MetricSample => ({
         role,
-        replica: 0,
+        replica,
         at: FROM + atS * 1000,
         startedAt: FROM / 1000 + startedAtS,
         cpuSeconds: 1,
@@ -189,12 +190,12 @@ describe('SES notifications lost', () => {
         scraped('cdp-api', 0, { queued: 4 }),
         scraped('cdp-api', 60, { queued: 24 }),
         scraped('cdp-ses-webhooks', 0, { recorded: 3, skipped: 1 }),
-        scraped('cdp-ses-webhooks', 60, { recorded: 19, skipped: 2, failed: 5, redelivered: 5 }),
+        scraped('cdp-ses-webhooks', 60, { recorded: 19, skipped: 2, redelivered: 5 }),
     ]
 
     it('counts the notifications the webhook queued that the consumer neither recorded nor skipped', () => {
         expect(lostOf(run)).toEqual(
-            Object.entries({ lost: 3, queued: 20, recorded: 16, skipped: 1 }).map(([key, value]) => ({
+            Object.entries({ lost: 3, queued: 20, recorded: 16, skipped: 1, failed: 0 }).map(([key, value]) => ({
                 name: 'ses_notifications_lost',
                 unit: 'notifications',
                 key,
@@ -206,8 +207,39 @@ describe('SES notifications lost', () => {
     it.each<[string, MetricSample[], MissedScrape[]]>([
         ['a role restarted', [...run, scraped('cdp-ses-webhooks', 90, { recorded: 1 }, 80)], []],
         ['a scrape was missed after the last one', run, [{ role: 'cdp-api', replica: 0, at: FROM + 90_000 }]],
+        [
+            'a consumer replica that had counted nothing yet missed its last scrape',
+            [...run, scraped('cdp-ses-webhooks', 0, {}, -60, 1)],
+            [{ role: 'cdp-ses-webhooks', replica: 1, at: FROM + 90_000 }],
+        ],
+        ['a consumer replica was never scraped', run, [{ role: 'cdp-ses-webhooks', replica: 1, at: FROM + 90_000 }]],
     ])('marks the count incomplete when %s', (_story, samples, missed) => {
-        expect(lostOf(samples, { missed }).every(({ incomplete }) => incomplete === true)).toBe(true)
+        const measured = lostOf(samples, { missed })
+
+        expect(measured.length).toBeGreaterThan(0)
+        expect(measured.filter(({ incomplete }) => incomplete !== true)).toEqual([])
+    })
+
+    it.each<[string, MetricSample[], string]>([
+        [
+            'the consumer failed notifications, so their batches replayed',
+            [...run.slice(0, 3), scraped('cdp-ses-webhooks', 60, { recorded: 19, skipped: 2, failed: 2 })],
+            'the consumer failed 2 notifications and replayed their batches, so recorded may count some twice',
+        ],
+        [
+            'the consumer recorded more than the webhook queued',
+            [...run.slice(0, 3), scraped('cdp-ses-webhooks', 60, { recorded: 30, skipped: 2 })],
+            'the consumer recorded more notifications than the webhook queued, so a replayed batch counted some twice',
+        ],
+    ])('leaves the loss unknown when %s', (_story, samples, unmeasured) => {
+        expect(lostOf(samples).find(({ key }) => key === 'lost')).toEqual({
+            name: 'ses_notifications_lost',
+            unit: 'notifications',
+            key: 'lost',
+            value: null,
+            censored: true,
+            unmeasured,
+        })
     })
 
     it('leaves the loss unknown when the run did not converge', () => {
