@@ -553,6 +553,17 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
         self.enterContext(patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True))
         return f"/api/projects/{self.team.id}/platform_alerts/"
 
+    def _assert_platform_reads(self, url: str, *, shown: bool) -> None:
+        listed = self.client.get(url)
+        retrieved = self.client.get(f"{url}{self.copy_id}/")
+        events = self.client.get(f"{url}{self.copy_id}/events/")
+
+        assert listed.status_code == status.HTTP_200_OK, listed.json()
+        assert [row["id"] for row in listed.json()["results"]] == ([str(self.copy_id)] if shown else [])
+        assert listed.json()["count"] == (1 if shown else 0)
+        expected = status.HTTP_200_OK if shown else status.HTTP_404_NOT_FOUND
+        assert (retrieved.status_code, events.status_code) == (expected, expected), retrieved.json()
+
     @parameterized.expand([("member_who_can_view_the_insight", False), ("member_who_cannot_view_the_insight", True)])
     def test_the_platform_api_shows_an_insight_alert_only_to_a_reader_of_its_insight(
         self, _name: str, insight_hidden: bool
@@ -568,17 +579,26 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
             AccessControl.objects.create(
                 resource="insight", resource_id=str(self.alert.insight_id), team=self.team, access_level="none"
             )
-        visible = not insight_hidden
 
-        listed = self.client.get(url)
-        retrieved = self.client.get(f"{url}{self.copy_id}/")
-        events = self.client.get(f"{url}{self.copy_id}/events/")
+        self._assert_platform_reads(url, shown=not insight_hidden)
 
-        assert listed.status_code == status.HTTP_200_OK, listed.json()
-        assert [row["id"] for row in listed.json()["results"]] == ([str(self.copy_id)] if visible else [])
-        assert listed.json()["count"] == (1 if visible else 0)
-        expected = status.HTTP_200_OK if visible else status.HTTP_404_NOT_FOUND
-        assert (retrieved.status_code, events.status_code) == (expected, expected), retrieved.json()
+    @parameterized.expand(
+        [
+            ("platform_owned_copy", PlatformAlertOwner.PLATFORM, True, True),
+            ("source_owned_copy", PlatformAlertOwner.SOURCE, True, False),
+            ("native_alert", PlatformAlertOwner.PLATFORM, False, True),
+        ]
+    )
+    def test_the_platform_api_shows_only_the_insight_alerts_the_platform_holds(
+        self, _name: str, owner: PlatformAlertOwner, has_source_row: bool, shown: bool
+    ) -> None:
+        url = self._platform_alerts_url()
+        with team_scope(self.team.id):
+            platform_testing.set_owner(self.copy_id, owner)
+            if not has_source_row:
+                platform_testing.forget_source_row(self.copy_id)
+
+        self._assert_platform_reads(url, shown=shown)
 
     @parameterized.expand(
         [
