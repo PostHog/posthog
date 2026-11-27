@@ -7550,10 +7550,12 @@ export type AiObservabilityTracesListParams = {
     date_to?: string
     /**
      * Lists only traces where any event has this normalized error message, as the errors list shows it. A listed trace keeps its other events.
+     * @maxLength 65536
      */
     error?: string
     /**
      * Lists only traces where a call to the tool with this name failed. A listed trace keeps its other events.
+     * @maxLength 65536
      */
     failed_tool?: string
     /**
@@ -7593,6 +7595,7 @@ export type AiObservabilityTracesListParams = {
     search?: string
     /**
      * Lists only traces where any event called the tool with this name. A listed trace keeps its other events.
+     * @maxLength 65536
      */
     tool?: string
     /**
