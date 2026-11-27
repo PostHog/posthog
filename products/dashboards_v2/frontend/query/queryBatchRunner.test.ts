@@ -22,6 +22,7 @@ const LATENCY: QueryRequest = {
 const DAY_1 = Date.UTC(2026, 10, 1)
 
 type OpenStream = {
+    url: string
     body: any
     signal: AbortSignal
     push: (text: string) => void
@@ -39,10 +40,11 @@ describe('createQueryBatchRunner', () => {
         streams = []
         status = 200
         traceresponse = null
-        globalThis.fetch = jest.fn(async (_url: string, init: RequestInit) => {
+        globalThis.fetch = jest.fn(async (url: string, init: RequestInit) => {
             let controller!: ReadableStreamDefaultController<Uint8Array>
             const stream = new ReadableStream<Uint8Array>({ start: (c) => void (controller = c) })
             streams.push({
+                url,
                 body: JSON.parse(String(init.body)),
                 signal: init.signal as AbortSignal,
                 push: (text) => controller.enqueue(new TextEncoder().encode(text)),
@@ -124,6 +126,25 @@ describe('createQueryBatchRunner', () => {
 
         streams[0].push(`${JSON.stringify({ i: 0, error: 'Query timed out' })}\n`)
         await expect(first).rejects.toThrow('Query timed out')
+    })
+
+    it("sends a query that names another project to that project's endpoint, in its own stream", async () => {
+        const runQuery = createQueryBatchRunner(7)
+        const own = runQuery(SQL)
+        const other = runQuery({ ...SQL, project: 9 })
+        const ownAgain = runQuery(TRENDS)
+        await flush()
+
+        expect(streams.map((stream) => [stream.url, stream.body.queries.length])).toEqual([
+            ['/api/projects/7/dashboard_v2/query_batch/', 2],
+            ['/api/projects/9/dashboard_v2/query_batch/', 1],
+        ])
+        answer(streams[1], 0, 9)
+        answer(streams[0], 1, 2)
+        answer(streams[0], 0, 1)
+        await expect(other).resolves.toEqual(totalOf(9))
+        await expect(own).resolves.toEqual(totalOf(1))
+        await expect(ownAgain).resolves.toEqual(totalOf(2))
     })
 
     it('rejects the queries a stream ended without answering', async () => {

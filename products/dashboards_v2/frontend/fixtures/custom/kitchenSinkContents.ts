@@ -33,7 +33,11 @@ export const kitchenSinkContents = defineContentPackage('kitchen-sink', {
         size: { w: 12, h: 5, minW: 8, minH: 4 },
         showOnInteractiveOnly: true,
     },
-    'tabbed-breakdown': { Component: TabbedBreakdown, size: { w: 12, h: 14, minW: 8, minH: 8 } },
+    'tabbed-breakdown': {
+        Component: TabbedBreakdown,
+        size: { w: 12, h: 14, minW: 8, minH: 8 },
+        keepMounted: true,
+    },
     'activity-heatmap': { Component: ActivityHeatmap, size: { w: 12, h: 14, minW: 8, minH: 8 } },
     'live-visitors': { Component: LiveVisitors, size: { w: 8, h: 8, minW: 6, minH: 6 }, showOnInteractiveOnly: true },
     'instrumentation-checklist': { Component: InstrumentationChecklist, size: { w: 16, h: 8, minW: 8, minH: 4 } },

@@ -59,9 +59,10 @@ function ChartData({
     const targets = chartTargets(panel.config)
     // Filters are left out when empty, so a chart's cached result from before any filter existed still matches.
     const results = useQueryFrames(
-        targets.map(({ query, legend }) => ({
+        targets.map(({ query, legend, project = panel.config.project }) => ({
             query,
             time,
+            ...(project ? { project } : {}),
             ...(legend ? { legend } : {}),
             ...(filters.length > 0 ? { filters } : {}),
         })),
