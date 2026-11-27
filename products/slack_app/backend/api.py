@@ -117,6 +117,7 @@ from products.slack_app.backend.services import (
     slack_welcome_messages,
     turn_feedback,
 )
+from products.slack_app.backend.services.channel_metadata import schedule_channel_metadata_refresh
 from products.slack_app.backend.services.channel_settings import resolve_channel_untagged_question_mode
 from products.slack_app.backend.services.commands import SLASH_COMMAND_PREFIX, mention_command_redirect
 from products.slack_app.backend.services.integration_resolver import (
@@ -5273,6 +5274,8 @@ def _start_mention_workflow(
             posthog_user=posthog_user,
             awaited_request_reply=awaited_request_reply,
         )
+        if isinstance(event.get("channel"), str):
+            schedule_channel_metadata_refresh(integration, event["channel"], is_ext_shared=is_ext_shared_channel)
         if _resolve_pending_repo_picker_from_followup(event, integration):
             return ROUTE_HANDLED_LOCALLY
     workflow_inputs = PostHogCodeSlackMentionWorkflowInputs(

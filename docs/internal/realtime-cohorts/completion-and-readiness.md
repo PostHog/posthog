@@ -236,8 +236,11 @@ An edit that clears a stamp makes the cohort report again once it is rebuilt, an
 The realtime cohorts gate (`is_realtime_cohort_flag_targeting_enabled`) is open for a team whose access row is `serving`, and for a team on `REALTIME_COHORT_TEAM_ALLOWLIST` when the realtime targeting rollout flag is on for the user.
 That list also holds load-test teams, which is why the flag still decides there.
 The flag API accepts a cohort with event-based criteria, or one that depends on such a cohort, only when the gate is open and every such cohort is flag-compatible.
+Inside the gate, it refuses a realtime cohort that is off or not yet ready with the code `realtime_cohort_not_ready`, and any other such cohort with `behavioral_cohort_found`.
+The survey API adds its event-trigger and static-copy advice to the second code only.
 The same gate lets the flag editor's cohort picker list these cohorts, and the team's `realtime_cohorts` field tells the frontend about it.
 Under each condition set, the flag editor lists the cohorts the set targets that flags can't target yet, and turns realtime on for an `off` one through the cohort API's `realtime` action, the same action the cohort page calls.
+The survey wizard's audience rules show the same list and turn-on for the cohorts they target, but the wizard's picker lists cohorts with event-based criteria for every team, inside the gate or not.
 For a team inside the gate, that field also carries how many of the project's cohorts hold a slot and the plan's slot limit, and it carries nulls for every other team.
 
 Behind the same gate, for teams at the `serving` level, the cohort API's `realtime` field reports one state per cohort that has event or person criteria: `static`, `person_properties`, `daily`, `off`, `building`, `rebuilding`, `ready`, or `needs_attention`.

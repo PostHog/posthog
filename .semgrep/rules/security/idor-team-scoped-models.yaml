@@ -161,6 +161,7 @@ rules:
                               |UserInterfaceFragment
                               |Dashboard
                               |DashboardTemplate
+                              |DashboardV2Board
                               |DashboardWidget
                               |TeamHomeTabDashboardConfig
                               |DataColorTheme
@@ -470,6 +471,8 @@ rules:
                               |SignalScoutEmission
                               |SignalScoutNote
                               |SignalScoutStructuredOutput
+                              |SignalScoutMessage
+                              |SignalScoutMessageDelivery
                               |SignalScoutPendingTrigger
                               |SignalScoutSuggestionSet
                               |SignalScoutBackgroundBand
@@ -726,6 +729,7 @@ rules:
                         |UserInterfaceFragment
                         |Dashboard
                         |DashboardTemplate
+                        |DashboardV2Board
                         |DashboardWidget
                         |TeamHomeTabDashboardConfig
                         |DataColorTheme
@@ -1022,6 +1026,8 @@ rules:
                         |SignalScoutEmission
                         |SignalScoutNote
                         |SignalScoutStructuredOutput
+                        |SignalScoutMessage
+                        |SignalScoutMessageDelivery
                         |SignalScoutPendingTrigger
                         |SignalScoutSuggestionSet
                         |SignalScoutBackgroundBand
@@ -1718,6 +1724,7 @@ rules:
                       regex: |
                           (?x)(
                               AccountAuditCredential
+                              |AdventCalendarAnswer
                               |CommunitySkillVote
                               |GitHubInstallRequest
                               |IdentityProviderEmailVerification
@@ -1776,6 +1783,7 @@ rules:
                 regex: |
                     (?x)(
                         AccountAuditCredential
+                        |AdventCalendarAnswer
                         |CommunitySkillVote
                         |GitHubInstallRequest
                         |IdentityProviderEmailVerification

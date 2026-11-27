@@ -8,7 +8,7 @@ import { isCardId, runCardOf } from './card'
 import { awaitCard, lastWorkAt, prepareDatabase, startCard } from './host'
 import { lease, manifestOf } from './lease'
 import { githubOrigin } from './origin'
-import { CloudProfile, ProfileInputs, REGION, TTL_HOURS, loadCloudProfile, loadRunInputs } from './profile'
+import { CloudProfile, CloudRunProfileInputs, REGION, TTL_HOURS, loadCloudProfile, loadRunInputs } from './profile'
 import { report } from './report'
 import { addReader, createRunStack } from './stack'
 import { teardown } from './teardown'
@@ -40,7 +40,12 @@ function defaultController(): Controller {
     return { ...controller, origin: githubOrigin(controller) }
 }
 
-async function run(controller: Controller, inputs: ProfileInputs, cardId: string, seed?: number): Promise<number> {
+async function run(
+    controller: Controller,
+    inputs: CloudRunProfileInputs,
+    cardId: string,
+    seed?: number
+): Promise<number> {
     const { profile } = inputs
     const { min, max, idleMax } = profile.readerAcu
     if (idleMax !== undefined && idleMax < min) {
@@ -51,7 +56,14 @@ async function run(controller: Controller, inputs: ProfileInputs, cardId: string
         controller.warn(`Refused the run:\n${admission.problems.map((problem) => `- ${problem}`).join('\n')}`)
         return EXIT_CODE.invalid
     }
-    const card = runCardOf(controller.origin, admission.admitted.commit, cardId, inputs.runner.bytes, seed)
+    const card = runCardOf(
+        controller.origin,
+        admission.admitted.commit,
+        cardId,
+        inputs.runner.bytes,
+        inputs.readAlertFile,
+        seed
+    )
     if (card.failsOver && idleMax === undefined) {
         throw new Error(`${cardId} fails the reader over, so the cloud profile needs readerAcu.idleMax.`)
     }

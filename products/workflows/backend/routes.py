@@ -12,6 +12,7 @@ from products.workflows.backend.presentation.views import (
     hog_flow_template,
     people_imports,
     push_token_imports,
+    workflow_advent_calendar,
     workflow_classifications,
     workflow_data_suggestions,
     workflow_email_sandbox,
@@ -125,6 +126,12 @@ def register_routes(routers: RouterRegistry) -> None:
         r"hog_flow_templates",
         hog_flow_template.HogFlowTemplateViewSet,
         "project_hog_flow_templates",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"workflow_advent_calendar",
+        workflow_advent_calendar.WorkflowAdventCalendarViewSet,
+        "project_workflow_advent_calendar",
         ["team_id"],
     )
     routers.root.register(

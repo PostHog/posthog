@@ -212,6 +212,9 @@ pub struct ProcessingConfig {
     #[envconfig(from = "ADAPTIVE_INGESTION_PROJECT_DAY_MULTIPLE", default = "3")]
     pub adaptive_ingestion_project_day_multiple: f64,
 
+    #[envconfig(from = "ADAPTIVE_INGESTION_SHADOW_TEAM_PERCENT", default = "0")]
+    pub adaptive_ingestion_shadow_team_percent: u8,
+
     #[envconfig(from = "ADAPTIVE_INGESTION_MIN_HISTORY_DAYS", default = "7")]
     pub adaptive_ingestion_min_history_days: usize,
 

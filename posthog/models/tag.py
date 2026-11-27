@@ -16,12 +16,13 @@ def tagify(tag: str):
 def tag_assignment_transaction(team_ids: Collection[int], *, using: str | None = None) -> Iterator[str]:
     using = using or router.db_for_write(Tag)
     # Inline writers visit tags by name, so serialize within a team before taking ordered tag locks.
+    # parent_team_id is bigint in production and id is integer, so cast both keys to the (int, int) overload.
     with transaction.atomic(using=using):
         if team_ids:
             with connections[using].cursor() as cursor:
                 cursor.execute(
                     """
-                    SELECT pg_advisory_xact_lock(%s, root_team_id)
+                    SELECT pg_advisory_xact_lock(%s::integer, root_team_id::integer)
                     FROM (
                         SELECT DISTINCT COALESCE(parent_team_id, id) AS root_team_id
                         FROM posthog_team WHERE id = ANY(%s)

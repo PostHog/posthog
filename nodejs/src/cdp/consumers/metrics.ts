@@ -38,7 +38,7 @@ export const counterTeamIdSource = new Counter({
 
 export const counterTeamIdHeaderMismatch = new Counter({
     name: 'cdp_events_team_id_header_mismatch',
-    help: 'An event body named a different team than its header. The events consumer parks the event, because it would send one team data to another team destinations. The hogflow subscription matcher skips it, so a parked run it should have woken waits until it times out.',
+    help: 'An event body named a different team than its header. The events consumer parks the event, because it would send one team data to another team destinations. The legacy on-event consumer drops it, so its plugins and webhooks never see it. The hogflow subscription matcher skips it, so a parked run it should have woken waits until it times out.',
 })
 
 export const counterUnmatchedEventName = new Counter({

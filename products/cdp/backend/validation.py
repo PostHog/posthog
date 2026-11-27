@@ -33,6 +33,7 @@ from products.cdp.backend.filters import (
     RUNTIME_CONTRACT,
     TEMPLATE_CALLABLES,
     TEMPLATE_GLOBALS,
+    TEMPLATE_GLOBALS_WITHOUT_VARIABLES,
     collect_property_cohort_ids,
     compile_filters_bytecode,
     compile_filters_expr,
@@ -667,6 +668,7 @@ def generate_template_bytecode(
     function_type: Optional[str] = None,
     is_dwh_source: bool = False,
     validate_globals: bool = True,
+    in_workflow: bool = False,
 ) -> Any:
     """
     Clones an object, compiling any string values to bytecode templates
@@ -674,12 +676,16 @@ def generate_template_bytecode(
 
     if isinstance(obj, dict):
         return {
-            key: generate_template_bytecode(value, input_collector, function_type, is_dwh_source, validate_globals)
+            key: generate_template_bytecode(
+                value, input_collector, function_type, is_dwh_source, validate_globals, in_workflow
+            )
             for key, value in obj.items()
         }
     elif isinstance(obj, list):
         return [
-            generate_template_bytecode(item, input_collector, function_type, is_dwh_source, validate_globals)
+            generate_template_bytecode(
+                item, input_collector, function_type, is_dwh_source, validate_globals, in_workflow
+            )
             for item in obj
         ]
     elif isinstance(obj, str):
@@ -716,7 +722,11 @@ def generate_template_bytecode(
             # Every other type resolves its inputs against the invocation globals at run time. A save
             # that disables or deletes the function skips this, so a broken function can be turned off.
             template_validator = TemplateGlobalsValidator(
-                available_globals=TEMPLATE_GLOBALS, runtime_functions=TEMPLATE_CALLABLES, python_stl=False
+                available_globals=TEMPLATE_GLOBALS
+                if in_workflow or function_type == "source_webhook"
+                else TEMPLATE_GLOBALS_WITHOUT_VARIABLES,
+                runtime_functions=TEMPLATE_CALLABLES,
+                python_stl=False,
             )
             template_validator.check(node)
             if template_validator.invalid_globals:
@@ -1144,6 +1154,7 @@ class InputsItemSerializer(serializers.Serializer):
                                 function_type=function_type,
                                 is_dwh_source=is_dwh_source,
                                 validate_globals=self.context.get("function_will_be_enabled", True),
+                                in_workflow=self.context.get("in_workflow", False),
                             )
                             attrs["input_deps"] = list(input_collector)
                             attrs["bytecode_contract"] = RUNTIME_CONTRACT
