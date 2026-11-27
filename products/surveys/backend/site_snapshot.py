@@ -2,7 +2,7 @@ import re
 import json
 import hashlib
 from datetime import timedelta
-from typing import cast
+from typing import Any, cast
 
 from django.core.cache import BaseCache, caches
 from django.db import models
@@ -113,12 +113,12 @@ class SiteSnapshot:
 UNAVAILABLE = SiteSnapshot(status=SnapshotStatus.UNAVAILABLE)
 
 
-# Some saved surveys hold "contains", which means icontains.
-LEGACY_URL_MATCH_TYPES = {"contains": SurveyMatchType.ICONTAINS}
-
-
-def parse_url_match_type(value: str | None) -> SurveyMatchType:
-    return LEGACY_URL_MATCH_TYPES.get(value or "") or SurveyMatchType(value or SurveyMatchType.ICONTAINS)
+# The survey API stores urlMatchType unchecked, and some surveys hold legacy or malformed values.
+def parse_url_match_type(value: Any) -> SurveyMatchType:
+    try:
+        return SurveyMatchType(value)
+    except (ValueError, TypeError):
+        return SurveyMatchType.ICONTAINS
 
 
 @frozen

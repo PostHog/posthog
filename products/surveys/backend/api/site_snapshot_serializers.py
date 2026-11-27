@@ -3,12 +3,14 @@ from rest_framework import serializers
 from products.surveys.backend.models import SurveyMatchType
 from products.surveys.backend.site_snapshot import (
     DEVICE_VIEWPORTS,
-    LEGACY_URL_MATCH_TYPES,
     SnapshotDevice,
     SnapshotStatus,
     UrlTarget,
     parse_url_match_type,
 )
+
+# The editor sends its survey's saved match type, and older surveys hold "contains" for icontains.
+LEGACY_URL_MATCH_TYPES = {"contains": SurveyMatchType.ICONTAINS}
 
 
 class UrlMatchTypeField(serializers.ChoiceField):

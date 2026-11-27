@@ -133,6 +133,8 @@ class TestSiteSnapshot(ClickhouseTestMixin, APIBaseTest):
             ("not_icontains", {"url": "docs", "urlMatchType": "not_icontains"}, PRICING),
             ("missing_match_type_means_icontains", {"url": "DOCS"}, DOCS),
             ("legacy_contains_means_icontains", {"url": "DOCS", "urlMatchType": "contains"}, DOCS),
+            ("unknown_match_type_means_icontains", {"url": "DOCS", "urlMatchType": "CONTAINS"}, DOCS),
+            ("non_string_match_type_means_icontains", {"url": "DOCS", "urlMatchType": {"op": "contains"}}, DOCS),
             ("missing_url_means_any_page", {}, DOCS),
             ("no_conditions_means_any_page", None, DOCS),
             ("older_than_the_window", {"url": "legacy"}, None),
