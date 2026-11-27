@@ -345,6 +345,7 @@ export {
     anchoredToast,
     toastManager,
     anchoredToastManager,
+    type ToastAction,
     type ToastCardProps,
     type ToastOptions,
     type AnchoredToastOptions,

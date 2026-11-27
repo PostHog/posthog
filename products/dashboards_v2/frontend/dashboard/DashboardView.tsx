@@ -14,7 +14,7 @@ import {
 } from 'react'
 import { useContainerWidth } from 'react-grid-layout'
 
-// TODO(2026-11-25): Replace with quill once it can; the app does not mount quill's ToastProvider yet.
+// lemonToast shows quill's toasts wherever the app mounts them, so it is the one toast API here too.
 // oxlint-disable-next-line no-restricted-imports
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { getJSHeapMemory } from 'lib/utils/dom'

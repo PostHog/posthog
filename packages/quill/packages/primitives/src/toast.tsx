@@ -1,3 +1,5 @@
+import './toast.css'
+
 import { Toast } from '@base-ui/react/toast'
 import { CircleCheckIcon, InfoIcon, XIcon, TriangleAlertIcon } from 'lucide-react'
 import * as React from 'react'
@@ -5,14 +7,17 @@ import * as React from 'react'
 import { Button } from './button'
 import { cn } from './lib/utils'
 import { Spinner } from './spinner'
-import './toast.css'
 
 // ── Global manager ────────────────────────────────────────────────────
+type ToastAction = {
+    label: string
+    onClick: () => void
+}
+
 type ToastActionData = {
-    action?: {
-        label: string
-        onClick: () => void
-    }
+    action?: ToastAction
+    secondaryAction?: ToastAction
+    onDismiss?: () => void
 }
 
 const toastManager = Toast.createToastManager<ToastActionData>()
@@ -22,15 +27,15 @@ const anchoredToastManager = Toast.createToastManager<ToastActionData>()
 type ToastType = 'success' | 'info' | 'warning' | 'error' | 'loading'
 
 type ToastOptions = {
-    title?: string
-    description?: string
+    title?: React.ReactNode
+    description?: React.ReactNode
     type?: ToastType
     timeout?: number
     onClose?: () => void
-    action?: {
-        label: string
-        onClick: () => void
-    }
+    action?: ToastAction
+    secondaryAction?: ToastAction
+    /** Runs when the user closes the toast with its close button, not when it times out. */
+    onDismiss?: () => void
 }
 
 // ── Icon map ──────────────────────────────────────────────────────────
@@ -43,22 +48,32 @@ const toastIconMap: Record<ToastType, React.ReactNode> = {
 }
 
 // ── ToastCard ─────────────────────────────────────────────────────────
-type ToastCardAction = {
-    label: string
-    onClick: () => void
-}
-
 type ToastCardProps = React.ComponentPropsWithRef<'div'> & {
     toastTitle?: React.ReactNode
     toastDescription?: React.ReactNode
     icon?: React.ReactNode
-    action?: ToastCardAction
+    action?: ToastAction
+    secondaryAction?: ToastAction
     onDismiss?: () => void
     showGapHitArea?: boolean
 }
 
 const ToastCard = React.forwardRef<HTMLDivElement, ToastCardProps>(
-    ({ className, toastTitle, toastDescription, icon, action, onDismiss, showGapHitArea, children, ...props }, ref) => {
+    (
+        {
+            className,
+            toastTitle,
+            toastDescription,
+            icon,
+            action,
+            secondaryAction,
+            onDismiss,
+            showGapHitArea,
+            children,
+            ...props
+        },
+        ref
+    ) => {
         const onlyTitle = toastTitle !== undefined && toastDescription === undefined
         const onlyDescription = toastDescription !== undefined && toastTitle === undefined
         return (
@@ -88,12 +103,19 @@ const ToastCard = React.forwardRef<HTMLDivElement, ToastCardProps>(
                         )}
                     </div>
                 </div>
-                {action && (
-                    <div className="flex items-center gap-3 mt-2">
-                        {icon && <span className="size-6 shrink-0" />}
-                        <Button variant="outline" onClick={action.onClick}>
-                            {action.label}
-                        </Button>
+                {(action || secondaryAction) && (
+                    <div className="flex items-center gap-2 mt-2">
+                        {icon && <span className="size-6 shrink-0 me-1" />}
+                        {action && (
+                            <Button variant="outline" onClick={action.onClick}>
+                                {action.label}
+                            </Button>
+                        )}
+                        {secondaryAction && (
+                            <Button variant="outline" onClick={secondaryAction.onClick}>
+                                {secondaryAction.label}
+                            </Button>
+                        )}
                     </div>
                 )}
                 {onDismiss && (
@@ -157,12 +179,34 @@ function ToastProvider({ children, limit = 3, timeout = 5000 }: ToastProviderPro
 }
 
 // ── Viewport + list ───────────────────────────────────────────────────
+function closingAction(
+    manager: { close: (toastId: string) => void },
+    toastId: string,
+    action: ToastAction | undefined
+): ToastAction | undefined {
+    if (!action) {
+        return undefined
+    }
+    return {
+        label: action.label,
+        onClick: () => {
+            manager.close(toastId)
+            action.onClick()
+        },
+    }
+}
+
 function ToastViewport(): React.ReactElement {
     const manager = Toast.useToastManager<ToastActionData>()
 
     return (
         <Toast.Portal>
-            <Toast.Viewport data-quill data-quill-portal="toast" className="fixed bottom-4 right-4 w-[360px]">
+            <Toast.Viewport
+                data-quill
+                data-quill-portal="toast"
+                data-slot="toast-viewport"
+                className="fixed bottom-4 right-4 w-[360px]"
+            >
                 {manager.toasts.map((t) => {
                     const toastType = t.type as ToastType | undefined
 
@@ -177,18 +221,12 @@ function ToastViewport(): React.ReactElement {
                                     toastDescription={t.description}
                                     icon={toastType ? toastIconMap[toastType] : undefined}
                                     showGapHitArea
-                                    action={
-                                        t.data?.action
-                                            ? {
-                                                  label: t.data.action.label,
-                                                  onClick: () => {
-                                                      toastManager.close(t.id)
-                                                      t.data?.action?.onClick()
-                                                  },
-                                              }
-                                            : undefined
-                                    }
-                                    onDismiss={() => toastManager.close(t.id)}
+                                    action={closingAction(manager, t.id, t.data?.action)}
+                                    secondaryAction={closingAction(manager, t.id, t.data?.secondaryAction)}
+                                    onDismiss={() => {
+                                        manager.close(t.id)
+                                        t.data?.onDismiss?.()
+                                    }}
                                     className={cn(
                                         'm-0 p-3',
                                         'data-[expanded]:![transform:translateX(var(--toast-swipe-movement-x))_translateY(var(--offset-y))]',
@@ -214,7 +252,7 @@ function AnchoredToastViewport(): React.ReactElement {
 
     return (
         <Toast.Portal>
-            <Toast.Viewport data-quill data-quill-portal="toast" className="fixed">
+            <Toast.Viewport data-quill data-quill-portal="toast" data-slot="anchored-toast-viewport" className="fixed">
                 {manager.toasts.map((t) => {
                     return (
                         // The caller's side and offset win; top and 8px are only the defaults.
@@ -230,18 +268,16 @@ function AnchoredToastViewport(): React.ReactElement {
                                     <ToastCard
                                         toastTitle={t.title}
                                         toastDescription={t.description}
-                                        action={
+                                        action={closingAction(manager, t.id, t.data?.action)}
+                                        secondaryAction={closingAction(manager, t.id, t.data?.secondaryAction)}
+                                        onDismiss={
                                             t.data?.action
-                                                ? {
-                                                      label: t.data.action.label,
-                                                      onClick: () => {
-                                                          manager.close(t.id)
-                                                          t.data?.action?.onClick()
-                                                      },
+                                                ? () => {
+                                                      manager.close(t.id)
+                                                      t.data?.onDismiss?.()
                                                   }
                                                 : undefined
                                         }
-                                        onDismiss={t.data?.action ? () => manager.close(t.id) : undefined}
                                         className={cn(
                                             // the viewport is a zero-width fixed box, so without this the card
                                             // collapses to its longest word
@@ -262,15 +298,19 @@ function AnchoredToastViewport(): React.ReactElement {
 }
 
 // ── Convenience API ───────────────────────────────────────────────────
+function toastData({ action, secondaryAction, onDismiss }: ToastOptions): ToastActionData | undefined {
+    return action || secondaryAction || onDismiss ? { action, secondaryAction, onDismiss } : undefined
+}
+
 function addToast(options: ToastOptions): string {
-    const { title, description, type, timeout, onClose, action } = options
+    const { title, description, type, timeout, onClose } = options
     return toastManager.add({
         title,
         description,
         type,
         timeout,
         onClose,
-        data: action ? { action } : undefined,
+        data: toastData(options),
     })
 }
 
@@ -298,19 +338,20 @@ toast.loading = (options: Omit<ToastOptions, 'type'>): string => {
     return addToast({ ...options, type: 'loading', timeout: 0 })
 }
 
-toast.dismiss = (id: string): void => {
+/** Closes the toast with this id, or every toast when no id is given. */
+toast.dismiss = (id?: string): void => {
     toastManager.close(id)
 }
 
 toast.update = (id: string, options: ToastOptions): void => {
-    const { title, description, type, timeout, onClose, action } = options
+    const { title, description, type, timeout, onClose } = options
     toastManager.update(id, {
         title,
         description,
         type,
         timeout,
         onClose,
-        data: action ? { action } : undefined,
+        data: toastData(options),
     })
 }
 
@@ -323,14 +364,14 @@ type AnchoredToastOptions = ToastOptions & {
 }
 
 function anchoredToast(options: AnchoredToastOptions): string {
-    const { title, description, type, timeout, action, anchor, side, sideOffset, onClose } = options
+    const { title, description, type, timeout, anchor, side, sideOffset, onClose } = options
     return anchoredToastManager.add({
         title,
         description,
         type,
         timeout,
         onClose,
-        data: action ? { action } : undefined,
+        data: toastData(options),
         positionerProps: {
             anchor,
             side,
@@ -352,6 +393,7 @@ export {
     toastManager,
     ToastProvider,
     type AnchoredToastOptions,
+    type ToastAction,
     type ToastCardProps,
     type ToastOptions,
     type ToastType,
