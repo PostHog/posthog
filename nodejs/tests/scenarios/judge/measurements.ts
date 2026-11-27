@@ -58,6 +58,7 @@ export type MeasureEvidence = Omit<JudgeEvidence, 'janitorResets' | 'boundary'> 
         counters?: CounterReading
         unread?: string
         horizonAt?: number
+        horizonSeq?: number
         converged?: boolean
         unsettled?: string
     }
@@ -170,11 +171,22 @@ export const deliveryLatencyMs: MeasurementDefinition = {
 }
 
 function webhookTriggersByStep({ journal, drive, steps }: MeasureEvidence): [Step, JournalEntry[]][] {
-    const reached = steps.filter(({ fromMs }) => drive.startedAt + fromMs < drive.endedAt)
-    const byStep = new Map(reached.map((step) => [step, [] as JournalEntry[]]))
-    for (const entry of journal) {
-        const step = reached.findLast(({ fromMs }) => drive.startedAt + fromMs <= entry.offeredAt)
-        if (entry.kind === 'webhook' && step !== undefined) {
+    const inDrive = (at: number): boolean => at >= drive.startedAt && at < drive.endedAt
+    const triggers = journal.filter(({ kind }) => kind === 'webhook')
+    const stepOf = ({ step, offeredAt }: JournalEntry): Step | undefined =>
+        step !== undefined
+            ? steps[step]
+            : inDrive(offeredAt)
+              ? steps.findLast(({ fromMs }) => drive.startedAt + fromMs <= offeredAt)
+              : undefined
+    const placed = triggers.map((entry) => [stepOf(entry), entry] as const)
+    const byStep = new Map(
+        steps
+            .filter((step) => inDrive(drive.startedAt + step.fromMs) || placed.some(([at]) => at === step))
+            .map((step) => [step, [] as JournalEntry[]])
+    )
+    for (const [step, entry] of placed) {
+        if (step !== undefined) {
             byStep.get(step)!.push(entry)
         }
     }
@@ -210,9 +222,15 @@ export const webhookTriggerOutcomes: MeasurementDefinition = {
     params: z.object({}).strict(),
     unit: 'triggers',
     measure: (evidence) => {
+        const { horizonSeq } = evidence
         const delivered = new Set(
-            evidence.truth.flatMap(({ unitId, actionId, status }) =>
-                unitId !== undefined && actionId !== undefined && status >= 200 && status < 300
+            evidence.truth.flatMap(({ seq, unitId, actionId, status }) =>
+                unitId !== undefined &&
+                actionId !== undefined &&
+                status >= 200 &&
+                status < 300 &&
+                horizonSeq !== undefined &&
+                seq <= horizonSeq
                     ? [deliveryKey(unitId, actionId)]
                     : []
             )
@@ -236,11 +254,14 @@ export const webhookTriggerOutcomes: MeasurementDefinition = {
                 },
                 {
                     key: `lost_${scale}x`,
-                    ...(evidence.unread !== undefined
+                    ...(evidence.unread !== undefined || horizonSeq === undefined
                         ? {
                               value: null,
                               censored: true as const,
-                              unmeasured: `the truth could not be read (${evidence.unread})`,
+                              unmeasured:
+                                  evidence.unread !== undefined
+                                      ? `the truth could not be read (${evidence.unread})`
+                                      : 'the run reached no recovery horizon',
                           }
                         : {
                               value: accepted.filter(({ unitId, expect }) =>

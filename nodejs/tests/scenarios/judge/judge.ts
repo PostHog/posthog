@@ -69,6 +69,7 @@ export interface Judge {
         unread?: string
         unsettled?: string
         horizonAt?: number
+        horizonSeq?: number
     }
 }
 
@@ -298,7 +299,7 @@ export function createJudge({
             fetchRetries,
             ...(unread !== undefined && { unread }),
             ...(unsettled !== undefined && { unsettled }),
-            ...(horizon !== undefined && 'at' in horizon && { horizonAt: horizon.at }),
+            ...(horizon !== undefined && 'at' in horizon && { horizonAt: horizon.at, horizonSeq: horizon.seq }),
         }),
     }
 }
