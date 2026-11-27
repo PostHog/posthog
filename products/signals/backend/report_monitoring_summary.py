@@ -5,7 +5,7 @@ from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime, timedelta
 from uuid import UUID
 
-from django.db.models import TextChoices
+from django.db.models import QuerySet, TextChoices
 
 from pydantic import ValidationError
 
@@ -199,22 +199,56 @@ def _metric_config(check: SignalReportCheck) -> MetricThresholdConfig | None:
     return config if isinstance(config, MetricThresholdConfig) else None
 
 
+def _parsed_observation(content: str) -> CheckObservation | None:
+    try:
+        return CheckObservation.model_validate_json(content)
+    except ValidationError:
+        return None
+
+
+def _latest_decided_observations(
+    rows: QuerySet[SignalReportArtefact], check_ids: set[str]
+) -> defaultdict[str, list[CheckObservation]]:
+    """Each check's latest observation with a match result, read newest first until every check has one.
+
+    An errored reading has no match result and never decides a verdict. A check accepts one reading at
+    a time, each after the last, so creation order is measurement order, and a newer Monitoring period's
+    readings are always later. Parsing in Python, not casting in SQL, keeps one malformed row from
+    failing the request.
+    """
+    observations: defaultdict[str, list[CheckObservation]] = defaultdict(list)
+    remaining = set(check_ids)
+    for content in rows.order_by("-created_at").values_list("content", flat=True).iterator(chunk_size=200):
+        if not remaining:
+            break
+        observation = _parsed_observation(content)
+        if observation is None or observation.matches is None or observation.check_id not in remaining:
+            continue
+        observations[observation.check_id].append(observation)
+        remaining.discard(observation.check_id)
+    return observations
+
+
 def _observations_by_check(
-    reports: Mapping[UUID, SignalReport], *, team_id: int, since: datetime
+    reports: Mapping[UUID, SignalReport],
+    *,
+    team_id: int,
+    since: datetime,
+    latest_only_for: set[str] | None = None,
 ) -> defaultdict[str, list[CheckObservation]]:
     rows = SignalReportArtefact.objects.filter(
         team_id=team_id,
         report_id__in=reports.keys(),
         type=SignalReportArtefact.ArtefactType.CHECK_OBSERVATION,
         created_at__gte=since,
-    ).values_list("content", flat=True)
+    )
+    if latest_only_for is not None:
+        return _latest_decided_observations(rows, latest_only_for)
     observations: defaultdict[str, list[CheckObservation]] = defaultdict(list)
-    for content in rows:
-        try:
-            observation = CheckObservation.model_validate_json(content)
-        except ValidationError:
-            continue
-        observations[observation.check_id].append(observation)
+    for content in rows.values_list("content", flat=True):
+        observation = _parsed_observation(content)
+        if observation is not None:
+            observations[observation.check_id].append(observation)
     return observations
 
 
@@ -225,11 +259,15 @@ def monitoring_summaries(
     now: datetime,
     may_read_values: Callable[[Mapping[str, object]], bool],
     ended_since: datetime | None = None,
+    latest_readings_only: bool = False,
 ) -> dict[str, ReportMonitoringSummary]:
     """Summarize each Monitoring report on a list page for its row, in three queries for the whole page.
 
     With `ended_since`, reports whose Monitoring ended at or after it are summarized too, so a row can
     show how each check finished.
+
+    With `latest_readings_only`, each check carries only its latest reading with a match result. The
+    state is the same, but a summary's readings are not the full history, so it is not for display.
     """
     monitored = {
         report.id: report
@@ -266,6 +304,11 @@ def monitoring_summaries(
         monitored,
         team_id=team_id,
         since=min(report.monitoring_started_at for report in monitored.values() if report.monitoring_started_at),
+        latest_only_for=(
+            {str(check.id) for checks in checks_by_report.values() for check in checks}
+            if latest_readings_only
+            else None
+        ),
     )
     summaries: dict[str, ReportMonitoringSummary] = {}
     for report_id, checks in checks_by_report.items():

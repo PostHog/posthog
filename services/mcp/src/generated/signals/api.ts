@@ -661,6 +661,12 @@ export const SignalsReportsListQueryParams = () => zod.object({
         .max(signalsReportsListQueryLimitMax)
         .optional()
         .describe('Number of results to return per page.'),
+    needs_attention: zod
+        .boolean()
+        .optional()
+        .describe(
+            "'true' keeps only the reports whose fix has evidence that it is not working: reports in Monitoring whose interim readings are not on track, and closed reports. 'false' leaves those out. Off-track readings the requesting user may not read do not count. Requires Monitoring to be enabled."
+        ),
     needs_you: zod
         .boolean()
         .optional()
@@ -5600,9 +5606,9 @@ export const signalsScoutSendMessageBodyRouteMax = 64
 
 export const signalsScoutSendMessageBodyReportIdMax = 64
 
-export const signalsScoutSendMessageBodyTitleMax = 150
+export const signalsScoutSendMessageBodyTitleMax = 80
 
-export const signalsScoutSendMessageBodyBodyMax = 3000
+export const signalsScoutSendMessageBodyBodyMax = 500
 
 export const signalsScoutSendMessageBodyDedupeKeyMax = 200
 
@@ -5624,12 +5630,12 @@ export const SignalsScoutSendMessageBody = () => zod
         title: zod
             .string()
             .max(signalsScoutSendMessageBodyTitleMax)
-            .describe('Short plain-text title. At most 150 characters.'),
+            .describe('Short plain-text title. At most 80 characters.'),
         body: zod
             .string()
             .max(signalsScoutSendMessageBodyBodyMax)
             .describe(
-                'Markdown body with the links the reader needs. At most 3000 characters. A link whose label looks like an address on another host is shown as the bare URL.'
+                'Markdown body with the links the reader needs. At most 500 characters. A link whose label looks like an address on another host is shown as the bare URL.'
             ),
         dedupe_key: zod
             .string()

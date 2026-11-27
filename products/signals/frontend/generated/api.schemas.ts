@@ -13039,13 +13039,13 @@ export interface SendScoutMessageRequestApi {
      */
     report_id?: string | null
     /**
-     * Short plain-text title. At most 150 characters.
-     * @maxLength 150
+     * Short plain-text title. At most 80 characters.
+     * @maxLength 80
      */
     title: string
     /**
-     * Markdown body with the links the reader needs. At most 3000 characters. A link whose label looks like an address on another host is shown as the bare URL.
-     * @maxLength 3000
+     * Markdown body with the links the reader needs. At most 500 characters. A link whose label looks like an address on another host is shown as the bare URL.
+     * @maxLength 500
      */
     body: string
     /**
@@ -14444,6 +14444,10 @@ export type SignalsReportsListParams = {
      * @maximum 1000
      */
     limit?: number
+    /**
+     * 'true' keeps only the reports whose fix has evidence that it is not working: reports in Monitoring whose interim readings are not on track, and closed reports. 'false' leaves those out. Off-track readings the requesting user may not read do not count. Requires Monitoring to be enabled.
+     */
+    needs_attention?: boolean
     /**
      * 'true' keeps only the reports that need the requesting user: the ones waiting on their input (pending_input and naming them as a suggested reviewer) and the ones they claimed, themselves or through their MCP agents. 'false' leaves those out. Combine with sort=personal to order them by the user's personal ranking.
      */
