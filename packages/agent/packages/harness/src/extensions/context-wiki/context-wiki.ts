@@ -36,23 +36,29 @@ const CONTENT_PAGE_DIRECTORIES = new Set([
   "projects",
 ]);
 
-/**
- * The kind of wiki content page a path names: `org`, `areas`, `decisions`, a
- * project subdirectory such as `spaces`, or `project` for a project's own page.
- * Undefined for any other path, including generated indexes and the
- * instruction files every agent reads, which would make each run look like a
- * wiki read. Normalizing first keeps a `..` path that leaves the mount out.
- */
-export function contextWikiPageKind(
+/** A path relative to the wiki mount, or undefined for a path outside it. */
+export function contextWikiRelativePath(
   path: string,
   mountPath: string,
 ): string | undefined {
   const root = `${posix.normalize(mountPath).replace(/\/+$/, "")}/`;
   const normalized = posix.normalize(path);
-  if (!normalized.startsWith(root) || !normalized.endsWith(".md")) {
-    return undefined;
-  }
-  const parts = normalized.slice(root.length).split("/");
+  return normalized.startsWith(root)
+    ? normalized.slice(root.length)
+    : undefined;
+}
+
+/**
+ * The kind of wiki content page a mount-relative path names: `org`, `areas`,
+ * `decisions`, a project subdirectory such as `spaces`, or `project` for a
+ * project's own page. Undefined for any other path, including generated indexes
+ * and the instruction files every agent reads, which would make each run look
+ * like a wiki read.
+ */
+export function contextWikiPageKind(relativePath: string): string | undefined {
+  const normalized = posix.normalize(relativePath);
+  if (!normalized.endsWith(".md")) return undefined;
+  const parts = normalized.split("/");
   if (
     !CONTENT_PAGE_DIRECTORIES.has(parts[0]) ||
     parts[parts.length - 1] === "index.md" ||
