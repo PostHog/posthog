@@ -19,7 +19,7 @@ import { cn } from 'lib/utils/css-classes'
 import { adventCalendarLogic } from '../adventCalendarLogic'
 import { ADVENT_LAST_DAY } from '../adventContent'
 import { AdventCardFace, AdventDoorCard } from '../AdventDoorCard'
-import { AdventDoor } from '../adventGraph'
+import { AdventDoor, adventDayColor } from '../adventGraph'
 import { adventPaletteStyle } from '../adventPalette'
 import { useAdventCard } from '../useAdventCard'
 import { useAdventEscape } from '../useAdventEscape'
@@ -53,6 +53,7 @@ function faceOf(node: AdventFlowNode, { zoom, box }: AdventFlowFit, scrollTop: n
         top: box.top + node.tile.y * zoom - scrollTop,
         size: ADVENT_FLOW_DOOR.width * zoom,
         zoom: (zoom * ADVENT_FLOW_DOOR.width) / FACE_DOOR_SIZE,
+        tint: node.door ? adventDayColor(node.door.day) : undefined,
     }
 }
 
@@ -114,7 +115,7 @@ export function AdventFlowStage({ renderLastDoor, isEdgeEmphasized = noEmphasis 
         clearHover()
     }, [clearSelection, clearHover])
     useAdventEscape(!!revealingDoor, finishReveal, dismiss)
-    useAdventCardFocus(ref, card.isPinned, cardNode)
+    useAdventCardFocus(ref, card.isPinned, cardNode, dismiss)
     const hover = useAdventFlowHover(card)
 
     const onTrackClick = (event: MouseEvent): void => {

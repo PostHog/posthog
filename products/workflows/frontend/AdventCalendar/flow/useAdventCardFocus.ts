@@ -14,10 +14,13 @@ function focusIsLost(root: HTMLElement): boolean {
 
 // The card renders after the track, so without this a keyboard user tabs through every later door
 // before reaching the answers, and on the phone the first offscreen door scrolls the card away.
+const doorOfNode = (nodeId: string): string => `button[aria-describedby="advent-flow-caption-${nodeId}"]`
+
 export function useAdventCardFocus(
     stage: RefObject<HTMLElement>,
     isPinned: boolean,
-    cardNode: AdventFlowNode | null
+    cardNode: AdventFlowNode | null,
+    onTabOut: () => void
 ): void {
     const lastPinned = useRef<string | null>(null)
     const pinnedNodeId = isPinned ? (cardNode?.id ?? null) : null
@@ -35,9 +38,36 @@ export function useAdventCardFocus(
         const nodeId = lastPinned.current
         lastPinned.current = null
         if (nodeId && focusIsLost(root)) {
-            root.querySelector<HTMLElement>(`button[aria-describedby="advent-flow-caption-${nodeId}"]`)?.focus({
+            root.querySelector<HTMLElement>(doorOfNode(nodeId))?.focus({
                 preventScroll: true,
             })
         }
     }, [stage, pinnedNodeId])
+
+    // Focus moved into the card, which sits after every door, so Tab from its last control goes on to the door
+    // after the pinned one and closes the card, instead of leaving the stage.
+    useEffect(() => {
+        const root = stage.current
+        if (!root || !pinnedNodeId) {
+            return
+        }
+        const onKeyDown = (event: KeyboardEvent): void => {
+            const controls = root.querySelectorAll('[data-attr="advent-door-card"] :is(button, a[href])')
+            if (event.key !== 'Tab' || event.shiftKey || document.activeElement !== controls[controls.length - 1]) {
+                return
+            }
+            const doors = Array.from(
+                root.querySelectorAll<HTMLElement>('button[aria-describedby^="advent-flow-caption-"]')
+            )
+            const pinned = doors.findIndex((door) => door.matches(doorOfNode(pinnedNodeId)))
+            const next = pinned >= 0 ? doors[pinned + 1] : undefined
+            if (next) {
+                event.preventDefault()
+                onTabOut()
+                next.focus()
+            }
+        }
+        root.addEventListener('keydown', onKeyDown)
+        return () => root.removeEventListener('keydown', onKeyDown)
+    }, [stage, pinnedNodeId, onTabOut])
 }

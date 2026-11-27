@@ -8,6 +8,7 @@ import { initKeaTests } from '~/test/init'
 import { UserType } from '~/types'
 
 import { adventCalendarLogic } from '../adventCalendarLogic'
+import { ADVENT_QUESTION_DAYS } from '../adventContent'
 import { AdventFlowStage, AdventFlowStageProps } from './AdventFlowStage'
 
 const UUID = '0190d8a2-1c4e-7b3a-9f21-5a6b7c8d9e01'
@@ -86,7 +87,11 @@ describe('AdventFlowStage', () => {
         renderStage({ width: 1200, height: 830 })
 
         act(() => fireEvent.mouseEnter(door(4) as HTMLElement))
-        expect(card()?.textContent).toContain('Opens December 4.')
+        const face = card()?.querySelector<HTMLElement>('.AdventCard__door')
+        expect([card()?.textContent, face?.querySelector('svg')]).toEqual([
+            expect.stringContaining('Opens December 4.'),
+            null,
+        ])
         act(() => fireEvent.mouseLeave(door(4) as HTMLElement))
         waitForTheCardToClose()
         act(() => fireEvent.mouseEnter(door(2) as HTMLElement))
@@ -133,6 +138,22 @@ describe('AdventFlowStage', () => {
         expect([focusInCard, document.activeElement === door(day)]).toEqual(['advent-door-card-close', true])
     })
 
+    it('moves on to the next door and closes the card when Tab leaves a pinned card', () => {
+        seed([1, 2], { 2: 'tim' })
+        renderStage({ width: 1200, height: 830 })
+
+        act(() => fireEvent.click(door(2) as HTMLElement))
+        const close = document.activeElement as HTMLElement
+        act(() => void fireEvent.keyDown(close, { key: 'Tab' }))
+        waitForTheCardToClose()
+
+        expect([close.getAttribute('data-attr'), document.activeElement === door(3), card()]).toEqual([
+            'advent-door-card-close',
+            true,
+            null,
+        ])
+    })
+
     it.each([
         ['row', 'a desktop stage', { width: 1200, height: 830 }],
         ['column', 'a phone', { width: 375, height: 700 }],
@@ -167,7 +188,8 @@ describe('AdventFlowStage', () => {
             return left + parseFloat(pill.style.maxWidth) / 2 <= next.left
         })
 
-        expect(reach).toEqual(pills.map(() => true))
+        const labels = 2 * ADVENT_QUESTION_DAYS.length
+        expect([pills.length, reach.filter(Boolean).length]).toEqual([labels, labels])
     })
 
     it('lets the caller draw the last door and emphasize edges', () => {
