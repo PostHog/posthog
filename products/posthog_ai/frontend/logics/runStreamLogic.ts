@@ -2819,6 +2819,9 @@ export interface runStreamLogicActions {
         record: PermissionRequestRecord
         replayedFromHistory: boolean
     }
+    loadAiCreditsComputeCost: () => {
+        value: true
+    }
     loadOlderHistory: () => {
         value: true
     }
@@ -2940,14 +2943,11 @@ export interface runStreamLogicActions {
         record: PermissionRequestRecord
         replayedFromHistory: boolean
     }
-    setAvailableCommands: (commands: AgentCommand[]) => {
-        commands: AgentCommand[]
-    }
-    loadAiCreditsComputeCost: () => {
-        value: true
-    }
     setAiCreditsComputeCostUsd: (costUsd: number) => {
         costUsd: number
+    }
+    setAvailableCommands: (commands: AgentCommand[]) => {
+        commands: AgentCommand[]
     }
     setContextUsage: (usage: ContextUsage) => {
         usage: ContextUsage
@@ -5877,9 +5877,10 @@ export const runStreamLogic = kea<runStreamLogicType>([
                     return
                 }
                 breakpoint()
+                const costUsd: unknown = usage?.ai_credits_compute_cost_usd
                 // A reset or a successor run while the request was in flight makes this response stale.
-                if (values.bootstrappedRunId === runId) {
-                    actions.setAiCreditsComputeCostUsd(usage.ai_credits_compute_cost_usd)
+                if (values.bootstrappedRunId === runId && typeof costUsd === 'number') {
+                    actions.setAiCreditsComputeCostUsd(costUsd)
                 }
             },
             attachOptimisticResume: ({ taskId, run }) => {
