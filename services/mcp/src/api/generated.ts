@@ -130105,6 +130105,8 @@ export namespace Schemas {
       name: string;
       uuid: string;
       timestamp: string;
+      slackChannelId: string | null;
+      slackThreadTs: string | null;
       /** The event's properties as ingested, including its input and output values. */
       properties: TraceNodeEventProperties;
       /** Which keys of `properties` hold the node's input, output and tools, or null when it has none. */
@@ -130495,6 +130497,8 @@ export namespace Schemas {
       name: string;
       uuid: string;
       timestamp: string;
+      slackChannelId: string | null;
+      slackThreadTs: string | null;
     }
 
     export interface TraceNodeDetail {
