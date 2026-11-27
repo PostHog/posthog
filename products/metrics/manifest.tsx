@@ -67,10 +67,7 @@ export const manifest: ProductManifest = {
             ] as FileSystemIconColor,
             href: urls.metrics(),
             searchKeywords: ['time series', 'counters', 'gauges'],
-            searchTabs: [
-                { name: 'Viewer', href: urls.metrics('viewer') },
-                { name: 'SQL', href: urls.metrics('sql') },
-            ],
+            searchTabs: [{ name: 'Viewer', href: urls.metrics('viewer') }],
             // Open alpha: the nav item is visible to everyone; the scene gate offers the
             // feature preview toggle to visitors who have not enrolled yet.
             tags: ['alpha'],
