@@ -56,6 +56,11 @@ def client_attribution_properties(request: "HttpRequest | Request", user: User) 
     # A self-hosted install captures to PostHog's own project, so its users' addresses must not leave it.
     if self_hosted_capture_reaches_posthog():
         return {}
+    # Call-time import: posthog.auth pulls zxcvbn and webauthn, which this module's other callers do not need.
+    from posthog.auth import SessionAuthentication  # noqa: PLC0415
+
+    authenticator = getattr(request, "successful_authenticator", None)
+    token_authenticated = authenticator is not None and not isinstance(authenticator, SessionAuthentication)
     request = getattr(request, "_request", request)
     properties: dict[str, str] = {}
     # Server-side capture otherwise records this server's egress address as `$ip`. Ingestion keeps an
@@ -63,9 +68,15 @@ def client_attribution_properties(request: "HttpRequest | Request", user: User) 
     if ip := get_trusted_client_ip(request):
         properties["$ip"] = ip
     session = getattr(request, "session", None)
-    # Before login() runs, as in the social auth pipeline or a password reset, the session is not the
-    # user's yet, and login() replaces its key. That id would name no session, so leave it out.
-    if session is not None and session.session_key and session.get(SESSION_KEY) == str(user.pk):
+    # A token can authenticate a request that also carries the user's session cookie, and that session
+    # did not make the request. Before login() runs, as in the social auth pipeline or a password reset,
+    # the session is not the user's yet and login() replaces its key. Either id would misattribute the event.
+    if (
+        not token_authenticated
+        and session is not None
+        and session.session_key
+        and session.get(SESSION_KEY) == str(user.pk)
+    ):
         properties["session_public_id"] = str(session_public_id(session.session_key))
     return properties
 

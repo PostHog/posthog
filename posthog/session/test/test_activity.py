@@ -13,6 +13,8 @@ from django.utils import timezone
 
 from loginas import settings as la_settings
 from parameterized import parameterized
+from rest_framework.authentication import BaseAuthentication
+from rest_framework.request import Request
 
 from posthog.models import User
 from posthog.session.activity import (
@@ -25,6 +27,14 @@ from posthog.session.activity import (
     sync_current_session_metadata,
 )
 from posthog.session.models import Session
+
+
+class _AcceptingTokenAuthentication(BaseAuthentication):
+    def __init__(self, user: User):
+        self.user = user
+
+    def authenticate(self, request):
+        return (self.user, None)
 
 
 class TestSessionActivity(BaseTest):
@@ -57,15 +67,21 @@ class TestSessionActivity(BaseTest):
 
     @parameterized.expand(
         [
-            ("own_session", "user", False, {"$ip", "session_public_id"}),
+            ("own_session", "user", False, False, {"$ip", "session_public_id"}),
             # The social auth pipeline reports a login before login() replaces the session key.
-            ("another_users_session", "other", False, {"$ip"}),
-            ("anonymous_session", None, False, {"$ip"}),
-            ("self_hosted", "user", True, set()),
+            ("another_users_session", "other", False, False, {"$ip"}),
+            ("anonymous_session", None, False, False, {"$ip"}),
+            ("token_request_carrying_the_users_session_cookie", "user", True, False, {"$ip"}),
+            ("self_hosted", "user", False, True, set()),
         ]
     )
     def test_client_attribution_names_only_the_users_own_session(
-        self, _name: str, session_owner: str | None, self_hosted: bool, expected_keys: set[str]
+        self,
+        _name: str,
+        session_owner: str | None,
+        token_authenticated: bool,
+        self_hosted: bool,
+        expected_keys: set[str],
     ):
         user = self._make_user()
         owner = {"user": user, "other": self._make_user()}.get(session_owner or "")
@@ -76,6 +92,8 @@ class TestSessionActivity(BaseTest):
         else:
             key = self._login_session(owner)
         request = self._request(user, key)
+        if token_authenticated:
+            request = Request(request, authenticators=[_AcceptingTokenAuthentication(user)])
 
         with patch("posthog.session.activity.self_hosted_capture_reaches_posthog", return_value=self_hosted):
             properties = client_attribution_properties(request, user)
