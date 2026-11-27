@@ -1458,6 +1458,28 @@ describe('cloud controller', () => {
             { published: { acu_after_t0_max: [4, 8, 8, null] } },
         ],
         [
+            'minutes after T0 with averages and no maxima',
+            {
+                readerAcu: [
+                    ...IDLE_THEN_PROMOTED.filter(({ minute }) => minute < 0),
+                    { minute: 0, avg: 2.4 },
+                    { minute: 1, avg: 6 },
+                    { minute: 2, avg: 6 },
+                ],
+            },
+            () => undefined,
+            'invalid',
+            'no measured reader maximum from T0 on',
+            {
+                published: {
+                    acu_t0_minute_max: null,
+                    acu_peak: null,
+                    acu_seconds_to_peak: null,
+                    acu_after_t0_max: [null, null, null],
+                },
+            },
+        ],
+        [
             'a complete minute before T0 above the idle limit',
             {
                 readerAcu: [
@@ -1728,9 +1750,10 @@ describe('cloud controller', () => {
                 acu_t0_minute_max: 4,
                 acu_peak: 8,
                 acu_seconds_to_peak: 60,
-                acu_after_t0_max: also.published?.acu_after_t0_max ?? [4, 8, 8],
+                acu_after_t0_max: [4, 8, 8],
                 reader_acu_at_t0: 1.5,
                 reader_at_t0: 'cold',
+                ...also.published,
             })
             const t0 = Date.parse(String(published().t0_at))
             expect(published().acu_gaps).not.toContain(new Date(t0 - (t0 % 60_000)).toISOString())
