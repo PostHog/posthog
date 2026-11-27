@@ -12,8 +12,9 @@ import type { QueueCounts } from '../probe/cyclotron-probe'
 import type { WriterSample } from '../probe/writer-probe'
 import type { ValveTimelineEntry } from '../valves/valves'
 import { CounterReading, counterDrift } from './drift'
-import { deliveryKey } from './invariants'
+import { acceptedDeliveriesOf, deliveryKey } from './invariants'
 import type { JudgeEvidence } from './invariants'
+import type { JournalEntry } from './judge'
 
 export type MetricSample = {
     role: string
@@ -27,7 +28,11 @@ export type MetricSample = {
     consumerLoopErrors: number
     janitorStalled: number
     lateness: Record<string, Record<string, number>>
+    heapUsedBytes?: number
+    attachments?: AttachmentGauges
 }
+
+export type AttachmentGauges = { deferrals: Record<string, number>; inFlight: number; reservedBytes: number }
 
 export type MissedScrape = { role: string; replica: number; at: number }
 
@@ -80,7 +85,7 @@ const byRole = (samples: readonly MetricSample[]): Map<string, MetricSample[]> =
 const completeness = (role: string, missed: readonly MissedScrape[]): { incomplete?: true } =>
     missed.some((miss) => miss.role === role) ? { incomplete: true } : {}
 
-const lostCpu = (ofReplica: readonly MetricSample[], missed: readonly MissedScrape[]): boolean =>
+const lostIncrease = (ofReplica: readonly MetricSample[], missed: readonly MissedScrape[]): boolean =>
     new Set(ofReplica.map(({ startedAt }) => startedAt)).size > 1 ||
     missed.some(
         (miss) =>
@@ -115,7 +120,7 @@ export const roleCpuSeconds: MeasurementDefinition = {
             return {
                 key: role,
                 value: increaseAcrossReplicas(replicas, ({ cpuSeconds }) => cpuSeconds, sampledFrom),
-                ...(replicas.some((ofReplica) => lostCpu(ofReplica, missed)) ? { incomplete: true as const } : {}),
+                ...(replicas.some((ofReplica) => lostIncrease(ofReplica, missed)) ? { incomplete: true as const } : {}),
             }
         }),
 }
@@ -123,19 +128,125 @@ export const roleCpuSeconds: MeasurementDefinition = {
 export const maxOf = (values: readonly number[]): number =>
     values.reduce((max, value) => Math.max(max, value), -Infinity)
 
-export const roleRssMaxBytes: MeasurementDefinition = {
-    name: 'role_rss_max_bytes',
+const peakPerRole = (
+    name: string,
+    unit: string,
+    read: (sample: MetricSample) => number | undefined
+): MeasurementDefinition => ({
+    name,
     params: z.object({}).strict(),
-    unit: 'bytes',
+    unit,
+    measure: ({ samples, missed }) =>
+        [...byRole(samples)].flatMap(([role, ofRole]) => {
+            const values = ofRole.flatMap((sample) => read(sample) ?? [])
+            return values.length === 0 ? [] : [{ key: role, value: maxOf(values), ...completeness(role, missed) }]
+        }),
+})
+
+export const roleRssMaxBytes = peakPerRole('role_rss_max_bytes', 'bytes', ({ rssBytes }) => rssBytes)
+
+export const roleHeapMaxBytes = peakPerRole('role_heap_max_bytes', 'bytes', ({ heapUsedBytes }) => heapUsedBytes)
+
+export const attachmentSendsInFlightMax = peakPerRole(
+    'attachment_sends_in_flight_max',
+    'sends',
+    ({ attachments }) => attachments?.inFlight
+)
+
+export const attachmentReservedBytesMax = peakPerRole(
+    'attachment_reserved_bytes_max',
+    'bytes',
+    ({ attachments }) => attachments?.reservedBytes
+)
+
+export const roleRestarts: MeasurementDefinition = {
+    name: 'role_restarts',
+    params: z.object({}).strict(),
+    unit: 'restarts',
     measure: ({ samples, missed }) =>
         [...byRole(samples)].map(([role, ofRole]) => ({
             key: role,
-            value: maxOf(ofRole.map(({ rssBytes }) => rssBytes)),
+            value: replicasOf(ofRole).reduce(
+                (sum, ofReplica) => sum + new Set(ofReplica.map(({ startedAt }) => startedAt)).size - 1,
+                0
+            ),
             ...completeness(role, missed),
         })),
 }
 
+const deferralReplicasOf = (samples: readonly MetricSample[]): MetricSample[][] =>
+    replicasOf(samples.filter(({ attachments }) => attachments !== undefined))
+
+const deferredFor =
+    (reason: string): Counter =>
+    ({ attachments }) =>
+        attachments?.deferrals[reason] ?? 0
+
+const deferredInTotal: Counter = ({ attachments }) =>
+    Object.values(attachments?.deferrals ?? {}).reduce((sum, tokens) => sum + tokens, 0)
+
+export const attachmentDeferrals: MeasurementDefinition = {
+    name: 'attachment_deferrals',
+    params: z.object({}).strict(),
+    unit: 'tokens',
+    measure: ({ samples, missed, sampledFrom }) => {
+        const replicas = deferralReplicasOf(samples)
+        const reasons = [...new Set(replicas.flat().flatMap(({ attachments }) => Object.keys(attachments!.deferrals)))]
+        const incomplete = replicas.some((ofReplica) => lostIncrease(ofReplica, missed))
+        return reasons.sort().map((reason) => ({
+            key: reason,
+            value: increaseAcrossReplicas(replicas, deferredFor(reason), sampledFrom),
+            ...(incomplete ? { incomplete: true as const } : {}),
+        }))
+    },
+}
+
+function risesOf(ofReplica: readonly MetricSample[], read: Counter, since: number): number[] {
+    return ofReplica.flatMap((sample, i) => {
+        const previous = ofReplica[i - 1]
+        const before =
+            previous?.startedAt === sample.startedAt ? read(previous) : sample.startedAt * 1000 >= since ? 0 : undefined
+        return before !== undefined && read(sample) > before ? [sample.at] : []
+    })
+}
+
+export const attachmentDeferralWindowS: MeasurementDefinition = {
+    name: 'attachment_deferral_window_s',
+    params: z.object({}).strict(),
+    unit: 's',
+    measure: ({ samples, sampledFrom, drive }) => {
+        const rises = deferralReplicasOf(samples)
+            .flatMap((ofReplica) => risesOf(ofReplica, deferredInTotal, sampledFrom))
+            .sort((a, b) => a - b)
+        return rises.length === 0
+            ? []
+            : [
+                  { key: 'first', value: seconds(rises[0] - drive.startedAt) },
+                  { key: 'last', value: seconds(rises.at(-1)! - drive.startedAt) },
+              ]
+    },
+}
+
+export const sendsPerMessageMax: MeasurementDefinition = {
+    name: 'sends_per_message_max',
+    params: z.object({}).strict(),
+    unit: 'sends',
+    measure: ({ truth }) => {
+        const accepted = acceptedDeliveriesOf(truth).map(({ accepted }) => accepted)
+        return accepted.length === 0 ? [] : [{ value: maxOf(accepted) }]
+    },
+}
+
 const nearestRank = (sorted: number[], share: number): number => sorted[Math.ceil(share * sorted.length) - 1]
+
+const latencySummary = (prefix: string, sorted: number[]): Measured[] =>
+    sorted.length === 0
+        ? []
+        : [
+              { key: `${prefix}p50`, value: nearestRank(sorted, 0.5) },
+              { key: `${prefix}p95`, value: nearestRank(sorted, 0.95) },
+              { key: `${prefix}max`, value: sorted.at(-1)! },
+          ]
 
 export const deliveryLatencyMs: MeasurementDefinition = {
     name: 'delivery_latency_ms',
@@ -149,22 +260,26 @@ export const deliveryLatencyMs: MeasurementDefinition = {
                 firstAccepted.set(key, Date.parse(at))
             }
         }
-        const latencies = journal
-            .filter(({ answer }) => answer.accepted)
-            .flatMap(({ unitId, offeredAt, expect }) =>
-                expect.deliveries.flatMap((actionId) => {
-                    const deliveredAt = firstAccepted.get(deliveryKey(unitId, actionId))
-                    return deliveredAt === undefined ? [] : [deliveredAt - offeredAt]
-                })
-            )
-            .sort((a, b) => a - b)
-        return latencies.length === 0
-            ? []
-            : [
-                  { key: 'p50', value: nearestRank(latencies, 0.5) },
-                  { key: 'p95', value: nearestRank(latencies, 0.95) },
-                  { key: 'max', value: latencies.at(-1)! },
-              ]
+        const accepted = journal.filter(({ answer }) => answer.accepted)
+        const latenciesOf = (entries: readonly JournalEntry[]): number[] =>
+            entries
+                .flatMap(({ unitId, offeredAt, expect }) =>
+                    expect.deliveries.flatMap((actionId) => {
+                        const deliveredAt = firstAccepted.get(deliveryKey(unitId, actionId))
+                        return deliveredAt === undefined ? [] : [deliveredAt - offeredAt]
+                    })
+                )
+                .sort((a, b) => a - b)
+        const withFiles = ({ expect }: JournalEntry): boolean => (expect.attachments?.length ?? 0) > 0
+        return [
+            ...latencySummary('', latenciesOf(accepted)),
+            ...(accepted.some(({ expect }) => expect.attachments !== undefined)
+                ? [
+                      ...latencySummary('plain_', latenciesOf(accepted.filter((entry) => !withFiles(entry)))),
+                      ...latencySummary('files_', latenciesOf(accepted.filter(withFiles))),
+                  ]
+                : []),
+        ]
     },
 }
 
@@ -595,7 +710,14 @@ export const RECOVERY_MEASUREMENTS: MeasurementDefinition[] = [
 export const MEASUREMENTS: MeasurementDefinition[] = [
     roleCpuSeconds,
     roleRssMaxBytes,
+    roleHeapMaxBytes,
+    roleRestarts,
     deliveryLatencyMs,
+    sendsPerMessageMax,
+    attachmentDeferrals,
+    attachmentDeferralWindowS,
+    attachmentSendsInFlightMax,
+    attachmentReservedBytesMax,
     counterDrift,
     ...RECOVERY_MEASUREMENTS,
 ]
@@ -655,10 +777,27 @@ function latenessOf(text: string): Record<string, Record<string, number>> {
     return lateness
 }
 
+function attachmentsOf(text: string): AttachmentGauges | undefined {
+    const inFlight = gauge(text, 'cdp_email_attachments_sends_in_flight')
+    const reservedBytes = gauge(text, 'cdp_email_attachments_reserved_bytes')
+    if (inFlight === undefined || reservedBytes === undefined) {
+        return undefined
+    }
+    const deferrals: Record<string, number> = {}
+    for (const { labels, value } of seriesOf(text, 'cdp_email_attachments_deferral_tokens_total')) {
+        if (labels.reason !== undefined) {
+            deferrals[labels.reason] = (deferrals[labels.reason] ?? 0) + value
+        }
+    }
+    return { deferrals, inFlight, reservedBytes }
+}
+
 export function sampleOf({ role, replica }: Target, at: number, text: string): MetricSample | undefined {
     const startedAt = gauge(text, 'process_start_time_seconds')
     const cpuSeconds = gauge(text, 'process_cpu_seconds_total')
     const rssBytes = gauge(text, 'process_resident_memory_bytes')
+    const heapUsedBytes = gauge(text, 'nodejs_heap_size_used_bytes')
+    const attachments = attachmentsOf(text)
     return startedAt === undefined || cpuSeconds === undefined || rssBytes === undefined
         ? undefined
         : {
@@ -673,6 +812,8 @@ export function sampleOf({ role, replica }: Target, at: number, text: string): M
               consumerLoopErrors: totalOf(text, 'cdp_cyclotron_v2_consumer_loop_errors_total'),
               janitorStalled: totalOf(text, 'cdp_cyclotron_v2_janitor_stalled'),
               lateness: latenessOf(text),
+              ...(heapUsedBytes !== undefined && { heapUsedBytes }),
+              ...(attachments && { attachments }),
           }
 }
 

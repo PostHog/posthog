@@ -40,6 +40,16 @@ const sample = (atS: number, startedAtS: number, cpuSeconds: number, rssBytes = 
     lateness: {},
 })
 
+const withGauges = (
+    at: MetricSample,
+    heapUsedBytes: number,
+    gauges: Partial<NonNullable<MetricSample['attachments']>> = {}
+): MetricSample => ({
+    ...at,
+    heapUsedBytes,
+    attachments: { deferrals: {}, inFlight: 0, reservedBytes: 0, ...gauges },
+})
+
 const offered = (unitId: string, offeredAtMs: number): JournalEntry => ({
     unitId,
     kind: 'event',
@@ -192,6 +202,86 @@ describe('measurements', () => {
         ])
     })
 
+    it.each([
+        ['role_heap_max_bytes', 'bytes', 700],
+        ['attachment_sends_in_flight_max', 'sends', 3],
+        ['attachment_reserved_bytes_max', 'bytes', 60_000_000],
+    ])('keeps the largest %s of each role that serves it', (name, unit, value) => {
+        const samples = [
+            withGauges(sample(0, -60, 1), 500, { inFlight: 1, reservedBytes: 20_000_000 }),
+            withGauges(sample(5, -60, 1, 100, 1), 700, { inFlight: 3, reservedBytes: 60_000_000 }),
+            withGauges(sample(10, 7, 1), 400, { inFlight: 0, reservedBytes: 0 }),
+            { ...sample(5, -60, 1), role: 'cdp-api' },
+        ]
+
+        expect(measure([{ name, params: {} }], evidence({ samples }))).toEqual([{ name, key: ROLE, value, unit }])
+    })
+
+    it.each<[string, MetricSample[], Omit<Measurement, 'name' | 'unit'>[]]>([
+        [
+            'one process that deferred for two reasons while sampled',
+            [
+                withGauges(sample(0, -60, 1), 1, { deferrals: { over_budget: 4, at_cap: 1 } }),
+                withGauges(sample(5, -60, 1), 1, { deferrals: { over_budget: 4, at_cap: 1 } }),
+                withGauges(sample(10, -60, 1), 1, { deferrals: { over_budget: 6, at_cap: 1 } }),
+                withGauges(sample(15, -60, 1), 1, { deferrals: { over_budget: 9, at_cap: 2 } }),
+                withGauges(sample(20, -60, 1), 1, { deferrals: { over_budget: 9, at_cap: 2 } }),
+            ],
+            [
+                { key: 'at_cap', value: 1 },
+                { key: 'over_budget', value: 5 },
+                { key: 'first', value: 10 },
+                { key: 'last', value: 15 },
+            ],
+        ],
+        [
+            'a process killed and started again, whose new lifetime counts from zero',
+            [
+                withGauges(sample(0, -60, 1), 1, { deferrals: { over_budget: 4 } }),
+                withGauges(sample(5, -60, 1), 1, { deferrals: { over_budget: 4 } }),
+                withGauges(sample(10, 7, 1), 1, { deferrals: { over_budget: 2 } }),
+            ],
+            [
+                { key: 'over_budget', value: 2, incomplete: true },
+                { key: 'first', value: 10 },
+                { key: 'last', value: 10 },
+            ],
+        ],
+        [
+            'a process that never deferred',
+            [
+                withGauges(sample(0, -60, 1), 1, { deferrals: { over_budget: 0 } }),
+                withGauges(sample(5, -60, 1), 1, { deferrals: { over_budget: 0 } }),
+            ],
+            [{ key: 'over_budget', value: 0 }],
+        ],
+    ])('counts the deferral tokens by reason, and when they rose, for %s', (_story, samples, measured) => {
+        const names = ['attachment_deferrals', 'attachment_deferral_window_s']
+
+        expect(
+            measure(
+                names.map((name) => ({ name, params: {} })),
+                evidence({ samples })
+            ).map(({ name: _name, unit: _unit, ...value }) => value)
+        ).toEqual(measured)
+    })
+
+    it('counts the restarts of each role across its replicas', () => {
+        const samples = [
+            sample(0, -60, 1),
+            sample(5, 3, 1),
+            sample(10, 8, 1),
+            sample(0, -60, 1, 100, 1),
+            sample(10, -60, 1, 100, 1),
+            { ...sample(5, -60, 1), role: 'cdp-api' },
+        ]
+
+        expect(measure([{ name: 'role_restarts', params: {} }], evidence({ samples }))).toEqual([
+            { name: 'role_restarts', key: ROLE, value: 2, unit: 'restarts' },
+            { name: 'role_restarts', key: 'cdp-api', value: 0, unit: 'restarts' },
+        ])
+    })
+
     it('times each delivery from its offer to its first accepted send, skipping refused and undelivered units', () => {
         const latencies = Array.from({ length: 20 }, (_, i) => (i + 1) * 100)
         const journal = [
@@ -206,11 +296,43 @@ describe('measurements', () => {
             record(31, 'run-a-refused', 10),
         ]
 
-        expect(measure([{ name: 'delivery_latency_ms', params: {} }], evidence({ journal, truth }))).toEqual([
+        expect(
+            measure(
+                [
+                    { name: 'delivery_latency_ms', params: {} },
+                    { name: 'sends_per_message_max', params: {} },
+                ],
+                evidence({ journal, truth })
+            )
+        ).toEqual([
             { name: 'delivery_latency_ms', key: 'p50', value: 1000, unit: 'ms' },
             { name: 'delivery_latency_ms', key: 'p95', value: 1900, unit: 'ms' },
             { name: 'delivery_latency_ms', key: 'max', value: 2000, unit: 'ms' },
+            { name: 'sends_per_message_max', value: 2, unit: 'sends' },
         ])
+    })
+
+    it('splits the delivery times of plain sends from sends with files when the units say which they are', () => {
+        const sent = (unitId: string, attachments: string[]): JournalEntry => ({
+            ...offered(unitId, 0),
+            expect: { deliveries: ['email'], attachments },
+        })
+        const journal = [sent('plain-1', []), sent('plain-2', []), sent('files-1', ['a1b2c3'])]
+        const truth = [record(1, 'plain-1', 100), record(2, 'plain-2', 300), record(3, 'files-1', 5000)]
+
+        expect(measure([{ name: 'delivery_latency_ms', params: {} }], evidence({ journal, truth }))).toEqual(
+            [
+                ['p50', 300],
+                ['p95', 5000],
+                ['max', 5000],
+                ['plain_p50', 100],
+                ['plain_p95', 300],
+                ['plain_max', 300],
+                ['files_p50', 5000],
+                ['files_p95', 5000],
+                ['files_max', 5000],
+            ].map(([key, value]) => ({ name: 'delivery_latency_ms', key, value, unit: 'ms' }))
+        )
     })
 
     it('samples the process metrics a role serves at start and at stop', async () => {
@@ -235,6 +357,7 @@ describe('measurements', () => {
                 startedAt: expect.any(Number),
                 cpuSeconds: expect.any(Number),
                 rssBytes: expect.any(Number),
+                heapUsedBytes: expect.any(Number),
                 processed: {},
                 pgClientErrors: 0,
                 consumerLoopErrors: 0,
@@ -331,7 +454,8 @@ describe('measurements', () => {
         [
             string,
             string[],
-            Pick<MetricSample, 'processed' | 'pgClientErrors' | 'consumerLoopErrors' | 'janitorStalled' | 'lateness'>,
+            Pick<MetricSample, 'processed' | 'pgClientErrors' | 'consumerLoopErrors' | 'janitorStalled' | 'lateness'> &
+                Pick<MetricSample, 'heapUsedBytes' | 'attachments'>,
         ]
     >([
         [
@@ -359,11 +483,30 @@ describe('measurements', () => {
             },
         ],
         [
+            'an email worker holding files in flight after it deferred for two reasons',
+            [
+                'nodejs_heap_size_used_bytes 5000',
+                'cdp_email_attachments_sends_in_flight 2',
+                'cdp_email_attachments_reserved_bytes 30000000',
+                'cdp_email_attachments_deferral_tokens_total{reason="over_budget"} 3',
+                'cdp_email_attachments_deferral_tokens_total{reason="at_cap"} 1',
+            ],
+            {
+                processed: {},
+                pgClientErrors: 0,
+                consumerLoopErrors: 0,
+                janitorStalled: 0,
+                lateness: {},
+                heapUsedBytes: 5000,
+                attachments: { deferrals: { over_budget: 3, at_cap: 1 }, inFlight: 2, reservedBytes: 30_000_000 },
+            },
+        ],
+        [
             'a role whose labelled counters never moved',
             [],
             { processed: {}, pgClientErrors: 0, consumerLoopErrors: 0, janitorStalled: 0, lateness: {} },
         ],
-    ])('samples the Cyclotron counters of %s', (_story, lines, counters) => {
+    ])('samples the Cyclotron and attachment counters of %s', (_story, lines, counters) => {
         const text = [METRICS, '# HELP cdp_cyclotron_jobs_processed The number of jobs', ...lines].join('\n')
 
         expect(sampleOf({ role: ROLE, replica: 0, metricsUrl: '' }, FROM, text)).toEqual({
