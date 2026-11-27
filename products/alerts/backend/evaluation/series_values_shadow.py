@@ -29,8 +29,8 @@ from products.alerts.backend.models.alert import AlertConfiguration
 from products.product_analytics.backend.facade.contracts import PrecomputedSeriesValues, SeriesValuesUnavailable
 from products.product_analytics.backend.facade.queries import (
     TrendsQueryRunner,
-    calculate_with_ready_series_values,
     precomputed_series_values,
+    serving_ready_series_values,
 )
 
 logger = structlog.get_logger(__name__)
@@ -126,10 +126,11 @@ def calculate_alert_trends(
         return calculate()
 
     if _can_serve(query) and _flag_enabled(alert.team, SERIES_VALUES_SERVE_FLAG):
-        result, used_stored_values = calculate_with_ready_series_values(calculate)
-        # A serving-cache hit may also contain stored values. Neither is an independent shadow baseline.
-        if used_stored_values or result.is_cached:
-            return result
+        with serving_ready_series_values() as used_stored_values:
+            result = calculate()
+            # A serving-cache hit may also contain stored values. Neither is an independent shadow baseline.
+            if used_stored_values() or result.is_cached:
+                return result
     else:
         result = calculate()
 

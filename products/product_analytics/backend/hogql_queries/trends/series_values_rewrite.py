@@ -543,11 +543,11 @@ def rewriting_series_values(
         series_values_cache_variant.reset(variant)
 
 
-def calculate_with_ready_series_values[T](calculate: Callable[[], T]) -> tuple[T, bool]:
-    """Return the calculation result and whether its queries read any stored values."""
+@contextmanager
+def serving_ready_series_values() -> Iterator[Callable[[], bool]]:
+    """Yield a probe that reports whether a query in this scope read stored values."""
     with rewriting_series_values("serve", build_on_miss=False) as request:
-        result = calculate()
-    return result, bool(request.built)
+        yield lambda: bool(request.built)
 
 
 def precomputed_series_values(
