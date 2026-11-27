@@ -27,9 +27,9 @@ def search(
 
     Without a query the rows come in name order.
     """
-    experiments = Experiment.objects.in_project(project_id)
-    experiments = experiments.including_deleted() if include_deleted else experiments.deleted_is_false()
-    queryset = access_control.filter_queryset_by_access_level(experiments)
+    queryset = access_control.filter_queryset_by_access_level(Experiment.objects.filter(team__project_id=project_id))
+    if not include_deleted:
+        queryset = queryset.filter(deleted=False)
     fields = ["id", "name", "description", "created_by_id"]
     if query:
         queryset = queryset.annotate(rank=build_rank(SEARCH_FIELDS, query, config="simple"))
