@@ -11,6 +11,18 @@
     border-radius: var(--radius);
 }
 
+.AdventStage__track {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+}
+
+.AdventStage__track--scrolls {
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+}
+
 .AdventStage__workflow {
     position: absolute;
     inset: 0;
