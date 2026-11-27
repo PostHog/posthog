@@ -54,12 +54,12 @@ export function pickupsBetween(
         // A scrape interval that straddles the step's end counts in both steps, so late pickups at a step's tail
         // never pass into the next step's larger volume unjudged. Without straddlesEnd each interval counts once, in
         // the window its closing scrape falls in, so a baseline never takes pickups from after the fault. With no
-        // scrape after the end to close that interval, the step's tail goes unobserved.
+        // scrape after the end to close that interval, or a restart between them, the step's tail goes unobserved.
         const last = inside.at(-1)!
         const next = sorted.find(({ at }) => at > to)
         const straddles = straddlesEnd && last.at < to
         const closed = straddles && next !== undefined && next.at - last.at <= SCRAPE_GAP_MS
-        unobservedTail ||= straddles && !closed
+        unobservedTail ||= straddles && (!closed || next.startedAt !== last.startedAt)
         const covered = closed ? [...inside, next] : inside
         covered.slice(1).forEach((sample, i) => {
             const previous = covered[i]
