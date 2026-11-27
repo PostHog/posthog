@@ -3,7 +3,7 @@ from enum import Enum
 
 from posthog.dataclasses import frozen
 
-from products.slack_app.backend.facade.enums import SlackReactionKind, SlackSetupStepKey
+from products.slack_app.backend.facade.enums import SlackReactionKind, SlackReplyDefault, SlackSetupStepKey
 
 # Slack rate limits conversations.join, and a long list in one request would hold the request open.
 MAX_CHANNELS_TO_JOIN = 20
@@ -60,6 +60,13 @@ class SlackResolvedReaction:
 class SlackWorkspaceSettings:
     reactions: dict[SlackReactionKind, SlackReactionChoice]
     external_channels_enabled: bool
+    # None means no workspace default project: PostHog uses the only project, or asks.
+    default_integration_id: int | None
+    channel_welcome_mode: str
+    # The defaults for people who never picked. None means PostHog's own default.
+    untagged_followup_mode: str | None
+    untagged_question_mode: str | None
+    thread_join_mode: str | None
 
 
 @frozen
@@ -75,6 +82,8 @@ class SlackPersonalSettings:
     untagged_followup_mode: str
     untagged_question_mode: str
     thread_join_mode: str
+    # The reply settings above that the person never picked, so they show the workspace or built-in default.
+    inherited_settings: tuple[SlackReplyDefault, ...]
     auto_model_choice: bool
     feature_tips_enabled: bool
     # None when the setting does not apply: the person has no ChatGPT plan that Slack runs can use.
@@ -89,15 +98,27 @@ UNSET = Unset.UNSET
 
 
 @frozen
+class SlackWorkspaceDefaultsChange:
+    """The workspace defaults to change. A field left as ``UNSET`` keeps its stored value, and None clears it."""
+
+    default_integration_id: int | None | Unset = UNSET
+    channel_welcome_mode: str | None | Unset = UNSET
+    untagged_followup_mode: str | None | Unset = UNSET
+    untagged_question_mode: str | None | Unset = UNSET
+    thread_join_mode: str | None | Unset = UNSET
+
+
+@frozen
 class SlackPersonalSettingsChange:
     """The personal settings to change. A field left as ``UNSET`` keeps its stored value."""
 
     reactions: dict[SlackReactionKind, SlackReactionChoice] | Unset = UNSET
     # None clears the personal default, so the workspace default applies.
     default_integration_id: int | None | Unset = UNSET
-    untagged_followup_mode: str | Unset = UNSET
-    untagged_question_mode: str | Unset = UNSET
-    thread_join_mode: str | Unset = UNSET
+    # None clears the choice, so the workspace default applies.
+    untagged_followup_mode: str | None | Unset = UNSET
+    untagged_question_mode: str | None | Unset = UNSET
+    thread_join_mode: str | None | Unset = UNSET
     auto_model_choice: bool | Unset = UNSET
     feature_tips_enabled: bool | Unset = UNSET
     chatgpt_apps_enabled: bool | Unset = UNSET

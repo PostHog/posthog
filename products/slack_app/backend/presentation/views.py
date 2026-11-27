@@ -29,7 +29,9 @@ from products.slack_app.backend.facade.api import (
 )
 from products.slack_app.backend.facade.enums import (
     SlackChannelQuestionMode,
+    SlackChannelWelcomeMode,
     SlackReactionKind,
+    SlackReplyDefault,
     SlackSetupEntry,
     SlackSetupStepKey,
     SlackThreadJoinMode,
@@ -42,6 +44,7 @@ from products.slack_app.backend.facade.types import (
     SlackReactionChoice,
     SlackSettingsInvalid,
     SlackSetupNotFound,
+    SlackWorkspaceDefaultsChange,
     WorkspaceSettingsError,
 )
 
@@ -271,6 +274,29 @@ class SlackAppWorkspaceSettingsSerializer(serializers.Serializer):
     external_channels_enabled = serializers.BooleanField(
         help_text="Whether PostHog works in Slack channels shared with other organizations."
     )
+    default_integration_id = serializers.IntegerField(
+        allow_null=True,
+        help_text="ID of the Slack integration of the workspace's default project. Null when there is none: PostHog then uses the only connected project, or asks.",
+    )
+    channel_welcome_mode = serializers.ChoiceField(
+        choices=SlackChannelWelcomeMode.choices,
+        help_text="Where PostHog sends its greeting when someone adds the app to a channel.",
+    )
+    untagged_followup_mode = serializers.ChoiceField(
+        choices=SlackUntaggedMode.choices,
+        allow_null=True,
+        help_text="The default for untagged replies in a person's threads, for people who never picked. Null uses PostHog's default, ask first.",
+    )
+    untagged_question_mode = serializers.ChoiceField(
+        choices=SlackUntaggedMode.choices,
+        allow_null=True,
+        help_text="The default for a person's untagged channel questions, for people who never picked. Null uses PostHog's default, ask first.",
+    )
+    thread_join_mode = serializers.ChoiceField(
+        choices=SlackThreadJoinMode.choices,
+        allow_null=True,
+        help_text="The default for others tagging PostHog in a person's thread, for people who never picked. Null uses PostHog's default, allow anyone.",
+    )
 
 
 class SlackAppPersonalSettingsSerializer(serializers.Serializer):
@@ -302,6 +328,10 @@ class SlackAppPersonalSettingsSerializer(serializers.Serializer):
     thread_join_mode = serializers.ChoiceField(
         choices=SlackThreadJoinMode.choices,
         help_text="What PostHog does when someone else tags it in a thread this person started.",
+    )
+    inherited_settings = serializers.ListField(
+        child=serializers.ChoiceField(choices=SlackReplyDefault.choices),
+        help_text="The reply settings this person never picked, so their value comes from the workspace default or PostHog's default.",
     )
     auto_model_choice = serializers.BooleanField(
         help_text="Whether PostHog picks the model for each task this person starts from Slack."
@@ -335,6 +365,35 @@ class SlackAppWorkspaceSettingsUpdateSerializer(serializers.Serializer):
     external_channels_enabled = serializers.BooleanField(
         required=False, help_text="Whether PostHog works in Slack channels shared with other organizations."
     )
+    default_integration_id = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="ID of the Slack integration of the workspace's default project. Null removes the default.",
+    )
+    channel_welcome_mode = serializers.ChoiceField(
+        choices=SlackChannelWelcomeMode.choices,
+        required=False,
+        allow_null=True,
+        help_text="Where PostHog sends its greeting when someone adds the app to a channel. Null restores posting in the channel.",
+    )
+    untagged_followup_mode = serializers.ChoiceField(
+        choices=SlackUntaggedMode.choices,
+        required=False,
+        allow_null=True,
+        help_text="The default for untagged replies in a person's threads. Null uses PostHog's default.",
+    )
+    untagged_question_mode = serializers.ChoiceField(
+        choices=SlackUntaggedMode.choices,
+        required=False,
+        allow_null=True,
+        help_text="The default for a person's untagged channel questions. Null uses PostHog's default.",
+    )
+    thread_join_mode = serializers.ChoiceField(
+        choices=SlackThreadJoinMode.choices,
+        required=False,
+        allow_null=True,
+        help_text="The default for others tagging PostHog in a person's thread. Null uses PostHog's default.",
+    )
 
 
 class SlackAppPersonalSettingsUpdateSerializer(serializers.Serializer):
@@ -350,17 +409,20 @@ class SlackAppPersonalSettingsUpdateSerializer(serializers.Serializer):
     untagged_followup_mode = serializers.ChoiceField(
         choices=SlackUntaggedMode.choices,
         required=False,
-        help_text="What PostHog does with untagged replies in threads this person started.",
+        allow_null=True,
+        help_text="What PostHog does with untagged replies in threads this person started. Null uses the workspace default.",
     )
     untagged_question_mode = serializers.ChoiceField(
         choices=SlackUntaggedMode.choices,
         required=False,
-        help_text="What PostHog does with this person's top-level channel questions that do not tag it.",
+        allow_null=True,
+        help_text="What PostHog does with this person's top-level channel questions that do not tag it. Null uses the workspace default.",
     )
     thread_join_mode = serializers.ChoiceField(
         choices=SlackThreadJoinMode.choices,
         required=False,
-        help_text="What PostHog does when someone else tags it in a thread this person started.",
+        allow_null=True,
+        help_text="What PostHog does when someone else tags it in a thread this person started. Null uses the workspace default.",
     )
     auto_model_choice = serializers.BooleanField(
         required=False, help_text="Whether PostHog picks the model for each task this person starts from Slack."
@@ -440,6 +502,14 @@ def _personal_change(data: dict[str, Any]) -> SlackPersonalSettingsChange:
     return SlackPersonalSettingsChange(**fields)
 
 
+WORKSPACE_DEFAULT_FIELDS = (
+    "default_integration_id",
+    "channel_welcome_mode",
+    "untagged_followup_mode",
+    "untagged_question_mode",
+    "thread_join_mode",
+)
+
 PERSONAL_SETTING_FIELDS = (
     "default_integration_id",
     "untagged_followup_mode",
@@ -497,6 +567,9 @@ class SlackAppSettingsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 cast(User, request.user),
                 reactions=_reactions(data["reactions"]) if "reactions" in data else None,
                 external_channels_enabled=data.get("external_channels_enabled"),
+                defaults=SlackWorkspaceDefaultsChange(
+                    **{key: data[key] for key in WORKSPACE_DEFAULT_FIELDS if key in data}
+                ),
             )
         except SlackSetupNotFound as error:
             raise NotFound() from error

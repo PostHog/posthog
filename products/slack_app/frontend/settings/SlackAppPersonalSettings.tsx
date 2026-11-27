@@ -12,65 +12,19 @@ import {
 
 import { urls } from 'scenes/urls'
 
-import type { SlackThreadJoinModeEnumApi, SlackUntaggedModeEnumApi } from '../generated/api.schemas'
+import type { SlackReplyDefaultEnumApi } from '../generated/api.schemas'
+import { SlackAppSettingRow } from './SlackAppSettingRow'
+import { SlackAppSettingsGroup } from './SlackAppSettingsGroup'
 import { slackAppSettingsLogic } from './slackAppSettingsLogic'
-
-const UNTAGGED_MODE_OPTIONS: { value: SlackUntaggedModeEnumApi; label: string }[] = [
-    { value: 'ask', label: 'Ask first' },
-    { value: 'auto', label: 'Automatically' },
-    { value: 'never', label: 'Never' },
-]
-
-const THREAD_JOIN_OPTIONS: { value: SlackThreadJoinModeEnumApi; label: string }[] = [
-    { value: 'allow', label: 'Let anyone join' },
-    { value: 'ask_per_person', label: 'Ask me for each person' },
-    { value: 'ask_per_thread', label: 'Ask me once for each thread' },
-    { value: 'never', label: 'Ignore them' },
-]
+import {
+    POSTHOG_DEFAULT_THREAD_JOIN_MODE,
+    POSTHOG_DEFAULT_UNTAGGED_MODE,
+    THREAD_JOIN_OPTIONS,
+    UNTAGGED_MODE_OPTIONS,
+    replyModeLabel,
+} from './slackReplyModeOptions'
 
 const WORKSPACE_DEFAULT = 'workspace_default'
-
-function SettingsGroup({
-    title,
-    description,
-    children,
-}: {
-    title?: string
-    description?: string
-    children: React.ReactNode
-}): JSX.Element {
-    return (
-        <section className="flex flex-col gap-2">
-            {title ? (
-                <div>
-                    <h3 className="text-sm font-semibold m-0">{title}</h3>
-                    {description ? <p className="text-secondary text-xs m-0">{description}</p> : null}
-                </div>
-            ) : null}
-            <div className="rounded border bg-surface-primary divide-y">{children}</div>
-        </section>
-    )
-}
-
-function SettingRow({
-    label,
-    description,
-    children,
-}: {
-    label: string
-    description: string
-    children: JSX.Element
-}): JSX.Element {
-    return (
-        <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 px-4 py-3">
-            <div className="flex-1 min-w-60">
-                <div className="font-semibold">{label}</div>
-                <div className="text-secondary text-sm">{description}</div>
-            </div>
-            <div className="flex justify-end">{children}</div>
-        </div>
-    )
-}
 
 export function SlackAppPersonalSettings(): JSX.Element {
     const { settings, settingsLoading, personalSettingsDisabledReason } = useValues(slackAppSettingsLogic)
@@ -100,8 +54,18 @@ export function SlackAppPersonalSettings(): JSX.Element {
         )
     }
 
+    const inherits = (setting: SlackReplyDefaultEnumApi): boolean => personal.inherited_settings.includes(setting)
+    const defaultUntaggedOption = (
+        workspaceMode: (typeof UNTAGGED_MODE_OPTIONS)[number]['value'] | null
+    ): { value: string; label: string; tooltip: string } => ({
+        value: WORKSPACE_DEFAULT,
+        label: 'Default',
+        tooltip: `Workspace default: ${replyModeLabel(UNTAGGED_MODE_OPTIONS, workspaceMode ?? POSTHOG_DEFAULT_UNTAGGED_MODE)}`,
+    })
+    const workspaceThreadJoinMode = settings.workspace.thread_join_mode ?? POSTHOG_DEFAULT_THREAD_JOIN_MODE
+
     const changedAdvancedCount =
-        Number(personal.thread_join_mode !== 'allow') +
+        Number(!inherits('thread_join_mode') && personal.thread_join_mode !== workspaceThreadJoinMode) +
         Number(!personal.feature_tips_enabled) +
         Number(personal.chatgpt_apps_enabled === true)
 
@@ -111,8 +75,8 @@ export function SlackAppPersonalSettings(): JSX.Element {
                 Linked to your Slack account in <strong className="text-primary">{workspaceName}</strong>.
             </p>
 
-            <SettingsGroup title="Defaults">
-                <SettingRow label="Default project" description="The project PostHog uses when you tag it.">
+            <SlackAppSettingsGroup title="Defaults">
+                <SlackAppSettingRow label="Default project" description="The project PostHog uses when you tag it.">
                     <LemonSelect
                         className="w-64"
                         value={personal.default_integration_id ?? WORKSPACE_DEFAULT}
@@ -137,8 +101,8 @@ export function SlackAppPersonalSettings(): JSX.Element {
                         disabledReason={personalSettingsDisabledReason}
                         data-attr="slack-app-settings-default-project"
                     />
-                </SettingRow>
-                <SettingRow
+                </SlackAppSettingRow>
+                <SlackAppSettingRow
                     label="Pick the model for me"
                     description="PostHog picks the model for each task you start from Slack."
                 >
@@ -148,37 +112,57 @@ export function SlackAppPersonalSettings(): JSX.Element {
                         disabledReason={personalSettingsDisabledReason}
                         data-attr="slack-app-settings-auto-model"
                     />
-                </SettingRow>
-            </SettingsGroup>
+                </SlackAppSettingRow>
+            </SlackAppSettingsGroup>
 
-            <SettingsGroup
+            <SlackAppSettingsGroup
                 title="Messages that don't tag PostHog"
                 description="PostHog can still pick up a message that doesn't tag it."
             >
-                <SettingRow
+                <SlackAppSettingRow
                     label="Replies in your threads"
                     description="Anyone replies in a thread you started with PostHog, without tagging it."
                 >
                     <LemonSegmentedButton
                         size="small"
-                        value={personal.untagged_followup_mode}
-                        onChange={(value) => updatePersonalSettings({ untagged_followup_mode: value })}
-                        options={UNTAGGED_MODE_OPTIONS}
+                        value={inherits('untagged_followup_mode') ? WORKSPACE_DEFAULT : personal.untagged_followup_mode}
+                        onChange={(value) =>
+                            updatePersonalSettings({
+                                untagged_followup_mode:
+                                    value === WORKSPACE_DEFAULT
+                                        ? null
+                                        : (value as typeof personal.untagged_followup_mode),
+                            })
+                        }
+                        options={[
+                            defaultUntaggedOption(settings.workspace.untagged_followup_mode),
+                            ...UNTAGGED_MODE_OPTIONS,
+                        ]}
                         disabledReason={personalSettingsDisabledReason}
                         data-attr="slack-app-settings-untagged-replies"
                     />
-                </SettingRow>
-                <SettingRow label="Questions in channels" description="You ask a question in a channel.">
+                </SlackAppSettingRow>
+                <SlackAppSettingRow label="Questions in channels" description="You ask a question in a channel.">
                     <LemonSegmentedButton
                         size="small"
-                        value={personal.untagged_question_mode}
-                        onChange={(value) => updatePersonalSettings({ untagged_question_mode: value })}
-                        options={UNTAGGED_MODE_OPTIONS}
+                        value={inherits('untagged_question_mode') ? WORKSPACE_DEFAULT : personal.untagged_question_mode}
+                        onChange={(value) =>
+                            updatePersonalSettings({
+                                untagged_question_mode:
+                                    value === WORKSPACE_DEFAULT
+                                        ? null
+                                        : (value as typeof personal.untagged_question_mode),
+                            })
+                        }
+                        options={[
+                            defaultUntaggedOption(settings.workspace.untagged_question_mode),
+                            ...UNTAGGED_MODE_OPTIONS,
+                        ]}
                         disabledReason={personalSettingsDisabledReason}
                         data-attr="slack-app-settings-untagged-questions"
                     />
-                </SettingRow>
-            </SettingsGroup>
+                </SlackAppSettingRow>
+            </SlackAppSettingsGroup>
 
             <LemonCollapse
                 panels={[
@@ -194,21 +178,36 @@ export function SlackAppPersonalSettings(): JSX.Element {
                         dataAttr: 'slack-app-settings-advanced',
                         content: (
                             <div className="divide-y">
-                                <SettingRow
+                                <SlackAppSettingRow
                                     label="Others in your threads"
                                     description="Someone else tags PostHog in a thread you started."
                                 >
                                     <LemonSelect
                                         className="w-64"
-                                        value={personal.thread_join_mode}
-                                        onChange={(value) => updatePersonalSettings({ thread_join_mode: value })}
-                                        options={THREAD_JOIN_OPTIONS}
+                                        value={
+                                            inherits('thread_join_mode') ? WORKSPACE_DEFAULT : personal.thread_join_mode
+                                        }
+                                        onChange={(value) =>
+                                            updatePersonalSettings({
+                                                thread_join_mode:
+                                                    value === WORKSPACE_DEFAULT
+                                                        ? null
+                                                        : (value as typeof personal.thread_join_mode),
+                                            })
+                                        }
+                                        options={[
+                                            {
+                                                value: WORKSPACE_DEFAULT,
+                                                label: `Workspace default (${replyModeLabel(THREAD_JOIN_OPTIONS, workspaceThreadJoinMode)})`,
+                                            },
+                                            ...THREAD_JOIN_OPTIONS,
+                                        ]}
                                         disabledReason={personalSettingsDisabledReason}
                                         data-attr="slack-app-settings-thread-join"
                                     />
-                                </SettingRow>
+                                </SlackAppSettingRow>
                                 {personal.chatgpt_apps_enabled !== null ? (
-                                    <SettingRow
+                                    <SlackAppSettingRow
                                         label="ChatGPT apps"
                                         description="Your ChatGPT plan is connected. Let tasks you start from Slack use the apps on it. People who join your threads can use them too. Applies to new tasks."
                                     >
@@ -220,9 +219,9 @@ export function SlackAppPersonalSettings(): JSX.Element {
                                             disabledReason={personalSettingsDisabledReason}
                                             data-attr="slack-app-settings-chatgpt-apps"
                                         />
-                                    </SettingRow>
+                                    </SlackAppSettingRow>
                                 ) : null}
-                                <SettingRow
+                                <SlackAppSettingRow
                                     label="Feature tips"
                                     description="Short tips about things PostHog can do in Slack."
                                 >
@@ -234,7 +233,7 @@ export function SlackAppPersonalSettings(): JSX.Element {
                                         disabledReason={personalSettingsDisabledReason}
                                         data-attr="slack-app-settings-feature-tips"
                                     />
-                                </SettingRow>
+                                </SlackAppSettingRow>
                             </div>
                         ),
                     },

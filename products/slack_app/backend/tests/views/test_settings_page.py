@@ -229,6 +229,54 @@ class TestSlackAppSettings(APIBaseTest):
         assert changed.json()["personal"]["chatgpt_apps_enabled"] is True
         assert SlackSettings.objects.get(slack_workspace_id=SLACK_TEAM_ID, slack_user_id="U123").chatgpt_apps_enabled
 
+    def test_workspace_reply_defaults_apply_until_a_person_picks_their_own(self) -> None:
+        self._set_level(OrganizationMembership.Level.ADMIN)
+        self._link_slack_user()
+
+        set_defaults = self.client.patch(
+            self._url("workspace/"),
+            {
+                "untagged_question_mode": "never",
+                "thread_join_mode": "ask_per_thread",
+                "default_integration_id": self.integration.id,
+            },
+            format="json",
+        )
+        picked = self.client.patch(self._url("personal/"), {"untagged_question_mode": "auto"}, format="json")
+        cleared = self.client.patch(self._url("personal/"), {"untagged_question_mode": None}, format="json")
+
+        assert set_defaults.status_code == status.HTTP_200_OK, set_defaults.json()
+        workspace = set_defaults.json()["workspace"]
+        assert (
+            workspace["untagged_question_mode"],
+            workspace["thread_join_mode"],
+            workspace["untagged_followup_mode"],
+        ) == (
+            "never",
+            "ask_per_thread",
+            None,
+        )
+        assert workspace["default_integration_id"] == self.integration.id
+        personal = set_defaults.json()["personal"]
+        assert (personal["untagged_question_mode"], personal["thread_join_mode"]) == ("never", "ask_per_thread")
+        assert picked.json()["personal"]["untagged_question_mode"] == "auto"
+        assert "untagged_question_mode" not in picked.json()["personal"]["inherited_settings"]
+        assert cleared.json()["personal"]["untagged_question_mode"] == "never"
+        assert "untagged_question_mode" in cleared.json()["personal"]["inherited_settings"]
+
+    def test_workspace_default_project_must_be_one_the_admin_can_open(self) -> None:
+        self._set_level(OrganizationMembership.Level.ADMIN)
+        other_workspace = self._slack_install(Team.objects.create(organization=self.organization), "T999")
+
+        response = self.client.patch(
+            self._url("workspace/"), {"default_integration_id": other_workspace.id}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not SlackSettings.objects.filter(
+            slack_workspace_id=SLACK_TEAM_ID, default_integration__isnull=False
+        ).exists()
+
     def test_personal_project_must_be_one_the_person_can_open(self) -> None:
         self._link_slack_user()
         other_org_team = Team.objects.create(organization=Organization.objects.create(name="Other org"))

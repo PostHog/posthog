@@ -39,6 +39,7 @@ from products.slack_app.backend.facade.types import (
     SlackReactionChoice,
     SlackRepositoryOptions,
     SlackSetupNotFound,
+    SlackWorkspaceDefaultsChange,
     WorkspaceSetup,
 )
 from products.slack_app.backend.logic.feature_tips.features import SlackFeature
@@ -279,12 +280,13 @@ def update_slack_workspace_settings(
     *,
     reactions: dict[SlackReactionKind, SlackReactionChoice] | None,
     external_channels_enabled: bool | None,
+    defaults: SlackWorkspaceDefaultsChange | None = None,
 ) -> SlackAppSettings:
     from products.slack_app.backend.logic import settings_page  # noqa: PLC0415
 
     integration = _setup_integration(team_id, integration_id)
     settings_page.update_workspace_settings(
-        integration, user, reactions=reactions, external_channels_enabled=external_channels_enabled
+        integration, user, reactions=reactions, external_channels_enabled=external_channels_enabled, defaults=defaults
     )
     return settings_page.get_settings(integration, user)
 
