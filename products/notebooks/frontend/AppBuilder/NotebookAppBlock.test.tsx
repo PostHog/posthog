@@ -50,7 +50,7 @@ it.each([
     ['custom aggregation targets', { customAggregationTarget: true }, false],
 ] as const)('offers a recording drill-down for %s according to the funnel aggregation', (_name, filter, visible) => {
     renderFunnel(filter)
-    const button = screen.queryByRole('button', { name: 'View drop-off recordings' })
+    const button = screen.queryByTestId('notebook-app-dropoff-recordings')
     expect(Boolean(button)).toBe(visible)
 })
 
