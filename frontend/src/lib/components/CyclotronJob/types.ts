@@ -4,4 +4,5 @@ import { CyclotronJobInputSchemaType, CyclotronJobInputType } from '~/types'
 export type CyclotronJobInputConfiguration = {
     inputs_schema: CyclotronJobInputSchemaType[]
     inputs: Record<string, CyclotronJobInputType> | null
+    template_id?: string
 }
