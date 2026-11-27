@@ -1302,6 +1302,9 @@ export const notebooksAppDraftQueriesCreateBodyLayoutBlocksItemTitleMax = 256
 export const notebooksAppDraftQueriesCreateBodyLayoutBlocksItemWidthDefault = 12
 export const notebooksAppDraftQueriesCreateBodyLayoutBlocksItemWidthMax = 12
 
+export const notebooksAppDraftQueriesCreateBodyLayoutBlocksItemHeightMin = 120
+export const notebooksAppDraftQueriesCreateBodyLayoutBlocksItemHeightMax = 1600
+
 export const notebooksAppDraftQueriesCreateBodyLayoutBlocksItemNodeIdDefault = ``
 export const notebooksAppDraftQueriesCreateBodyLayoutBlocksItemNodeIdMax = 160
 
@@ -1405,6 +1408,12 @@ export const NotebooksAppDraftQueriesCreateBody = /* @__PURE__ */ zod.object({
                         .max(notebooksAppDraftQueriesCreateBodyLayoutBlocksItemWidthMax)
                         .default(notebooksAppDraftQueriesCreateBodyLayoutBlocksItemWidthDefault)
                         .describe('Width in a twelve-column grid.'),
+                    height: zod
+                        .number()
+                        .min(notebooksAppDraftQueriesCreateBodyLayoutBlocksItemHeightMin)
+                        .max(notebooksAppDraftQueriesCreateBodyLayoutBlocksItemHeightMax)
+                        .optional()
+                        .describe('Card height in pixels. Omit for automatic height.'),
                     node_id: zod
                         .string()
                         .max(notebooksAppDraftQueriesCreateBodyLayoutBlocksItemNodeIdMax)
