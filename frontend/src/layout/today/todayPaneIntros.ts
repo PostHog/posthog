@@ -1,6 +1,6 @@
 import type { TodayRailPane } from './todayShellLogic'
 
-export type TodayIntroPane = Exclude<TodayRailPane, 'home'>
+export type TodayIntroPane = TodayRailPane
 
 export interface TodayPaneIntroCopy {
     title: string
@@ -8,28 +8,36 @@ export interface TodayPaneIntroCopy {
 }
 
 export const TODAY_PANE_INTROS: Record<TodayIntroPane, TodayPaneIntroCopy> = {
+    home: {
+        title: 'See what needs you today',
+        description: 'What you care about, what you should care about, and what’s happening.',
+    },
     spaces: {
         title: 'Work with PostHog AI',
         description: 'Ask questions, run tasks and pick up past chats.',
     },
     analytics: {
-        title: "What's happening, and why?",
+        title: 'See what’s happening, and why',
         description: 'Dashboards, insights, SQL and replays of what your users do.',
     },
     people: {
-        title: 'Who are your users?',
+        title: 'Know your users, and reach them',
         description: 'Persons, cohorts and accounts, plus tickets to reach them.',
     },
     release: {
-        title: 'Change what users get',
-        description: 'Roll out with feature flags, and check it worked with experiments.',
+        title: 'Change what users get, and check it worked',
+        description: 'Feature flags, experiments and early access features.',
     },
     monitor: {
-        title: 'Is anything broken?',
-        description: 'Error tracking, logs, metrics and uptime, so you hear about problems.',
+        title: 'Know when something breaks',
+        description: 'Errors, logs, traces, metrics and the alerts on them.',
+    },
+    automate: {
+        title: 'What should happen without you?',
+        description: 'Workflows, destinations, subscriptions and scouts that run on a trigger or a schedule.',
     },
     data: {
-        title: "What's coming in, and what does it mean?",
+        title: 'Bring in your data, define it and send it on',
         description: 'Sources, pipelines, the warehouse, the definitions that describe your data, and where it goes.',
     },
     products: {
@@ -40,10 +48,4 @@ export const TODAY_PANE_INTROS: Record<TodayIntroPane, TodayPaneIntroCopy> = {
         title: 'Set up PostHog',
         description: 'Settings for you, this project and your organization.',
     },
-}
-
-// pinned: keys in the user's server-side `has_seen_product_intro_for`. Renaming one shows that intro again to
-// everyone who dismissed it.
-export function todayPaneIntroKey(pane: TodayIntroPane): string {
-    return `today_pane_intro_${pane}`
 }

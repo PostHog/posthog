@@ -445,6 +445,14 @@ describe('API helper', () => {
         })
     })
 
+    it('builds the cohort persons list URL on the project route', () => {
+        ApiConfig.setCurrentProjectId(2)
+
+        expect(api.cohorts.determineListUrl(5, { search: 'alice' })).toEqual(
+            '/api/projects/2/cohorts/5/persons?search=alice'
+        )
+    })
+
     it('rejects project-based requests with void project ID', async () => {
         await expect(api.get('/api/projects/2/')).resolves.not.toThrow()
         await expect(api.get('/api/projects/089908')).resolves.not.toThrow()

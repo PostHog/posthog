@@ -66,7 +66,9 @@ class TestFredSource:
     def test_source_for_pipeline_plumbs_schema_name(self, endpoint):
         config = FRED_ENDPOINTS[endpoint]
         response = ScriptedResponse(json={config.data_key: []})
-        result = SourceDriver(self.source, self.config).run(endpoint, [response] * (2 if config.per_series else 1))
+        result = SourceDriver(self.source, self.config).run(
+            endpoint, [response] * (2 if config.per_series or config.per_category else 1)
+        )
 
         assert result.raised is None
         assert result.response is not None

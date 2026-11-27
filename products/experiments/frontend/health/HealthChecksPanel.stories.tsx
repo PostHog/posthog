@@ -95,6 +95,23 @@ const SETUP: ExperimentHealthSetupApi = {
     evaluation_contexts: ['web-app'],
     ensure_experience_continuity: false,
     exposure: { event: null, action: null, activation: null },
+    analysis: {
+        stats_method: 'frequentist',
+        confidence_level: 0.95,
+        sequential_testing: true,
+        sequential_testing_from_project_default: true,
+        cuped: true,
+        cuped_lookback_days: 14,
+        cuped_from_project_default: false,
+        cuped_lookback_days_from_project_default: true,
+        metrics_without_cuped_support: ['Day 7 retention'],
+        filters_test_accounts: true,
+        test_account_filter_count: 2,
+        multiple_variant_handling: 'exclude',
+        only_count_matured_users: false,
+        baseline_variant: 'control',
+        excluded_variants: [],
+    },
 }
 
 const meta: Meta<typeof HealthChecksPanel> = {
@@ -105,7 +122,7 @@ const meta: Meta<typeof HealthChecksPanel> = {
         mockDate: '2026-11-03 12:00:00',
         testOptions: { snapshotBrowsers: ['chromium'] },
     },
-    args: { onFindingActedOn: () => {}, exposures: null, setup: SETUP },
+    args: { onFindingActedOn: () => {}, exposures: null, setup: SETUP, checksLoading: false },
     decorators: [
         (Story) => (
             <div className="w-[60rem]">
@@ -143,7 +160,7 @@ export const Draft: Story = {
             },
         ],
         isDraft: true,
-        exposureChecksMissing: false,
+        exposureChecks: 'not_launched',
     },
 }
 
@@ -172,7 +189,7 @@ export const ChecksThatCouldNotRun: Story = {
         ],
         findings: [],
         isDraft: false,
-        exposureChecksMissing: true,
+        exposureChecks: 'missing',
     },
 }
 
@@ -288,7 +305,7 @@ export const RunningWithAnIssue: Story = {
         findings: [BIAS_FINDING],
         exposures: UNEVEN_SPLIT_EXPOSURES,
         isDraft: false,
-        exposureChecksMissing: false,
+        exposureChecks: 'ready',
     },
 }
 
@@ -307,7 +324,7 @@ export const CheckDetailsWithWhatItRead: Story = {
         findings: [],
         exposures: UNEVEN_SPLIT_EXPOSURES,
         isDraft: false,
-        exposureChecksMissing: false,
+        exposureChecks: 'ready',
     },
     play: async ({ canvasElement }) => {
         await userEvent.click(
@@ -409,7 +426,7 @@ export const PassedCheckDetailsWithRows: Story = {
         findings: [],
         exposures: UNEVEN_SPLIT_EXPOSURES,
         isDraft: false,
-        exposureChecksMissing: false,
+        exposureChecks: 'ready',
     },
     play: async ({ canvasElement }) => {
         await userEvent.click(

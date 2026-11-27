@@ -26,6 +26,7 @@ from social_core.pipeline.partial import partial
 from social_django.strategy import DjangoStrategy
 from webauthn.helpers import base64url_to_bytes
 
+from posthog.api.authentication import BrowserTokenField
 from posthog.api.email_verification import email_verification_code_verifier, is_email_verification_disabled
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.webauthn import (
@@ -36,6 +37,7 @@ from posthog.api.webauthn import (
 from posthog.email import is_email_available
 from posthog.event_usage import alias_invite_id, report_user_joined_organization, report_user_signed_up
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.ai_signup_attribution import classify_ai_signup
 from posthog.helpers.email_utils import (
     EmailLookupHandler,
     EmailValidationHelper,
@@ -76,7 +78,7 @@ from posthog.rate_limit import (
 )
 from posthog.tasks.workos_radar import report_attempt_success
 from posthog.utils import get_can_create_org, get_trusted_client_ip, is_relative_url
-from posthog.workos_radar import RadarAction, RadarAuthMethod, evaluate_auth_attempt
+from posthog.workos_radar import RadarAction, RadarAuthMethod, evaluate_auth_attempt, radar_client_id_for_signup
 
 from products.authorization.backend.facade import api as authorization
 from products.authorization.backend.facade.contracts import Resource, Subject
@@ -103,6 +105,17 @@ SIGNUP_BLOCKED_DETAIL = (
 )
 
 DELEGATED_ONBOARDING_NEXT = "/onboarding"
+
+# No max_length on these: they are only compared against known AI sources, so an oversized value
+# matches nothing, and a length error would refuse a signup over analytics data.
+INITIAL_REFERRING_DOMAIN_HELP_TEXT = (
+    "Domain that referred this browser on its first visit, as the PostHog JavaScript SDK recorded it. "
+    "Used only to attribute the signup to an AI assistant."
+)
+INITIAL_UTM_SOURCE_HELP_TEXT = (
+    "utm_source of this browser's first visit, as the PostHog JavaScript SDK recorded it. "
+    "Used only to attribute the signup to an AI assistant."
+)
 
 
 def _save_session_with_recovery(session: SessionBase) -> None:
@@ -208,8 +221,19 @@ class SignupSerializer(serializers.Serializer):
         allow_blank=True,
         help_text="The social media account or person that referred the user, asked when the referral source mentions a social network or creator channel.",
     )
+    initial_referring_domain: serializers.Field = serializers.CharField(
+        required=False, allow_blank=True, default="", help_text=INITIAL_REFERRING_DOMAIN_HELP_TEXT
+    )
+    initial_utm_source: serializers.Field = serializers.CharField(
+        required=False, allow_blank=True, default="", help_text=INITIAL_UTM_SOURCE_HELP_TEXT
+    )
     turnstile_token: serializers.Field = serializers.CharField(required=False, allow_blank=True, default="")
     challenge_nonce: serializers.Field = serializers.CharField(required=False, allow_blank=True, default="")
+    radar_signals_id = BrowserTokenField(
+        required=False,
+        default="",
+        help_text="Token from the WorkOS Radar browser script. It links the device signals the browser collected to this signup.",
+    )
 
     # Slightly hacky: self vars for internal use
     is_social_signup: bool
@@ -331,6 +355,7 @@ class SignupSerializer(serializers.Serializer):
                 auth_method=auth_method,
                 turnstile_token=validated_data.get("turnstile_token", ""),
                 challenge_nonce=validated_data.get("challenge_nonce", ""),
+                signals_id=validated_data.get("radar_signals_id", ""),
             )
 
         try:
@@ -352,6 +377,7 @@ class SignupSerializer(serializers.Serializer):
 
         validated_data.pop("turnstile_token", None)
         validated_data.pop("challenge_nonce", None)
+        validated_data.pop("radar_signals_id", None)
 
         default_org_name = f"{validated_data['first_name']}'s Organization"[:64]
         organization_name = validated_data.pop("organization_name", default_org_name)
@@ -359,6 +385,8 @@ class SignupSerializer(serializers.Serializer):
         referral_source = validated_data.pop("referral_source", "")
         referral_source_ai_prompt = validated_data.pop("referral_source_ai_prompt", "")
         referral_source_influencer = validated_data.pop("referral_source_influencer", "")
+        initial_referring_domain = validated_data.pop("initial_referring_domain", "")
+        initial_utm_source = validated_data.pop("initial_utm_source", "")
 
         # For passkey signup, set password to None and use the pre-generated UUID
         if passkey_credential:
@@ -438,6 +466,12 @@ class SignupSerializer(serializers.Serializer):
             referral_source_ai_prompt=referral_source_ai_prompt,
             referral_source_influencer=referral_source_influencer,
             oauth_connection=oauth_connection,
+            ai_signup_attribution=classify_ai_signup(
+                oauth_connection=oauth_connection,
+                referral_source=referral_source,
+                initial_referring_domain=initial_referring_domain,
+                initial_utm_source=initial_utm_source,
+            ),
         )
 
         # Fire-and-forget real-time enrichment for onboarding routing. Fully guarded and
@@ -555,10 +589,10 @@ class SignupEmailPrecheckViewset(generics.GenericAPIView):
             # actually accept — preserving the pre-PR security property that only the
             # mailbox owner can consume the invite.
             pending_invite = {"organization_name": invite.organization.name}
-        return response.Response(
-            {"email_exists": False, "pending_invite": pending_invite},
-            status=status.HTTP_200_OK,
-        )
+        body: dict[str, Any] = {"email_exists": False, "pending_invite": pending_invite}
+        if radar_client_id := radar_client_id_for_signup():
+            body["radar_client_id"] = radar_client_id
+        return response.Response(body, status=status.HTTP_200_OK)
 
 
 class SignupResendInviteSerializer(serializers.Serializer):
@@ -627,6 +661,11 @@ class InviteSignupSerializer(serializers.Serializer):
     )
     turnstile_token: serializers.Field = serializers.CharField(required=False, allow_blank=True, default="")
     challenge_nonce: serializers.Field = serializers.CharField(required=False, allow_blank=True, default="")
+    radar_signals_id = BrowserTokenField(
+        required=False,
+        default="",
+        help_text="Token from the WorkOS Radar browser script. It links the device signals the browser collected to this signup.",
+    )
 
     def validate_password(self, value):
         password_validation.validate_password(value)
@@ -708,10 +747,12 @@ class InviteSignupSerializer(serializers.Serializer):
                 auth_method=auth_method,
                 turnstile_token=validated_data.get("turnstile_token", ""),
                 challenge_nonce=validated_data.get("challenge_nonce", ""),
+                signals_id=validated_data.get("radar_signals_id", ""),
             )
 
         validated_data.pop("turnstile_token", None)
         validated_data.pop("challenge_nonce", None)
+        validated_data.pop("radar_signals_id", None)
 
         # Only check SSO enforcement if we're not already logged in
         if (
@@ -907,14 +948,16 @@ class InviteSignupViewset(generics.CreateAPIView):
             request_path=f"/signup/{invite_id}",
         )
 
-        return response.Response(
-            {
-                "id": str(invite.id),
-                "target_email": invite.target_email,
-                "first_name": invite.first_name,
-                "organization_name": invite.organization.name,
-            }
-        )
+        body: dict[str, Any] = {
+            "id": str(invite.id),
+            "target_email": invite.target_email,
+            "first_name": invite.first_name,
+            "organization_name": invite.organization.name,
+        }
+        # A signed-in user joins without a signup, and Radar checks only a signup
+        if user is None and (radar_client_id := radar_client_id_for_signup()):
+            body["radar_client_id"] = radar_client_id
+        return response.Response(body)
 
 
 # Social Signup
@@ -942,6 +985,12 @@ class SocialSignupSerializer(serializers.Serializer):
         allow_blank=True,
         default="",
         help_text="The social media account or person that referred the user, asked when the referral source mentions a social network or creator channel.",
+    )
+    initial_referring_domain: serializers.Field = serializers.CharField(
+        required=False, allow_blank=True, default="", help_text=INITIAL_REFERRING_DOMAIN_HELP_TEXT
+    )
+    initial_utm_source: serializers.Field = serializers.CharField(
+        required=False, allow_blank=True, default="", help_text=INITIAL_UTM_SOURCE_HELP_TEXT
     )
 
     def validate_first_name(self, value: str) -> str:
@@ -992,6 +1041,8 @@ class SocialSignupSerializer(serializers.Serializer):
                 "referral_source": referral_source,
                 "referral_source_ai_prompt": referral_source_ai_prompt,
                 "referral_source_influencer": referral_source_influencer,
+                "initial_referring_domain": validated_data.get("initial_referring_domain", ""),
+                "initial_utm_source": validated_data.get("initial_utm_source", ""),
             },
             context={"request": request, "social_backend": partial.backend},
         )

@@ -63,7 +63,7 @@ def _client_config(api_token: str) -> ClientConfig:
 
 
 def get_resource(config: MegaphoneEndpointConfig, organization_id: str, is_incremental: bool) -> EndpointResource:
-    params: dict[str, Any] = {"per_page": config.page_size}
+    params: dict[str, Any] = {config.page_size_param: config.page_size} if config.page_size_param else {}
     if config.organization_param:
         params[config.organization_param] = organization_id
     params.update((config.incremental_params if is_incremental else config.full_refresh_params) or {})
@@ -117,7 +117,7 @@ def megaphone_source(
             team_id=team_id,
             job_id=job_id,
             db_incremental_field_last_value=None,
-            page_size_param="per_page",
+            page_size_param=config.page_size_param,
             resume_hook=save_fanout_checkpoint,
             initial_paginator_state=resume.fanout_state if resume else None,
         )

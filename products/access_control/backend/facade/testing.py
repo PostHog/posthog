@@ -5,11 +5,16 @@ access control rows. They get
 them here instead of importing the models.
 """
 
+from typing import Literal
 from uuid import UUID
+
+from posthog.constants import AvailableFeature
+from posthog.models import OrganizationMembership, Team
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.models.role import Role, RoleMembership
+from products.event_definitions.backend.models import PropertyDefinition
 
 
 def create_role(*, organization_id: UUID, name: str) -> UUID:
@@ -78,3 +83,30 @@ def create_property_access_control(
 
 def delete_property_access_control_rule(*, team_id: int, property_access_control_id: UUID) -> None:
     PropertyAccessControl.objects.get(id=property_access_control_id, team_id=team_id).delete()
+
+
+PropertyAccess = Literal["restricted", "granted", "admin"]
+
+
+def set_member_property_access(*, team: Team, membership: OrganizationMembership, access: PropertyAccess) -> None:
+    """Hide one event property from members of the team, then give `membership` the named access.
+
+    "restricted" leaves the member under the rule, "granted" gives the member read access back,
+    and "admin" makes the member an organization admin, whom property rules never restrict.
+    """
+    organization = team.organization
+    features = {feature["key"] for feature in organization.available_product_features or []}
+    if AvailableFeature.PROPERTY_ACCESS_CONTROL not in features:
+        organization.available_product_features = [
+            *(organization.available_product_features or []),
+            {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL},
+        ]
+        organization.save()
+    membership.level = OrganizationMembership.Level.ADMIN if access == "admin" else OrganizationMembership.Level.MEMBER
+    membership.save()
+    definition = PropertyDefinition.objects.create(team=team, name="private_note", type=PropertyDefinition.Type.EVENT)
+    PropertyAccessControl.objects.create(team=team, property_definition=definition, access_level="none")
+    if access == "granted":
+        PropertyAccessControl.objects.create(
+            team=team, property_definition=definition, organization_member=membership, access_level="read"
+        )

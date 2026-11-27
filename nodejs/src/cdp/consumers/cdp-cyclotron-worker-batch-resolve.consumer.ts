@@ -326,6 +326,10 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
             logger.info('📝', `${this.name} - audience snapshot ready for batch ${state.batchJobId}`, {
                 audienceSize: response.audience_size,
             })
+            this.emitSkippedTestAccountFiltersLog(
+                state,
+                Array.isArray(response.skipped_test_account_filters) ? response.skipped_test_account_filters : []
+            )
             await job.reschedule({
                 scheduledAt: new Date(),
                 state: serializeResolverState({
@@ -472,7 +476,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
                         job,
                         state,
                         'realtime_cohort_unavailable',
-                        "Sending to a realtime cohort isn't available here yet. Use a different audience."
+                        "Sending to a real-time cohort isn't available here yet. Use a different audience."
                     )
                     return
                 }
@@ -498,20 +502,15 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
                         has_more: snapshotPage.has_more,
                     }
                 } else {
-                    const personsPage = await instrumentFn('cdpBatchResolve.getBlastRadiusPersons', () =>
-                        this.hogFlowBatchPersonQueryService.getBlastRadiusPersons(
-                            team,
-                            state.filters,
-                            state.groupTypeIndex,
-                            state.cursor,
-                            state.dedupeKey
-                        )
+                    await this.transitionToFailedTerminal(
+                        job,
+                        state,
+                        'audience_query_failed',
+                        state.totalEnqueued > 0
+                            ? `This run has no stored audience, so it stopped after enrolling ${state.totalEnqueued} people. Starting it again can send to them a second time.`
+                            : 'This run has no stored audience. Start the run again.'
                     )
-                    page = {
-                        ids: personsPage.users_affected,
-                        cursor: personsPage.cursor,
-                        has_more: personsPage.has_more,
-                    }
+                    return
                 }
             }
         } catch (err) {
@@ -697,6 +696,31 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
                     metric_kind: 'other',
                     metric_name: 'audience_truncated',
                     count: 1,
+                },
+            ],
+            'hog_flow'
+        )
+    }
+
+    private emitSkippedTestAccountFiltersLog(state: BatchResolverState, skippedKeys: string[]): void {
+        if (skippedKeys.length === 0) {
+            return
+        }
+        const filters =
+            skippedKeys.length === 1
+                ? '1 test account filter that only applies'
+                : `${skippedKeys.length} test account filters that only apply`
+        this.hogFunctionMonitoringService.queueLogs(
+            [
+                {
+                    team_id: state.teamId,
+                    log_source: 'hog_flow',
+                    log_source_id: state.batchJobId,
+                    instance_id: state.batchJobId,
+                    ...logEntry(
+                        'info',
+                        `This run left out ${filters} to events, not people: ${skippedKeys.join(', ')}`
+                    ),
                 },
             ],
             'hog_flow'

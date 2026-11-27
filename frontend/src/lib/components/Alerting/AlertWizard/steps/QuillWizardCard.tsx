@@ -6,18 +6,21 @@ export function QuillWizardCard({
     description,
     badge,
     onClick,
+    'data-attr': dataAttr,
 }: {
     icon?: React.ReactNode
     name: string
     description: string
     badge?: string
     onClick: () => void
+    'data-attr'?: string
 }): JSX.Element {
     return (
         <Card size="sm" className="p-0">
             <button
                 type="button"
                 onClick={onClick}
+                data-attr={dataAttr}
                 className="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-fill-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
                 {icon ? <span className="shrink-0">{icon}</span> : null}

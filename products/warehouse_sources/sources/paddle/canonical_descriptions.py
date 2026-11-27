@@ -7,11 +7,15 @@ Keyed by the resource names in `constants.py` (used by `settings.py` `ENDPOINTS`
 
 from products.warehouse_sources.sources.paddle.constants import (
     ADJUSTMENT_RESOURCE_NAME,
+    CUSTOMER_ADDRESS_RESOURCE_NAME,
+    CUSTOMER_BUSINESS_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME,
+    DISCOUNT_GROUP_RESOURCE_NAME,
     DISCOUNT_RESOURCE_NAME,
     EXPLORE_METRICS_RESOURCE_NAME,
     PRICE_RESOURCE_NAME,
     PRODUCT_RESOURCE_NAME,
+    SUBSCRIPTION_HISTORY_RESOURCE_NAME,
     SUBSCRIPTION_RESOURCE_NAME,
     TRANSACTION_RESOURCE_NAME,
 )
@@ -154,6 +158,70 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "value": "Measure value as a string. Currency values are in the smallest currency unit (e.g. cents).",
             "currency_code": "Three-letter ISO currency code for currency values, derived from your balance currency.",
             "updated_at": "Time at which Paddle last refreshed the data behind this metric (RFC 3339).",
+        },
+    },
+    DISCOUNT_GROUP_RESOURCE_NAME: {
+        "description": "Discount groups, used to organize discounts into categories. Not shown to customers.",
+        "docs_url": "https://developer.paddle.com/api-reference/discount-groups/list-discount-groups",
+        "columns": _columns(
+            id="Unique Paddle ID for the discount group, prefixed with dsg_.",
+            status="Whether the discount group is active or archived.",
+            name="Unique name of the discount group, used for categorization. Not shown to customers.",
+            import_meta="Import information for the discount group. Null if it was not imported.",
+        ),
+    },
+    CUSTOMER_ADDRESS_RESOURCE_NAME: {
+        "description": (
+            "Addresses saved for each customer, active and archived. "
+            "Join on address_id from subscriptions and transactions."
+        ),
+        "docs_url": "https://developer.paddle.com/api-reference/addresses/list-addresses",
+        "columns": _columns(
+            id="Unique Paddle ID for the address, prefixed with add_.",
+            status="Whether the address is active or archived.",
+            customer_id="Paddle ID of the customer the address belongs to, prefixed with ctm_.",
+            description="Memorable description for the address.",
+            first_line="First line of the address.",
+            second_line="Second line of the address.",
+            city="City of the address.",
+            postal_code="ZIP or postal code of the address.",
+            region="State, county, or region of the address.",
+            country_code="Two-letter ISO 3166-1 alpha-2 country code of the address.",
+            import_meta="Import information for the address. Null if it was not imported.",
+        ),
+    },
+    CUSTOMER_BUSINESS_RESOURCE_NAME: {
+        "description": (
+            "Businesses saved for each customer, active and archived. "
+            "Join on business_id from subscriptions and transactions."
+        ),
+        "docs_url": "https://developer.paddle.com/api-reference/businesses/list-businesses",
+        "columns": _columns(
+            id="Unique Paddle ID for the business, prefixed with biz_.",
+            status="Whether the business is active or archived.",
+            customer_id="Paddle ID of the customer the business belongs to, prefixed with ctm_.",
+            name="Name of the business.",
+            company_number="Company number of the business.",
+            tax_identifier="Tax or VAT number of the business.",
+            contacts="Contacts for the business (name and email), typically used to send invoices.",
+            import_meta="Import information for the business. Null if it was not imported.",
+        ),
+    },
+    SUBSCRIPTION_HISTORY_RESOURCE_NAME: {
+        "description": (
+            "History entries for each subscription: one row per change, such as creation, activation, pause, "
+            "cancellation, or plan change. Paddle began recording history on June 29, 2026."
+        ),
+        "docs_url": "https://developer.paddle.com/api-reference/subscription-history/list-subscription-history",
+        "columns": {
+            "id": "Unique Paddle ID for the history entry, prefixed with subhis_.",
+            "group_id": "Paddle ID of the history group, prefixed with subhisgrp_. Entries from the same request share it.",
+            "subscription_id": "Paddle ID of the subscription the entry relates to, prefixed with sub_.",
+            "occurred_at": "Time at which the change happened (RFC 3339); the incremental cursor.",
+            "source": "Where the change originated, such as checkout, customer_portal, api, or system.",
+            "actor": "The actor that made the change: its type and Paddle ID.",
+            "reason": "Why the change was made. Only set for some actions.",
+            "detail": "Details of the change. The action field names the change, and the other fields depend on it.",
         },
     },
 }

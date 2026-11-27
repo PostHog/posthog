@@ -311,7 +311,9 @@ export function StaffCacheToolsTab(): JSX.Element {
                 }
                 return (
                     <LemonTag type={config.flag_evaluations_mode === 0 ? 'muted' : 'completion'}>
-                        {FLAG_EVALUATIONS_MODE_LABELS[config.flag_evaluations_mode]}
+                        {config.keep_writing_flag_calls_to_events
+                            ? `${FLAG_EVALUATIONS_MODE_LABELS[config.flag_evaluations_mode]}, events writes kept`
+                            : FLAG_EVALUATIONS_MODE_LABELS[config.flag_evaluations_mode]}
                     </LemonTag>
                 )
             },

@@ -631,7 +631,7 @@ class TestAppCspHeaderName(SimpleTestCase):
             (policy,) = [p for p in _parse_policies(response.get("Content-Security-Policy", "")) if "default-src" in p]
             return policy
 
-        for auth_path in ("/login", "/signup"):
+        for auth_path in ("/login", "/signup", "/signup/01a20d75-2bf4-7896-8f9e-4a1b2c3d4e5f"):
             policy = app_policy(auth_path)
             assert "https://js.workos.com/radar/" in policy["script-src"]
             assert "https://api.workos.com" in policy["connect-src"]

@@ -80,6 +80,12 @@ RAYGUN_ENDPOINTS: dict[str, RaygunEndpointConfig] = {
         primary_keys=["identifier"],
         orderby="name",
     ),
+    "teams": RaygunEndpointConfig(
+        name="teams",
+        path="/teams",
+        primary_keys=["identifier"],
+        orderby="name",
+    ),
     "error_groups": RaygunEndpointConfig(
         name="error_groups",
         path="/applications/{application_identifier}/error-groups",

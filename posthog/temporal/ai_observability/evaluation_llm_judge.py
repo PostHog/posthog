@@ -494,8 +494,14 @@ def call_llm_judge(
     allows_na: bool,
     backfill: bool = False,
     attachment_prompt: AttachmentPrompt | None = None,
+    retry_without_attachments_on_overflow: bool = True,
 ) -> EvaluationActivityResult:
     """Resolve the judge model/key for `evaluation` and run a single judge completion.
+
+    A provider can reject a prompt with attachments as over its context window. With
+    `retry_without_attachments_on_overflow`, that rejection is retried without the attachments like any other
+    attachment rejection. Without it, the run skips with `context_window_exceeded`, so a caller that has a
+    shorter transcript can retry with the attachments kept.
 
     Shared by the single-event and trace-level judge activities — everything from provider
     resolution through error mapping and result shaping is identical between them; only how the
@@ -723,7 +729,12 @@ def call_llm_judge(
             try:
                 response = client.complete(request)
             except Exception as e:
-                status = _attachment_rejection_status(e) if sent_attachments else None
+                overflow = isinstance(e, ContextWindowExceededError)
+                status = (
+                    _attachment_rejection_status(e)
+                    if sent_attachments and (retry_without_attachments_on_overflow or not overflow)
+                    else None
+                )
                 if status is None:
                     raise
             # Handle the rejection outside the except: the provider's error can quote a presigned link, and
@@ -967,10 +978,22 @@ def call_llm_judge(
         status = getattr(e, "status_code", None)
         if not isinstance(status, int):
             status = getattr(e, "code", None)
-        # boffin: Leave exhausted provider outages reportable through the worker interceptor.
-        if isinstance(status, int) and 500 <= status < 600 and not is_last_attempt():
-            increment_errors(type(e).__name__, provider=provider)
-            raise TransientJudgeError(str(e)) from e
+        # An exhausted provider outage falls through to error tracking, except on a customer's own endpoint.
+        if isinstance(status, int) and 500 <= status < 600:
+            if not is_last_attempt():
+                increment_errors(type(e).__name__, provider=provider)
+                raise TransientJudgeError(str(e)) from e
+            if is_byok and provider == "openai_compatible" and not backfill:
+                # The customer runs this endpoint, so an outage that outlasts every retry is theirs to
+                # fix and nobody at PostHog can act on the report. Skip the run with the reason instead.
+                # A backfill keeps raising so that it can pause on the outage.
+                increment_user_errors("endpoint_server_error", provider=provider)
+                return build_skipped_evaluation_result(
+                    output_type=output_type,
+                    allows_na=allows_na,
+                    reasoning=f"Your custom endpoint returned HTTP {status} on every attempt. Check that it is running and reachable.",
+                    skip_reason="endpoint_server_error",
+                )
         rejected_status = _rejected_request_status(e)
         # On a PostHog key a rejection is our bug, so it falls through to error tracking below.
         if rejected_status is not None and is_byok:

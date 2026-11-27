@@ -54,12 +54,13 @@ class OrganizationEmailInputs:
         return {"user_id": self.user_id}
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class DeleteTeamsDataWorkflowInputs:
     """Inputs for the reusable core ``DeleteTeamsDataWorkflow``."""
 
     team_ids: list[int]
     user_id: int
+    delete_task_sessions: bool = True
 
     @property
     def properties_to_log(self) -> dict[str, typing.Any]:

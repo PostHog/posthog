@@ -36,7 +36,20 @@ class TestSmartreachSource:
         [
             # The tables added for v3 do not exist on v1, so a v1 pin must not offer them.
             (SMARTREACH_API_V1, ["prospects", "campaigns"]),
-            (None, ["prospects", "campaigns", "campaign_prospects", "campaign_stats", "teams", "users"]),
+            (
+                None,
+                [
+                    "prospects",
+                    "campaigns",
+                    "campaign_prospects",
+                    "campaign_stats",
+                    "teams",
+                    "users",
+                    "email_settings",
+                    "do_not_contacts",
+                    "campaign_channel_settings",
+                ],
+            ),
         ],
     )
     def test_get_schemas_lists_only_tables_on_the_pinned_version(

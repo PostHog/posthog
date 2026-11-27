@@ -90,9 +90,9 @@ class Command(BaseCommand):
         self.stderr.write("fetching decisions...")
         started_at = time.monotonic()
         with psycopg.Connection.connect(WAREHOUSE_SOURCES_DATABASE_URL) as conn:
-            decisions = SchedulerStateTable.fetch_would_fires(conn, SYNC_EXTRACT_KIND, since)
-        if options["team_id"] is not None:
-            decisions = [d for d in decisions if d.team_id == options["team_id"]]
+            decisions = SchedulerStateTable.fetch_would_fires(
+                conn, SYNC_EXTRACT_KIND, since, team_id=options["team_id"]
+            )
         self.stderr.write(f"fetched {len(decisions)} decisions in {time.monotonic() - started_at:.1f}s")
 
         self.stderr.write("fetching jobs...")

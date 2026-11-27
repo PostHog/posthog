@@ -7,6 +7,7 @@ it to tell one generation on a fixed slot name from the next.
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 from typing import Any
 
@@ -23,6 +24,8 @@ QUERY_FOLDER_STATE_KEY = "query_folder_state"
 # the names ends in digits, so the age-based cleanup of `__query_<digits>` folders never selects them.
 QUERY_FOLDER_SLOTS = ("a", "b", "c")
 
+_TIMESTAMPED_QUERY_FOLDER = re.compile(r"__query_(\d+)(?:_[0-9a-f]{8})?/?$")
+
 
 def query_folder_table_prefix(queryable_folder: str) -> str:
     """`<table>__query`, shared by every query folder of one table: the slots, the timestamped
@@ -32,6 +35,12 @@ def query_folder_table_prefix(queryable_folder: str) -> str:
 
 def query_folder_slot_names(table_prefix: str) -> tuple[str, ...]:
     return tuple(f"{table_prefix}_{slot}" for slot in QUERY_FOLDER_SLOTS)
+
+
+def query_folder_staged_at(queryable_folder: str | None) -> int | None:
+    """When a timestamped query folder was staged, in Unix seconds, or None for any other folder."""
+    match = _TIMESTAMPED_QUERY_FOLDER.search(queryable_folder or "")
+    return int(match.group(1)) if match else None
 
 
 def _parse_instant(raw: Any) -> datetime | None:

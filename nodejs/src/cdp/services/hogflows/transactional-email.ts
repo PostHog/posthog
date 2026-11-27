@@ -22,6 +22,11 @@ const CopyRecipientsSchema = z
     .readonly()
     .optional()
 
+const MessageIdSchema = z
+    .string()
+    .max(255)
+    .regex(/^<[!-;=?A-~]+@[!-;=?-~]+>$/)
+
 export const SES_UNSUPPORTED_ATTACHMENT_EXTENSIONS: ReadonlySet<string> = new Set([
     '.ade',
     '.adp',
@@ -200,7 +205,30 @@ export const AcceptedSendSchema = z
             .max(MAX_EMAIL_ATTACHMENTS)
             .readonly()
             .optional(),
+        thread: z
+            .object({ inReplyTo: MessageIdSchema, references: z.array(MessageIdSchema).max(100).readonly() })
+            .strict()
+            .readonly()
+            .optional(),
+        category: z
+            .object({
+                id: z.string().min(1),
+                type: z.enum(['marketing', 'transactional']),
+                archived: z.literal(true).optional(),
+            })
+            .strict()
+            .readonly()
+            .optional(),
     })
+    .strict()
+    .readonly()
+    .refine((send) => send.category?.type !== 'marketing' || !(send.cc?.length || send.bcc?.length), {
+        message: 'a marketing send cannot copy recipients with cc or bcc',
+        path: ['category'],
+    })
+
+export const BatchSendSchema = AcceptedSendSchema.unwrap()
+    .omit({ cc: true, bcc: true, attachments: true, thread: true })
     .strict()
     .readonly()
 
@@ -222,7 +250,22 @@ export const acceptedSendEmailFields = (
     ...(send?.cc && { cc: send.cc.join(', ') }),
     ...(send?.bcc && { bcc: send.bcc.join(', ') }),
     ...(send?.attachments && { attachments: send.attachments.map((file) => ({ ...file })) }),
+    ...(send?.thread && { thread: { inReplyTo: send.thread.inReplyTo, references: [...send.thread.references] } }),
 })
+
+export const withSendCategory = <Step extends { type: string; config: object }>(
+    step: Step,
+    send: Pick<AcceptedSend, 'category'> | undefined
+): Step => {
+    if (!send?.category || step.type !== 'function_email') {
+        return step
+    }
+    const { id, type } = send.category
+    return {
+        ...step,
+        config: { ...step.config, message_category_id: id, message_category_type: type, skip_frequency_cap: true },
+    }
+}
 
 const ScheduledAtSchema = z.string().datetime({ offset: true })
 
@@ -260,7 +303,6 @@ export const isRecipientFormatIssue = (issue: z.core.$ZodIssue): boolean =>
 
 export type TransactionalSendRefusal =
     | 'idempotency_key_reused'
-    | 'idempotency_unavailable'
     | 'intake_unavailable'
     | 'invalid_request'
     | 'not_sendable'
@@ -287,6 +329,7 @@ export type TransactionalEmailOutcome =
     | 'workflow_shape_not_supported'
     | 'attachment_not_uploaded'
     | 'message_too_large'
+    | 'category_not_found'
     | 'email_render_limit_exceeded'
     | 'utm_value_too_long'
     | 'email_body_too_many_tags'

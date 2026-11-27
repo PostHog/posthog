@@ -87,7 +87,7 @@ def mock_clickhouse_client():
     """Fixture to mock ClickHouse client."""
     mock_client = MockClickHouseClient()
     with patch(
-        "products.batch_exports.backend.temporal.pipeline.internal_stage.get_client",
+        "products.batch_exports.backend.temporal.clickhouse.get_client",
         return_value=mock_client.mock_client_cm,
     ):
         yield mock_client
@@ -103,7 +103,7 @@ def mock_clickhouse_client():
 )
 @pytest.mark.parametrize("is_backfill", [False, True])
 @pytest.mark.parametrize("backfill_within_last_6_days", [False, True])
-@pytest.mark.parametrize("data_interval_end", [TEST_DATA_INTERVAL_END])
+@pytest.mark.parametrize("data_interval_end", [TEST_DATA_INTERVAL_END, TEST_DATA_INTERVAL_END - dt.timedelta(days=20)])
 async def test_insert_into_stage_activity_executes_the_expected_query_for_events_model(
     mock_clickhouse_client,
     interval,
@@ -126,12 +126,17 @@ async def test_insert_into_stage_activity_executes_the_expected_query_for_events
 
     if not is_backfill and backfill_within_last_6_days:
         pytest.skip("No need to test backfill within last 6 days for non-backfill")
+    is_late_run = data_interval_end != TEST_DATA_INTERVAL_END
+    if is_backfill and is_late_run:
+        pytest.skip("A backfill's table depends on its start, not on when its run ends")
 
-    expected_table = "distributed_events_recent"
-    if not is_backfill and interval == "every 5 minutes":
+    reads_recent_range = (not is_backfill and not is_late_run) or backfill_within_last_6_days
+    if use_native_schema:
+        expected_table = "events_json_recent" if reads_recent_range else "events_json"
+    elif not is_backfill and interval == "every 5 minutes":
         expected_table = "events_recent"
-    elif is_backfill and not backfill_within_last_6_days:
-        expected_table = "events_json" if use_native_schema else "events"
+    else:
+        expected_table = "distributed_events_recent" if reads_recent_range else "events"
 
     if backfill_within_last_6_days:
         backfill_start_at = (data_interval_end - dt.timedelta(days=3)).isoformat()
@@ -161,7 +166,18 @@ async def test_insert_into_stage_activity_executes_the_expected_query_for_events
         destination_default_fields=None,
     )
 
-    with override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=use_native_schema):
+    batch_exports_url = "http://batch-exports.example.com:8123/"
+    with (
+        override_settings(
+            BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=100 if use_native_schema else 0,
+            CLICKHOUSE_BATCH_EXPORTS_HTTP_URL=batch_exports_url,
+            CLICKHOUSE_EVENTS_OFFLINE_HTTP_URL=None,
+        ),
+        patch(
+            "products.batch_exports.backend.temporal.clickhouse.get_client",
+            return_value=mock_clickhouse_client.mock_client_cm,
+        ) as get_client,
+    ):
         await activity_environment.run(insert_into_internal_stage_activity, insert_inputs)
     mock_clickhouse_client.expect_select_from_table(expected_table)
     mock_clickhouse_client.expect_properties_in_log_comment(
@@ -171,20 +187,26 @@ async def test_insert_into_stage_activity_executes_the_expected_query_for_events
             "product": "batch_export",
         },
     )
+    reads_recent_table = expected_table in ("events_recent", "distributed_events_recent", "events_json_recent")
+    expected_url = batch_exports_url if reads_recent_table else settings.CLICKHOUSE_OFFLINE_HTTP_URL
+    assert get_client.call_args.kwargs["clickhouse_url"] == expected_url
 
 
 @pytest.mark.parametrize(
-    "use_native_schema,rollout_flag_on,expected_table",
-    [(False, False, "events"), (True, False, "events_json"), (False, True, "events")],
-    ids=["legacy", "native", "rollout-flag-on"],
+    "native_switch,expected_table,expected_cluster",
+    [
+        ("off", "events", "main"),
+        ("batch-exports-rollout", "events_json", "events"),
+        ("project-rollout-flag", "events", "main"),
+    ],
 )
 async def test_insert_into_stage_activity_reads_native_events_for_workflows(
     mock_clickhouse_client,
     activity_environment,
     ateam,
-    use_native_schema: bool,
-    rollout_flag_on: bool,
+    native_switch: str,
     expected_table: str,
+    expected_cluster: str,
 ):
     insert_inputs = BatchExportInsertIntoInternalStageInputs(
         team_id=ateam.pk,
@@ -200,29 +222,91 @@ async def test_insert_into_stage_activity_reads_native_events_for_workflows(
         destination_default_fields=None,
     )
 
+    events_url = "http://events.example.com:8123/"
     with (
-        override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=use_native_schema),
-        patch("posthog.models.event.new_events_schema.is_cloud", return_value=rollout_flag_on),
+        override_settings(
+            BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=100 if native_switch == "batch-exports-rollout" else 0,
+            CLICKHOUSE_EVENTS_OFFLINE_HOST="events.example.com",
+            CLICKHOUSE_EVENTS_OFFLINE_HTTP_URL=events_url,
+        ),
+        patch("posthog.models.event.new_events_schema.is_cloud", return_value=native_switch == "project-rollout-flag"),
         patch(
             "posthog.models.event.new_events_schema.posthoganalytics.feature_enabled",
             side_effect=lambda flag, *args, **kwargs: flag == EVENTS_TABLE_ROLLOUT_FLAG,
         ),
+        patch(
+            "products.batch_exports.backend.temporal.clickhouse.get_client",
+            return_value=mock_clickhouse_client.mock_client_cm,
+        ) as get_client,
     ):
         await activity_environment.run(insert_into_internal_stage_activity, insert_inputs)
 
     mock_clickhouse_client.expect_select_from_table(expected_table)
     if expected_table == "events":
         assert "events_json" not in mock_clickhouse_client.calls[0].query
+    expected_url = events_url if expected_cluster == "events" else settings.CLICKHOUSE_OFFLINE_HTTP_URL
+    assert get_client.call_args.kwargs["clickhouse_url"] == expected_url
+
+
+@pytest.mark.parametrize("switch", ["app-rollout-flag", "batch-exports-rollout"])
+@pytest.mark.parametrize("model_name", ["persons", "sessions", "hogql"])
+async def test_insert_into_stage_activity_connects_other_models_by_the_table_they_read(
+    mock_clickhouse_client,
+    activity_environment,
+    ateam,
+    auser,
+    model_name: str,
+    switch: str,
+):
+    """Needed only during the migration to the new events tables, while the app-wide switch and the batch exports
+    switch can disagree. Persons and sessions read main cluster tables, and a HogQL export follows the app-wide switch.
+    """
+    models: dict[str, AnyBatchExportModel] = {
+        "persons": BatchExportPersonsModel(),
+        "sessions": BatchExportSessionsModel(),
+        "hogql": BatchExportHogQLModel(query="SELECT event AS event FROM events", user_id=auser.pk, modifiers={}),
+    }
+    insert_inputs = BatchExportInsertIntoInternalStageInputs(
+        team_id=ateam.pk,
+        batch_export_id=str(uuid.uuid4()),
+        data_interval_start=(TEST_DATA_INTERVAL_END - dt.timedelta(hours=1)).isoformat(),
+        data_interval_end=TEST_DATA_INTERVAL_END.isoformat(),
+        batch_export_model=models[model_name],
+    )
+
+    events_url = "http://events.example.com:8123/"
+    with (
+        override_settings(
+            BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=100 if switch == "batch-exports-rollout" else 0,
+            CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False,
+            CLICKHOUSE_EVENTS_OFFLINE_HOST="events.example.com",
+            CLICKHOUSE_EVENTS_OFFLINE_HTTP_URL=events_url,
+        ),
+        patch("posthog.models.event.new_events_schema.is_cloud", return_value=switch == "app-rollout-flag"),
+        patch(
+            "posthog.models.event.new_events_schema.posthoganalytics.feature_enabled",
+            side_effect=lambda flag, *args, **kwargs: flag == EVENTS_TABLE_ROLLOUT_FLAG,
+        ),
+        patch(
+            "products.batch_exports.backend.temporal.clickhouse.get_client",
+            return_value=mock_clickhouse_client.mock_client_cm,
+        ) as get_client,
+    ):
+        await activity_environment.run(insert_into_internal_stage_activity, insert_inputs)
+
+    reads_events_json = model_name == "hogql" and switch == "app-rollout-flag"
+    assert ("events_json" in mock_clickhouse_client.calls[0].query) is reads_events_json
+    expected_url = events_url if reads_events_json else settings.CLICKHOUSE_OFFLINE_HTTP_URL
+    assert get_client.call_args.kwargs["clickhouse_url"] == expected_url
 
 
 @pytest.mark.parametrize("interval", ["day"], indirect=True)
 @pytest.mark.parametrize("data_interval_end", [TEST_DATA_INTERVAL_END])
 @pytest.mark.parametrize(
-    "backfill_days_ago,expected_table,reads_native_table",
-    [(3, "distributed_events_recent", False), (10, "events_json", True)],
-    ids=["legacy-recent-table", "native-table"],
+    "reads_native_table,backfill_days_ago,expected_table",
+    [(False, 3, "distributed_events_recent"), (True, 3, "events_json_recent"), (True, 10, "events_json")],
+    ids=["legacy-recent-table", "native-recent-table", "native-table"],
 )
-@override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
 async def test_insert_into_stage_activity_compiles_custom_fields_and_filters_for_the_table_it_reads(
     mock_clickhouse_client,
     interval,
@@ -233,7 +317,9 @@ async def test_insert_into_stage_activity_compiles_custom_fields_and_filters_for
     backfill_days_ago: int,
     expected_table: str,
     reads_native_table: bool,
+    settings: "Settings",
 ):
+    settings.BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE = 100 if reads_native_table else 0
     with patch(
         "products.access_control.backend.facade.api.get_restricted_properties_with_group_type_index_for_team",
         return_value={RestrictedProperty(name="secret", property_type=PropertyDefinition.Type.EVENT)},
@@ -274,6 +360,8 @@ async def test_insert_into_stage_activity_compiles_custom_fields_and_filters_for
         assert "events.properties.`$browser`" in browser_field.group(1)
         assert "events.properties.`$feature_flags`" in query
         assert "JSONExtractRaw(events.properties" not in query
+        # The typed fields and filters fail on the stored text of events_json_recent unless the query casts it first.
+        assert ("_stored_properties" in query) == (expected_table == "events_json_recent")
     else:
         assert browser_field.group(1).strip() == schema["fields"][0]["expression"]
         assert "JSONExtractRaw(events.properties" in query
@@ -282,7 +370,7 @@ async def test_insert_into_stage_activity_compiles_custom_fields_and_filters_for
 
 @pytest.mark.parametrize("interval", ["day"], indirect=True)
 @pytest.mark.parametrize("data_interval_end", [TEST_DATA_INTERVAL_END])
-@override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+@override_settings(BATCH_EXPORTS_NEW_EVENTS_TABLE_ROLLOUT_PERCENTAGE=100)
 async def test_insert_into_stage_activity_fails_a_native_run_for_a_custom_schema_without_its_query(
     mock_clickhouse_client,
     interval,
@@ -374,7 +462,7 @@ async def test_write_batch_export_record_batches_to_internal_stage_rejects_futur
         patch(
             "products.batch_exports.backend.temporal.pipeline.internal_stage.wait_for_delta_past_data_interval_end"
         ) as mock_wait,
-        patch("products.batch_exports.backend.temporal.pipeline.internal_stage.get_client") as mock_get_client,
+        patch("products.batch_exports.backend.temporal.clickhouse.get_client") as mock_get_client,
         override_settings(DEBUG=False, TEST=False),
     ):
         with pytest.raises(DataIntervalInFutureError, match="The provided 'data_interval_end'.*is in the future"):
@@ -1489,7 +1577,6 @@ async def test_insert_into_stage_activity_applies_settings_and_log_comment(
 
 
 @pytest.mark.parametrize("export_path", ["stage", "producer"])
-@pytest.mark.parametrize("interval_minutes", [5, 60])
 @pytest.mark.parametrize(
     "table,host,database",
     [
@@ -1505,14 +1592,12 @@ async def test_exports_route_compiled_queries_to_their_workload(
     ateam: Team,
     auser: User,
     export_path: str,
-    interval_minutes: int,
     table: str | None,
     host: str,
     database: str,
 ) -> None:
     settings.CLICKHOUSE_DATABASE = "main_db"
     settings.CLICKHOUSE_OFFLINE_HTTP_URL = "http://offline.example.com:8123/"
-    settings.CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST = "http://five-minute.example.com:8123/"
     settings.CLICKHOUSE_EVENTS_OFFLINE_HOST = None
     settings.CLICKHOUSE_LOGS_CLUSTER_HOST = "logs.example.com"
     settings.CLICKHOUSE_LOGS_CLUSTER_SECURE = False
@@ -1525,9 +1610,8 @@ async def test_exports_route_compiled_queries_to_their_workload(
     settings.CLICKHOUSE_PASSWORD_FILE = None
 
     start = dt.datetime(2026, 1, 1, tzinfo=dt.UTC)
-    end = start + dt.timedelta(minutes=interval_minutes)
-    expected_host = "five-minute" if host == "offline" and interval_minutes == 5 else host
-    expected_url = f"http://{expected_host}.example.com:8123/"
+    end = start + dt.timedelta(hours=1)
+    expected_url = f"http://{host}.example.com:8123/"
     request_url = re.compile(r"^" + re.escape(expected_url) + r"\?")
     model = (
         HogQLQueryRecordBatchModel(
@@ -1587,6 +1671,60 @@ async def test_exports_route_compiled_queries_to_their_workload(
         assert b"'exported'" in request.kwargs["data"]
         if model is not None:
             assert json.loads(request.kwargs["params"]["log_comment"])["product"] == "batch_export"
+
+
+@pytest.mark.parametrize(
+    "batch_exports_url,reads_recent_events,expected_host",
+    [
+        ("http://batch-exports.example.com:8123/", True, "batch-exports"),
+        ("http://batch-exports.example.com:8123/", False, None),
+        (None, True, None),
+    ],
+    ids=["recent-events", "other-table", "no-batch-exports-host"],
+)
+async def test_stage_routes_recent_events_queries_to_batch_exports_cluster(
+    settings: "Settings",
+    ateam: Team,
+    batch_exports_url: str | None,
+    reads_recent_events: bool,
+    expected_host: str | None,
+) -> None:
+    settings.CLICKHOUSE_OFFLINE_HTTP_URL = "http://offline.example.com:8123/"
+    settings.CLICKHOUSE_EVENTS_OFFLINE_HOST = None
+    settings.CLICKHOUSE_BATCH_EXPORTS_HTTP_URL = batch_exports_url
+    settings.CLICKHOUSE_PASSWORD_FILE = None
+
+    start = dt.datetime(2026, 1, 1, tzinfo=dt.UTC)
+    end = start + dt.timedelta(hours=1)
+    expected_host = expected_host or "offline"
+    expected_url = f"http://{expected_host}.example.com:8123/"
+    s3_client = AsyncMock()
+    s3_client.__aenter__.return_value = s3_client
+    s3_client.list_objects_v2.return_value = {}
+
+    with (
+        aioresponses() as responses,
+        patch("products.batch_exports.backend.temporal.pipeline.internal_stage.get_s3_client", return_value=s3_client),
+    ):
+        responses.get(expected_url + "ping", body="Ok.")
+        responses.post(
+            re.compile(r"^" + re.escape(expected_url) + r"\?"),
+            headers={"X-ClickHouse-Summary": '{"written_rows":"1"}'},
+        )
+
+        written_rows = await _write_batch_export_record_batches_to_internal_stage(
+            query_or_model="INSERT INTO FUNCTION s3('https://stage.example.com/export.arrow', 'ArrowStream') SELECT 1",
+            full_range=(start, end),
+            query_parameters={},
+            team_id=ateam.pk,
+            batch_export_id=str(uuid.uuid4()),
+            data_interval_start=start.isoformat(),
+            data_interval_end=end.isoformat(),
+            s3_staging_folder_url="https://stage.example.com/",
+            reads_recent_events=reads_recent_events,
+        )
+
+    assert written_rows == 1
 
 
 class TestHogQLModel:

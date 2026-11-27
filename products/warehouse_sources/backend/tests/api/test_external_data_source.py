@@ -11,7 +11,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, Mock, PropertyMock, call, patch
 
 from django.conf import settings
-from django.db import connection
+from django.db import OperationalError, connection
 from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
@@ -646,6 +646,7 @@ class TestExternalDataSource(APIBaseTest):
                 "status",
                 "sync_type",
                 "last_synced_at",
+                "last_checked_at",
                 "sync_frequency",
                 "latest_error",
                 "table",
@@ -817,6 +818,7 @@ class TestExternalDataSource(APIBaseTest):
                 "should_sync": True,
                 "status": ExternalDataSchema.Status.FAILED,
                 "last_synced_at": None,
+                "last_checked_at": None,
                 "latest_error": "boom",
             }
         else:
@@ -3996,6 +3998,7 @@ class TestExternalDataSource(APIBaseTest):
                     "incremental_field_type": None,
                     "incremental_field_lookback_seconds": None,
                     "last_synced_at": schema.last_synced_at,
+                    "last_checked_at": None,
                     "name": schema.name,
                     "label": schema.label,
                     "latest_error": schema.latest_error,
@@ -4017,6 +4020,7 @@ class TestExternalDataSource(APIBaseTest):
                     "cdc_table_mode": "consolidated",
                     "incremental_sync_blocked": None,
                     "webhook_not_registered": False,
+                    "webhook_issue": None,
                     "enabled_columns": None,
                     "masked_columns": None,
                     "row_filters": None,
@@ -4153,14 +4157,26 @@ class TestExternalDataSource(APIBaseTest):
     )
     def test_reload_external_data_source(self, mock_trigger):
         source = self._create_external_data_source()
+        failing, healthy = (
+            ExternalDataSchema.objects.create(
+                name=name, team=self.team, source=source, should_sync=True, sync_type_config=config
+            )
+            for name, config in (("Charge", {"failure_streak": {"runs": 8}}), ("Customer", {}))
+        )
 
         response = self.client.post(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/reload/")
 
         source.refresh_from_db()
+        failing.refresh_from_db()
+        healthy.refresh_from_db()
 
         self.assertEqual(mock_trigger.call_count, 1)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(source.status, "Running")
+        assert failing.manual_run_requested is True
+        assert healthy.manual_run_requested is False
+        assert "failure_streak" not in healthy.sync_type_config
+        assert (failing.manual_sync_pending, healthy.manual_sync_pending) == (True, True)
 
     @patch.object(StripeSource, "get_schemas")
     def test_refresh_schemas_creates_new_schemas_and_returns_counts(self, mock_get_schemas: Mock) -> None:
@@ -7140,13 +7156,17 @@ class TestExternalDataSource(APIBaseTest):
             pipeline_version=ExternalDataJob.PipelineVersion.V1,
         )
 
-        response = self.client.get(
-            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/jobs",
-        )
+        with patch(
+            "products.warehouse_sources.backend.presentation.views.external_data_source.viewset.Database.create_for"
+        ) as database:
+            response = self.client.get(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/jobs",
+            )
 
         data = response.json()
 
         assert response.status_code == status.HTTP_200_OK
+        database.assert_not_called()
         assert len(data) == 1
         assert data[0]["id"] == str(job.pk)
         assert data[0]["status"] == "Completed"
@@ -11606,6 +11626,123 @@ class TestDestroySourceCleansUpCompanionTables(APIBaseTest):
         # Unrelated table NOT deleted
         unrelated_table.refresh_from_db()
         assert unrelated_table.deleted is False
+
+    def _create_source_mid_first_sync(self) -> tuple[ExternalDataSource, ExternalDataSchema, DataWarehouseTable]:
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Stripe",
+            created_by=self.user,
+            job_inputs={"stripe_secret_key": "sk_test_123"},
+        )
+        # A first sync creates the table before it links the schema to it.
+        schema = ExternalDataSchema.objects.create(name="orders", team_id=self.team.pk, source_id=source.pk)
+        unlinked_table = DataWarehouseTable.objects.create(
+            team_id=self.team.pk,
+            name="test_orders",
+            external_data_source_id=source.pk,
+            format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            url_pattern="s3://bucket/main",
+        )
+        return source, schema, unlinked_table
+
+    def test_destroy_locks_tables_before_schemas(self):
+        source, schema, unlinked_table = self._create_source_mid_first_sync()
+
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.delete(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}")
+
+        assert response.status_code == 204
+        statements = [query["sql"] for query in queries.captured_queries]
+
+        def first_index(predicate: t.Callable[[str], bool]) -> int:
+            return next((i for i, sql in enumerate(statements) if predicate(sql)), len(statements))
+
+        table_lock = first_index(lambda sql: "FOR UPDATE" in sql and 'FROM "posthog_datawarehousetable"' in sql)
+        schema_write = first_index(
+            lambda sql: (
+                sql.startswith('UPDATE "posthog_externaldataschema"')
+                or ("FOR UPDATE" in sql and 'FROM "posthog_externaldataschema"' in sql)
+            )
+        )
+        # The sync locks the table and then writes the schema row, so the other order deadlocks.
+        assert table_lock < schema_write
+
+        schema.refresh_from_db()
+        unlinked_table.refresh_from_db()
+        assert schema.deleted is True
+        assert unlinked_table.deleted is True
+
+    def test_destroy_cleans_up_a_table_the_sync_linked_while_destroy_waited(self):
+        source, schema, synced_table = self._create_source_mid_first_sync()
+        join = DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name=synced_table.name,
+            source_table_key="id",
+            joining_table_name="persons",
+            joining_table_key="id",
+            field_name="persons",
+        )
+        real_assert_can_write_schemas = ExternalDataSourceViewSet._assert_can_write_schemas
+        checks = 0
+
+        def link_table_after_destroy_read_schemas(viewset: Any, schemas: Any) -> None:
+            nonlocal checks
+            checks += 1
+            if checks == 1:
+                ExternalDataSchema.objects.filter(pk=schema.pk).update(table=synced_table)
+            real_assert_can_write_schemas(viewset, schemas)
+
+        with patch.object(
+            ExternalDataSourceViewSet,
+            "_assert_can_write_schemas",
+            autospec=True,
+            side_effect=link_table_after_destroy_read_schemas,
+        ):
+            response = self.client.delete(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}")
+
+        assert response.status_code == 204
+        schema.refresh_from_db()
+        synced_table.refresh_from_db()
+        join.refresh_from_db()
+        assert (schema.deleted, schema.table_id) == (True, None)
+        assert synced_table.deleted is True
+        assert synced_table.deleted_at is not None
+        assert join.deleted is True
+
+    @parameterized.expand(
+        [
+            ("deadlock_once_is_retried", psycopg.errors.DeadlockDetected, 1, 204),
+            ("deadlock_twice_fails", psycopg.errors.DeadlockDetected, 2, 500),
+            ("other_operational_error_is_not_retried", psycopg.errors.LockNotAvailable, 1, 500),
+        ]
+    )
+    def test_destroy_retries_once_on_deadlock(
+        self, _name: str, cause: type[psycopg.Error], failures: int, expected_status: int
+    ):
+        source, schema, unlinked_table = self._create_source_mid_first_sync()
+        real_soft_delete = ExternalDataSource.soft_delete
+        attempts = 0
+
+        def soft_delete_hitting_lock_error(source_instance: ExternalDataSource) -> None:
+            nonlocal attempts
+            attempts += 1
+            if attempts <= failures:
+                raise OperationalError("lock error") from cause("lock error")
+            real_soft_delete(source_instance)
+
+        self.client.raise_request_exception = False
+        with patch.object(ExternalDataSource, "soft_delete", autospec=True, side_effect=soft_delete_hitting_lock_error):
+            response = self.client.delete(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}")
+
+        assert response.status_code == expected_status
+        source.refresh_from_db()
+        schema.refresh_from_db()
+        unlinked_table.refresh_from_db()
+        expect_deleted = expected_status == 204
+        assert (source.deleted, schema.deleted, unlinked_table.deleted) == (expect_deleted,) * 3
 
 
 class TestExternalDataSourceCreateSerializerValidation(APIBaseTest):
@@ -16226,6 +16363,31 @@ class TestExternalDataSourceAPIKeyScopes(APIBaseTest):
             f"/api/environments/{self.team.pk}/external_data_sources/direct_connection_options/",
             headers={"authorization": f"Bearer {self._make_api_key([scope])}"},
         )
+
+        if should_have_access:
+            assert response.status_code != status.HTTP_403_FORBIDDEN, response.content
+        else:
+            assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+
+    @parameterized.expand(
+        [
+            ("read_get", "destinations", "external_data_source:read", "GET", True),
+            ("read_patch", "destinations", "external_data_source:read", "PATCH", False),
+            ("write_patch", "destinations", "external_data_source:write", "PATCH", True),
+            ("access_controls_read", "access_controls", "access_control:read", "GET", True),
+            ("access_controls_source_read", "access_controls", "external_data_source:read", "GET", False),
+        ]
+    )
+    def test_action_scopes(self, _name: str, action: str, scope: str, method: str, should_have_access: bool) -> None:
+        source = ExternalDataSource.objects.create(team=self.team, source_type="Stripe")
+        self.client.force_authenticate(None)
+        url = f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/{action}/"
+        headers = {"authorization": f"Bearer {self._make_api_key([scope])}"}
+
+        if method == "GET":
+            response = self.client.get(url, headers=headers)
+        else:
+            response = self.client.patch(url, {"destination_ids": []}, format="json", headers=headers)
 
         if should_have_access:
             assert response.status_code != status.HTTP_403_FORBIDDEN, response.content

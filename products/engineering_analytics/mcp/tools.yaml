@@ -153,7 +153,7 @@ tools:
     engineering-analytics-revert-outcomes:
         operation: engineering_analytics_revert_outcomes
         enabled: false
-        disabled_reason: The route must deploy before clients see the tool. Enable in a follow-up change.
+        disabled_reason: Not enabled yet. The route is deployed, so the owning team can enable it.
     engineering-analytics-run-failure-logs:
         operation: engineering_analytics_run_failure_logs
         enabled: true

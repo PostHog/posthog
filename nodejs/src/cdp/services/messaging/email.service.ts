@@ -1,4 +1,3 @@
-import { MessageHeader, SESv2Client, SendEmailCommand, SendEmailCommandInput } from '@aws-sdk/client-sesv2'
 import { DateTime } from 'luxon'
 import { SendMailOptions } from 'nodemailer'
 import * as mimeFuncs from 'nodemailer/lib/mime-funcs'
@@ -21,7 +20,7 @@ import { buildIntegerMatcher } from '~/common/config/matchers'
 import { logger } from '~/common/utils/logger'
 import type { ValueMatcher } from '~/types'
 
-import { TRANSACTIONAL_EMAIL_EVENT, isSensitiveMessage } from '../hogflows/hogflow-sensitivity'
+import { TRANSACTIONAL_EMAIL_EVENT, isClickTrackingEnabled, isSensitiveMessage } from '../hogflows/hogflow-sensitivity'
 import { IntegrationManagerService } from '../managers/integration-manager.service'
 import { RecipientManagerRecipient, RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
@@ -32,7 +31,6 @@ import {
     AttachmentStore,
     AttachmentStoreUnavailableError,
     LoadedAttachment,
-    settleBeforeAbortEvenWhileCredentialsStall,
 } from './attachment-store'
 import { getEmailQueuePriorityClass } from './email-priority'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
@@ -51,6 +49,8 @@ import {
     resolveEmailTrackingDistinctId,
 } from './email-tracking.service'
 import { UtmTagging, htmlForSes, tagEmailLinks, utmTagsFor } from './helpers/email-html'
+import { plainTextFromHtml } from './helpers/email-text'
+import { escapeHtml } from './helpers/escape-html'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { SES_EMAIL_STATUS_TAG, SES_SENSITIVE_TAG } from './helpers/ses'
 import {
@@ -75,16 +75,18 @@ import {
     RecipientTokensService,
     preferencesTokenSourceForInvocation,
 } from './recipient-tokens.service'
+import {
+    MessageHeader,
+    SesEmail,
+    SesSendOutcomeKind,
+    SesSendOutcomeOf,
+    SesThrottleErrorName,
+    SesTransport,
+} from './ses-transport'
 
 const emailEngagementSettingReadFailuresTotal = new Counter({
     name: 'cdp_email_engagement_setting_read_failures_total',
     help: 'Email sends whose engagement setting read failed after the send attempt. The send keeps its outcome.',
-})
-
-const sesThrottleResponsesTotal = new Counter({
-    name: 'cdp_ses_throttle_responses_total',
-    help: 'SES API responses classified as throttle/rate-limit. Sustained nonzero rate means the local bucket is set too high vs. the SES quota.',
-    labelNames: ['error_code'],
 })
 
 /**
@@ -101,52 +103,30 @@ const AUTO_SUBMITTED_HEADER_NAME = 'Auto-Submitted'
 const AUTO_SUBMITTED_HEADER_VALUE = 'auto-generated'
 const AUTO_SUBMITTED_HEADER: MessageHeader = { Name: AUTO_SUBMITTED_HEADER_NAME, Value: AUTO_SUBMITTED_HEADER_VALUE }
 const SES_HEADER_VALUE_MAX_LENGTH = 870
+const UNSUBSCRIBE_URL_PLACEHOLDER = /\{\{\s*unsubscribe_url\s*\}\}/g
 
-/**
- * SES error codes that signal a transient rate-limit shape — safe to retry
- * shortly after. `TooManyRequestsException` is the SES-v2-specific class;
- * `ThrottlingException` is a generic AWS SDK error code that can surface
- * from the underlying transport layer for the same condition (not exported
- * as a class for sesv2, so we match by `name`).
- *
- * `SendingPausedException` is *not* on this list — it signals a reputation
- * or account-state problem that won't recover in seconds. Retrying within
- * 500ms just burns reschedules; the job hard-fails instead, surfaces via
- * `email_failed`, and the underlying SES config needs operator attention.
- */
-const SES_THROTTLE_ERROR_NAMES = ['TooManyRequestsException', 'ThrottlingException'] as const
-type SesThrottleErrorName = (typeof SES_THROTTLE_ERROR_NAMES)[number]
-
-function isSesThrottleError(error: unknown): error is Error & { name: SesThrottleErrorName } {
-    return error instanceof Error && (SES_THROTTLE_ERROR_NAMES as readonly string[]).includes(error.name)
-}
-
-// Every other error name reads as `other`, so an unexpected SDK error cannot add a series.
-const SES_SEND_ERROR_RESULTS = [
-    'MessageRejected',
-    'MailFromDomainNotVerifiedException',
-    'AccountSuspendedException',
-    'SendingPausedException',
-    'LimitExceededException',
-    'NotFoundException',
-    'BadRequestException',
-    'TimeoutError',
-] as const
-type SesSendResult = 'success' | 'throttled' | (typeof SES_SEND_ERROR_RESULTS)[number] | 'other'
-
-function classifySesSendError(error: unknown): SesSendResult {
-    if (isSesThrottleError(error)) {
-        return 'throttled'
+// References ends with the parent's ID (RFC 5322 section 3.6.4). One that would pass SES's header limit keeps the
+// thread root and the newest IDs, as RFC 5537 section 3.4.4 does.
+export function threadHeaders(thread: CyclotronInvocationQueueParametersEmailType['thread']): MessageHeader[] {
+    if (!thread) {
+        return []
     }
-    const name = error instanceof Error ? error.name : undefined
-    return SES_SEND_ERROR_RESULTS.find((known) => known === name) ?? 'other'
+    const ids = [...thread.references.filter((id) => id !== thread.inReplyTo), thread.inReplyTo]
+    const [root, ...rest] = ids
+    const newest: string[] = []
+    let length = root.length
+    for (const id of rest.reverse()) {
+        if (length + 1 + id.length > SES_HEADER_VALUE_MAX_LENGTH) {
+            break
+        }
+        length += 1 + id.length
+        newest.unshift(id)
+    }
+    return [
+        { Name: 'In-Reply-To', Value: thread.inReplyTo },
+        { Name: 'References', Value: [root, ...newest].join(' ') },
+    ]
 }
-
-const sesSendResultsTotal = new Counter({
-    name: 'cdp_ses_send_results_total',
-    help: 'SES SendEmail calls by result: success, throttled (rescheduled, with the error code in cdp_ses_throttle_responses_total), a known SES error name, or other.',
-    labelNames: ['result'],
-})
 
 const emailSendsStoppedForJobOwnershipTotal = new Counter({
     name: 'cdp_email_sends_stopped_for_job_ownership_total',
@@ -154,17 +134,10 @@ const emailSendsStoppedForJobOwnershipTotal = new Counter({
     labelNames: ['reason'],
 })
 
-const sesSendDurationMs = new Histogram({
-    name: 'cdp_ses_send_duration_ms',
-    help: 'Duration of the SES SendEmail call in milliseconds, by whether SES accepted the email (success or error).',
-    labelNames: ['result'],
-    buckets: [25, 50, 100, 250, 500, 1_000, 2_500, 5_000, 10_000, 30_000],
-})
-
 const emailQueueToSendMs = new Histogram({
     name: 'cdp_email_queue_to_send_ms',
-    help: 'Milliseconds an email waits on the email queue before its handoff to SES. For source="transactional_api" the wait starts when cdp-api created the job, or at its scheduled time for a scheduled send, so it is the time from the API\'s 202 or the scheduled time to SES and includes every throttled or rate-limited retry. For source="workflow" the wait starts at the job\'s scheduled time: when the job joined the email queue, or when a delayed or rescheduled send became due, so a retried send measures only its last wait. priority_class is the email queue lane. team_capped is true when the team sending cap delayed the send, so that alerts can leave out a wait that the cap causes on purpose.',
-    labelNames: ['source', 'priority_class', 'team_capped'],
+    help: 'Milliseconds an email waits on the email queue before its handoff to SES. For source="transactional_api" the wait starts when cdp-api created the job, or at its scheduled time for a scheduled send, so it is the time from the API\'s 202 or the scheduled time to SES and includes every throttled or rate-limited retry. For source="workflow" the wait starts at the job\'s scheduled time: when the job joined the email queue, or when a delayed or rescheduled send became due, so a retried send measures only its last wait. priority_class is the email queue lane. team_capped is true when the team sending cap delayed the send, so that alerts can leave out a wait that the cap causes on purpose. with_files is true for an email that carries attachment files, so plain sends can be read apart from them.',
+    labelNames: ['source', 'priority_class', 'team_capped', 'with_files'],
     buckets: [100, 250, 500, 1_000, 2_500, 5_000, 10_000, 30_000, 60_000, 120_000, 300_000],
 })
 
@@ -233,33 +206,23 @@ class MessageTooLargeError extends Error {
     }
 }
 
-const FIRST_STEP_AFTER_SIGNING = 'deserialize'
-
-const BENEATH_THE_DESERIALIZER = 'low'
-
-const sesRefused = (response: unknown): boolean => {
-    const statusCode = (response as { statusCode?: number } | undefined)?.statusCode
-    return statusCode !== undefined && (statusCode < 200 || statusCode >= 300)
-}
-
-function trackAttemptsSesMayHaveAccepted(command: SendEmailCommand): () => boolean {
-    let attemptsSesMayHaveAccepted = 0
-    command.middlewareStack.add(
-        (next) => async (args) => {
-            attemptsSesMayHaveAccepted++
-            const httpAnswer = await next(args)
-            if (sesRefused(httpAnswer.response)) {
-                attemptsSesMayHaveAccepted--
-            }
-            return httpAnswer
-        },
-        { step: FIRST_STEP_AFTER_SIGNING, priority: BENEATH_THE_DESERIALIZER, name: 'trackAttemptsSesMayHaveAccepted' }
-    )
-    return () => attemptsSesMayHaveAccepted > 0
+class SesNotReachedError extends Error {
+    constructor(message: string) {
+        super(`SES could not be reached (${message}), so the email was not sent`)
+        this.name = 'SesNotReachedError'
+    }
 }
 
 const isAttachmentLoadFailure = (error: unknown): boolean =>
     error instanceof AttachmentStoreUnavailableError || error instanceof EmailSendDeadlineError
+
+const isRetryableBeforeSes = (error: unknown): boolean =>
+    isAttachmentLoadFailure(error) || error instanceof SesNotReachedError
+
+const withoutSendClaims = (metadata: CyclotronJobInvocationHogFunction['queueMetadata']): Record<string, any> => {
+    const { teamBudgetClaimed: _teamBudget, workflowRateClaimed: _workflowRate, ...unclaimed } = metadata ?? {}
+    return unclaimed
+}
 
 const attachmentLoadRetries = (invocation: CyclotronJobInvocationHogFunction): number =>
     invocation.queueMetadata?.attachmentLoadRetries ?? 0
@@ -287,7 +250,7 @@ function describeAttachmentFailure(
     if (isAttachmentLoadFailure(error)) {
         return {
             reason: EMAIL_ATTACHMENT_UNAVAILABLE,
-            message: `${EMAIL_ATTACHMENT_UNAVAILABLE}: the attachment files of this email could not be loaded in ${tries} ${tries === 1 ? 'try' : 'tries'}, so it was not sent.`,
+            message: `${EMAIL_ATTACHMENT_UNAVAILABLE}: the attachment files of this email could not be loaded, so it was not sent after ${tries} ${tries === 1 ? 'try' : 'tries'}.`,
         }
     }
     return null
@@ -298,6 +261,31 @@ class UnverifiedEmailDomainError extends Error {
         super('The selected email integration domain is not verified')
         this.name = 'UnverifiedEmailDomainError'
     }
+}
+
+class SesSenderNotVerifiedError extends Error {}
+
+class EmailSenderNotFoundError extends Error {}
+
+const addressesIn = (text: string): string[] =>
+    (text.match(/[^\s<>",;:]+@[^\s<>",;:]+/g) ?? []).map((address) => address.replace(/\.$/, '').toLowerCase())
+
+function sesNamedSenderAsUnverified(refusal: SesSendOutcomeOf<'refused'>, senderEmail: string): boolean {
+    return (
+        refusal.errorName === 'MessageRejected' &&
+        refusal.message.includes('not verified') &&
+        addressesIn(refusal.message).includes(senderEmail.toLowerCase())
+    )
+}
+
+function sentStatusReason(
+    invocation: CyclotronJobInvocationHogFunction,
+    trackingEnabled: boolean
+): 'untracked' | 'clicks_untracked' | undefined {
+    if (!trackingEnabled) {
+        return 'untracked'
+    }
+    return isClickTrackingEnabled(invocation) ? undefined : 'clicks_untracked'
 }
 
 const isRealWorkflowSend = (invocation: CyclotronJobInvocationHogFunction, isTest: boolean): boolean =>
@@ -314,6 +302,42 @@ function pickThrottleRetryDelayMs(): number {
     // simply re-claim a token if SES capacity has refreshed. Exponential
     // backoff isn't needed at this layer.
     return 500 + Math.floor(Math.random() * 500)
+}
+
+const sesFailureMessage = (message: string): string => `Failed to send email via SES: ${message}`
+
+function notSentError(outcome: SesSendOutcomeOf<'not_sent'>): Error {
+    switch (outcome.reason) {
+        case 'throttled':
+            return new SESThrottleError(outcome.errorName, pickThrottleRetryDelayMs(), outcome.message)
+        case 'before_deadline':
+            return new EmailSendDeadlineError(outcome.cause)
+        case 'before_connect':
+            return new SesNotReachedError(outcome.message)
+    }
+}
+
+type SesOutcomeHandlers = {
+    [K in SesSendOutcomeKind]: (outcome: SesSendOutcomeOf<K>, senderEmail: string) => string
+}
+
+const SES_OUTCOMES: SesOutcomeHandlers = {
+    accepted: (outcome) => outcome.messageId,
+    not_sent: (outcome) => {
+        throw notSentError(outcome)
+    },
+    refused: (outcome, senderEmail) => {
+        throw sesNamedSenderAsUnverified(outcome, senderEmail)
+            ? new SesSenderNotVerifiedError(sesFailureMessage(outcome.message))
+            : new Error(sesFailureMessage(outcome.message))
+    },
+    unknown: (outcome) => {
+        throw new Error(sesFailureMessage(outcome.message))
+    },
+}
+
+function messageIdOrSendError<K extends SesSendOutcomeKind>(outcome: SesSendOutcomeOf<K>, senderEmail: string): string {
+    return SES_OUTCOMES[outcome.kind](outcome, senderEmail)
 }
 
 function sendingProviderOf(integration: IntegrationType): 'ses' | 'maildev' {
@@ -530,6 +554,7 @@ export interface EmailServiceConfig {
     utmLinkScannerTeams?: string
     workflowRunLinkTagTeams?: string
     templateTagsTeams?: string
+    textPartTeams?: string
     attachmentSendDeadlineMs?: number
     ownershipCheckTimeoutMs?: number
 }
@@ -634,12 +659,13 @@ type EmailSendDecision =
     | { kind: 'error'; error: unknown; from?: EmailSender }
 
 export class EmailService {
-    sesV2Client: SESv2Client | null
+    sesTransport: SesTransport | null
 
     private recipientTokensService: RecipientTokensService
     private workflowRunLinkTagTeams: ValueMatcher<number>
     private stillOwnsJob: JobOwnershipCheck = () => Promise.resolve(true)
     private templateTagsTeams: ValueMatcher<number>
+    private textPartTeams: ValueMatcher<number>
 
     constructor(
         private sesConfig: EmailServiceConfig,
@@ -659,8 +685,8 @@ export class EmailService {
         private teamEmailRateLimiter: RateLimiterService | null = null,
         private attachmentStore: AttachmentStore | null = null
     ) {
-        this.sesV2Client = this.sesConfig.sesRegion
-            ? new SESv2Client({
+        this.sesTransport = this.sesConfig.sesRegion
+            ? new SesTransport({
                   region: this.sesConfig.sesRegion,
                   endpoint: this.sesConfig.sesEndpoint || undefined,
               })
@@ -668,6 +694,14 @@ export class EmailService {
         this.recipientTokensService = new RecipientTokensService(encryptionSaltKeys, siteUrl)
         this.workflowRunLinkTagTeams = buildIntegerMatcher(this.sesConfig.workflowRunLinkTagTeams, true)
         this.templateTagsTeams = buildIntegerMatcher(this.sesConfig.templateTagsTeams, true)
+        this.textPartTeams = buildIntegerMatcher(this.sesConfig.textPartTeams, true)
+    }
+
+    private textPart(params: CyclotronInvocationQueueParametersEmailType, teamId: number): string {
+        if (params.text || !params.html || !this.textPartTeams(teamId)) {
+            return params.text ?? ''
+        }
+        return plainTextFromHtml(params.html)
     }
 
     public checkJobOwnershipBeforeSend(stillOwnsJob: JobOwnershipCheck): void {
@@ -712,13 +746,20 @@ export class EmailService {
         isTest: boolean,
         senderEmail: string
     ): Promise<WorkflowRunTag | null> {
-        if (!trackingEnabled || isTest || isSensitiveMessage(invocation)) {
+        // A send that opts out of click tracking gets no run tag added and no earlier one stripped.
+        // `trackingEnabled` reflects opens only, and the click opt-out is applied after the links are tagged.
+        if (!trackingEnabled || !isClickTrackingEnabled(invocation) || isTest || isSensitiveMessage(invocation)) {
             return null
         }
         if (!this.workflowRunLinkTagTeams(invocation.teamId)) {
             return null
         }
         const untagged = { runId: null, senderEmail, siteUrl: this.siteUrl }
+        // The stored config skips schema checks, so any value other than true or absent counts as an opt-out.
+        const runLinkTag: unknown = invocation.hogFunction.metadata?.run_link_tag_enabled
+        if (runLinkTag !== undefined && runLinkTag !== true) {
+            return untagged
+        }
         try {
             const enabled = await this.teamWorkflowsConfigService.tagsEmailLinksWithWorkflowRun(invocation.teamId)
             return enabled ? { ...untagged, runId: invocation.id } : untagged
@@ -768,6 +809,7 @@ export class EmailService {
         let trackingEnabled = true
         let sendingDomain = ''
         let failureReason: EmailStatusReason = 'provider_error'
+        let senderNotVerified = false
         let messageId: string | undefined
         let teamBudgetCharged = false
 
@@ -974,7 +1016,7 @@ export class EmailService {
                 result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: error.retryAfterMs })
                 addLog('warn', `SES rate-limited (${error.errorCode}); rescheduling email in ${error.retryAfterMs}ms`)
             } else if (
-                isAttachmentLoadFailure(error) &&
+                isRetryableBeforeSes(error) &&
                 !isTest &&
                 attachmentLoadRetries(invocation) < MAX_ATTACHMENT_LOAD_RETRIES
             ) {
@@ -983,11 +1025,13 @@ export class EmailService {
                 rescheduled = true
                 result.finished = false
                 result.invocation.queueParameters = params
-                result.invocation.queueMetadata = {
-                    ...invocation.queueMetadata,
-                    attachmentLoadRetries: retries,
-                    ...(teamBudgetCharged ? { teamBudgetClaimed: true } : {}),
-                }
+                result.invocation.queueMetadata = isAttachmentLoadFailure(error)
+                    ? {
+                          ...invocation.queueMetadata,
+                          attachmentLoadRetries: retries,
+                          ...(teamBudgetCharged ? { teamBudgetClaimed: true } : {}),
+                      }
+                    : { ...withoutSendClaims(invocation.queueMetadata), attachmentLoadRetries: retries }
                 result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: retryDelayMs })
                 addLog(
                     'warn',
@@ -1016,6 +1060,10 @@ export class EmailService {
                 result.error = message
                 result.emailSendResult = { status: 'failed', reason: message }
                 result.finished = true
+                senderNotVerified =
+                    error instanceof UnverifiedEmailDomainError ||
+                    error instanceof SesSenderNotVerifiedError ||
+                    error instanceof EmailSenderNotFoundError
                 if (error instanceof UnverifiedEmailDomainError && isRealWorkflowSend(invocation, isTest)) {
                     void this.workflowsActivationReporter.report(invocation.teamId, 'workflows send failed', {
                         reason: 'unverified_domain',
@@ -1042,7 +1090,10 @@ export class EmailService {
         // Test sends (from the editor's "Run test") must not record metrics — keep them out of the
         // workflow's Metrics tab, mirroring the isTest skip the SES webhook applies to delivery/open/click.
         if (!isTest) {
-            result.metrics.push(emailMetric(invocation, success ? 'email_sent' : 'email_failed'))
+            result.metrics.push({
+                ...emailMetric(invocation, success ? 'email_sent' : 'email_failed'),
+                prometheus_metric_name: senderNotVerified ? 'email_sender_unverified' : undefined,
+            })
 
             // Untracked sends can never produce opens/clicks, so record them separately: open/click
             // rates are computed against (delivered - untracked) to avoid deflation.
@@ -1065,7 +1116,7 @@ export class EmailService {
                     teamId: invocation.teamId,
                     messageId: invocation.id,
                     status: success ? 'sent' : 'failed',
-                    reason: success ? (trackingEnabled ? undefined : 'untracked') : failureReason,
+                    reason: success ? sentStatusReason(invocation, trackingEnabled) : failureReason,
                     sendingDomain,
                     messageCreatedAt: messageCreatedAtOf(invocation.state.globals.event),
                 })
@@ -1181,7 +1232,7 @@ export class EmailService {
 
             // Wrong-team references deliberately read as not-found so an ID's existence on another team can't be probed
             if (!integration || integration.team_id !== invocation.teamId) {
-                throw new Error(
+                throw new EmailSenderNotFoundError(
                     "Email integration not found. The sender configured for this step no longer exists — select a new sender in the workflow's email step."
                 )
             }
@@ -1241,7 +1292,7 @@ export class EmailService {
                 )
             }
             // Always send the lists the suppression check parsed, so delivery uses the addresses it checked.
-            const deliverableParams = {
+            const deliverableParams = this.withUnsubscribeLink(invocation, {
                 ...params,
                 to:
                     suppression.promotedTo ??
@@ -1250,7 +1301,7 @@ export class EmailService {
                         : params.to),
                 cc: suppression.cc,
                 bcc: suppression.bcc,
-            }
+            })
 
             return {
                 kind: 'proceed',
@@ -1576,12 +1627,15 @@ export class EmailService {
         files: LoadedAttachment[] = []
     ): Promise<void> {
         // This can timeout but there is no native timeout so we do our own one
+        const text = this.textPart(params, result.invocation.teamId)
         const mailOptions: SendMailOptions = {
             from: toNodemailerAddress(from.name, from.email),
             to: toNodemailerAddress(params.to.name, params.to.email),
             subject: sanitizeEmailSubject(params.subject),
-            ...(params.text ? { text: params.text } : {}),
-            headers: { [AUTO_SUBMITTED_HEADER.Name!]: AUTO_SUBMITTED_HEADER.Value! },
+            ...(text ? { text } : {}),
+            headers: Object.fromEntries(
+                [AUTO_SUBMITTED_HEADER, ...threadHeaders(params.thread)].map(({ Name, Value }) => [Name!, Value!])
+            ),
             ...(params.html
                 ? {
                       html: trackingEnabled
@@ -1633,7 +1687,7 @@ export class EmailService {
         files: LoadedAttachment[] = [],
         deadline?: AbortSignal
     ): Promise<string> {
-        if (!this.sesV2Client) {
+        if (!this.sesTransport) {
             throw new Error('SES is not configured - set SES_REGION and AWS credentials')
         }
         if (!trackingEnabled && !this.sesConfig.sesUntrackedConfigurationSet) {
@@ -1662,19 +1716,21 @@ export class EmailService {
                   params.preheader
               )
             : null
-        if (
-            files.length > 0 &&
+        const fitsInMessage = (text: string): boolean =>
             estimateMessageBytes(
                 files.map(({ bytes }) => bytes.byteLength),
-                [html ?? '', params.text ?? ''],
+                [html ?? '', text],
                 sanitizeEmailSubject(params.subject)
-            ) > MESSAGE_MAX_BYTES
-        ) {
+            ) <= MESSAGE_MAX_BYTES
+        if (files.length > 0 && !fitsInMessage(params.text ?? '')) {
             throw new MessageTooLargeError()
         }
+        const candidateText = this.textPart(params, result.invocation.teamId)
+        // The text part made from the html adds to the message, so it goes out only when the message still fits.
+        const text = candidateText === (params.text ?? '') || fitsInMessage(candidateText) ? candidateText : ''
         const htmlBody = html ? { Html: { Data: html, Charset: 'UTF-8' } } : {}
 
-        const sendEmailParams: SendEmailCommandInput = {
+        const sendEmailParams: SesEmail = {
             FromEmailAddress: formatMailbox(from.name, from.email),
             Destination: {
                 ToAddresses: [formatMailbox(params.to.name, params.to.email)],
@@ -1686,7 +1742,7 @@ export class EmailService {
                         Charset: 'UTF-8',
                     },
                     Body: {
-                        ...(params.text ? { Text: { Data: params.text, Charset: 'UTF-8' } } : {}),
+                        ...(text ? { Text: { Data: text, Charset: 'UTF-8' } } : {}),
                         ...htmlBody,
                     },
                 },
@@ -1755,17 +1811,8 @@ export class EmailService {
                 trackingHeader,
                 ...messageCreatedHeaders,
                 AUTO_SUBMITTED_HEADER,
+                ...threadHeaders(params.thread),
             ]
-            if (files.length) {
-                sendEmailParams.Content.Simple.Attachments = files.map(({ file, bytes }) => ({
-                    RawContent: bytes,
-                    FileName: file.filename,
-                    ContentType: file.contentType,
-                    ContentId: file.contentId,
-                    ContentDisposition: file.contentId ? 'INLINE' : 'ATTACHMENT',
-                    ContentTransferEncoding: 'BASE64',
-                }))
-            }
         }
 
         const replyToAddresses = parseAddressList(params.replyTo)
@@ -1782,49 +1829,47 @@ export class EmailService {
             sendEmailParams.Destination!.BccAddresses = bccAddresses
         }
 
+        const withFiles = files.length > 0 ? 'true' : 'false'
         if (queueWait) {
             emailQueueToSendMs
                 .labels({
                     source: queueWait.source,
                     priority_class: getEmailQueuePriorityClass(result.invocation.hogFunction.metadata),
                     team_capped: queueWait.teamCapped ? 'true' : 'false',
+                    with_files: withFiles,
                 })
                 .observe(Math.max(0, Date.now() - queueWait.startedAt.toMillis()))
         }
 
-        const command = new SendEmailCommand(sendEmailParams)
-        const anAttemptSesMayHaveAccepted = trackAttemptsSesMayHaveAccepted(command)
-        const sendStartedAt = performance.now()
-        try {
-            const response = deadline
-                ? await settleBeforeAbortEvenWhileCredentialsStall(
-                      deadline,
-                      this.sesV2Client.send(command, { abortSignal: deadline })
-                  )
-                : await this.sesV2Client.send(command)
-            if (!response.MessageId) {
-                throw new Error('No messageId returned from SES')
-            }
-            sesSendDurationMs.labels({ result: 'success' }).observe(performance.now() - sendStartedAt)
-            sesSendResultsTotal.labels({ result: 'success' }).inc()
-            return response.MessageId
-        } catch (error: unknown) {
-            sesSendDurationMs.labels({ result: 'error' }).observe(performance.now() - sendStartedAt)
-            sesSendResultsTotal.labels({ result: classifySesSendError(error) }).inc()
-            if (deadline?.aborted) {
-                if (!anAttemptSesMayHaveAccepted()) {
-                    throw new EmailSendDeadlineError(error)
-                }
-                throw new Error(
-                    'Failed to send email via SES: SES did not answer before the send deadline. It may have sent the email, so it is not sent again.'
-                )
-            }
-            if (isSesThrottleError(error)) {
-                sesThrottleResponsesTotal.inc({ error_code: error.name })
-                throw new SESThrottleError(error.name, pickThrottleRetryDelayMs(), error.message)
-            }
-            const message = error instanceof Error ? error.message : String(error)
-            throw new Error(`Failed to send email via SES: ${message}`)
+        const outcome = await this.sesTransport.send(
+            deadline ? { email: sendEmailParams, files, deadline } : { email: sendEmailParams }
+        )
+        return messageIdOrSendError(outcome, from.email)
+    }
+
+    private withUnsubscribeLink(
+        invocation: CyclotronJobInvocationHogFunction,
+        params: CyclotronInvocationQueueParametersEmailType
+    ): CyclotronInvocationQueueParametersEmailType {
+        if (invocation.state?.send?.category?.type !== 'marketing' || !params.to?.email) {
+            return params
+        }
+        const url = this.recipientTokensService.generatePreferencesUrl(
+            { team_id: invocation.teamId, identifier: unquoteMailbox(params.to.email) },
+            preferencesTokenSourceForInvocation(invocation)
+        )
+        const expandedBytes = (body: string | undefined, link: string): number =>
+            (body?.match(UNSUBSCRIBE_URL_PLACEHOLDER) ?? []).reduce(
+                (total, placeholder) => total + Buffer.byteLength(link) - placeholder.length,
+                Buffer.byteLength(body ?? '')
+            )
+        if (exceedsLargestSend(expandedBytes(params.html, escapeHtml(url)) + expandedBytes(params.text, url))) {
+            throw new MessageTooLargeError()
+        }
+        return {
+            ...params,
+            html: params.html.replace(UNSUBSCRIBE_URL_PLACEHOLDER, () => escapeHtml(url)),
+            text: params.text?.replace(UNSUBSCRIBE_URL_PLACEHOLDER, () => url),
         }
     }
 

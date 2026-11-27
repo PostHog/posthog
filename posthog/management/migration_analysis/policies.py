@@ -46,6 +46,15 @@ def _without_sql_comments(sql: str) -> str:
 
 
 @frozen
+class _HotTableLock:
+    """An operation that locks a hot table. A new FK locks it as the parent, which still lets reads through."""
+
+    op: Any
+    table: str
+    is_fk: bool
+
+
+@frozen
 class _ConstrainedForeignKey:
     """A foreign key the database holds a constraint for."""
 
@@ -129,6 +138,13 @@ class MigrationPolicy(ABC):
             List of violation messages (empty if compliant)
         """
         pass
+
+    def review_notes(self, migration) -> list[str]:
+        """Risks this policy allows but a person still has to look at.
+
+        Each note raises the migration to Needs Review, so the Migration risk check does not pass it as safe.
+        """
+        return []
 
 
 class UUIDPrimaryKeyPolicy(MigrationPolicy):
@@ -588,6 +604,36 @@ class HotTableAlterPolicy(MigrationPolicy):
             return []
 
         violations = []
+        for lock in self._hot_table_locks(migration):
+            if lock.is_fk:
+                violations.append(self._fk_violation(lock.op, lock.table, label))
+            else:
+                violations.append(self._violation(lock.op, lock.table, label))
+        return violations
+
+    def review_notes(self, migration) -> list[str]:
+        if not is_posthog_app(migration.app_label, migration):
+            return []
+
+        label = f"{migration.app_label}.{migration.name}"
+        if label not in self._acknowledged_migrations():
+            return []
+
+        notes = []
+        for lock in self._hot_table_locks(migration):
+            # A new FK takes SHARE ROW EXCLUSIVE on the parent, which queues writes but lets reads through.
+            blocked = "every write" if lock.is_fk else "every query"
+            notes.append(
+                f"⚠️ ACKNOWLEDGED: {lock.op.__class__.__name__} in {label} locks {lock.table}, which is used on virtually "
+                "every request. The acknowledgment allows the lock, it does not make it safe: while the lock "
+                f"request waits, {blocked} on the table waits behind it, and each deploy retry repeats that "
+                "wait. Deploy it in a low-traffic window agreed with #team-infrastructure."
+            )
+        return notes
+
+    def _hot_table_locks(self, migration) -> list[_HotTableLock]:
+        """Each operation in the migration that locks a hot table."""
+        locks = []
         for op in _descend(migration.operations):
             # Unmanaged models (managed=False) map external tables - Django emits no DDL and
             # no FK constraint, so they can't take the hot-table lock this policy gates.
@@ -595,12 +641,12 @@ class HotTableAlterPolicy(MigrationPolicy):
                 continue
             fk_table = self._fk_target_hot_table(op)
             if fk_table:
-                violations.append(self._fk_violation(op, fk_table, label))
+                locks.append(_HotTableLock(op=op, table=fk_table, is_fk=True))
                 continue
             table = self._hot_table_target(op, migration.app_label)
             if table:
-                violations.append(self._violation(op, table, label))
-        return violations
+                locks.append(_HotTableLock(op=op, table=table, is_fk=False))
+        return locks
 
     def _acknowledged_migrations(self) -> set[str]:
         if not self.ACKNOWLEDGMENTS_FILE.exists():

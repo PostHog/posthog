@@ -3,20 +3,24 @@ import type { Editor } from '@tiptap/core'
 import { IconImage } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 
-import { enclosingColumns, selectedBlock, setBlockAttribute, setBlockStyle } from '../emailCommands'
+import { enclosingColumns, enclosingSection, selectedBlock, setBlockAttribute, setBlockStyle } from '../emailCommands'
 import { EmailBlockStyle, EmailSides, resolvePageStyle } from '../emailDocument'
 import { useEmailEditorContext } from '../emailEditorContext'
+import { htmlSentAsWritten, safeEmailLink } from '../renderEmailHtml'
 import { EmailBoxFields } from './EmailBoxFields'
 import { EmailColumnsFields } from './EmailColumnsFields'
 import { EmailHtmlCodeField } from './EmailHtmlCodeField'
+import { EmailSectionFields } from './EmailSectionFields'
 import { EmailTextFields } from './EmailTextFields'
 import { EmailVisibilityFields } from './EmailVisibilityFields'
 import { EmailAlignField } from './fields/EmailAlignField'
 import { EmailColorField } from './fields/EmailColorField'
 import { EmailFieldRow } from './fields/EmailFieldRow'
 import { EmailNumberField } from './fields/EmailNumberField'
+import { EmailNumberInput } from './fields/EmailNumberInput'
 import { EmailSidesField } from './fields/EmailSidesField'
 import { EmailWeightField } from './fields/EmailWeightField'
+import { NUMBER_LIMITS } from './fields/numberLimits'
 
 const DEFAULT_TEXT_PADDING: EmailSides = { top: 8, right: 0, bottom: 8, left: 0 }
 const NO_PADDING: EmailSides = { top: 0, right: 0, bottom: 0, left: 0 }
@@ -46,6 +50,10 @@ export function EmailBlockFields({ editor }: { editor: Editor }): JSX.Element | 
     const set = (patch: Partial<EmailBlockStyle>): void => setBlockStyle(editor, pos, patch)
     const page = resolvePageStyle(editor.state.doc.attrs.page)
     const columns = enclosingColumns(editor)
+    const section = enclosingSection(editor)
+    // Columns and sections show their settings below those of the block in them.
+    const ownFields = type !== 'emailColumns' && type !== 'emailSection'
+    const sentAsWritten = type === 'emailHtml' && htmlSentAsWritten(editor.getJSON()) !== null
 
     let fields: JSX.Element | null = null
     switch (type) {
@@ -57,7 +65,7 @@ export function EmailBlockFields({ editor }: { editor: Editor }): JSX.Element | 
             fields = (
                 <>
                     <EmailTextFields editor={editor} nodeType={type} level={node.attrs.level} style={style} set={set} />
-                    <EmailBoxFields style={style} set={set} defaultPadding={DEFAULT_TEXT_PADDING} />
+                    <EmailBoxFields key={`box-${pos}`} style={style} set={set} defaultPadding={DEFAULT_TEXT_PADDING} />
                 </>
             )
             break
@@ -72,11 +80,15 @@ export function EmailBlockFields({ editor }: { editor: Editor }): JSX.Element | 
                             value={node.attrs.href}
                             onChange={(href) => setBlockAttribute(editor, pos, 'href', href)}
                             data-attr="email-editor-button-link"
-                            status={node.attrs.href ? 'default' : 'danger'}
+                            status={safeEmailLink(node.attrs.href) ? 'default' : 'danger'}
                         />
                     </EmailFieldRow>
                     {!node.attrs.href ? (
                         <span className="text-xs text-danger">Add a link, or this button won't go anywhere.</span>
+                    ) : !safeEmailLink(node.attrs.href) ? (
+                        <span className="text-xs text-danger">
+                            Enter a full link, such as https://example.com, or this button won't go anywhere.
+                        </span>
                     ) : null}
                     <EmailColorField
                         label="Background"
@@ -108,10 +120,9 @@ export function EmailBlockFields({ editor }: { editor: Editor }): JSX.Element | 
                     />
                     <EmailNumberField
                         label="Font size"
+                        limit={NUMBER_LIMITS.baseTextSize}
                         value={style.fontSize}
                         placeholder={page.fontSize}
-                        min={8}
-                        max={40}
                         onChange={(fontSize) => set({ fontSize })}
                         attr="email-editor-button-font-size"
                     />
@@ -123,6 +134,7 @@ export function EmailBlockFields({ editor }: { editor: Editor }): JSX.Element | 
                     />
                     <EmailNumberField
                         label="Corner radius"
+                        limit={NUMBER_LIMITS.cornerRadius}
                         value={style.borderRadius}
                         placeholder={page.buttonBorderRadius}
                         onChange={(borderRadius) => set({ borderRadius })}
@@ -131,38 +143,34 @@ export function EmailBlockFields({ editor }: { editor: Editor }): JSX.Element | 
                     <EmailNumberField
                         label="Width"
                         suffix="%"
+                        limit={NUMBER_LIMITS.percent}
                         value={style.buttonWidth}
                         placeholder="Auto"
-                        min={1}
-                        max={100}
                         onChange={(buttonWidth) => set({ buttonWidth })}
                         attr="email-editor-button-width"
                     />
                     <EmailFieldRow label="Inner padding">
-                        <LemonInput
-                            type="number"
-                            size="small"
-                            min={0}
+                        <EmailNumberInput
+                            limit={NUMBER_LIMITS.padding}
                             data-attr="email-editor-button-inner-x"
                             aria-label="Inner padding left and right"
                             prefix={<span className="text-xs text-secondary">↔</span>}
-                            value={style.innerPaddingX ?? ('' as unknown as number)}
+                            value={style.innerPaddingX}
                             placeholder="24"
-                            onChange={(innerPaddingX) => set({ innerPaddingX })}
+                            onChange={(next) => set({ innerPaddingX: next })}
                         />
-                        <LemonInput
-                            type="number"
-                            size="small"
-                            min={0}
+                        <EmailNumberInput
+                            limit={NUMBER_LIMITS.padding}
                             data-attr="email-editor-button-inner-y"
                             aria-label="Inner padding top and bottom"
                             prefix={<span className="text-xs text-secondary">↕</span>}
-                            value={style.innerPaddingY ?? ('' as unknown as number)}
+                            value={style.innerPaddingY}
                             placeholder="12"
-                            onChange={(innerPaddingY) => set({ innerPaddingY })}
+                            onChange={(next) => set({ innerPaddingY: next })}
                         />
                     </EmailFieldRow>
                     <EmailSidesField
+                        key={`border-${pos}`}
                         label="Border"
                         value={
                             style.borderSides ??
@@ -176,6 +184,7 @@ export function EmailBlockFields({ editor }: { editor: Editor }): JSX.Element | 
                                 : undefined)
                         }
                         placeholder={NO_PADDING}
+                        limit={NUMBER_LIMITS.border}
                         onChange={(sides) => {
                             const widths = sides ? [sides.top, sides.right, sides.bottom, sides.left] : [0]
                             set(
@@ -196,6 +205,7 @@ export function EmailBlockFields({ editor }: { editor: Editor }): JSX.Element | 
                     ) : null}
                     <EmailAlignField value={style.textAlign} onChange={(textAlign) => set({ textAlign })} />
                     <EmailBoxFields
+                        key={`box-${pos}`}
                         style={style}
                         set={set}
                         defaultPadding={{ top: 12, right: 0, bottom: 12, left: 0 }}
@@ -246,10 +256,17 @@ export function EmailBlockFields({ editor }: { editor: Editor }): JSX.Element | 
                             placeholder="https://example.com"
                             onChange={(href) => setBlockAttribute(editor, pos, 'href', href)}
                             data-attr="email-editor-image-link"
+                            status={node.attrs.href && !safeEmailLink(node.attrs.href) ? 'danger' : 'default'}
                         />
                     </EmailFieldRow>
+                    {node.attrs.href && !safeEmailLink(node.attrs.href) ? (
+                        <span className="text-xs text-danger">
+                            Enter a full link, such as https://example.com, or this image won't go anywhere.
+                        </span>
+                    ) : null}
                     <EmailNumberField
                         label="Width"
+                        limit={NUMBER_LIMITS.imageWidth}
                         value={style.width}
                         placeholder="Auto"
                         onChange={(width) => set({ width, imageScale: undefined })}
@@ -257,6 +274,7 @@ export function EmailBlockFields({ editor }: { editor: Editor }): JSX.Element | 
                     />
                     <EmailNumberField
                         label="Corner radius"
+                        limit={NUMBER_LIMITS.cornerRadius}
                         value={style.borderRadius}
                         placeholder={0}
                         onChange={(borderRadius) => set({ borderRadius })}
@@ -264,6 +282,7 @@ export function EmailBlockFields({ editor }: { editor: Editor }): JSX.Element | 
                     />
                     <EmailAlignField value={style.textAlign} onChange={(textAlign) => set({ textAlign })} />
                     <EmailBoxFields
+                        key={`box-${pos}`}
                         style={style}
                         set={set}
                         defaultPadding={NO_PADDING}
@@ -285,23 +304,22 @@ export function EmailBlockFields({ editor }: { editor: Editor }): JSX.Element | 
                     />
                     <EmailNumberField
                         label="Thickness"
+                        limit={NUMBER_LIMITS.dividerThickness}
                         value={style.lineWidth}
                         placeholder={1}
-                        min={1}
-                        max={20}
                         onChange={(lineWidth) => set({ lineWidth })}
                         attr="email-editor-divider-thickness"
                     />
                     <EmailNumberField
                         label="Length"
                         suffix="%"
+                        limit={NUMBER_LIMITS.percent}
                         value={style.width}
                         placeholder={100}
-                        min={1}
-                        max={100}
                         onChange={(width) => set({ width })}
                     />
                     <EmailBoxFields
+                        key={`box-${pos}`}
                         style={style}
                         set={set}
                         defaultPadding={DEFAULT_TEXT_PADDING}
@@ -315,9 +333,8 @@ export function EmailBlockFields({ editor }: { editor: Editor }): JSX.Element | 
             fields = (
                 <EmailNumberField
                     label="Height"
+                    limit={NUMBER_LIMITS.spacerHeight}
                     value={node.attrs.height}
-                    min={1}
-                    max={400}
                     onChange={(height) => setBlockAttribute(editor, pos, 'height', height ?? 24)}
                     attr="email-editor-spacer-height"
                 />
@@ -331,7 +348,15 @@ export function EmailBlockFields({ editor }: { editor: Editor }): JSX.Element | 
                         html={String(node.attrs.html ?? '')}
                         onChange={(html) => setBlockAttribute(editor, pos, 'html', html)}
                     />
-                    <EmailBoxFields style={style} set={set} defaultPadding={NO_PADDING} showBorder={false} />
+                    {sentAsWritten ? null : (
+                        <EmailBoxFields
+                            key={`box-${pos}`}
+                            style={style}
+                            set={set}
+                            defaultPadding={NO_PADDING}
+                            showBorder={false}
+                        />
+                    )}
                 </>
             )
             break
@@ -340,17 +365,34 @@ export function EmailBlockFields({ editor }: { editor: Editor }): JSX.Element | 
     }
 
     return (
-        <div className="flex flex-col gap-1">
-            {type !== 'emailColumns' ? (
-                <h3 className="text-sm font-semibold m-0">{BLOCK_LABELS[type] ?? type}</h3>
+        // Keyed by block, so one block's unfinished number never shows in another's field.
+        <div key={`${type}-${pos}`} className="flex flex-col gap-1">
+            {ownFields ? (
+                <>
+                    <h3 className="text-sm font-semibold m-0">{BLOCK_LABELS[type] ?? type}</h3>
+                    {fields}
+                </>
             ) : null}
-            {type !== 'emailColumns' ? fields : null}
-            {type !== 'emailColumns' ? <EmailVisibilityFields editor={editor} pos={pos} /> : null}
+            {ownFields && !(sentAsWritten && !node.attrs.emailVisibility) ? (
+                <EmailVisibilityFields editor={editor} pos={pos} />
+            ) : null}
             {columns ? (
                 <>
-                    {type !== 'emailColumns' ? <LemonDivider className="my-1" /> : null}
-                    <EmailColumnsFields editor={editor} pos={columns.pos} columnIndex={columns.columnIndex} />
+                    {ownFields ? <LemonDivider className="my-1" /> : null}
+                    <EmailColumnsFields
+                        key={columns.columnIndex}
+                        editor={editor}
+                        pos={columns.pos}
+                        columnIndex={columns.columnIndex}
+                    />
                     <EmailVisibilityFields editor={editor} pos={columns.pos} />
+                </>
+            ) : null}
+            {section ? (
+                <>
+                    {type !== 'emailSection' ? <LemonDivider className="my-1" /> : null}
+                    <EmailSectionFields editor={editor} pos={section.pos} />
+                    <EmailVisibilityFields editor={editor} pos={section.pos} />
                 </>
             ) : null}
         </div>

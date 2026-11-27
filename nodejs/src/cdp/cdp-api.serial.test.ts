@@ -1,6 +1,6 @@
 // Serial: resets shared Postgres and relies on the reset-created default team.
 import { createInMemoryJobQueue, createMockJobQueue } from '../../tests/helpers/mocks/job-queue.mock'
-import { mockProducer, mockProducerObserver } from '../../tests/helpers/mocks/producer.mock'
+import { kafkaRecordsOn, mockProducer, mockProducerObserver } from '../../tests/helpers/mocks/producer.mock'
 import { mockFetch } from '../../tests/helpers/mocks/request.mock'
 
 import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
@@ -8,6 +8,7 @@ import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
 import { Server } from 'http'
 import jwt from 'jsonwebtoken'
 import { DateTime } from 'luxon'
+import { Message } from 'node-rdkafka'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { Pool } from 'pg'
 import pino from 'pino'
@@ -15,9 +16,14 @@ import supertest from 'supertest'
 import express from 'ultimate-express'
 import { version as uuidVersion } from 'uuid'
 
-import { keyedRunId } from '~/cdp/intake/run-intake'
+import { insertIntakeBatch } from '~/cdp/intake/intake-batch'
+import { EncodedIntakeRun, IntakeProducer } from '~/cdp/intake/intake-producer'
+import * as intakeMessage from '~/cdp/intake/message'
+import { RunIntake, keyedRunId } from '~/cdp/intake/run-intake'
 import { CyclotronInputType } from '~/cdp/schema/cyclotron'
 import { HogFlow } from '~/cdp/schema/hogflow'
+import { decodeJobState } from '~/cdp/services/cyclotron-v2/job-codec'
+import { IdempotentJobQueue } from '~/cdp/services/job-queue/job-queue.interface'
 import { EncryptedFields } from '~/cdp/utils/encryption-utils'
 import { PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
 import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
@@ -51,7 +57,7 @@ import {
     attachmentFile,
     attachmentStoreConfig,
     deliveredTo,
-    sesClientFor,
+    sesTransportFor,
     uploadAttachment,
 } from './_tests/email-delivery-fakes'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './_tests/examples'
@@ -69,7 +75,8 @@ import { CdpConsumerBaseDeps } from './consumers/cdp-base.consumer'
 import { CdpCyclotronWorkerEmail } from './consumers/cdp-cyclotron-worker-email.consumer'
 import { posthogFilterOutPlugin } from './legacy-plugins/_transformations/posthog-filter-out-plugin/template'
 import { CyclotronV2Manager, CyclotronV2Worker } from './services/cyclotron-v2'
-import { CyclotronV2JobProducer } from './services/cyclotron-v2/types'
+import { v2JobToInvocation } from './services/cyclotron-v2/job-codec'
+import { CyclotronV2IdempotentJobInit, CyclotronV2JobProducer } from './services/cyclotron-v2/types'
 import { requestFingerprint } from './services/hogflows/idempotency-keys'
 import {
     ATTACHMENT_CONTENT_ID_MAX_LENGTH,
@@ -78,6 +85,7 @@ import {
     transactionalEmailRequestsTotal,
     transactionalEmailStageDurationMs,
 } from './services/hogflows/transactional-email'
+import { BATCH_PUBLISH_DEADLINE_MS } from './services/hogflows/transactional-email-batch'
 import { FINGERPRINT_PURPOSE } from './services/hogflows/transactional-sends'
 import { CyclotronJobQueuePostgresV2 } from './services/job-queue/job-queue-postgres-v2'
 import { SEND_NEEDS_FILES_FOR_MS } from './services/messaging/attachment-horizon'
@@ -92,7 +100,6 @@ import {
     AttachmentUploads,
     createEmailAttachmentsValkeyPool,
 } from './services/messaging/attachment-uploads'
-import { cdpEmailQueuedTotal } from './services/messaging/email-priority'
 import { SuppressionLookupError } from './services/messaging/email-suppression.service'
 import { UTM_VALUE_LIMIT_CHARS } from './services/messaging/helpers/utm'
 import { InFlightRegistry } from './services/messaging/in-flight-registry'
@@ -2754,9 +2761,9 @@ describe('CDP API', () => {
 
         // The alerts on this endpoint key on these outcome labels.
         const outcomeCount = async (outcome: string): Promise<number> =>
-            (await transactionalEmailRequestsTotal.get()).values.find(
-                (v) => v.labels.outcome === outcome && v.labels.route === 'single'
-            )?.value ?? 0
+            (await transactionalEmailRequestsTotal.get()).values
+                .filter((v) => v.labels.outcome === outcome && v.labels.route === 'single')
+                .reduce((total, v) => total + v.value, 0)
         const stageCounts = async (): Promise<Record<string, number>> =>
             Object.fromEntries(
                 (await transactionalEmailStageDurationMs.get()).values
@@ -2862,8 +2869,80 @@ describe('CDP API', () => {
             tracking: { captureEngagement: true },
         }
 
+        // The intake consumer's insert, onto the queue of the API that produced the run, so each run is in Cyclotron
+        // before the route answers, as the sync path left it.
+        const encodedRuns: EncodedIntakeRun[] = []
+        const consumeIntake = async (runIntake: RunIntake, runId: string): Promise<void> => {
+            const record = encodedRuns.filter((run) => run.runId === runId).at(-1)?.message
+            if (!record) {
+                return
+            }
+            const hogflowQueue: IdempotentJobQueue = runIntake['deps'].hogflowQueue as IdempotentJobQueue
+            const opener = new EncryptedFields(hub.CDP_SEALED_STATE_KEYS)
+            await insertIntakeBatch(
+                [
+                    {
+                        ...record,
+                        topic: 'cdp_intake_transactional_email',
+                        partition: 0,
+                        offset: 0,
+                        size: 0,
+                    } as unknown as Message,
+                ],
+                {
+                    cyclotron: {
+                        createJobsIdempotently: async (inputs: CyclotronV2IdempotentJobInit[]) =>
+                            (
+                                await hogflowQueue.queueInvocationsIdempotently(
+                                    inputs.map(({ job, fingerprint, reply }) => ({
+                                        invocation: v2JobToInvocation(
+                                            {
+                                                ...job,
+                                                functionId: job.functionId ?? null,
+                                                priority: job.priority ?? 0,
+                                                parentRunId: job.parentRunId ?? null,
+                                                state: job.state ?? null,
+                                                cancelRequestedAt: null,
+                                                scheduled: DateTime.fromJSDate(job.scheduled ?? new Date()),
+                                                created: DateTime.now(),
+                                            },
+                                            opener
+                                        ),
+                                        fingerprint,
+                                        reply,
+                                    }))
+                                )
+                            ).map(({ outcome }) => outcome),
+                    },
+                    deadLetters: { recordMessageFailure: () => false, produceForBatch: () => Promise.resolve() },
+                    invocationResults: api['invocationResultsService'].invocationResultsRowsService,
+                    emailStatus: api['emailStatusService'],
+                    stateOpener: opener,
+                },
+                { kind: 'transactional-email', claimRetry: { initialDelayMs: 0, maxElapsedMs: 0 } }
+            )
+            await api['emailStatusService'].flush()
+        }
+
         beforeEach(async () => {
+            encodedRuns.length = 0
+            const encode = IntakeProducer.prototype.encode
+            jest.spyOn(IntakeProducer.prototype, 'encode').mockImplementation(function (this: IntakeProducer, run) {
+                const encoded = encode.call(this, run)
+                if (typeof encoded !== 'string') {
+                    encodedRuns.push(encoded)
+                }
+                return encoded
+            })
             produceOutput = jest.spyOn(api['emailStatusService']['outputs'], 'produce')
+            const produce = RunIntake.prototype.produce
+            jest.spyOn(RunIntake.prototype, 'produce').mockImplementation(async function (this: RunIntake, ...args) {
+                const produced = await produce.apply(this, args)
+                if (produced === 'accepted') {
+                    await consumeIntake(this, args[0].invocation.id)
+                }
+                return produced
+            })
             mockQueueInvocations = jest.fn().mockResolvedValue(undefined)
             api['hogflowQueue'] = Object.assign(createMockJobQueue(), { queueInvocations: mockQueueInvocations })
             hogFlow = await insertHogFlow(transactionalFlow('api', 'active'))
@@ -2873,97 +2952,22 @@ describe('CDP API', () => {
             jest.restoreAllMocks()
         })
 
-        describe('with its team in intake shadow mode', () => {
-            const intakeMessages = (): { key: unknown; value: Buffer }[] =>
-                produceOutput.mock.calls
-                    .filter(([output]) => output === 'cdp_intake_transactional_email')
-                    .map(([, message]) => message)
-
-            beforeEach(() => {
-                api['config'].CDP_INTAKE_KAFKA_SHADOW_TEAMS = String(team.id)
-            })
-
-            afterEach(() => {
-                api['config'].CDP_INTAKE_KAFKA_SHADOW_TEAMS = ''
-            })
-
-            it('answers from its own insert and produces the run to the intake topic, keyed by its run id', async () => {
-                const res = await send(hogFlow.id, { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` })
-
-                expect(res.status).toEqual(202)
-                expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
-                expect(intakeMessages()).toEqual([expect.objectContaining({ key: res.body.invocation_id })])
-                expect(parseJSON(intakeMessages()[0].value.toString())).toMatchObject({
-                    kind: 'transactional-email',
-                    job: { id: res.body.invocation_id, state: { state: { event: { event: '$transactional_email' } } } },
-                })
-            })
-
-            it('inserts a sensitive send and produces its shadow copy like any other send', async () => {
-                const res = await sendAccepted(hogFlow.id, { ...body, send: { ...codeSend, sensitive: true } })
-
-                expect(res.status).toEqual(202)
-                expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
-                expect(intakeMessages()).toHaveLength(1)
-            })
-
-            it('claims a run without a key on its own id, so the consumer replays the produced copy', async () => {
-                const res = await send(hogFlow.id, { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` })
-
-                expect(await api['hogflowQueue'].findIdempotencyKey(res.body.invocation_id)).toEqual({
-                    fingerprint: res.body.invocation_id,
-                })
-            })
-
-            it('keeps its answer when the broker refuses the run', async () => {
-                produceOutput.mockImplementation((output: string) =>
-                    output === 'cdp_intake_transactional_email'
-                        ? Promise.reject(new Error('Broker: Not enough in-sync replicas'))
-                        : Promise.resolve()
-                )
-
-                const res = await send(hogFlow.id, { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` })
-
-                expect(res.status).toEqual(202)
-                expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
-            })
-        })
-
-        describe('with its team in intake async mode', () => {
+        describe('through the intake topic', () => {
             const authorized = () => ({ Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` })
             const producedTo = (prefix: string) =>
                 produceOutput.mock.calls.filter(([output]) => output.startsWith(prefix)).map(([, message]) => message)
 
+            let sealedStateKeys = ''
             beforeEach(() => {
-                api['config'].CDP_INTAKE_KAFKA_ASYNC_TEAMS = String(team.id)
+                sealedStateKeys = api['config'].CDP_SEALED_STATE_KEYS
             })
-
             afterEach(() => {
-                api['config'].CDP_INTAKE_KAFKA_ASYNC_TEAMS = ''
-                api['config'].CDP_SEAL_TRANSACTIONAL_EMAIL_STATE = false
-            })
-
-            it('answers on the broker ack and leaves the insert and its rows to the consumer', async () => {
-                const queuedEmails = async () =>
-                    (await cdpEmailQueuedTotal.get()).values.find((v) => v.labels.priority_class === 'fast')?.value ?? 0
-                const queuedBefore = await queuedEmails()
-
-                const res = await send(hogFlow.id, authorized())
-
-                expect(res.status).toEqual(202)
-                expect(res.body).toMatchObject({ status: 'queued', replayed: false })
-                expect(producedTo('cdp_intake_transactional_email')).toEqual([
-                    expect.objectContaining({ key: res.body.invocation_id }),
-                ])
-                expect(mockQueueInvocations).not.toHaveBeenCalled()
-                expect(emailStatusRows()).toEqual([])
-                expect(producedTo('hog_invocation_results')).toEqual([])
-                expect(await queuedEmails()).toBe(queuedBefore)
+                api['config'].CDP_SEALED_STATE_KEYS = sealedStateKeys
             })
 
             it('answers 503 intake_unavailable when the broker refuses the run', async () => {
                 produceOutput.mockImplementation((output: string) =>
-                    output === 'cdp_intake_transactional_email'
+                    output === 'cdp_intake_msk_transactional_email'
                         ? Promise.reject(new Error('Broker: Not enough in-sync replicas'))
                         : Promise.resolve()
                 )
@@ -2985,25 +2989,23 @@ describe('CDP API', () => {
             })
 
             it('replays a keyed retry from its claim without producing it again', async () => {
-                api['config'].CDP_INTAKE_KAFKA_ASYNC_TEAMS = ''
                 const headers = authorized()
                 const keyed = { ...body, idempotency_key: `key-${new UUIDT().toString()}` }
                 const first = await send(hogFlow.id, headers, keyed)
-                api['config'].CDP_INTAKE_KAFKA_ASYNC_TEAMS = String(team.id)
 
                 const retry = await send(hogFlow.id, headers, keyed)
 
                 expect(retry.status).toEqual(202)
                 expect(retry.body).toMatchObject({ invocation_id: first.body.invocation_id, replayed: true })
-                expect(producedTo('cdp_intake_')).toEqual([])
+                expect(producedTo('cdp_intake_')).toHaveLength(1)
             })
 
             it.each([
                 ['sealing is off', false, false, 1],
                 ['sealing is on and the send is keyed', true, true, 1],
                 ['sealing is on and the send has no key', true, false, 1],
-            ])('produces a sensitive send in async mode when %s', async (_name, sealing, keyed, produced) => {
-                api['config'].CDP_SEAL_TRANSACTIONAL_EMAIL_STATE = sealing
+            ])('produces a sensitive send when %s', async (_name, sealing, keyed, produced) => {
+                api['config'].CDP_SEALED_STATE_KEYS = sealing ? sealedStateKeys : ''
 
                 const res = await sendAccepted(hogFlow.id, {
                     ...body,
@@ -3012,7 +3014,7 @@ describe('CDP API', () => {
                 })
 
                 expect(res.status).toEqual(202)
-                expect(producedTo('cdp_intake_transactional_email')).toHaveLength(produced)
+                expect(producedTo('cdp_intake_msk_transactional_email')).toHaveLength(produced)
             })
 
             it('produces a keyed send when its claim lookup does not answer in time', async () => {
@@ -3024,7 +3026,7 @@ describe('CDP API', () => {
                 })
 
                 expect(res.status).toEqual(202)
-                expect(producedTo('cdp_intake_transactional_email')).toHaveLength(1)
+                expect(producedTo('cdp_intake_msk_transactional_email')).toHaveLength(1)
             })
 
             it('produces a send when its refusal checks do not answer in time', async () => {
@@ -3035,7 +3037,7 @@ describe('CDP API', () => {
                 const res = await send(hogFlow.id, authorized())
 
                 expect(res.status).toEqual(202)
-                expect(producedTo('cdp_intake_transactional_email')).toHaveLength(1)
+                expect(producedTo('cdp_intake_msk_transactional_email')).toHaveLength(1)
             })
 
             it('still refuses a marketing send over quota when its other refusal checks do not answer in time', async () => {
@@ -3050,7 +3052,7 @@ describe('CDP API', () => {
                 })
 
                 expect(res.status).toEqual(429)
-                expect(producedTo('cdp_intake_transactional_email')).toEqual([])
+                expect(producedTo('cdp_intake_msk_transactional_email')).toEqual([])
             })
         })
 
@@ -3078,13 +3080,10 @@ describe('CDP API', () => {
                 load: 1,
                 build: 1,
                 checks: 1,
-                queue_insert: 1,
-                metrics_flush: 1,
+                intake_produce: 1,
                 total: 1,
             })
             expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
-            // The intake topic stays empty while the team is in no intake list.
-            expect(produceOutput.mock.calls.filter(([output]) => output.startsWith('cdp_intake_'))).toEqual([])
             const [invocation] = mockQueueInvocations.mock.calls[0][0]
             expect(invocation).toMatchObject({
                 id: res.body.invocation_id,
@@ -3115,30 +3114,18 @@ describe('CDP API', () => {
             ])
         })
 
-        it('replies before Kafka acks the result and status rows', async () => {
-            let ackProduce: () => void = () => {}
-            const acked = new Promise<void>((resolve) => (ackProduce = resolve))
-            produceOutput.mockImplementation(() => acked)
-            const resultsOutputs = api['invocationResultsService'].invocationResultsRowsService['outputs']
-            const produceResultRow = jest.spyOn(resultsOutputs, 'produce').mockImplementation(() => acked)
-            const resultsEnabled = hub.HOG_INVOCATION_RESULTS_ENABLED
-            hub.HOG_INVOCATION_RESULTS_ENABLED = true
+        it.each([
+            ['transactional', 0],
+            ['marketing', 1],
+        ])('queues a %s code send on its email lane', async (type, queuePriority) => {
+            const res = await sendAccepted(hogFlow.id, {
+                ...body,
+                send: { ...codeSend, category: { id: 'news', type } },
+            })
 
-            try {
-                const res = await send(hogFlow.id, { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` })
-
-                expect(res.status).toEqual(202)
-                expect(produceResultRow).toHaveBeenCalledWith(
-                    'hog_invocation_results',
-                    expect.objectContaining({ key: Buffer.from(res.body.invocation_id) })
-                )
-                expect(emailStatusRows()).toEqual([
-                    expect.objectContaining({ message_id: res.body.invocation_id, status: 'queued' }),
-                ])
-            } finally {
-                hub.HOG_INVOCATION_RESULTS_ENABLED = resultsEnabled
-                ackProduce()
-            }
+            expect(res.status).toEqual(202)
+            const [invocation] = mockQueueInvocations.mock.calls[0][0]
+            expect(invocation).toMatchObject({ queue: 'email', queuePriority })
         })
 
         describe('with an idempotency key', () => {
@@ -3173,6 +3160,18 @@ describe('CDP API', () => {
                     'transactional_email/send',
                     { ...body, send: addresslessSend },
                     { ...body, send: { ...addresslessSend, from: { integrationId: otherSenderId } } },
+                ],
+                [
+                    'a code send after its category changed type',
+                    'transactional_email/send',
+                    { ...body, send: { ...codeSend, category: { id: 'news', type: 'marketing' } } },
+                    { ...body, send: { ...codeSend, category: { id: 'news', type: 'transactional' } } },
+                ],
+                [
+                    'a code send after its category was archived',
+                    'transactional_email/send',
+                    { ...body, send: { ...codeSend, category: { id: 'news', type: 'marketing' } } },
+                    { ...body, send: { ...codeSend, category: { id: 'news', type: 'marketing', archived: true } } },
                 ],
             ] as const)(
                 'returns the first send for a retry of %s and queues nothing new',
@@ -3239,6 +3238,17 @@ describe('CDP API', () => {
                     'a changed cc',
                     ['transactional_email/send', { ...body, send: { ...codeSend, cc: ['manager@example.com'] } }],
                     ['transactional_email/send', { ...body, send: { ...codeSend, cc: ['someone-else@example.com'] } }],
+                ],
+                [
+                    'another category',
+                    [
+                        'transactional_email/send',
+                        { ...body, send: { ...codeSend, category: { id: 'news', type: 'marketing' } } },
+                    ],
+                    [
+                        'transactional_email/send',
+                        { ...body, send: { ...codeSend, category: { id: 'tips', type: 'marketing' } } },
+                    ],
                 ],
             ] as const)(
                 'rejects the key for a request with %s',
@@ -3425,50 +3435,8 @@ describe('CDP API', () => {
                     expect(res.status).toEqual(status)
                 })
 
-                it('answers 503 and queues nothing when the claim lookup fails', async () => {
-                    jest.spyOn(queue, 'findIdempotencyKey').mockRejectedValueOnce(
-                        new Error('canceling statement due to statement timeout')
-                    )
-
-                    const res = await sendKeyed()
-
-                    expect(res.status).toEqual(503)
-                    expect(res.body).toEqual({ error: 'idempotency_unavailable' })
-                    expect(await jobsOfFlow()).toEqual([])
-                })
-
-                it('answers 503 and queues nothing while a stalled pod holds the claim uncommitted', async () => {
-                    const runId = keyedRunId(team.id, 'transactional-email', keyed.idempotency_key as string)
-                    const stalledPod = await cyclotron.connect()
-                    await stalledPod.query('BEGIN')
-                    await stalledPod.query(
-                        `INSERT INTO cyclotron_idempotency_keys (id, team_id, fingerprint, expires_at)
-                         VALUES ($1, $2, 'a', NOW() + interval '1 day')`,
-                        [runId, team.id]
-                    )
-                    try {
-                        const res = await sendKeyed()
-
-                        expect(res.status).toEqual(503)
-                        expect(res.body).toEqual({ error: 'idempotency_unavailable' })
-                    } finally {
-                        await stalledPod.query('ROLLBACK')
-                        stalledPod.release()
-                    }
-
-                    expect(await jobsOfFlow()).toEqual([])
-                    expect((await sendKeyed()).status).toEqual(202)
-                })
-
-                it.each([
-                    ['its lookup', () => undefined],
-                    [
-                        'the claim itself, after the lookup missed it',
-                        () => jest.spyOn(queue, 'findIdempotencyKey').mockResolvedValueOnce(null),
-                    ],
-                ])('rejects a reused key found by %s', async (_, missLookup) => {
+                it('rejects a reused key', async () => {
                     const sent = await sendKeyed()
-                    missLookup()
 
                     const res = await sendKeyed({ ...keyed, to: 'someone-else@example.com' })
 
@@ -3482,12 +3450,13 @@ describe('CDP API', () => {
 
                     const jobs = await jobsOfFlow()
                     expect(jobs).toHaveLength(1)
-                    expect(
-                        responses.map((res) => [res.status, res.body.invocation_id, res.body.replayed]).sort()
-                    ).toEqual([
-                        [202, jobs[0], false],
-                        [202, jobs[0], true],
+                    // A request that looks up the key after the other's insert answers replayed, so either may.
+                    expect(responses.map((res) => [res.status, res.body.invocation_id])).toEqual([
+                        [202, jobs[0]],
+                        [202, jobs[0]],
                     ])
+                    expect(responses.map((res) => res.body.replayed)).toContain(false)
+                    expect(responses.map((res) => typeof res.body.replayed)).toEqual(['boolean', 'boolean'])
                 })
             })
         })
@@ -3597,10 +3566,14 @@ describe('CDP API', () => {
 
         describe('through the cyclotron queue', () => {
             const queuedSends = async (flowId: string): Promise<unknown[]> => {
-                const { rows } = await cyclotron.query('SELECT state FROM cyclotron_jobs WHERE function_id = $1', [
-                    flowId,
-                ])
-                return rows.map((row) => parseJSON(row.state.toString('utf-8')).state.send)
+                const { rows } = await cyclotron.query(
+                    'SELECT id, team_id, state FROM cyclotron_jobs WHERE function_id = $1',
+                    [flowId]
+                )
+                const opener = new EncryptedFields(hub.CDP_SEALED_STATE_KEYS)
+                return rows.map(
+                    (row) => decodeJobState({ id: row.id, teamId: row.team_id, state: row.state }, opener).state?.send
+                )
             }
 
             beforeEach(async () => {
@@ -3666,6 +3639,14 @@ describe('CDP API', () => {
                     'more than 10 cc addresses',
                     { ...codeSend, cc: Array.from({ length: 11 }, (_, i) => `copy-${i}@example.com`) },
                 ],
+                [
+                    'a marketing category and cc',
+                    { ...codeSend, category: { id: 'news', type: 'marketing' }, cc: ['copy@example.com'] },
+                ],
+                [
+                    'a marketing category and bcc',
+                    { ...codeSend, category: { id: 'news', type: 'marketing' }, bcc: ['hidden@example.com'] },
+                ],
             ])('refuses a code send with %s', async (_desc, acceptedSend) => {
                 const invalidBefore = await outcomeCount('invalid_request')
 
@@ -3673,6 +3654,16 @@ describe('CDP API', () => {
 
                 expect(res.status).toEqual(400)
                 expect(await outcomeCount('invalid_request')).toEqual(invalidBefore + 1)
+                expect(await queuedSends(hogFlow.id)).toEqual([])
+            })
+
+            it('refuses a send in an archived category that is no retry of an accepted send', async () => {
+                const archived = { ...codeSend, category: { id: 'news', type: 'marketing', archived: true } }
+
+                const res = await sendAccepted(hogFlow.id, { ...body, send: archived })
+
+                expect(res.status).toEqual(400)
+                expect(res.body).toEqual({ error: 'category_not_found' })
                 expect(await queuedSends(hogFlow.id)).toEqual([])
             })
         })
@@ -3790,13 +3781,14 @@ describe('CDP API', () => {
             type QueuedJob = { id: string; status: string; send: Record<string, unknown>; stored: string }
             const queuedJobs = async (): Promise<QueuedJob[]> => {
                 const { rows } = await cyclotron.query(
-                    'SELECT id, status, state FROM cyclotron_jobs WHERE queue_name = $1 ORDER BY created',
+                    'SELECT id, team_id, status, state FROM cyclotron_jobs WHERE queue_name = $1 ORDER BY created',
                     [queueName]
                 )
+                const opener = new EncryptedFields(hub.CDP_SEALED_STATE_KEYS)
                 return rows.map((row) => ({
                     id: row.id,
                     status: row.status,
-                    send: parseJSON(row.state.toString()).state.send,
+                    send: decodeJobState({ id: row.id, teamId: row.team_id, state: row.state }, opener).state?.send,
                     stored: row.state.toString('latin1'),
                 }))
             }
@@ -3968,6 +3960,30 @@ describe('CDP API', () => {
                     '"sha256"',
                 ],
                 ['a file without a name', () => withFile({ filename: '' }), () => codeSend, '"filename"'],
+                [
+                    'a reply thread whose parent is not a Message-ID',
+                    () => ({ ...codeSend, thread: { inReplyTo: '<parent>', references: [] } }),
+                    () => ({ ...codeSend, thread: { inReplyTo: '<parent@example.com>', references: [] } }),
+                    '"inReplyTo"',
+                ],
+                [
+                    'a reply thread with more than 100 references',
+                    () => ({
+                        ...codeSend,
+                        thread: {
+                            inReplyTo: '<parent@example.com>',
+                            references: Array.from({ length: 101 }, (_, i) => `<m${i}@example.com>`),
+                        },
+                    }),
+                    () => ({
+                        ...codeSend,
+                        thread: {
+                            inReplyTo: '<parent@example.com>',
+                            references: Array.from({ length: 100 }, (_, i) => `<m${i}@example.com>`),
+                        },
+                    }),
+                    '"references"',
+                ],
                 [
                     'a file field this version does not know',
                     () => withFile({ disposition: 'inline' }),
@@ -4150,7 +4166,7 @@ describe('CDP API', () => {
                     new EmailQueueOfOneTest(queueName, workerConfig),
                     new InFlightRegistry({ budgetBytes: 2 ** 40, heapLimitBytes: 2 ** 40, maxInFlight: 1 }, () => 0)
                 )
-                worker.emailService.sesV2Client = sesClientFor(ses)
+                worker.emailService.sesTransport = sesTransportFor(ses)
                 await worker.start()
                 try {
                     const delivered = await waitForExpect(() => {
@@ -5244,6 +5260,680 @@ describe('CDP API', () => {
 
             expect(res.status).toEqual(401)
             expect(mockQueueInvocations).not.toHaveBeenCalled()
+        })
+
+        describe('to many recipients in one batch', () => {
+            type BatchRoute = 'transactional_email/batch' | 'transactional_email/send/batch'
+            const TEMPLATE: BatchRoute = 'transactional_email/batch'
+            const CODE: BatchRoute = 'transactional_email/send/batch'
+            const kindOf = (route: BatchRoute) => (route === CODE ? 'code_send_batch' : 'template_batch')
+            const pathOf = (route: BatchRoute) => `/api/projects/${team.id}/hog_flows/${hogFlow.id}/${route}`
+            // A null kind mints the single template send's token, which carries no kind.
+            const authorizationFor = (kind: string | null) =>
+                `Bearer ${mintToken(team.id, hogFlow.id, { claims: kind ? { kind } : {} })}`
+            const sendBatchTo = (
+                served: express.Application,
+                route: BatchRoute,
+                payload: unknown,
+                kind: string | null = kindOf(route)
+            ) =>
+                supertest(served)
+                    .post(pathOf(route))
+                    .set({ Authorization: authorizationFor(kind) })
+                    .send(payload as object)
+            const sendBatch = (route: BatchRoute, payload: unknown, kind?: string | null) =>
+                sendBatchTo(app, route, payload, kind)
+            const recipient = (to: string, extra: Record<string, unknown> = {}) => ({
+                to,
+                distinct_id: `person-${to}`,
+                idempotency_key: `key-${new UUIDT().toString()}`,
+                ...extra,
+            })
+            const runIdOf = ({ idempotency_key }: { idempotency_key: string }) =>
+                keyedRunId(team.id, 'transactional-email', idempotency_key)
+            const storedRuns = async (): Promise<string[]> => {
+                const { rows } = await cyclotron.query(`SELECT id FROM cyclotron_jobs WHERE queue_name = 'email'`)
+                return rows.map((row) => row.id)
+            }
+            const intakeRunsOf = (records: Buffer[]) =>
+                records.map((value) => {
+                    const { kind, teamId, job } = parseJSON(value.toString())
+                    return { kind, teamId, id: job.id, distinctId: job.distinctId }
+                })
+            const queuedAs = (invocationId: string) =>
+                expect.objectContaining({ status: 'queued', replayed: false, invocation_id: invocationId })
+            const refusableRecipients = async () => {
+                const suppressed = recipient(`bounced-${new UUIDT().toString()}@example.com`)
+                await api['emailSuppressionService'].recordHardBounces(team.id, [suppressed.to])
+                // A domain no other test sends to, so no cached verdict answers before its null MX record does.
+                const noMailDomain = `${new UUIDT().toString()}.example.org`
+                jest.spyOn(api['emailValidationService']['resolver'], 'resolveMx').mockImplementation((domain) =>
+                    Promise.resolve([{ exchange: domain === noMailDomain ? '.' : 'mx.example.com', priority: 10 }])
+                )
+                return { suppressed, unreachable: recipient(`user@${noMailDomain}`) }
+            }
+            const variablesOf = (records: Buffer[]): Record<string, unknown> =>
+                Object.fromEntries(
+                    records.map((value) => {
+                        const { job } = parseJSON(value.toString())
+                        const opener = new EncryptedFields(api['config'].CDP_SEALED_STATE_KEYS)
+                        const row = { id: job.id, teamId: team.id, state: Buffer.from(JSON.stringify(job.state)) }
+                        const variables = decodeJobState(row, opener).state?.variables ?? {}
+                        for (const variable of Object.values(variables)) {
+                            const plaintext = typeof variable === 'string' ? variable : JSON.stringify(variable)
+                            expect(value.toString()).not.toContain(plaintext)
+                        }
+                        return [job.id, variables]
+                    })
+                )
+            let releaseStalledReads = () => {}
+            const stallSuppressionReads = () => {
+                const postgres = api['emailSuppressionService']['postgres']
+                const query = postgres.query.bind(postgres)
+                let reachedRead!: () => void
+                const reached = new Promise<void>((resolve) => (reachedRead = resolve))
+                const held: (() => void)[] = []
+                let holding = true
+                jest.spyOn(postgres, 'query').mockImplementation(((...args: Parameters<typeof query>) => {
+                    if (!holding || !String(args[1]).includes('blocks_transactional')) {
+                        return query(...args)
+                    }
+                    reachedRead()
+                    return new Promise((resolve, reject) => held.push(() => query(...args).then(resolve, reject)))
+                }) as typeof postgres.query)
+                const release = () => {
+                    holding = false
+                    held.splice(0).forEach((read) => read())
+                }
+                releaseStalledReads = release
+                // Later reads go through while the held ones stay held.
+                const pass = () => (holding = false)
+                return { reached, release, pass }
+            }
+            let intakeRecords: () => Buffer[]
+
+            beforeEach(async () => {
+                await useRealQueue()
+                intakeRecords = kafkaRecordsOn(api['config'].CDP_INTAKE_TRANSACTIONAL_EMAIL_TOPIC)
+            })
+
+            afterEach(() => {
+                releaseStalledReads()
+                api['refusalDeadline'] = undefined
+                // The team outlives each test, so its cached workflows config would carry a suspension into the next one.
+                api['teamWorkflowsConfigService']['lazyLoader'].markForRefresh(String(team.id))
+            })
+
+            it('publishes one intake run per sendable recipient, and answers each recipient in order with its run id', async () => {
+                const { suppressed, unreachable } = await refusableRecipients()
+                const recipients = [
+                    recipient('ada@example.com', { variables: { name: 'Ada Lovelace' } }),
+                    recipient('not-an-address'),
+                    recipient('cy@example.com', { distinct_id: null }),
+                    recipient('bo@example.com'),
+                    suppressed,
+                    unreachable,
+                ]
+
+                const res = await sendBatch(TEMPLATE, { variables: { name: 'you there' }, recipients })
+
+                expect(res.status).toEqual(200)
+                expect(res.body.results).toEqual([
+                    { status: 202, body: queuedAs(runIdOf(recipients[0])) },
+                    { status: 422, body: { error: 'recipient_unreachable', invocation_id: runIdOf(recipients[1]) } },
+                    { status: 400, body: { error: 'invalid_recipient', invocation_id: runIdOf(recipients[2]) } },
+                    { status: 202, body: queuedAs(runIdOf(recipients[3])) },
+                    { status: 422, body: { error: 'recipient_suppressed', invocation_id: runIdOf(suppressed) } },
+                    { status: 422, body: { error: 'recipient_unreachable', invocation_id: runIdOf(unreachable) } },
+                ])
+                expect(intakeRunsOf(intakeRecords())).toEqual(
+                    expect.arrayContaining([
+                        {
+                            kind: 'transactional-email',
+                            teamId: team.id,
+                            id: runIdOf(recipients[0]),
+                            distinctId: 'person-ada@example.com',
+                        },
+                        {
+                            kind: 'transactional-email',
+                            teamId: team.id,
+                            id: runIdOf(recipients[3]),
+                            distinctId: 'person-bo@example.com',
+                        },
+                    ])
+                )
+                expect(intakeRecords()).toHaveLength(2)
+                expect(variablesOf(intakeRecords())).toEqual({
+                    [runIdOf(recipients[0])]: { name: 'Ada Lovelace' },
+                    [runIdOf(recipients[3])]: { name: 'you there' },
+                })
+                expect(await storedRuns()).toEqual([])
+                const refusedRows = (refused: (typeof recipients)[number], reason: string) => {
+                    const row = {
+                        team_id: team.id,
+                        message_id: runIdOf(refused),
+                        recipient: refused.to,
+                        function_id: hogFlow.id,
+                    }
+                    return [
+                        expect.objectContaining({ ...row, status: 'queued' }),
+                        expect.objectContaining({ ...row, status: 'failed', reason }),
+                    ]
+                }
+                // An address the request schema refuses gets no row, as on a single send.
+                expect(emailStatusRows()).toEqual(
+                    expect.arrayContaining([
+                        ...refusedRows(suppressed, 'recipient_suppressed'),
+                        ...refusedRows(unreachable, 'recipient_unreachable'),
+                    ])
+                )
+                expect(emailStatusRows()).toHaveLength(4)
+            })
+
+            it('refuses the recipients whose lookups answered and publishes the rest when the suppression read does not answer in time', async () => {
+                const { suppressed, unreachable } = await refusableRecipients()
+                const sendable = recipient(`ada-${new UUIDT().toString()}@example.com`)
+                const read = stallSuppressionReads()
+                const validation = api['emailValidationService']
+                const skipReason = validation.getRecipientSkipReason.bind(validation)
+                let mxAnswered!: () => void
+                const verdict = new Promise<void>((resolve) => (mxAnswered = resolve))
+                jest.spyOn(validation, 'getRecipientSkipReason').mockImplementation(async (teamId, email) => {
+                    const reason = await skipReason(teamId, email)
+                    if (email === unreachable.to) {
+                        mxAnswered()
+                    }
+                    return reason
+                })
+                // The time runs out once the suppression read hangs and the mail server verdict answered.
+                api['refusalDeadline'] = () =>
+                    Promise.all([read.reached, verdict]).then(() => new Promise<void>((done) => setImmediate(done)))
+
+                const res = await sendBatch(TEMPLATE, {
+                    variables: body.variables,
+                    recipients: [suppressed, unreachable, sendable],
+                })
+                read.release()
+
+                expect(res.body.results).toEqual([
+                    { status: 202, body: queuedAs(runIdOf(suppressed)) },
+                    { status: 422, body: { error: 'recipient_unreachable', invocation_id: runIdOf(unreachable) } },
+                    { status: 202, body: queuedAs(runIdOf(sendable)) },
+                ])
+                expect(
+                    intakeRunsOf(intakeRecords())
+                        .map(({ id }) => id)
+                        .sort()
+                ).toEqual([runIdOf(suppressed), runIdOf(sendable)].sort())
+            })
+
+            it('replays a recipient whose key a single send queued, suppressed since or not, and refuses one whose key it used for other data', async () => {
+                const [replayed, reused, fresh, bouncedSince] = [
+                    recipient('ada@example.com'),
+                    recipient('bo@example.com'),
+                    recipient('cy@example.com'),
+                    recipient(`bounced-${new UUIDT().toString()}@example.com`),
+                ]
+                const singleSendOf = (to: typeof replayed, variables: Record<string, unknown>) =>
+                    send(
+                        hogFlow.id,
+                        { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` },
+                        { to: to.to, distinct_id: to.distinct_id, idempotency_key: to.idempotency_key, variables }
+                    )
+                const single = await singleSendOf(replayed, body.variables)
+                await singleSendOf(reused, { ...body.variables, other: true })
+                const singleBeforeBounce = await singleSendOf(bouncedSince, body.variables)
+                await api['emailSuppressionService'].recordHardBounces(team.id, [bouncedSince.to])
+                const afterSingles = kafkaRecordsOn(api['config'].CDP_INTAKE_TRANSACTIONAL_EMAIL_TOPIC)
+
+                const res = await sendBatch(TEMPLATE, {
+                    variables: body.variables,
+                    recipients: [replayed, reused, fresh, bouncedSince],
+                })
+
+                expect(res.body.results).toEqual([
+                    {
+                        status: 202,
+                        body: expect.objectContaining({ invocation_id: single.body.invocation_id, replayed: true }),
+                    },
+                    { status: 422, body: { error: 'idempotency_key_reused', invocation_id: runIdOf(reused) } },
+                    { status: 202, body: queuedAs(runIdOf(fresh)) },
+                    {
+                        status: 202,
+                        body: expect.objectContaining({
+                            invocation_id: singleBeforeBounce.body.invocation_id,
+                            replayed: true,
+                        }),
+                    },
+                ])
+                expect(intakeRunsOf(afterSingles()).map(({ id }) => id)).toEqual([runIdOf(fresh)])
+            })
+
+            it.each([
+                [
+                    'the workflow is disabled',
+                    400,
+                    'not_sendable',
+                    async () => {
+                        await hub.postgres.query(
+                            PostgresUse.COMMON_WRITE,
+                            `UPDATE posthog_hogflow SET status = 'draft' WHERE id = $1`,
+                            [hogFlow.id],
+                            'disable-workflow'
+                        )
+                    },
+                ],
+                [
+                    'the workflow is gone',
+                    400,
+                    'not_sendable',
+                    async () => {
+                        await hub.postgres.query(
+                            PostgresUse.COMMON_WRITE,
+                            `DELETE FROM posthog_hogflow WHERE id = $1`,
+                            [hogFlow.id],
+                            'delete-workflow'
+                        )
+                    },
+                ],
+                [
+                    "the workflow's sending is paused and the suspension lookup stalls",
+                    422,
+                    'sending_paused',
+                    async () => {
+                        await hub.postgres.query(
+                            PostgresUse.COMMON_WRITE,
+                            `UPDATE posthog_hogflow SET email_sending_paused_at = now() WHERE id = $1`,
+                            [hogFlow.id],
+                            'pause-workflow-sending'
+                        )
+                        const lockHolder = new Pool({ connectionString: hub.DATABASE_URL, max: 1 })
+                        const client = await lockHolder.connect()
+                        await client.query('BEGIN')
+                        await client.query(`SET LOCAL idle_in_transaction_session_timeout = '10s'`)
+                        await client.query('LOCK TABLE workflows_teamworkflowsconfig IN ACCESS EXCLUSIVE MODE')
+                        api['teamWorkflowsConfigService']['lazyLoader'].markForRefresh(String(team.id))
+                        return async () => {
+                            await client.query('COMMIT')
+                            client.release()
+                            await lockHolder.end()
+                        }
+                    },
+                ],
+                [
+                    'email sending is suspended for the project',
+                    422,
+                    'sending_suspended',
+                    async () => {
+                        await hub.postgres.query(
+                            PostgresUse.COMMON_WRITE,
+                            `INSERT INTO workflows_teamworkflowsconfig
+                                (team_id, capture_workflows_engagement_events, email_tracking_consent_mode,
+                                 email_sending_suspended_at, email_sending_suspension_reason)
+                             VALUES ($1, false, 'off', now(), 'suspended by staff')
+                             ON CONFLICT (team_id) DO UPDATE SET email_sending_suspended_at = now()`,
+                            [team.id],
+                            'suspend-email-sending'
+                        )
+                        await hub.pubSub.publish('reload-team-workflows-config', JSON.stringify({ teamId: team.id }))
+                        await waitForExpect(async () =>
+                            expect(await api['teamWorkflowsConfigService'].getEmailSendingSuspension(team.id)).toEqual(
+                                'staff'
+                            )
+                        )
+                    },
+                ],
+            ])(
+                'refuses a whole batch when %s, a recipient already queued included, and publishes none of it',
+                async (_case, status, error, arrange) => {
+                    const accepted = recipient('ada@example.com')
+                    const single = await send(
+                        hogFlow.id,
+                        { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` },
+                        {
+                            ...body,
+                            to: accepted.to,
+                            distinct_id: accepted.distinct_id,
+                            idempotency_key: accepted.idempotency_key,
+                        }
+                    )
+                    expect(single.status).toEqual(202)
+                    intakeRecords = kafkaRecordsOn(api['config'].CDP_INTAKE_TRANSACTIONAL_EMAIL_TOPIC)
+                    const release = await arrange()
+                    api['hogFlowManager']['onHogFlowsReloaded'](team.id, [hogFlow.id])
+
+                    const retry = await Promise.resolve(
+                        sendBatch(TEMPLATE, {
+                            variables: body.variables,
+                            recipients: [accepted, recipient('bo@example.com')],
+                        })
+                    ).finally(() => release?.())
+
+                    expect(retry.status).toEqual(status)
+                    expect(retry.body).toEqual({ error })
+                    expect(intakeRecords()).toEqual([])
+                }
+            )
+
+            it('refuses a whole batch of a marketing email when the team is over its email quota, without waiting on its recipients', async () => {
+                await setTeamQuotaLimited(hub, team, 'workflow_emails', true)
+                const read = stallSuppressionReads()
+                api['refusalDeadline'] = () => new Promise<void>(() => {})
+                // An address no other test sends to, so no cached verdict answers before the held read.
+                const fresh = recipient(`ada-${new UUIDT().toString()}@example.com`)
+                try {
+                    const marketingFlow = await insertHogFlow(transactionalFlow('api', 'active', 'marketing'))
+
+                    const res = await supertest(app)
+                        .post(`/api/projects/${team.id}/hog_flows/${marketingFlow.id}/${TEMPLATE}`)
+                        .set({
+                            Authorization: `Bearer ${mintToken(team.id, marketingFlow.id, { claims: { kind: 'template_batch' } })}`,
+                        })
+                        .send({ variables: body.variables, recipients: [fresh] })
+                    await read.reached
+
+                    expect(res.status).toEqual(429)
+                    expect(res.body).toEqual({ error: 'quota_limited' })
+                    expect(intakeRecords()).toEqual([])
+                } finally {
+                    await setTeamQuotaLimited(hub, team, 'workflow_emails', false)
+                }
+            })
+
+            it.each([
+                [
+                    'a repeated idempotency key',
+                    TEMPLATE,
+                    () => {
+                        const ada = recipient('ada@example.com')
+                        return {
+                            recipients: [ada, recipient('bo@example.com', { idempotency_key: ada.idempotency_key })],
+                        }
+                    },
+                ],
+                [
+                    'copies on its send',
+                    CODE,
+                    () => ({
+                        send: { ...codeSend, cc: ['cy@example.com'] },
+                        recipients: [recipient('ada@example.com')],
+                    }),
+                ],
+            ])(
+                'refuses a whole batch carrying %s and sends to none of its recipients',
+                async (_case, route, payload) => {
+                    const res = await sendBatch(route, payload())
+
+                    expect([res.status, res.body]).toEqual([400, { error: 'invalid_request' }])
+                    expect(intakeRecords()).toEqual([])
+                }
+            )
+
+            it.each([
+                ['transactional_email/batch', null],
+                ['transactional_email/send/batch', 'code_send'],
+                ['transactional_email/batch', 'code_send_batch'],
+                ['transactional_email', 'template_batch'],
+                ['transactional_email/send', 'code_send_batch'],
+            ])('refuses %s with a token of kind %s and sends nothing', async (route, kind) => {
+                const payload = route.endsWith('/batch')
+                    ? { recipients: [recipient('ada@example.com')] }
+                    : route.endsWith('/send')
+                      ? { ...body, send: codeSend }
+                      : body
+
+                const res = await sendOn(route, hogFlow.id, { Authorization: authorizationFor(kind) }, payload)
+
+                expect(res.status).toEqual(401)
+                expect(intakeRecords()).toEqual([])
+                expect(await storedRuns()).toEqual([])
+            })
+
+            it('answers a retryable error and publishes nothing when the team lookup fails', async () => {
+                jest.spyOn(api['deps'].teamManager, 'getTeam').mockRejectedValue(new Error('connection reset'))
+
+                const res = await sendBatch(TEMPLATE, {
+                    variables: body.variables,
+                    recipients: [recipient('ada@example.com')],
+                })
+
+                expect([res.status, res.body]).toEqual([500, { error: 'internal_error' }])
+                expect(intakeRecords()).toEqual([])
+            })
+
+            it.each([
+                [
+                    'its claim lookup',
+                    () => api['hogflowQueue'] as unknown as Record<string, (...args: unknown[]) => unknown>,
+                    'findIdempotencyKeys',
+                    1,
+                ],
+                [
+                    // On the second record, so a batch that published the first before encoding the next would fail.
+                    'encoding its records',
+                    () => intakeMessage as unknown as Record<string, (...args: unknown[]) => unknown>,
+                    'encodeIntakeMessage',
+                    2,
+                ],
+            ] as const)(
+                'answers 503 and publishes nothing when the batch passes its publish deadline during %s',
+                async (_stage, ownerOf, method, crossingCall) => {
+                    const realNow = performance.now.bind(performance)
+                    let skippedMs = 0
+                    jest.spyOn(performance, 'now').mockImplementation(() => realNow() + skippedMs)
+                    const owner = ownerOf()
+                    const original = owner[method].bind(owner)
+                    let calls = 0
+                    jest.spyOn(owner, method).mockImplementation((...args: unknown[]) => {
+                        if (++calls === crossingCall) {
+                            skippedMs = BATCH_PUBLISH_DEADLINE_MS
+                        }
+                        return original(...args)
+                    })
+
+                    const res = await sendBatch(TEMPLATE, {
+                        variables: body.variables,
+                        recipients: [recipient('ada@example.com'), recipient('bo@example.com')],
+                    })
+
+                    expect([res.status, res.body]).toEqual([503, { error: 'deadline_exceeded' }])
+                    expect(intakeRecords()).toEqual([])
+                }
+            )
+
+            it('answers each recipient with its own broker result when one ack fails and another succeeds', async () => {
+                const [unacked, acked] = [recipient('ada@example.com'), recipient('bo@example.com')]
+                const outputs = api['outputs']
+                // The status rows' spy already wraps this instance's method, so the pass-through calls the class's own.
+                const produce = Object.getPrototypeOf(outputs).produce as typeof outputs.produce
+                jest.spyOn(outputs, 'produce').mockImplementation(((...args: Parameters<typeof produce>) =>
+                    args[1].key === runIdOf(unacked)
+                        ? Promise.reject(new Error('Broker: Request timed out'))
+                        : produce.apply(outputs, args)) as typeof outputs.produce)
+
+                const res = await sendBatch(TEMPLATE, { variables: body.variables, recipients: [unacked, acked] })
+
+                expect(res.body.results).toEqual([
+                    { status: 503, body: expect.objectContaining({ error: 'intake_unavailable' }) },
+                    { status: 202, body: queuedAs(runIdOf(acked)) },
+                ])
+                expect(intakeRunsOf(intakeRecords()).map(({ id }) => id)).toEqual([runIdOf(acked)])
+            })
+
+            it('answers each recipient on its own when one is too large for the intake topic', async () => {
+                const [large, small] = [
+                    recipient('ada@example.com', { variables: { padding: 'x'.repeat(2 * 1024 * 1024) } }),
+                    recipient('bo@example.com'),
+                ]
+
+                const res = await sendBatch(TEMPLATE, { variables: body.variables, recipients: [large, small] })
+
+                expect(res.body.results).toEqual([
+                    { status: 413, body: { error: 'message_too_large', invocation_id: runIdOf(large) } },
+                    { status: 202, body: queuedAs(runIdOf(small)) },
+                ])
+                expect(intakeRunsOf(intakeRecords()).map(({ id }) => id)).toEqual([runIdOf(small)])
+            })
+
+            it.each([
+                { copied: 50_000, ownKeysOfBo: ['b'], status: 200, error: undefined, published: 2 },
+                { copied: 50_001, ownKeysOfBo: ['b', 'c'], status: 413, error: 'too_large', published: 0 },
+            ])(
+                'answers $status for a batch whose recipients copy $copied variable keys',
+                async ({ ownKeysOfBo, status, error, published }) => {
+                    const shared = Object.fromEntries(Array.from({ length: 24_999 }, (_, i) => [`v${i}`, i]))
+                    const recipients = [
+                        recipient('ada@example.com', { variables: { a: 1 } }),
+                        recipient('bo@example.com', {
+                            variables: Object.fromEntries(ownKeysOfBo.map((key) => [key, 1])),
+                        }),
+                    ]
+
+                    const res = await sendBatch(TEMPLATE, { variables: shared, recipients })
+
+                    expect([res.status, res.body.error]).toEqual([status, error])
+                    expect(intakeRecords()).toHaveLength(published)
+                }
+            )
+
+            it('refuses with 413 a batch whose variables nest deeper than its fingerprint can sort', async () => {
+                const levels = 10_000
+                const variables = `${'{"a":'.repeat(levels)}1${'}'.repeat(levels)}`
+                const recipients = JSON.stringify([recipient('ada@example.com')])
+
+                const res = await supertest(app)
+                    .post(pathOf(TEMPLATE))
+                    .set({ Authorization: authorizationFor(kindOf(TEMPLATE)), 'Content-Type': 'application/json' })
+                    .send(`{"variables":${variables},"recipients":${recipients}}`)
+
+                expect([res.status, res.body]).toEqual([413, { error: 'too_large' }])
+                expect(intakeRecords()).toEqual([])
+            })
+
+            it('refuses a code send batch in an archived category and publishes nothing', async () => {
+                const archived = { ...codeSend, category: { id: 'news', type: 'transactional', archived: true } }
+
+                const res = await sendBatch(CODE, { send: archived, recipients: [recipient('ada@example.com')] })
+
+                expect([res.status, res.body]).toEqual([400, { error: 'category_not_found' }])
+                expect(intakeRecords()).toEqual([])
+            })
+
+            describe('on a pod of its own', () => {
+                const served: { cdpApi: CdpApi; server: Server }[] = []
+                const servedWith = async (
+                    settings: Partial<Hub>,
+                    options: Parameters<typeof setupExpressApp>[0] = {}
+                ): Promise<{ app: express.Application }> => {
+                    const ownQueue = new CyclotronJobQueuePostgresV2(100, hub)
+                    await ownQueue.startAsProducer()
+                    const cdpApi = new CdpApi({ ...hub, ...settings }, cdpDeps, {
+                        hogQueue: createMockJobQueue(),
+                        hogflowQueue: ownQueue,
+                    })
+                    const ownApp = setupExpressApp(options)
+                    ownApp.use('/', cdpApi.router())
+                    await new Promise<void>((listening) => {
+                        served.push({ cdpApi, server: ownApp.listen(0, listening) })
+                    })
+                    return { app: ownApp }
+                }
+                const batchOf = (...recipients: Record<string, unknown>[]) => ({
+                    variables: body.variables,
+                    recipients,
+                })
+                afterEach(async () => {
+                    await Promise.all(
+                        served.splice(0).map(({ cdpApi, server }) => {
+                            server.close()
+                            return cdpApi.stop()
+                        })
+                    )
+                })
+
+                it('refuses with 503 a batch that arrives while another holds the pod cap, and frees the slot at the answer', async () => {
+                    const { app: off } = await servedWith({ CDP_TRANSACTIONAL_EMAIL_BATCH_MAX_REQUESTS: 0 })
+                    const { app: one } = await servedWith({ CDP_TRANSACTIONAL_EMAIL_BATCH_MAX_REQUESTS: 1 })
+                    const pod = served[served.length - 1].cdpApi
+                    const read = stallSuppressionReads()
+                    let expire!: () => void
+                    pod['refusalDeadline'] = () => new Promise<void>((done) => (expire = done))
+                    const holder = recipient(`ada-${new UUIDT().toString()}@example.com`)
+
+                    const switchedOff = await sendBatchTo(off, TEMPLATE, batchOf(recipient('bo@example.com')))
+                    const first = sendBatchTo(one, TEMPLATE, batchOf(holder)).then((answer) => answer)
+                    await read.reached
+                    const overlapping = await sendBatchTo(one, TEMPLATE, batchOf(recipient('cy@example.com')))
+                    expire()
+                    const held = await first
+                    read.pass()
+                    const after = await sendBatchTo(one, TEMPLATE, batchOf(recipient('di@example.com')))
+                    read.release()
+
+                    expect([switchedOff.status, switchedOff.body]).toEqual([503, { error: 'over_capacity' }])
+                    expect([overlapping.status, overlapping.body]).toEqual([503, { error: 'over_capacity' }])
+                    expect([held.status, after.status]).toEqual([200, 200])
+                    expect(intakeRunsOf(intakeRecords()).map(({ distinctId }) => distinctId)).toEqual([
+                        `person-${holder.to}`,
+                        'person-di@example.com',
+                    ])
+                })
+
+                it('admits a batch from another team while one team holds its share of the pod', async () => {
+                    const otherTeamId = await createTeam(hub.postgres, team.organization_id)
+                    const otherFlow = await insertHogFlow({
+                        ...transactionalFlow('api', 'active'),
+                        team_id: otherTeamId,
+                    })
+                    const { app: two } = await servedWith({
+                        CDP_TRANSACTIONAL_EMAIL_BATCH_MAX_REQUESTS: 2,
+                    })
+                    const releaseTeamSlot = served[served.length - 1].cdpApi['transactionalEmailBatchCapacity'].admit(
+                        team.id
+                    )!
+
+                    const sameTeam = await sendBatchTo(two, TEMPLATE, batchOf(recipient('bo@example.com')))
+                    const otherTeam = await supertest(two)
+                        .post(`/api/projects/${otherTeamId}/hog_flows/${otherFlow.id}/${TEMPLATE}`)
+                        .set({
+                            Authorization: `Bearer ${mintToken(otherTeamId, otherFlow.id, { claims: { kind: kindOf(TEMPLATE) } })}`,
+                        })
+                        .send(batchOf(recipient('cy@example.com')))
+                    releaseTeamSlot()
+                    const ada = recipient('ada@example.com')
+                    const afterRelease = await sendBatchTo(two, TEMPLATE, batchOf(ada))
+
+                    expect([sameTeam.status, sameTeam.body]).toEqual([503, { error: 'over_capacity' }])
+                    expect([otherTeam.status, otherTeam.body.results]).toEqual([
+                        200,
+                        [{ status: 202, body: expect.objectContaining({ status: 'queued' }) }],
+                    ])
+                    expect([afterRelease.status, afterRelease.body.results]).toEqual([
+                        200,
+                        [{ status: 202, body: queuedAs(runIdOf(ada)) }],
+                    ])
+                })
+
+                it.each([
+                    [TEMPLATE, 200],
+                    [CODE, 200],
+                    [`${CODE}/extra`, 401],
+                ])(
+                    'lets a scoped token reach %s on a pod that requires the internal secret only as its pattern allows',
+                    async (route, status) => {
+                        const { app: guarded } = await servedWith({}, { internalApiSecret: 'internal-secret' })
+                        const recipients = [recipient('ada@example.com')]
+
+                        const res = await sendBatchTo(
+                            guarded,
+                            route as BatchRoute,
+                            route === CODE ? { send: codeSend, recipients } : batchOf(...recipients)
+                        )
+
+                        expect(res.status).toEqual(status)
+                    }
+                )
+            })
         })
 
         describe('cancel and reschedule of a scheduled send', () => {

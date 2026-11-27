@@ -191,8 +191,18 @@ describe('integration policy', () => {
         expect(POLICY[REVERSE_SYNC]!.ops).toEqual(['reverse_sync'])
     })
 
-    it('gives web every op except reverse_sync', () => {
-        expect([...POLICY[WEB]!.ops].sort()).toEqual(INTEGRATION_OPS.filter((op) => op !== 'reverse_sync').sort())
+    it('gives web every op except reverse_sync and mirror', () => {
+        expect([...POLICY[WEB]!.ops].sort()).toEqual(
+            INTEGRATION_OPS.filter((op) => op !== 'reverse_sync' && op !== 'mirror').sort()
+        )
+    })
+
+    it('gives mirror to the Celery worker only', () => {
+        const holders = Object.entries(POLICY)
+            .filter(([, policy]) => policy.ops.includes('mirror'))
+            .map(([deployment]) => deployment)
+
+        expect(holders).toEqual([CELERY])
     })
 
     it('keeps the cross-team and admin ops on web', () => {
@@ -456,7 +466,7 @@ describe('integration policy', () => {
             "posthog-worker-django": {
               "kinds": "*",
               "opKinds": {},
-              "ops": "list_across_teams,read,refresh,resolve,write",
+              "ops": "list_across_teams,mirror,read,refresh,resolve,write",
               "sourceRows": false,
             },
             "temporal-worker-batch-exports": {
@@ -576,6 +586,43 @@ describe('integration public keys', () => {
             await keys.reload()
 
             expect(keys.entries().map(([deployment]) => deployment)).toEqual([WEB])
+        })
+
+        // A stray file makes the reload fail, and the removed key must still stop working.
+        it.each([
+            ['nothing else', {}],
+            ['a stray file', { 'stray.txt': 'oops' }],
+        ])('refuses every caller when a reload removes the last key file and leaves %s', async (_label, extra) => {
+            const dir = await mkdtemp(join(tmpdir(), 'integration-keys-'))
+            dirs.push(dir)
+            await writeFile(join(dir, `${WEB}.pub`), webPem)
+            const keys = new IntegrationKeyLoader(dir)
+            await keys.load()
+
+            await rm(join(dir, `${WEB}.pub`))
+            await Promise.all(Object.entries(extra).map(([name, contents]) => writeFile(join(dir, name), contents)))
+            await keys.reload()
+
+            expect(await codeFor(verifier({ keys }).verify(await mint()))).toBe('bad_signature')
+        })
+
+        // The README rotation ends by removing the old block from the file. A refused reload must
+        // still revoke that block, and keep the new one working.
+        it('stops accepting a key whose block a refused reload removed', async () => {
+            const next = generateKeyPairSync('ed25519')
+            const dir = await mkdtemp(join(tmpdir(), 'integration-keys-'))
+            dirs.push(dir)
+            await writeFile(join(dir, `${WEB}.pub`), `${publicPem(next.publicKey)}\n${webPem}`)
+            const keys = new IntegrationKeyLoader(dir)
+            await keys.load()
+
+            await writeFile(join(dir, `${WEB}.pub`), publicPem(next.publicKey))
+            await writeFile(join(dir, 'stray.txt'), 'oops')
+            await keys.reload()
+
+            const v = verifier({ keys })
+            expect(await codeFor(v.verify(await mint()))).toBe('bad_signature')
+            expect((await v.verify(await mint({ signWith: next.privateKey }))).deployment).toBe(WEB)
         })
 
         it('keeps the previous keys when one file cannot be read', async () => {

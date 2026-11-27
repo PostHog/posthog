@@ -28,7 +28,7 @@ describe('mergeSplitPersonLogic', () => {
                 '/api/environments/:team_id/persons/': { results: [MOCK_PERSON], count: 1 },
             },
             post: {
-                '/api/person/123/split/': { success: true },
+                '/api/projects/:team_id/persons/123/split/': { success: true },
             },
         })
         initKeaTests()

@@ -140,7 +140,7 @@ class _ConvertedSegments:
 
 MAX_COHORT_NAME_LENGTH = 400
 MAX_NEW_COHORTS_PER_IMPORT = 50
-_UNREADABLE = (ValueError, TypeError, AttributeError, KeyError, IndexError, RecursionError)
+_UNREADABLE = (ValueError, OverflowError, TypeError, AttributeError, KeyError, IndexError, RecursionError)
 
 
 def _segment_marker(segment_id: str) -> str:

@@ -373,11 +373,13 @@ class ActionSerializer(UserAccessControlSerializerMixin, serializers.Serializer)
                 (step.get("event") for step in attrs["steps"]),
                 instance.get_step_events() if instance else [],
             )
-            if hidden_event and hides_flag_calls_from_query_builders(self.context["get_team"]().organization_id):
-                raise serializers.ValidationError(
-                    {"steps": f"You can't add a new step on {hidden_event}. {HIDDEN_EVENT_REASON}"},
-                    code="hidden_event",
-                )
+            if hidden_event:
+                team = self.context["get_team"]()
+                if hides_flag_calls_from_query_builders(team.organization_id, team_id=team.id):
+                    raise serializers.ValidationError(
+                        {"steps": f"You can't add a new step on {hidden_event}. {HIDDEN_EVENT_REASON}"},
+                        code="hidden_event",
+                    )
 
         return attrs
 

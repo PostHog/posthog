@@ -19,7 +19,9 @@ from django.utils import timezone
 
 import httpx
 import aiohttp
+import responses
 import psycopg.errors
+import posthoganalytics
 from asgiref.sync import sync_to_async
 from google.genai import types
 from google.genai.errors import APIError
@@ -1468,31 +1470,68 @@ class TestObservationStateActivities:
 
         assert ReplayObservationUsage.objects.filter(observation_id=observation.id).count() == 1
 
-    def test_mark_succeeded_captures_scan_completed_telemetry_once(self) -> None:
+    @pytest.mark.parametrize(
+        "model_output,subject_email,expected_verdict,expected_has_email",
+        [
+            (MonitorOutput(verdict="yes", reasoning="ok", confidence=0.9), "rene@customer.example", "yes", True),
+            (MonitorOutput(verdict="inconclusive", reasoning="ok", confidence=0.4), None, "inconclusive", False),
+            (ScorerOutput(score=3.0, reasoning="ok", confidence=0.9), "", None, False),
+            (ScorerOutput(score=3.0, reasoning="ok", confidence=0.9), "rene@customer.example", None, True),
+        ],
+    )
+    def test_mark_succeeded_captures_scan_completed_telemetry_once(
+        self,
+        model_output: MonitorOutput | ScorerOutput,
+        subject_email: str | None,
+        expected_verdict: str | None,
+        expected_has_email: bool,
+    ) -> None:
         # Cross-customer dashboards count this event; a retry after the sticky transition must not double-count.
-        scanner = _make_scanner()
-        observation = _make_observation(scanner, status=ObservationStatus.RUNNING, started_at=timezone.now())
-        result = ScannerResult(model_output=MonitorOutput(verdict="yes", reasoning="ok", confidence=0.9))
+        scanner = _make_scanner(scanner_type=model_output.scanner_type)
+        observation = _make_observation(
+            scanner,
+            status=ObservationStatus.RUNNING,
+            started_at=timezone.now(),
+            recording_subject_email=subject_email,
+        )
+        result = ScannerResult(model_output=model_output)
         inputs = MarkObservationSucceededInputs(
-            observation_id=observation.id, scanner_result=result, scanner_type=ScannerType.MONITOR
+            observation_id=observation.id, scanner_result=result, scanner_type=model_output.scanner_type
         )
 
-        with patch(
-            "products.replay_vision.backend.temporal.activities.observation_state.posthoganalytics.capture"
-        ) as capture:
+        sdk = posthoganalytics.Client(
+            "phc_test",
+            host="https://capture.example.com",
+            sync_mode=True,
+            capture_compression="none",
+            max_retries=0,
+        )
+        with responses.RequestsMock() as capture, patch.multiple(posthoganalytics, default_client=sdk, disabled=False):
+            capture.add(
+                responses.POST,
+                "https://capture.example.com/i/v1/analytics/events",
+                json={"results": {str(observation.id): {"result": "ok"}}},
+            )
             mark_observation_succeeded_activity(inputs)
             mark_observation_succeeded_activity(inputs)  # retry: the transition is sticky, so no second event
+            requests_sent = [call.request for call in capture.calls]
 
-        capture.assert_called_once()
-        kwargs = capture.call_args.kwargs
-        assert kwargs["event"] == "replay_vision_scan_completed"
-        assert kwargs["distinct_id"] == f"replay-vision:{observation.team_id}"
-        properties = kwargs["properties"]
+        assert len(requests_sent) == 1
+        payload = json.loads(requests_sent[0].body)
+        assert not subject_email or subject_email not in repr(payload)
+        [event] = payload["batch"]
+        assert event["event"] == "replay_vision_scan_completed"
+        assert event["distinct_id"] == f"replay-vision:{observation.team_id}"
+        assert event["uuid"] == str(observation.id)
+        properties = event["properties"]
         assert properties["scanner_id"] == str(scanner.id)
-        assert properties["scanner_type"] == "monitor"
+        assert properties["scanner_type"] == model_output.scanner_type.value
         assert properties["credits"] == observation_credits_for_model(observation.scanner_snapshot["model"])
         assert properties["organization_id"] == str(observation.team.organization_id)
-        assert kwargs["groups"]["organization"] == str(observation.team.organization_id)
+        assert properties.get("scanner_output_verdict") == expected_verdict
+        assert ("scanner_output_verdict" in properties) == (expected_verdict is not None)
+        assert properties["has_subject_email"] is expected_has_email
+        assert properties["$groups"]["organization"] == str(observation.team.organization_id)
 
     def test_mark_failed_writes_no_usage_receipt(self) -> None:
         scanner = _make_scanner()

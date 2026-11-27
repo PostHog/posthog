@@ -353,7 +353,7 @@ def _select_type_columns(
     return list(select_type.columns.items())
 
 
-def _unify_select_set_columns(
+def unify_select_set_columns(
     select_types: list[ast.SelectQueryType | ast.SelectSetQueryType],
     dialect: HogQLDialect,
     context: HogQLContext,
@@ -528,6 +528,7 @@ class Resolver(CloningVisitor):
         self._synthetic_using_join_aliases: set[str] = set()
         # Re-entrancy guard for argument-duplicating bot-lookup macros (see _expand_duplicating_macro).
         self._inside_posthog_macro_expansion: bool = False
+        self._inside_insight_selection: bool = False
         # Marks whether the outermost SELECT has been entered. Used to keep a top-level `SELECT *`
         # on a direct-connection table literal (so the external server expands the star); nested and
         # CTE-body stars still expand to explicit columns so enclosing queries can read them.
@@ -585,7 +586,7 @@ class Resolver(CloningVisitor):
         ]
         result.type = ast.SelectSetQueryType(
             types=select_types,  # type: ignore[arg-type]
-            columns=_unify_select_set_columns(select_types, self.dialect, self.context, result.select_queries()),  # type: ignore[arg-type]
+            columns=unify_select_set_columns(select_types, self.dialect, self.context, result.select_queries()),  # type: ignore[arg-type]
         )
 
         self.ctes = parent_ctes
@@ -987,6 +988,8 @@ class Resolver(CloningVisitor):
                     first_type.columns = {
                         new_name: initial.select[i].type or ast.UnknownType() for i, new_name in enumerate(node.columns)
                     }
+                    if cte_expr.type.columns:
+                        cte_expr.type.columns = dict(zip(node.columns, cte_expr.type.columns.values()))
 
         if node.using_key is not None:
             if node.columns:
@@ -1532,7 +1535,9 @@ class Resolver(CloningVisitor):
                 self.join_sources = outer_join_sources
             return resolved
 
-        chosen_body = swap_flag_calls(body, self.context, resolve, scope=FlagCallScope.view(view_name)).source
+        chosen_body = swap_flag_calls(
+            body, self.context, resolve, scope=FlagCallScope.view(view_name), enclosing_ctes=self.ctes
+        ).source
         self._flag_call_view_bodies[key] = chosen_body
         return clone_expr(chosen_body)
 
@@ -1658,11 +1663,11 @@ class Resolver(CloningVisitor):
 
             if isinstance(database_table, LazyTable):
                 if isinstance(database_table, PersonsTable):
-                    # Promotion moves predicates before resolution, so preserve their CTE bindings first.
-                    if node.constraint is not None:
-                        CteReferenceBinder(set(self.ctes)).visit(node.constraint)
-                    # Check for inlineable exprs in the join on the persons table
                     database_table = database_table.create_new_table_with_filter(node)
+                    # The held copy is resolved later, outside this scope, so bind its CTE references now.
+                    if database_table.filter is not None:
+                        self.context.holds_join_filters = True
+                        CteReferenceBinder(set(self.ctes)).visit(database_table.filter)
                 node_table_type: ast.TableType | ast.LazyTableType = ast.LazyTableType(table=database_table)
 
             else:
@@ -2302,6 +2307,21 @@ class Resolver(CloningVisitor):
                 return self.visit(
                     matches_action(node=node, args=node.args, context=self.context, events_alias=events_alias)
                 )
+            if node.name == "matchesInsight":
+                from posthog.hogql.functions.insight import (
+                    matches_insight,  # noqa: PLC0415 -- keeps query schemas off Django's startup path
+                )
+
+                if self._inside_insight_selection:
+                    raise QueryError("Insight selections cannot contain another insight selection")
+                events_alias, _ = self._get_events_table_current_scope()
+                if events_alias is None:
+                    raise QueryError("matchesInsight can only be used with the events table")
+                self._inside_insight_selection = True
+                try:
+                    return self.visit(matches_insight(node, self.context, events_alias))
+                finally:
+                    self._inside_insight_selection = False
             if node.name == "getSurveyResponse":
                 return self.visit(
                     get_survey_response(node=node, args=node.args, use_new_schema=self.context.uses_new_events_schema())
@@ -2896,6 +2916,11 @@ class Resolver(CloningVisitor):
                 type=ast.FieldAliasType(alias=property_alias, type=node.type),
             )
 
+        return node
+
+    def visit_property_access(self, node: ast.PropertyAccess):
+        node = super().visit_property_access(node)
+        node.type = ast.StringType(nullable=True)
         return node
 
     def visit_array_access(self, node: ast.ArrayAccess):

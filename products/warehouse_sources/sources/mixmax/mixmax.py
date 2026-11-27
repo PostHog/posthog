@@ -2,7 +2,7 @@
 
 Mixmax is a sales-engagement / email-productivity API served at https://api.mixmax.com/v1 with
 `X-API-Token` header auth. List endpoints are cursor-paginated behind a `{results, next, hasNext,
-previous, hasPrevious}` wrapper; `/…/me` endpoints return a single caller-scoped object with no
+previous, hasPrevious}` wrapper (meeting summaries use `skip`/`limit` instead); `/…/me` endpoints return a single caller-scoped object with no
 wrapper. Collections are returned newest-first (by creation time).
 
 Incremental note: the API exposes no server-side timestamp filter (no `updated_after`/`since`), so
@@ -16,7 +16,7 @@ Rate limits: 120 requests / 60s per user+IP, `429` with `Retry-After`. The frame
 """
 
 import dataclasses
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from typing import Any, Optional, cast
 from urllib.parse import quote, urlencode
 
@@ -33,6 +33,7 @@ from products.warehouse_sources.sources.sdk import (
     BaseNextUrlPaginator,
     ClientConfig,
     Endpoint,
+    EndpointResource,
     OffsetPaginator,
     RESTAPIConfig,
     ResumableSourceManager,
@@ -53,6 +54,8 @@ MIXMAX_BASE_URL = "https://api.mixmax.com/v1"
 class MixmaxResumeConfig:
     # Fully-built URL of the next page to fetch. None means "start at the endpoint's first page".
     next_url: str | None = None
+    # Next `skip` value for the offset-paged lists (`offset_data_key` endpoints).
+    offset: int | None = None
 
 
 def _build_url(path: str, single_object: bool, next_cursor: str | None = None) -> str:
@@ -138,12 +141,31 @@ def _client_config(api_key: str) -> ClientConfig:
     }
 
 
-def _with_encoded_parent_id(row: dict[str, Any]) -> dict[str, Any]:
-    row[PARENT_ID_PARAM_FIELD] = quote(str(row["_id"]), safe="")
-    return row
+def _encoded_parent_id(id_field: str) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    def add_param(row: dict[str, Any]) -> dict[str, Any]:
+        row[PARENT_ID_PARAM_FIELD] = quote(str(row[id_field]), safe="")
+        return row
+
+    return add_param
+
+
+def _offset_list_endpoint(config: MixmaxEndpointConfig) -> Endpoint:
+    assert config.offset_data_key is not None
+    return {
+        "paginator": OffsetPaginator(limit=config.page_size, offset_param="skip", total_path="total"),
+        "data_selector": config.offset_data_key,
+    }
+
+
+def _parent_endpoint_extra(config: MixmaxEndpointConfig) -> Endpoint:
+    if config.offset_data_key is not None:
+        return _offset_list_endpoint(config)
+    return {"paginator": MixmaxCursorPaginator(config.path), "data_selector": "results"}
 
 
 def _child_endpoint_extra(config: MixmaxEndpointConfig) -> Endpoint:
+    if config.single_object:
+        return {"paginator": SinglePagePaginator()}
     if config.child_page_size is not None:
         # The body is a plain array, so it needs no selector.
         return {
@@ -172,9 +194,9 @@ def _fanout_source(
             db_incremental_field_last_value=None,
             # The parent page size rides in `fanout.parent_params`; the child page size rides in its paginator.
             page_size_param=None,
-            parent_endpoint_extra={"paginator": MixmaxCursorPaginator(parent_config.path), "data_selector": "results"},
+            parent_endpoint_extra=_parent_endpoint_extra(parent_config),
             child_endpoint_extra=_child_endpoint_extra(config),
-            parent_data_map=_with_encoded_parent_id,
+            parent_data_map=_encoded_parent_id(parent_config.id_field),
         ),
     )
 
@@ -200,25 +222,30 @@ def mixmax_source(
     if config.fanout is not None:
         return _fanout_source(api_key, endpoint, config, team_id, job_id)
 
-    # Single-object `/…/me` endpoints take no pagination params; collections carry the page limit.
-    params: dict[str, Any] = {} if config.single_object else {"limit": PAGE_SIZE}
+    if config.offset_data_key is not None:
+        resource_config: EndpointResource = {
+            "name": endpoint,
+            "endpoint": {"path": config.path, **_offset_list_endpoint(config)},
+        }
+    else:
+        # Single-object `/…/me` endpoints take no pagination params; collections carry the page limit.
+        params: dict[str, Any] = {} if config.single_object else {"limit": PAGE_SIZE}
+        resource_config = {
+            "name": endpoint,
+            "endpoint": {
+                "path": config.path,
+                "params": params,
+                # No data_selector: the body is reshaped per-item by `_reshape_row`, which handles
+                # both the cursor-wrapped collection and the single-object `/…/me` shapes.
+                "paginator": MixmaxCursorPaginator(config.path),
+            },
+            "data_map": _reshape_row,
+        }
 
     rest_config: RESTAPIConfig = {
         "client": _client_config(api_key),
         "resource_defaults": {},
-        "resources": [
-            {
-                "name": endpoint,
-                "endpoint": {
-                    "path": config.path,
-                    "params": params,
-                    # No data_selector: the body is reshaped per-item by `_reshape_row`, which handles
-                    # both the cursor-wrapped collection and the single-object `/…/me` shapes.
-                    "paginator": MixmaxCursorPaginator(config.path),
-                },
-                "data_map": _reshape_row,
-            }
-        ],
+        "resources": [resource_config],
     }
 
     initial_paginator_state: Optional[dict[str, Any]] = None
@@ -226,12 +253,16 @@ def mixmax_source(
         resume = resumable_source_manager.load_state()
         if resume is not None and resume.next_url:
             initial_paginator_state = {"next_url": resume.next_url}
+        elif resume is not None and resume.offset is not None:
+            initial_paginator_state = {"offset": resume.offset}
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
         # Persist only when a next page remains; save AFTER a page is yielded so a crash re-yields
         # the last page (merge dedupes) rather than skipping it.
         if state and state.get("next_url"):
             resumable_source_manager.save_state(MixmaxResumeConfig(next_url=state["next_url"]))
+        elif state and state.get("offset") is not None:
+            resumable_source_manager.save_state(MixmaxResumeConfig(offset=state["offset"]))
 
     resource = rest_api_resource(
         rest_config,
