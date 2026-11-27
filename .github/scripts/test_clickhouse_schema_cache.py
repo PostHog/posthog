@@ -12,7 +12,10 @@ from clickhouse_schema_cache import (
     fingerprint,
     incompatibility,
     load,
+    normalize_ddl,
+    normalize_snapshot,
     operation_text,
+    strip_enclosing_parens,
 )
 from parameterized import parameterized
 
@@ -119,3 +122,82 @@ def test_load_raises_when_the_cleanup_after_a_failed_restore_fails(tmp_path, mon
     monkeypatch.setattr(clickhouse_schema_cache, "reset", _failing)
     with pytest.raises(SnapshotError, match="could not clean up"):
         load(directory, checkout)
+
+
+VERSION = "bitShiftLeft(toUInt64(NOT isNull(property_type)), 48) + toUInt64(toUnixTimestamp(last_seen_at))"
+
+
+def test_restored_property_definitions_version_matches_the_migrated_one() -> None:
+    migrated = f"CREATE TABLE t (`type` UInt8 DEFAULT 1, `version` UInt64 MATERIALIZED ({VERSION})) ENGINE = Memory"
+    restored = f"CREATE TABLE t (`type` UInt8 DEFAULT 1, `version` UInt64 MATERIALIZED {VERSION}) ENGINE = Memory"
+    assert normalize_ddl(migrated) == normalize_ddl(restored) == restored
+    column = f"column\tdb\tt\t9\tversion\tUInt64\tMATERIALIZED\t({VERSION})\t\n"
+    assert normalize_snapshot(column) == column.replace(f"({VERSION})", VERSION)
+
+
+@parameterized.expand(
+    [
+        ("a real expression change", "x UInt8 DEFAULT (a + 1), y Int8", "x UInt8 DEFAULT (a + 2), y Int8"),
+        ("a different default", "x UInt8 DEFAULT 1, y Int8", "x UInt8 DEFAULT 2, y Int8"),
+        (
+            "a keyword inside a string literal",
+            "x String DEFAULT 'foo DEFAULT (bar), baz', y",
+            "x String DEFAULT 'foo DEFAULT bar, baz', y",
+        ),
+        (
+            "a keyword after an escaped quote in a literal",
+            r"x String DEFAULT 'a\' DEFAULT (b)', y",
+            r"x String DEFAULT 'a\' DEFAULT b', y",
+        ),
+        ("parentheses inside the expression", "x UInt8 DEFAULT (a) + (b), y", "x UInt8 DEFAULT a + b, y"),
+    ]
+)
+def test_normalizing_keeps_real_ddl_differences(_name: str, left: str, right: str) -> None:
+    assert normalize_ddl(left) != normalize_ddl(right)
+
+
+def test_normalizing_leaves_tuples_and_quoted_parentheses_alone() -> None:
+    assert strip_enclosing_parens("(a, b)") == "(a, b)"
+    assert strip_enclosing_parens("(a)") == "a"
+    quoted = "x String DEFAULT '(a)', y"
+    assert normalize_ddl(quoted) == quoted
+
+
+def test_normalize_snapshot_reads_literals_through_tsv_escaping() -> None:
+    # ClickHouse TSV writes the quotes of a SQL literal as \' in the field.
+    literal = "table\tdb\tt\tMemory\tCREATE TABLE t (x String DEFAULT \\'foo DEFAULT (bar)\\', y UInt8)\t0\n"
+    assert normalize_snapshot(literal) == literal
+    wrapped = "table\tdb\tt\tMemory\tCREATE TABLE t (y UInt8 DEFAULT (1))\t0\n"
+    assert normalize_snapshot(wrapped) == wrapped.replace("(1)", "1")
+
+
+def _table_row(ddl: str) -> str:
+    return f"table\tdb\tt\tReplicatedMergeTree\t{ddl}\t0\n"
+
+
+@parameterized.expand(
+    [
+        (
+            "engine arguments",
+            "CREATE TABLE t (y UInt8) ENGINE = ReplicatedMergeTree(\\'/clickhouse/DEFAULT (1),x\\', \\'r\\')",
+            "CREATE TABLE t (y UInt8) ENGINE = ReplicatedMergeTree(\\'/clickhouse/DEFAULT 1,x\\', \\'r\\')",
+        ),
+        (
+            "a line comment",
+            "CREATE TABLE t (y UInt8) -- DEFAULT (1)\\n ENGINE = Memory",
+            "CREATE TABLE t (y UInt8) -- DEFAULT 1\\n ENGINE = Memory",
+        ),
+        (
+            "a block comment",
+            "CREATE TABLE t (y UInt8 /* DEFAULT (1) */, z UInt8) ENGINE = Memory",
+            "CREATE TABLE t (y UInt8 /* DEFAULT 1 */, z UInt8) ENGINE = Memory",
+        ),
+    ]
+)
+def test_snapshot_keeps_keyword_text_in_arguments_and_comments_different(_name: str, left: str, right: str) -> None:
+    assert normalize_snapshot(_table_row(left)) != normalize_snapshot(_table_row(right))
+
+
+def test_snapshot_still_strips_a_real_expression_after_a_comment() -> None:
+    ddl = "CREATE TABLE t (y UInt8 /* note */ DEFAULT (1), z UInt8) ENGINE = Memory"
+    assert normalize_snapshot(_table_row(ddl)) == _table_row(ddl.replace("(1)", "1"))

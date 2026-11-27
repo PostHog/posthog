@@ -1,3 +1,5 @@
+import type { FrameMeta } from './queryTypes'
+
 /**
  * The lines `POST dashboard_v2/query_batch/` streams back as NDJSON. The stream is not described in the OpenAPI
  * schema, so these types follow `products/dashboards/backend/v2/query_batch.py` (`_result_line`) and
@@ -17,7 +19,7 @@ export type Frame = {
     name: string | null
     labels: Record<string, string>
     fields: FrameField[]
-    meta: { interval?: string | null; end?: number | null; truncated?: boolean; previous?: boolean }
+    meta: FrameMeta
     hash: string
 }
 
@@ -35,6 +37,8 @@ export type QueryBatchLine = {
         /** Freshness and access-control notes that qualify the frames. */
         warnings?: { message: string }[]
         cache?: { fetchedAt?: string | null; stale?: boolean; hit?: boolean }
+        /** Where the result came from. `derived` means it was read from a precomputed result. */
+        provenance?: { mode?: string; timeline?: { source: string; ms: number }[] }
     } | null
 }
 

@@ -142,27 +142,94 @@ export const VisualReviewRunsAddSnapshotsCreateBody = /* @__PURE__ */ zod.object
 })
 
 /**
- * Mark snapshots reviewed (DB only).
+ * Accept snapshots (DB only).
  *
- * Records the per-snapshot "Accept change" decision. Does not commit the baseline
- * or change the GitHub gate — call finalize to ship the run. Works on a quarantined
- * snapshot too: a quarantined snapshot approved here is committed by finalize, which
- * updates a quarantined story's baseline entry without lifting the quarantine.
+ * Records the per-snapshot "Accept change" decision. Does not change the baseline or pass
+ * the gate; call finalize on the pull request's newest run for that. In ledger mode the run
+ * can be an older run of the pull request: the accept counts on every run that renders the
+ * same pictures. Works on a quarantined snapshot too: finalize records or commits it, and the
+ * quarantine stays.
  */
+export const visualReviewRunsApproveCreateBodySnapshotsItemIdentifierMax = 512
+
+export const visualReviewRunsApproveCreateBodySnapshotsItemNewHashMax = 128
+
+export const visualReviewRunsApproveCreateBodySnapshotsItemOldHashMax = 128
+
+export const visualReviewRunsApproveCreateBodyExpectedSeqMin = 0
+
+export const visualReviewRunsApproveCreateBodyOverrideRejectionDefault = false
+
 export const VisualReviewRunsApproveCreateBody = /* @__PURE__ */ zod.object({
     snapshots: zod
         .array(
             zod.object({
                 identifier: zod
                     .string()
-                    .describe('The snapshot identifier to approve (e.g. Storybook story id plus theme).'),
+                    .max(visualReviewRunsApproveCreateBodySnapshotsItemIdentifierMax)
+                    .describe('The snapshot identifier, such as a Storybook story id plus theme.'),
                 new_hash: zod
                     .string()
-                    .describe('The content hash of the new baseline image to record for this identifier.'),
+                    .max(visualReviewRunsApproveCreateBodySnapshotsItemNewHashMax)
+                    .nullish()
+                    .describe(
+                        "The snapshot's `current_artifact.content_hash` on the run you pass as `id`. Null only for a `removed` snapshot, and only in a ledger-mode repo: elsewhere finalize accepts removals by itself."
+                    ),
+                old_hash: zod
+                    .string()
+                    .max(visualReviewRunsApproveCreateBodySnapshotsItemOldHashMax)
+                    .nullish()
+                    .describe(
+                        "Optional: the snapshot's `baseline_artifact.content_hash` on that run, or an empty string for a `new` snapshot. When given, the call is refused if the run compares against another baseline, so the decision lands only on the pair of pictures you looked at."
+                    ),
             })
         )
         .describe(
-            'Snapshots to mark reviewed, each with `identifier` and `new_hash`. This only records the review in the database (the per-snapshot \"Accept change\" action) — it does not change the baseline or the GitHub gate. Commit the baseline and green the gate with the finalize endpoint.'
+            'Snapshots to accept, each with `identifier` and `new_hash`. This only records the decision (the per-snapshot \"Accept change\" action). It does not change the baseline or pass the gate: the finalize endpoint does that.'
+        ),
+    expected_seq: zod
+        .number()
+        .min(visualReviewRunsApproveCreateBodyExpectedSeqMin)
+        .nullish()
+        .describe(
+            'Optional: the highest decision `seq` you read on these snapshots, or 0 when you read none. The call is refused with 409 `decided_since` when someone decided on one of them after that.'
+        ),
+    override_rejection: zod
+        .boolean()
+        .default(visualReviewRunsApproveCreateBodyOverrideRejectionDefault)
+        .describe(
+            'Accept a snapshot someone else rejected. Only for a person who read the rejection. An agent through MCP can never accept over a rejection.'
+        ),
+})
+
+/**
+ * Undo the accept or reject of snapshots, in ledger mode, so they need review again.
+ */
+export const visualReviewRunsClearCreateBodyIdentifiersItemMax = 512
+
+export const visualReviewRunsClearCreateBodyIdentifiersMax = 500
+
+export const visualReviewRunsClearCreateBodyExpectedSeqMin = 0
+
+export const visualReviewRunsClearCreateBodyOverrideRejectionDefault = false
+
+export const VisualReviewRunsClearCreateBody = /* @__PURE__ */ zod.object({
+    identifiers: zod
+        .array(zod.string().max(visualReviewRunsClearCreateBodyIdentifiersItemMax))
+        .max(visualReviewRunsClearCreateBodyIdentifiersMax)
+        .describe('Identifiers of the snapshots whose accept or reject to undo, on the run you pass as `id`.'),
+    expected_seq: zod
+        .number()
+        .min(visualReviewRunsClearCreateBodyExpectedSeqMin)
+        .nullish()
+        .describe(
+            'Optional: the highest decision `seq` you read on these snapshots, or 0 when you read none. The call is refused with 409 `decided_since` when someone decided on one of them after that.'
+        ),
+    override_rejection: zod
+        .boolean()
+        .default(visualReviewRunsClearCreateBodyOverrideRejectionDefault)
+        .describe(
+            "Undo a rejection someone else made. Only for a person who read the rejection. Your own rejection undoes without it. An agent through MCP can never undo another user's rejection."
         ),
 })
 
@@ -185,14 +252,14 @@ export const VisualReviewRunsCompleteCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Finalize a fully-reviewed run: commit the approved baseline and green the gate.
+ * Finalize a fully-reviewed run: record or commit the accepted baseline and pass the gate.
  *
- * Commits exactly the snapshots approved in the DB (tolerated ones keep their baseline)
- * and only succeeds once every changed/new snapshot is resolved. With approve_all=true,
- * any still-pending changed/new snapshot is approved first; quarantined snapshots are
- * skipped, but a quarantined snapshot approved by identifier is still committed.
- * With commit_to_github=false the server returns the signed baseline YAML instead of
- * committing it.
+ * Succeeds only once every changed, new and removed snapshot is accepted, tolerated or
+ * quarantined, and none is rejected. In ledger mode an accept made on an earlier run of the
+ * pull request counts while the pictures are the same, and removals nobody rejected are
+ * accepted. With approve_all=true every change nobody decided on is accepted first; a
+ * rejected snapshot is never accepted. With commit_to_github=false the server returns the
+ * signed baseline YAML instead of committing it.
  */
 export const visualReviewRunsFinalizeCreateBodyApproveAllDefault = false
 export const visualReviewRunsFinalizeCreateBodyCommitToGithubDefault = true
@@ -203,7 +270,7 @@ export const VisualReviewRunsFinalizeCreateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .default(visualReviewRunsFinalizeCreateBodyApproveAllDefault)
         .describe(
-            "Approve every still-pending changed and new snapshot before finalizing (tolerated snapshots are left untouched). Leave false to finalize a run you've already reviewed — finalizing fails if any changed\/new snapshot is still unreviewed."
+            'Accept every changed and new snapshot that nobody decided on before finalizing. Tolerated and quarantined snapshots are left alone, and a rejected snapshot is never accepted, so it still blocks. Leave false to finalize a run you already reviewed: finalizing fails if any change still needs review.'
         ),
     commit_to_github: zod
         .boolean()
@@ -230,6 +297,63 @@ export const VisualReviewRunsLiftOnMergeCreateBody = /* @__PURE__ */ zod.object(
         .max(visualReviewRunsLiftOnMergeCreateBodyIdentifierMax)
         .describe(
             "Identifier of a quarantined snapshot in this run, such as a Storybook story ID. The snapshot's picture is what a default-branch run must render for the quarantine to lift. An unchanged snapshot uses its baseline. A changed or new snapshot must be approved first, because requesting a lift never approves a picture."
+        ),
+})
+
+/**
+ * Reject snapshots of a pull request run with a reason, in ledger mode.
+ *
+ * A rejected snapshot blocks finalize until the pull request renders a different picture or
+ * the rejection is undone.
+ */
+export const visualReviewRunsRejectCreateBodySnapshotsItemIdentifierMax = 512
+
+export const visualReviewRunsRejectCreateBodySnapshotsItemNewHashMax = 128
+
+export const visualReviewRunsRejectCreateBodySnapshotsItemOldHashMax = 128
+
+export const visualReviewRunsRejectCreateBodySnapshotsItemReasonMax = 500
+
+export const visualReviewRunsRejectCreateBodyExpectedSeqMin = 0
+
+export const VisualReviewRunsRejectCreateBody = /* @__PURE__ */ zod.object({
+    snapshots: zod
+        .array(
+            zod.object({
+                identifier: zod
+                    .string()
+                    .max(visualReviewRunsRejectCreateBodySnapshotsItemIdentifierMax)
+                    .describe('The snapshot identifier, such as a Storybook story id plus theme.'),
+                new_hash: zod
+                    .string()
+                    .max(visualReviewRunsRejectCreateBodySnapshotsItemNewHashMax)
+                    .nullish()
+                    .describe(
+                        "The snapshot's `current_artifact.content_hash` on the run you pass as `id`. Null only for a `removed` snapshot, and only in a ledger-mode repo: elsewhere finalize accepts removals by itself."
+                    ),
+                old_hash: zod
+                    .string()
+                    .max(visualReviewRunsRejectCreateBodySnapshotsItemOldHashMax)
+                    .nullish()
+                    .describe(
+                        "Optional: the snapshot's `baseline_artifact.content_hash` on that run, or an empty string for a `new` snapshot. When given, the call is refused if the run compares against another baseline, so the decision lands only on the pair of pictures you looked at."
+                    ),
+                reason: zod
+                    .string()
+                    .min(1)
+                    .max(visualReviewRunsRejectCreateBodySnapshotsItemReasonMax)
+                    .describe(
+                        'What is wrong with the new picture, so the author can fix it. Shown on the pull request.'
+                    ),
+            })
+        )
+        .describe('Snapshots to reject, each with `identifier`, `new_hash` and `reason`.'),
+    expected_seq: zod
+        .number()
+        .min(visualReviewRunsRejectCreateBodyExpectedSeqMin)
+        .nullish()
+        .describe(
+            'Optional: the highest decision `seq` you read on these snapshots, or 0 when you read none. The call is refused with 409 `decided_since` when someone decided on one of them after that.'
         ),
 })
 

@@ -79,6 +79,16 @@ def _market(ticker: str, opened: datetime, closes: datetime) -> dict[str, Any]:
     return {"ticker": ticker, "open_time": opened.isoformat(), "close_time": closes.isoformat()}
 
 
+def _orderbooks(*books: tuple[str, list[list[str]], list[list[str]]]) -> ScriptedResponse:
+    return ScriptedResponse(
+        json={
+            "orderbooks": [
+                {"ticker": ticker, "orderbook_fp": {"yes_dollars": yes, "no_dollars": no}} for ticker, yes, no in books
+            ]
+        }
+    )
+
+
 def _candlesticks(*markets: tuple[str, list[int]]) -> ScriptedResponse:
     return ScriptedResponse(
         json={
@@ -169,6 +179,16 @@ class TestKalshiTransport:
 
         assert result.raised is None
         assert result.requests[0].param("cursor") == "saved"
+
+    def test_series_fee_changes_include_past_changes(self) -> None:
+        # Without `show_historical`, Kalshi returns only changes that have not taken effect yet.
+        change = {"id": "f1", "series_ticker": "KXA", "fee_type": "flat", "fee_multiplier": 1, "scheduled_ts": "x"}
+        result = _driver().run("series_fee_changes", [_page("series_fee_change_arr", [change])])
+
+        assert result.raised is None
+        assert result.paths == ["/trade-api/v2/series/fee_changes"]
+        assert result.requests[0].query == {"show_historical": ("true",)}
+        assert result.rows == [change]
 
     @parameterized.expand(
         [
@@ -522,6 +542,82 @@ class TestKalshiCandlesticks:
         markets = [_CandlestickMarket(ticker=str(i), start_ts=0, end_ts=days * 86400) for i in range(count)]
 
         assert [len(batch) for batch in _batch_markets(markets)] == expected_sizes
+
+
+class TestKalshiOrderbooks:
+    def test_walks_open_markets_and_flattens_each_price_level(self) -> None:
+        first_page = [{"ticker": f"M{i}"} for i in range(150)] + [{"ticker": None}]
+        result = _driver().run(
+            "market_orderbooks",
+            route(
+                {
+                    "/markets": [
+                        _page("markets", first_page, cursor="c1"),
+                        _page("markets", [{"ticker": "LAST"}]),
+                    ],
+                    "/orderbooks": [
+                        # A malformed level is dropped instead of failing the sync.
+                        _orderbooks(("M0", [["0.0100", "5.00"], ["0.0200"]], [["0.9700", "2.00"]])),
+                        _orderbooks(("M100", [], [])),
+                        _orderbooks(("LAST", [["0.5000", "1.00"]], [])),
+                    ],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert result.paths == [
+            "/trade-api/v2/markets",
+            "/trade-api/v2/markets/orderbooks",
+            "/trade-api/v2/markets/orderbooks",
+            "/trade-api/v2/markets",
+            "/trade-api/v2/markets/orderbooks",
+        ]
+        assert result.params("status") == ["open", None, None, "open", None]
+        assert result.params("mve_filter") == ["exclude", None, None, "exclude", None]
+        assert result.params("cursor") == [None, None, None, "c1", None]
+        # Kalshi reads repeated `tickers` params and takes at most 100 per request.
+        assert [request.query.get("tickers") for request in result.requests] == [
+            None,
+            tuple(f"M{i}" for i in range(100)),
+            tuple(f"M{i}" for i in range(100, 150)),
+            None,
+            ("LAST",),
+        ]
+        assert [{k: v for k, v in row.items() if k != "fetched_at"} for row in result.rows] == [
+            {"market_ticker": "M0", "side": "yes", "price_dollars": "0.0100", "count_fp": "5.00"},
+            {"market_ticker": "M0", "side": "no", "price_dollars": "0.9700", "count_fp": "2.00"},
+            {"market_ticker": "LAST", "side": "yes", "price_dollars": "0.5000", "count_fp": "1.00"},
+        ]
+        assert len({row["fetched_at"] for row in result.rows}) == 1
+        assert result.response is not None
+        assert result.response.primary_keys == ["market_ticker", "side", "price_dollars"]
+
+    def test_resumes_from_the_saved_market_page_and_stages_the_next_page_before_its_rows(self) -> None:
+        result = _driver().run(
+            "market_orderbooks",
+            route(
+                {
+                    "/markets": [
+                        _page("markets", [{"ticker": "A"}], cursor="c2"),
+                        _page("markets", [{"ticker": "B"}]),
+                    ],
+                    "/orderbooks": [
+                        _orderbooks(("A", [["0.1000", "1.00"]], [])),
+                        _orderbooks(("B", [], [["0.2000", "1.00"]])),
+                    ],
+                }
+            ),
+            resume_state=KalshiResumeConfig(cursor="saved"),
+        )
+
+        assert result.raised is None
+        assert result.params("cursor") == ["saved", None, "c2", None]
+        # The rows of a page are yielded together under the cursor of the page after it, so a
+        # resume never writes a page twice into the full refresh.
+        assert result.saved_states == [KalshiResumeConfig(cursor="c2")]
+        assert KalshiResumeConfig(cursor="c2") in result.committed_states
+        assert [row["market_ticker"] for row in result.rows] == ["A", "B"]
 
 
 class TestKalshiWeatherIndex:

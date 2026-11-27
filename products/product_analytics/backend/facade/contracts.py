@@ -14,6 +14,7 @@ loses a field surfaces at the facade boundary instead of further down the caller
 
 from dataclasses import field
 from datetime import date, datetime
+from enum import StrEnum
 from typing import Any
 from uuid import UUID
 
@@ -63,6 +64,53 @@ class TrendsQueryRunResult:
 
     results: list[dict[str, Any]]
     last_refresh: datetime | None = None
+
+
+class SeriesValuesFeature(StrEnum):
+    """A kind of filter the stored path reproduces. A comparison is reported for each one a query used."""
+
+    EVENT_NAME = "event_name"
+    EVENT_PROPERTY_FILTERS = "event_property_filters"
+
+
+class SeriesValuesBlocker(StrEnum):
+    """Why a query gets no stored values."""
+
+    NO_COUNT_QUERY = "no_count_query"
+    MULTIPLE_SERIES = "multiple_series"
+    ALL_TIME_RANGE = "all_time_range"
+    BREAKDOWN = "breakdown"
+    OTHER_AGGREGATE = "other_aggregate"
+    OTHER_INTERVAL = "other_interval"
+    SAMPLING = "sampling"
+    UNSUPPORTED_CLAUSE = "unsupported_clause"
+    UNSUPPORTED_FILTER = "unsupported_filter"
+    UNSUPPORTED_TIME_RANGE = "unsupported_time_range"
+    TIMEZONE = "timezone"
+    PROPERTY_ACCESS_RULES = "property_access_rules"
+    NO_FINISHED_BUCKET = "no_finished_bucket"
+    PARTIAL_HOUR = "partial_hour"
+    DATE_RANGE_TOO_LONG = "date_range_too_long"
+    NOT_READY = "not_ready"
+
+
+@dataclass(frozen=True)
+class PrecomputedSeriesValues:
+    """Stored Trends values for every finished bucket, keyed by the naive bucket start in the team timezone.
+
+    ``features`` are the kinds of filter the query used, so a comparison can be reported for each one.
+    """
+
+    values: dict[datetime, float]
+    freshly_built: bool = False
+    features: frozenset[SeriesValuesFeature] = frozenset()
+
+
+@dataclass(frozen=True)
+class SeriesValuesUnavailable:
+    """Why stored Trends values cannot serve a query."""
+
+    reason: SeriesValuesBlocker
 
 
 @dataclass(frozen=True)

@@ -103,6 +103,7 @@ pnpm --dir nodejs exec tsx tests/scenarios/cloud/main.ts cleanup <cloud profile>
 - **What a run does:** the controller admits the run against its cost cap and leases it for a fixed time. It creates the run stack, prepares the database, starts the card on the run host and waits for it. Then it tears the stack down and publishes the scorecard.
 - **Run id:** a fresh UUID, or the value of `SCENARIO_RUN_ID` in the controller's environment, so a caller can know the id before the run starts. The caller gives a lowercase UUID v8, the version for ids a caller derives itself, one per run. The harness mints v4 ids for its own runs, local and cloud, so a given id never names one of them, and its scorecard never replaces theirs. Any other value refuses the run before the lease writes anything. A given id's lease writes `manifest.json` first, create-only, so a second lease on that id refuses and leaves the first run as it was. A lease that fails deletes only the expiry schedules it created, so a lease of the same id against another evidence bucket, which finds the schedule names taken, leaves the first run's schedules in place.
 - **If the controller dies:** schedules registered before the first billable resource delete the stack. `cleanup` tears down a run by hand.
+- **Snapshots made outside the run:** an account backup schedule can snapshot the host volume and copy its run tag onto the snapshot. Teardown counts a run-tagged EBS snapshot as made outside the run when it carries a tag key under `aws:backup:` or `aws:dlm:`, which only AWS Backup and Data Lifecycle Manager can set. It prints the snapshot and its maker, leaves it to the schedule's owner, and still judges the run. Any other run-tagged EBS snapshot is a leftover, so its run is `invalid` and keeps its stack-delete schedules.
 - **Order of the first runs:** EU `current` first, as calibration: a run whose load is not admitted reports the baseline rates to tune the profile. Then US `current`, then both `historical-stress` profiles.
 - **Each run:** one profile, one lease, one cap.
 - **Pair:** a card with `pair: true` runs as a pair, the control and then the card under one lease, on one stack. The lease writes `pair: true` and a fresh `controlRunId` into the run manifest, and the host runs the card with `--pair`: the faulted run takes the manifest's `runId`, and the control its `controlRunId`. A runner refuses a manifest that asks for a pair without a `controlRunId` of its own.
@@ -1001,9 +1002,11 @@ A 4xx answer other than 429 stops at once and names the variable to check.
 | `SCENARIO_RUNS_PROJECT_TOKEN` | The project token, for capture                      |
 | `SCENARIO_RUNS_READ_KEY`      | A personal API key that can only query that project |
 
-None set: the runner writes no event, reports `recorded: false` and exits by status.
-All set: it writes and reads back, and exits 3 when either fails, unless the run was interrupted after the capture, which keeps the status's code.
-Some set: a configuration error, exit 2, before anything starts.
+The local runner skips publishing when all four variables are absent and exits with the run's status. If only some are set, it exits 2 before starting the run. If all four are set, it publishes and reads the event back. A capture or readback failure exits 3, unless an interruption after capture means the runner keeps the run's status.
+
+Direct cloud runs require all four variables. If any are missing, the controller warns and exits 3 before admission. After an admitted run, it attempts to save the scorecard to the evidence bucket and publish it to Scenario runs. If publishing and readback succeed, it returns the run's status. Otherwise it warns and exits 3.
+
+When a workflow takes responsibility for publishing, it sets `SCENARIO_PUBLISH_IN_WORKFLOW=1` on the cloud controller. The controller saves the scorecard to the evidence bucket and uses the run's verdict as its exit code. If saving fails, the controller exits with a scorecard write failure.
 
 #### Scorecard schema, version 1
 
@@ -1187,7 +1190,7 @@ It holds at most 5 database connections and stops any statement after 25 seconds
 
 **Report runs to it**
 
-The local runner and the cloud controller post each run to the store after they publish its scorecard event, when `SCENARIO_STORE_URL` is set and `~/.config/posthog/scenario-runs/store-token` holds the run token.
+The local runner and the cloud controller post each run to the store after they publish its scorecard event, when `SCENARIO_STORE_URL` is set and `~/.config/posthog/scenario-runs/store-token` holds the run token. A workflow that publishes separately takes responsibility for both destinations.
 They post the event's properties as the scorecard, and a local run adds the host name of its box.
 The event and the store post are two independent writes from one payload, so the event stays the durable record when the store is down.
 A failed report prints `store: <problem>`, or a warning from the cloud controller, and never changes the status or the exit code.

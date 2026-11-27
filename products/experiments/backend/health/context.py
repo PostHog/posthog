@@ -19,6 +19,7 @@ from posthog.schema import (
     EventPropertyFilter,
     ExperimentEventExposureConfig,
     ExperimentWarehouseNativeExposureConfig,
+    ExperimentWarehouseNativeRowsLeftOut,
     MultipleVariantHandling,
     PersonPropertyFilter,
     PropertyOperator,
@@ -390,6 +391,9 @@ class ExposureTotals:
     # Whether the totals come from precomputed exposures. These lag the events that the count without the test account
     # filter scans, so a burst of new users would read as users that the filter removes. Only the exposure query sets it.
     reads_precomputed_exposures: bool = False
+    # The rows of a warehouse-native exposure query that the totals leave out, by reason. Only the exposure query of a
+    # warehouse-native experiment sets it, and None when its count of those rows failed.
+    rows_left_out: ExperimentWarehouseNativeRowsLeftOut | None = None
 
     @property
     def total(self) -> int:

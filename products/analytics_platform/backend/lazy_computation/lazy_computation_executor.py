@@ -34,6 +34,7 @@ from posthog.hogql.database.schema.marketing_conversions_preaggregated import Ma
 from posthog.hogql.database.schema.marketing_costs_preaggregated import MarketingCostsPreaggregatedTable
 from posthog.hogql.database.schema.marketing_touchpoints_preaggregated import MarketingTouchpointsPreaggregatedTable
 from posthog.hogql.database.schema.preaggregation_results import PreaggregationResultsTable
+from posthog.hogql.database.schema.series_values_preaggregated import SeriesValuesPreaggregatedTable
 from posthog.hogql.database.schema.web_goals_preaggregated import WebGoalsPreaggregatedTable
 from posthog.hogql.database.schema.web_overview_preaggregated import WebOverviewPreaggregatedTable
 from posthog.hogql.database.schema.web_sessions_preaggregated import WebSessionsPreaggregatedTable
@@ -652,6 +653,7 @@ class LazyComputationTable(StrEnum):
     WEB_VITALS_PATHS_PREAGGREGATED = "web_vitals_paths_preaggregated"
     WEB_STATS_FRUSTRATION_PREAGGREGATED = "web_stats_frustration_preaggregated"
     WEB_GOALS_PREAGGREGATED = "web_goals_preaggregated"
+    SERIES_VALUES_PREAGGREGATED = "series_values_preaggregated"
     # Fixed-dimension tables driven by the scheduled web_dimensional_precompute
     # Dagster job (the precomputation-framework successor to v2 pre-aggregation).
     WEB_STATS_DIMENSIONAL_PREAGGREGATED = "web_stats_dimensional_preaggregated"
@@ -674,6 +676,7 @@ _READ_TABLES: dict[LazyComputationTable, Table] = {
     LazyComputationTable.WEB_VITALS_PATHS_PREAGGREGATED: WebVitalsPathsPreaggregatedTable(),
     LazyComputationTable.WEB_STATS_FRUSTRATION_PREAGGREGATED: WebStatsFrustrationPreaggregatedTable(),
     LazyComputationTable.WEB_GOALS_PREAGGREGATED: WebGoalsPreaggregatedTable(),
+    LazyComputationTable.SERIES_VALUES_PREAGGREGATED: SeriesValuesPreaggregatedTable(),
     LazyComputationTable.WEB_SESSIONS_DIMENSIONAL_PREAGGREGATED: WebSessionsPreaggregatedTable(),
 }
 

@@ -381,3 +381,152 @@ class TestSigmaComputingSourceFanout:
 
         assert query("/v2/reports") == [{"limit": ["1000"]}]
         assert query(child_path) == [{"pageSize": ["1000"]}, {"pageSize": ["1000"], "pageToken": ["TOKEN1"]}]
+
+
+def _run(endpoint: str, manager: Optional[_FakeResumeManager] = None) -> tuple[SourceResponse, list[dict[str, Any]]]:
+    response = sigma_computing_source(
+        region="gcp_us",
+        client_id="client",
+        client_secret="secret",
+        endpoint=endpoint,
+        team_id=1,
+        job_id="job-1",
+        resumable_source_manager=manager or _FakeResumeManager(),
+    )
+    return response, _collect_rows(response)
+
+
+def _query_params(requests_mock: Any, path: str) -> list[dict[str, list[str]]]:
+    return [parse_qs(urlparse(r.url).query) for r in requests_mock.request_history if r.path == path.lower()]
+
+
+class TestSigmaComputingSourceAdditionalTables:
+    def test_account_types_walk_page_token_pagination(self, requests_mock: Any) -> None:
+        _mock_token(requests_mock)
+        requests_mock.get(
+            f"{BASE_URL}/v2/accountTypes",
+            [
+                {"json": {"entries": [{"accountTypeId": "at1"}], "nextPageToken": "TOKEN1"}},
+                {"json": {"entries": [{"accountTypeId": "at2"}]}},
+            ],
+        )
+
+        response, rows = _run("AccountTypes")
+
+        assert rows == [{"accountTypeId": "at1"}, {"accountTypeId": "at2"}]
+        assert response.primary_keys == ["accountTypeId"]
+        assert response.partition_keys is None
+        assert _query_params(requests_mock, "/v2/accountTypes") == [
+            {"pageSize": ["1000"]},
+            {"pageSize": ["1000"], "pageToken": ["TOKEN1"]},
+        ]
+
+    @pytest.mark.parametrize(
+        "endpoint, parent_path, parent_key, child_suffix, first_row, second_row, expected_primary_keys",
+        [
+            (
+                "TeamMembers",
+                "/v2/teams",
+                "teamId",
+                "members",
+                {"userId": "u1", "isTeamAdmin": False, "addedBy": "u0"},
+                {"userId": "u2", "isTeamAdmin": True, "addedBy": "u0"},
+                ["teamId", "userId"],
+            ),
+            (
+                "DataModelElements",
+                "/v2/dataModels",
+                "dataModelId",
+                "elements",
+                {"elementId": "e1", "name": "Orders"},
+                {"elementId": "e2", "name": "Customers"},
+                ["dataModelId", "elementId"],
+            ),
+        ],
+    )
+    def test_page_paginated_children_inject_parent_id_and_walk_pages(
+        self,
+        requests_mock: Any,
+        endpoint: str,
+        parent_path: str,
+        parent_key: str,
+        child_suffix: str,
+        first_row: dict[str, Any],
+        second_row: dict[str, Any],
+        expected_primary_keys: list[str],
+    ) -> None:
+        _mock_token(requests_mock)
+        requests_mock.get(
+            f"{BASE_URL}{parent_path}",
+            json={"entries": [{parent_key: "p1"}, {parent_key: "p2"}], "nextPage": None},
+        )
+        requests_mock.get(
+            f"{BASE_URL}{parent_path}/p1/{child_suffix}",
+            [
+                {"json": {"entries": [first_row], "nextPage": "NEXT"}},
+                {"json": {"entries": [second_row], "nextPage": None}},
+            ],
+        )
+        requests_mock.get(f"{BASE_URL}{parent_path}/p2/{child_suffix}", json={"entries": [], "nextPage": None})
+
+        response, rows = _run(endpoint)
+
+        assert rows == [{**first_row, parent_key: "p1"}, {**second_row, parent_key: "p1"}]
+        assert response.primary_keys == expected_primary_keys
+        assert response.partition_keys is None
+        assert _query_params(requests_mock, parent_path) == [{"limit": ["1000"]}]
+        assert _query_params(requests_mock, f"{parent_path}/p1/{child_suffix}") == [
+            {"limit": ["1000"]},
+            {"limit": ["1000"], "page": ["NEXT"]},
+        ]
+        assert len(_query_params(requests_mock, f"{parent_path}/p2/{child_suffix}")) == 1
+
+    def test_workbook_sources_read_bare_list_and_derive_source_id(self, requests_mock: Any) -> None:
+        _mock_token(requests_mock)
+        requests_mock.get(
+            f"{BASE_URL}/v2/workbooks",
+            json={"entries": [{"workbookId": "wb1"}, {"workbookId": "wb2"}], "nextPage": None},
+        )
+        data_model = {"type": "data-model", "dataModelId": "dm1", "elementIds": ["e1"], "versionTagId": "v1"}
+        table = {"type": "table", "inodeId": "in1"}
+        dataset = {"type": "dataset", "inodeId": "in2", "url": "https://app.sigmacomputing.com/x"}
+        custom_sql = {
+            "type": "custom-sql",
+            "connectionId": "c1",
+            "definition": "select 1",
+            "customSqlId": "cs1",
+            "customSqlSourceId": "css1",
+        }
+        requests_mock.get(f"{BASE_URL}/v2/workbooks/wb1/sources", json=[data_model, table, dataset])
+        requests_mock.get(f"{BASE_URL}/v2/workbooks/wb2/sources", json=[custom_sql])
+
+        response, rows = _run("WorkbookSources")
+
+        assert rows == [
+            {**data_model, "workbookId": "wb1", "sourceId": "dm1"},
+            {**table, "workbookId": "wb1", "sourceId": "in1"},
+            {**dataset, "workbookId": "wb1", "sourceId": "in2"},
+            {**custom_sql, "workbookId": "wb2", "sourceId": "cs1"},
+        ]
+        assert response.primary_keys == ["workbookId", "type", "sourceId"]
+        assert _query_params(requests_mock, "/v2/workbooks") == [{"limit": ["1000"]}]
+        # The sources endpoint is unpaginated and takes no page-size param.
+        assert _query_params(requests_mock, "/v2/workbooks/wb1/sources") == [{}]
+
+    def test_workbook_sources_unknown_type_gets_stable_hash_id(self, requests_mock: Any) -> None:
+        _mock_token(requests_mock)
+        requests_mock.get(
+            f"{BASE_URL}/v2/workbooks",
+            json={"entries": [{"workbookId": "wb1"}, {"workbookId": "wb2"}], "nextPage": None},
+        )
+        unknown = {"type": "future-source", "someId": "x1"}
+        requests_mock.get(f"{BASE_URL}/v2/workbooks/wb1/sources", json=[unknown])
+        requests_mock.get(f"{BASE_URL}/v2/workbooks/wb2/sources", json=[unknown, {"type": "future-source"}])
+
+        _, rows = _run("WorkbookSources")
+
+        source_ids = [row["sourceId"] for row in rows]
+        assert all(isinstance(source_id, str) and len(source_id) == 64 for source_id in source_ids)
+        # The same entry gets the same id across workbooks; a different entry gets another id.
+        assert source_ids[0] == source_ids[1]
+        assert source_ids[1] != source_ids[2]

@@ -704,10 +704,13 @@ class CHQueries:
         start = time.perf_counter()
         # Stays "error" if get_response raises — observed in the finally below.
         status_class = "error"
+        drf_request: object | None = None
 
         try:
             response: HttpResponse = self.get_response(request)
             status_class = f"{response.status_code // 100}xx"
+            # A DRF response keeps the view's request, which knows the authenticator and the parsed body.
+            drf_request = (getattr(response, "renderer_context", None) or {}).get("request")
             if get_query_tag_value("is_scout_experiment") is True:
                 response["X-PostHog-Suppress-Analytics"] = "true"
             # Lets the frontend put the id on its failure analytics, which then join to this request's logs.
@@ -739,7 +742,7 @@ class CHQueries:
                     access_method=get_query_tag_value("access_method") or "",
                     status_class=status_class,
                 ).observe(time.perf_counter() - start)
-                record_scope_usage(request, route=api_route, status_class=status_class)
+                record_scope_usage(request, route=api_route, status_class=status_class, drf_request=drf_request)
             reset_query_tags()
 
     def process_view(

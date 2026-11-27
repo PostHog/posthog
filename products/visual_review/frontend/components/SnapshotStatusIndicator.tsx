@@ -18,12 +18,15 @@ const RESULT_STYLES: Record<string, { dot: string; text: string; label: string; 
     unchanged: { dot: 'bg-muted', text: 'text-muted', label: 'Unchanged', bg: 'bg-fill-secondary' },
 }
 
-function reviewBadge(reviewState: string): { text: string; className: string } | null {
+function reviewBadge(reviewState: string): { text: string; className: string; symbol: string } | null {
     if (reviewState === 'approved') {
-        return { text: 'Approved', className: 'text-success' }
+        return { text: 'Accepted', className: 'text-success', symbol: '✓' }
+    }
+    if (reviewState === 'rejected') {
+        return { text: 'Rejected', className: 'text-danger', symbol: '✕' }
     }
     if (reviewState === 'tolerated') {
-        return { text: 'Tolerated', className: 'text-muted' }
+        return { text: 'Tolerated', className: 'text-muted', symbol: '~' }
     }
     return null
 }
@@ -55,9 +58,7 @@ export function SnapshotStatusIndicator({
                 <span className="flex items-center gap-0.5">
                     <span className={`w-2 h-2 rounded-full shrink-0 ${styles.dot}`} />
                     {review && (
-                        <span className={`text-[9px] leading-none shrink-0 ${review.className}`}>
-                            {reviewState === 'approved' ? '✓' : '~'}
-                        </span>
+                        <span className={`text-[9px] leading-none shrink-0 ${review.className}`}>{review.symbol}</span>
                     )}
                 </span>
             </Tooltip>
@@ -73,8 +74,7 @@ export function SnapshotStatusIndicator({
                 </span>
                 {review && (
                     <span className={`text-xs ${review.className}`}>
-                        {reviewState === 'approved' && <IconCheck className="w-3.5 h-3.5 inline" />}
-                        {reviewState === 'tolerated' && '~'}
+                        {reviewState === 'approved' ? <IconCheck className="w-3.5 h-3.5 inline" /> : review.symbol}
                     </span>
                 )}
             </span>
@@ -92,8 +92,12 @@ export function SnapshotStatusIndicator({
             {/* Review badge */}
             {review && (
                 <span className={`flex items-center gap-1 text-sm font-medium ${review.className}`}>
-                    {reviewState === 'approved' && <IconCheck className="w-3.5 h-3.5" />}
-                    {review.text}
+                    {reviewState === 'approved' ? (
+                        <IconCheck className="w-3.5 h-3.5" />
+                    ) : (
+                        reviewState === 'rejected' && <span>{review.symbol}</span>
+                    )}
+                    <span>{review.text}</span>
                 </span>
             )}
         </span>

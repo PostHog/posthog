@@ -19,6 +19,7 @@ type Resource = {
     arn: string
     state: string
     runTag?: string
+    tags?: Record<string, string>
     clusterResourceId?: string
     secretArn?: string
     rdsClusterArn?: string
@@ -189,6 +190,7 @@ export class FakeCloud implements Aws {
     readonly resources: Resource[] = []
     readonly parameterStore = new Map<string, string>()
     readonly untyped: string[] = []
+    readonly hostVolumeSnapshots: Record<string, string>[] = []
     private readonly commands: Command[] = []
     private card: Card | undefined
     private metricReads = 0
@@ -482,8 +484,26 @@ export class FakeCloud implements Aws {
                 throw new Error(`the fake cloud does not model ${Type}`)
             }
             stack.resources.push(...created)
-            this.resources.push(...created)
+            this.resources.push(...created, ...created.flatMap((resource) => this.snapshotsOf(resource)))
         }
+    }
+
+    private snapshotsOf({ type, logicalId, runTag }: Resource): Resource[] {
+        if (type !== 'AWS::EC2::Volume' || runTag === undefined) {
+            return []
+        }
+        return this.hostVolumeSnapshots.map((tags, n) => {
+            const snapshotId = `snap-${randomUUID().replace(/-/g, '').slice(0, 17)}`
+            return {
+                logicalId: `${logicalId}Snapshot${n}`,
+                type: 'AWS::EC2::Snapshot',
+                id: snapshotId,
+                arn: `arn:aws:ec2:us-east-1::snapshot/${snapshotId}`,
+                state: 'completed',
+                runTag,
+                tags,
+            }
+        })
     }
 
     private hostRunning(instanceId: string): boolean {
@@ -1162,7 +1182,13 @@ export class FakeCloud implements Aws {
                         ...(this.stacks.size > 0 ? this.untyped.map((arn) => ({ arn, runTag: runId })) : []),
                     ]
                         .filter((tagged) => tagged.runTag === runId)
-                        .map(({ arn }) => ({ ResourceARN: arn })),
+                        .map((tagged) => ({
+                            ResourceARN: tagged.arn,
+                            Tags: Object.entries({
+                                'scenario-run': runId,
+                                ...('tags' in tagged ? tagged.tags : {}),
+                            }).map(([Key, Value]) => ({ Key, Value })),
+                        })),
                 }
             }
             case 'ssm get-parameter': {
