@@ -1,7 +1,7 @@
 import './ContentTile.css'
 
 import clsx from 'clsx'
-import { type CSSProperties, useMemo, useState } from 'react'
+import { type CSSProperties, useEffect, useMemo, useState } from 'react'
 
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@posthog/quill'
 
@@ -38,6 +38,14 @@ function cardLook(
  * One panel in its card: header, body and footer. It reads no dashboard, so a page can render a single panel on
  * its own. Inside a dashboard, `DashboardContentTile` passes both kinds of actions.
  */
+function heightAnimates(): boolean {
+    return (
+        typeof CSS !== 'undefined' &&
+        CSS.supports?.('interpolate-size', 'allow-keywords') === true &&
+        !window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    )
+}
+
 export function ContentTile({
     panel,
     panels,
@@ -68,6 +76,13 @@ export function ContentTile({
         setHeaderMounted(true)
         setHeaderEntering(true)
     }
+    // Without a height transition no transitionend fires, so the header unmounts straight away.
+    useEffect(() => {
+        if (!showHeader && headerMounted && !heightAnimates()) {
+            setHeaderMounted(false)
+            setHeaderEntering(false)
+        }
+    }, [showHeader, headerMounted])
     const showFooter = isPartShown(panel, 'footer', slots)
     const [backgroundFromPanel, setBackgroundFromPanel] = useState<string | null>(null)
     const look = cardLook(panel, definition?.allowedCustomizations ?? [], backgroundFromPanel)
