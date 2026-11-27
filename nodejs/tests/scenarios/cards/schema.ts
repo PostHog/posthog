@@ -237,9 +237,9 @@ export const Profile = z
                 autovacuum: z
                     .record(
                         VacuumSettingName,
-                        z.string().regex(/^(?!-?0[\dxX])/, {
+                        z.string().regex(/^(-?(0|[1-9]\d*)(\.\d+)?(B|kB|MB|GB|TB|us|ms|s|min|h|d)?|[a-zA-Z_]+)$/, {
                             message:
-                                'write the value in decimal with no leading zero, as PostgreSQL reads 060 as octal',
+                                'write the value as a decimal with no sign, space or leading zero and an optional unit, as 60s or 0.2, or as a word, as on',
                         })
                     )
                     .refine((settings) => Object.keys(settings).length > 0, {
