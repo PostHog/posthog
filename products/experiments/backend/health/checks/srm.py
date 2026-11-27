@@ -590,10 +590,11 @@ class _MismatchStart:
 
 
 def _mismatch_start(exposures: ExposureTotals) -> _MismatchStart | None:
-    """The day a mismatch starts, when the persons or groups first exposed before it match the split, also in each half
-    of those days, those first exposed from it on don't, and the two groups differ. Of the days that qualify, the one
-    where the two groups differ most. None when no day qualifies, such as when the mismatch was there from the first
-    day."""
+    """The day a mismatch starts, when the persons or groups first exposed before it match the split, those first
+    exposed from it on don't, and the two groups differ. Those first exposed before each earlier day must not show a
+    material mismatch either, because two stretches on opposite sides of the split can add up to a match. Of the days
+    that qualify, the one where the two groups differ most. None when no day qualifies, such as when the mismatch was
+    there from the first day."""
     weights = exposures.sample_ratio_expected
     daily = {variant: exposures.daily_exposures.get(variant, {}) for variant in weights}
     days = sorted({day for counts in daily.values() for day, count in counts.items() if count > 0})
@@ -603,8 +604,11 @@ def _mismatch_start(exposures: ExposureTotals) -> _MismatchStart | None:
             {variant: exposed_before[-1][variant] + daily[variant].get(day, 0) for variant in weights}
         )
     totals = exposed_before[-1]
+    first_off = next(
+        (index for index, before in enumerate(exposed_before) if _materially_off(before, weights)), len(days)
+    )
     best: tuple[float, date, dict[str, int]] | None = None
-    for index, day in enumerate(days):
+    for index, day in enumerate(days[:first_off]):
         before = exposed_before[index]
         after = {variant: totals[variant] - before[variant] for variant in weights}
         before_test = sample_ratio_test(before, weights)
@@ -618,11 +622,7 @@ def _mismatch_start(exposures: ExposureTotals) -> _MismatchStart | None:
             continue
         difference = _difference(before, after)
         # The statistic ranks the days, because at large counts the p-values of several days round to 0.
-        if (
-            difference.significant
-            and _matches_throughout(exposed_before, index, weights)
-            and (best is None or difference.statistic > best[0])
-        ):
+        if difference.significant and (best is None or difference.statistic > best[0]):
             best = (difference.statistic, day, after)
     if best is None:
         return None
@@ -636,18 +636,6 @@ def _mismatch_start(exposures: ExposureTotals) -> _MismatchStart | None:
         share=after[variant] / after_total,
         planned_share=weights[variant] / total_weight,
     )
-
-
-def _matches_throughout(exposed_before: list[dict[str, int]], index: int, weights: Mapping[str, float]) -> bool:
-    """Whether neither half of the days before `index` shows a material mismatch on its own, which is significant and
-    off the split by at least `MATERIAL_SHARE_OFF_SPLIT`. Two stretches on opposite sides of the split can add up to a
-    match, and then the mismatch doesn't start on that day."""
-    middle = index // 2
-    if middle == 0:
-        return True
-    first = exposed_before[middle]
-    second = {variant: exposed_before[index][variant] - first[variant] for variant in first}
-    return not any(_materially_off(half, weights) for half in (first, second))
 
 
 def _materially_off(exposed: Mapping[str, int], weights: Mapping[str, float]) -> bool:

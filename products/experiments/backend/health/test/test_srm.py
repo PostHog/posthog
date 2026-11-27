@@ -402,7 +402,7 @@ class TestSrmCauses(TestCase):
             ("first_days_too_few_to_differ", [(60, 50)] * 2 + [(100, 80)] * 8, None, NO_LOCATION),
             (
                 "earlier_stretches_on_both_sides_of_the_split",
-                [(140, 60)] * 4 + [(60, 140)] * 4 + [(100, 60)] * 6,
+                [(140, 60)] * 4 + [(60, 140)] * 4 + [(100, 100)] * 8 + [(100, 60)] * 6,
                 None,
                 NO_LOCATION,
             ),
