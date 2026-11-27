@@ -35,6 +35,8 @@ MAX_RETRY_DELAY_SECONDS = 600
 UNAVAILABLE = "unavailable"
 # The primary database dropped the connection or failed over while the task read the row.
 DATABASE = "database"
+# The key is still held by another mirrored row, whose own task may not have run yet.
+KEY_CONFLICT = "key_conflict"
 
 
 def _send(client: MirrorClient, team_id: int, row: MirrorRow, origin: MirrorOrigin) -> MirrorResult:
@@ -105,6 +107,7 @@ def mirror_integration_row(
     if not settings.CREDENTIALS_SERVICE_URL:
         return
     attempt = self.request.retries
+    code: str | None
     ids = {"team_id": team_id, "kind": kind, "legacy_id": legacy_id, "deleted": deleted, "attempt": attempt}
     try:
         result = mirror_row(
@@ -132,7 +135,11 @@ def mirror_integration_row(
         return
     else:
         _observe_lag(committed_at)
-        if not result.retryable:
+        if result.retryable:
+            reason, code = CONCURRENT_WRITE, result.code
+        elif result.outcome == MirrorOutcome.CONFLICT and result.conflicting_legacy_id is not None:
+            reason, code = KEY_CONFLICT, None
+        else:
             if result.outcome in (MirrorOutcome.CONFLICT, MirrorOutcome.OWNER_MISMATCH, MirrorOutcome.REJECTED):
                 logger.warning(
                     "integration_mirror_refused",
@@ -142,7 +149,6 @@ def mirror_integration_row(
                     conflicting_legacy_id=result.conflicting_legacy_id,
                 )
             return
-        reason, code = CONCURRENT_WRITE, result.code
 
     if attempt >= self.max_retries:
         MIRROR_TASK_GIVE_UPS.labels(reason=reason).inc()

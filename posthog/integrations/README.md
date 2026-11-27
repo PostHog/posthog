@@ -238,16 +238,16 @@ A warehouse source row has `config["warehouse_source_type"]`. Every other access
 `mirror/` copies `posthog_integration` rows to the credentials service (`PUT /v1/integrations/mirror`) while Django stays the source of truth.
 Nothing calls it yet.
 
-- `mirror/snapshot.py` reads the row from the primary database by its id. A row that is gone gives a delete. A `sensitive_config` key with ciphertext under it goes to `legacy_unreadable_keys`, not to the service. A `sensitive_config` that is not a JSON object sends `{}` and `["__all__"]`.
+- `mirror/snapshot.py` reads the row from the primary database by its id. A row that is gone gives a delete. A `sensitive_config` key with ciphertext under it goes to `legacy_unreadable_keys`, not to the service. A `sensitive_config` that is not a JSON object sends `{}` and `["__all__"]`. A row with an integer that a JSON number cannot carry exactly (above 2^53) is refused, because the service would round it.
 - `mirror/client.py` sends rows of one team, at most 100 rows and about 512 KB in one request. The worker deployment signs the token, and the token owner is the team.
-- `mirror/tasks.py` holds `mirror_integration_row` on the `integrations` Celery queue. The broker carries ids only. It retries an unavailable service, a failed primary database connection and a lost race (`conflict` with code `concurrent_write`), up to 8 times. On a key conflict with another mirrored row, it mirrors that row first and then tries once more. It does nothing when `CREDENTIALS_SERVICE_URL` is empty.
+- `mirror/tasks.py` holds `mirror_integration_row` on the `integrations` Celery queue. The broker carries ids only. It retries an unavailable service, a failed primary database connection and a lost race (`conflict` with code `concurrent_write`), up to 8 times. On a key conflict with another mirrored row, it mirrors that row first and then tries once more. A key conflict that is still there retries the task later, because the task of the other row may not have run yet. It does nothing when `CREDENTIALS_SERVICE_URL` is empty.
 
-| Metric                                            | Answers                                                        |
-| ------------------------------------------------- | -------------------------------------------------------------- |
-| `integrations_mirror_rows_total{kind, outcome}`   | What the service did with each mirrored row                    |
-| `integrations_mirror_task_retries_total{reason}`  | How often the task retries (`unavailable`, `database`, `concurrent_write`) |
-| `integrations_mirror_task_give_ups_total{reason}` | How many rows the task stopped retrying                        |
-| `integrations_mirror_lag_seconds`                 | Time from the Django commit to the mirror answer               |
+| Metric                                            | Answers                                                                                    |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `integrations_mirror_rows_total{kind, outcome}`   | What the service did with each mirrored row                                                |
+| `integrations_mirror_task_retries_total{reason}`  | How often the task retries (`unavailable`, `database`, `concurrent_write`, `key_conflict`) |
+| `integrations_mirror_task_give_ups_total{reason}` | How many rows the task stopped retrying                                                    |
+| `integrations_mirror_lag_seconds`                 | Time from the Django commit to the mirror answer                                           |
 
 `outcome` is a service outcome, `unavailable`, `database`, or `failed` (the task or the service failed in another way).
 

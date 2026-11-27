@@ -12,6 +12,7 @@ from django.db import DEFAULT_DB_ALIAS
 
 from posthog.dataclasses import frozen
 from posthog.integrations.contracts import SOURCE_MARKER_CONFIG_KEY
+from posthog.integrations.mirror.canonical import canonical_json
 from posthog.integrations.secret_reads import looks_encrypted
 from posthog.models.integration.auth_types import effective_auth_type
 from posthog.models.integration.model import Integration
@@ -93,6 +94,10 @@ class TeamMismatch(Exception):
     """The row with this legacy id belongs to another team."""
 
 
+class UnmirrorableRow(Exception):
+    """The row holds a value that the service cannot store exactly, such as an integer above 2**53."""
+
+
 def _has_unreadable_leaf(value: object) -> bool:
     if isinstance(value, Mapping):
         return any(_has_unreadable_leaf(item) for item in value.values())
@@ -122,6 +127,11 @@ def _iso_timestamp(value: dt.datetime) -> str:
 def snapshot_of(row: Integration) -> MirrorUpsert:
     config = row.config if isinstance(row.config, dict) else {}
     sensitive_config, unreadable_keys = split_unreadable(row.sensitive_config)
+    try:
+        # The service parses JSON numbers as doubles, so it would round such an integer without an error.
+        canonical_json({"config": config, "sensitive_config": sensitive_config})
+    except ValueError as error:
+        raise UnmirrorableRow(f"Integration {row.id} holds a value that JSON numbers cannot carry exactly") from error
     return MirrorUpsert(
         legacy_id=row.id,
         kind=row.kind,

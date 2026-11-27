@@ -11,6 +11,7 @@ from django.test import override_settings
 import requests
 import structlog
 from celery.app.task import Task
+from celery.exceptions import Retry
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 
@@ -163,6 +164,13 @@ class TestMirrorIntegrationRowTask(BaseTest):
                 None,
             ),
             (
+                "key_held_by_a_mirrored_row",
+                lambda stub, legacy_id: stub.mirror_answers.update(
+                    {legacy_id: [{"outcome": "conflict", "conflicting_legacy_id": legacy_id + 1000}] * 2}
+                ),
+                "key_conflict",
+            ),
+            (
                 "undocumented_answer",
                 lambda stub, legacy_id: stub.mirror_answers.update({legacy_id: [{"outcome": "merged"}]}),
                 None,
@@ -175,7 +183,7 @@ class TestMirrorIntegrationRowTask(BaseTest):
     ) -> None:
         row = self._row()
         fail(self.stub, row.id)
-        reasons = ("unavailable", "concurrent_write")
+        reasons = ("unavailable", "concurrent_write", "key_conflict")
         give_ups_before = {
             reason: _metric("integrations_mirror_task_give_ups_total", reason=reason) for reason in reasons
         }
@@ -215,20 +223,48 @@ class TestMirrorIntegrationRowTask(BaseTest):
         assert self.stub.mirrored[holder.id]["integration_id"] == "T2"
         assert self.stub.mirrored[row.id]["integration_id"] == "T1"
 
-    def test_key_conflict_tries_the_row_once_more_only(self) -> None:
+    def test_key_conflict_left_after_the_repair_retries_the_task(self) -> None:
         row = self._row(integration_id="T1")
         missing_holder = row.id + 1000
         conflict = {"outcome": "conflict", "conflicting_legacy_id": missing_holder}
         self.stub.mirror_answers[row.id] = [conflict, conflict]
-        retries_before = _metric("integrations_mirror_task_retries_total", reason="concurrent_write")
+        retries_before = _metric("integrations_mirror_task_retries_total", reason="key_conflict")
 
         self._run(row.id)
 
-        assert [sent["legacy_id"] for sent in self._sent_rows()] == [row.id, missing_holder, row.id]
+        assert [sent["legacy_id"] for sent in self._sent_rows()] == [row.id, missing_holder, row.id, row.id]
         # The holder is gone from Django, so its copy becomes a tombstone.
         assert self.stub.mirrored[missing_holder]["deleted"] is True
-        assert row.id not in self.stub.mirrored
-        assert _metric("integrations_mirror_task_retries_total", reason="concurrent_write") == retries_before
+        assert self.stub.mirrored[row.id]["deleted"] is False
+        assert _metric("integrations_mirror_task_retries_total", reason="key_conflict") == retries_before + 1
+
+    def test_key_conflict_with_a_chain_of_moved_keys_resolves_on_a_later_attempt(self) -> None:
+        first = self._row(integration_id="X")
+        second = self._row(integration_id="Y")
+        self._run(first.id)
+        self._run(second.id)
+        Integration.objects.filter(pk=second.pk).update(integration_id="Z")
+        Integration.objects.filter(pk=first.pk).update(integration_id="Y")
+        third = self._row(integration_id="X")
+        kwargs = {"team_id": self.team.id, "kind": "slack", "deleted": False, "team_gone": False}
+
+        # The repair of `first` conflicts with the stale copy of `second`, so this attempt asks for a retry.
+        with patch.object(mirror_integration_row, "retry", side_effect=Retry()):
+            result = mirror_integration_row.apply(kwargs={**kwargs, "legacy_id": third.id}, throw=False)
+        assert result.state == "RETRY"
+        assert third.id not in self.stub.mirrored
+
+        # The task of `first` repairs `second`, then the retry of `third` succeeds.
+        self._run(first.id)
+        self._run(third.id, retries=1)
+
+        assert {
+            legacy_id: self.stub.mirrored[legacy_id]["integration_id"] for legacy_id in (first.id, second.id, third.id)
+        } == {
+            first.id: "Y",
+            second.id: "Z",
+            third.id: "X",
+        }
 
     def test_no_secret_in_logs_or_retried_task_arguments(self) -> None:
         row = self._row(integration_id="T1", config={"team": "Example"})

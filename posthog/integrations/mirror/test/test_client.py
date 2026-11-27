@@ -61,18 +61,19 @@ class TestMirrorClient(SimpleTestCase):
         settings_override.enable()
         self.addCleanup(settings_override.disable)
         self.stub = CredentialsServiceStub(FakeBackend(), public_key)
-        self.client = MirrorClient(ServiceTransport(session=self.stub))  # type: ignore[arg-type]
+        session: Any = self.stub
+        self.mirror_client = MirrorClient(ServiceTransport(session=session))
 
     def test_body_matches_the_shared_service_fixture(self) -> None:
         fixture = json.loads(SHARED_FIXTURE.read_text())
         rows = [_row_from_fixture(body) for body in fixture["rows"]]
 
-        self.client.mirror(TEAM, rows, origin=MirrorOrigin(fixture["origin"]), force=fixture["force"])
+        self.mirror_client.mirror(TEAM, rows, origin=MirrorOrigin(fixture["origin"]), force=fixture["force"])
 
         assert self.stub.mirror_bodies == [fixture]
 
     def test_token_is_owned_by_the_team_and_holds_only_mirror(self) -> None:
-        self.client.mirror(TEAM, [_upsert(1), _upsert(2, kind="hubspot")], origin=MirrorOrigin.WRITE)
+        self.mirror_client.mirror(TEAM, [_upsert(1), _upsert(2, kind="hubspot")], origin=MirrorOrigin.WRITE)
 
         [(method, path, claims, _headers)] = self.stub.calls
         assert (method, path) == ("PUT", "/mirror")
@@ -95,7 +96,7 @@ class TestMirrorClient(SimpleTestCase):
     ) -> None:
         rows = [_upsert(legacy_id, config={"padding": "x" * padding}) for legacy_id in range(1, row_count + 1)]
 
-        results = self.client.mirror(TEAM, rows, origin=MirrorOrigin.BACKFILL)
+        results = self.mirror_client.mirror(TEAM, rows, origin=MirrorOrigin.BACKFILL)
 
         assert [len(body["rows"]) for body in self.stub.mirror_bodies] == expected_sizes
         assert all(len(json.dumps(body)) <= MAX_BODY_BYTES * 1.1 for body in self.stub.mirror_bodies)
@@ -127,7 +128,7 @@ class TestMirrorClient(SimpleTestCase):
     ) -> None:
         self.stub.mirror_answers[1] = [answer]
 
-        [result] = self.client.mirror(TEAM, [_upsert(1)], origin=MirrorOrigin.WRITE)
+        [result] = self.mirror_client.mirror(TEAM, [_upsert(1)], origin=MirrorOrigin.WRITE)
 
         assert result == MirrorResult(
             legacy_id=1,
@@ -148,6 +149,6 @@ class TestMirrorClient(SimpleTestCase):
         self.stub.mirror_answers[1] = [answer]
 
         with self.assertRaises(IntegrationServiceError) as caught:
-            self.client.mirror(TEAM, [_upsert(1)], origin=MirrorOrigin.WRITE)
+            self.mirror_client.mirror(TEAM, [_upsert(1)], origin=MirrorOrigin.WRITE)
 
         assert caught.exception.code == "bad_response"

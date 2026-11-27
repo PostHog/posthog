@@ -12,6 +12,7 @@ from posthog.integrations.mirror.snapshot import (
     MirrorDelete,
     MirrorUpsert,
     TeamMismatch,
+    UnmirrorableRow,
     read_snapshot,
     split_unreadable,
 )
@@ -114,6 +115,27 @@ class TestReadSnapshot(BaseTest):
 
         assert isinstance(snapshot, MirrorUpsert)
         assert (snapshot.sensitive_config, snapshot.legacy_unreadable_keys) == (readable, unreadable)
+
+    @parameterized.expand(
+        [
+            ("top_level", {"account_id": 2**53 + 1}),
+            ("nested", {"accounts": [{"id": -(2**53) - 1}]}),
+        ]
+    )
+    def test_integer_json_numbers_cannot_carry_is_refused(self, _name: str, config: dict[str, Any]) -> None:
+        # Secret leaves load as strings, so only `config` can hold such an integer.
+        row = self._create(config=config)
+
+        with self.assertRaises(UnmirrorableRow):
+            read_snapshot(team_id=self.team.id, kind="slack", legacy_id=row.id)
+
+    def test_integer_a_double_holds_exactly_is_mirrored(self) -> None:
+        row = self._create(config={"account_id": 2**60, "small": 2**53 - 1})
+
+        snapshot = read_snapshot(team_id=self.team.id, kind="slack", legacy_id=row.id)
+
+        assert isinstance(snapshot, MirrorUpsert)
+        assert snapshot.config == {"account_id": 2**60, "small": 2**53 - 1}
 
     def test_deleted_row_is_a_tombstone_delete(self) -> None:
         row = self._create()
