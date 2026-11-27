@@ -944,17 +944,16 @@ export type JournalEntry = {
     - When the Judge could not read the job count at the deadline, the runner drops `no_loss` with `at_least_once` and `bounced_suppressed`, since deliveries may still have been in flight.
     - No ramp card lists it yet. A ramp judges its losses step by step, and a `no_loss` failure would replace the ramp's break reason.
 
-- **Measurements.** Each has a unit in its definition. Every measurement below but `step_claims_per_second` is better when lower; the definitions do not record that. The runner's sampler scrapes every role's `/_metrics` every 5 seconds from the drive's start to convergence, and `measure(measurements, evidence)` in `judge/measurements.ts` turns the samples and the Judge's evidence into values.
+- **Measurements.** Each has a unit in its definition. Every measurement below but `step_claims_per_second` and `counter_drift` is better when lower; the definitions do not record that. The runner's sampler scrapes every role's `/_metrics` every 5 seconds from the drive's start to convergence, and `measure(measurements, evidence)` in `judge/measurements.ts` turns the samples and the Judge's evidence into values.
   - `role_cpu_seconds`, per role, seconds, lower is better: the sum of `process_cpu_seconds_total` increases, per process lifetime, so a killed role's restart does not reset it.
   - `role_rss_max_bytes`, per role, bytes, lower is better: the maximum of `process_resident_memory_bytes`.
   - `delivery_latency_ms`, `p50`, `p95` and `max`, milliseconds, lower is better: from the unit's offer to the edge's first 2xx record for each delivery.
-    - When the journal says which units carry files, as `transactional_email_files` does, it also keys `plain_p50` to `plain_max` for the sends without files and `files_p50` to `files_max` for the sends with files. The plain keys show how long a plain send waits while sends with files hold the worker.
+    - When the journal says which units carry files, as `transactional_email_files` does, it also keys `plain_p50` to `plain_max` for the email deliveries of units without files and `files_p50` to `files_max` for those of units with files. Both read `ses.send` records only, so a webhook in the same card counts in neither. The plain keys show how long a plain send waits while sends with files hold the worker.
   - `role_heap_max_bytes`, per role, bytes, lower is better: the maximum of `nodejs_heap_size_used_bytes`, for each role that serves it.
-  - `role_restarts`, per role, restarts, lower is better: the process lifetimes after the first one, summed over replicas. A card that does not kill a role reads a restart there as a container kill.
-  - `sends_per_message_max`, sends, lower is better: the most 2xx `ses.send` records that one delivery got. Above 1, an email went out twice.
-  - The email worker's attachment gauges, read only where it serves them:
+  - `role_restarts`, per role, restarts, lower is better: the supervisor's exits of that role during the drive that no valve caused, summed over replicas. The status reason names the signal of each one, so a reading above 0 shows whether the container was killed or the process exited.
+  - `sends_per_message_max`, sends, lower is better: the most 2xx `ses.send` records that one delivery got. Above 1, an email went out twice. It is `incomplete` when the last truth read failed or did not settle, or the run did not converge, since a later send could still land.
+  - The email worker's attachment gauges, read on `cdp-cyclotron-worker-email` only, since every CDP role registers them:
     - `attachment_deferrals`, per reason, tokens: the increase of `cdp_email_attachments_deferral_tokens_total`, per process lifetime. Each deferral spent the SES token its dequeue claimed.
-    - `attachment_deferral_window_s`, `first` and `last`, seconds from the drive start: the scrapes that saw that counter rise, so each is up to one scrape interval late. A card compares them with its burst window.
     - `attachment_sends_in_flight_max`, per role, sends: the maximum of `cdp_email_attachments_sends_in_flight`.
     - `attachment_reserved_bytes_max`, per role, bytes: the maximum of `cdp_email_attachments_reserved_bytes`. A card compares it with the worker's memory budget.
   - `counter_drift`, messages, closer to 0 is better: how far the production email counters drift from the sink's truth. It is a measurement, not a pass or fail bar.

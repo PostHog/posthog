@@ -793,6 +793,7 @@ export function createRunner(
                     drive: driveWindow,
                     steps,
                     timeline: valves.timeline(),
+                    exits: environment.exits().slice(exitsBefore),
                 }
                 const measurements = measure(card.measure, evidence)
                 const admissions = admissionsOf(
