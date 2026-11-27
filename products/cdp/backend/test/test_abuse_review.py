@@ -149,6 +149,51 @@ class TestAbuseReview(AbuseClassificationTestCase):
         assert others["Secret target"]["rule_hits"] == ["internal_host"]
         assert others["Secret target"]["named_hosts"] == []
 
+    @parameterized.expand(
+        [
+            (
+                "literal_fetch_in_code",
+                {},
+                [{"rule": "internal_host", "location": "code", "host": "169.254.169.254", "request_target": True}],
+                ["169.254.169.254", "collector.example.net", "hooks.example.com"],
+            ),
+            (
+                "link_in_a_message_button",
+                {
+                    "hog": "fetch('https://slack.com/api/chat.postMessage', {'body': {'blocks': inputs.blocks}})",
+                    "inputs_schema": [{"key": "blocks", "type": "json", "label": "Blocks"}],
+                    "inputs": {"blocks": {"value": [{"type": "button", "url": "http://localhost:8000/runbook"}]}},
+                    "mappings": [],
+                    "masking": None,
+                },
+                [{"rule": "internal_host", "location": "input:blocks", "host": "localhost", "request_target": True}],
+                ["localhost", "slack.com"],
+            ),
+            (
+                "secret_input_only",
+                {
+                    "hog": "fetch(inputs.url)",
+                    "inputs_schema": [{"key": "url", "type": "string", "label": "URL", "secret": True}],
+                    "inputs": {},
+                    "encrypted_inputs": {"url": {"value": "http://169.254.169.254/latest"}},
+                    "mappings": [],
+                    "masking": None,
+                },
+                [{"rule": "internal_host", "location": "secret input", "host": None, "request_target": False}],
+                [],
+            ),
+        ]
+    )
+    def test_each_rule_hit_shows_where_it_matched(
+        self, _name: str, overrides: dict[str, Any], evidence: list[dict[str, Any]], request_hosts: list[str]
+    ) -> None:
+        destination = self.create_destination(**overrides)
+
+        classification = self.case_of(destination)["function"]["classification"]
+
+        assert classification["rule_evidence"] == evidence
+        assert classification["request_hosts"] == request_hosts
+
     def test_no_secret_value_reaches_the_case_file(self) -> None:
         destination = self.create_destination(encrypted_inputs={"api_key": {"value": SECRET_VALUE}})
         # The activity log masks inputs but not the inputs schema, whose secret default holds the value.

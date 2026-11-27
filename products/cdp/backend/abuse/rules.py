@@ -1216,3 +1216,85 @@ def named_hosts(content: HogFunctionContent) -> tuple[str, ...]:
 def is_flagged_host(host: str) -> bool:
     """Whether a host is internal, a request catcher or a security callback."""
     return _is_internal(host) or _is_request_catcher(host) or _is_security_callback(host)
+
+
+@frozen
+class RuleEvidence:
+    rule: Rule
+    # "code", "masking", "input:<key>", or "mapping <n> input:<key>".
+    location: str
+    # The host the rule matched, or None for a rule that matches the shape of the code.
+    host: str | None
+    # Whether the rules count the host as a place the function sends requests to. Edited code is not traced, so
+    # every input of an edited destination counts, a message body included.
+    request_target: bool
+
+
+def rule_evidence(content: HogFunctionContent) -> tuple[RuleEvidence, ...]:
+    """Where each rule that `matched_rules` reports matched, for a reviewer to weigh."""
+    matched = set(matched_rules(content))
+    url_inputs = _template_url_inputs(content)
+    targets = set(_hosts_in(_request_targets(content, url_inputs)))
+    found: dict[RuleEvidence, None] = {}
+    for location, key, value in _located_values(content):
+        reaches_request = key is None or url_inputs is None or key in url_inputs
+        for host in sorted(set(_hosts_in(_strings(value)))):
+            is_target = reaches_request and host in targets
+            for rule in _host_rules(host, is_target=is_target, is_reference=reaches_request):
+                if rule in matched:
+                    shown = host[:_MAX_NAMED_HOST_CHARS]
+                    found[RuleEvidence(rule=rule, location=location, host=shown, request_target=is_target)] = None
+    for location, rule in _located_code_rules(content):
+        if rule in matched:
+            found[RuleEvidence(rule=rule, location=location, host=None, request_target=False)] = None
+    return tuple(found)
+
+
+def request_hosts(content: HogFunctionContent) -> tuple[str, ...]:
+    """The hosts the rules count as request targets: literal `fetch` URLs, and the inputs that can reach a URL."""
+    targets = _hosts_in(_request_targets(content, _template_url_inputs(content)))
+    return tuple(sorted({host[:_MAX_NAMED_HOST_CHARS] for host in targets}))
+
+
+def _host_rules(host: str, *, is_target: bool, is_reference: bool) -> Iterator[Rule]:
+    if _is_internal(host):
+        if is_target:
+            yield Rule.INTERNAL_HOST
+        elif is_reference:
+            yield Rule.INTERNAL_HOST_REFERENCE
+    if _is_request_catcher(host):
+        yield Rule.REQUEST_CATCHER
+    if _is_security_callback(host):
+        yield Rule.SECURITY_CALLBACK
+
+
+def _located_values(content: HogFunctionContent) -> Iterator[tuple[str, str | None, JsonValue]]:
+    """Every value the host rules read, with where it sits and its input key."""
+    yield "code", None, content.hog
+    for location, key, entry, _schema in _located_inputs(content):
+        yield location, key, entry
+    yield "masking", None, content.masking
+
+
+def _located_inputs(content: HogFunctionContent) -> Iterator[tuple[str, str, JsonValue, JsonValue]]:
+    sources: list[tuple[str, JsonValue, JsonValue]] = [("", content.inputs, content.inputs_schema)]
+    for index, mapping in enumerate(content.mappings):
+        if isinstance(mapping, dict):
+            sources.append((f"mapping {index} ", mapping.get("inputs"), mapping.get("inputs_schema")))
+    for prefix, inputs, schema in sources:
+        if isinstance(inputs, dict):
+            for key, entry in inputs.items():
+                yield f"{prefix}input:{key}", key, entry, schema
+
+
+def _located_code_rules(content: HogFunctionContent) -> Iterator[tuple[str, Rule]]:
+    if content.code_modified_from_template is not False:
+        yield from (("code", rule) for rule in _hog_code_rules(_parse_code, content.hog))
+    for location, key, entry, schema in _located_inputs(content):
+        for template in _hog_template_inputs({key: entry}, schema):
+            yield from ((location, rule) for rule in _hog_code_rules(_parse_template, template))
+        if isinstance(entry, dict) and entry.get("templating") == "liquid":
+            if any(_has_huge_liquid_range(text) for text in _strings(entry.get("value"))):
+                yield location, Rule.HUGE_RANGE
+    if isinstance(content.masking, dict) and isinstance(masking_hash := content.masking.get("hash"), str):
+        yield from (("masking", rule) for rule in _hog_code_rules(_parse_template, masking_hash))

@@ -23,6 +23,7 @@ from products.ml_inference.backend.facade.contracts import JsonValue
 MAX_HISTORY_ENTRIES = 30
 MAX_ORG_FUNCTIONS = 50
 MAX_HOSTS_PER_FUNCTION = 20
+MAX_RULE_EVIDENCE = 20
 MAX_HISTORY_CODE_CHARS = 4_000
 MAX_ORIGINS_PER_TEST = 20
 MAX_ORIGIN_CHARS = 300
@@ -36,6 +37,12 @@ _HISTORY_VALUE_FIELDS = frozenset({"hog", "enabled"})
 @frozen
 class Classification:
     rule_hits: tuple[str, ...]
+    # Where each rule hit matched. A hit that only a secret input explains shows the location "secret input" and no
+    # host, so the value stays out.
+    rule_evidence: tuple[rules.RuleEvidence, ...]
+    rule_evidence_omitted: int
+    # The hosts the rules count as request targets.
+    request_hosts: tuple[str, ...]
     scores: dict[str, float] | None
     risk_score: float | None
     would_alert: bool
@@ -141,6 +148,7 @@ def _function_under_review(hog_function: HogFunction, scored: ScoredHogFunction)
     content = content_of(hog_function, hog_function.template)
     config, truncated = build_state(content)
     hosts = _named_hosts(content)
+    evidence = _rule_evidence(content, scored.rule_hits)
     verdict = scored.verdict
     return FunctionUnderReview(
         name=hog_function.name,
@@ -156,6 +164,9 @@ def _function_under_review(hog_function: HogFunction, scored: ScoredHogFunction)
         config_truncated=truncated,
         classification=Classification(
             rule_hits=tuple(rule.value for rule in scored.rule_hits),
+            rule_evidence=evidence[:MAX_RULE_EVIDENCE],
+            rule_evidence_omitted=max(len(evidence) - MAX_RULE_EVIDENCE, 0),
+            request_hosts=rules.request_hosts(content)[:MAX_HOSTS_PER_FUNCTION],
             scores=None if verdict is None else dict(verdict.scores),
             risk_score=None if verdict is None else verdict.risk_score,
             would_alert=scored.would_alert,
@@ -166,6 +177,17 @@ def _function_under_review(hog_function: HogFunction, scored: ScoredHogFunction)
             failure=None if scored.failure is None else scored.failure.value,
         ),
     )
+
+
+def _rule_evidence(content: HogFunctionContent, rule_hits: tuple[rules.Rule, ...]) -> tuple[rules.RuleEvidence, ...]:
+    public = tuple(entry for entry in rules.rule_evidence(content) if entry.rule in rule_hits)
+    explained = {entry.rule for entry in public}
+    secret_only = tuple(
+        rules.RuleEvidence(rule=rule, location="secret input", host=None, request_target=False)
+        for rule in rule_hits
+        if rule not in explained
+    )
+    return public + secret_only
 
 
 def _account_facts(hog_function: HogFunction, team: Team, scored: ScoredHogFunction) -> AccountFacts:
