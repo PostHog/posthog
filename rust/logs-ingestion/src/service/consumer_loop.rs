@@ -197,7 +197,7 @@ pub async fn run_consumer_loop(
 mod tests {
     use super::*;
     use crate::service::consumer_telemetry::{
-        assert_metric_lines, render_metrics_of, ConsumerTelemetry,
+        assert_metric_lines, bucket_bounds, render_metrics_of, ConsumerTelemetry,
     };
     use futures::FutureExt;
     use std::sync::{Arc, Mutex};
@@ -488,6 +488,20 @@ mod tests {
                 ),
             ],
         );
+        for histogram in [
+            "consumed_batch_duration_ms",
+            "consumed_batch_background_duration_ms",
+            "consumed_batch_backpressure_duration_ms",
+        ] {
+            assert_eq!(
+                bucket_bounds(&after_an_empty_poll, histogram),
+                [
+                    "0.005", "0.01", "0.025", "0.05", "0.1", "0.25", "0.5", "1", "2.5", "5", "10",
+                    "+Inf"
+                ],
+                "{histogram}"
+            );
+        }
         let after_a_batch = metrics_after(Duration::from_millis(1050));
         assert_metric_lines(
             &after_a_batch,

@@ -12,8 +12,19 @@ const DEFAULT_BUCKETS: &[f64] = &[
     0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 50.0, 100.0, 250.0,
 ];
 
-/// The histograms that Node gives its own buckets. The exporter adds `+Inf`.
+/// prom-client's default buckets, which Node uses for a histogram that names none.
+const PROM_CLIENT_BUCKETS: &[f64] = &[
+    0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0,
+];
+
+/// Node's buckets for each histogram, because a query that sums both consumers by `le` needs one set of bounds. The exporter adds `+Inf`.
 const NODE_BUCKETS: &[(&str, &[f64])] = &[
+    ("consumed_batch_duration_ms", PROM_CLIENT_BUCKETS),
+    ("consumed_batch_background_duration_ms", PROM_CLIENT_BUCKETS),
+    (
+        "consumed_batch_backpressure_duration_ms",
+        PROM_CLIENT_BUCKETS,
+    ),
     (
         "consumer_batch_size",
         &[
@@ -137,6 +148,17 @@ pub fn render_metrics_of(run: impl FnOnce()) -> String {
     let handle = recorder.handle();
     metrics::with_local_recorder(&recorder, run);
     handle.render()
+}
+
+/// The `le` bounds of a histogram, in the order of the exposition text.
+#[cfg(test)]
+pub fn bucket_bounds<'a>(rendered: &'a str, histogram: &str) -> Vec<&'a str> {
+    let prefix = format!("{histogram}_bucket{{");
+    rendered
+        .lines()
+        .filter(|line| line.starts_with(&prefix))
+        .filter_map(|line| line.split("le=\"").nth(1)?.split('"').next())
+        .collect()
 }
 
 #[cfg(test)]
