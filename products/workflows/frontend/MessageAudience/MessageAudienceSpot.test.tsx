@@ -3,7 +3,7 @@ import '@testing-library/jest-dom'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
-import { mockAllIsIntersecting } from 'react-intersection-observer/test-utils'
+import { mockAllIsIntersecting, mockIsIntersecting } from 'react-intersection-observer/test-utils'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -174,23 +174,40 @@ describe('message audience on-screen events', () => {
         ])
     })
 
-    it('gives a click the attempt of the button that was seen, not one enabled offscreen', () => {
-        const spot = (label: string, disabled: boolean): JSX.Element => (
-            <MessageAudienceSpot source="cohort" destination="broadcast" disabled={disabled}>
-                {label}
-            </MessageAudienceSpot>
+    it('gives a click the attempt of the button that was seen, not one enabled offscreen', async () => {
+        const below = (disabledReason?: string): JSX.Element => (
+            <MessageAudienceButton
+                audience={audience}
+                destinations={['broadcast']}
+                label="Below the fold"
+                disabledReason={disabledReason}
+            />
         )
-        const offscreen = render(spot('Below the fold', true))
-        render(spot('On screen', false))
-        act(() => mockAllIsIntersecting(true))
-        act(() => mockAllIsIntersecting(false))
-        offscreen.rerender(spot('Below the fold', false))
-        captureMessageAudienceClicked('cohort', 'broadcast')
+        const offscreen = render(below('Checking access'))
+        render(<MessageAudienceButton audience={audience} destinations={['broadcast']} label="On screen" />)
+        act(() => mockIsIntersecting(screen.getByText('On screen'), true))
+        offscreen.rerender(below())
 
+        await clickAndOpen('On screen')
         const shown = events('message audience shown')
         expect(shown).toHaveLength(1)
         expect(events('message audience clicked')).toEqual([
-            { source: 'cohort', destination: 'broadcast', attempt_id: shown[0].attempt_id },
+            { source: 'early_access_feature', destination: 'broadcast', attempt_id: shown[0].attempt_id },
+        ])
+    })
+
+    it('gives a click its own attempt when another button for the audience switches destination', async () => {
+        render(<MessageAudienceButton audience={audience} destinations={['broadcast']} label="First" />)
+        act(() => mockAllIsIntersecting(true))
+        const second = render(<MessageAudienceButton audience={audience} destinations={['broadcast']} label="Second" />)
+        act(() => mockAllIsIntersecting(true))
+        second.rerender(<MessageAudienceButton audience={audience} destinations={['workflow']} label="Second" />)
+        act(() => mockAllIsIntersecting(true))
+
+        await clickAndOpen('First')
+        const [firstShown] = events('message audience shown')
+        expect(events('message audience clicked')).toEqual([
+            { source: 'early_access_feature', destination: 'broadcast', attempt_id: firstShown.attempt_id },
         ])
     })
 

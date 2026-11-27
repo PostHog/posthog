@@ -26,15 +26,21 @@ export function MessageAudienceSpot({
     const current = useRef({ source, destination, attemptId, disabled })
     current.current = { source, destination, attemptId, disabled }
     const onScreen = useRef(false)
-    const releases = useRef(new Map<string, () => void>())
+    const reported = useRef(new Set<string>())
+    const holds = useRef(new Map<string, () => void>())
 
     const reportIfSeen = useCallback(() => {
         const { source, destination, attemptId, disabled } = current.current
-        if (!onScreen.current || disabled || releases.current.has(attemptId)) {
+        if (!onScreen.current || disabled) {
             return
         }
-        releases.current.set(attemptId, holdMessageAudienceAttempt(source, destination, attemptId))
-        captureMessageAudienceShown(source, destination, attemptId)
+        if (!holds.current.has(attemptId)) {
+            holds.current.set(attemptId, holdMessageAudienceAttempt(source, destination, attemptId))
+        }
+        if (!reported.current.has(attemptId)) {
+            reported.current.add(attemptId)
+            captureMessageAudienceShown(source, destination, attemptId)
+        }
     }, [])
 
     const { ref } = useInView({
@@ -46,13 +52,13 @@ export function MessageAudienceSpot({
 
     useEffect(reportIfSeen, [reportIfSeen, disabled, attemptId])
 
-    useEffect(() => {
-        const held = releases.current
-        return () => {
-            held.forEach((release) => release())
-            held.clear()
-        }
-    }, [])
+    useEffect(
+        () => () => {
+            holds.current.get(attemptId)?.()
+            holds.current.delete(attemptId)
+        },
+        [attemptId]
+    )
 
     return <span ref={ref}>{children}</span>
 }
