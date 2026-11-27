@@ -48,9 +48,8 @@ function batchTarget(request: QueryRequest, index: number): QueryBatchRequestApi
     const time = request.time ?? UNTIL_BATCH_ACCEPTS_NO_TIME
     const refId = String(index)
     const target: QueryBatchRequestApi['queries'][number]['target'] =
-        query.language === 'hogql' || query.language === 'promql' || query.language === 'logql'
-            ? { refId, language: query.language, query: query.query }
-            : {
+        query.language === 'query'
+            ? {
                   refId,
                   language: 'query',
                   // A `date_from` in its filters, even null, keeps the range saved in the query instead of `time`.
@@ -58,6 +57,7 @@ function batchTarget(request: QueryRequest, index: number): QueryBatchRequestApi
                       request.time ? query.query : { query: query.query, filters: { date_from: null } }
                   ),
               }
+            : { refId, language: query.language, query: query.query }
     return {
         target: legend ? { ...target, legend } : target,
         time: { from: time.from, to: time.to },

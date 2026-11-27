@@ -27,7 +27,7 @@ _MACHINE_USERS = frozenset({"posthog-bot"})
 _VERSION = 1
 
 
-def _is_person(login: str, is_bot: bool, association: str | None) -> bool:
+def is_person(login: str, is_bot: bool, association: str | None) -> bool:
     # A deleted account comes back with no user, so it has no login.
     if not login or is_bot or "[bot]" in login or login.lower() in _MACHINE_USERS:
         return False
@@ -40,7 +40,7 @@ def _rest_items_by_people(items: list[Any]) -> list[dict]:
         item
         for item in items
         if isinstance(item, dict)
-        and _is_person(
+        and is_person(
             (item.get("user") or {}).get("login") or "",
             (item.get("user") or {}).get("type") == "Bot",
             item.get("author_association"),
@@ -94,7 +94,7 @@ def _review_threads(threads: list[Any]) -> list[dict]:
             {"user": comment.get("author"), "body": comment.get("body") or ""}
             for comment in thread.get("comments") or []
             if isinstance(comment, dict)
-            and _is_person(
+            and is_person(
                 comment.get("author") or "", bool(comment.get("author_is_bot")), comment.get("author_association")
             )
         ]
