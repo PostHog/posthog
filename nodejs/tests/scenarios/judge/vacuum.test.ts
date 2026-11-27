@@ -241,6 +241,38 @@ describe('soak measurements', () => {
         ])
     })
 
+    it('leaves a window unmeasured when a worker restarts in it, since pickups it never scraped are lost', () => {
+        const worker = (second: number, startedAt: number, early: number): MetricSample => ({
+            role: 'cdp-cyclotron-worker-hogflow',
+            replica: 0,
+            at: atS(second),
+            startedAt,
+            cpuSeconds: 1,
+            rssBytes: 1,
+            processed: {},
+            pgClientErrors: 0,
+            consumerLoopErrors: 0,
+            janitorStalled: 0,
+            lateness: { hogflow: { '1': early, '10': early, '+Inf': early } },
+        })
+        const restartedAt = FROM / 1000 + 900
+        const samples = Array.from({ length: 121 }, (_, i) =>
+            i < 90 ? worker(i * 10, FROM / 1000 - 60, i * 100) : worker(i * 10, restartedAt, (i - 90) * 100)
+        )
+
+        expect(
+            measured('pickup_p99_window_seconds', { samples, drive: { startedAt: atS(0), endedAt: atS(1200) } })
+        ).toEqual([
+            { key: 'hogflow_t0', value: 1 },
+            {
+                key: 'hogflow_t600',
+                value: null,
+                censored: true,
+                unmeasured: 'a worker restarted in the window, so the pickups it had not yet reported are lost',
+            },
+        ])
+    })
+
     it('counts the scrape interval that straddles a window edge in the later window only', () => {
         const worker = (second: number, early: number, late: number): MetricSample => ({
             role: 'cdp-cyclotron-worker-hogflow',
