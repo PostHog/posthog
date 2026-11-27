@@ -585,7 +585,9 @@ export class CyclotronV2Manager {
                         ({ job }) =>
                             new Date(
                                 Math.max(now, job.scheduled?.getTime() ?? now) +
-                                    (job.queueName === 'email' ? EMAIL_IDEMPOTENCY_KEY_TTL_MS : IDEMPOTENCY_KEY_TTL_MS)
+                                    (this.emailQueues.includes(job.queueName)
+                                        ? EMAIL_IDEMPOTENCY_KEY_TTL_MS
+                                        : IDEMPOTENCY_KEY_TTL_MS)
                             )
                     ),
                     entries.map((entry) => (entry.reply ? JSON.stringify(entry.reply) : null)),

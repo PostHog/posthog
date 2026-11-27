@@ -1885,24 +1885,31 @@ describe('Cyclotron V2', () => {
             })
 
             it.each([
-                ['an email with the same request', 'email', 'a', 'replayed', 0],
-                ['an email with a different request', 'email', 'b', 'mismatch', 0],
-                ['any other queue', QUEUE, 'a', 'created', 1],
+                ['an email with the same request', 'email', 'a', 'replayed', 0, EMAIL_QUEUES],
+                ['an email with a different request', 'email', 'b', 'mismatch', 0, EMAIL_QUEUES],
+                ['any other queue', QUEUE, 'a', 'created', 1, EMAIL_QUEUES],
+                ['another queue the email worker drains', QUEUE, 'a', 'replayed', 0, [QUEUE]],
             ])(
                 'answers a retry of %s, an hour before its 7 days run out and once its job is gone',
-                async (_name, queueName, fingerprint, outcome, jobs) => {
-                    const id = uuidv7()
-                    await manager.createJobsIdempotently([keyed(id, 'a', { queueName })])
-                    await assertPool.query('DELETE FROM cyclotron_jobs WHERE id = $1', [id])
-                    await assertPool.query(
-                        `UPDATE cyclotron_idempotency_keys SET expires_at = expires_at - interval '6 days 23 hours' WHERE id = $1`,
-                        [id]
-                    )
+                async (_name, queueName, fingerprint, outcome, jobs, emailQueues) => {
+                    const keyedManager = createManager({ emailQueues })
+                    await keyedManager.connect()
+                    try {
+                        const id = uuidv7()
+                        await keyedManager.createJobsIdempotently([keyed(id, 'a', { queueName })])
+                        await assertPool.query('DELETE FROM cyclotron_jobs WHERE id = $1', [id])
+                        await assertPool.query(
+                            `UPDATE cyclotron_idempotency_keys SET expires_at = expires_at - interval '6 days 23 hours' WHERE id = $1`,
+                            [id]
+                        )
 
-                    expect(await manager.createJobsIdempotently([keyed(id, fingerprint, { queueName })])).toEqual([
-                        outcome,
-                    ])
-                    expect(await totalJobCount()).toBe(jobs)
+                        expect(
+                            await keyedManager.createJobsIdempotently([keyed(id, fingerprint, { queueName })])
+                        ).toEqual([outcome])
+                        expect(await totalJobCount()).toBe(jobs)
+                    } finally {
+                        await keyedManager.disconnect()
+                    }
                 }
             )
 
