@@ -122,7 +122,7 @@ async def test_shadow_counts_each_activity_and_leaves_its_result(
 
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
-@pytest.mark.parametrize("team_id", [None, 0, 987_654_321])
+@pytest.mark.parametrize("team_id", [None, 0])
 async def test_shadow_counts_a_tenant_that_does_not_resolve(temporal_client: Client, settings, team_id) -> None:
     settings.TEMPORAL_ORGANIZATION_ADMISSION_MODE = "shadow"
 

@@ -46,10 +46,10 @@ async def _shadow_outcome(input: ExecuteActivityInput) -> str:
     team_id, organization_id = _tenant_of(input)
     if team_id is None and organization_id is None:
         return _SHADOW_OUTCOMES[Admission.UNRESOLVED]
-    admission = await database_sync_to_async(organization_admission.organization_deactivated)(
-        team_id=team_id, organization_id=organization_id
-    )
-    return _SHADOW_OUTCOMES[admission]
+    admission = organization_admission.ORGANIZATION_ADMISSION
+    if admission.is_stale():
+        await database_sync_to_async(admission.refresh_if_stale, thread_sensitive=False)()
+    return _SHADOW_OUTCOMES[admission.check_cached(team_id=team_id, organization_id=organization_id)]
 
 
 async def _record_shadow_admission(input: ExecuteActivityInput) -> None:

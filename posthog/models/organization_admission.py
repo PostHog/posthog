@@ -27,7 +27,10 @@ class Admission(StrEnum):
 class _DeactivatedTenants:
     organization_ids: frozenset[uuid.UUID]
     team_ids: frozenset[int]
-    loaded_at: float
+
+
+class AdmissionSnapshotMissing(Exception):
+    pass
 
 
 class OrganizationAdmission:
@@ -40,49 +43,42 @@ class OrganizationAdmission:
         self._clock = clock
         self._primary = primary
         self._replica = replica
-        self._lock = threading.Lock()
+        self._refresh_lock = threading.Lock()
         self._deactivated: _DeactivatedTenants | None = None
-        self._existing_teams: dict[int, bool] = {}
-        self._existing_organizations: dict[uuid.UUID, bool] = {}
+        self._last_attempt: float | None = None
 
     def check(self, *, team_id: int | None = None, organization_id: uuid.UUID | str | None = None) -> Admission:
-        if team_id:
-            return self._check_team(team_id)
+        self.refresh_if_stale()
+        return self.check_cached(team_id=team_id, organization_id=organization_id)
+
+    def check_cached(self, *, team_id: int | None = None, organization_id: uuid.UUID | str | None = None) -> Admission:
         parsed_organization_id = _parse_uuid(organization_id)
-        if parsed_organization_id:
-            return self._check_organization(parsed_organization_id)
-        return Admission.UNRESOLVED
+        if not team_id and not parsed_organization_id:
+            return Admission.UNRESOLVED
+        deactivated = self._deactivated
+        if deactivated is None:
+            raise AdmissionSnapshotMissing()
+        if team_id:
+            return Admission.DEACTIVATED if team_id in deactivated.team_ids else Admission.ADMITTED
+        return Admission.DEACTIVATED if parsed_organization_id in deactivated.organization_ids else Admission.ADMITTED
 
-    def _check_team(self, team_id: int) -> Admission:
-        with self._lock:
-            deactivated = self._current_deactivated()
-            if team_id in deactivated.team_ids:
-                return Admission.DEACTIVATED
-            if team_id not in self._existing_teams:
-                self._existing_teams[team_id] = self._read(
-                    lambda database: Team.objects.using(database).filter(id=team_id).exists()
-                )
-            return Admission.ADMITTED if self._existing_teams[team_id] else Admission.UNRESOLVED
+    def is_stale(self) -> bool:
+        last_attempt = self._last_attempt
+        return last_attempt is None or self._clock() - last_attempt >= REFRESH_INTERVAL_SECONDS
 
-    def _check_organization(self, organization_id: uuid.UUID) -> Admission:
-        with self._lock:
-            deactivated = self._current_deactivated()
-            if organization_id in deactivated.organization_ids:
-                return Admission.DEACTIVATED
-            if organization_id not in self._existing_organizations:
-                self._existing_organizations[organization_id] = self._read(
-                    lambda database: Organization.objects.using(database).filter(id=organization_id).exists()
-                )
-            return Admission.ADMITTED if self._existing_organizations[organization_id] else Admission.UNRESOLVED
-
-    def _current_deactivated(self) -> _DeactivatedTenants:
-        now = self._clock()
-        if self._deactivated is None or now - self._deactivated.loaded_at >= REFRESH_INTERVAL_SECONDS:
+    def refresh_if_stale(self) -> None:
+        if not self.is_stale():
+            return
+        if not self._refresh_lock.acquire(blocking=self._deactivated is None):
+            return
+        try:
+            if not self.is_stale():
+                return
+            self._last_attempt = self._clock()
             organization_ids, team_ids = self._read(_load_deactivated)
-            self._deactivated = _DeactivatedTenants(organization_ids=organization_ids, team_ids=team_ids, loaded_at=now)
-            self._existing_teams.clear()
-            self._existing_organizations.clear()
-        return self._deactivated
+            self._deactivated = _DeactivatedTenants(organization_ids=organization_ids, team_ids=team_ids)
+        finally:
+            self._refresh_lock.release()
 
     def _read(self, query: Callable[[str], _Read]) -> _Read:
         try:
@@ -115,9 +111,3 @@ def _parse_uuid(value: uuid.UUID | str | None) -> uuid.UUID | None:
 
 
 ORGANIZATION_ADMISSION = OrganizationAdmission()
-
-
-def organization_deactivated(
-    *, team_id: int | None = None, organization_id: uuid.UUID | str | None = None
-) -> Admission:
-    return ORGANIZATION_ADMISSION.check(team_id=team_id, organization_id=organization_id)
