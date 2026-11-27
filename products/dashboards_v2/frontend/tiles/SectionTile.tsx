@@ -24,6 +24,7 @@ import { useDashboard } from '../dashboard/core/dashboardContext'
 import { GRID, type SectionPanel, type Tile, isSection, spanPx } from '../dashboard/document/dashboardTypes'
 import { everyTile } from '../dashboard/document/tileTree'
 import type { OnSectionRows } from '../grid/TileGrid'
+import { DESCRIPTION_IMAGE_ONLY_CLASS, DescriptionInfo } from './core/ContentTile'
 import { TileActions } from './core/TileActions'
 import { showsBorder, tileBackgroundStyle } from './core/tileAppearance'
 import { TileContextMenu, hasTileMenu } from './core/TileContextMenu'
@@ -119,6 +120,19 @@ export function SectionTile({
                             onDraftChange={setDraft}
                         />
                         <SectionCount count={panel.tiles.length} />
+                        {panel.description && (
+                            <>
+                                <DescriptionInfo description={panel.description} />
+                                <span
+                                    className={clsx(
+                                        DESCRIPTION_IMAGE_ONLY_CLASS,
+                                        'truncate text-xs text-muted-foreground'
+                                    )}
+                                >
+                                    {panel.description}
+                                </span>
+                            </>
+                        )}
                     </SectionHeader>
                     {!collapsed && (
                         <SectionBody emptyLabel={panel.tiles.length === 0 ? emptyLabel : null}>
