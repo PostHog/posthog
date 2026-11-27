@@ -41,7 +41,7 @@ Each step that writes something ends with a confirmation from the user.
 - **The feature is flag-gated.** Every `aeo-*` tool needs the `web-analytics-content-autopilot` feature flag
   for the user. A 403 with the code `feature_flag_required` means the flag is off, not a missing scope.
 - **Some tools may be missing.** A tool that this MCP server does not list is not available yet.
-  Do that step in the PostHog app instead: the AI visibility tab under Web analytics (`/web/content-autopilot`).
+  Do that step in the PostHog app instead: the AI visibility tab under Web analytics (`/web/ai-visibility`).
   Tell the user which step is left for them, and continue with the steps you can do.
 - **Suggestions need AI data processing.** `aeo-prompts-suggest` and `aeo-keywords-suggest` send the project's
   site, prompts and keywords to an AI model. A 403 that mentions AI data processing means an organization admin
@@ -116,5 +116,5 @@ the answers. A project tracks at most 200.
   and keywords were added.
 - The first results arrive after the next daily run. After that, `aeo-prompts-overview-get` gives the
   citation and mention rates by engine and topic. Use `non_branded` to judge visibility.
-- Link to the AI visibility tab with `posthog:generate-app-url` for `/web/content-autopilot`.
+- Link to the AI visibility tab with `posthog:generate-app-url` for `/web/ai-visibility`.
 - For questions about the results, use the analyzing-ai-citations skill.
