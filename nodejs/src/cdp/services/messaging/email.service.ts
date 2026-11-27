@@ -1850,7 +1850,7 @@ export class EmailService {
         const outcome = await this.sesTransport.send({
             email: sendEmailParams,
             files,
-            deadline: deadline ? AbortSignal.any([deadline, this.sending.signal]) : this.sending.signal,
+            deadline: AbortSignal.any(deadline ? [deadline, this.sending.signal] : [this.sending.signal]),
         })
         if (outcome.kind === 'not_sent' && outcome.reason === 'before_deadline' && this.sending.signal.aborted) {
             throw new EmailWorkerStoppedError()

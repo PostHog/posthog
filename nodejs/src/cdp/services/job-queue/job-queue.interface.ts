@@ -8,7 +8,6 @@ import type { CrashGuard } from '../poison-batch/crash-guard'
 
 export type ConsumeBatchFn = (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
 
-/** The Kafka queue reads all but beforeStopDeadline, because they act on its consumer and the messages it fetches. */
 export type ConsumerOptions = Pick<KafkaConsumerConfig, 'fetchBatchSize' | 'maxBackgroundTasks'> & {
     // A factory, because the guard keys its counts by the consumer group, which the queue names. produce goes
     // through the queue's own producer.
