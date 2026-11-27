@@ -29,6 +29,7 @@ import {
     mergeAdventProgress,
     openDoors,
 } from './adventGraph'
+import { adventHasWorkflows } from './adventHasWorkflows'
 import { cleanProgressByUser, PROGRESS_STORAGE_KEY, storedProgressByUser } from './adventProgressStorage'
 import { adventToday } from './adventToday'
 
@@ -490,7 +491,7 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
             const timer = window.setInterval(() => actions.refreshClock(), CLOCK_REFRESH_MS)
             return () => window.clearInterval(timer)
         }, 'clock')
-        posthog.capture(EVENTS.viewed)
+        posthog.capture(EVENTS.viewed, { has_workflows: adventHasWorkflows() })
         actions.preloadImages()
         actions.loadPollResults()
     }),

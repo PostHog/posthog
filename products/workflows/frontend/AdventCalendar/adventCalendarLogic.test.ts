@@ -11,6 +11,7 @@ import type { Mocks } from '~/mocks/utils'
 import { initKeaTests } from '~/test/init'
 import { UserType } from '~/types'
 
+import { workflowsSetupLogic } from '../emptyState/workflowsSetupLogic'
 import { adventCalendarLogic } from './adventCalendarLogic'
 
 const KEY = 'workflows-advent-calendar-progress'
@@ -101,8 +102,28 @@ describe('adventCalendarLogic', () => {
         jest.useRealTimers()
     })
 
-    it('reports the view once the calendar mounts', () => {
-        expect(capture).toHaveBeenCalledWith('workflows advent calendar viewed')
+    it.each<[string, number | null, boolean, boolean | null]>([
+        ['nothing has looked for workflows yet', null, false, null],
+        ['the Workflows page found none', 0, true, false],
+        ['the Workflows page found some', 1, true, true],
+        ['an earlier visit to the Workflows page found some', 1, false, true],
+    ])('reports the view, with whether the project has workflows, when %s', async (_, count, open, hasWorkflows) => {
+        logic.unmount()
+        capture.mockClear()
+        if (count !== null) {
+            useMocks({ get: { '/api/projects/:team_id/hog_flows/': { count, results: [] } } })
+            const setup = workflowsSetupLogic()
+            setup.mount()
+            await expectLogic(setup).toDispatchActions(['detectStatusSuccess']).toFinishAllListeners()
+            if (!open) {
+                setup.unmount()
+            }
+        }
+
+        logic = adventCalendarLogic()
+        logic.mount()
+
+        expect(capture).toHaveBeenCalledWith('workflows advent calendar viewed', { has_workflows: hasWorkflows })
     })
 
     it('opens the door of the day and keeps it open after a reload', () => {

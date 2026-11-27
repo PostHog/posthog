@@ -55,7 +55,7 @@ describe('the advent tree on the Messaging sidebar header', () => {
 
         await userEvent.click(tree)
         expect(captured.filter(([event]) => event.startsWith('workflows advent'))).toEqual([
-            ['workflows advent entry clicked', { entry: 'nav-tree', nav }],
+            ['workflows advent entry clicked', { entry: 'nav-tree', nav, has_workflows: null }],
         ])
     })
 
