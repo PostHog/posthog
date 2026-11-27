@@ -1057,6 +1057,8 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         configuration_id = serializers.UUIDField().run_validation(pk)
         team_id = self._canonical_team_id()
         current = self._writable_configuration(team_id, configuration_id, "reset")
+        # A reset restarts the checks, like turning the alert on.
+        self._require_pipeline_log_access(current.source_kind, current.source_config)
         if current.owner != PlatformAlertOwner.PLATFORM:
             raise Conflict(f"This alert is managed by the {current.source_kind} product. Reset it there.")
         # The facade looks an alert up by its public id, which a migrated copy keeps from its source row.

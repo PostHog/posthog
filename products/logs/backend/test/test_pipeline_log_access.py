@@ -342,6 +342,42 @@ class TestPipelineLogAccess(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
+            ("logs_restricted", "logs", "restricted", 403),
+            ("logs_granted", "logs", "granted", 400),
+            ("platform_restricted", "platform", "restricted", 403),
+            ("platform_granted", "platform", "granted", 400),
+        ]
+    )
+    def test_reset_of_a_pipeline_log_alert_follows_property_access(
+        self, _name: str, api: str, access: PropertyAccess, expected: int
+    ) -> None:
+        condition = {"threshold_count": 0, "threshold_operator": "above", "window_minutes": 5}
+        filters = {"serviceNames": [_PIPELINE]}
+        with (
+            patch("posthoganalytics.feature_enabled", return_value=True),
+            patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True),
+        ):
+            if api == "logs":
+                base = f"/api/projects/{self.team.pk}/logs/alerts/"
+                created = self.client.post(
+                    base, {"name": "Pipeline alert", "filters": filters, **condition}, format="json"
+                )
+            else:
+                base = f"/api/projects/{self.team.pk}/platform_alerts/"
+                created = self.client.post(
+                    base,
+                    {"source_kind": "logs", "source_config": {"filters": filters, "condition": condition}},
+                    format="json",
+                )
+            set_member_property_access(team=self.team, membership=self.organization_membership, access=access)
+
+            response = self.client.post(f"{base}{created.json()['id']}/reset/")
+
+        # The alert is not broken, so a member allowed past the check gets the "only broken alerts" error.
+        assert response.status_code == expected, response.json()
+
+    @parameterized.expand(
+        [
             ("not_an_object", []),
             ("services_not_a_list", {"filters": {"serviceNames": 1}}),
             ("services_not_names", {"filters": {"serviceNames": [{}]}}),
