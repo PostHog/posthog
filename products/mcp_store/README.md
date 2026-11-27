@@ -158,7 +158,7 @@ A later successful refresh clears the flag.
 
 OAuth catalog entries can set `oauth_scope_allowlist` to limit registration and authorization to reviewed scopes. Without an allowlist, the client requests every scope advertised by the server. Shared clients derive their token endpoint authentication method from discovered metadata unless `oauth_credentials.token_endpoint_auth_method` overrides it.
 
-Slack uses the existing `SLACK_APP_CLIENT_ID` setting and `SLACK_APP_CLIENT_SECRET` instance setting. Its catalog entry remains suspended until the production Slack app supports MCP and its regional callbacks are live. After the suspension is removed, catalog sync activates Slack only when both settings exist and the shared-client probe passes. Each Desktop user still completes a separate OAuth grant for the catalog's reviewed MCP scopes.
+Slack uses the existing `SLACK_APP_CLIENT_ID` and `SLACK_APP_CLIENT_SECRET` settings. Its catalog entry remains suspended until the production Slack app supports MCP and its regional callbacks are live. After the suspension is removed, catalog sync activates Slack only when both settings exist and the shared-client probe passes. Each Desktop user still completes a separate OAuth grant for the catalog's reviewed MCP scopes.
 
 For a project-restricted connection through a separate Slack app, see [Slack MCP development app setup](../../docs/internal/slack-local-setup-guide.md#use-a-development-slack-app-from-production-desktop).
 This uses separate OAuth credentials and does not change the Slack bot or its webhook settings.

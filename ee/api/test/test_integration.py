@@ -6,19 +6,14 @@ from typing import Any
 
 import pytest
 
-from posthog.models.instance_setting import set_instance_setting
+from django.test import override_settings
 
 from ee.api.test.base import APILicensedTest
 
 
 @pytest.mark.skip_on_multitenancy
+@override_settings(SLACK_APP_SIGNING_SECRET="not-so-secret")
 class TestIntegration(APILicensedTest):
-    @classmethod
-    def setUpTestData(cls):
-        super().setUpTestData()
-
-        set_instance_setting("SLACK_APP_SIGNING_SECRET", "not-so-secret")
-
     def _headers_for_payload(self, payload: Any):
         slack_time = time.time()
         sig_basestring = f"v0:{slack_time}:{json.dumps(payload, separators=(',', ':'))}"

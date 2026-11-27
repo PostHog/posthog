@@ -49,12 +49,8 @@ curl -sS -i -X POST "https://<tunnel-host>/api/conversations/v1/slack/events" \
 
 - `{"challenge": "local-test-123"}` + `server: granian` → path is good; if real events still don't arrive,
   the Slack app's Event Subscriptions Request URL isn't pointed at the tunnel.
-- `403 Invalid request` → the secret used to sign the request doesn't match the backend's active signing
-  secret. The command signs with the `.env.local` value, but the backend uses the Constance-stored value
-  when one exists, so this can 403 even against a correctly configured backend. Causes: `.env.local` not
-  loaded, backend not restarted after editing it, or a different value saved in Constance
-  (`/admin/constance/config/`). Sign with the active (Constance) value if one is set, or clear it so the env
-  default applies.
+- `403 Invalid request` → the secret used to sign the request doesn't match the backend's signing secret.
+  Causes: `.env.local` not loaded, or backend not restarted after editing it.
 - empty `200`, `server: Caddy` → Host-header rewrite missing (see the table).
 - no response / status `0` → tunnel dropped it (rate limit or tunnel down).
 

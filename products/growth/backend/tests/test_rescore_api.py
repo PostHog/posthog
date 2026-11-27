@@ -17,7 +17,7 @@ _MODULE = "products.growth.backend.facade.api"
 class TestGrowthEnrichmentRescoreAPI(APIBaseTest):
     def setUp(self):
         super().setUp()
-        self.enterContext(override_instance_config("GROWTH_RESCORE_WEBHOOK_SECRET", _SECRET))
+        self.enterContext(self.settings(GROWTH_RESCORE_WEBHOOK_SECRET=_SECRET))
         self.enterContext(override_instance_config("GROWTH_SIGNUP_ENRICHMENT_ENABLED", True))
         self.enterContext(patch(f"{_MODULE}.get_instance_region", return_value="US"))
 
@@ -43,7 +43,7 @@ class TestGrowthEnrichmentRescoreAPI(APIBaseTest):
         dispatch_mock.assert_not_called()
 
     def test_unconfigured_secret_returns_503(self):
-        with override_instance_config("GROWTH_RESCORE_WEBHOOK_SECRET", ""):
+        with self.settings(GROWTH_RESCORE_WEBHOOK_SECRET=""):
             with patch(f"{_MODULE}.dispatch_wizard_stamp_rescore") as dispatch_mock:
                 response = self._post(str(self.organization.id))
 

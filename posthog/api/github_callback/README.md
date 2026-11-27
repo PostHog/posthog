@@ -69,8 +69,7 @@ GITHUB_APP_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVA
 ```
 
 Literal `\n` in the private key is fine — `client_request` converts them to real
-newlines. `GITHUB_APP_SLUG` and `GITHUB_WEBHOOK_SECRET` are instance settings
-(env-backed), so they can alternatively be set under instance settings in the DB.
+newlines.
 
 ## Connecting (creating the integration record)
 

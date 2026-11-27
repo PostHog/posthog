@@ -152,60 +152,10 @@ CONSTANCE_CONFIG = {
         "Whether to always try to find cached data for historical intervals on trends",
         str,
     ),
-    "EMAIL_HOST_PASSWORD": (
-        get_from_env("EMAIL_HOST_PASSWORD", default=""),
-        "Credentials to connect to the email host.",
-        str,
-    ),
     "ASYNC_MIGRATIONS_OPT_OUT_EMAILS": (
         get_from_env("ASYNC_MIGRATIONS_OPT_OUT_EMAILS", False, type_cast=str_to_bool),
         "Used to disable emails from async migrations service",
         bool,
-    ),
-    "SLACK_APP_CLIENT_SECRET": (
-        get_from_env("SLACK_APP_CLIENT_SECRET", default=""),
-        "Used to enable the 'Add to Slack' button across all projects",
-        str,
-    ),
-    "SLACK_APP_SIGNING_SECRET": (
-        get_from_env("SLACK_APP_SIGNING_SECRET", default=""),
-        "Used to validate Slack events for example when unfurling links",
-        str,
-    ),
-    "SUPPORT_SLACK_APP_CLIENT_SECRET": (
-        get_from_env("SUPPORT_SLACK_APP_CLIENT_SECRET", default=""),
-        "Used by the SupportHog Slack OAuth callback to exchange authorization codes.",
-        str,
-    ),
-    "SUPPORT_SLACK_SIGNING_SECRET": (
-        get_from_env("SUPPORT_SLACK_SIGNING_SECRET", default=""),
-        "Used to validate incoming webhook events for the Support Slack bot.",
-        str,
-    ),
-    "SUPPORT_TEAMS_APP_SECRET": (
-        get_from_env("SUPPORT_TEAMS_APP_SECRET", default=""),
-        "Azure AD client secret for the SupportHog Teams bot.",
-        str,
-    ),
-    "CONVERSATIONS_HMAC_SIGNING_SECRET": (
-        get_from_env("CONVERSATIONS_HMAC_SIGNING_SECRET", default=""),
-        "HMAC signing secret for conversations widget identity verification in the support sidebar.",
-        str,
-    ),
-    "CONVERSATIONS_EMAIL_WEBHOOK_SIGNING_KEY": (
-        get_from_env("CONVERSATIONS_EMAIL_WEBHOOK_SIGNING_KEY", default=""),
-        "HMAC signing key for validating inbound Mailgun webhook authenticity.",
-        str,
-    ),
-    "CONVERSATIONS_EMAIL_MAILGUN_API_KEY": (
-        get_from_env("CONVERSATIONS_EMAIL_MAILGUN_API_KEY", default=""),
-        "Mailgun API key for domain management (add/verify/delete sending domains).",
-        str,
-    ),
-    "GITHUB_WEBHOOK_SECRET": (
-        get_from_env("GITHUB_WEBHOOK_SECRET", default=""),
-        "Used to validate GitHub webhook events (HMAC-SHA256 signature verification)",
-        str,
     ),
     "RATE_LIMIT_ENABLED": (
         get_from_env("RATE_LIMIT_ENABLED", False, type_cast=str_to_bool),
@@ -221,12 +171,6 @@ CONSTANCE_CONFIG = {
         get_from_env("GROWTH_ICP_REENRICH_DAILY_CAP", 500, type_cast=int),
         "Max organizations the daily ICP re-enrichment sweep re-fetches from Harmonic per run. The provider spend bound.",
         int,
-    ),
-    "GROWTH_RESCORE_WEBHOOK_SECRET": (
-        get_from_env("GROWTH_RESCORE_WEBHOOK_SECRET", default=""),
-        "Shared secret the wizard-stamp ICP re-score webhook (products/growth/backend/presentation/views/rescore.py) "
-        "checks against the X-PostHog-Webhook-Secret header. Set by the realtime destination that calls it.",
-        str,
     ),
     "CLICKHOUSE_KILL_SWITCH": (
         get_from_env("CLICKHOUSE_KILL_SWITCH", "off"),
@@ -384,7 +328,6 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "EXPERIMENTS_RECALCULATION_ENABLED",
     "GROWTH_SIGNUP_ENRICHMENT_ENABLED",
     "GROWTH_ICP_REENRICH_DAILY_CAP",
-    "GROWTH_RESCORE_WEBHOOK_SECRET",
     "HOGQL_DEFERRED_REVENUE_VIEWS_ENABLED",
     "HOGQL_PROJECTION_OPTIMIZATION_ENABLED",
     "HOGQL_PROPERTIES_NARROWING_ENABLED",
@@ -397,22 +340,12 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "ASYNC_MIGRATIONS_AUTO_CONTINUE",
     "ASYNC_MIGRATIONS_BLOCK_UPGRADE",
     "ASYNC_MIGRATIONS_IGNORE_POSTHOG_VERSION",
-    "EMAIL_HOST_PASSWORD",
     "ASYNC_MIGRATIONS_OPT_OUT_EMAILS",
     "PERSON_ON_EVENTS_ENABLED",
     "PERSON_ON_EVENTS_V2_ENABLED",
     "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA",
     "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS",
     "STRICT_CACHING_TEAMS",
-    "SLACK_APP_CLIENT_SECRET",
-    "SLACK_APP_SIGNING_SECRET",
-    "SUPPORT_SLACK_APP_CLIENT_SECRET",
-    "SUPPORT_SLACK_SIGNING_SECRET",
-    "SUPPORT_TEAMS_APP_SECRET",
-    "CONVERSATIONS_HMAC_SIGNING_SECRET",
-    "CONVERSATIONS_EMAIL_WEBHOOK_SIGNING_KEY",
-    "CONVERSATIONS_EMAIL_MAILGUN_API_KEY",
-    "GITHUB_WEBHOOK_SECRET",
     "RATE_LIMIT_ENABLED",
     "RATE_LIMITING_ALLOW_LIST_TEAMS",
     "TRANSACTIONAL_EMAIL_RATE_LIMIT_ALLOW_LIST_TEAMS",
@@ -439,16 +372,4 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
 
 # SECRET_SETTINGS can only be updated but will never be exposed through the API (we do store them plain text in the DB)
 # On the frontend UI will clearly show which configuration elements are secret and whether they have a set value or not.
-SECRET_SETTINGS = [
-    "EMAIL_HOST_PASSWORD",
-    "SLACK_APP_CLIENT_SECRET",
-    "SLACK_APP_SIGNING_SECRET",
-    "SUPPORT_SLACK_SIGNING_SECRET",
-    "SUPPORT_SLACK_APP_CLIENT_SECRET",
-    "SUPPORT_TEAMS_APP_SECRET",
-    "CONVERSATIONS_HMAC_SIGNING_SECRET",
-    "CONVERSATIONS_EMAIL_WEBHOOK_SIGNING_KEY",
-    "CONVERSATIONS_EMAIL_MAILGUN_API_KEY",
-    "GITHUB_WEBHOOK_SECRET",
-    "GROWTH_RESCORE_WEBHOOK_SECRET",
-]
+SECRET_SETTINGS: list[str] = []

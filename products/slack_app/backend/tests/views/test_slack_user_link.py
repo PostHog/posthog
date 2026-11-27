@@ -88,11 +88,7 @@ class TestAuthorizeView:
         ).encode()
         with (
             patch("products.slack_app.backend.views.slack_user_link.is_slack_app_oauth_enabled", return_value=True),
-            override_settings(SLACK_APP_CLIENT_ID="cid"),
-            patch(
-                "posthog.credentials_service.instance_settings.get_instance_settings",
-                return_value={"SLACK_APP_CLIENT_SECRET": "csecret"},
-            ),
+            override_settings(SLACK_APP_CLIENT_ID="cid", SLACK_APP_CLIENT_SECRET="csecret"),
         ):
             response = client.get(f"/complete/slack-link/start/?state={token}")
         assert response.status_code == 302
@@ -127,11 +123,7 @@ class TestAuthorizeView:
                 "products.slack_app.backend.views.slack_user_link.slack_mcp_user_scopes",
                 return_value=("channels:history", "search:read.public"),
             ),
-            override_settings(SLACK_APP_CLIENT_ID="cid"),
-            patch(
-                "posthog.credentials_service.instance_settings.get_instance_settings",
-                return_value={"SLACK_APP_CLIENT_SECRET": "csecret"},
-            ),
+            override_settings(SLACK_APP_CLIENT_ID="cid", SLACK_APP_CLIENT_SECRET="csecret"),
         ):
             response = client.get(f"/complete/slack-link/start/?state={token}")
 

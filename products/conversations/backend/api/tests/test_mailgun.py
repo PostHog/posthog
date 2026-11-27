@@ -1,6 +1,8 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
+
 import requests
 
 from products.conversations.backend.mailgun import (
@@ -17,6 +19,11 @@ from products.conversations.backend.mailgun import (
 from products.conversations.backend.models import MailgunDomainRegistration
 
 
+@pytest.fixture
+def mailgun_api_key(settings):
+    settings.CONVERSATIONS_EMAIL_MAILGUN_API_KEY = "fake-api-key"
+
+
 def _mailgun_response(status_code: int, body: dict | None = None) -> MagicMock:
     resp = MagicMock()
     resp.status_code = status_code
@@ -25,10 +32,10 @@ def _mailgun_response(status_code: int, body: dict | None = None) -> MagicMock:
     return resp
 
 
-@patch("products.conversations.backend.mailgun.get_instance_setting", return_value="fake-api-key")
+@pytest.mark.usefixtures("mailgun_api_key")
 @patch("products.conversations.backend.mailgun.requests.post")
 class TestAddDomain:
-    def test_already_exists_raises_instead_of_adopting(self, mock_post: MagicMock, _mock_key: MagicMock):
+    def test_already_exists_raises_instead_of_adopting(self, mock_post: MagicMock):
         mock_post.return_value = _mailgun_response(400, {"message": "domain example.com already exists"})
 
         with pytest.raises(MailgunDomainConflict, match="already exists") as error:
@@ -37,7 +44,7 @@ class TestAddDomain:
         assert error.value.provider_message == "domain example.com already exists"
         assert error.value.status_code == 400
 
-    def test_already_taken_still_raises(self, mock_post: MagicMock, _mock_key: MagicMock):
+    def test_already_taken_still_raises(self, mock_post: MagicMock):
         mock_post.return_value = _mailgun_response(
             400, {"message": "domain example.com is already taken by another account"}
         )
@@ -46,9 +53,7 @@ class TestAddDomain:
             add_domain("example.com")
 
     @pytest.mark.django_db
-    def test_success_returns_sending_dns_records_and_records_registration(
-        self, mock_post: MagicMock, _mock_key: MagicMock
-    ):
+    def test_success_returns_sending_dns_records_and_records_registration(self, mock_post: MagicMock):
         mock_post.return_value = _mailgun_response(
             201,
             {
@@ -67,13 +72,13 @@ class TestAddDomain:
             ("example.com", "mg-1")
         ]
 
-    def test_case_insensitive_already_exists_match(self, mock_post: MagicMock, _mock_key: MagicMock):
+    def test_case_insensitive_already_exists_match(self, mock_post: MagicMock):
         mock_post.return_value = _mailgun_response(400, {"message": "Domain Already EXISTS"})
 
         with pytest.raises(MailgunDomainConflict, match="already exists"):
             add_domain("example.com")
 
-    def test_unrecognised_400_falls_through_to_raise_for_status(self, mock_post: MagicMock, _mock_key: MagicMock):
+    def test_unrecognised_400_falls_through_to_raise_for_status(self, mock_post: MagicMock):
         resp = _mailgun_response(400, {"message": "some other error"})
         resp.raise_for_status.side_effect = RuntimeError("http 400")
         mock_post.return_value = resp
@@ -82,15 +87,15 @@ class TestAddDomain:
             add_domain("example.com")
 
 
-@patch("products.conversations.backend.mailgun.get_instance_setting", return_value="fake-api-key")
+@pytest.mark.usefixtures("mailgun_api_key")
 @patch("products.conversations.backend.mailgun.requests.get")
 class TestGetDomain:
-    def test_returns_domain_info(self, mock_get: MagicMock, _mock_key: MagicMock):
+    def test_returns_domain_info(self, mock_get: MagicMock):
         mock_get.return_value = _mailgun_response(200, {"domain": {"name": "example.com", "state": "unverified"}})
 
         assert get_domain("example.com") == {"name": "example.com", "state": "unverified"}
 
-    def test_returns_none_when_not_registered_here(self, mock_get: MagicMock, _mock_key: MagicMock):
+    def test_returns_none_when_not_registered_here(self, mock_get: MagicMock):
         resp = _mailgun_response(404, {"message": "domain not found"})
         resp.raise_for_status.side_effect = requests.exceptions.HTTPError(response=resp)
         mock_get.return_value = resp
@@ -98,16 +103,16 @@ class TestGetDomain:
         assert get_domain("example.com") is None
 
     @pytest.mark.parametrize("body", [{}, {"domain": {}}, {"domain": None}])
-    def test_raises_when_payload_has_no_domain_object(self, mock_get: MagicMock, _mock_key: MagicMock, body: dict):
+    def test_raises_when_payload_has_no_domain_object(self, mock_get: MagicMock, body: dict):
         mock_get.return_value = _mailgun_response(200, body)
 
         with pytest.raises(MailgunError, match="no domain data"):
             get_domain("example.com")
 
 
-@patch("products.conversations.backend.mailgun.get_instance_setting", return_value="")
 class TestGetApiKey:
-    def test_raises_mailgun_not_configured_when_key_missing(self, _mock_setting: MagicMock):
+    @override_settings(CONVERSATIONS_EMAIL_MAILGUN_API_KEY="")
+    def test_raises_mailgun_not_configured_when_key_missing(self):
         from products.conversations.backend.mailgun import _get_api_key
 
         with pytest.raises(MailgunNotConfigured):
@@ -122,13 +127,13 @@ def _send_response(status_code: int, body: dict | None = None, text: str = "") -
     return resp
 
 
-@patch("products.conversations.backend.mailgun.get_instance_setting", return_value="fake-api-key")
+@pytest.mark.usefixtures("mailgun_api_key")
 @patch("products.conversations.backend.mailgun.requests.post")
 class TestSendMime:
     MIME = b"From: support@example.com\r\nTo: user@example.com\r\n\r\nhello"
     RECIPIENTS = ["user@example.com", "cc1@example.com", "cc2@example.com"]
 
-    def test_success_forwards_all_fields_and_tracking_flags(self, mock_post: MagicMock, _mock_key: MagicMock):
+    def test_success_forwards_all_fields_and_tracking_flags(self, mock_post: MagicMock):
         mock_post.return_value = _send_response(200, {"id": "<mailgun-id@example.com>"})
 
         result = send_mime("example.com", self.MIME, recipients=self.RECIPIENTS)
@@ -157,7 +162,7 @@ class TestSendMime:
         # URL hits the per-domain endpoint
         assert "/example.com/messages.mime" in mock_post.call_args[0][0]
 
-    def test_crlf_preserved_in_uploaded_bytes(self, mock_post: MagicMock, _mock_key: MagicMock):
+    def test_crlf_preserved_in_uploaded_bytes(self, mock_post: MagicMock):
         """Regression guard for the explicit linesep='\\r\\n' at call sites."""
         mock_post.return_value = _send_response(200, {"id": "x"})
 
@@ -166,33 +171,33 @@ class TestSendMime:
         uploaded = mock_post.call_args.kwargs["files"]["message"][1]
         assert b"\r\n" in uploaded
 
-    def test_404_raises_domain_not_registered(self, mock_post: MagicMock, _mock_key: MagicMock):
+    def test_404_raises_domain_not_registered(self, mock_post: MagicMock):
         mock_post.return_value = _send_response(404, text="domain not found")
 
         with pytest.raises(MailgunDomainNotRegistered):
             send_mime("example.com", self.MIME, recipients=self.RECIPIENTS)
 
     @pytest.mark.parametrize("status", [429, 500, 502, 503])
-    def test_transient_status_raises_transient(self, mock_post: MagicMock, _mock_key: MagicMock, status: int):
+    def test_transient_status_raises_transient(self, mock_post: MagicMock, status: int):
         mock_post.return_value = _send_response(status, text="try again later")
 
         with pytest.raises(MailgunTransientError):
             send_mime("example.com", self.MIME, recipients=self.RECIPIENTS)
 
     @pytest.mark.parametrize("status", [400, 401, 403, 413])
-    def test_other_4xx_raises_permanent(self, mock_post: MagicMock, _mock_key: MagicMock, status: int):
+    def test_other_4xx_raises_permanent(self, mock_post: MagicMock, status: int):
         mock_post.return_value = _send_response(status, text="nope")
 
         with pytest.raises(MailgunPermanentError):
             send_mime("example.com", self.MIME, recipients=self.RECIPIENTS)
 
-    def test_connection_error_is_transient(self, mock_post: MagicMock, _mock_key: MagicMock):
+    def test_connection_error_is_transient(self, mock_post: MagicMock):
         mock_post.side_effect = requests.exceptions.ConnectionError("conn reset")
 
         with pytest.raises(MailgunTransientError):
             send_mime("example.com", self.MIME, recipients=self.RECIPIENTS)
 
-    def test_timeout_is_transient(self, mock_post: MagicMock, _mock_key: MagicMock):
+    def test_timeout_is_transient(self, mock_post: MagicMock):
         mock_post.side_effect = requests.exceptions.Timeout("slow")
 
         with pytest.raises(MailgunTransientError):

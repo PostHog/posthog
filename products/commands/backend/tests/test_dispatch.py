@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.conf import settings
 from django.core.cache import cache
+from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -841,8 +842,8 @@ class TestDispatchCommentCommand(BaseTest):
         assert issue.status == expected_status
         assert (issue.assignee.type if issue.assignee else None) == expected_assignee
 
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting", return_value="test-webhook-secret")
-    def test_a_signed_comment_with_a_command_is_queued(self, _secret: MagicMock) -> None:
+    @override_settings(GITHUB_WEBHOOK_SECRET="test-webhook-secret")
+    def test_a_signed_comment_with_a_command_is_queued(self) -> None:
         reset_consumer_registry()
         self.addCleanup(reset_consumer_registry)
         payload = {

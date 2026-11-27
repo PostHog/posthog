@@ -107,6 +107,7 @@ class TestGitHubPRWebhook(TestCase):
     def setUp(self):
         self.client = APIClient()
         self.webhook_secret = "test-webhook-secret"
+        self.enterContext(self.settings(GITHUB_WEBHOOK_SECRET=self.webhook_secret))
 
     def _make_webhook_request(self, payload: dict, event_type: str = "pull_request", *, with_installation: bool = True):
         """Helper to make a webhook request with proper signature."""
@@ -122,11 +123,8 @@ class TestGitHubPRWebhook(TestCase):
             headers={"x-hub-signature-256": signature, "x-github-event": event_type},
         )
 
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
     @patch("posthog.github.pull_request_events.posthoganalytics.capture")
-    def test_pr_merged_webhook(self, mock_capture, mock_get_secret):
-        mock_get_secret.return_value = self.webhook_secret
-
+    def test_pr_merged_webhook(self, mock_capture):
         payload = {
             "action": "closed",
             "pull_request": {
@@ -157,12 +155,10 @@ class TestGitHubPRWebhook(TestCase):
             ("unresolvable_login", "stranger", None, "user-123"),
         ]
     )
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
     @patch("posthog.github.pull_request_events.posthoganalytics.capture")
     def test_pr_merged_attributes_to_merger(
-        self, _name, merged_by_login, expected_property, expected_distinct_id, mock_capture, mock_get_secret
+        self, _name, merged_by_login, expected_property, expected_distinct_id, mock_capture
     ):
-        mock_get_secret.return_value = self.webhook_secret
         merger = User.objects.create(email="merger@example.com", distinct_id="merger-456")
         OrganizationMembership.objects.create(organization=self.organization, user=merger)
         UserSocialAuth.objects.create(user=merger, provider="github", uid="583231", extra_data={"login": "octocat"})
@@ -186,13 +182,8 @@ class TestGitHubPRWebhook(TestCase):
         self.assertEqual(call_kwargs["properties"].get("pr_merged_by_distinct_id"), expected_property)
 
     @patch("products.signals.backend.facade.github.resolve_github_login_distinct_id", side_effect=RuntimeError("boom"))
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
     @patch("posthog.github.pull_request_events.posthoganalytics.capture")
-    def test_pr_merged_by_resolution_failure_keeps_webhook_successful(
-        self, mock_capture, mock_get_secret, _mock_resolve
-    ):
-        mock_get_secret.return_value = self.webhook_secret
-
+    def test_pr_merged_by_resolution_failure_keeps_webhook_successful(self, mock_capture, _mock_resolve):
         payload = {
             "action": "closed",
             "pull_request": {
@@ -214,12 +205,10 @@ class TestGitHubPRWebhook(TestCase):
         "products.signals.backend.facade.github.resolve_github_login_distinct_id",
         side_effect=OperationalError("canceling statement due to statement timeout"),
     )
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
     @patch("posthog.github.pull_request_events.posthoganalytics.capture")
-    def test_pr_merged_attribution_timeout_keeps_webhook_successful(self, mock_capture, mock_get_secret, _mock_resolve):
+    def test_pr_merged_attribution_timeout_keeps_webhook_successful(self, mock_capture, _mock_resolve):
         # A slow member lookup must degrade to no attribution, never cost the delivery:
         # GitHub does not retry pull_request events and the merge side effects run after.
-        mock_get_secret.return_value = self.webhook_secret
         before = _sample_value("posthog_tasks_github_webhook_attribution_total", {"outcome": "timeout"})
 
         payload = {
@@ -249,14 +238,10 @@ class TestGitHubPRWebhook(TestCase):
         "products.signals.backend.facade.github.resolve_github_login_distinct_id",
         side_effect=OperationalError("server closed the connection unexpectedly"),
     )
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
     @patch("posthog.github.pull_request_events.posthoganalytics.capture")
-    def test_pr_merged_attribution_connection_error_is_not_counted_as_timeout(
-        self, mock_capture, mock_get_secret, _mock_resolve
-    ):
+    def test_pr_merged_attribution_connection_error_is_not_counted_as_timeout(self, mock_capture, _mock_resolve):
         # timeout is the leading indicator for the statement cap, so a plain DB outage has to
         # land on error -- otherwise an incident reads as statement-timeout pressure.
-        mock_get_secret.return_value = self.webhook_secret
         timeouts = _sample_value("posthog_tasks_github_webhook_attribution_total", {"outcome": "timeout"})
         errors = _sample_value("posthog_tasks_github_webhook_attribution_total", {"outcome": "error"})
 
@@ -280,11 +265,9 @@ class TestGitHubPRWebhook(TestCase):
             _sample_value("posthog_tasks_github_webhook_attribution_total", {"outcome": "timeout"}), timeouts
         )
 
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
     @patch("posthog.github.pull_request_events.posthoganalytics.capture", side_effect=RuntimeError("capture down"))
-    def test_task_backed_capture_failure_increments_drop_counter(self, _mock_capture, mock_get_secret):
+    def test_task_backed_capture_failure_increments_drop_counter(self, _mock_capture):
         # Capture failures must still count as dropped events for Task-owned PRs.
-        mock_get_secret.return_value = self.webhook_secret
         labels = {"analytics_event": "pr_merged", "reason": "capture_exception"}
         before = _sample_value("posthog_tasks_github_webhook_pr_event_dropped_total", labels)
 
@@ -298,10 +281,8 @@ class TestGitHubPRWebhook(TestCase):
         self.assertEqual(response.status_code, 202)
         self.assertEqual(_sample_value("posthog_tasks_github_webhook_pr_event_dropped_total", labels), before + 1)
 
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
     @patch("posthog.github.pull_request_events.posthoganalytics.capture")
-    def test_delivery_without_installation_matches_no_run(self, mock_capture, mock_get_secret):
-        mock_get_secret.return_value = self.webhook_secret
+    def test_delivery_without_installation_matches_no_run(self, mock_capture):
         labels = {"scoped": "false"}
         before = _sample_value("posthog_tasks_github_webhook_task_run_lookup_total", labels)
 
@@ -319,12 +300,10 @@ class TestGitHubPRWebhook(TestCase):
         self.assertNotIn("pr_merged", self.task_run.output)
         self.assertEqual(_sample_value("posthog_tasks_github_webhook_task_run_lookup_total", labels), before + 1)
 
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
     @patch("posthog.github.pull_request_events.posthoganalytics.capture")
-    def test_pr_merged_publishes_stream_events(self, mock_capture, mock_get_secret):
+    def test_pr_merged_publishes_stream_events(self, mock_capture):
         # A live installation-progress view only learns about the merge through the stream;
         # recording output.pr_merged without publishing leaves the UI stuck on "opened".
-        mock_get_secret.return_value = self.webhook_secret
         payload = {
             "action": "closed",
             "pull_request": {
@@ -342,10 +321,8 @@ class TestGitHubPRWebhook(TestCase):
         self.assertEqual(len(progress), 1)
         self.assertEqual(progress[0]["notification"]["params"]["label"], "Pull request merged")
 
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
     @patch("posthog.github.pull_request_events.posthoganalytics.capture")
-    def test_pr_merged_from_fork_does_not_record_pr_merged(self, mock_capture, mock_get_secret):
-        mock_get_secret.return_value = self.webhook_secret
+    def test_pr_merged_from_fork_does_not_record_pr_merged(self, mock_capture):
         output = {"head_branches": [{"repository": "posthog/posthog", "branch": "feature/fork-merge"}]}
         run = TaskRun.objects.create(
             task=self.task,
@@ -370,10 +347,8 @@ class TestGitHubPRWebhook(TestCase):
         run.refresh_from_db()
         self.assertEqual(run.output, output)
 
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
     @patch("posthog.github.pull_request_events.posthoganalytics.capture")
-    def test_pr_merged_for_other_pr_on_same_branch_does_not_record_pr_merged(self, mock_capture, mock_get_secret):
-        mock_get_secret.return_value = self.webhook_secret
+    def test_pr_merged_for_other_pr_on_same_branch_does_not_record_pr_merged(self, mock_capture):
         run = TaskRun.objects.create(
             task=self.task,
             team=self.team,
@@ -427,12 +402,10 @@ class TestGitHubPRWebhook(TestCase):
             ("already_terminal_run", {"wizard_config": {}}, TaskRun.Status.COMPLETED, {}, 0),
         ]
     )
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
     @patch("posthog.github.pull_request_events.posthoganalytics.capture")
     def test_pr_merged_signals_wizard_workflow_completion(
-        self, _name, state, status, extra_output, expected_signals, _mock_capture, mock_get_secret
+        self, _name, state, status, extra_output, expected_signals, _mock_capture
     ):
-        mock_get_secret.return_value = self.webhook_secret
         pr_url = "https://github.com/posthog/posthog/pull/777"
         run = TaskRun.objects.create(
             task=self.task,
@@ -451,12 +424,10 @@ class TestGitHubPRWebhook(TestCase):
         if expected_signals:
             mock_signal.assert_called_once_with(run.id, TaskRun.Status.COMPLETED, None)
 
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
     @patch("posthog.github.pull_request_events.posthoganalytics.capture")
-    def test_pr_merged_resolves_to_active_run_when_resume_shares_pr(self, _mock_capture, mock_get_secret):
+    def test_pr_merged_resolves_to_active_run_when_resume_shares_pr(self, _mock_capture):
         # A resumed wizard run shares its predecessor's PR; the merge must land on the
         # live run (recording pr_merged and signaling wind-down), not the dead original.
-        mock_get_secret.return_value = self.webhook_secret
         pr_url = "https://github.com/posthog/posthog/pull/779"
         active_run = TaskRun.objects.create(
             task=self.task,
@@ -490,10 +461,8 @@ class TestGitHubPRWebhook(TestCase):
         self.assertIs(active_run.output.get("pr_merged"), True)
         self.assertNotIn("pr_merged", terminal_run.output)
 
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
     @patch("posthog.github.pull_request_events.posthoganalytics.capture")
-    def test_pr_merged_signal_failure_keeps_webhook_successful(self, _mock_capture, mock_get_secret):
-        mock_get_secret.return_value = self.webhook_secret
+    def test_pr_merged_signal_failure_keeps_webhook_successful(self, _mock_capture):
         pr_url = "https://github.com/posthog/posthog/pull/778"
         run = TaskRun.objects.create(
             task=self.task,
@@ -533,12 +502,8 @@ class TestGitHubPRWebhook(TestCase):
             ("local_run", {"wizard_config": {}}, TaskRun.Status.IN_PROGRESS, TaskRun.Environment.LOCAL, 0),
         ]
     )
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
     @patch("posthog.github.pull_request_events.posthoganalytics.capture")
-    def test_pr_closed_cancels_wizard_run(
-        self, _name, state, status, environment, expected_cancels, _mock_capture, mock_get_secret
-    ):
-        mock_get_secret.return_value = self.webhook_secret
+    def test_pr_closed_cancels_wizard_run(self, _name, state, status, environment, expected_cancels, _mock_capture):
         pr_url = "https://github.com/posthog/posthog/pull/780"
         run = TaskRun.objects.create(
             task=self.task,
@@ -573,12 +538,10 @@ class TestGitHubPRWebhook(TestCase):
             ("picked_before_pr_open_merged", "https://github.com/posthog/posthog/pull/791", True, 0, True),
         ]
     )
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
     @patch("posthog.github.pull_request_events.posthoganalytics.capture")
     def test_pr_closed_queues_slack_thread_notice(
-        self, _name, pr_url, merged, expected_enqueues, picked_up, _mock_capture, mock_get_secret
+        self, _name, pr_url, merged, expected_enqueues, picked_up, _mock_capture
     ):
-        mock_get_secret.return_value = self.webhook_secret
         if picked_up:
             self.organization.members.add(self.user)
         task = Task.objects.create(
@@ -619,10 +582,8 @@ class TestGitHubPRWebhook(TestCase):
         if expected_enqueues:
             mock_delay.assert_called_once_with(str(run.id), pr_url, merged=merged)
 
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
     @patch("posthog.github.pull_request_events.posthoganalytics.capture")
-    def test_pr_closed_cancel_failure_keeps_webhook_successful(self, _mock_capture, mock_get_secret):
-        mock_get_secret.return_value = self.webhook_secret
+    def test_pr_closed_cancel_failure_keeps_webhook_successful(self, _mock_capture):
         pr_url = "https://github.com/posthog/posthog/pull/781"
         TaskRun.objects.create(
             task=self.task,
@@ -641,11 +602,8 @@ class TestGitHubPRWebhook(TestCase):
 
         self.assertEqual(response.status_code, 202)
 
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
     @patch("posthog.github.pull_request_events.posthoganalytics.capture")
-    def test_pr_closed_without_merge_webhook(self, mock_capture, mock_get_secret):
-        mock_get_secret.return_value = self.webhook_secret
-
+    def test_pr_closed_without_merge_webhook(self, mock_capture):
         payload = {
             "action": "closed",
             "pull_request": {
@@ -662,11 +620,8 @@ class TestGitHubPRWebhook(TestCase):
         call_kwargs = mock_capture.call_args[1]
         self.assertEqual(call_kwargs["event"], "pr_closed")
 
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
     @patch("posthog.github.pull_request_events.posthoganalytics.capture")
-    def test_pr_opened_webhook(self, mock_capture, mock_get_secret):
-        mock_get_secret.return_value = self.webhook_secret
-
+    def test_pr_opened_webhook(self, mock_capture):
         payload = {
             "action": "opened",
             "pull_request": {
@@ -701,11 +656,8 @@ class TestGitHubPRWebhook(TestCase):
             ("over_the_cap", _PR_BODY_MAX_CHARS + 1, True),
         ]
     )
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
     @patch("posthog.github.pull_request_events.posthoganalytics.capture")
-    def test_pr_body_is_capped(self, _name, body_length, expected_truncated, mock_capture, mock_get_secret):
-        mock_get_secret.return_value = self.webhook_secret
-
+    def test_pr_body_is_capped(self, _name, body_length, expected_truncated, mock_capture):
         payload = {
             "action": "opened",
             "pull_request": {
@@ -734,10 +686,8 @@ class TestGitHubPRWebhook(TestCase):
             ("closed", {"merged": True}, "merged"),
         ]
     )
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
     @patch("posthog.github.pull_request_events.posthoganalytics.capture")
-    def test_pr_action_records_pr_state(self, action_name, pr_fields, expected_state, _mock_capture, mock_get_secret):
-        mock_get_secret.return_value = self.webhook_secret
+    def test_pr_action_records_pr_state(self, action_name, pr_fields, expected_state, _mock_capture):
         action = "opened" if action_name == "opened_as_draft" else action_name
 
         payload = {
@@ -755,11 +705,8 @@ class TestGitHubPRWebhook(TestCase):
         assert self.task_run.output is not None
         self.assertEqual(self.task_run.output.get("pr_state"), expected_state)
 
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
     @patch("posthog.github.pull_request_events.posthoganalytics.capture")
-    def test_state_only_action_records_state_without_analytics(self, mock_capture, mock_get_secret):
-        mock_get_secret.return_value = self.webhook_secret
-
+    def test_state_only_action_records_state_without_analytics(self, mock_capture):
         payload = {
             "action": "converted_to_draft",
             "pull_request": {
@@ -776,11 +723,9 @@ class TestGitHubPRWebhook(TestCase):
         assert self.task_run.output is not None
         self.assertEqual(self.task_run.output.get("pr_state"), "draft")
 
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
     @patch("posthog.github.pull_request_events.posthoganalytics.capture")
-    def test_pr_state_not_recorded_for_unclaimed_pr(self, _mock_capture, mock_get_secret):
+    def test_pr_state_not_recorded_for_unclaimed_pr(self, _mock_capture):
         """A same-branch webhook for a different PR must not restate this run's PR."""
-        mock_get_secret.return_value = self.webhook_secret
 
         payload = {
             "action": "closed",
@@ -799,10 +744,8 @@ class TestGitHubPRWebhook(TestCase):
         assert self.task_run.output is not None
         self.assertNotIn("pr_state", self.task_run.output)
 
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
     @patch("posthog.github.pull_request_events.posthoganalytics.capture")
-    def test_pr_opened_backfills_pr_url_on_signed_head_branch_match(self, mock_capture, mock_get_secret):
-        mock_get_secret.return_value = self.webhook_secret
+    def test_pr_opened_backfills_pr_url_on_signed_head_branch_match(self, mock_capture):
         run = TaskRun.objects.create(
             task=self.task,
             team=self.team,
@@ -834,12 +777,10 @@ class TestGitHubPRWebhook(TestCase):
 
     @parameterized.expand([("primary_url", False), ("additional_url", True)])
     @patch("products.tasks.backend.facade.api.posthoganalytics.feature_enabled", return_value=True)
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
     @patch("posthog.github.pull_request_events.posthoganalytics.capture")
     def test_pr_opened_repairs_missing_artifact_for_existing_pr_url(
-        self, _name, additional_url, mock_capture, mock_get_secret, mock_feature_enabled
+        self, _name, additional_url, mock_capture, mock_feature_enabled
     ) -> None:
-        mock_get_secret.return_value = self.webhook_secret
         pr_url = "https://github.com/posthog/posthog/pull/780"
         run = TaskRun.objects.create(
             task=self.task,
@@ -867,10 +808,8 @@ class TestGitHubPRWebhook(TestCase):
         run.refresh_from_db()
         self.assertEqual(run.state["verified_pr_urls"], [pr_url])
 
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
     @patch("posthog.github.pull_request_events.posthoganalytics.capture")
-    def test_pr_opened_backfills_pr_url_on_wizard_head_branch_match(self, mock_capture, mock_get_secret):
-        mock_get_secret.return_value = self.webhook_secret
+    def test_pr_opened_backfills_pr_url_on_wizard_head_branch_match(self, mock_capture):
         run = TaskRun.objects.create(
             task=self.task,
             team=self.team,
@@ -897,10 +836,8 @@ class TestGitHubPRWebhook(TestCase):
         assert run.output is not None
         self.assertEqual(run.output["pr_url"], pr_url)
 
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
     @patch("posthog.github.pull_request_events.posthoganalytics.capture")
-    def test_pr_opened_from_fork_does_not_backfill_pr_url(self, mock_capture, mock_get_secret):
-        mock_get_secret.return_value = self.webhook_secret
+    def test_pr_opened_from_fork_does_not_backfill_pr_url(self, mock_capture):
         output = {"head_branches": [{"repository": "posthog/posthog", "branch": "feature/needs-pr-url"}]}
         run = TaskRun.objects.create(
             task=self.task,
@@ -925,10 +862,8 @@ class TestGitHubPRWebhook(TestCase):
         run.refresh_from_db()
         self.assertEqual(run.output, output)
 
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
     @patch("posthog.github.pull_request_events.posthoganalytics.capture")
-    def test_pr_opened_prefers_self_driving_run_over_newer_reviewhog_run(self, mock_capture, mock_get_secret):
-        mock_get_secret.return_value = self.webhook_secret
+    def test_pr_opened_prefers_self_driving_run_over_newer_reviewhog_run(self, mock_capture):
         head_branch = "posthog-self-driving/fix-thing-abc123"
 
         impl_task = Task.objects.create(
@@ -984,10 +919,8 @@ class TestGitHubPRWebhook(TestCase):
         self.assertEqual(review_run.output, {})
         self.assertNotIn("verified_pr_urls", review_run.state or {})
 
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
     @patch("posthog.github.pull_request_events.posthoganalytics.capture")
-    def test_pr_opened_does_not_overwrite_existing_pr_url(self, mock_capture, mock_get_secret):
-        mock_get_secret.return_value = self.webhook_secret
+    def test_pr_opened_does_not_overwrite_existing_pr_url(self, mock_capture):
         existing = "https://github.com/posthog/posthog/pull/900"
         run = TaskRun.objects.create(
             task=self.task,
@@ -1020,10 +953,8 @@ class TestGitHubPRWebhook(TestCase):
             [existing, "https://github.com/posthog/posthog/pull/901"],
         )
 
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
-    def test_invalid_signature_rejected(self, mock_get_secret):
+    def test_invalid_signature_rejected(self):
         """Test that requests with invalid signatures are rejected."""
-        mock_get_secret.return_value = self.webhook_secret
 
         payload = {"action": "closed", "pull_request": {"html_url": "https://github.com/org/repo/pull/1"}}
         payload_bytes = json.dumps(payload).encode("utf-8")
@@ -1037,10 +968,8 @@ class TestGitHubPRWebhook(TestCase):
 
         self.assertEqual(response.status_code, 403)
 
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
-    def test_missing_signature_rejected(self, mock_get_secret):
+    def test_missing_signature_rejected(self):
         """Test that requests without signatures are rejected."""
-        mock_get_secret.return_value = self.webhook_secret
 
         payload = {"action": "closed", "pull_request": {"html_url": "https://github.com/org/repo/pull/1"}}
 
@@ -1053,11 +982,8 @@ class TestGitHubPRWebhook(TestCase):
 
         self.assertEqual(response.status_code, 403)
 
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
     @patch("posthog.github.pull_request_events.posthoganalytics.capture")
-    def test_unmatched_pr_without_installation_not_captured(self, mock_capture, mock_get_secret):
-        mock_get_secret.return_value = self.webhook_secret
-
+    def test_unmatched_pr_without_installation_not_captured(self, mock_capture):
         payload = {
             "action": "closed",
             "pull_request": {
@@ -1071,10 +997,8 @@ class TestGitHubPRWebhook(TestCase):
         self.assertEqual(response.status_code, 202)
         mock_capture.assert_not_called()
 
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
-    def test_non_pr_non_issue_event_ignored(self, mock_get_secret):
+    def test_non_pr_non_issue_event_ignored(self):
         """Test that events other than pull_request/issues/issue_comment are acknowledged but ignored."""
-        mock_get_secret.return_value = self.webhook_secret
 
         payload = {"action": "created", "ref": "refs/heads/main"}
 
@@ -1082,11 +1006,8 @@ class TestGitHubPRWebhook(TestCase):
 
         self.assertEqual(response.status_code, 202)
 
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
     @patch("products.tasks.backend.webhooks.refresh_pull_request_review_decisions")
-    def test_ignored_pr_actions(self, refresh_review_decisions, mock_get_secret):
-        mock_get_secret.return_value = self.webhook_secret
-
+    def test_ignored_pr_actions(self, refresh_review_decisions):
         for action in ["edited", "synchronize", "labeled"]:
             payload = {
                 "action": action,
@@ -1104,7 +1025,7 @@ class TestGitHubPRWebhook(TestCase):
 
     def test_webhook_secret_not_configured(self):
         """Test that webhook returns 500 if secret is not configured."""
-        with patch("posthog.credentials_service.instance_settings.get_instance_setting", return_value=None):
+        with self.settings(GITHUB_WEBHOOK_SECRET=""):
             payload = {"action": "closed", "pull_request": {"html_url": "https://github.com/org/repo/pull/1"}}
 
             response = self.client.post(
@@ -1121,13 +1042,11 @@ class TestGitHubPRWebhook(TestCase):
         response = self.client.get("/webhooks/github/pr/")
         self.assertEqual(response.status_code, 405)
 
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
     @patch("posthog.github.pull_request_events.posthoganalytics.capture")
-    def test_webhook_does_not_attribute_foreign_repo_pr_to_unrelated_run(self, mock_capture, mock_get_secret):
+    def test_webhook_does_not_attribute_foreign_repo_pr_to_unrelated_run(self, mock_capture):
         # Regression: a PR opened on a repo that has no matching TaskRun must
         # not fall through to a branch-only lookup that attributes the event
         # to an unrelated team's run with a colliding branch name.
-        mock_get_secret.return_value = self.webhook_secret
         TaskRun.objects.create(
             task=self.task,
             team=self.team,
@@ -1183,6 +1102,7 @@ class TestGitHubPRReviewWebhook(TestCase):
     def setUp(self):
         self.client = APIClient()
         self.webhook_secret = "test-webhook-secret"
+        self.enterContext(self.settings(GITHUB_WEBHOOK_SECRET=self.webhook_secret))
 
     def _make_review_webhook_request(self, payload: dict):
         payload_bytes = json.dumps(payload).encode("utf-8")
@@ -1211,12 +1131,10 @@ class TestGitHubPRReviewWebhook(TestCase):
             ("unresolvable_login", "stranger", None, "user-123"),
         ]
     )
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
     @patch("posthog.github.pull_request_events.posthoganalytics.capture")
     def test_review_submission_attributes_to_reviewer(
-        self, _name, reviewer_login, expected_property, expected_distinct_id, mock_capture, mock_get_secret
+        self, _name, reviewer_login, expected_property, expected_distinct_id, mock_capture
     ):
-        mock_get_secret.return_value = self.webhook_secret
         reviewer = User.objects.create(email="reviewer@example.com", distinct_id="reviewer-456")
         OrganizationMembership.objects.create(organization=self.organization, user=reviewer)
         UserSocialAuth.objects.create(user=reviewer, provider="github", uid="583231", extra_data={"login": "octocat"})
@@ -1243,14 +1161,9 @@ class TestGitHubPRReviewWebhook(TestCase):
             ("non_submitted_action", {"login": "octocat", "id": 583231, "type": "User"}, "dismissed"),
         ]
     )
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
     @patch("posthog.github.pull_request_events.posthoganalytics.capture")
     @patch("products.tasks.backend.webhooks.refresh_pull_request_review_decisions")
-    def test_review_events_not_captured(
-        self, _name, reviewer, action, refresh_review_decisions, mock_capture, mock_get_secret
-    ):
-        mock_get_secret.return_value = self.webhook_secret
-
+    def test_review_events_not_captured(self, _name, reviewer, action, refresh_review_decisions, mock_capture):
         payload = self._review_payload(reviewer, action=action)
         response = self._make_review_webhook_request(payload)
 
@@ -1275,6 +1188,7 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
     def setUp(self):
         self.client = APIClient()
         self.webhook_secret = "test-webhook-secret"
+        self.enterContext(self.settings(GITHUB_WEBHOOK_SECRET=self.webhook_secret))
         self.integration = Integration.objects.create(
             team=self.team,
             kind="github",
@@ -1311,12 +1225,10 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
             ("research", True, None, "research", SignalReport.Status.READY),
         ]
     )
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
     @patch("posthog.github.pull_request_events.posthoganalytics.capture")
     def test_pr_event_falls_back_to_task_links(
-        self, _name, merged, actor_kind, relationship, expected_status, _mock_capture, mock_get_secret
+        self, _name, merged, actor_kind, relationship, expected_status, _mock_capture
     ):
-        mock_get_secret.return_value = self.webhook_secret
         merger = User.objects.create(email="merger@example.com", distinct_id="merger-456")
         OrganizationMembership.objects.create(organization=self.organization, user=merger)
         UserSocialAuth.objects.create(user=merger, provider="github", uid="583231", extra_data={"login": "octocat"})
@@ -1358,12 +1270,10 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
             self.assertEqual(pr.state, "merged" if merged else "closed")
             self.assertIs(pr.merged, merged)
 
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
     @patch("products.tasks.backend.models.posthoganalytics.capture")
-    def test_secondary_task_pr_webhook_persists_only_matching_link_and_reads_the_stack(self, _capture, get_secret):
+    def test_secondary_task_pr_webhook_persists_only_matching_link_and_reads_the_stack(self, _capture):
         from products.signals.backend.models import SignalReportPullRequest
 
-        get_secret.return_value = self.webhook_secret
         self.assignment.delete()
         first = "https://github.com/posthog/posthog/pull/42"
         second = "https://github.com/PostHog/posthog/pull/43"
@@ -1438,7 +1348,6 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
             ),
         ]
     )
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
     @patch("posthog.github.pull_request_events.posthoganalytics.capture")
     def test_pr_event_transitions_linked_report(
         self,
@@ -1448,9 +1357,7 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
         expected_status,
         expected_pr_state,
         _mock_capture,
-        mock_get_secret,
     ):
-        mock_get_secret.return_value = self.webhook_secret
         if self.report.status != initial_status:
             self.report.status = initial_status
             self.report.save(update_fields=["status"])
@@ -1471,10 +1378,8 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
             "2026-09-20T12:30:00+00:00" if merged else None,
         )
 
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
     @patch("posthog.github.pull_request_events.posthoganalytics.capture")
-    def test_merge_without_matching_assignment_is_a_noop(self, _mock_capture, mock_get_secret):
-        mock_get_secret.return_value = self.webhook_secret
+    def test_merge_without_matching_assignment_is_a_noop(self, _mock_capture):
         self.assignment.delete()
 
         response = self._post_pr_webhook(action="closed", merged=True)
@@ -1489,12 +1394,10 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
             ("closed", False, SignalReport.Status.SUPPRESSED, SignalReportAssignment.PrState.CLOSED),
         ]
     )
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
     @patch("posthog.github.pull_request_events.posthoganalytics.capture")
     def test_pr_event_transitions_every_report_linked_to_the_pr(
-        self, _name, merged, expected_status, expected_pr_state, _mock_capture, mock_get_secret
+        self, _name, merged, expected_status, expected_pr_state, _mock_capture
     ):
-        mock_get_secret.return_value = self.webhook_secret
         second_report = SignalReport.objects.create(
             team=self.team,
             status=SignalReport.Status.PENDING_INPUT,
@@ -1549,10 +1452,8 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
         legacy_report.refresh_from_db()
         self.assertEqual(legacy_report.status, expected_status)
 
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
     @patch("posthog.github.pull_request_events.posthoganalytics.capture")
-    def test_pr_event_does_not_transition_assignment_for_another_pr(self, _mock_capture, mock_get_secret):
-        mock_get_secret.return_value = self.webhook_secret
+    def test_pr_event_does_not_transition_assignment_for_another_pr(self, _mock_capture):
         assert self.assignment.pr_url is not None
         self._link_task_pr(self.report, self.assignment.pr_url)
         self.assignment.pr_url = "https://github.com/posthog/posthog/pull/99"
@@ -1568,10 +1469,8 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
         self.assertEqual(self.assignment.pr_state, SignalReportAssignment.PrState.OPEN)
         self.assertFalse(self.assignment.pr_merged)
 
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
     @patch("posthog.github.pull_request_events.posthoganalytics.capture")
-    def test_pr_event_only_updates_teams_connected_to_the_installation(self, _mock_capture, mock_get_secret):
-        mock_get_secret.return_value = self.webhook_secret
+    def test_pr_event_only_updates_teams_connected_to_the_installation(self, _mock_capture):
         other_organization = Organization.objects.create(name="Other Org")
         other_team = Team.objects.create(organization=other_organization, name="Other Team")
         other_report = SignalReport.objects.create(
@@ -1618,10 +1517,8 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
             ("www_host_trailing_slash", "https://www.github.com/posthog/posthog/pull/42/"),
         ]
     )
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
     @patch("posthog.github.pull_request_events.posthoganalytics.capture")
-    def test_pr_url_variants_match_by_repository_and_number(self, _name, stored_pr_url, _mock_capture, mock_get_secret):
-        mock_get_secret.return_value = self.webhook_secret
+    def test_pr_url_variants_match_by_repository_and_number(self, _name, stored_pr_url, _mock_capture):
         self.assignment.pr_url = stored_pr_url
         self.assignment.save(update_fields=["pr_url", "updated_at"])
 
@@ -1665,6 +1562,7 @@ class TestExternalPRWebhook(TestCase):
     def setUp(self):
         self.client = APIClient()
         self.webhook_secret = "test-webhook-secret"
+        self.enterContext(self.settings(GITHUB_WEBHOOK_SECRET=self.webhook_secret))
 
     def _post(self, payload: dict):
         payload_bytes = json.dumps(payload).encode("utf-8")
@@ -1700,12 +1598,10 @@ class TestExternalPRWebhook(TestCase):
         }
 
     @patch("products.signals.backend.tasks.link_report_tracker_issues.delay")
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
     @patch("posthog.github.pull_request_events.posthoganalytics.capture")
     def test_promotion_prs_do_not_attach_to_a_completed_report_discussion(
-        self, mock_capture: MagicMock, mock_get_secret: MagicMock, mock_link_report: MagicMock
+        self, mock_capture: MagicMock, mock_link_report: MagicMock
     ) -> None:
-        mock_get_secret.return_value = self.webhook_secret
         report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY)
         task = Task.objects.create(
             team=self.team,
@@ -1770,13 +1666,10 @@ class TestExternalPRWebhook(TestCase):
             ("merged", "closed", True, "pr_merged"),
         ]
     )
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
     @patch("posthog.github.pull_request_events.posthoganalytics.capture")
     def test_external_pr_event_attributes_to_installation_team(
-        self, _name, action, merged, expected_event, mock_capture, mock_get_secret
+        self, _name, action, merged, expected_event, mock_capture
     ):
-        mock_get_secret.return_value = self.webhook_secret
-
         response = self._post(self._external_payload(action, merged))
 
         self.assertEqual(response.status_code, 202)
@@ -1805,11 +1698,8 @@ class TestExternalPRWebhook(TestCase):
         for key in ("pr_title", "pr_body", "pr_labels", "pr_requested_reviewers", "pr_is_draft"):
             self.assertIsNone(props[key])
 
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
     @patch("posthog.github.pull_request_events.posthoganalytics.capture")
-    def test_external_pr_event_is_deduplicated_per_action(self, mock_capture, mock_get_secret):
-        mock_get_secret.return_value = self.webhook_secret
-
+    def test_external_pr_event_is_deduplicated_per_action(self, mock_capture):
         payload = self._external_payload("closed", merged=True)
         self.assertEqual(self._post(payload).status_code, 202)
         self.assertEqual(self._post(payload).status_code, 202)
@@ -1819,11 +1709,8 @@ class TestExternalPRWebhook(TestCase):
         second_uuid = mock_capture.call_args_list[1][1]["uuid"]
         self.assertEqual(first_uuid, second_uuid)
 
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
     @patch("posthog.github.pull_request_events.posthoganalytics.capture")
-    def test_external_pr_without_resolvable_installation_is_dropped(self, mock_capture, mock_get_secret):
-        mock_get_secret.return_value = self.webhook_secret
-
+    def test_external_pr_without_resolvable_installation_is_dropped(self, mock_capture):
         payload = self._external_payload("opened", merged=False)
         payload["installation"]["id"] = 999999
 
@@ -1832,12 +1719,10 @@ class TestExternalPRWebhook(TestCase):
         self.assertEqual(response.status_code, 202)
         mock_capture.assert_not_called()
 
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
     @patch("posthog.github.pull_request_events.posthoganalytics.capture")
-    def test_external_pr_unresolved_installation_increments_drop_counter(self, mock_capture, mock_get_secret):
+    def test_external_pr_unresolved_installation_increments_drop_counter(self, mock_capture):
         # The silent drop is now a counter, so a webhook-side event loss shows up as an
         # error rate instead of only a dip in the downstream capture ratio.
-        mock_get_secret.return_value = self.webhook_secret
         labels = {"analytics_event": "pr_merged", "reason": "unresolved_installation"}
         before = _sample_value("posthog_tasks_github_webhook_pr_event_dropped_total", labels)
         payload = self._external_payload("closed", merged=True)
@@ -1848,10 +1733,8 @@ class TestExternalPRWebhook(TestCase):
         mock_capture.assert_not_called()
         self.assertEqual(_sample_value("posthog_tasks_github_webhook_pr_event_dropped_total", labels), before + 1)
 
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
     @patch("posthog.github.pull_request_events.posthoganalytics.capture", side_effect=RuntimeError("capture down"))
-    def test_external_pr_capture_exception_increments_drop_counter(self, _mock_capture, mock_get_secret):
-        mock_get_secret.return_value = self.webhook_secret
+    def test_external_pr_capture_exception_increments_drop_counter(self, _mock_capture):
         labels = {"analytics_event": "pr_created", "reason": "capture_exception"}
         before = _sample_value("posthog_tasks_github_webhook_pr_event_dropped_total", labels)
 
@@ -1883,13 +1766,11 @@ class TestExternalPRWebhook(TestCase):
         # Attribution still resolves off the Integration rows alone.
         self.assertEqual(installation_team_ids(payload), [self.team.id])
 
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
     @patch("posthog.github.pull_request_events.posthoganalytics.capture")
-    def test_run_in_another_team_does_not_claim_the_delivery(self, mock_capture, mock_get_secret):
+    def test_run_in_another_team_does_not_claim_the_delivery(self, mock_capture):
         # The run lookup is scoped to the installation's teams, so a run belonging to an
         # unrelated team cannot claim a PR URL it happens to share. Unscoped, the full-table
         # scan would have matched it and emitted the event as pr_source="task".
-        mock_get_secret.return_value = self.webhook_secret
         other_org = Organization.objects.create(name="Unrelated Org")
         other_team = Team.objects.create(organization=other_org, name="Unrelated Team")
         other_task = Task.objects.create(
@@ -1922,10 +1803,8 @@ class TestExternalPRWebhook(TestCase):
         self.assertIsNone(properties["run_id"])
         self.assertEqual(_sample_value("posthog_tasks_github_webhook_task_run_lookup_total", labels), before + 1)
 
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
     @patch("posthog.github.pull_request_events.posthoganalytics.capture")
-    def test_external_pr_shared_installation_resolves_deterministically(self, mock_capture, mock_get_secret):
-        mock_get_secret.return_value = self.webhook_secret
+    def test_external_pr_shared_installation_resolves_deterministically(self, mock_capture):
         other_team = Team.objects.create(organization=self.organization, name="Other External Team")
         Integration.objects.create(
             team=other_team, kind="github", integration_id="555000", config={"account": {"name": "acme"}}
@@ -1938,10 +1817,8 @@ class TestExternalPRWebhook(TestCase):
         distinct_ids = {call[1]["distinct_id"] for call in mock_capture.call_args_list}
         self.assertEqual(distinct_ids, {str(expected_team.uuid)})
 
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
     @patch("posthog.github.pull_request_events.posthoganalytics.capture")
-    def test_external_pr_without_installation_block_is_dropped(self, mock_capture, mock_get_secret):
-        mock_get_secret.return_value = self.webhook_secret
+    def test_external_pr_without_installation_block_is_dropped(self, mock_capture):
         payload = self._external_payload("opened", merged=False)
         del payload["installation"]
 
@@ -2599,6 +2476,7 @@ class TestGitHubWebhookFanout(TestCase):
     def setUp(self):
         self.client = APIClient()
         self.webhook_secret = "test-webhook-secret"
+        self.enterContext(self.settings(GITHUB_WEBHOOK_SECRET=self.webhook_secret))
         # The dispatcher's per-handler delivery dedup lives in the default cache, which is not
         # rolled back between tests — without this, tests reusing a delivery id poison each other.
         cache.clear()
@@ -2626,9 +2504,7 @@ class TestGitHubWebhookFanout(TestCase):
         ]
     )
     @patch("products.conversations.backend.services.github_events.process_github_event")
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
-    def test_issues_event_dispatched_to_conversations(self, _name, url, mock_secret, mock_task):
-        mock_secret.return_value = self.webhook_secret
+    def test_issues_event_dispatched_to_conversations(self, _name, url, mock_task):
         mock_task.delay = MagicMock()
 
         payload = {
@@ -2649,9 +2525,7 @@ class TestGitHubWebhookFanout(TestCase):
         self.assertEqual(call_kwargs["repo"], "myorg/myrepo")
 
     @patch("products.conversations.backend.services.github_events.process_github_event")
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
-    def test_issue_comment_event_dispatched_to_conversations(self, mock_secret, mock_task):
-        mock_secret.return_value = self.webhook_secret
+    def test_issue_comment_event_dispatched_to_conversations(self, mock_task):
         mock_task.delay = MagicMock()
 
         payload = {
@@ -2670,9 +2544,7 @@ class TestGitHubWebhookFanout(TestCase):
         self.assertEqual(mock_task.delay.call_args[1]["event_type"], "issue_comment")
 
     @patch("products.conversations.backend.services.github_events.process_github_event")
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
-    def test_issues_event_without_matching_team_is_not_dispatched(self, mock_secret, mock_task):
-        mock_secret.return_value = self.webhook_secret
+    def test_issues_event_without_matching_team_is_not_dispatched(self, mock_task):
         mock_task.delay = MagicMock()
 
         payload = {
@@ -2694,11 +2566,8 @@ class TestGitHubWebhookFanout(TestCase):
             ("unified_url", "/webhooks/github/"),
         ]
     )
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
     @patch("posthog.github.pull_request_events.posthoganalytics.capture")
-    def test_pull_request_routed(self, _name, url, mock_capture, mock_secret):
-        mock_secret.return_value = self.webhook_secret
-
+    def test_pull_request_routed(self, _name, url, mock_capture):
         payload = {
             "action": "closed",
             "installation": {"id": 77777},
@@ -2714,21 +2583,16 @@ class TestGitHubWebhookFanout(TestCase):
         mock_capture.assert_called_once()
         self.assertEqual(mock_capture.call_args[1]["event"], "pr_merged")
 
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
-    def test_unified_url_unknown_event_is_accepted(self, mock_secret):
-        mock_secret.return_value = self.webhook_secret
-
+    def test_unified_url_unknown_event_is_accepted(self):
         payload = {"action": "created", "ref": "refs/heads/main"}
         response = self._make_request(payload, event_type="push", url="/webhooks/github/")
 
         self.assertEqual(response.status_code, 202)
 
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
-    def test_failed_handler_releases_dedup_so_redelivery_is_processed(self, mock_secret):
+    def test_failed_handler_releases_dedup_so_redelivery_is_processed(self):
         # The dedup mark is set before the handler runs; a handler failure must release it so
         # GitHub's redelivery of the same GUID gets processed instead of silently skipped for
         # 24h. A successful handler keeps the mark, so a duplicate delivery stays deduped.
-        mock_secret.return_value = self.webhook_secret
         payload = {
             "action": "created",
             "ref": "refs/heads/main",
@@ -2750,10 +2614,7 @@ class TestGitHubWebhookFanout(TestCase):
             self.assertEqual(third.status_code, 202)
             mock_handler.assert_called_once()
 
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
-    def test_unified_url_bad_signature_returns_403(self, mock_secret):
-        mock_secret.return_value = self.webhook_secret
-
+    def test_unified_url_bad_signature_returns_403(self):
         payload_bytes = json.dumps({"action": "opened"}).encode("utf-8")
         response = self.client.post(
             "/webhooks/github/",

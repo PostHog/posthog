@@ -326,11 +326,7 @@ class TestExchangeCode:
     @pytest.fixture(autouse=True)
     def credentials(self):
         with (
-            override_settings(SLACK_APP_CLIENT_ID="cid"),
-            patch(
-                "posthog.credentials_service.instance_settings.get_instance_settings",
-                return_value={"SLACK_APP_CLIENT_SECRET": "csecret"},
-            ),
+            override_settings(SLACK_APP_CLIENT_ID="cid", SLACK_APP_CLIENT_SECRET="csecret"),
         ):
             yield
 

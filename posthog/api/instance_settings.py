@@ -6,7 +6,6 @@ import structlog
 from rest_framework import exceptions, mixins, permissions, serializers, viewsets
 from rest_framework.request import Request
 
-from posthog.email import is_email_available
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
@@ -22,7 +21,6 @@ from posthog.settings import (
     SETTINGS_ALLOWING_API_OVERRIDE,
     SKIP_ASYNC_MIGRATIONS_SETUP,
 )
-from posthog.tasks.email import send_canary_email
 from posthog.utils import str_to_bool
 
 logger = structlog.get_logger(__name__)
@@ -177,12 +175,6 @@ class InstanceSettingsSerializer(serializers.Serializer):
 
         if request is not None:
             self._log_setting_change(request, instance.key, before_value, new_value_parsed)
-
-            if instance.key.startswith("EMAIL_"):
-                # Partial EMAIL_* updates (e.g. setting EMAIL_HOST_PASSWORD before EMAIL_HOST)
-                # would otherwise raise ImproperlyConfigured and fail the request with a 500.
-                if is_email_available(with_absolute_urls=True):
-                    send_canary_email.apply_async(kwargs={"user_email": request.user.email})
 
         if instance.key.startswith("ASYNC_MIGRATION") and not SKIP_ASYNC_MIGRATIONS_SETUP:
             from posthog.async_migrations.setup import setup_async_migrations

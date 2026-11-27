@@ -123,6 +123,7 @@ class TestGitHubInstallationWebhook(TestCase):
         self.team = Team.objects.create(organization=self.organization, name="Test Team")
         self.user = User.objects.create(email="webhook@example.com", distinct_id="webhook-1")
         self.webhook_secret = "test-webhook-secret"
+        self.enterContext(self.settings(GITHUB_WEBHOOK_SECRET=self.webhook_secret))
 
     def _post(self, payload: dict, event_type: str = "installation"):
         payload_bytes = json.dumps(payload).encode("utf-8")
@@ -146,10 +147,8 @@ class TestGitHubInstallationWebhook(TestCase):
             user=self.user, kind="github", integration_id=installation_id, config={}, sensitive_config={}
         )
 
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
-    def test_deleted_removes_all_rows_and_does_not_call_github(self, mock_client_request, mock_get_secret):
-        mock_get_secret.return_value = self.webhook_secret
+    def test_deleted_removes_all_rows_and_does_not_call_github(self, mock_client_request):
         integration = self._team_integration("12345")
         integration_id = str(integration.pk)
         self._user_integration("12345")
@@ -168,9 +167,7 @@ class TestGitHubInstallationWebhook(TestCase):
         mock_client_request.assert_not_called()
 
     @parameterized.expand([("row_added_after_listing",), ("row_removed_after_listing",)])
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
-    def test_deleted_audits_exactly_the_rows_it_deleted(self, case, mock_get_secret):
-        mock_get_secret.return_value = self.webhook_secret
+    def test_deleted_audits_exactly_the_rows_it_deleted(self, case):
         listed = self._team_integration("12345")
         other_team = Team.objects.create(organization=self.organization, name="Other Team")
         racing = Integration.objects.create(
@@ -199,18 +196,13 @@ class TestGitHubInstallationWebhook(TestCase):
         self.assertFalse(Integration.objects.filter(pk=listed.pk).exists())
         self.assertEqual(Integration.objects.filter(pk=racing.pk).exists(), case == "row_added_after_listing")
 
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
-    def test_deleted_with_no_matching_rows_is_idempotent(self, mock_get_secret):
-        mock_get_secret.return_value = self.webhook_secret
-
+    def test_deleted_with_no_matching_rows_is_idempotent(self):
         response = self._post({"action": "deleted", "installation": {"id": 99999}})
 
         self.assertEqual(response.status_code, 202)
 
     @parameterized.expand([("suspend",), ("unsuspend",)])
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
-    def test_reversible_action_does_not_delete_rows(self, action, mock_get_secret):
-        mock_get_secret.return_value = self.webhook_secret
+    def test_reversible_action_does_not_delete_rows(self, action):
         self._team_integration("12345")
 
         response = self._post({"action": action, "installation": {"id": 12345}})
@@ -218,17 +210,12 @@ class TestGitHubInstallationWebhook(TestCase):
         self.assertEqual(response.status_code, 202)
         self.assertTrue(Integration.objects.filter(kind="github", integration_id="12345").exists())
 
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
-    def test_missing_installation_id_is_accepted(self, mock_get_secret):
-        mock_get_secret.return_value = self.webhook_secret
-
+    def test_missing_installation_id_is_accepted(self):
         response = self._post({"action": "deleted"})
 
         self.assertEqual(response.status_code, 202)
 
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
-    def test_created_approves_the_requesters_pending_request_by_github_user_id(self, mock_get_secret):
-        mock_get_secret.return_value = self.webhook_secret
+    def test_created_approves_the_requesters_pending_request_by_github_user_id(self):
         other_user = User.objects.create(email="other-requester@example.com", distinct_id="other-requester-1")
         # Stale login on the row: a GitHub login can be renamed while the request waits, so
         # approval has to follow the immutable user id.
@@ -265,10 +252,8 @@ class TestGitHubInstallationWebhook(TestCase):
         self.assertEqual(someone_else.status, GitHubInstallRequest.Status.PENDING)
         self.assertIsNone(someone_else.installation_id)
 
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
-    def test_created_without_a_requester_is_a_noop(self, mock_get_secret):
+    def test_created_without_a_requester_is_a_noop(self):
         # An owner installing for themselves sends no requester, and must not sweep up pending rows.
-        mock_get_secret.return_value = self.webhook_secret
         pending = GitHubInstallRequest.objects.create(
             user=self.user,
             github_user_id=4242,
@@ -282,9 +267,7 @@ class TestGitHubInstallationWebhook(TestCase):
         pending.refresh_from_db()
         self.assertEqual(pending.status, GitHubInstallRequest.Status.PENDING)
 
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
-    def test_installation_repositories_updates_selection_and_invalidates_caches(self, mock_get_secret):
-        mock_get_secret.return_value = self.webhook_secret
+    def test_installation_repositories_updates_selection_and_invalidates_caches(self):
         team_row = self._team_integration("12345")
         user_row = self._user_integration("12345")
         untouched = self._team_integration("67890")
@@ -327,9 +310,7 @@ class TestGitHubInstallationWebhook(TestCase):
         self.assertEqual(untouched.config["repository_selection"], "selected")
         self.assertIsNotNone(untouched.repository_cache_updated_at)
 
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting")
-    def test_invalid_signature_returns_403_and_keeps_rows(self, mock_get_secret):
-        mock_get_secret.return_value = self.webhook_secret
+    def test_invalid_signature_returns_403_and_keeps_rows(self):
         self._team_integration("12345")
 
         payload_bytes = json.dumps({"action": "deleted", "installation": {"id": 12345}}).encode("utf-8")

@@ -9,7 +9,6 @@ from django.test import SimpleTestCase, override_settings
 import httpx
 from parameterized import parameterized
 
-from posthog.models.instance_setting import override_instance_config
 from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 
 from products.mcp_store.backend.models import MCPServerInstallation, MCPServerTemplate
@@ -807,8 +806,7 @@ class TestResolveInstallationOauthContext(BaseTest):
         )
 
         with (
-            override_settings(SLACK_APP_CLIENT_ID="slack-client"),
-            override_instance_config("SLACK_APP_CLIENT_SECRET", "slack-secret"),
+            override_settings(SLACK_APP_CLIENT_ID="slack-client", SLACK_APP_CLIENT_SECRET="slack-secret"),
         ):
             ctx = resolve_installation_oauth_context(installation)
 
@@ -921,8 +919,7 @@ class TestSourceBackedOauthMetadataBinding(BaseTest):
         installation = self._installation()
 
         with (
-            override_settings(SLACK_APP_CLIENT_ID="slack-client"),
-            override_instance_config("SLACK_APP_CLIENT_SECRET", "slack-secret"),
+            override_settings(SLACK_APP_CLIENT_ID="slack-client", SLACK_APP_CLIENT_SECRET="slack-secret"),
             self.assertRaises(OAuthTokenExchangeError),
         ):
             exchange_oauth_token(
@@ -952,8 +949,7 @@ class TestSourceBackedOauthMetadataBinding(BaseTest):
         )
 
         with (
-            override_settings(SLACK_APP_CLIENT_ID="slack-client"),
-            override_instance_config("SLACK_APP_CLIENT_SECRET", "slack-secret"),
+            override_settings(SLACK_APP_CLIENT_ID="slack-client", SLACK_APP_CLIENT_SECRET="slack-secret"),
         ):
             if operation == "exchange":
                 exchange_oauth_token(
@@ -981,8 +977,7 @@ class TestSourceBackedOauthMetadataBinding(BaseTest):
         installation = self._installation()
 
         with (
-            override_settings(SLACK_APP_CLIENT_ID="slack-client"),
-            override_instance_config("SLACK_APP_CLIENT_SECRET", "slack-secret"),
+            override_settings(SLACK_APP_CLIENT_ID="slack-client", SLACK_APP_CLIENT_SECRET="slack-secret"),
             self.assertRaises(TokenRefreshError),
         ):
             refresh_installation_token(installation)

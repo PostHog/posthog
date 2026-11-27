@@ -34,7 +34,7 @@ class TestGitHubProvider(SimpleTestCase):
     def test_each_app_only_accepts_its_own_secret(
         self, _name: str, app: str, own_secret: str, other_secret: str
     ) -> None:
-        with patch("posthog.credentials_service.instance_settings.get_instance_setting", return_value=INSTANCE_SECRET):
+        with override_settings(GITHUB_WEBHOOK_SECRET=INSTANCE_SECRET):
             scheme = build_github_provider(app).scheme()
 
             self.assertEqual(

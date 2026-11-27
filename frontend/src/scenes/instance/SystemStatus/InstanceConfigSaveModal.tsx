@@ -2,7 +2,6 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { pluralize } from 'lib/utils/strings'
 
 import { SystemStatusRow } from '~/types'
@@ -59,10 +58,6 @@ export function InstanceConfigSaveModal({ onClose, isOpen }: { onClose: () => vo
     const { saveInstanceConfig } = useActions(systemStatusLogic)
     const loading = updatedInstanceConfigCount !== null
 
-    const isChangingEnabledEmailSettings =
-        instanceConfigEditingState.EMAIL_ENABLED !== false &&
-        Object.keys(instanceConfigEditingState).find((key) => key.startsWith('EMAIL'))
-    const isEnablingEmail = instanceConfigEditingState.EMAIL_ENABLED === true
     const changeNoun = Object.keys(instanceConfigEditingState).length === 1 ? 'change' : 'changes'
 
     return (
@@ -88,12 +83,6 @@ export function InstanceConfigSaveModal({ onClose, isOpen }: { onClose: () => vo
             }
         >
             <div className="deprecated-space-y-2">
-                {isChangingEnabledEmailSettings && (
-                    <LemonBanner type="info">
-                        As you are changing email settings and {isEnablingEmail ? 'enabling email' : 'email is enabled'}
-                        , we'll attempt to send a test email so you can verify everything works.
-                    </LemonBanner>
-                )}
                 <div>The following {changeNoun} will be immediately applied to your instance.</div>
                 {Object.keys(instanceConfigEditingState).map((key) => (
                     <ChangeRow

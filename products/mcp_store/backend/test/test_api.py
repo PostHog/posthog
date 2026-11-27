@@ -22,7 +22,6 @@ from rest_framework import serializers, status
 from rest_framework.test import APIClient
 
 from posthog.models import Organization, Team, User
-from posthog.models.instance_setting import override_instance_config
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
@@ -4502,8 +4501,7 @@ class TestInstallTemplateAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
         )
 
         with (
-            override_settings(SLACK_APP_CLIENT_ID="slack-client"),
-            override_instance_config("SLACK_APP_CLIENT_SECRET", "slack-secret"),
+            override_settings(SLACK_APP_CLIENT_ID="slack-client", SLACK_APP_CLIENT_SECRET="slack-secret"),
         ):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/mcp_server_installations/install_template/",
@@ -4523,8 +4521,7 @@ class TestInstallTemplateAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
         )
 
         with (
-            override_settings(SLACK_APP_CLIENT_ID=""),
-            override_instance_config("SLACK_APP_CLIENT_SECRET", ""),
+            override_settings(SLACK_APP_CLIENT_ID="", SLACK_APP_CLIENT_SECRET=""),
         ):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/mcp_server_installations/install_template/",

@@ -10,7 +10,7 @@ from unittest.mock import Mock, patch
 
 from django.core.cache import cache
 from django.db import transaction
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 import structlog
 from celery import current_app
@@ -179,10 +179,9 @@ class TestFeatureRequestGitHubIngress(SimpleTestCase):
     @patch("products.workflows.backend.facade.api.accept_github_event")
     @patch("products.conversations.backend.facade.api.accept_github_event")
     @patch("products.customer_analytics.backend.facade.api.process_feature_request_github_delivery")
-    @patch("posthog.credentials_service.instance_settings.get_instance_setting", return_value="test-webhook-secret")
+    @override_settings(GITHUB_WEBHOOK_SECRET="test-webhook-secret")
     def test_signed_issue_delivery_enqueues_only_feature_request_work(
         self,
-        _get_secret: Mock,
         process_delivery: Mock,
         conversations: Mock,
         workflows: Mock,
