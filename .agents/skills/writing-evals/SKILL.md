@@ -10,7 +10,7 @@ description: >
 # Writing and running evals
 
 The harness under `products/posthog_ai/eval_harness/` runs two kinds of suites: **sandboxed** suites execute the real coding agent inside a real sandbox against a seeded Hedgebox project and score what it did, and **one-shot** suites score a single in-process model invocation per case.
-Neither runs under pytest — the standalone harness boots the shared infrastructure the selected suites need (for sandboxed suites: test DB, Django live server, LLM gateway, MCP server, Temporal, personhog; for one-shot suites: just the test DB, personhog, and demo data) and runs every selected suite concurrently, with Braintrust as the eval engine.
+Neither runs under pytest — the standalone harness boots the shared infrastructure the selected suites need (for sandboxed suites: test DB, Django live server, AI gateway, MCP server, Temporal, personhog; for one-shot suites: just the test DB, personhog, and demo data) and runs every selected suite concurrently, with Braintrust as the eval engine.
 
 Read before writing anything:
 
@@ -154,7 +154,7 @@ It runs agent sandboxes in parallel without the local Docker memory ceiling, so 
 ```bash
 hogli evals --list                      # suite ids, no infra
 hogli evals eval_my_thing --eval my_case  # one case, docker
-hogli evals cli_mcp --provider modal    # a domain, remote, fully parallel
+hogli evals cli_mcp --provider modal    # a domain with parallel remote sandboxes
 hogli evals eval_skill_distribution --skill-delivery exec  # exec-distributed skills only
 ```
 
@@ -162,8 +162,7 @@ hogli evals eval_skill_distribution --skill-delivery exec  # exec-distributed sk
 
 - Run from a flox shell (or wrap in `flox activate -- bash -c "..."`): the personhog build needs flox's Rust toolchain, and outside it the preflight `cargo build` dies on a missing `pkg-config`/OpenSSL.
 - Env is loaded automatically (`.env` by the harness, `.env.local`/`.env.development`/`.env.services` by hogli) and a preflight validates the required variables before any infrastructure boots.
-- `--provider docker` (default) caps at 4 concurrent sandboxes (16 GB each); `--provider modal` is unbounded — every case runs at once, `--max-sandboxes` is the cost knob.
-- Team cloning and case seeding use one setup slot on ordinary local machines and four when `CODER` or `CI` is set.
+- On Coder, the harness defaults to two setup workers and twelve Modal sandboxes. See [concurrency](../../../products/posthog_ai/eval_harness/README.md#concurrency) for overrides and other providers.
 - `--trials N` repeats every case for variance on stochastic behavior; `--fail-under <fraction>` gates the run's mean score.
 - `--skill-delivery bundled` is the default native-skill path. `--skill-delivery exec` enables the MCP skill prompt and clears all native skill directories; compare the modes in separate runs because MCP configuration is process-wide.
 - `--agent-runtime codex` runs the OpenAI Codex harness (default model `gpt-6.1-sol`) instead of Claude; it requires `LLM_GATEWAY_OPENAI_API_KEY`. The runtime/model land in the local and PostHog experiment metadata, so compare scores within one runtime.

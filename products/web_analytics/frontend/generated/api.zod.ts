@@ -88,11 +88,11 @@ export const AeoBrandsPartialUpdateBody = /* @__PURE__ */ zod.object({
 export const AeoEnginesPartialUpdateBody = /* @__PURE__ */ zod.object({
     enabled: zod.boolean().optional().describe("Whether the daily run checks the project's prompts on this engine."),
     frequency: zod
-        .enum(['daily', 'weekly'])
-        .describe('\* `daily` - Daily\n\* `weekly` - Weekly')
+        .enum(['daily', 'every_3_days', 'weekly'])
+        .describe('\* `daily` - Daily\n\* `every_3_days` - Every 72 hours\n\* `weekly` - Weekly')
         .optional()
         .describe(
-            "'daily' or 'weekly'. Weekly checks each prompt once a week and costs a seventh as much.\n\n\* `daily` - Daily\n\* `weekly` - Weekly"
+            "'daily' or 'weekly'. Weekly checks each prompt once a week and costs a seventh as much.\n\n\* `daily` - Daily\n\* `every_3_days` - Every 72 hours\n\* `weekly` - Weekly"
         ),
 })
 
@@ -315,7 +315,7 @@ export const AeoPromptsSuggestBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Sets up AI visibility tracking for the project in one job. Requires AI data processing approved for the organization. In order, it adds the site as the project's own brand, has PostHog suggest 20 prompts and saves them, and has PostHog suggest 20 keywords and saves them. With run_first_check the prompts are saved active and a first citation check run is queued with the enabled engines; each check is a paid call to every enabled engine, and each engine keeps checking active prompts on its schedule. Prompts that would pass the project's max_active_prompts are saved paused. Without run_first_check, new prompts are saved paused, so nothing is checked or spent until they are turned on. A step the project already covers is skipped: an own brand exists, 10 or more unarchived prompts, 10 or more keywords, or any check already recorded. With engines, the chosen engines are turned on and every other one off before the job starts. Returns a pending job right away; poll GET aeo_setup/<id>/ until it completes, which takes a few minutes. Running it again only fills the gaps.
+ * Sets up AI visibility tracking for the project in one job. Requires AI data processing approved for the organization. In order, it adds the site as the project's own brand; has PostHog suggest 20 prompts and saves them, with the competitors the model found saved as suggested competitors for a person to confirm; queues the first citation check run when run_first_check is set; and has PostHog suggest 20 keywords and saves them. With run_first_check the prompts are saved active and the first run uses the enabled engines; each check is a paid call to every enabled engine, and each engine keeps checking active prompts on its schedule. Prompts that would pass the project's max_active_prompts are saved paused. Without run_first_check, new prompts are saved paused, so nothing is checked or spent until they are turned on. A step the project already covers is skipped: an own brand exists, 10 or more unarchived prompts, 10 or more keywords, or any check already recorded. With engines, the chosen engines are turned on and every other one off before the job starts. Returns a pending job right away; poll GET aeo_setup/<id>/ until it completes, which takes a few minutes. Running it again only fills the gaps.
  * @summary Set up AI visibility
  */
 export const aeoSetupCreateBodyDomainMax = 200
@@ -331,6 +331,8 @@ export const aeoSetupCreateBodyEnginesMax = 20
 export const aeoSetupCreateBodyRunFirstCheckDefault = false
 export const aeoSetupCreateBodyOnlyFirstRunDefault = false
 export const aeoSetupCreateBodyActivatePausedPromptsDefault = false
+export const aeoSetupCreateBodyPromptCountDefault = 20
+export const aeoSetupCreateBodyPromptCountMax = 50
 
 export const AeoSetupCreateBody = /* @__PURE__ */ zod.object({
     domain: zod
@@ -376,6 +378,14 @@ export const AeoSetupCreateBody = /* @__PURE__ */ zod.object({
         .default(aeoSetupCreateBodyActivatePausedPromptsDefault)
         .describe(
             "With only_first_run, turn on paused prompts before the run, such as the ones a setup without run_first_check saved paused, highest ranked first and up to the project's max_active_prompts. Turned-on prompts are checked on each engine's schedule from then on."
+        ),
+    prompt_count: zod
+        .number()
+        .min(1)
+        .max(aeoSetupCreateBodyPromptCountMax)
+        .default(aeoSetupCreateBodyPromptCountDefault)
+        .describe(
+            "How many prompts setup asks PostHog to suggest and save. One run makes this many checks per enabled engine, so it sets the cost of each run. Prompts past the project's max_active_prompts are saved paused."
         ),
 })
 

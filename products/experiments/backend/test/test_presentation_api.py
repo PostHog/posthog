@@ -4694,9 +4694,14 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertIn(active_experiment_id, experiment_ids)
         self.assertNotIn(experiment_id, experiment_ids)
 
-    def test_detail_endpoint_returns_404_for_deleted_experiment(self):
-        """Test that detail endpoint returns 404 for soft-deleted experiments"""
-
+    @parameterized.expand(
+        [
+            ("retrieve", None),
+            ("update", {"name": "Renamed"}),
+            ("update_with_null_deleted", {"deleted": None, "name": "Renamed"}),
+        ]
+    )
+    def test_detail_endpoint_returns_404_for_deleted_experiment(self, _name, update_body):
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
             {
@@ -4717,9 +4722,10 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             format="json",
         )
 
-        # Try to get the deleted experiment
-        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment_id}/")
+        url = f"/api/projects/{self.team.id}/experiments/{experiment_id}/"
+        response = self.client.get(url) if update_body is None else self.client.patch(url, update_body, format="json")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(Experiment.objects.get(id=experiment_id).name, "Test Experiment")
 
     def test_restore_allows_payload_with_additional_fields(self):
         create_response = self.client.post(
@@ -5889,7 +5895,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             {**metric, "source": {"kind": "EventsNode", "event": "stale_event"}} if extra_body else {"uuid": "m1"}
         )
 
-        with patch("products.experiments.backend.recalculation.sync_connect") as mock_connect:
+        with patch("products.experiments.backend.recalculation.admission.sync_connect") as mock_connect:
             mock_connect.return_value.start_workflow = AsyncMock()
             response = self.client.post(
                 f"/api/projects/{self.team.id}/experiments/{experiment.id}/recalculate_timeseries/",
@@ -9997,7 +10003,7 @@ class TestExperimentTags(APILicensedTest):
         return response.json()
 
     def test_create_with_tags_persists_and_normalizes_them(self):
-        # Guards the expected_fields allowlist in ExperimentSerializer.create: if tags stops being
+        # Guards the expected_fields allowlist in ExperimentSerializer.to_create: if tags stops being
         # popped before that check, every tagged create fails with "Can't create keys: tags".
         experiment = self._create_experiment("Tagged", "tags-create-flag", tags=["Growth", "checkout"])
         assert sorted(experiment["tags"]) == ["checkout", "growth"]

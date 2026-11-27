@@ -1,13 +1,13 @@
 # `hog setup`
 
 `run.ts` runs the steps in order. Each step has its own file under `steps/`, numbered in that order.
-A step is either done, does its work, or stops with the next action: what you or the agent do before the next `hog setup next`.
-`hog setup` only describes the current step, and `hog setup next` keeps going until a step stops.
+A step is either done, does its work, or stops with the next action: what you or the agent do before the next `hog setup`.
+`hog setup` keeps going until a step stops, and `hog setup status` only describes the current step.
 
 Before any step, `commands/setup.ts` checks that this is the latest hog with `requireLatestForSetup` in `src/updates/check.ts`. A newer release, even one patch newer, stops setup with `hog_outdated`, and the hint names the update command for how hog was installed. For an install that a package manager updates, setup stops only once the release is a day old, because Homebrew and npm get a release after the manifest names it. The check reads the release manifest fresh, accepting an answer up to 10 minutes old. It lets setup go on when the manifest can't be read, and skips runs from source and local builds. The result carries `hog: { version, latest, updateAvailable, command }`.
 
 The rule for every step: an option counts as an answer as soon as it is given, and a prompt at a terminal asks only for the answers the options left out.
-The install step has no option, so it ends only on a `hog setup next` that started on it, which means the agent always reads its instructions first.
+The install step has no option, so it ends only on a `hog setup` that started on it, which means the agent always reads its instructions first.
 
 | File                   | Holds                                                                                         |
 | ---------------------- | --------------------------------------------------------------------------------------------- |
@@ -32,7 +32,7 @@ sequenceDiagram
     participant PH as PostHog
 
     Note over You,PH: 1. purpose
-    You->>hog: hog setup next
+    You->>hog: hog setup
     hog->>You: What do you want to use PostHog for? Which products? Which region?
     You->>hog: Your answers
 
@@ -50,7 +50,7 @@ sequenceDiagram
     hog->>You: Read the install skill with two hog skills read commands
     You->>hog: hog skills read posthog:instrument-integration (and its COMMANDMENTS.md)
     You->>You: Install PostHog in the app
-    You->>hog: hog setup next
+    You->>hog: hog setup
 
     Note over You,PH: 6. review
     hog->>You: Do your changes follow every install rule?
@@ -68,7 +68,7 @@ sequenceDiagram
 
 ## You with a coding agent
 
-The agent runs every command. It asks you what PostHog is for only when it can't tell, you approve the login, and it tells you what else PostHog can do at the end of its turn.
+The agent runs every command. It works out what PostHog is for from your conversation and code, you approve the login, and it tells you what else PostHog can do at the end of its turn.
 
 ```mermaid
 sequenceDiagram
@@ -78,41 +78,40 @@ sequenceDiagram
     participant PH as PostHog
 
     Note over You,PH: 1. purpose
-    Agent->>hog: hog setup next
-    hog-->>Agent: ask_user, with the question and the product list
-    opt The agent can't tell what PostHog is for
-        Agent->>You: What do you want to use PostHog for?
-        You->>Agent: Your answer
-    end
-    Agent->>hog: hog setup next --reason "..." --products a,b
+    Agent->>hog: hog setup
+    hog-->>Agent: run, with the product list
+    Agent->>Agent: Work out what PostHog is for from the conversation and the code
+    Agent->>hog: hog setup --reason "..." --products a,b
 
     Note over You,PH: 2. login
     hog->>PH: Start a device login
-    hog-->>Agent: wait, with a link and a code
-    Agent->>You: Open the link, check the code, approve. This is US Cloud, tell me instead if you want the EU
+    hog-->>Agent: wait, with the link, the code and next.message
+    Agent->>You: next.message: open the link, check the code, approve. This is US Cloud, tell me instead if you want the EU
     opt You want the other region
         You->>Agent: Use the EU
-        Agent->>hog: hog setup next --region eu
+        Agent->>hog: hog setup --region eu
         hog-->>Agent: wait, with a new link and code
     end
-    Agent->>hog: hog setup next (waits for the approval)
+    loop Until approved or expired
+        Agent->>hog: hog setup (waits up to 90 seconds for the approval)
+    end
     You->>PH: Log in or sign up, then approve
     PH-->>hog: Token for one project
 
     Note over You,PH: 3. project, 4. agents-md
-    hog->>PH: Record the products you picked
+    hog->>PH: Record the products you picked, and turn on session recording or exception capture if picked
     hog->>hog: Write posthog.json and the PostHog section in AGENTS.md
 
     Note over You,PH: 5. install
-    hog-->>Agent: read, with two hog skills read commands
-    Agent->>hog: hog skills read posthog:instrument-integration (and its COMMANDMENTS.md)
-    Agent->>Agent: Install PostHog in the app
-    Agent->>hog: hog setup next
+    hog-->>Agent: read, with the install skill, its rules, and the skill of each other product picked
+    Agent->>hog: hog skills read posthog:instrument-integration (and its COMMANDMENTS.md, and the product skills)
+    Agent->>Agent: Install PostHog in the app, then set up the other products
+    Agent->>hog: hog setup
 
     Note over You,PH: 6. review
     hog-->>Agent: read, to check the changes against the install rules
     Agent->>Agent: Fix any change that breaks a rule
-    Agent->>hog: hog setup next --reviewed
+    Agent->>hog: hog setup --reviewed
 
     Note over You,PH: 7. verify
     hog->>PH: Any events since setup started? (for up to 30 seconds)
@@ -122,5 +121,5 @@ sequenceDiagram
     hog->>hog: Check whether the agent has PostHog's MCP server
     hog->>hog: Write the final PostHog section in AGENTS.md
     hog-->>Agent: done, with the event count, the products, the skills and the MCP check
-    Agent->>You: At the end of its turn: what else PostHog can do, hog skills add, a reverse proxy for a posthog-js app, and hog mcp add when the server is missing
+    Agent->>You: At the end of its turn, next.message: what else PostHog can do, skills, and the MCP server when it is missing, plus a reverse proxy for a posthog-js app without one, each as something to ask the agent for
 ```

@@ -3,7 +3,6 @@ import type { Logger } from "../utils/logger";
 import { buildPiProviderRoute } from "./gateway-env";
 
 const ENV_KEYS = [
-  "LLM_GATEWAY_URL",
   "AI_GATEWAY_URL",
   "AI_GATEWAY_PRODUCTS",
   "AI_GATEWAY_PRODUCT",
@@ -12,7 +11,6 @@ const ENV_KEYS = [
 ];
 
 const config = {
-  apiKey: "oauth-token",
   apiUrl: "https://us.posthog.com",
   projectId: 7,
 };
@@ -63,7 +61,6 @@ describe("buildPiProviderRoute", () => {
       logger(),
     );
 
-    expect(route.isAiGateway).toBe(true);
     expect(route.apiKey).toBe("phe_run");
     expect(route.baseUrl).toBe("https://ai-gateway.us.posthog.com");
     expect(route.model).toBe("claude-opus-5-5");
@@ -91,34 +88,6 @@ describe("buildPiProviderRoute", () => {
     expect(route.model).toBe("zai-org/glm-5.2");
   });
 
-  it("stays on the Python gateway with the run credential when no token was minted", () => {
-    routeToGo();
-    process.env.LLM_GATEWAY_URL = "http://llm-gateway.internal:8080";
-    const log = logger();
-    const route = buildPiProviderRoute(
-      config,
-      { model: "@cf/zai-org/glm-5.2", properties },
-      log,
-    );
-
-    expect(route.isAiGateway).toBe(false);
-    expect(route.apiKey).toBe("oauth-token");
-    expect(route.baseUrl).toMatch(/\/posthog_code$/);
-    expect(route.model).toBe("@cf/zai-org/glm-5.2");
-    expect(route.headers["X-PostHog-Properties"]).toBeUndefined();
-    expect(log.warn).toHaveBeenCalledOnce();
-  });
-
-  it("keeps the legacy route unchanged when the product is not routed", () => {
-    process.env.LLM_GATEWAY_URL = "http://llm-gateway.internal:8080";
-    process.env.AI_GATEWAY_TOKEN = "phe_run";
-    const route = buildPiProviderRoute(config, { properties }, logger());
-
-    expect(route.isAiGateway).toBe(false);
-    expect(route.apiKey).toBe("oauth-token");
-    expect(route.baseUrl).toBe("http://llm-gateway.internal:8080/posthog_code");
-  });
-
   it("routes by the server's product", () => {
     process.env.AI_GATEWAY_URL = "https://ai-gateway.us.posthog.com/v1";
     process.env.AI_GATEWAY_PRODUCTS = "signals";
@@ -129,7 +98,6 @@ describe("buildPiProviderRoute", () => {
       logger(),
     );
 
-    expect(route.isAiGateway).toBe(true);
     expect(JSON.parse(route.headers["X-PostHog-Properties"]).ai_product).toBe(
       "signals",
     );

@@ -18,7 +18,7 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.sync import database_sync_to_async
-from posthog.temporal.common.clickhouse import ClickHouseClient
+from posthog.temporal.common.clickhouse import ClickHouseClient, get_client
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 
 from products.batch_exports.backend.service import (
@@ -295,11 +295,25 @@ async def test_insert_into_http_activity_exports_person_properties_as_set_when_u
         **http_config,
     )
     mock_server = MockServer()
+    # Both routes point at the test server, so the cluster each client is given tells them apart.
+    if reads_recent_table:
+        route = {"CLICKHOUSE_BATCH_EXPORTS_HTTP_URL": settings.CLICKHOUSE_HTTP_URL}
+        expected_cluster = settings.CLICKHOUSE_BATCH_EXPORTS_CLUSTER
+    else:
+        route = {"CLICKHOUSE_EVENTS_OFFLINE_HTTP_URL": settings.CLICKHOUSE_HTTP_URL}
+        expected_cluster = settings.CLICKHOUSE_EVENTS_CLUSTER
 
-    with aioresponses(passthrough=[settings.CLICKHOUSE_HTTP_URL]) as responses:
+    with (
+        override_settings(**route),
+        unittest.mock.patch(
+            "products.batch_exports.backend.temporal.clickhouse.get_client", wraps=get_client
+        ) as connected_client,
+        aioresponses(passthrough=[settings.CLICKHOUSE_HTTP_URL]) as responses,
+    ):
         responses.post(TEST_URL, status=200, callback=mock_server.post, repeat=True)
         await activity_environment.run(insert_into_http_activity, insert_inputs)
 
+    assert connected_client.call_args.kwargs["cluster"] == expected_cluster
     assert len(mock_server.records) == 1
     expected_properties = {
         "$set": person_properties,

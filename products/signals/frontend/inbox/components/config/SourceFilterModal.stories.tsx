@@ -37,6 +37,7 @@ const CATALOG: SourceFilterCatalogApi = {
         },
     ],
     starter_expressions: ['assignee_id IS NULL', "NOT has(label_names, 'internal')"],
+    preview_supported: true,
 }
 
 function linearConfig(config: Record<string, any>): SignalSourceConfig {

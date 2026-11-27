@@ -51,7 +51,15 @@ async def run_quota_limiting_all_orgs(
 
             @database_sync_to_async(thread_sensitive=True)
             def async_update_all_orgs_billing_quotas():
-                return update_all_orgs_billing_quotas(progress_callback=progress_callback)
+                run_result = update_all_orgs_billing_quotas(progress_callback=progress_callback)
+                try:
+                    # Loaded and called after the run, so the comparison can neither skip the run nor fail it.
+                    from posthog.quota_spine_comparison import compare_with_spine
+
+                    compare_with_spine(run_result)
+                except Exception as error:
+                    capture_exception(error)
+                return run_result
 
             run_result = await async_update_all_orgs_billing_quotas()
             result = QuotaLimitingResult(**run_result.stats)

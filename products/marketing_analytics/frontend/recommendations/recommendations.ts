@@ -41,7 +41,7 @@ export const RECOMMENDATION_RULE_DESCRIPTIONS: Record<MarketingAnalyticsRecommen
     brand_overlap: 'You pay for brand searches where your site already ranks in the top 3 organically.',
     content_gap: 'Searches that convert cheaply in ads, where your site ranks below position 10 or not at all.',
     keyword_gap:
-        'Popular organic searches you do not bid on. Their words already convert in your ads, or they rank on a page your ads link to.',
+        'Popular organic searches you do not bid on. Each one is a variant of a search that converts in your ads, or ranks on a page your ads link to.',
     spend_without_conversions: 'Search terms that cost at least twice the benchmark CPA and never converted.',
     striking_distance: 'Searches where your site ranks between positions 5 and 20. The top 3 gets most of the clicks.',
     keyword_tracking:
@@ -62,9 +62,12 @@ export const BENCHMARK_SOURCE_DESCRIPTIONS: Record<MarketingAnalyticsRecommendat
         'The cost per conversion of your non-brand Search campaigns, or of every non-brand campaign if you have no Search campaigns. Brand searches cost less, so they are left out.',
 }
 
-export type RecommendationCategory = 'waste' | 'grow' | 'organic' | 'fix' | 'minor'
+export type RecommendationCategory = 'waste' | 'grow' | 'organic' | 'fix' | 'keep' | 'minor'
 
-const RULE_CATEGORIES: Record<MarketingAnalyticsRecommendationRule, Exclude<RecommendationCategory, 'minor'>> = {
+const RULE_CATEGORIES: Record<
+    MarketingAnalyticsRecommendationRule,
+    Exclude<RecommendationCategory, 'keep' | 'minor'>
+> = {
     spend_without_conversions: 'waste',
     brand_leak: 'waste',
     review_campaign: 'waste',
@@ -83,7 +86,16 @@ export const RECOMMENDATION_CATEGORY_LABELS: Record<RecommendationCategory, stri
     grow: 'Grow',
     organic: 'Improve organic search',
     fix: 'Fix issues',
+    keep: 'Keep doing',
     minor: 'Under 1% of spend',
+}
+
+function groupCategory(group: RecommendationGroup): RecommendationCategory {
+    // "Under 1% of spend" is about spend to cut, so a rule that only says to keep spending is not minor.
+    if (group.keepOnly) {
+        return 'keep'
+    }
+    return group.minor ? 'minor' : RULE_CATEGORIES[group.rule]
 }
 
 export interface RecommendationSection {
@@ -95,7 +107,7 @@ export function sectionRecommendations(groups: RecommendationGroup[]): Recommend
     return (Object.keys(RECOMMENDATION_CATEGORY_LABELS) as RecommendationCategory[])
         .map((category) => ({
             category,
-            groups: groups.filter((group) => (group.minor ? 'minor' : RULE_CATEGORIES[group.rule]) === category),
+            groups: groups.filter((group) => groupCategory(group) === category),
         }))
         .filter((section) => section.groups.length > 0)
 }
@@ -125,11 +137,16 @@ export interface RecommendationTotal {
 export interface RecommendationGroup {
     rule: MarketingAnalyticsRecommendationRule
     level: MarketingAnalyticsRecommendation['level']
-    // The rows the table shows: the unresolved ones, plus the resolved ones while they are on show.
     recommendations: MarketingAnalyticsRecommendation[]
-    activeCount: number
-    // Every row of the rule is minor, resolved ones included, so resolving or showing rows never moves the rule to another section.
+    // Every row of the rule is minor, resolved ones included, so resolving rows never moves the rule to another section.
     minor: boolean
+    keepOnly: boolean
+}
+
+export const RECOMMENDATIONS_PAGE_SIZE = 20
+
+export function impactColumnTitle(keepOnly: boolean): string {
+    return keepOnly ? 'Spend' : 'Impact'
 }
 
 // Accounts can use different currencies, so amounts only add up within one currency.
@@ -198,6 +215,10 @@ export function isResolved(recommendation: MarketingAnalyticsRecommendation): bo
 
 export function unresolved(recommendations: MarketingAnalyticsRecommendation[]): MarketingAnalyticsRecommendation[] {
     return recommendations.filter((recommendation) => !isResolved(recommendation))
+}
+
+export function resolved(recommendations: MarketingAnalyticsRecommendation[]): MarketingAnalyticsRecommendation[] {
+    return recommendations.filter(isResolved)
 }
 
 export interface RecommendationsLoadStatus {
@@ -273,7 +294,6 @@ export function summarizeImpact(recommendations: MarketingAnalyticsRecommendatio
 
 export function groupRecommendations(
     recommendations: MarketingAnalyticsRecommendation[],
-    showResolved: boolean,
     // Kept in the list with no rows, so resolving the last row of the open rule does not switch to another rule.
     keepRule: MarketingAnalyticsRecommendationRule | null
 ): RecommendationGroup[] {
@@ -281,23 +301,17 @@ export function groupRecommendations(
     for (const recommendation of recommendations) {
         byRule.set(recommendation.rule, [...(byRule.get(recommendation.rule) ?? []), recommendation])
     }
-    const groups = [...byRule.entries()].map(([rule, rows]) => {
-        const active = unresolved(rows)
-        return {
-            group: {
-                rule,
-                level: rows[0].level,
-                recommendations: showResolved ? rows : active,
-                activeCount: active.length,
-                minor: rows.every((row) => row.minor),
-            },
-            needsAction: rows.some((row) => row.impactDirection !== 'keep'),
-        }
-    })
+    const groups = [...byRule.entries()].map(([rule, rows]) => ({
+        rule,
+        level: rows[0].level,
+        recommendations: unresolved(rows),
+        minor: rows.every((row) => row.minor),
+        keepOnly: rows.every((row) => row.impactDirection === 'keep'),
+    }))
     // The backend already orders rules by impact. Groups that only say "keep" need no action, so they go last.
-    return [...groups.filter((g) => g.needsAction), ...groups.filter((g) => !g.needsAction)]
-        .map(({ group }) => group)
-        .filter((group) => group.recommendations.length > 0 || group.rule === keepRule)
+    return [...groups.filter((group) => !group.keepOnly), ...groups.filter((group) => group.keepOnly)].filter(
+        (group) => group.recommendations.length > 0 || group.rule === keepRule
+    )
 }
 
 function syncedTable(source: ExternalDataSource, name: string): string | undefined {
@@ -372,6 +386,7 @@ const SERVER_DATA_GAP_ACTIONS: Record<
 > = {
     conversion_action_tables_not_synced: 'manage_source',
     performance_max_search_terms_count_primary_conversions: null,
+    hidden_search_spend: null,
     posthog_conversions_not_ready: null,
     posthog_conversion_goals_unusable: 'edit_conversion_goals',
     // It also covers a truncated result, which no goal edit fixes.

@@ -67,7 +67,7 @@ export function IssueTagSelect({
     onClear,
     defaultOpen,
 }: {
-    definitions: Pick<ErrorTrackingIssueTagDefinitionApi, 'key' | 'label' | 'description'>[]
+    definitions: Pick<ErrorTrackingIssueTagDefinitionApi, 'key' | 'label' | 'description' | 'color'>[]
     loading: boolean
     issueTags: IssueTagsFilter | null
     onTagStateChange: (key: string, state: IssueTagState | null) => void

@@ -13,7 +13,7 @@ export interface BlastRadiusResponse {
     total_users: number
 }
 
-export interface BlastRadiusPersonsResponse {
+export interface AudienceSnapshotPageResponse {
     users_affected: Array<string>
     cursor: string | null
     has_more: boolean
@@ -50,7 +50,6 @@ const histogramAudienceFetchDuration = new Histogram({
 
 export type AudienceFetchEndpoint =
     | 'user_blast_radius'
-    | 'user_blast_radius_persons'
     | 'account_audience'
     | 'audience_snapshot'
     | 'audience_snapshot_page'
@@ -79,7 +78,7 @@ export class AudienceFetchTimeoutError extends Error {
 /**
  * Service for querying persons via Django internal API for batch HogFlow processing.
  * Calls internal endpoints authenticated with INTERNAL_API_SECRET.
- * Endpoints: /internal/hog_flows/user_blast_radius and /internal/hog_flows/user_blast_radius_persons
+ * Endpoints: /internal/hog_flows/user_blast_radius, /internal/hog_flows/account_audience and the batch job audience snapshot endpoints
  */
 export class HogFlowBatchPersonQueryService {
     constructor(
@@ -193,39 +192,6 @@ export class HogFlowBatchPersonQueryService {
         }
     }
 
-    /**
-     * Get list of persons affected by filters with cursor-based pagination.
-     * Returns distinct_id and person_id for each matching person, plus pagination info.
-     *
-     * @param cursor - Optional cursor from previous response for pagination
-     */
-    async getBlastRadiusPersons(
-        team: Team,
-        filters: Pick<HogFunctionFilters, 'properties' | 'filter_test_accounts'>,
-        groupTypeIndex?: number,
-        cursor?: string | null,
-        dedupeKey?: 'email'
-    ): Promise<BlastRadiusPersonsResponse> {
-        const urlPath = `/api/projects/${team.id}/internal/hog_flows/user_blast_radius_persons` as const
-
-        try {
-            return await this.fetchAudience<BlastRadiusPersonsResponse>(
-                'user_blast_radius_persons',
-                urlPath,
-                {
-                    filters,
-                    group_type_index: groupTypeIndex,
-                    cursor: cursor || null,
-                    dedupe_key: dedupeKey ?? null,
-                },
-                'blast radius persons'
-            )
-        } catch (error) {
-            logger.error('Error calling blast radius persons endpoint', { error: serializeError(error), urlPath })
-            throw error
-        }
-    }
-
     /** The first call starts resolving the run's whole audience; later calls only report its status. */
     async requestAudienceSnapshot(
         team: Team,
@@ -252,11 +218,11 @@ export class HogFlowBatchPersonQueryService {
         team: Team,
         batchJobId: string,
         cursor?: string | null
-    ): Promise<BlastRadiusPersonsResponse> {
+    ): Promise<AudienceSnapshotPageResponse> {
         const urlPath = `/api/projects/${team.id}/internal/hog_flows/batch_jobs/${batchJobId}/audience_page` as const
 
         try {
-            return await this.fetchAudience<BlastRadiusPersonsResponse>(
+            return await this.fetchAudience<AudienceSnapshotPageResponse>(
                 'audience_snapshot_page',
                 urlPath,
                 { cursor: cursor || null },

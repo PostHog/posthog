@@ -210,13 +210,6 @@ async def call_llm(
         create_kwargs["temperature"] = temperature
     if team_id is not None:
         create_kwargs["metadata"] = {"user_id": f"team-{team_id}"}
-    # The per-key ai_stage header is what the Python gateway reads. Send it whenever the request
-    # lands there: an un-opted call site, or an opted one before the gateway env is set. Skip it
-    # only when an opted call site actually reaches the Go gateway, which reads ai_stage from the
-    # X-PostHog-Properties blob instead.
-    gateway = resolve_ai_gateway_config() if ai_product is not None else None
-    if stage and gateway is None:
-        create_kwargs["extra_headers"] = {"x-posthog-property-ai_stage": stage}
 
     # Later, we'll want to tune how many tokens we give over to thinking vs. producing output. Hard-coded for now.
     if thinking:
@@ -228,6 +221,7 @@ async def call_llm(
             create_kwargs["thinking"] = {"type": "adaptive"}
             create_kwargs.pop("temperature", None)
 
+    gateway = resolve_ai_gateway_config()
     last_exception: Exception | None = None
     stage_label = stage or "unknown"
     for attempt in range(retries):

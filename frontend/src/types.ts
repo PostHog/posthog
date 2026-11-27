@@ -861,6 +861,7 @@ export interface ConversationsSettings {
     ai_diagnostics_enabled?: boolean
     ai_resolution_channels?: string[] | null
     ai_reply_modes?: Record<string, Record<string, 'private_note' | 'bot_reply'>> | null
+    ai_rerun_mode?: 'first_message' | 'until_team_reply' | null
     ai_reply_custom_instructions?: string | null
     docs_source?: 'posthog' | null
     ai_context_account_property_ids?: string[] | null
@@ -4808,6 +4809,8 @@ export interface PreflightStatus {
     can_create_org: boolean
     /** Whether this is PostHog Cloud. */
     cloud: boolean
+    /** False on an instance that runs no batch exports, where their API is absent. */
+    batch_exports_enabled?: boolean
     /** Whether this is a managed demo environment. */
     demo: boolean
     celery: boolean

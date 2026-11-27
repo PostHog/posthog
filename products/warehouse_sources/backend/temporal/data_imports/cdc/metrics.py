@@ -142,6 +142,22 @@ def record_buffer_backlog(
     )
 
 
+# ---------------------------------------------------------------------------
+# Consumer tick gate
+# ---------------------------------------------------------------------------
+
+
+def get_consumer_tick_gate_metric(team_id: int, source_id: str, decision: str) -> MetricCounter:
+    return (
+        _source_meter(team_id, source_id)
+        .with_additional_attributes({"decision": decision})
+        .create_counter(
+            "cdc_consumer_tick_gate_total",
+            "Scheduled streaming CDC consumer ticks the gate decided: stood_down, or ran because a load was owed or the heartbeat was due",
+        )
+    )
+
+
 def get_auto_drop_metric(team_id: int, source_id: str) -> MetricCounter:
     return _source_meter(team_id, source_id).create_counter(
         "cdc_auto_drop_total", "Total slots auto-dropped by the critical-lag safety net"

@@ -220,6 +220,44 @@ class TestSmartleadFanout:
             "email_account_id": PAGE_SIZE,
         }
 
+    @pytest.mark.parametrize(
+        "endpoint, expected_paths, expected_extra",
+        [
+            ("email_accounts", ["/api/v1/email-accounts/"], {}),
+            (
+                "campaign_email_accounts",
+                ["/api/v1/campaigns/", "/api/v1/campaigns/11/email-accounts", "/api/v1/campaigns/22/email-accounts"],
+                {"campaign_id": 22},
+            ),
+        ],
+    )
+    def test_mailbox_rows_never_carry_smtp_or_imap_passwords(
+        self, endpoint: str, expected_paths: list[str], expected_extra: dict[str, Any]
+    ) -> None:
+        mailbox = {
+            "id": 2001,
+            "from_email": "sender@example.com",
+            "type": "SMTP",
+            "password": "ZmFrZS1zbXRwLXNlY3JldA==",
+            "imap_password": "ZmFrZS1pbWFwLXNlY3JldA==",
+            "warmup_enabled": True,
+        }
+
+        def script(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/api/v1/campaigns/":
+                return _json([{"id": 11}, {"id": 22}])
+            if request.path == "/api/v1/campaigns/11/email-accounts":
+                return _json([])
+            return _json([mailbox])
+
+        result = _run(endpoint, script)
+
+        assert result.raised is None
+        assert result.paths == expected_paths
+        assert result.rows == [
+            {"id": 2001, "from_email": "sender@example.com", "type": "SMTP", "warmup_enabled": True, **expected_extra}
+        ]
+
     def test_fan_out_resumes_completed_and_current_campaign(self) -> None:
         def script(request: RecordedRequest) -> ScriptedResponse:
             if request.path.endswith("/campaigns/"):
