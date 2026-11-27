@@ -49,19 +49,46 @@ export interface ScanSkips {
     quota: number
 }
 
-export type AfterClickingScanState =
+export type ScanBlockedState =
     | { kind: 'not-main-environment' }
     | { kind: 'no-access'; reason: string }
     | { kind: 'link-tagging-off' }
     | { kind: 'sensitive-email' }
+
+export type ScanOutcomeState =
+    | { kind: 'finished'; withResult: number; scanned: number; skipped: ScanSkips }
+    | { kind: 'credits-used-up' }
+    | ScanFailure
+
+export type AfterClickingScanState =
+    | ScanBlockedState
     | { kind: 'loading-sessions' }
     | { kind: 'sessions-error' }
     | { kind: 'no-sessions' }
     | { kind: 'questions'; sessionCount: number; hasMore: boolean }
     | { kind: 'scanning'; done: number; total: number; skipped: ScanSkips }
-    | { kind: 'finished'; withResult: number; scanned: number; skipped: ScanSkips }
-    | { kind: 'credits-used-up' }
-    | ScanFailure
+    | ScanOutcomeState
+
+const BLOCKED_KINDS: AfterClickingScanState['kind'][] = [
+    'not-main-environment',
+    'no-access',
+    'link-tagging-off',
+    'sensitive-email',
+]
+const OUTCOME_KINDS: AfterClickingScanState['kind'][] = [
+    'finished',
+    'credits-used-up',
+    'ai-analysis-not-allowed',
+    'scan-error',
+]
+
+export function isScanBlocked(state: AfterClickingScanState): state is ScanBlockedState {
+    return BLOCKED_KINDS.includes(state.kind)
+}
+
+export function isScanOutcome(state: AfterClickingScanState): state is ScanOutcomeState {
+    return OUTCOME_KINDS.includes(state.kind)
+}
 
 export function scanPrompt(question: string): string {
     return `At some point in this session the person clicked a link in an email and landed on a page whose URL has a ph_workflow_run parameter. Look only at what they did from that page on, and answer this question: ${question}`
@@ -112,7 +139,7 @@ function isTransient(error: unknown): boolean {
 function scanBlockedState(
     currentTeam: TeamPublicType | TeamType | null,
     linkTagging: LinkTagging
-): AfterClickingScanState | null {
+): ScanBlockedState | null {
     // Scan requests live in the project's main environment, and the API refuses them from any other.
     if (currentTeam?.project_id && currentTeam.id !== currentTeam.project_id) {
         return { kind: 'not-main-environment' }
