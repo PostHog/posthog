@@ -213,9 +213,15 @@ def _fanout_source(
     return _make_source_response(config, lambda: dependent_resource)
 
 
-def _application_pairs(candidates: list[dict[str, Any]]) -> list[tuple[str, str]]:
-    """List the (candidate id, job id) pair of each job application on a candidate listing page."""
-    pairs: list[tuple[str, str]] = []
+@frozen
+class ApplicationPair:
+    candidate_id: str
+    job_id: str
+
+
+def _application_pairs(candidates: list[dict[str, Any]]) -> list[ApplicationPair]:
+    """List the candidate and job of each job application on a candidate listing page."""
+    pairs: list[ApplicationPair] = []
     for candidate in candidates:
         assignments = [candidate.get("primaryAssignment"), *(candidate.get("secondaryAssignments") or [])]
         job_ids: list[str] = []
@@ -223,7 +229,7 @@ def _application_pairs(candidates: list[dict[str, Any]]) -> list[tuple[str, str]
             job_id = ((assignment or {}).get("job") or {}).get("id")
             if job_id and job_id not in job_ids:
                 job_ids.append(job_id)
-        pairs.extend((candidate["id"], job_id) for job_id in job_ids)
+        pairs.extend(ApplicationPair(candidate_id=candidate["id"], job_id=job_id) for job_id in job_ids)
     return pairs
 
 
@@ -232,8 +238,9 @@ def _single_page(client: RESTClient, path: str, hooks: Any, **kwargs: Any) -> li
 
 
 def _application_rows(
-    client: RESTClient, config: SmartRecruitersEndpointConfig, candidate_id: str, job_id: str, hooks: Any
+    client: RESTClient, config: SmartRecruitersEndpointConfig, pair: ApplicationPair, hooks: Any
 ) -> list[dict[str, Any]]:
+    candidate_id, job_id = pair.candidate_id, pair.job_id
     if config.name == "candidate_status_history":
         path = config.path.format(candidate_id=candidate_id, job_id=job_id)
         rows = _single_page(client, path, hooks, data_selector="content")
@@ -290,7 +297,7 @@ def _per_application_source(
     ):
         pairs = _application_pairs(candidates)
         for index in range(start, len(pairs)):
-            rows = _application_rows(client, config, *pairs[index], skip_deleted)
+            rows = _application_rows(client, config, pairs[index], skip_deleted)
             resumable_source_manager.save_state(
                 SmartRecruitersResumeConfig(candidate_page_id=page_id, pair_index=index + 1)
             )
