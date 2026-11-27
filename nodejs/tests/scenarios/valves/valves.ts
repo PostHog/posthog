@@ -89,7 +89,7 @@ export const roleTerminate: ValveDefinition = {
     name: 'role.terminate',
     params: Grace,
     target: CdpRole,
-    strandsRunningJobs: true,
+    strandsRunningJobs: false,
     apply: async (context, target, dose) =>
         context.environment.actuate({
             kind: 'terminate',

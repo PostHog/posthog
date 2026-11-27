@@ -300,12 +300,15 @@ describe('load', () => {
             { ...profile, replicas: { 'cdp-cyclotron-worker-email': 2 } },
             "valves.0.when: edge_accepted holds an email worker's send, so it fires only role.kill or role.terminate on cdp-cyclotron-worker-email",
         ]),
-        [
-            'edge_accepted while the profile runs more than one email worker',
-            { ...card, valves: [{ ...emailWorkerKill, when: edgeAccepted }] },
+        ...[
+            ['role.kill', {}],
+            ['role.terminate', { grace: '20s' }],
+        ].map(([valve, dose]): [string, object, object, string] => [
+            `edge_accepted on ${valve} while the profile runs more than one email worker`,
+            { ...card, valves: [{ ...emailWorkerKill, valve, dose, when: edgeAccepted }] },
             { ...profile, replicas: { 'cdp-cyclotron-worker-email': 2 } },
-            "valves.0.target: role.kill stops cdp-cyclotron-worker-email replica 0 only, and edge_accepted can hold another replica's send; run one email worker replica on this card",
-        ],
+            `valves.0.target: ${valve} stops cdp-cyclotron-worker-email replica 0 only, and edge_accepted can hold another replica's send; run one email worker replica on this card`,
+        ]),
         [
             'an unknown valve',
             { ...card, valves: [{ ...emailWorkerKill, valve: 'role.melt' }] },
@@ -1010,6 +1013,14 @@ describe('load', () => {
             'a kill valve on another role while the profile runs more than one cdp-api',
             { ...card, valves: [emailWorkerKill] },
             { ...profile, replicas: { 'cdp-api': 2 } },
+        ],
+        [
+            'a terminate armed on edge_accepted while the profile runs one email worker',
+            {
+                ...card,
+                valves: [{ ...emailWorkerKill, valve: 'role.terminate', dose: { grace: '20s' }, when: edgeAccepted }],
+            },
+            profile,
         ],
     ])('loads %s', (_name, content, profileContent) => {
         expect(loadCard(content, profileContent).card.id).toBe(card.id)

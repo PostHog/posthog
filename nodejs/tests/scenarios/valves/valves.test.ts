@@ -404,7 +404,11 @@ describe('valves', () => {
             const valves = createValves({ pollMs: 5 })
             const stack = stackOf()
             const signalledAt = '2026-01-01T00:00:00.000Z'
-            const exit = { signalledAt, killedAt: '2026-01-01T00:00:20.000Z', exitedAt: '2026-01-01T00:00:21.000Z' }
+            const killedAt = '2026-01-01T00:00:20.000Z'
+            const exit =
+                releaseFailure === undefined
+                    ? { signalledAt, killedAt, exitedAt: '2026-01-01T00:00:21.000Z' }
+                    : { signalledAt, killedAt }
             let releaseRan = false
             const terminated: unknown[] = []
             const context: ValveContext = {
@@ -500,6 +504,12 @@ describe('valves', () => {
             dropConnections({ when: RUNNING_ON_EMAIL }),
             { runningJobs: 2, finishesJobsFirst: true },
             { droppedSessions: 2 },
+        ],
+        [
+            'a terminate, though the worker drains its jobs after the SIGTERM',
+            { ...kill({ when: RUNNING_ON_EMAIL }), valve: 'role.terminate', dose: { grace: '20s' } },
+            { runningJobs: 2, finishesJobsFirst: true },
+            { gone: [1] },
         ],
     ])('applies and observes %s', async (_story, entry, stackSetup, effects) => {
         const valves = createValves({ pollMs: 5 })
