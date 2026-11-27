@@ -47,7 +47,7 @@ through the `X-AppFollow-API-Token` header.
 
 The `reviews` table syncs incrementally, and `ratings_history` and `reviews_stats` sync incrementally by
 date, so after the first backfill only new rows are fetched.
-The review analytics and reply tables (`reviews_semantic`, `aso_reports`, `reviews_ratings_stats`, `reviews_replies_stats`, `reviews_replies_speed`, and `reviews_replies_count`) also sync incrementally by date.
+The review analytics and reply tables (`reviews_semantic`, `aso_reports`, `reviews_ratings_stats`, `reviews_replies_stats`, `reviews_replies_speed`, `reviews_replies_count`, `reviews_version_stats`, and `console_ratings`) also sync incrementally by date.
 Each of their syncs reads the last 7 days again, because AppFollow keeps updating these statistics after the day they describe.
 Every other table syncs as full refresh.
 
@@ -74,10 +74,18 @@ are on by default — enable the rest in the table picker if you want them.
 
 Some tables read a limited history on their first sync, because AppFollow charges for each day they cover:
 
-- `reviews_ratings_stats`, `reviews_replies_stats`, and `reviews_replies_speed` take one request per app per day, so their first sync reads the last 30 days.
+- `reviews_ratings_stats`, `reviews_replies_stats`, `reviews_replies_speed`, and `reviews_version_stats` read the last 30 days. Each table makes one request per app per day.
+- `console_ratings` reads the last 30 days. It requests ratings and user counts separately for each Google Play app and collection.
 - `aso_reports` and `reviews_replies_count` read the last year.
 
 `reviews_semantic` needs the AppFollow Advanced API add-on, and `aso_reports` needs the App Store Connect integration in AppFollow.
+`console_ratings` needs the Google Play Console integration in AppFollow.
+It skips apps that return HTTP 424 and continues with other apps.
+Successful scans save each app's coverage, including empty results, so later incremental syncs only repeat the seven-day overlap.
+After an interruption, the next scan continues from the saved coverage. Full refresh reads the initial window again.
+
+`reviews_version_stats` preserves review tag counts by version in nested columns.
+`featured_apps` uses full refresh for the last year of App Store featuring events. It uses the same country selection as `app_versions`.
 
 `app_versions` needs a store country, which AppFollow does not always record on an app. We use the
 country your collection tracks, and fall back to `us` when your collection does not name one.
