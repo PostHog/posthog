@@ -112,7 +112,16 @@ export const counterDrift: MeasurementDefinition = {
     name: 'counter_drift',
     params: z.object({}).strict(),
     unit: 'messages',
-    measure: ({ journal, truth, counters, unread, horizonAt, converged, unsettled: stillSending }) => {
+    measure: ({
+        journal,
+        truth,
+        counters,
+        unread,
+        horizonAt,
+        converged,
+        unsettled: stillSending,
+        feedbackInFlight,
+    }) => {
         if (counters === undefined) {
             return []
         }
@@ -129,6 +138,9 @@ export const counterDrift: MeasurementDefinition = {
                 : `ClickHouse feeds app_metrics2 from ${read.consumers} Kafka tables, not one, so the counts do not match the sends one to one`
         )
         const incomplete = read?.incomplete ? { incomplete: true as const } : {}
+        const stillPosting = unknown(
+            `${feedbackInFlight} SES notifications were still in flight at the final truth read, so the sink can trail the counter`
+        )
         return [
             {
                 key: 'owed',
@@ -156,7 +168,9 @@ export const counterDrift: MeasurementDefinition = {
                                 ? unsettled
                                 : read.consumers !== 1
                                   ? fedTwice
-                                  : { value: read.counted[counter] - sink[counter], ...incomplete }),
+                                  : counter === 'email_delivered' && feedbackInFlight !== undefined
+                                    ? stillPosting
+                                    : { value: read.counted[counter] - sink[counter], ...incomplete }),
                     },
                     countedSide,
                     { key: `${counter}_sink`, ...(sink ? { value: sink[counter] } : noSink) },

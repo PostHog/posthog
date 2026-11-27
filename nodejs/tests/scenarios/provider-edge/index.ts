@@ -119,6 +119,7 @@ export type ProviderEdge = {
     removeFault(faultId: string): void
     hold(rule: FaultRule): FaultHold
     clearFaults(): void
+    setConfigurationSets(configurationSets: ConfigurationSets): void
     close(): Promise<void>
 }
 
@@ -160,6 +161,7 @@ type Feedback = { signer: SnsSigner; url: string }
 
 export async function startProviderEdge(options: ProviderEdgeOptions): Promise<ProviderEdge> {
     const truth = options.truth ?? new Truth()
+    let configurationSets = options.configurationSets
     const sent: SesMessage[] = []
     const faults = new FaultList()
     const trackingSigner = options.trackingKeys ? new EmailTrackingCodeSigner(options.trackingKeys, '') : undefined
@@ -172,7 +174,7 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
     }
 
     const sendEmail = (body: unknown): Reply | Silence | Held => {
-        const request = readSendEmail(body, options.configurationSets)
+        const request = readSendEmail(body, configurationSets)
         if ('error' in request) {
             truth.append({ kind: 'ses.send', status: request.error.status, detail: { error: request.error.message } })
             return sesError(request.error)
@@ -230,6 +232,18 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
         const posted = new Promise<void>((resolve) => setImmediate(resolve)).then(post)
         posting.add(posted)
         void posted.finally(() => posting.delete(posted))
+    }
+
+    const feedbackLanded = async (waitMs: number): Promise<void> => {
+        const until = Date.now() + waitMs
+        while (posting.size > 0 && Date.now() < until) {
+            const deadline = new AbortController()
+            await Promise.race([
+                Promise.allSettled(posting),
+                sleep(until - Date.now(), undefined, { signal: deadline.signal }).catch(() => undefined),
+            ])
+            deadline.abort()
+        }
     }
 
     const sendFeedback = async (
@@ -332,7 +346,7 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
             case `POST ${SEND_EMAIL_PATH}`:
                 return sendEmail(body)
             case 'GET /_truth/head':
-                return { status: 200, body: truth.head() }
+                return { status: 200, body: { ...truth.head(), feedbackInFlight: posting.size } }
             case 'GET /_health':
                 return { status: 200, body: { ok: true } }
             case 'GET /_truth':
@@ -376,8 +390,7 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
             return
         }
         if (req.method === 'GET' && url.pathname === '/_truth/head') {
-            // The judge takes its final truth from this head, so feedback still posting must land in the truth first.
-            await Promise.all(posting)
+            await feedbackLanded(integerAtLeast(url.searchParams.get('waitMs'), 0, 0))
         }
         const reply = route(req, url, body)
         if (reply === 'drop-connection') {
@@ -473,6 +486,9 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
         pgProxyOf: async (upstream) => (await pgProxyOf(upstream)).url,
         sent,
         addFault: (rule) => faults.add(rule),
+        setConfigurationSets: (sets) => {
+            configurationSets = sets
+        },
         firstAppliedAt: (faultId) => faults.firstAppliedAt(faultId),
         hitsOf: (faultId) => faults.hitsOf(faultId),
         removeFault: (faultId) => void removeFault(faultId),

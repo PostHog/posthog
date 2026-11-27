@@ -36,7 +36,7 @@ export type TruthRecord = {
 
 export type TruthPage = { records: TruthRecord[]; next: number }
 
-export type TruthHead = { head: number }
+export type TruthHead = { head: number; feedbackInFlight?: number }
 
 export function truthMessageOf({ attachments, ...message }: SesMessage): TruthMessage {
     return {

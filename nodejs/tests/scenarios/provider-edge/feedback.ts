@@ -54,6 +54,7 @@ export class FeedbackPlan {
     private readonly weights: Record<Outcome, number>
     private readonly credit: Record<Outcome, number> = { delivery: 0, hardBounce: 0, softBounce: 0, none: 0 }
     private delivered = 0
+    private trackedDelivered = 0
     private opened = 0
 
     constructor(private readonly shares: FeedbackShares) {
@@ -69,7 +70,7 @@ export class FeedbackPlan {
         const { delivery, open, click, complaint } = this.shares
         const events: FeedbackEvent[] = ['delivery']
         this.delivered += 1
-        if (tracksEngagement && crossed(this.delivered, shareOf(open, delivery))) {
+        if (tracksEngagement && crossed(++this.trackedDelivered, shareOf(open, delivery))) {
             this.opened += 1
             events.push('open')
             if (crossed(this.opened, shareOf(click, open))) {

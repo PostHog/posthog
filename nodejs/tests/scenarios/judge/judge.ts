@@ -69,6 +69,7 @@ export interface Judge {
         unread?: string
         unsettled?: string
         horizonAt?: number
+        feedbackInFlight?: number
     }
 }
 
@@ -127,6 +128,7 @@ export function createJudge({
     let teams: number[] = []
     let unread: string | undefined
     let unsettled: string | undefined
+    let feedbackInFlight: number | undefined
 
     const pullTruth = async (): Promise<void> => {
         for (;;) {
@@ -230,6 +232,7 @@ export function createJudge({
             truth = []
             unread = undefined
             unsettled = undefined
+            feedbackInFlight = undefined
             teams = [...seed.teamIds]
         },
 
@@ -272,6 +275,7 @@ export function createJudge({
         async check(invariants, gates, run, signal) {
             unsettled = undefined
             await read(() => readToSettledHead(signal))
+            feedbackInFlight = source.feedbackInFlight?.() || undefined
             const resident = invariants.some(({ name }) => name === residentBacklogIntact.name)
                 ? await residentBacklog?.()
                 : undefined
@@ -299,6 +303,7 @@ export function createJudge({
             ...(unread !== undefined && { unread }),
             ...(unsettled !== undefined && { unsettled }),
             ...(horizon !== undefined && 'at' in horizon && { horizonAt: horizon.at }),
+            ...(feedbackInFlight !== undefined && { feedbackInFlight }),
         }),
     }
 }

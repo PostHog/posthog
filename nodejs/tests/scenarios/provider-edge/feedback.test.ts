@@ -22,6 +22,8 @@ describe('provider edge SES feedback', () => {
     let receiver: http.Server
     let received: Received[]
     let answer: number
+    let holding: boolean
+    let releases: (() => void)[]
     let edge: ProviderEdge
     const signer = new EmailTrackingCodeSigner(TRACKING_KEYS, 'https://track.example.com')
 
@@ -29,12 +31,21 @@ describe('provider edge SES feedback', () => {
         caDir = mkdtempSync(path.join(os.tmpdir(), 'provider-edge-feedback-'))
         received = []
         answer = 200
+        holding = false
+        releases = []
         receiver = http.createServer((req, res) => {
             let body = ''
             req.on('data', (chunk) => (body += chunk))
             req.on('end', () => {
-                received.push({ contentType: req.headers['content-type'], body })
-                res.writeHead(answer, { 'content-type': 'application/json' }).end('{}')
+                const reply = (): void => {
+                    received.push({ contentType: req.headers['content-type'], body })
+                    res.writeHead(answer, { 'content-type': 'application/json' }).end('{}')
+                }
+                if (holding) {
+                    releases.push(reply)
+                } else {
+                    reply()
+                }
             })
         })
         await new Promise<void>((resolve) => receiver.listen(0, '127.0.0.1', resolve))
@@ -66,6 +77,11 @@ describe('provider edge SES feedback', () => {
     }
 
     const truth = async (): Promise<TruthRecord[]> => (await control('GET', '/_truth')).json.records
+
+    const feedbackLanded = async (waitMs = 10_000): Promise<{ head: number; feedbackInFlight: number }> =>
+        (await control('GET', `/_truth/head?waitMs=${waitMs}`)).json
+
+    const feedbackOf = async (): Promise<TruthRecord[]> => (await truth()).filter(({ kind }) => kind === 'ses.feedback')
 
     const sendTracked = async ({
         destination = { ToAddresses: [BOUNCED] },
@@ -286,7 +302,8 @@ describe('provider edge SES feedback', () => {
         for (let i = 0; i < 4; i++) {
             expect(await sendTracked()).toBe(200)
         }
-        await waitForExpect(() => expect(received).toHaveLength(7), 5000, 10)
+        await feedbackLanded()
+        expect(received).toHaveLength(7)
         const handled = await handleInCdpApiProcess(received.map(({ body }) => body))
 
         expect(handled).toEqual({ code: 0, handled: expect.any(Array) })
@@ -375,19 +392,15 @@ describe('provider edge SES feedback', () => {
             await sendTracked()
         }
 
-        await waitForExpect(
-            () =>
-                expect(countsOf(received.map(eventTypeOf))).toEqual({
-                    Delivery: 12,
-                    'Bounce:Permanent': 4,
-                    'Bounce:Transient': 2,
-                    Complaint: 2,
-                    Open: 6,
-                    Click: 2,
-                }),
-            5000,
-            10
-        )
+        await feedbackLanded()
+        expect(countsOf(received.map(eventTypeOf))).toEqual({
+            Delivery: 12,
+            'Bounce:Permanent': 4,
+            'Bounce:Transient': 2,
+            Complaint: 2,
+            Open: 6,
+            Click: 2,
+        })
         const outcomesBySend = Map.groupBy(
             received.map((post) => ({
                 type: eventTypeOf(post),
@@ -410,27 +423,69 @@ describe('provider edge SES feedback', () => {
 
         await sendTracked()
 
-        await waitForExpect(
-            async () =>
-                expect(
-                    (await truth())
-                        .filter(({ kind }) => kind === 'ses.feedback')
-                        .map(({ status, fault, unitId, detail }) => ({ status, fault, unitId, ...detail.feedback }))
-                ).toEqual([
-                    {
-                        status: 503,
-                        fault: undefined,
-                        unitId: 'run-1-1',
-                        eventType: 'Delivery',
-                        snsMessageId: expect.any(String),
-                        sesMessageId: expect.any(String),
-                        postedAt: expect.any(String),
-                        durationMs: expect.any(Number),
-                    },
-                ]),
-            5000,
-            10
-        )
+        await feedbackLanded()
+        expect(
+            (await feedbackOf()).map(({ status, fault, unitId, detail }) => ({
+                status,
+                fault,
+                unitId,
+                ...detail.feedback,
+            }))
+        ).toEqual([
+            {
+                status: 503,
+                fault: undefined,
+                unitId: 'run-1-1',
+                eventType: 'Delivery',
+                snsMessageId: expect.any(String),
+                sesMessageId: expect.any(String),
+                postedAt: expect.any(String),
+                durationMs: expect.any(Number),
+            },
+        ])
+    })
+
+    it('spreads opens and clicks over the tracked deliveries when tracked and untracked sends alternate', async () => {
+        await control('PUT', '/_feedback', { delivery: 1, open: 0.5, click: 0.25 })
+
+        for (let i = 0; i < 8; i++) {
+            await sendTracked({ configurationSet: i % 2 === 0 ? 'scenario-tracking' : 'scenario-untracked' })
+        }
+
+        await feedbackLanded()
+        expect(countsOf(received.map(eventTypeOf))).toEqual({ Delivery: 8, Open: 2, Click: 1 })
+    })
+
+    it('answers the truth head once the feedback of a send it accepted while waiting has landed too', async () => {
+        await control('PUT', '/_feedback', { delivery: 1 })
+        holding = true
+        await sendTracked()
+        const head = feedbackLanded()
+        await control('GET', '/_health')
+        await sendTracked()
+
+        releases.shift()!()
+        while ((await feedbackOf()).length === 0) {
+            await control('GET', '/_health')
+        }
+        holding = false
+        releases.shift()?.()
+
+        const delivered = await feedbackOf()
+        expect({ answered: await head, feedback: delivered.length }).toEqual({
+            answered: { head: Math.max(...delivered.map(({ seq }) => seq)), feedbackInFlight: 0 },
+            feedback: 2,
+        })
+    })
+
+    it('answers the truth head at its deadline with the feedback still in flight, rather than waiting for it', async () => {
+        await control('PUT', '/_feedback', { delivery: 1 })
+        holding = true
+        await sendTracked()
+
+        const answered = await feedbackLanded(50)
+
+        expect(answered).toEqual({ head: 1, feedbackInFlight: 1 })
     })
 
     it.each<[string, () => Promise<unknown>, { configurationSet?: string | null }, string[]]>([
@@ -451,7 +506,7 @@ describe('provider edge SES feedback', () => {
             await setUp()
 
             await sendTracked(send)
-            await control('GET', '/_truth/head')
+            await feedbackLanded()
 
             expect(received.map(eventTypeOf)).toEqual(expected)
         }

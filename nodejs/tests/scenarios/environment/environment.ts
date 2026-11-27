@@ -377,6 +377,7 @@ export function createEnvironment({
             PROBE_INTERVAL_MS
         )
         await edge.clearFaults()
+        await edge.setConfigurationSets(configurationSetsOf(direct[0].env))
         postgresServers = postgresServersOf(specs[0], postgresUrl)
         cyclotronUrl = cyclotronUrlOf(specs[0])
         await deleteUnfinishedJobs(cyclotronUrl)

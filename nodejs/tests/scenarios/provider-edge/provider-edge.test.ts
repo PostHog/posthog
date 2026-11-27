@@ -639,7 +639,7 @@ describe('provider edge', () => {
             '?after=1&limit=0',
             { records: [expect.objectContaining({ seq: 2 }), expect.objectContaining({ seq: 3 })], next: 3 },
         ],
-        ['as only its head', '/head', { head: 3 }],
+        ['as only its head', '/head', { head: 3, feedbackInFlight: 0 }],
     ])('pages the truth %s', async (_name, query, page) => {
         await sendEach([ALICE, BOB, ALICE])
 
