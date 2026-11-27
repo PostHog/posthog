@@ -25,7 +25,7 @@ from django.db.models.signals import post_delete, post_save
 from django.http import HttpRequest, HttpResponse
 from django.template.loader import render_to_string
 from django.test import Client, RequestFactory, SimpleTestCase, override_settings
-from django.urls import URLResolver, resolve
+from django.urls import URLResolver, resolve, reverse
 from django.urls.exceptions import Resolver404
 from django.urls.resolvers import RegexPattern
 from django.utils import timezone
@@ -1615,6 +1615,38 @@ class TestAdminConsoleViews(BaseTest):
 
 
 @time_machine.travel("2026-10-20T12:00:00Z", tick=False)
+class TestAdminConsoleDuringImpersonation(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.user.is_staff = True
+        self.user.save()
+        self.customer = User.objects.create_and_join(self.organization, "customer@example.com", None)
+        self.client.force_login(self.user)
+
+    @parameterized.expand([("read_only", "true"), ("read_write", "false")])
+    @patch("posthog.admin.console.redis_tool.get_client")
+    @patch("posthog.admin.console.redis_tool.log_activity")
+    def test_a_console_write_runs_as_the_staff_user_while_impersonating(
+        self, _name: str, read_only: str, log_activity: MagicMock, get_client: MagicMock
+    ) -> None:
+        get_client.return_value.ttl.return_value = -1
+        self.client.post(
+            reverse("loginas-user-login", kwargs={"user_id": self.customer.id}),
+            data={"read_only": read_only, "reason": "Debugging a ticket"},
+        )
+
+        response = self.client.post(
+            "/admin/console/tools/redis-values/set-ttl/",
+            data={"key": "test:key", "ttl_seconds": "60", "reason": "Test"},
+        )
+
+        # The read-only impersonation middleware answers 403 to writes, and the admin swap must keep the
+        # console out of its reach. Audit entries must name the staff user, never the customer.
+        assert response.status_code == 302, response.content
+        get_client.return_value.expire.assert_called_once_with("test:key", 60)
+        assert {call.kwargs["user"].id for call in log_activity.call_args_list} == {self.user.id}
+
+
 class TestAdminConsoleProjectDeletion(BaseTest):
     def setUp(self) -> None:
         super().setUp()

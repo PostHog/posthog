@@ -10,6 +10,7 @@ Before you add or change a panel, operation or tool, invoke `/extending-the-admi
 ## Invariants
 
 - **Every console route sits under `/admin/` and is wrapped in `admin.site.admin_view`.** `AdminOAuth2Middleware` adds the Google step-up for every `/admin/` path, and `admin_view` adds the staff check and CSRF protection. The console has no auth of its own, so a route outside that prefix or without that wrapper is unprotected.
+- **Only the console's own code imports `posthog.admin.console`.** That is the shell, the code that mounts it, each product's `backend/console.py` and the tests of these. A product's Django admin may import `MovedToConsole` from `moved.py`. The hoglint rule `admin-console-consumers` blocks any other importer.
 - **Staff operations never go through DRF, MCP, or API keys.** Keys and MCP tokens skip the admin step-up. An operation is a Python callable that a console view runs.
 - **A panel returns data, not markup.** Subclass `Panel` and return `Fact` and `Operation` objects. Do not write templates, `format_html`, or `mark_safe` for a panel. The shell renders every panel the same way, so a new panel cannot drift from the design.
 - **Only the shell writes templates** (`posthog/templates/admin_console/`). They use quill's `quill-*` classes and Tailwind utilities, with the markup quill's React components emit, including their `data-*` attributes.
