@@ -319,12 +319,17 @@ describe('statusOf', () => {
             'the ramp broke: refused_at_intake broke at the 2x step; the judge could not read the final state: The operation was aborted due to timeout',
         ],
         [
-            'a run that held while SES feedback was still in flight at the final read',
+            'a ramp whose intake broke mid-ramp while SES feedback was still in flight at the final read',
             {
                 convergence: { converged: true, unfinishedJobs: 0, unrecorded: [], tookMs: 1000, feedbackInFlight: 2 },
+                invariants: [
+                    { ...BROKEN, crossedBy: 'run-1' },
+                    { name: 'refused_at_intake', passed: false, observed: 3, unitIds: ['run-9'], crossedBy: 'run-9' },
+                ],
+                ramp: { end: 'broke', sustainedScale: 1, reason: 'refused_at_intake broke at the 2x step' },
             },
-            'invalid',
-            'feedback in flight at the final read: the edge was still posting 2 SES notifications',
+            'failed',
+            'the ramp broke: refused_at_intake broke at the 2x step',
         ],
         [
             'a run that held but whose judge could not read the final state',

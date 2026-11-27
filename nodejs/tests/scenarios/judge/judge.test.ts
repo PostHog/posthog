@@ -1315,7 +1315,7 @@ describe('judge', () => {
         })
     })
 
-    it('names the SES notifications still in flight when its final truth read reached its deadline', async () => {
+    it('names the sends whose SES feedback was still in flight when its final truth read reached its deadline', async () => {
         const hanging = http.createServer(() => undefined)
         await new Promise<void>((resolve) => hanging.listen(0, '127.0.0.1', resolve))
         await edge.close()
@@ -1354,7 +1354,7 @@ describe('judge', () => {
 
             const [result] = await judge.check([{ name: 'no_loss', params: {} }], {}, NO_RESETS)
 
-            const reason = 'feedback in flight at the final read: the edge was still posting 1 SES notification'
+            const reason = 'feedback in flight at the final read: the edge was still posting the feedback of 1 send'
             expect({ result, evidence: judge.evidence() }).toMatchObject({
                 result: { name: 'no_loss', passed: false, unjudged: reason },
                 evidence: { feedbackInFlight: 1, unsettled: reason },
