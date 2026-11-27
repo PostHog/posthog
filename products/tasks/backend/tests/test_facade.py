@@ -25,6 +25,7 @@ from posthog.models.scoping import team_scope
 from posthog.models.user import User
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.mcp_store.backend.facade.run_scope_hooks import get_run_installation_allowlist_resolvers
 from products.signals.backend.models import SignalTeamConfig
 from products.tasks.backend.facade import (
     api as facade,
@@ -43,6 +44,7 @@ from products.tasks.backend.facade.profiles import (
     get_task_profile,
 )
 from products.tasks.backend.logic.services.warm import ActiveSessionCaps, SandboxWarmer
+from products.tasks.backend.mcp_store_hooks import mcp_installation_allowlist_for_task
 from products.tasks.backend.models import (
     TASK_OWNERSHIP_VERSION_STATE_KEY,
     Channel,
@@ -2482,6 +2484,25 @@ class TestFacadeReadsAndMappers(TestCase):
         self.assertEqual(run.state.get("runtime_adapter"), "claude")
         self.assertEqual(run.state.get("model"), "claude-sonnet-5")
         self.assertEqual(run.state.get("ai_stage"), "wizard_pr_agent")
+
+    @parameterized.expand(
+        [
+            ("no_run_snapshots", [None, None], None),
+            ("one_run_snapshots", [["a"], None], ["a"]),
+            # A later run cannot widen what an earlier run narrowed, and a broken snapshot narrows to nothing.
+            ("union_of_snapshots", [["b"], ["a"]], ["a", "b"]),
+            ("malformed_snapshot", ["not-a-list"], []),
+        ]
+    )
+    def test_mcp_installation_allowlist_for_task(self, _name: str, snapshots: list, expected) -> None:
+        task = self._make_task()
+        for ids in snapshots:
+            state = {} if ids is None else {"config_snapshot": {"connectors": {"mcp_installation_ids": ids}}}
+            TaskRun.objects.create(task=task, team=self.team, state=state)
+
+        assert mcp_installation_allowlist_for_task(task.id) == expected
+        # Without the registration the MCP Store would never narrow a run token.
+        assert mcp_installation_allowlist_for_task in get_run_installation_allowlist_resolvers()
 
 
 def _tool_update(tool_response: object) -> dict:

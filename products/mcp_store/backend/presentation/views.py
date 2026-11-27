@@ -37,6 +37,7 @@ from posthog.event_usage import report_user_action
 from posthog.ip_restrictions import enforce_ip_restrictions
 from posthog.models import User
 from posthog.models.scoping.manager import resolve_effective_team_id
+from posthog.oauth_provenance import get_oauth_access_token
 from posthog.permissions import DenyMCPBuiltInAgentOAuth, DenyWorkloadAccessToken
 from posthog.rate_limit import (
     MCPOAuthBurstThrottle,
@@ -51,6 +52,7 @@ from products.cdp.backend.presentation.icons import CDPIconsService
 
 from ..agents import sync_built_in_agents
 from ..facade.api import check_mcp_url_policy, resolve_member_tool_states
+from ..facade.run_scope_hooks import run_installation_allowlist
 from ..gateway import link_installation_to_gateway, members_can_manage_agent_access, server_disabled_reason
 from ..models import (
     AGENT_GRANT_SCOPE_CHOICES,
@@ -774,11 +776,25 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
     # under the owner's credential, so a non-owner must not be able to flip it.
     _OWNER_ONLY_ACTIONS = {"destroy", "partial_update", "refresh_tools", "update_tool_approval"}
 
+    def _run_installation_allowlist(self) -> list[str] | None:
+        """The installations a sandbox run's token may reach: the ones its run selected at dispatch. None for every other
+        caller, and for a run that selected none, which keeps the person's own connections.
+
+        Mounting decides which servers the sandbox is told about. This applies the same selection to the API the token
+        calls, so the two agree."""
+        access_token = get_oauth_access_token(self.request)
+        sandbox_task_id = getattr(access_token, "sandbox_task_id", None)
+        if sandbox_task_id is None:
+            return None
+        return run_installation_allowlist(sandbox_task_id)
+
+    def _within_run_allowlist(self, queryset: QuerySet) -> QuerySet:
+        allowlist = self._run_installation_allowlist()
+        return queryset if allowlist is None else queryset.filter(id__in=allowlist)
+
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         return (
-            queryset.filter(
-                team_id=self.team_id,
-            )
+            self._within_run_allowlist(queryset.filter(team_id=self.team_id))
             .filter(Q(scope="shared") | Q(user=self.request.user))
             .select_related("template", "gateway_server", "linked_user_integration")
             .annotate(tool_count_annotated=Count("tools", filter=Q(tools__removed_at__isnull=True)))
@@ -2126,7 +2142,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         """
         user = cast(User, request.user)
         installations = (
-            MCPServerInstallation.objects.filter(team_id=self.team_id, is_enabled=True)
+            self._within_run_allowlist(MCPServerInstallation.objects.filter(team_id=self.team_id, is_enabled=True))
             .filter(Q(user=user) | Q(scope="shared"))
             .filter(Q(gateway_server__isnull=True) | Q(gateway_server__is_team_enabled=True))
             .exclude(gateway_server__member_revocations__user=user)

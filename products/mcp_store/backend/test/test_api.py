@@ -1,3 +1,4 @@
+import uuid
 import hashlib
 from datetime import UTC, datetime, timedelta
 from urllib.parse import parse_qs, urlparse, urlsplit
@@ -2634,6 +2635,75 @@ class TestMCPServiceAccountAPI(APIBaseTest):
 
 
 class TestMCPServerInstallationAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
+    def _sandbox_client(self, sandbox_task_id: uuid.UUID | None) -> APIClient:
+        application = OAuthApplication.objects.create(
+            name="Sandbox run",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            organization=self.organization,
+            user=self.user,
+        )
+        access_token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=application,
+            token=f"pha_sandbox_run_{'task' if sandbox_task_id else 'none'}",
+            expires=timezone.now() + timedelta(hours=1),
+            scope="project:read",
+            scoped_teams=[self.team.id],
+            sandbox_task_id=sandbox_task_id,
+        )
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {access_token.token}")
+        return client
+
+    @parameterized.expand(
+        [
+            ("run_with_a_selection", True, True, False),
+            ("run_without_a_selection", True, False, True),
+            ("token_without_a_run", False, False, True),
+        ]
+    )
+    def test_a_run_token_reaches_only_the_connections_its_run_selected(
+        self, _name: str, from_a_run: bool, selected: bool, reaches_other: bool
+    ) -> None:
+        mounted, other = (
+            MCPServerInstallation.objects.create(
+                team=self.team,
+                user=self.user,
+                display_name=name,
+                url=f"https://mcp.{name}.example.com/mcp",
+                auth_type="api_key",
+                sensitive_configuration={"api_key": "test-key"},
+            )
+            for name in ("mounted", "other")
+        )
+        for installation in (mounted, other):
+            MCPServerInstallationTool.objects.create(
+                installation=installation, tool_name="search", last_seen_at=timezone.now()
+            )
+        base = f"/api/environments/{self.team.id}/mcp_server_installations/"
+        client = self._sandbox_client(uuid.uuid4() if from_a_run else None)
+
+        with patch(
+            "products.mcp_store.backend.facade.run_scope_hooks._resolvers",
+            [lambda _task_id: [str(mounted.id)] if selected else None],
+        ):
+            listed = {row["id"] for row in client.get(base).json()["results"]}
+            tools = {row["installation_id"] for row in client.get(f"{base}available_tools/").json()["servers"]}
+            retrieved = client.get(f"{base}{other.id}/")
+            proxied = client.post(f"{base}{other.id}/proxy/", data={"jsonrpc": "2.0", "id": 1}, format="json")
+            called = client.post(f"{base}{other.id}/call_tool/", data={"tool_name": "search"}, format="json")
+
+        # Every route that names a connection agrees with what the run mounted.
+        reachable = {str(mounted.id), str(other.id)} if reaches_other else {str(mounted.id)}
+        assert listed == tools == reachable
+        if not reaches_other:
+            assert [retrieved.status_code, proxied.status_code, called.status_code] == [404, 404, 404]
+        else:
+            assert retrieved.status_code == 200
+
     def test_create_not_allowed(self):
         response = self.client.post(
             f"/api/environments/{self.team.id}/mcp_server_installations/",
