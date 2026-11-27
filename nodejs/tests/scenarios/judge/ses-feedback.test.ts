@@ -106,9 +106,9 @@ describe('SES feedback per ramp step', () => {
     it.each<[string, Partial<MeasureEvidence>, string]>([
         ['no SES feedback post went out', {}, 'no SES feedback post went out in this run'],
         [
-            'every SES feedback post was still in flight at the final read',
+            'SES feedback posts were still in flight at the final read',
             { feedbackInFlight: 2 },
-            'every SES feedback post was still in flight at the final read',
+            'SES feedback posts were still in flight at the final read',
         ],
     ])('names every count unmeasured on a run where %s', (_story, judged, reason) => {
         const measured = measure([{ name: 'ses_feedback_posts', params: {} }], evidence([], judged))
