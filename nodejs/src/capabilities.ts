@@ -18,6 +18,7 @@ export const CAPABILITIES_CDP: PluginServerCapabilities = {
     // Beside the API, because local dev answers sends from Kafka and every group that serves them must also consume them.
     cdpIntakeTransactionalEmail: true,
     cdpIntakeWorkflowWebhook: true,
+    cdpIntakeTransactionalPush: true,
     cdpSesWebhooks: true,
     appManagementSingleton: true,
     cdpDataWarehouseEvents: false, // Not yet fully developed - enable when ready
@@ -138,6 +139,10 @@ export function getPluginServerCapabilities(
         case PluginServerMode.cdp_intake_workflow_webhook:
             return {
                 cdpIntakeWorkflowWebhook: true,
+            }
+        case PluginServerMode.cdp_intake_transactional_push:
+            return {
+                cdpIntakeTransactionalPush: true,
             }
         case PluginServerMode.cdp_cyclotron_worker:
             return {
