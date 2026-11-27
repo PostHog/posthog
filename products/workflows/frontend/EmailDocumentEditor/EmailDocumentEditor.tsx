@@ -454,7 +454,6 @@ export function EmailDocumentEditor(): JSX.Element {
                         <EmailOwnPlainTextNotice editor={editor} />
                     ) : null}
                     <EmailEditorSwitch.ConvertedNotice />
-                    <EmailEditorFeedback />
                     <EmailEditorSwitch.UseOldButton />
                     {mode === 'edit' ? (
                         <LemonButton
@@ -467,6 +466,7 @@ export function EmailDocumentEditor(): JSX.Element {
                         </LemonButton>
                     ) : null}
                 </div>
+                <EmailEditorFeedback />
                 {mode === 'html' ? (
                     <EmailHtmlView />
                 ) : mode === 'preview' ? (
