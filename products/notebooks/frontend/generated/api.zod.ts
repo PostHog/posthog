@@ -349,7 +349,8 @@ export const NotebooksCreateBody = /* @__PURE__ */ zod.object({
                                             .describe('Optional Hog condition over row, value, and inputs.'),
                                         condition_bytecode: zod
                                             .array(zod.unknown())
-                                            .describe('Compiled Hog condition for this selection.'),
+                                            .optional()
+                                            .describe('Hog bytecode compiled by the server for this selection.'),
                                     }),
                                     zod.null(),
                                 ])
@@ -498,7 +499,8 @@ export const NotebooksCreateBody = /* @__PURE__ */ zod.object({
                                             .describe('Optional Hog condition over row, value, and inputs.'),
                                         condition_bytecode: zod
                                             .array(zod.unknown())
-                                            .describe('Compiled Hog condition for this selection.'),
+                                            .optional()
+                                            .describe('Hog bytecode compiled by the server for this selection.'),
                                     }),
                                     zod.null(),
                                 ])
@@ -814,7 +816,8 @@ export const NotebooksUpdateBody = /* @__PURE__ */ zod.object({
                                             .describe('Optional Hog condition over row, value, and inputs.'),
                                         condition_bytecode: zod
                                             .array(zod.unknown())
-                                            .describe('Compiled Hog condition for this selection.'),
+                                            .optional()
+                                            .describe('Hog bytecode compiled by the server for this selection.'),
                                     }),
                                     zod.null(),
                                 ])
@@ -963,7 +966,8 @@ export const NotebooksUpdateBody = /* @__PURE__ */ zod.object({
                                             .describe('Optional Hog condition over row, value, and inputs.'),
                                         condition_bytecode: zod
                                             .array(zod.unknown())
-                                            .describe('Compiled Hog condition for this selection.'),
+                                            .optional()
+                                            .describe('Hog bytecode compiled by the server for this selection.'),
                                     }),
                                     zod.null(),
                                 ])
@@ -1283,7 +1287,8 @@ export const NotebooksPartialUpdateBody = /* @__PURE__ */ zod.object({
                                             .describe('Optional Hog condition over row, value, and inputs.'),
                                         condition_bytecode: zod
                                             .array(zod.unknown())
-                                            .describe('Compiled Hog condition for this selection.'),
+                                            .optional()
+                                            .describe('Hog bytecode compiled by the server for this selection.'),
                                     }),
                                     zod.null(),
                                 ])
@@ -1442,7 +1447,8 @@ export const NotebooksPartialUpdateBody = /* @__PURE__ */ zod.object({
                                             .describe('Optional Hog condition over row, value, and inputs.'),
                                         condition_bytecode: zod
                                             .array(zod.unknown())
-                                            .describe('Compiled Hog condition for this selection.'),
+                                            .optional()
+                                            .describe('Hog bytecode compiled by the server for this selection.'),
                                     }),
                                     zod.null(),
                                 ])
@@ -1640,7 +1646,8 @@ export const NotebooksAppPreviewCreateBody = /* @__PURE__ */ zod.object({
                                 .describe('Optional Hog condition over row, value, and inputs.'),
                             condition_bytecode: zod
                                 .array(zod.unknown())
-                                .describe('Compiled Hog condition for this selection.'),
+                                .optional()
+                                .describe('Hog bytecode compiled by the server for this selection.'),
                         }),
                         zod.null(),
                     ])
@@ -2153,7 +2160,8 @@ export const NotebooksKernelExecuteCreateBody = /* @__PURE__ */ zod.object({
                                             .describe('Optional Hog condition over row, value, and inputs.'),
                                         condition_bytecode: zod
                                             .array(zod.unknown())
-                                            .describe('Compiled Hog condition for this selection.'),
+                                            .optional()
+                                            .describe('Hog bytecode compiled by the server for this selection.'),
                                     }),
                                     zod.null(),
                                 ])
@@ -2314,7 +2322,8 @@ export const NotebooksKernelExecuteCreateBody = /* @__PURE__ */ zod.object({
                                             .describe('Optional Hog condition over row, value, and inputs.'),
                                         condition_bytecode: zod
                                             .array(zod.unknown())
-                                            .describe('Compiled Hog condition for this selection.'),
+                                            .optional()
+                                            .describe('Hog bytecode compiled by the server for this selection.'),
                                     }),
                                     zod.null(),
                                 ])
@@ -2672,7 +2681,8 @@ export const NotebooksKernelRestartCreateBody = /* @__PURE__ */ zod.object({
                                             .describe('Optional Hog condition over row, value, and inputs.'),
                                         condition_bytecode: zod
                                             .array(zod.unknown())
-                                            .describe('Compiled Hog condition for this selection.'),
+                                            .optional()
+                                            .describe('Hog bytecode compiled by the server for this selection.'),
                                     }),
                                     zod.null(),
                                 ])
@@ -2833,7 +2843,8 @@ export const NotebooksKernelRestartCreateBody = /* @__PURE__ */ zod.object({
                                             .describe('Optional Hog condition over row, value, and inputs.'),
                                         condition_bytecode: zod
                                             .array(zod.unknown())
-                                            .describe('Compiled Hog condition for this selection.'),
+                                            .optional()
+                                            .describe('Hog bytecode compiled by the server for this selection.'),
                                     }),
                                     zod.null(),
                                 ])
@@ -3161,7 +3172,8 @@ export const NotebooksKernelStartCreateBody = /* @__PURE__ */ zod.object({
                                             .describe('Optional Hog condition over row, value, and inputs.'),
                                         condition_bytecode: zod
                                             .array(zod.unknown())
-                                            .describe('Compiled Hog condition for this selection.'),
+                                            .optional()
+                                            .describe('Hog bytecode compiled by the server for this selection.'),
                                     }),
                                     zod.null(),
                                 ])
@@ -3322,7 +3334,8 @@ export const NotebooksKernelStartCreateBody = /* @__PURE__ */ zod.object({
                                             .describe('Optional Hog condition over row, value, and inputs.'),
                                         condition_bytecode: zod
                                             .array(zod.unknown())
-                                            .describe('Compiled Hog condition for this selection.'),
+                                            .optional()
+                                            .describe('Hog bytecode compiled by the server for this selection.'),
                                     }),
                                     zod.null(),
                                 ])
@@ -3648,7 +3661,8 @@ export const NotebooksKernelStopCreateBody = /* @__PURE__ */ zod.object({
                                             .describe('Optional Hog condition over row, value, and inputs.'),
                                         condition_bytecode: zod
                                             .array(zod.unknown())
-                                            .describe('Compiled Hog condition for this selection.'),
+                                            .optional()
+                                            .describe('Hog bytecode compiled by the server for this selection.'),
                                     }),
                                     zod.null(),
                                 ])
@@ -3809,7 +3823,8 @@ export const NotebooksKernelStopCreateBody = /* @__PURE__ */ zod.object({
                                             .describe('Optional Hog condition over row, value, and inputs.'),
                                         condition_bytecode: zod
                                             .array(zod.unknown())
-                                            .describe('Compiled Hog condition for this selection.'),
+                                            .optional()
+                                            .describe('Hog bytecode compiled by the server for this selection.'),
                                     }),
                                     zod.null(),
                                 ])

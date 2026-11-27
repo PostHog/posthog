@@ -3,6 +3,15 @@ import type { NotebookVariable } from 'scenes/notebooks/Notebook/notebookVariabl
 import { resolveAppSelection } from './notebookAppSelection'
 
 describe('app selections', () => {
+    it('rejects an oversized result before loading its condition', async () => {
+        await expect(
+            resolveAppSelection(
+                { column: 'value', variable: 'target', condition: 'value != null' },
+                { value: 'x'.repeat(1_000_000) },
+                [{ name: 'target', type: 'string', value: null }]
+            )
+        ).resolves.toBeNull()
+    })
     it.each<[NotebookVariable['type'], string | number | boolean, unknown]>([
         ['boolean', 'false', false],
         ['boolean', 'unknown', null],

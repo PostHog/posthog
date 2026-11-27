@@ -13,7 +13,7 @@ function resultColumnNames(cell: NotebookComponentBlockNode): string[] {
         : []
 }
 
-export function NotebookAppSelectionSettings({
+export function NotebookAppBindingSettings({
     cell,
     block,
     layout,

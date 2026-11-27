@@ -24,7 +24,7 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     onLoadingChange?: (loading: boolean) => void
     externalLoadingIndicator?: boolean
     onSelectResultRow?: (record: Record<string, unknown>) => void
-    chartInputFilters?: Record<string, (value: unknown) => void>
+    chartInputFilters?: Record<string, (value: unknown, pointIndex: number, breakdown?: string) => void>
     onSelectBIMark?: (record: Record<string, unknown>) => void
     isBIMarkActiveFilter?: (record: Record<string, unknown>) => boolean
     getBIMarkDashboardUrl?: (record: Record<string, unknown>) => string

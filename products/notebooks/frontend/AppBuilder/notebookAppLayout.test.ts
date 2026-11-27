@@ -2,6 +2,7 @@ import { parseMarkdownNotebook } from 'lib/components/MarkdownNotebook/markdown'
 
 import {
     appSourceCells,
+    clearRemovedSelectionTargets,
     emptyAppLayout,
     mergeAppCellOutput,
     moveAppBlock,
@@ -9,6 +10,24 @@ import {
     pinAppCell,
     pinAppCells,
 } from './notebookAppLayout'
+
+it('keeps bindings with a surviving input and clears deleted destinations', () => {
+    const input = { id: 'filter', kind: 'input' as const, tab_id: 'overview', variable: 'company' }
+    const selection = { column: 'account', variable: 'company', tab_id: 'details' }
+    const chart = { id: 'chart', kind: 'cell' as const, tab_id: 'overview', selection }
+    const overview = emptyAppLayout()
+    const layout = {
+        ...overview,
+        tabs: [...overview.tabs, { id: 'details', title: 'Details' }],
+        blocks: [input, chart],
+    }
+    expect(clearRemovedSelectionTargets(layout).blocks[1]).toBe(chart)
+    expect(clearRemovedSelectionTargets({ ...layout, tabs: overview.tabs }).blocks[1].selection).toEqual({
+        ...selection,
+        tab_id: '',
+    })
+    expect(clearRemovedSelectionTargets({ ...layout, blocks: [chart] }).blocks[0].selection).toBeNull()
+})
 
 it('keeps an app source attached to a text cell after its content changes', () => {
     const markdown = '## Original title\n\nSome context'

@@ -11,7 +11,7 @@ import { AxisBreakdownSeries } from '../seriesBreakdownLogic'
 import { SqlBarGraph } from './SqlBarGraph'
 import { SqlComboGraph } from './SqlComboGraph'
 import { SqlLineGraph } from './SqlLineGraph'
-import { sqlChartKind } from './sqlLineGraphAdapter'
+import { getSeriesKey, sqlChartKind } from './sqlLineGraphAdapter'
 
 const SQL_CHART_VISUALIZATION_TYPES: ChartDisplayType[] = [
     ChartDisplayType.ActionsLineGraph,
@@ -78,7 +78,14 @@ export const SqlChart = (props: SqlChartProps): JSX.Element => {
                 {...props}
                 directPointClick
                 pointClickHint="Filter the app by this value"
-                onPointClick={(_, index) => selectInput((xData.rawData ?? xData.data)[index])}
+                onPointClick={(seriesKey, index) => {
+                    const series = props.yData.find((item, i) => getSeriesKey(item, i) === seriesKey)
+                    selectInput(
+                        (xData.rawData ?? xData.data)[index],
+                        index,
+                        series && 'breakdownValue' in series ? series.breakdownValue : undefined
+                    )
+                }}
             />
         )
     }

@@ -41,7 +41,10 @@ async function matchesCondition(
 
 function inputValue(type: NotebookVariable['type'], value: SelectedValue): NotebookVariableValue {
     const text = String(value)
-    if (Array.from(text).length > MAX_NOTEBOOK_VARIABLE_VALUE_CHARS) {
+    if (
+        text.length > 2 * MAX_NOTEBOOK_VARIABLE_VALUE_CHARS ||
+        (text.length > MAX_NOTEBOOK_VARIABLE_VALUE_CHARS && Array.from(text).length > MAX_NOTEBOOK_VARIABLE_VALUE_CHARS)
+    ) {
         return null
     }
     switch (type) {
@@ -71,9 +74,9 @@ export async function resolveAppSelection(
     if (typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean') {
         return null
     }
-    if (!(await matchesCondition(selection, row, value, variables))) {
+    const next = inputValue(target.type, value)
+    if (next === null || !(await matchesCondition(selection, row, value, variables))) {
         return null
     }
-    const next = inputValue(target.type, value)
-    return next === null ? null : { name: target.name, value: next }
+    return { name: target.name, value: next }
 }

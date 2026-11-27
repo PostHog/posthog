@@ -468,7 +468,7 @@ export const Table = (props: TableProps): JSX.Element => {
                             type="tertiary"
                             size="xsmall"
                             // The negative margin cancels the button padding, so the value lines up with the header text
-                            className="-mx-1.5 max-w-[calc(100%+0.75rem)] !text-inherit"
+                            className="ph-no-capture -mx-1.5 max-w-[calc(100%+0.75rem)] !text-inherit"
                             tooltip={tableSelection ? 'Select this row' : 'Explore this result'}
                             onClick={() =>
                                 props.onInspect?.(

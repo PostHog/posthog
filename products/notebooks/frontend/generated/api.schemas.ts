@@ -762,8 +762,8 @@ export interface NotebookAppSelectionApi {
      * @maxLength 1200
      */
     condition?: string
-    /** Compiled Hog condition for this selection. */
-    readonly condition_bytecode: readonly unknown[]
+    /** Hog bytecode compiled by the server for this selection. */
+    condition_bytecode?: unknown[]
 }
 
 /**

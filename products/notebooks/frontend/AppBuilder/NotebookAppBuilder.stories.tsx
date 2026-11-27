@@ -331,11 +331,29 @@ export const ResultSelection: Story = {
                 2,
             ],
         }
+        const chart = report.blocks.find((block) => block.node_id === 'weekly-signups')!
+        chart.selection = table.selection
         saved = { ...saved, app_draft: report, app_published: report }
     },
     parameters: { pageUrl: `${urls.notebook(SHORT_ID)}?view=app` },
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
+        const chart = (await canvas.findByRole('img', { name: /chart with 2 data series/i }, { timeout: 60000 }))
+            .parentElement!
+        chart.scrollIntoView({ block: 'center' })
+        const point = (): { clientX: number; clientY: number } => {
+            const { left, top, width, height } = chart.getBoundingClientRect()
+            return { clientX: left + width * 0.8, clientY: top + height * 0.5 }
+        }
+        await waitFor(() => {
+            fireEvent.mouseMove(chart, point())
+            expect(within(document.body).getByText('Filter the app by this value')).toBeVisible()
+        })
+        fireEvent.click(chart, point())
+        await waitFor(() =>
+            expect(canvas.getByRole('tab', { name: 'Data and methodology' })).toHaveAttribute('aria-selected', 'true')
+        )
+        await userEvent.click(canvas.getByRole('tab', { name: 'Overview' }))
         const row = await canvas.findByText('2026-10-12', {}, { timeout: 60000 })
         await userEvent.click(row)
         await waitFor(() =>

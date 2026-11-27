@@ -71,6 +71,12 @@ class NotebookAppCellDisplay(models.TextChoices):
     BOTH = "both", "Source and output"
 
 
+class CompiledSelectionConditionField(serializers.ListField):
+    def get_value(self, dictionary: Any) -> Any:
+        # A stored layout can include bytecode from an earlier save. Only the server compiles the current condition.
+        return serializers.empty
+
+
 class NotebookAppSelectionSerializer(serializers.Serializer):
     column = serializers.CharField(max_length=256, help_text="Result column whose selected value sets the input.")
     variable = serializers.CharField(max_length=80, help_text="Published input to update.")
@@ -80,8 +86,10 @@ class NotebookAppSelectionSerializer(serializers.Serializer):
     condition = serializers.CharField(
         max_length=1200, allow_blank=True, default="", help_text="Optional Hog condition over row, value, and inputs."
     )
-    condition_bytecode = serializers.ListField(
-        child=serializers.JSONField(), read_only=True, help_text="Compiled Hog condition for this selection."
+    condition_bytecode = CompiledSelectionConditionField(
+        child=serializers.JSONField(),
+        required=False,
+        help_text="Hog bytecode compiled by the server for this selection.",
     )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:

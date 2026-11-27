@@ -9,6 +9,27 @@ import { uuid } from 'lib/utils/dom'
 
 import type { NotebookAppBlockApi, NotebookAppLayoutApi } from '../generated/api.schemas'
 
+export function clearRemovedSelectionTargets(layout: NotebookAppLayoutApi): NotebookAppLayoutApi {
+    const inputs = new Set(layout.blocks.filter((block) => block.kind === 'input').map((block) => block.variable))
+    const tabs = new Set(layout.tabs.map((tab) => tab.id))
+    return {
+        ...layout,
+        blocks: layout.blocks.map((block) => {
+            const selection = block.selection
+            if (!selection) {
+                return block
+            }
+            if (!inputs.has(selection.variable)) {
+                return { ...block, selection: null }
+            }
+            if (selection.tab_id && !tabs.has(selection.tab_id)) {
+                return { ...block, selection: { ...selection, tab_id: '' } }
+            }
+            return block
+        }),
+    }
+}
+
 export function appCellTitle(node: NotebookBlockNode): string {
     if (node.type === 'component') {
         return String(node.props.title || node.props.name || node.tagName)

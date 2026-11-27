@@ -7,8 +7,8 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import type { NotebookVariable } from 'scenes/notebooks/Notebook/notebookVariables'
 
 import type { NotebookAppBlockApi, NotebookAppLayoutApi } from '../generated/api.schemas'
+import { NotebookAppBindingSettings } from './NotebookAppBindingSettings'
 import { appCellTitle } from './notebookAppLayout'
-import { NotebookAppSelectionSettings } from './NotebookAppSelectionSettings'
 
 const SLIDER_FIELDS = [
     { key: 'min', label: 'Minimum', defaultValue: 0 },
@@ -148,7 +148,7 @@ export function NotebookAppInspector({
                             {source?.type === 'component' &&
                                 source.tagName === 'SQLV2' &&
                                 block.display !== 'source' && (
-                                    <NotebookAppSelectionSettings
+                                    <NotebookAppBindingSettings
                                         cell={source}
                                         block={block}
                                         layout={layout}

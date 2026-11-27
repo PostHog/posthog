@@ -10,7 +10,9 @@ import { LemonBanner, LemonTabs, Spinner } from '@posthog/lemon-ui'
 import { ApiConfig } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { cn } from 'lib/utils/css-classes'
+import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
 import { objectsEqual } from 'lib/utils/objects'
+import { reloadAfterChunkLoadError } from 'lib/utils/stableChunks'
 import { urls } from 'scenes/urls'
 
 import type { NotebookAppReleaseApi } from '../generated/api.schemas'
@@ -123,7 +125,13 @@ function AppSession({ viewer, release }: { viewer: ViewerProps; release: Noteboo
                                 short_id: shortId,
                                 conditional: !!selection.condition,
                             })
-                        } catch {
+                        } catch (error) {
+                            if (isChunkLoadError(error)) {
+                                lemonToast.error('Reload the app to use this selection.', {
+                                    button: { label: 'Reload', action: () => reloadAfterChunkLoadError(error) },
+                                })
+                                return
+                            }
                             lemonToast.error(
                                 'Could not apply the selection. Check the Hog condition in the app builder.'
                             )
@@ -135,11 +143,8 @@ function AppSession({ viewer, release }: { viewer: ViewerProps; release: Noteboo
                             sessionId={sessionId}
                             current={results?.outputs[cell.id]}
                             pinned={publishedResults[cell.id]}
-                            chartInputFilters={
-                                selection
-                                    ? { [selection.column]: (value) => void select({ [selection.column]: value }) }
-                                    : chartInputFilters
-                            }
+                            chartInputFilters={chartInputFilters}
+                            selectionColumn={selection?.column}
                             onSelectResultRow={selection ? select : undefined}
                         />
                     )

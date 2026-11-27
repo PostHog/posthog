@@ -366,7 +366,7 @@ export const NotebooksPartialUpdateBody = () => zod.object({
                                         condition_bytecode: zod
                                             .array(zod.unknown())
                                             .optional()
-                                            .describe('Compiled Hog condition for this selection.'),
+                                            .describe('Hog bytecode compiled by the server for this selection.'),
                                     }),
                                     zod.null(),
                                 ])
@@ -526,7 +526,7 @@ export const NotebooksPartialUpdateBody = () => zod.object({
                                         condition_bytecode: zod
                                             .array(zod.unknown())
                                             .optional()
-                                            .describe('Compiled Hog condition for this selection.'),
+                                            .describe('Hog bytecode compiled by the server for this selection.'),
                                     }),
                                     zod.null(),
                                 ])

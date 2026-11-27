@@ -72,7 +72,7 @@
                                                         "type": "string"
                                                     },
                                                     "condition_bytecode": {
-                                                        "description": "Compiled Hog condition for this selection.",
+                                                        "description": "Hog bytecode compiled by the server for this selection.",
                                                         "items": {},
                                                         "type": "array"
                                                     },
@@ -257,7 +257,7 @@
                                                         "type": "string"
                                                     },
                                                     "condition_bytecode": {
-                                                        "description": "Compiled Hog condition for this selection.",
+                                                        "description": "Hog bytecode compiled by the server for this selection.",
                                                         "items": {},
                                                         "type": "array"
                                                     },
