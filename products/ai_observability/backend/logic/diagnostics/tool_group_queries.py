@@ -23,6 +23,7 @@ from .group_page_queries import (
     contains_search,
     fields,
     groups_to_sort,
+    page_of,
     previous_period,
     rows_in_periods,
     since_lookback,
@@ -226,6 +227,16 @@ def _page_query(
     page: PageRequest,
 ) -> ast.SelectQuery:
     sort_key = ast.Tuple(exprs=[*(parse_expr(key) for key in _ORDER_KEYS[order]), ast.Field(chain=["name"])])
+    in_view = parse_expr(_VIEWS[view]) if view is not None else ast.Constant(value=True)
+    sorted_groups = parse_expr(
+        "groupArraySortedIf({take})(tuple({sort_key}, {row}), {in_view})",
+        placeholders={
+            "take": ast.Constant(value=groups_to_sort(page)),
+            "sort_key": sort_key,
+            "row": ast.Tuple(exprs=fields(_GROUP_COLUMNS)),
+            "in_view": in_view,
+        },
+    )
     query = parse_select(
         """
         SELECT
@@ -233,14 +244,12 @@ def _page_query(
             countIf(is_failing) AS failing,
             max(calls) AS max_calls,
             countIf({in_view}) AS matching,
-            groupArraySortedIf({take})(tuple({sort_key}, {row}), {in_view}) AS page
+            {page} AS page
         FROM {groups}
         """,
         placeholders={
-            "in_view": parse_expr(_VIEWS[view]) if view is not None else ast.Constant(value=True),
-            "take": ast.Constant(value=groups_to_sort(page)),
-            "sort_key": sort_key,
-            "row": ast.Tuple(exprs=fields(_GROUP_COLUMNS)),
+            "in_view": in_view,
+            "page": page_of(sorted_groups, page),
             "groups": _groups(team, selection, size, contains_search(ast.Field(chain=["name"]), search)),
         },
     )
@@ -300,7 +309,7 @@ def load_tool_page(
         team, user, selection, query, TOOLS_PAGE_QUERY_NAME
     )
     return ToolPageRead(
-        rows=tuple(_row(values, starts, has_previous=has_previous) for _, values in rows[page.offset :]),
+        rows=tuple(_row(values, starts, has_previous=has_previous) for _, values in rows),
         count=matching,
         counts=ToolCountsRow(total=total, failing=failing, max_calls=max_calls),
         bucket_starts=tuple(starts),

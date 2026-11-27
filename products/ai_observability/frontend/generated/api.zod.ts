@@ -15,11 +15,13 @@ import * as zod from 'zod'
  * range and the test account switch of the list the keys came from. The check ignores the list's other
  * filters.
  */
+export const aiObservabilityErrorsFirstSeenCreateBodyKeysItemMax = 65536
+
 export const aiObservabilityErrorsFirstSeenCreateBodyKeysMax = 100
 
 export const AiObservabilityErrorsFirstSeenCreateBody = /* @__PURE__ */ zod.object({
     keys: zod
-        .array(zod.string())
+        .array(zod.string().max(aiObservabilityErrorsFirstSeenCreateBodyKeysItemMax))
         .min(1)
         .max(aiObservabilityErrorsFirstSeenCreateBodyKeysMax)
         .describe('Up to 100 error keys, as the errors list hands them out.'),

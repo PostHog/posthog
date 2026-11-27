@@ -197,6 +197,7 @@ class TestToolViews(APIBaseTest):
             ("unknown view", "list", {"view": "increasing"}),
             ("unknown order", "list", {"order": "occurrences"}),
             ("limit too large", "list", {"limit": 101}),
+            ("offset past the sorted tools", "list", {"offset": diagnostics.DIAGNOSTICS_PAGE_MAX_OFFSET + 1}),
             ("group key alone", "retrieve", {"group_key": "acme"}),
         ]
     )

@@ -53,7 +53,7 @@ class ToolListQuerySerializer(ToolSelectionQuerySerializer):
     limit = page_limit_field(
         "tools", default=DIAGNOSTICS_PAGE_DEFAULT_LIMIT, maximum=diagnostics.DIAGNOSTICS_PAGE_MAX_LIMIT
     )
-    offset = page_offset_field("tools")
+    offset = page_offset_field("tools", maximum=diagnostics.DIAGNOSTICS_PAGE_MAX_OFFSET)
 
 
 class ToolViewSet(DiagnosticsViewSet):
