@@ -3,6 +3,7 @@ import { useCallback, useMemo, useState } from 'react'
 import type { ChartLegendConfig, ChartTheme, Series } from '@posthog/quill-charts'
 
 import { useChartTheme } from 'lib/charts/hooks'
+import { legendBoxPosition } from 'lib/charts/legendPosition'
 import { useChartLegendSeriesMenu } from 'lib/components/ChartLegendSeriesMenu/useChartLegendSeriesMenu'
 
 import { ChartSettings } from '~/queries/schema/schema-general'
@@ -59,7 +60,7 @@ export function useSqlPartOfWholeChart(
     const legendConfig: ChartLegendConfig = useMemo(
         () => ({
             show: showLegend,
-            position: chartSettings.legendPosition ?? (isProportionBar ? 'bottom' : 'right'),
+            position: legendBoxPosition(chartSettings.legendPosition) ?? (isProportionBar ? 'bottom' : 'right'),
             interactive: true,
             hiddenKeys: showLegend ? hiddenKeys : [],
             onToggleSeries: (key: string) =>

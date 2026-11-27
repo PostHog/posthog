@@ -22,6 +22,24 @@ import type { PieLayout } from './computePieLayout'
 import { PieTooltip } from './PieTooltip'
 import { SliceLabels } from './SliceLabels'
 import type { SliceValueDisplay } from './SliceLabels'
+import {
+    measureSurroundingLabel,
+    pickSurroundingStartAngle,
+    SurroundingLabels,
+    surroundingLabelInset,
+    surroundingLabelText,
+} from './SurroundingLabels'
+
+/** The pie's legend config: {@link ChartLegendConfig} plus a pie-only `'surrounding'` position. */
+export interface PieChartLegendConfig extends Omit<ChartLegendConfig, 'position'> {
+    /** Where the legend sits. `'surrounding'` drops the legend box and labels each slice beside
+     *  the pie instead, in a column on the slice's side, joined to the slice by a leader line, so
+     *  a small slice is as easy to name as a large one. The pie shrinks to leave room for the
+     *  columns, and the on-slice labels give way to them: the slice's value line moves into its
+     *  surrounding label. Clicking a label isolates or toggles its slice as a legend row does.
+     *  Default 'bottom'. */
+    position?: ChartLegendConfig['position'] | 'surrounding'
+}
 
 export interface PieChartConfig<Meta = unknown> {
     /** 0 = pie (default), 0.5 = donut. Clamped to [0, 0.95]. */
@@ -62,8 +80,9 @@ export interface PieChartConfig<Meta = unknown> {
         enabled?: boolean
     }
     /** Built-in legend, one row per slice. Hidden by default; toggling a row off removes the
-     *  slice and the rest rescale to the full circle. Same semantics as the other charts. */
-    legend?: ChartLegendConfig
+     *  slice and the rest rescale to the full circle. Same semantics as the other charts, plus a
+     *  pie-only `position: 'surrounding'`. */
+    legend?: PieChartLegendConfig
 }
 
 export interface PieChartProps<Meta = unknown> {
@@ -169,19 +188,31 @@ function PieChartInner<Meta = unknown>({
 
     const showTooltip = tooltipConfig?.enabled !== false
 
-    const { visibleSeries, legendProps } = useChartLegend(series, theme, legend)
+    const surrounding = !!legend?.show && legend.position === 'surrounding'
+    const { visibleSeries, legendProps } = useChartLegend(series, theme, toChartLegendConfig(legend, surrounding))
+    const valueDisplay: SliceValueDisplay = sliceValueDisplay ?? (isPercent ? 'percent' : 'value')
 
     const buildLayout = useCallback<RadialLayoutBuilder<Meta>>(
-        (resolvedSeries, dimensions) =>
-            computePieLayout<Meta>({
-                series: resolvedSeries,
-                dimensions,
-                sliceValue,
-                innerRadiusRatio,
-                padAngle,
-                sort,
-            }),
-        [sliceValue, innerRadiusRatio, padAngle, sort]
+        (resolvedSeries, dimensions) => {
+            const options = { series: resolvedSeries, dimensions, sliceValue, innerRadiusRatio, padAngle, sort }
+            const layout = computePieLayout<Meta>(options)
+            if (!surrounding) {
+                return layout
+            }
+            // The slice values the labels show only exist once the slices are laid out, so size the
+            // label columns off a first pass, then shrink the pie to fit beside them and turn it so
+            // the labels sit close to their slices.
+            const labelWidths = layout.slices.map((slice) =>
+                measureSurroundingLabel(
+                    surroundingLabelText(slice, { valueFormatter, showValue: showValueOnSlice, valueDisplay })
+                )
+            )
+            const horizontalInset = surroundingLabelInset(labelWidths, dimensions.plotWidth)
+            const layoutAt = (startAngle: number): PieLayout<Meta> =>
+                computePieLayout<Meta>({ ...options, horizontalInset, startAngle })
+            return layoutAt(pickSurroundingStartAngle(layoutAt, dimensions))
+        },
+        [sliceValue, innerRadiusRatio, padAngle, sort, surrounding, valueFormatter, showValueOnSlice, valueDisplay]
     )
 
     const effectiveHoverGrowth = disableHoverOffset ? 0 : hoverGrowth
@@ -253,20 +284,45 @@ function PieChartInner<Meta = unknown>({
                 className={className}
                 dataAttr={dataAttr}
             >
-                <SliceLabels
-                    valueFormatter={valueFormatter}
-                    showValueOnSlice={showValueOnSlice}
-                    showLabelOnSlice={showLabelOnSlice}
-                    sliceValueDisplay={sliceValueDisplay}
-                    minSlicePercentForLabel={minSlicePercentForLabel}
-                    labelRadiusRatio={labelRadiusRatio}
-                    isPercent={isPercent}
-                />
+                {surrounding ? (
+                    <SurroundingLabels
+                        valueFormatter={valueFormatter}
+                        showValue={showValueOnSlice}
+                        valueDisplay={valueDisplay}
+                        onLabelClick={legendProps.onItemClick}
+                    />
+                ) : (
+                    <SliceLabels
+                        valueFormatter={valueFormatter}
+                        showValueOnSlice={showValueOnSlice}
+                        showLabelOnSlice={showLabelOnSlice}
+                        sliceValueDisplay={sliceValueDisplay}
+                        minSlicePercentForLabel={minSlicePercentForLabel}
+                        labelRadiusRatio={labelRadiusRatio}
+                        isPercent={isPercent}
+                    />
+                )}
                 <PieCenterLabel>{centerLabel}</PieCenterLabel>
                 {children}
             </RadialChart>
         </ChartLegend>
     )
+}
+
+/** The surrounding labels stand in for the legend box, so it stays hidden while the hidden-slice
+ *  state and click handling keep working for the labels. */
+function toChartLegendConfig(
+    legend: PieChartLegendConfig | undefined,
+    surrounding: boolean
+): ChartLegendConfig | undefined {
+    if (!legend) {
+        return undefined
+    }
+    const { position, ...rest } = legend
+    if (surrounding) {
+        return { ...rest, show: false }
+    }
+    return { ...rest, position: position === 'surrounding' ? undefined : position }
 }
 
 function PieCenterLabel({ children }: { children: React.ReactNode }): React.ReactElement | null {

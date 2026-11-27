@@ -3,6 +3,7 @@ import '../ExportedInsight/ExportedInsight.scss'
 import clsx from 'clsx'
 import { BindLogic, useMountedLogic } from 'kea'
 
+import { exportedLegendPosition } from 'lib/charts/legendPosition'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
 import { DISPLAY_TYPES_WITHOUT_LEGEND } from 'lib/components/InsightLegend/utils'
 import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
@@ -61,7 +62,14 @@ export default function ExporterQueryScene({
                 ...query.source,
                 trendsFilter: usesQuillInChartLegend
                     ? // Pinned to the bottom to match the legacy exported layout (legend below the chart).
-                      { ...query.source.trendsFilter, showLegend: !!showLegend, legendPosition: 'bottom' }
+                      {
+                          ...query.source.trendsFilter,
+                          showLegend: !!showLegend,
+                          legendPosition: exportedLegendPosition(
+                              query.source.trendsFilter?.legendPosition,
+                              query.source.trendsFilter?.display
+                          ),
+                      }
                     : // The legend is rendered separately below, so don't show it alongside the chart too.
                       { ...query.source.trendsFilter, showLegend: false },
             },

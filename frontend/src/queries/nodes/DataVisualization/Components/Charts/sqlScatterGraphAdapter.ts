@@ -1,5 +1,7 @@
 import { type ScatterChartConfig, type ScatterSeries } from '@posthog/quill-charts'
 
+import { legendBoxPosition } from 'lib/charts/legendPosition'
+
 import { ChartSettings } from '~/queries/schema/schema-general'
 
 import { AxisSeries, AxisSeriesSettings } from '../../dataVisualizationLogic'
@@ -106,7 +108,7 @@ export function buildScatterConfig({
         showBestFit: chartSettings.scatter?.showBestFit ?? false,
         legend: {
             show: chartSettings.showLegend ?? false,
-            position: chartSettings.legendPosition ?? 'top',
+            position: legendBoxPosition(chartSettings.legendPosition) ?? 'top',
             interactive: true,
         },
         tooltip: {

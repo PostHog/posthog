@@ -104,7 +104,7 @@ export { slopeLegendItems } from './charts/SlopeChart/slope-legend'
 
 // Pie / donut
 export { PieChart } from './charts/PieChart/PieChart'
-export type { PieChartConfig, PieChartProps } from './charts/PieChart/PieChart'
+export type { PieChartConfig, PieChartLegendConfig, PieChartProps } from './charts/PieChart/PieChart'
 export { computePieLayout, cursorOffsetToAngle, sliceAt, defaultSliceValue } from './charts/PieChart/computePieLayout'
 export type { PieLayout, PieSlice } from './charts/PieChart/computePieLayout'
 export { SliceLabels } from './charts/PieChart/SliceLabels'

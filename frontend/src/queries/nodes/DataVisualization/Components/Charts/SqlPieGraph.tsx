@@ -40,7 +40,14 @@ export const SqlPieGraph = ({
     const sliceContent = chartSettings.pie?.sliceContent ?? 'values'
     const asPercent = (chartSettings.pie?.valueDisplay ?? 'absolute') === 'percentage'
 
-    const { visibleSeries, legendProps } = useChartLegend(series, theme, legendConfig)
+    // Surrounding labels replace the legend box: the box stays hidden and the pie draws the labels,
+    // sharing the same hidden-slice state so the total still tracks the slices drawn.
+    const surrounding = !!legendConfig.show && chartSettings.legendPosition === 'surrounding'
+    const { visibleSeries, legendProps } = useChartLegend(
+        series,
+        theme,
+        surrounding ? { ...legendConfig, show: false } : legendConfig
+    )
 
     // `isPercent` makes the chart render on-slice values and tooltips as a share of the total; the
     // total keeps using the raw value formatter.
@@ -54,8 +61,9 @@ export const SqlPieGraph = ({
             labelRadiusRatio: 0.72,
             minSlicePercentForLabel: 0.1,
             innerRadiusRatio: isDonut ? 0.6 : undefined,
+            legend: surrounding ? { ...legendConfig, position: 'surrounding' } : undefined,
         }),
-        [sliceContent, asPercent, isDonut]
+        [sliceContent, asPercent, isDonut, surrounding, legendConfig]
     )
 
     const renderTooltip = useCallback(

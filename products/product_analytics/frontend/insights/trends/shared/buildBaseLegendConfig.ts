@@ -1,5 +1,7 @@
 import type { ChartLegendConfig } from '@posthog/quill-charts'
 
+import { legendBoxPosition } from 'lib/charts/legendPosition'
+
 /** Returns the base `{ show, position, interactive }` legend shape shared by all chart types that
  *  build their config inline (lifecycle, funnel). Call sites own the `show` expression — e.g. funnel
  *  gates it on `series.length > 1`. These legends are uncontrolled, so isolating a series and the
@@ -20,7 +22,7 @@ export function buildBaseLegendConfig({
     const interactive = canEditInsight && !inSharedMode
     return {
         show,
-        position: (legendPosition ?? 'right') as ChartLegendConfig['position'],
+        position: legendBoxPosition(legendPosition) ?? 'right',
         interactive,
         renderItem: interactive ? renderItem : undefined,
     }

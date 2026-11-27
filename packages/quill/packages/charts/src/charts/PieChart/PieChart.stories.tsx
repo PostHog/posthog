@@ -19,6 +19,27 @@ const ONE_BIG_TWO_TINY: Series[] = [
     { key: 'small-2', label: 'Social', color: '', data: [60] },
 ]
 
+// A long tail of thin slices next to a few large ones, the case on-slice labels and a side legend
+// both handle badly.
+const SIGNUP_SOURCES: Series[] = [
+    ['organic', 'Organic search', 4820],
+    ['direct', 'Direct', 3110],
+    ['paid', 'Paid search', 1650],
+    ['newsletter', 'Newsletter', 820],
+    ['partners', 'Partner referrals', 410],
+    ['product-hunt', 'Product Hunt launch', 260],
+    ['youtube', 'YouTube', 180],
+    ['podcast', 'Podcast sponsorship', 120],
+    ['webinar', 'Webinar', 95],
+    ['conference', 'Conference booth', 70],
+    ['reviews', 'Review sites', 55],
+    ['slack', 'Community Slack', 40],
+    ['affiliate', 'Affiliate program', 32],
+    ['reddit', 'Reddit', 24],
+    ['hacker-news', 'Hacker News', 18],
+    ['other', 'Other', 11],
+].map(([key, label, value]) => ({ key: key as string, label: label as string, color: '', data: [value as number] }))
+
 const meta: Meta = { title: 'Components/HogCharts/PieChart', parameters: { layout: 'centered' } }
 export default meta
 
@@ -145,6 +166,38 @@ export const NoHoverOffset: Story = {
         return (
             <Stage>
                 <PieChart series={BROWSERS} theme={theme} config={config} />
+            </Stage>
+        )
+    },
+}
+
+const SURROUNDING_LEGEND = { show: true, position: 'surrounding' } as const
+
+export const SurroundingLegend: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        const config: PieChartConfig = { legend: SURROUNDING_LEGEND, isPercent: true }
+        return (
+            <Stage width={720} height={360}>
+                <PieChart series={SIGNUP_SOURCES} theme={theme} config={config} />
+            </Stage>
+        )
+    },
+}
+
+export const SurroundingLegendDonut: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        const config: PieChartConfig = { legend: SURROUNDING_LEGEND, innerRadiusRatio: 0.6, showValueOnSlice: true }
+        const total = SIGNUP_SOURCES.reduce((acc, s) => acc + s.data[0], 0)
+        return (
+            <Stage width={720} height={360}>
+                <PieChart
+                    series={SIGNUP_SOURCES}
+                    theme={theme}
+                    config={config}
+                    centerLabel={<div style={{ fontSize: 22, fontWeight: 700 }}>{total.toLocaleString()}</div>}
+                />
             </Stage>
         )
     },

@@ -50,11 +50,11 @@ function defaultFormatter(v: number): string {
     return v.toLocaleString()
 }
 
-function formatPercent(fraction: number): string {
+export function formatPercent(fraction: number): string {
     return `${Math.round(fraction * 1000) / 10}%`
 }
 
-function formatSliceValue(display: SliceValueDisplay, value: string, percent: string): string {
+export function formatSliceValue(display: SliceValueDisplay, value: string, percent: string): string {
     if (display === 'percent') {
         return percent
     }

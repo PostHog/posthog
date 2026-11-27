@@ -3051,9 +3051,8 @@
                     "description": "Settings for the left Y axis."
                 },
                 "legendPosition": {
-                    "description": "Where the legend sits. Defaults to right for pie and donut, top for other charts.",
-                    "enum": ["top", "bottom", "left", "right"],
-                    "type": "string"
+                    "$ref": "#/definitions/LegendPosition",
+                    "description": "Where the legend sits. Defaults to right for pie and donut, top for other charts. `surrounding` labels each pie or donut slice beside the chart, and applies to those charts only."
                 },
                 "metric": {
                     "$ref": "#/definitions/AssistantDataVisualizationMetricSettings",
@@ -20730,9 +20729,8 @@
                     "$ref": "#/definitions/YAxisSettings"
                 },
                 "legendPosition": {
-                    "description": "Where the legend sits relative to the chart. Unset falls back per chart type: right for pie and donut, bottom for proportion bar, top for the rest.",
-                    "enum": ["top", "bottom", "left", "right"],
-                    "type": "string"
+                    "$ref": "#/definitions/LegendPosition",
+                    "description": "Where the legend sits relative to the chart. Unset falls back per chart type: right for pie and donut, bottom for proportion bar, top for the rest. `surrounding` applies to pie and donut only."
                 },
                 "metric": {
                     "$ref": "#/definitions/MetricChartSettings"
@@ -32596,10 +32594,9 @@
                     "default": "vertical"
                 },
                 "legendPosition": {
+                    "$ref": "#/definitions/LegendPosition",
                     "default": "bottom",
-                    "description": "Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend.",
-                    "enum": ["top", "bottom", "left", "right"],
-                    "type": "string"
+                    "description": "Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend."
                 },
                 "resultCustomizations": {
                     "additionalProperties": {
@@ -35728,6 +35725,11 @@
             "required": ["type"],
             "type": "object"
         },
+        "LegendPosition": {
+            "description": "Where a chart's legend sits. `surrounding` applies to pie and donut charts only: each slice is labeled beside the chart, with a line pointing to its slice. Other charts treat it as unset.",
+            "enum": ["top", "bottom", "left", "right", "surrounding"],
+            "type": "string"
+        },
         "LifecycleDataWarehouseNode": {
             "additionalProperties": false,
             "properties": {
@@ -35810,10 +35812,9 @@
             "additionalProperties": false,
             "properties": {
                 "legendPosition": {
+                    "$ref": "#/definitions/LegendPosition",
                     "default": "bottom",
-                    "description": "Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend.",
-                    "enum": ["top", "bottom", "left", "right"],
-                    "type": "string"
+                    "description": "Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend."
                 },
                 "showLegend": {
                     "default": false,
@@ -61052,10 +61053,9 @@
                     "type": "array"
                 },
                 "legendPosition": {
+                    "$ref": "#/definitions/LegendPosition",
                     "default": "bottom",
-                    "description": "Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend.",
-                    "enum": ["top", "bottom", "left", "right"],
-                    "type": "string"
+                    "description": "Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend."
                 },
                 "resultCustomizationBy": {
                     "$ref": "#/definitions/ResultCustomizationBy",
@@ -63639,10 +63639,9 @@
                     "type": "boolean"
                 },
                 "legendPosition": {
+                    "$ref": "#/definitions/LegendPosition",
                     "default": "bottom",
-                    "description": "Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend.",
-                    "enum": ["top", "bottom", "left", "right"],
-                    "type": "string"
+                    "description": "Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend."
                 },
                 "metricChangeDecreaseColor": {
                     "description": "Metric display: change pill color when the metric decreased. Defaults to red.",

@@ -1,0 +1,831 @@
+{
+    "id": 99541,
+    "short_id": "pieSurround",
+    "name": "Signups by source",
+    "derived_name": "Signups by source",
+    "filters": {},
+    "filters_hash": "cache_1da4a08aff8749422697dce98500edc3",
+    "order": null,
+    "deleted": false,
+    "dashboard": null,
+    "layouts": {},
+    "color": null,
+    "last_refresh": null,
+    "refreshing": false,
+    "result": [
+        {
+            "action": {
+                "id": "signed up",
+                "type": "events",
+                "order": 0,
+                "name": "signed up",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "signed up - Organic search",
+            "count": 0,
+            "data": [],
+            "labels": [],
+            "days": [
+                "2022-03-08",
+                "2022-03-09",
+                "2022-03-10",
+                "2022-03-11",
+                "2022-03-12",
+                "2022-03-13",
+                "2022-03-14",
+                "2022-03-15"
+            ],
+            "aggregated_value": 4820,
+            "filter": {
+                "breakdown": "signup_source",
+                "breakdown_type": "event",
+                "date_from": "2022-03-08T00:00:00+00:00",
+                "date_to": "2022-03-15T21:37:18.750481+00:00",
+                "display": "ActionsPie",
+                "events": "[{\"id\": \"signed up\", \"type\": \"events\", \"order\": 0, \"name\": \"signed up\"}]",
+                "insight": "TRENDS",
+                "interval": "day"
+            },
+            "persons": {
+                "filter": {
+                    "entity_id": "signed up",
+                    "entity_type": "events",
+                    "breakdown_value": "Organic search",
+                    "breakdown_type": "event"
+                },
+                "url": ""
+            },
+            "breakdown_value": "Organic search"
+        },
+        {
+            "action": {
+                "id": "signed up",
+                "type": "events",
+                "order": 0,
+                "name": "signed up",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "signed up - Direct",
+            "count": 0,
+            "data": [],
+            "labels": [],
+            "days": [
+                "2022-03-08",
+                "2022-03-09",
+                "2022-03-10",
+                "2022-03-11",
+                "2022-03-12",
+                "2022-03-13",
+                "2022-03-14",
+                "2022-03-15"
+            ],
+            "aggregated_value": 3110,
+            "filter": {
+                "breakdown": "signup_source",
+                "breakdown_type": "event",
+                "date_from": "2022-03-08T00:00:00+00:00",
+                "date_to": "2022-03-15T21:37:18.750481+00:00",
+                "display": "ActionsPie",
+                "events": "[{\"id\": \"signed up\", \"type\": \"events\", \"order\": 0, \"name\": \"signed up\"}]",
+                "insight": "TRENDS",
+                "interval": "day"
+            },
+            "persons": {
+                "filter": {
+                    "entity_id": "signed up",
+                    "entity_type": "events",
+                    "breakdown_value": "Direct",
+                    "breakdown_type": "event"
+                },
+                "url": ""
+            },
+            "breakdown_value": "Direct"
+        },
+        {
+            "action": {
+                "id": "signed up",
+                "type": "events",
+                "order": 0,
+                "name": "signed up",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "signed up - Paid search",
+            "count": 0,
+            "data": [],
+            "labels": [],
+            "days": [
+                "2022-03-08",
+                "2022-03-09",
+                "2022-03-10",
+                "2022-03-11",
+                "2022-03-12",
+                "2022-03-13",
+                "2022-03-14",
+                "2022-03-15"
+            ],
+            "aggregated_value": 1650,
+            "filter": {
+                "breakdown": "signup_source",
+                "breakdown_type": "event",
+                "date_from": "2022-03-08T00:00:00+00:00",
+                "date_to": "2022-03-15T21:37:18.750481+00:00",
+                "display": "ActionsPie",
+                "events": "[{\"id\": \"signed up\", \"type\": \"events\", \"order\": 0, \"name\": \"signed up\"}]",
+                "insight": "TRENDS",
+                "interval": "day"
+            },
+            "persons": {
+                "filter": {
+                    "entity_id": "signed up",
+                    "entity_type": "events",
+                    "breakdown_value": "Paid search",
+                    "breakdown_type": "event"
+                },
+                "url": ""
+            },
+            "breakdown_value": "Paid search"
+        },
+        {
+            "action": {
+                "id": "signed up",
+                "type": "events",
+                "order": 0,
+                "name": "signed up",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "signed up - Newsletter",
+            "count": 0,
+            "data": [],
+            "labels": [],
+            "days": [
+                "2022-03-08",
+                "2022-03-09",
+                "2022-03-10",
+                "2022-03-11",
+                "2022-03-12",
+                "2022-03-13",
+                "2022-03-14",
+                "2022-03-15"
+            ],
+            "aggregated_value": 820,
+            "filter": {
+                "breakdown": "signup_source",
+                "breakdown_type": "event",
+                "date_from": "2022-03-08T00:00:00+00:00",
+                "date_to": "2022-03-15T21:37:18.750481+00:00",
+                "display": "ActionsPie",
+                "events": "[{\"id\": \"signed up\", \"type\": \"events\", \"order\": 0, \"name\": \"signed up\"}]",
+                "insight": "TRENDS",
+                "interval": "day"
+            },
+            "persons": {
+                "filter": {
+                    "entity_id": "signed up",
+                    "entity_type": "events",
+                    "breakdown_value": "Newsletter",
+                    "breakdown_type": "event"
+                },
+                "url": ""
+            },
+            "breakdown_value": "Newsletter"
+        },
+        {
+            "action": {
+                "id": "signed up",
+                "type": "events",
+                "order": 0,
+                "name": "signed up",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "signed up - Partner referrals",
+            "count": 0,
+            "data": [],
+            "labels": [],
+            "days": [
+                "2022-03-08",
+                "2022-03-09",
+                "2022-03-10",
+                "2022-03-11",
+                "2022-03-12",
+                "2022-03-13",
+                "2022-03-14",
+                "2022-03-15"
+            ],
+            "aggregated_value": 410,
+            "filter": {
+                "breakdown": "signup_source",
+                "breakdown_type": "event",
+                "date_from": "2022-03-08T00:00:00+00:00",
+                "date_to": "2022-03-15T21:37:18.750481+00:00",
+                "display": "ActionsPie",
+                "events": "[{\"id\": \"signed up\", \"type\": \"events\", \"order\": 0, \"name\": \"signed up\"}]",
+                "insight": "TRENDS",
+                "interval": "day"
+            },
+            "persons": {
+                "filter": {
+                    "entity_id": "signed up",
+                    "entity_type": "events",
+                    "breakdown_value": "Partner referrals",
+                    "breakdown_type": "event"
+                },
+                "url": ""
+            },
+            "breakdown_value": "Partner referrals"
+        },
+        {
+            "action": {
+                "id": "signed up",
+                "type": "events",
+                "order": 0,
+                "name": "signed up",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "signed up - Product Hunt launch",
+            "count": 0,
+            "data": [],
+            "labels": [],
+            "days": [
+                "2022-03-08",
+                "2022-03-09",
+                "2022-03-10",
+                "2022-03-11",
+                "2022-03-12",
+                "2022-03-13",
+                "2022-03-14",
+                "2022-03-15"
+            ],
+            "aggregated_value": 260,
+            "filter": {
+                "breakdown": "signup_source",
+                "breakdown_type": "event",
+                "date_from": "2022-03-08T00:00:00+00:00",
+                "date_to": "2022-03-15T21:37:18.750481+00:00",
+                "display": "ActionsPie",
+                "events": "[{\"id\": \"signed up\", \"type\": \"events\", \"order\": 0, \"name\": \"signed up\"}]",
+                "insight": "TRENDS",
+                "interval": "day"
+            },
+            "persons": {
+                "filter": {
+                    "entity_id": "signed up",
+                    "entity_type": "events",
+                    "breakdown_value": "Product Hunt launch",
+                    "breakdown_type": "event"
+                },
+                "url": ""
+            },
+            "breakdown_value": "Product Hunt launch"
+        },
+        {
+            "action": {
+                "id": "signed up",
+                "type": "events",
+                "order": 0,
+                "name": "signed up",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "signed up - YouTube",
+            "count": 0,
+            "data": [],
+            "labels": [],
+            "days": [
+                "2022-03-08",
+                "2022-03-09",
+                "2022-03-10",
+                "2022-03-11",
+                "2022-03-12",
+                "2022-03-13",
+                "2022-03-14",
+                "2022-03-15"
+            ],
+            "aggregated_value": 180,
+            "filter": {
+                "breakdown": "signup_source",
+                "breakdown_type": "event",
+                "date_from": "2022-03-08T00:00:00+00:00",
+                "date_to": "2022-03-15T21:37:18.750481+00:00",
+                "display": "ActionsPie",
+                "events": "[{\"id\": \"signed up\", \"type\": \"events\", \"order\": 0, \"name\": \"signed up\"}]",
+                "insight": "TRENDS",
+                "interval": "day"
+            },
+            "persons": {
+                "filter": {
+                    "entity_id": "signed up",
+                    "entity_type": "events",
+                    "breakdown_value": "YouTube",
+                    "breakdown_type": "event"
+                },
+                "url": ""
+            },
+            "breakdown_value": "YouTube"
+        },
+        {
+            "action": {
+                "id": "signed up",
+                "type": "events",
+                "order": 0,
+                "name": "signed up",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "signed up - Podcast sponsorship",
+            "count": 0,
+            "data": [],
+            "labels": [],
+            "days": [
+                "2022-03-08",
+                "2022-03-09",
+                "2022-03-10",
+                "2022-03-11",
+                "2022-03-12",
+                "2022-03-13",
+                "2022-03-14",
+                "2022-03-15"
+            ],
+            "aggregated_value": 120,
+            "filter": {
+                "breakdown": "signup_source",
+                "breakdown_type": "event",
+                "date_from": "2022-03-08T00:00:00+00:00",
+                "date_to": "2022-03-15T21:37:18.750481+00:00",
+                "display": "ActionsPie",
+                "events": "[{\"id\": \"signed up\", \"type\": \"events\", \"order\": 0, \"name\": \"signed up\"}]",
+                "insight": "TRENDS",
+                "interval": "day"
+            },
+            "persons": {
+                "filter": {
+                    "entity_id": "signed up",
+                    "entity_type": "events",
+                    "breakdown_value": "Podcast sponsorship",
+                    "breakdown_type": "event"
+                },
+                "url": ""
+            },
+            "breakdown_value": "Podcast sponsorship"
+        },
+        {
+            "action": {
+                "id": "signed up",
+                "type": "events",
+                "order": 0,
+                "name": "signed up",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "signed up - Webinar",
+            "count": 0,
+            "data": [],
+            "labels": [],
+            "days": [
+                "2022-03-08",
+                "2022-03-09",
+                "2022-03-10",
+                "2022-03-11",
+                "2022-03-12",
+                "2022-03-13",
+                "2022-03-14",
+                "2022-03-15"
+            ],
+            "aggregated_value": 95,
+            "filter": {
+                "breakdown": "signup_source",
+                "breakdown_type": "event",
+                "date_from": "2022-03-08T00:00:00+00:00",
+                "date_to": "2022-03-15T21:37:18.750481+00:00",
+                "display": "ActionsPie",
+                "events": "[{\"id\": \"signed up\", \"type\": \"events\", \"order\": 0, \"name\": \"signed up\"}]",
+                "insight": "TRENDS",
+                "interval": "day"
+            },
+            "persons": {
+                "filter": {
+                    "entity_id": "signed up",
+                    "entity_type": "events",
+                    "breakdown_value": "Webinar",
+                    "breakdown_type": "event"
+                },
+                "url": ""
+            },
+            "breakdown_value": "Webinar"
+        },
+        {
+            "action": {
+                "id": "signed up",
+                "type": "events",
+                "order": 0,
+                "name": "signed up",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "signed up - Conference booth",
+            "count": 0,
+            "data": [],
+            "labels": [],
+            "days": [
+                "2022-03-08",
+                "2022-03-09",
+                "2022-03-10",
+                "2022-03-11",
+                "2022-03-12",
+                "2022-03-13",
+                "2022-03-14",
+                "2022-03-15"
+            ],
+            "aggregated_value": 70,
+            "filter": {
+                "breakdown": "signup_source",
+                "breakdown_type": "event",
+                "date_from": "2022-03-08T00:00:00+00:00",
+                "date_to": "2022-03-15T21:37:18.750481+00:00",
+                "display": "ActionsPie",
+                "events": "[{\"id\": \"signed up\", \"type\": \"events\", \"order\": 0, \"name\": \"signed up\"}]",
+                "insight": "TRENDS",
+                "interval": "day"
+            },
+            "persons": {
+                "filter": {
+                    "entity_id": "signed up",
+                    "entity_type": "events",
+                    "breakdown_value": "Conference booth",
+                    "breakdown_type": "event"
+                },
+                "url": ""
+            },
+            "breakdown_value": "Conference booth"
+        },
+        {
+            "action": {
+                "id": "signed up",
+                "type": "events",
+                "order": 0,
+                "name": "signed up",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "signed up - Review sites",
+            "count": 0,
+            "data": [],
+            "labels": [],
+            "days": [
+                "2022-03-08",
+                "2022-03-09",
+                "2022-03-10",
+                "2022-03-11",
+                "2022-03-12",
+                "2022-03-13",
+                "2022-03-14",
+                "2022-03-15"
+            ],
+            "aggregated_value": 55,
+            "filter": {
+                "breakdown": "signup_source",
+                "breakdown_type": "event",
+                "date_from": "2022-03-08T00:00:00+00:00",
+                "date_to": "2022-03-15T21:37:18.750481+00:00",
+                "display": "ActionsPie",
+                "events": "[{\"id\": \"signed up\", \"type\": \"events\", \"order\": 0, \"name\": \"signed up\"}]",
+                "insight": "TRENDS",
+                "interval": "day"
+            },
+            "persons": {
+                "filter": {
+                    "entity_id": "signed up",
+                    "entity_type": "events",
+                    "breakdown_value": "Review sites",
+                    "breakdown_type": "event"
+                },
+                "url": ""
+            },
+            "breakdown_value": "Review sites"
+        },
+        {
+            "action": {
+                "id": "signed up",
+                "type": "events",
+                "order": 0,
+                "name": "signed up",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "signed up - Community Slack",
+            "count": 0,
+            "data": [],
+            "labels": [],
+            "days": [
+                "2022-03-08",
+                "2022-03-09",
+                "2022-03-10",
+                "2022-03-11",
+                "2022-03-12",
+                "2022-03-13",
+                "2022-03-14",
+                "2022-03-15"
+            ],
+            "aggregated_value": 40,
+            "filter": {
+                "breakdown": "signup_source",
+                "breakdown_type": "event",
+                "date_from": "2022-03-08T00:00:00+00:00",
+                "date_to": "2022-03-15T21:37:18.750481+00:00",
+                "display": "ActionsPie",
+                "events": "[{\"id\": \"signed up\", \"type\": \"events\", \"order\": 0, \"name\": \"signed up\"}]",
+                "insight": "TRENDS",
+                "interval": "day"
+            },
+            "persons": {
+                "filter": {
+                    "entity_id": "signed up",
+                    "entity_type": "events",
+                    "breakdown_value": "Community Slack",
+                    "breakdown_type": "event"
+                },
+                "url": ""
+            },
+            "breakdown_value": "Community Slack"
+        },
+        {
+            "action": {
+                "id": "signed up",
+                "type": "events",
+                "order": 0,
+                "name": "signed up",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "signed up - Affiliate program",
+            "count": 0,
+            "data": [],
+            "labels": [],
+            "days": [
+                "2022-03-08",
+                "2022-03-09",
+                "2022-03-10",
+                "2022-03-11",
+                "2022-03-12",
+                "2022-03-13",
+                "2022-03-14",
+                "2022-03-15"
+            ],
+            "aggregated_value": 32,
+            "filter": {
+                "breakdown": "signup_source",
+                "breakdown_type": "event",
+                "date_from": "2022-03-08T00:00:00+00:00",
+                "date_to": "2022-03-15T21:37:18.750481+00:00",
+                "display": "ActionsPie",
+                "events": "[{\"id\": \"signed up\", \"type\": \"events\", \"order\": 0, \"name\": \"signed up\"}]",
+                "insight": "TRENDS",
+                "interval": "day"
+            },
+            "persons": {
+                "filter": {
+                    "entity_id": "signed up",
+                    "entity_type": "events",
+                    "breakdown_value": "Affiliate program",
+                    "breakdown_type": "event"
+                },
+                "url": ""
+            },
+            "breakdown_value": "Affiliate program"
+        },
+        {
+            "action": {
+                "id": "signed up",
+                "type": "events",
+                "order": 0,
+                "name": "signed up",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "signed up - Reddit",
+            "count": 0,
+            "data": [],
+            "labels": [],
+            "days": [
+                "2022-03-08",
+                "2022-03-09",
+                "2022-03-10",
+                "2022-03-11",
+                "2022-03-12",
+                "2022-03-13",
+                "2022-03-14",
+                "2022-03-15"
+            ],
+            "aggregated_value": 24,
+            "filter": {
+                "breakdown": "signup_source",
+                "breakdown_type": "event",
+                "date_from": "2022-03-08T00:00:00+00:00",
+                "date_to": "2022-03-15T21:37:18.750481+00:00",
+                "display": "ActionsPie",
+                "events": "[{\"id\": \"signed up\", \"type\": \"events\", \"order\": 0, \"name\": \"signed up\"}]",
+                "insight": "TRENDS",
+                "interval": "day"
+            },
+            "persons": {
+                "filter": {
+                    "entity_id": "signed up",
+                    "entity_type": "events",
+                    "breakdown_value": "Reddit",
+                    "breakdown_type": "event"
+                },
+                "url": ""
+            },
+            "breakdown_value": "Reddit"
+        },
+        {
+            "action": {
+                "id": "signed up",
+                "type": "events",
+                "order": 0,
+                "name": "signed up",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "signed up - Hacker News",
+            "count": 0,
+            "data": [],
+            "labels": [],
+            "days": [
+                "2022-03-08",
+                "2022-03-09",
+                "2022-03-10",
+                "2022-03-11",
+                "2022-03-12",
+                "2022-03-13",
+                "2022-03-14",
+                "2022-03-15"
+            ],
+            "aggregated_value": 18,
+            "filter": {
+                "breakdown": "signup_source",
+                "breakdown_type": "event",
+                "date_from": "2022-03-08T00:00:00+00:00",
+                "date_to": "2022-03-15T21:37:18.750481+00:00",
+                "display": "ActionsPie",
+                "events": "[{\"id\": \"signed up\", \"type\": \"events\", \"order\": 0, \"name\": \"signed up\"}]",
+                "insight": "TRENDS",
+                "interval": "day"
+            },
+            "persons": {
+                "filter": {
+                    "entity_id": "signed up",
+                    "entity_type": "events",
+                    "breakdown_value": "Hacker News",
+                    "breakdown_type": "event"
+                },
+                "url": ""
+            },
+            "breakdown_value": "Hacker News"
+        },
+        {
+            "action": {
+                "id": "signed up",
+                "type": "events",
+                "order": 0,
+                "name": "signed up",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "signed up - Other",
+            "count": 0,
+            "data": [],
+            "labels": [],
+            "days": [
+                "2022-03-08",
+                "2022-03-09",
+                "2022-03-10",
+                "2022-03-11",
+                "2022-03-12",
+                "2022-03-13",
+                "2022-03-14",
+                "2022-03-15"
+            ],
+            "aggregated_value": 11,
+            "filter": {
+                "breakdown": "signup_source",
+                "breakdown_type": "event",
+                "date_from": "2022-03-08T00:00:00+00:00",
+                "date_to": "2022-03-15T21:37:18.750481+00:00",
+                "display": "ActionsPie",
+                "events": "[{\"id\": \"signed up\", \"type\": \"events\", \"order\": 0, \"name\": \"signed up\"}]",
+                "insight": "TRENDS",
+                "interval": "day"
+            },
+            "persons": {
+                "filter": {
+                    "entity_id": "signed up",
+                    "entity_type": "events",
+                    "breakdown_value": "Other",
+                    "breakdown_type": "event"
+                },
+                "url": ""
+            },
+            "breakdown_value": "Other"
+        }
+    ],
+    "created_at": "2022-03-15T21:31:00.192917Z",
+    "created_by": null,
+    "description": "",
+    "updated_at": "2022-03-15T21:37:19.784579Z",
+    "tags": [],
+    "favorited": false,
+    "saved": true,
+    "last_modified_at": "2022-03-15T21:37:19.779789Z",
+    "last_modified_by": null,
+    "is_sample": false,
+    "query": {
+        "kind": "InsightVizNode",
+        "source": {
+            "breakdownFilter": {
+                "breakdown": "signup_source",
+                "breakdown_type": "event"
+            },
+            "filterTestAccounts": false,
+            "interval": "day",
+            "kind": "TrendsQuery",
+            "properties": {
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": []
+                    }
+                ]
+            },
+            "series": [
+                {
+                    "event": "signed up",
+                    "kind": "EventsNode",
+                    "name": "signed up"
+                }
+            ],
+            "trendsFilter": {
+                "display": "ActionsPie",
+                "showLegend": true,
+                "legendPosition": "surrounding",
+                "showPercentStackView": true
+            },
+            "version": 2
+        },
+        "full": true
+    }
+}

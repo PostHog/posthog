@@ -109,6 +109,8 @@ const AssistantDataVisualizationYAxisSettingsOpen = z.looseObject({
     startAtZero: z.coerce.boolean().describe('Whether this Y axis should start at zero.').optional(),
 })
 
+const LegendPositionOpen = z.enum(['top', 'bottom', 'left', 'right', 'surrounding'])
+
 const AssistantDataVisualizationMetricSettingsOpen = z.looseObject({
     showChange: z.coerce.boolean().optional(),
     summary: z.enum(['total', 'average', 'latest']).optional(),
@@ -218,10 +220,9 @@ const AssistantDataVisualizationChartSettingsOpen = z.looseObject({
         .describe('Horizontal goal lines drawn across the chart.')
         .optional(),
     leftYAxisSettings: AssistantDataVisualizationYAxisSettingsOpen.describe('Settings for the left Y axis.').optional(),
-    legendPosition: z
-        .enum(['top', 'bottom', 'left', 'right'])
-        .describe('Where the legend sits. Defaults to right for pie and donut, top for other charts.')
-        .optional(),
+    legendPosition: LegendPositionOpen.describe(
+        'Where the legend sits. Defaults to right for pie and donut, top for other charts. `surrounding` labels each pie or donut slice beside the chart, and applies to those charts only.'
+    ).optional(),
     metric: AssistantDataVisualizationMetricSettingsOpen.describe(
         'Settings for `Metric`. `summary` defaults to `latest`.'
     ).optional(),

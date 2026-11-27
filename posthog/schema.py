@@ -10463,7 +10463,11 @@ class AssistantDataVisualizationChartSettings(BaseModel):
     )
     legendPosition: LegendPosition | None = Field(
         default=None,
-        description=("Where the legend sits. Defaults to right for pie and donut, top for other charts."),
+        description=(
+            "Where the legend sits. Defaults to right for pie and donut, top for other"
+            " charts. `surrounding` labels each pie or donut slice beside the chart,"
+            " and applies to those charts only."
+        ),
     )
     metric: AssistantDataVisualizationMetricSettings | None = Field(
         default=None,
@@ -18309,7 +18313,7 @@ class ChartSettings(BaseModel):
         description=(
             "Where the legend sits relative to the chart. Unset falls back per chart"
             " type: right for pie and donut, bottom for proportion bar, top for the"
-            " rest."
+            " rest. `surrounding` applies to pie and donut only."
         ),
     )
     metric: MetricChartSettings | None = None

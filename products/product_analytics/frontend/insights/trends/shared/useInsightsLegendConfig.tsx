@@ -3,6 +3,7 @@ import { useMemo } from 'react'
 
 import type { ChartLegendConfig } from '@posthog/quill-charts'
 
+import { legendBoxPosition } from 'lib/charts/legendPosition'
 import { useChartLegendSeriesMenu } from 'lib/components/ChartLegendSeriesMenu/useChartLegendSeriesMenu'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { getTrendResultCustomizationKey } from 'scenes/insights/utils'
@@ -42,7 +43,7 @@ export function useInsightsLegendConfig({
         const hiddenKeys = (indexedResults ?? []).filter((r) => getTrendsHidden(r)).map((r) => String(r.id))
         return {
             show: !!showLegend,
-            position: (legendPosition as ChartLegendConfig['position']) ?? 'right',
+            position: legendBoxPosition(legendPosition) ?? 'right',
             interactive: legendInteractive,
             hiddenKeys,
             onToggleSeries: (key: string) => {

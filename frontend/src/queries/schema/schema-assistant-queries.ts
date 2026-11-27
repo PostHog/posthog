@@ -33,6 +33,7 @@ import {
     EventsQuery,
     FunnelExclusionSteps,
     InsightNodeKind,
+    LegendPosition,
     MultipleBreakdownType,
     Node,
     NodeKind,
@@ -2032,8 +2033,8 @@ export interface AssistantDataVisualizationChartSettings {
     colorBarsByCategory?: boolean
     /** Show the chart legend. */
     showLegend?: boolean
-    /** Where the legend sits. Defaults to right for pie and donut, top for other charts. */
-    legendPosition?: 'top' | 'bottom' | 'left' | 'right'
+    /** Where the legend sits. Defaults to right for pie and donut, top for other charts. `surrounding` labels each pie or donut slice beside the chart, and applies to those charts only. */
+    legendPosition?: LegendPosition
     /**
      * Show annotations on the chart. Only applies to line, area, bar, and stacked bar charts
      * whose X axis is a date or datetime column.

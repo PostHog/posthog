@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { DisplayOptionBindings } from 'lib/components/ChartOptions/displayOptions'
+import { legendBoxPosition } from 'lib/charts/legendPosition'
+import { DisplayOptionBindings, legendPositionChoices } from 'lib/components/ChartOptions/displayOptions'
 import type { DisplayOptionsAdapter } from 'lib/components/ChartOptions/useDisplayOptions'
 import {
     METRIC_COLOR_BY_DIRECTION_DEFAULT,
@@ -229,7 +230,11 @@ const SQL_BINDINGS: DisplayOptionBindings<SqlDisplayContext> = {
     },
     legendPosition: {
         showCondition: (c) => !c.isMetric && c.showLegend,
-        value: (c) => c.chartSettings.legendPosition ?? (c.isProportionBar ? 'bottom' : c.isPieChart ? 'right' : 'top'),
+        // A pie switched to another chart keeps its saved `surrounding`, which that chart reads as unset.
+        value: (c) =>
+            (c.isPieChart ? c.chartSettings.legendPosition : legendBoxPosition(c.chartSettings.legendPosition)) ??
+            (c.isProportionBar ? 'bottom' : c.isPieChart ? 'right' : 'top'),
+        options: (c) => legendPositionChoices(c.isPieChart),
         onChange: (legendPosition, c) => c.updateChartSettings({ legendPosition }),
     },
     excludeOutliers: {

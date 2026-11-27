@@ -7,6 +7,7 @@ import type { BoxPlotConfig } from '@posthog/quill-charts'
 
 import { makeChartErrorHandler } from 'lib/charts/chartErrorHandler'
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
+import { legendBoxPosition } from 'lib/charts/legendPosition'
 
 import { ChartSettings } from '~/queries/schema/schema-general'
 
@@ -66,7 +67,10 @@ export const SqlBoxPlot = ({
                 y: chartSettings.showYAxisBorder ?? true,
             },
             tooltip: { pinnable: true, placement: 'cursor' },
-            legend: { show: chartSettings.showLegend ?? false, position: chartSettings.legendPosition ?? 'top' },
+            legend: {
+                show: chartSettings.showLegend ?? false,
+                position: legendBoxPosition(chartSettings.legendPosition) ?? 'top',
+            },
         }),
         [chartSettings, yAxisSettings]
     )

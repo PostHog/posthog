@@ -1,5 +1,5 @@
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
-import { MAX_DEFAULT_PROPORTION_LEGEND_PARTS, PERCENT_STACK_VIEW_DISPLAY_TYPE } from 'lib/constants'
+import { MAX_DEFAULT_PROPORTION_LEGEND_PARTS, PERCENT_STACK_VIEW_DISPLAY_TYPE, PIE_DISPLAY_TYPES } from 'lib/constants'
 import { escapePropertyAsHogQLIdentifier, isQuoted } from 'lib/utils/hogql'
 
 import { ProductAnalyticsInsightNodeKind } from '~/queries/nodes/InsightQuery/defaults'
@@ -358,7 +358,12 @@ export const getShowLegend = (query: InsightQueryNode, partCount?: number): bool
 // serialize an inline string-literal union and emits a broken type; consumers narrow as needed.
 export const getLegendPosition = (query: InsightQueryNode): string | undefined => {
     if (isTrendsQuery(query)) {
-        return query.trendsFilter?.legendPosition ?? (isProportionBarQuery(query) ? 'bottom' : undefined)
+        // A pie switched to another display keeps its saved `surrounding`, which only pies draw.
+        const position = query.trendsFilter?.legendPosition
+        const display = query.trendsFilter?.display
+        const saved =
+            position === 'surrounding' && !(display && PIE_DISPLAY_TYPES.includes(display)) ? undefined : position
+        return saved ?? (isProportionBarQuery(query) ? 'bottom' : undefined)
     } else if (isStickinessQuery(query)) {
         return query.stickinessFilter?.legendPosition
     } else if (isLifecycleQuery(query)) {

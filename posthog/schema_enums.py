@@ -274,13 +274,6 @@ class Style(StrEnum):
     PERCENT = "percent"
 
 
-class LegendPosition(StrEnum):
-    TOP = "top"
-    BOTTOM = "bottom"
-    LEFT = "left"
-    RIGHT = "right"
-
-
 class AssistantDataVisualizationDisplayType(StrEnum):
     ACTIONS_TABLE = "ActionsTable"
     BOLD_NUMBER = "BoldNumber"
@@ -2084,6 +2077,14 @@ class Method(StrEnum):
 class LLMDetectorModel(StrEnum):
     CLAUDE_HAIKU_5_5 = "claude-haiku-5-5"
     GPT_6_LUNA = "gpt-6-luna"
+
+
+class LegendPosition(StrEnum):
+    TOP = "top"
+    BOTTOM = "bottom"
+    LEFT = "left"
+    RIGHT = "right"
+    SURROUNDING = "surrounding"
 
 
 class LifecycleToggle(StrEnum):

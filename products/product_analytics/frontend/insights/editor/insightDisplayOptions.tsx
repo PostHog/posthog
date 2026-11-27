@@ -3,7 +3,11 @@ import posthog from 'posthog-js'
 
 import { normalizeAxisLabel } from '@posthog/quill-charts'
 
-import { DisplayOptionBindings, type DisplayOptionValue } from 'lib/components/ChartOptions/displayOptions'
+import {
+    DisplayOptionBindings,
+    type DisplayOptionValue,
+    legendPositionChoices,
+} from 'lib/components/ChartOptions/displayOptions'
 import type { DisplayOptionsAdapter } from 'lib/components/ChartOptions/useDisplayOptions'
 import {
     METRIC_COLOR_BY_DIRECTION_DEFAULT,
@@ -439,7 +443,9 @@ const INSIGHT_BINDINGS: DisplayOptionBindings<InsightDisplayContext> = {
     legendPosition: {
         showCondition: (c) => c.useQuillLegendOptions && c.showLegend,
         value: (c) => (c.legendPosition ?? 'right') as DisplayOptionValue<'legendPosition'>,
+        options: (c) => legendPositionChoices(c.isPie),
         onChange: (legendPosition, c) => c.updateInsightFilter({ legendPosition }),
+        dataAttr: 'insight-legend-position',
     },
     excludeOutliers: {
         showCondition: (c) => c.showDisplaySection && c.isBoxPlot,
