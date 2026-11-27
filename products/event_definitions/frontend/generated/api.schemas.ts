@@ -253,6 +253,37 @@ export interface EventDefinitionRecordApi {
     post_to_slack?: boolean
 }
 
+export interface EventDefinitionBulkUpdateHiddenRequestApi {
+    /**
+     * List of event definition UUIDs to update.
+     * @maxItems 500
+     */
+    ids: string[]
+    /** Target hidden state to apply to every matched event. `true` hides the events (and unverifies them, since an event cannot be both hidden and verified); `false` unhides them. */
+    hidden: boolean
+}
+
+export interface EventDefinitionBulkUpdateHiddenItemApi {
+    /** UUID of the event definition whose hidden state changed. */
+    id: string
+    /** The event's hidden state after the update. */
+    hidden: boolean
+}
+
+export interface BulkUpdateTagsUUIDErrorApi {
+    /** UUID of the object that was skipped. */
+    id: string
+    /** Why the object was skipped, e.g. 'Not found or no edit access'. */
+    reason: string
+}
+
+export interface EventDefinitionBulkUpdateHiddenResponseApi {
+    /** Events whose hidden state was changed. Events already in the target state are omitted. */
+    updated: EventDefinitionBulkUpdateHiddenItemApi[]
+    /** Events that were skipped (e.g. not found in this project), with a reason each. */
+    skipped: BulkUpdateTagsUUIDErrorApi[]
+}
+
 /**
  * * `add` - add
  * * `remove` - remove
@@ -294,13 +325,6 @@ export interface BulkUpdateTagsUUIDItemApi {
     id: string
     /** The object's full tag list after the update. */
     tags: string[]
-}
-
-export interface BulkUpdateTagsUUIDErrorApi {
-    /** UUID of the object that was skipped. */
-    id: string
-    /** Why the object was skipped, e.g. 'Not found or no edit access'. */
-    reason: string
 }
 
 export interface BulkUpdateTagsUUIDResponseApi {

@@ -1044,6 +1044,7 @@ class TestScoutEventDefinitionWrites(APIBaseTest):
             ("bulk_add", True, "post", "bulk_update_tags", {"action": "add", "tags": ["x"]}, status.HTTP_200_OK),
             ("bulk_set", True, "post", "bulk_update_tags", {"action": "set", "tags": ["x"]}, status.HTTP_403_FORBIDDEN),
             ("bulk_verify", True, "post", "bulk_update_verified", {"verified": True}, status.HTTP_403_FORBIDDEN),
+            ("bulk_hide", True, "post", "bulk_update_hidden", {"hidden": True}, status.HTTP_403_FORBIDDEN),
             ("event_schema", True, "post", "event_schemas", {}, status.HTTP_403_FORBIDDEN),
             ("property_group", True, "post", "schema_property_groups", {"name": "Checkout"}, status.HTTP_403_FORBIDDEN),
             ("media_preview", True, "post", "object_media_previews", {}, status.HTTP_403_FORBIDDEN),
@@ -1068,6 +1069,7 @@ class TestScoutEventDefinitionWrites(APIBaseTest):
             "detail": f"{base}/event_definitions/{definition.id}/",
             "bulk_update_tags": f"{base}/event_definitions/bulk_update_tags/",
             "bulk_update_verified": f"{base}/event_definitions/bulk_update_verified/",
+            "bulk_update_hidden": f"{base}/event_definitions/bulk_update_hidden/",
         }.get(target, f"{base}/{target}/")
         if target.startswith("bulk_") and body is not None:
             body = {"ids": [str(definition.id)], **body}

@@ -49493,6 +49493,30 @@ export namespace Schemas {
       name: string;
     }
 
+    export interface EventDefinitionBulkUpdateHiddenItem {
+      /** UUID of the event definition whose hidden state changed. */
+      id: string;
+      /** The event's hidden state after the update. */
+      hidden: boolean;
+    }
+
+    export interface EventDefinitionBulkUpdateHiddenRequest {
+      /**
+         * List of event definition UUIDs to update.
+         * @maxItems 500
+         */
+      ids: string[];
+      /** Target hidden state to apply to every matched event. `true` hides the events (and unverifies them, since an event cannot be both hidden and verified); `false` unhides them. */
+      hidden: boolean;
+    }
+
+    export interface EventDefinitionBulkUpdateHiddenResponse {
+      /** Events whose hidden state was changed. Events already in the target state are omitted. */
+      updated: EventDefinitionBulkUpdateHiddenItem[];
+      /** Events that were skipped (e.g. not found in this project), with a reason each. */
+      skipped: BulkUpdateTagsUUIDError[];
+    }
+
     export interface EventDefinitionBulkUpdateVerifiedItem {
       /** UUID of the event definition whose verified state changed. */
       id: string;

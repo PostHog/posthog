@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, Optional, cast
 
 import time_machine
@@ -501,6 +501,69 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         # The batch is atomic: a failure on the second event rolls back the first too.
         assert first.verified is False
         assert second.verified is False
+
+    @parameterized.expand([("hide", True), ("unhide", False)])
+    def test_bulk_update_hidden_flips_state_and_skips_noops(self, _name, target):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
+        )
+        already = EnterpriseEventDefinition.objects.create(team=self.demo_team, name="bulk_hide_already", hidden=target)
+        to_change = EnterpriseEventDefinition.objects.create(
+            team=self.demo_team,
+            name="bulk_hide_change",
+            hidden=not target,
+            verified=not target,
+            scheduled_deletion_at=None if target else datetime(2500, 1, 1, tzinfo=UTC),
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.demo_team.pk}/event_definitions/bulk_update_hidden/",
+            {"ids": [str(already.id), str(to_change.id)], "hidden": target},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        data = response.json()
+        assert data["updated"] == [{"id": str(to_change.id), "hidden": target}]
+        assert data["skipped"] == []
+
+        to_change.refresh_from_db()
+        assert to_change.hidden is target
+        if target:
+            # Hiding unverifies, since an event cannot be both hidden and verified.
+            assert to_change.verified is False
+        else:
+            assert to_change.scheduled_deletion_at is None
+
+    def test_bulk_update_hidden_ignores_event_definitions_in_other_project(self):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
+        )
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        other = EnterpriseEventDefinition.objects.create(team=other_team, name="bulk_hide_other", hidden=False)
+
+        response = self.client.post(
+            f"/api/projects/{self.demo_team.pk}/event_definitions/bulk_update_hidden/",
+            {"ids": [str(other.id)], "hidden": True},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["updated"] == []
+        assert response.json()["skipped"] == [{"id": str(other.id), "reason": "Not found"}]
+        other.refresh_from_db()
+        assert other.hidden is False
+
+    def test_bulk_update_hidden_requires_enterprise_build(self):
+        event = EnterpriseEventDefinition.objects.create(team=self.demo_team, name="bulk_hide_foss", hidden=False)
+
+        with patch("posthog.api.event_definition.EE_AVAILABLE", False):
+            response = self.client.post(
+                f"/api/projects/{self.demo_team.pk}/event_definitions/bulk_update_hidden/",
+                {"ids": [str(event.id)], "hidden": True},
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        event.refresh_from_db()
+        assert event.hidden is False
 
     def test_bulk_update_verified_requires_enterprise_build(self):
         event = EnterpriseEventDefinition.objects.create(team=self.demo_team, name="bulk_verify_foss", verified=False)

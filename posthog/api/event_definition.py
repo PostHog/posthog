@@ -388,6 +388,35 @@ class EventDefinitionBulkUpdateVerifiedResponseSerializer(serializers.Serializer
     )
 
 
+class EventDefinitionBulkUpdateHiddenRequestSerializer(serializers.Serializer):
+    ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        allow_empty=False,
+        max_length=BULK_UPDATE_TAGS_MAX_IDS,
+        help_text="List of event definition UUIDs to update.",
+    )
+    hidden = serializers.BooleanField(
+        help_text=(
+            "Target hidden state to apply to every matched event. `true` hides the events "
+            "(and unverifies them, since an event cannot be both hidden and verified); `false` unhides them."
+        ),
+    )
+
+
+class EventDefinitionBulkUpdateHiddenItemSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="UUID of the event definition whose hidden state changed.")
+    hidden = serializers.BooleanField(help_text="The event's hidden state after the update.")
+
+
+class EventDefinitionBulkUpdateHiddenResponseSerializer(serializers.Serializer):
+    updated = EventDefinitionBulkUpdateHiddenItemSerializer(
+        many=True, help_text="Events whose hidden state was changed. Events already in the target state are omitted."
+    )
+    skipped = BulkUpdateTagsUUIDErrorSerializer(
+        many=True, help_text="Events that were skipped (e.g. not found in this project), with a reason each."
+    )
+
+
 # Postgres LIMIT and OFFSET take a bigint. DRF accepts arbitrary-size ints, and binding one past
 # the bigint range makes Postgres answer with a 500, so clamp them.
 POSTGRES_BIGINT_MAX = 2**63 - 1
@@ -472,7 +501,7 @@ class EventDefinitionViewSet(
     viewsets.GenericViewSet,
 ):
     scope_object = "event_definition"
-    # "bulk_update_tags"/"bulk_update_verified" must be opted in here so personal API keys with
+    # "bulk_update_tags"/"bulk_update_verified"/"bulk_update_hidden" must be opted in here so personal API keys with
     # event_definition:write can use them.
     scope_object_write_actions = [
         "create",
@@ -482,6 +511,7 @@ class EventDefinitionViewSet(
         "destroy",
         "bulk_update_tags",
         "bulk_update_verified",
+        "bulk_update_hidden",
     ]
     serializer_class = EventDefinitionSerializer
     lookup_field = "id"
@@ -1059,6 +1089,89 @@ class EventDefinitionViewSet(
                     detail=Detail(name=str(enterprise.name), changes=changes),
                 )
                 updated.append({"id": enterprise.id, "verified": verified})
+
+        return response.Response({"updated": updated, "skipped": skipped})
+
+    @extend_schema(
+        request=EventDefinitionBulkUpdateHiddenRequestSerializer,
+        responses={200: EventDefinitionBulkUpdateHiddenResponseSerializer},
+    )
+    @action(methods=["POST"], detail=False)
+    def bulk_update_hidden(self, request, *args, **kwargs) -> response.Response:
+        """Hide or unhide multiple event definitions in one request.
+
+        Mirrors ``bulk_update_verified``: ``hidden`` lives on the ``EnterpriseEventDefinition``
+        extension, so this requires an enterprise license, scopes by project, lazily promotes base
+        rows, skips events already in the target state, and logs a "changed" activity per event.
+        Mirrors the single-object semantics: hiding unverifies the event (an event cannot be both
+        hidden and verified); unhiding cancels a scheduled delete.
+        """
+        if not EE_AVAILABLE:
+            raise serializers.ValidationError("Hiding event definitions requires an enterprise license.")
+
+        from ee.models.event_definition import EnterpriseEventDefinition
+
+        serializer = EventDefinitionBulkUpdateHiddenRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        validated_ids = list(dict.fromkeys(serializer.validated_data["ids"]))
+        hidden = serializer.validated_data["hidden"]
+
+        found_ids = set(
+            EventDefinition.objects.filter(id__in=validated_ids, team__project_id=self.project_id).values_list(
+                "id", flat=True
+            )
+        )
+        skipped = [{"id": obj_id, "reason": "Not found"} for obj_id in validated_ids if obj_id not in found_ids]
+
+        state_by_id = {
+            row_id: (bool(row_hidden), bool(row_verified))
+            for row_id, row_hidden, row_verified in EnterpriseEventDefinition.objects.filter(
+                id__in=found_ids, team__project_id=self.project_id
+            ).values_list("id", "hidden", "verified")
+        }
+
+        user = cast(User, request.user)
+        was_impersonated = is_impersonated(request)
+        updated: list[dict[str, Any]] = []
+
+        # Same batch semantics as bulk_update_verified: one transaction, saves in id order.
+        with transaction.atomic(), batch_definition_metadata_copies():
+            for obj_id in sorted(validated_ids):
+                if obj_id not in found_ids:
+                    continue
+                before_hidden, before_verified = state_by_id.get(obj_id, (False, False))
+                if before_hidden == hidden:
+                    continue  # no-op: skip without promoting a base row or writing
+
+                enterprise = cast(
+                    EnterpriseEventDefinition, self._get_event_definition(id=obj_id, team__project_id=self.project_id)
+                )
+                enterprise.hidden = hidden
+                if hidden:
+                    enterprise.verified = False  # an event cannot be both hidden and verified
+                    enterprise.verified_by = None
+                    enterprise.verified_at = None
+                else:
+                    enterprise.scheduled_deletion_at = None  # a scheduled delete only applies to hidden events
+                enterprise.save()
+
+                changes = dict_changes_between(
+                    "EventDefinition",
+                    {"hidden": before_hidden, "verified": before_verified},
+                    {"hidden": hidden, "verified": bool(enterprise.verified)},
+                    use_field_exclusions=True,
+                )
+                log_activity(
+                    organization_id=None,
+                    team_id=self.team_id,
+                    user=user,
+                    item_id=str(enterprise.id),
+                    scope="EventDefinition",
+                    activity="changed",
+                    was_impersonated=was_impersonated,
+                    detail=Detail(name=str(enterprise.name), changes=changes),
+                )
+                updated.append({"id": enterprise.id, "hidden": hidden})
 
         return response.Response({"updated": updated, "skipped": skipped})
 

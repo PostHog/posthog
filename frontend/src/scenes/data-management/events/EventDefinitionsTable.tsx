@@ -44,9 +44,15 @@ const eventTypeOptions: LemonSelectOptions<EventDefinitionType> = [
 ]
 
 export function EventDefinitionsTable(): JSX.Element {
-    const { eventDefinitions, eventDefinitionsLoading, filters, showVerifiedFilter, bulkVerifiedResultLoading } =
-        useValues(eventDefinitionsTableLogic)
-    const { loadEventDefinitions, setFilters, applyBulkTagUpdates, bulkUpdateVerified } =
+    const {
+        eventDefinitions,
+        eventDefinitionsLoading,
+        filters,
+        showVerifiedFilter,
+        bulkVerifiedResultLoading,
+        bulkHiddenResultLoading,
+    } = useValues(eventDefinitionsTableLogic)
+    const { loadEventDefinitions, setFilters, applyBulkTagUpdates, bulkUpdateVerified, bulkUpdateHidden } =
         useActions(eventDefinitionsTableLogic)
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
     const [isBulkTagsModalOpen, setIsBulkTagsModalOpen] = useState(false)
@@ -304,13 +310,39 @@ export function EventDefinitionsTable(): JSX.Element {
                                             },
                                         ],
                                     },
+                                    showVerifiedFilter && {
+                                        items: [
+                                            {
+                                                label: 'Hide',
+                                                onClick: () =>
+                                                    bulkUpdateHidden({
+                                                        ids: [...ctx.selectedKeys],
+                                                        hidden: true,
+                                                        onSuccess: ctx.clearSelection,
+                                                    }),
+                                                'data-attr': 'event-definitions-bulk-edit-hide',
+                                            },
+                                            {
+                                                label: 'Unhide',
+                                                onClick: () =>
+                                                    bulkUpdateHidden({
+                                                        ids: [...ctx.selectedKeys],
+                                                        hidden: false,
+                                                        onSuccess: ctx.clearSelection,
+                                                    }),
+                                                'data-attr': 'event-definitions-bulk-edit-unhide',
+                                            },
+                                        ],
+                                    },
                                 ]}
                             >
                                 <LemonButton
                                     type="secondary"
                                     size="small"
                                     sideIcon={<IconChevronDown />}
-                                    disabledReason={bulkVerifiedResultLoading ? 'Updating…' : undefined}
+                                    disabledReason={
+                                        bulkVerifiedResultLoading || bulkHiddenResultLoading ? 'Updating…' : undefined
+                                    }
                                     data-attr="event-definitions-bulk-edit"
                                 >
                                     Bulk edit

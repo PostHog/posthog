@@ -320,6 +320,37 @@ describe('eventDefinitionsTableLogic', () => {
             // Unverifying leaves the event hidden, so its delete stays scheduled
             expect(results.find((d) => d.id === unverifiedRow.id)).toMatchObject({ verified: false, ...scheduled })
         })
+
+        it('bulk hide unverifies and bulk unhide clears a scheduled delete, like the server', async () => {
+            router.actions.push(urls.eventDefinitions())
+            await expectLogic(logic).toDispatchActions(['loadEventDefinitionsSuccess'])
+
+            const key = logic.values.eventDefinitions.current as string
+            const [hideRow, unhideRow] = logic.values.eventDefinitions.results
+            logic.cache.apiCache[key] = {
+                ...logic.cache.apiCache[key],
+                results: logic.cache.apiCache[key].results.map((d: EventDefinition) =>
+                    d.id === hideRow.id
+                        ? { ...d, verified: true, hidden: false }
+                        : d.id === unhideRow.id
+                          ? { ...d, hidden: true, scheduled_deletion_at: '2026-03-31T14:00:00Z' }
+                          : d
+                ),
+            }
+            logic.cache.bulkHiddenCacheKey = key
+
+            logic.actions.applyBulkHiddenUpdates([
+                { id: hideRow.id, hidden: true },
+                { id: unhideRow.id, hidden: false },
+            ])
+
+            const results = logic.values.eventDefinitions.results
+            expect(results.find((d) => d.id === hideRow.id)).toMatchObject({ hidden: true, verified: false })
+            expect(results.find((d) => d.id === unhideRow.id)).toMatchObject({
+                hidden: false,
+                scheduled_deletion_at: null,
+            })
+        })
     })
 
     describe('property definitions', () => {
