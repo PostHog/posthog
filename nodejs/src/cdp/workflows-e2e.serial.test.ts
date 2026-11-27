@@ -1416,7 +1416,14 @@ describe('Workflows E2E (postgres-v2)', () => {
         }
 
         beforeEach(() => {
-            matcher = new CdpHogflowSubscriptionMatcherConsumer({ ...hub }, deps)
+            matcher = new CdpHogflowSubscriptionMatcherConsumer(
+                {
+                    ...hub,
+                    CDP_HOGFLOW_SUBSCRIPTION_MATCHER_COMBINED_LOOKUP: true,
+                    CDP_HOGFLOW_SUBSCRIPTION_MATCHER_PREPARED_LOOKUPS: true,
+                },
+                deps
+            )
         })
 
         afterEach(async () => {

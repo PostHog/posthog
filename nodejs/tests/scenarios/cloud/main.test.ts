@@ -81,7 +81,7 @@ describe('cloud controller', () => {
         cloud: options = {},
         onMaster = true,
         arrange = () => undefined,
-        env = {},
+        env = api.credentials,
         uncommitted,
         cards = {},
     }: Setup = {}): {
@@ -516,7 +516,7 @@ describe('cloud controller', () => {
         ],
         ['no card', undefined, 'Usage:', {}],
     ])('refuses %s before it leases anything', async (_story, card, problem, setup) => {
-        const { controller } = prepare(setup)
+        const { controller } = prepare({ ...setup, env: { ...api.credentials, ...setup.env } })
 
         await expect(main(['run', profilePath(), ...(card ? [card] : [])], controller)).resolves.toBe(2)
 
@@ -584,7 +584,7 @@ describe('cloud controller', () => {
         ],
         ['the run id its caller gives', { SCENARIO_RUN_ID: GIVEN_RUN_ID }, GIVEN_RUN_ID],
     ])('runs under %s and releases the lease when the run ends', async (_story, env, expected) => {
-        const { controller } = prepare({ env })
+        const { controller } = prepare({ env: { ...env, SCENARIO_PUBLISH_IN_WORKFLOW: '1' } })
         if (env.SCENARIO_RUN_ID === undefined) {
             cloud.failWhen('put-object', (args) => args.includes('--if-none-match'), 'UnknownOption')
         }
@@ -610,7 +610,7 @@ describe('cloud controller', () => {
     })
 
     it('refuses a second lease on a given run id, and leaves the first lease as it was', async () => {
-        const { controller } = prepare({ env: { SCENARIO_RUN_ID: GIVEN_RUN_ID } })
+        const { controller } = prepare({ env: { ...api.credentials, SCENARIO_RUN_ID: GIVEN_RUN_ID } })
         await leaseAt(T, controller)
         const objects = new Map(cloud.objects)
         const schedules = schedulesFor(GIVEN_RUN_ID)
@@ -663,7 +663,7 @@ describe('cloud controller', () => {
     ])(
         "keeps the first run's schedules when a lease of its id in another evidence bucket fails, while the first run %s",
         async (_story, arrange) => {
-            const { controller } = prepare({ env: { SCENARIO_RUN_ID: GIVEN_RUN_ID } })
+            const { controller } = prepare({ env: { ...api.credentials, SCENARIO_RUN_ID: GIVEN_RUN_ID } })
             await leaseAt(T, controller)
             arrange(cloud)
             const schedules = schedulesFor(GIVEN_RUN_ID)
@@ -914,8 +914,8 @@ describe('cloud controller', () => {
         expect(released(runId)).toBe(1)
     })
 
-    it('cleanup <run id> releases a live lease', async () => {
-        const { controller } = prepare()
+    it('cleanup <run id> releases a live lease without publishing credentials', async () => {
+        const { controller } = prepare({ env: {} })
         const runId = await leaseAt(T, controller)
         now = new Date(T.getTime() + HOUR_MS)
 
@@ -1359,6 +1359,61 @@ describe('cloud controller', () => {
         await expect(main(['cleanup', profilePath(), leasedRunId()], controller)).resolves.toBe(2)
 
         expect(cloud.schedules.size).toBe(2)
+    })
+
+    it.each([
+        ['AWS Backup', { 'aws:backup:source-resource': 'vol-0' }],
+        ['Data Lifecycle Manager', { 'aws:dlm:lifecycle-policy-id': 'policy-0', 'dlm:managed': 'true' }],
+    ])('judges a run whose host volume %s snapshotted, and names the snapshot', async (maker, tags) => {
+        const { controller } = prepare({ env: api.credentials })
+        cloud.hostVolumeSnapshots.push(tags)
+
+        await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(0)
+
+        const [snapshot] = cloud.billable()
+        expect(snapshot).toMatch(/^AWS::EC2::Snapshot snap-/)
+        expect(err.join('\n')).toContain(`- ${snapshot}: made outside the run, by ${maker}`)
+        expect(cloud.schedules.size).toBe(0)
+        expect(released(leasedRunId())).toBe(1)
+        expect(published()).toMatchObject({ status: 'passed', teardown_clean: true, teardown_leftovers: [] })
+    })
+
+    it('keeps the schedules while a snapshot with a tag anyone can set stays, and cleanup releases the run once it is gone', async () => {
+        const { controller } = prepare({ env: api.credentials })
+        cloud.hostVolumeSnapshots.push({ 'aws:backup:source-resource': 'vol-0' }, { 'dlm:managed': 'true' })
+
+        await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(2)
+
+        const runId = leasedRunId()
+        const unmarked = cloud.resources.find(({ tags }) => tags?.['dlm:managed'])!
+        expect(err.join('\n')).toContain(`- AWS::EC2::Snapshot ${unmarked.id}: still tagged`)
+        expect(published()).toMatchObject({
+            teardown_clean: false,
+            teardown_leftovers: [
+                `AWS::EC2::Snapshot ${unmarked.id}: still tagged, with no AWS Backup or Data Lifecycle Manager tag`,
+            ],
+        })
+        expect(cloud.schedules.size).toBe(2)
+        expect(lastReceipt(runId)).toMatchObject({ clean: false })
+
+        now = new Date(now.getTime() + 60_000)
+        await expect(main(['cleanup', profilePath(), runId], controller)).resolves.toBe(2)
+        expect(cloud.schedules.size).toBe(2)
+        expect(released(runId)).toBe(0)
+        expect(lastReceipt(runId)).toMatchObject({ clean: false })
+
+        cloud.resources.splice(cloud.resources.indexOf(unmarked), 1)
+        now = new Date(now.getTime() + 60_000)
+        await expect(main(['cleanup', profilePath(), runId], controller)).resolves.toBe(0)
+
+        expect(cloud.schedules.size).toBe(0)
+        expect(released(runId)).toBe(1)
+        expect(lastReceipt(runId)).toMatchObject({
+            clean: true,
+            resources: expect.arrayContaining([
+                expect.objectContaining({ madeBy: 'AWS Backup', state: 'made outside the run, by AWS Backup' }),
+            ]),
+        })
     })
 
     it('changes nothing on a second cleanup of a torn-down run', async () => {
@@ -1966,38 +2021,39 @@ describe('cloud controller', () => {
         expect(published().teardown_leftovers).toEqual(leftovers(volume.split(' ')[1]))
     })
 
-    it.each<[string, Partial<FakeCloudOptions>, boolean, (fake: FakeCloud) => void]>([
-        [
-            'Scenario runs refuses the scorecard of an invalid run',
-            { outlives: ['AWS::EC2::Volume'] },
-            true,
-            () => undefined,
-        ],
-        [
-            'the bucket refuses the copy and no Scenario runs credentials are set',
-            {},
-            false,
-            (fake) =>
-                fake.failWhen('put-object', (args) => args.some((arg) => /^runs\/[^/]+\/scorecard\.json$/.test(arg))),
-        ],
-    ])('exits as a failed scorecard write when %s', async (_, cloudOptions, refused, arrange) => {
-        const env = refused ? { ...api.credentials, SCENARIO_RUNS_PROJECT_TOKEN: 'wrong' } : {}
-        const { controller } = prepare({ cloud: cloudOptions, env })
-        arrange(cloud)
+    it('exits as a failed scorecard write when Scenario runs refuses an invalid scorecard', async () => {
+        const { controller } = prepare({
+            cloud: { outlives: ['AWS::EC2::Volume'] },
+            env: { ...api.credentials, SCENARIO_RUNS_PROJECT_TOKEN: 'wrong' },
+        })
 
         await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(3)
 
         expect(api.captured).toEqual([])
     })
 
-    it('keeps the scorecard in the bucket and names it when no Scenario runs credentials are set', async () => {
-        const { controller } = prepare()
+    it.each<[string, NodeJS.ProcessEnv, RegExp]>([
+        ['missing', {}, /Scenario runs credentials are not set/],
+        ['partial', { SCENARIO_RUNS_PROJECT_ID: '1' }, /Missing: .*SCENARIO_RUNS_READ_KEY/],
+    ])('refuses a direct run before admission when Scenario runs credentials are %s', async (_story, env, reason) => {
+        const { controller } = prepare({ env })
 
-        await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(0)
+        await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(3)
 
-        const key = `runs/${leasedRunId()}/scorecard.json`
-        expect(parseJSON(cloud.objects.get(key)!)).toMatchObject({ origin: 'cloud-manual', status: 'passed' })
-        expect(out.join('\n')).toContain(`s3://test-evidence/${key}`)
+        expect(out.join('\n')).not.toMatch(/Admitted estimate|Leased run/)
+        expect(cloud.objects.size).toBe(0)
+        expect(cloud.resources).toEqual([])
+        expect(err.join('\n')).toMatch(reason)
+        expect(api.captured).toEqual([])
+    })
+
+    it('exits with a write failure when the scorecard cannot be saved for the workflow', async () => {
+        const { controller } = prepare({ env: { ...api.credentials, SCENARIO_PUBLISH_IN_WORKFLOW: '1' } })
+        cloud.failWhen('put-object', (args) => args.some((arg) => /^runs\/[^/]+\/scorecard\.json$/.test(arg)))
+
+        await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(3)
+
+        expect(err.join('\n')).toContain('Could not keep the scorecard')
         expect(api.captured).toEqual([])
     })
 
@@ -2009,6 +2065,19 @@ describe('cloud controller', () => {
         })
 
         afterAll(() => store.close())
+
+        it('keeps the verdict and saves the scorecard for a workflow that publishes separately', async () => {
+            const { controller } = prepare({
+                env: { ...api.credentials, ...store.envOf(dir), SCENARIO_PUBLISH_IN_WORKFLOW: '1' },
+            })
+
+            await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(0)
+
+            const runId = leasedRunId()
+            expect(parseJSON(cloud.objects.get(`runs/${runId}/scorecard.json`)!)).toMatchObject({ status: 'passed' })
+            expect(api.captured).toEqual([])
+            expect(await store.read(runId)).toBeUndefined()
+        })
 
         it.each<[string, NodeJS.ProcessEnv]>([
             ['a new run id', {}],
@@ -2043,7 +2112,7 @@ describe('cloud controller', () => {
                 /the run token could not be read: EISDIR/,
             ],
         ])('keeps its exit code and warns when %s', async (_story, envOf, said) => {
-            const { controller } = prepare({ env: envOf(dir) })
+            const { controller } = prepare({ env: { ...api.credentials, ...envOf(dir) } })
 
             await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(0)
 

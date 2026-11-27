@@ -45,7 +45,7 @@ class TestWrappedSnapshot(_WrappedEventsTestMixin, _MCPAnalyticsTeamScopedTestMi
             {"tool": "list_alerts", "calls": 40},
             {"tool": "create_alert", "calls": 30},
         ]
-        assert cards["models"]["shares"][0] == {"label": "Claude Sonnet", "share": 0.8904}
+        assert cards["models"]["shares"][0] == {"name": "Claude Sonnet", "share": 0.8904}
 
     def test_project_below_the_bar_is_ineligible_without_the_properties_scan(self) -> None:
         self._emit("2026-08-11T23:30:00Z", "get_forecast", 150, **CLAUDE)

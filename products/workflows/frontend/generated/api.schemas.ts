@@ -2580,7 +2580,7 @@ export interface TeamEmailReputationResponseApi {
     readonly email_sending_suspension_reason: string
     /** The project's sending tier, what it allows, and how much of it has been used; null when the caller lacks project-wide workflow access. Tiers grow on their own as the project builds a clean sending record. */
     readonly sending_allowance: EmailSendingAllowanceApi | null
-    /** Sending health across every project in this PostHog region over the last 30 whole days, which all send through the same infrastructure. Null when AWS is unreachable or has no data, or while the feature is not yet released to this project. */
+    /** Sending health across every project in this PostHog region over the last 30 whole days, which all send through the same infrastructure. Null when AWS is unreachable or has no data, when the region sent too few emails for its totals to stay private, or while the feature is not yet released to this project. */
     readonly infrastructure: EmailInfrastructureHealthApi | null
 }
 
@@ -2865,6 +2865,155 @@ export interface PushTokenImportApi {
 export interface PushTokenImportLatestApi {
     /** The newest import into the channel, if any. */
     latest: PushTokenImportApi | null
+}
+
+/**
+ * * `2` - Favorite founder
+ * * `5` - Pineapple on pizza
+ * * `10` - Tabs or spaces
+ * * `13` - Dark or light mode
+ * * `18` - Ship on a Friday
+ * * `21` - Coffee or tea
+ */
+export type AdventCalendarDayEnumApi = (typeof AdventCalendarDayEnumApi)[keyof typeof AdventCalendarDayEnumApi]
+
+export const AdventCalendarDayEnumApi = {
+    Number2: 2,
+    Number5: 5,
+    Number10: 10,
+    Number13: 13,
+    Number18: 18,
+    Number21: 21,
+} as const
+
+/**
+ * * `james` - James
+ * * `tim` - Tim
+ * * `yes` - Yes
+ * * `no` - No
+ * * `tabs` - Tabs
+ * * `spaces` - Spaces
+ * * `dark` - Dark mode
+ * * `light` - Light mode
+ * * `coffee` - Coffee
+ * * `tea` - Tea
+ */
+export type AdventCalendarOptionEnumApi = (typeof AdventCalendarOptionEnumApi)[keyof typeof AdventCalendarOptionEnumApi]
+
+export const AdventCalendarOptionEnumApi = {
+    James: 'james',
+    Tim: 'tim',
+    Yes: 'yes',
+    No: 'no',
+    Tabs: 'tabs',
+    Spaces: 'spaces',
+    Dark: 'dark',
+    Light: 'light',
+    Coffee: 'coffee',
+    Tea: 'tea',
+} as const
+
+export interface AdventCalendarAnswerApi {
+    /** The calendar day of the question the person answers.
+     *
+     * * `2` - Favorite founder
+     * * `5` - Pineapple on pizza
+     * * `10` - Tabs or spaces
+     * * `13` - Dark or light mode
+     * * `18` - Ship on a Friday
+     * * `21` - Coffee or tea */
+    day: AdventCalendarDayEnumApi
+    /** The option the person picks. It must be one of the two options of that day's question.
+     *
+     * * `james` - James
+     * * `tim` - Tim
+     * * `yes` - Yes
+     * * `no` - No
+     * * `tabs` - Tabs
+     * * `spaces` - Spaces
+     * * `dark` - Dark mode
+     * * `light` - Light mode
+     * * `coffee` - Coffee
+     * * `tea` - Tea */
+    option: AdventCalendarOptionEnumApi
+}
+
+export interface AdventCalendarShareApi {
+    /** One option of the question.
+     *
+     * * `james` - James
+     * * `tim` - Tim
+     * * `yes` - Yes
+     * * `no` - No
+     * * `tabs` - Tabs
+     * * `spaces` - Spaces
+     * * `dark` - Dark mode
+     * * `light` - Light mode
+     * * `coffee` - Coffee
+     * * `tea` - Tea */
+    option: AdventCalendarOptionEnumApi
+    /** Percent of all answers to the question that picked this option, rounded to a whole number. 0 for every option while the question has no answers. */
+    share: number
+}
+
+export interface AdventCalendarQuestionResultApi {
+    /** The calendar day of the question.
+     *
+     * * `2` - Favorite founder
+     * * `5` - Pineapple on pizza
+     * * `10` - Tabs or spaces
+     * * `13` - Dark or light mode
+     * * `18` - Ship on a Friday
+     * * `21` - Coffee or tea */
+    day: AdventCalendarDayEnumApi
+    /** The option the signed-in person picked, or null when they have not answered this question.
+     *
+     * * `james` - James
+     * * `tim` - Tim
+     * * `yes` - Yes
+     * * `no` - No
+     * * `tabs` - Tabs
+     * * `spaces` - Spaces
+     * * `dark` - Dark mode
+     * * `light` - Light mode
+     * * `coffee` - Coffee
+     * * `tea` - Tea */
+    answer: AdventCalendarOptionEnumApi | null
+    /** Each option of the question, in the calendar's order, with its share of all answers. */
+    shares: AdventCalendarShareApi[]
+}
+
+export interface AdventCalendarResultsApi {
+    /** Every advent calendar question, by day. Shares count the answers of every user of this PostHog instance, not only this project's members. Each cloud region counts its own users. */
+    questions: AdventCalendarQuestionResultApi[]
+}
+
+export interface AdventCalendarDoorOpenRequestApi {
+    /**
+     * The calendar day of the door, 1 to 24.
+     * @minimum 1
+     * @maximum 24
+     */
+    day: number
+    /**
+     * The slug of the hoggy the door showed: lowercase letters, digits and hyphens, at most 64 characters.
+     * @maxLength 64
+     * @pattern ^[a-z0-9-]+$
+     */
+    hoggy: string
+    /**
+     * The browser's offset from UTC in minutes, east positive, from -720 to 840. A later rule uses it to tell which local day the person opened the door on.
+     * @minimum -720
+     * @maximum 840
+     */
+    utc_offset_minutes: number
+}
+
+export interface AdventCalendarDoorOpenApi {
+    /** The calendar day of the door. */
+    day: number
+    /** When the server stored the person's first open of this door. Opening it again keeps this time. */
+    opened_at: string
 }
 
 export interface DataSuggestionBuildRequestApi {

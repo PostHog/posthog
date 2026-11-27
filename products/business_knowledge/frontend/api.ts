@@ -209,7 +209,7 @@ export async function createLibrary(name: string): Promise<KnowledgeLibrary> {
 
 export async function updateLibrary(
     id: string,
-    payload: { name?: string; source_ids?: string[]; repos?: string[] }
+    payload: { name?: string; source_ids?: string[]; repos?: string[]; is_default?: boolean }
 ): Promise<KnowledgeLibrary> {
     return await businessKnowledgeLibrariesPartialUpdate(String(getCurrentTeamId()), id, payload)
 }

@@ -1,4 +1,3 @@
-import { SESv2Client } from '@aws-sdk/client-sesv2'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { IncomingMessage, Server, ServerResponse, createServer, request as httpRequest } from 'node:http'
 import { AddressInfo, Socket, connect, createServer as createTcpServer } from 'node:net'
@@ -11,6 +10,7 @@ import { CyclotronV2IdempotentClaim } from '~/cdp/services/cyclotron-v2/types'
 import { CyclotronJobQueuePostgresV2 } from '~/cdp/services/job-queue/job-queue-postgres-v2'
 import { IdempotentInvocation } from '~/cdp/services/job-queue/job-queue.interface'
 import { AttachmentStore, buildAttachmentStore } from '~/cdp/services/messaging/attachment-store'
+import { SesClientOptions, SesTransport } from '~/cdp/services/messaging/ses-transport'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '~/cdp/types'
 
 export const attachmentStoreConfig = {
@@ -186,11 +186,10 @@ export class BucketProxy {
     }
 }
 
-export const sesClientFor = (
-    ses: FakeSes,
-    overrides: Partial<ConstructorParameters<typeof SESv2Client>[0]> = {}
-): SESv2Client =>
-    new SESv2Client({
+export const ENDPOINT_THAT_REFUSES_CONNECTIONS = 'http://127.0.0.1:1'
+
+export const sesTransportFor = (ses: Pick<FakeSes, 'endpoint'>, overrides: SesClientOptions = {}): SesTransport =>
+    new SesTransport({
         region: 'us-east-1',
         endpoint: ses.endpoint,
         credentials: { accessKeyId: 'fake-ses', secretAccessKey: 'fake-ses' },

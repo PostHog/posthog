@@ -20,6 +20,7 @@ from .message_formatter import (
     format_output_messages,
     sanitize_surrogates,
 )
+from .repeated_input import RepeatedInput
 from .tool_formatter import format_tools
 
 
@@ -97,12 +98,16 @@ def _format_error_section(props: dict[str, Any]) -> list[str]:
     return lines
 
 
-def format_generation_text_repr(event: dict[str, Any], options: FormatterOptions | None = None) -> str:
+def format_generation_text_repr(
+    event: dict[str, Any], options: FormatterOptions | None = None, repeated_input: RepeatedInput | None = None
+) -> str:
     """
     Generate complete text representation of a generation event.
     This is the main entry point for converting an event to text.
 
     Displays sections in natural flow order: Tools → Input → Output → Error
+
+    The input messages in `repeated_input` render as one line that points at the earlier generation that sent them.
     """
     lines = FormatterLines(options)
     props = event.get("properties", {})
@@ -114,7 +119,7 @@ def format_generation_text_repr(event: dict[str, Any], options: FormatterOptions
         lines.extend(tools_lines)
 
     # Input messages
-    input_lines = format_input_messages(props.get("$ai_input"), options)
+    input_lines = format_input_messages(props.get("$ai_input"), options, repeated_input)
     if input_lines:
         if lines:
             lines.append("")
@@ -246,7 +251,9 @@ def format_evaluation_text_repr(event: dict[str, Any], options: FormatterOptions
     return formatted_text
 
 
-def format_event_text_repr(event: dict[str, Any], options: FormatterOptions | None = None) -> str:
+def format_event_text_repr(
+    event: dict[str, Any], options: FormatterOptions | None = None, repeated_input: RepeatedInput | None = None
+) -> str:
     """
     Generate complete text representation of any LLM event.
     Routes to the appropriate formatter based on event type.
@@ -264,7 +271,7 @@ def format_event_text_repr(event: dict[str, Any], options: FormatterOptions | No
         formatted_text = format_evaluation_text_repr(event, options)
     else:
         # Default to generation formatter for $ai_generation and other events
-        formatted_text = format_generation_text_repr(event, options)
+        formatted_text = format_generation_text_repr(event, options, repeated_input)
 
     return sanitize_surrogates(formatted_text)
 

@@ -26,7 +26,7 @@ from posthog.api.authentication import password_reset_token_generator
 from posthog.api.email_verification import email_verification_code_verifier
 from posthog.api.two_factor_reset import TwoFactorResetVerifier
 from posthog.dataclasses import frozen
-from posthog.helpers.impersonation import get_impersonated_user, is_impersonated
+from posthog.helpers.impersonation import Impersonation, get_impersonated_user, is_impersonated
 from posthog.models.activity_logging.activity_log import (
     ActivityContextBase,
     Detail,
@@ -288,19 +288,6 @@ def log_in_as_user(request: HttpRequest, obj: Model, form: forms.Form | None) ->
     # session flags and the impersonation_started event apply here unchanged. django-loginas reads the reason from
     # the POST body, where this form's `reason` field puts it.
     return start_impersonation(request, str(obj.pk), read_only=form.cleaned_data["read_only"])
-
-
-class Impersonation:
-    @staticmethod
-    def refusal(user: User) -> str | None:
-        """Why nobody can log in as this user. Staff log in as any other user. CAN_LOGIN_AS refuses the same cases on post."""
-        if user.is_staff:
-            return "This user is staff. Nobody can log in as a staff account"
-        if user.is_service_account:
-            return "Service accounts cannot use browser sessions"
-        if user.allow_impersonation is False:
-            return "This user turned off log in as user"
-        return None
 
 
 @console.register_panel

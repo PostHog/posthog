@@ -21,6 +21,8 @@ export const INTEGRATION_OPS = [
     'write_by_external_id',
     'delete_by_external_id',
     'delete_owner',
+    'mirror',
+    'mirror_purge',
 ] as const
 
 export type IntegrationOp = (typeof INTEGRATION_OPS)[number]
@@ -30,6 +32,7 @@ export type IntegrationOp = (typeof INTEGRATION_OPS)[number]
  * no other op and carries no `owner`. `delete_owner` is not one of them: it deletes the rows of
  * the token's owner.
  * `reverse_sync` is one: the reverse sync reads the changes of every team with one cursor.
+ * `mirror_purge` is one: the rollback of the mirror deletes the mirrored rows of a kind in every team.
  */
 export const CROSS_TEAM_OPS = [
     'reverse_sync',
@@ -37,6 +40,7 @@ export const CROSS_TEAM_OPS = [
     'read_by_external_id',
     'write_by_external_id',
     'delete_by_external_id',
+    'mirror_purge',
 ] as const satisfies readonly IntegrationOp[]
 
 export type CrossTeamOp = (typeof CROSS_TEAM_OPS)[number]
@@ -47,6 +51,12 @@ export type CrossTeamOp = (typeof CROSS_TEAM_OPS)[number]
  * and the token must carry it (see `IntegrationGrant.authorize`).
  */
 export const SINGLE_REF_OPS = ['delete', 'refresh', 'revoke', 'mint'] as const satisfies readonly IntegrationOp[]
+
+/**
+ * Operations that act on every row of a kind, so a token that holds one must carry `kinds`.
+ * The route then checks the kind of the request against that claim.
+ */
+export const KIND_CLAIM_OPS = ['mirror_purge'] as const satisfies readonly IntegrationOp[]
 
 /**
  * Any kind, source rows included. Only for a deployment whose code can touch any kind: web,
@@ -137,6 +147,9 @@ const GITHUB_APP_OPS = ['read', 'resolve', 'refresh', 'mint'] as const satisfies
 // Callers that read, resolve and mint for GitHub but never refresh a token themselves.
 const GITHUB_READ_OPS = ['read', 'resolve', 'mint'] as const satisfies readonly IntegrationOp[]
 
+// The changes feed has its own deployment, and only the Celery mirror tasks may write or purge by legacy id.
+const WEB_EXCLUDED_OPS: readonly IntegrationOp[] = ['reverse_sync', 'mirror', 'mirror_purge']
+
 const RESOLVE_ANY_KIND: DeploymentPolicy = { ops: ['resolve'], kinds: ALL_KINDS }
 
 /**
@@ -144,16 +157,17 @@ const RESOLVE_ANY_KIND: DeploymentPolicy = { ops: ['resolve'], kinds: ALL_KINDS 
  * charts in PostHog/charts, the same names as the `<deployment>.pub` files.
  */
 const TABLE: Record<string, DeploymentPolicy> = {
-    // Web Django: every op but the changes feed. The web-two, frontdoor and streaming pools
-    // sign with this key.
-    'posthog-web-django': { ops: INTEGRATION_OPS.filter((op) => op !== 'reverse_sync'), kinds: ALL_KINDS },
+    // Web Django: every op but WEB_EXCLUDED_OPS. The web-two, frontdoor and streaming pools
+    // sign with this key. A new op reaches web unless it is added to WEB_EXCLUDED_OPS.
+    'posthog-web-django': { ops: INTEGRATION_OPS.filter((op) => !WEB_EXCLUDED_OPS.includes(op)), kinds: ALL_KINDS },
     // The dedicated Celery queue that copies service rows back to Django during the migration.
     // The changes feed is the one route that returns plaintext in bulk, so nothing else gets it.
     'posthog-integrations-reverse-sync': { ops: ['reverse_sync'], kinds: ALL_KINDS },
 
     // Celery, admin Django and the general-purpose Temporal worker run sweeps and jobs over
-    // every OAuth kind (posthog/tasks/integrations.py) and many others.
-    'posthog-worker-django': { ops: WORKER_OPS, kinds: ALL_KINDS },
+    // every OAuth kind (posthog/tasks/integrations.py) and many others. Only the Celery tasks
+    // that copy Django rows to the service mirror, and that purge the copies of a kind on rollback.
+    'posthog-worker-django': { ops: [...WORKER_OPS, 'mirror', 'mirror_purge'], kinds: ALL_KINDS },
     'posthog-admin-django': { ops: WORKER_OPS, kinds: ALL_KINDS },
     'temporal-worker-general-purpose': { ops: WORKER_OPS, kinds: ALL_KINDS },
     // HogQL `system.integrations` lists every kind of the team.

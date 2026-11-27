@@ -101,6 +101,26 @@ export interface KnowledgeSearchResultApi {
     readonly similarity: number | null
 }
 
+/**
+ * Body of a search sent with POST, which keeps the query text out of the request URL.
+ */
+export interface KnowledgeSearchRequestApi {
+    /**
+     * Natural-language search query. Runs hybrid (semantic + full-text) retrieval over all SAFE, READY knowledge chunks in this project. At most 2000 characters.
+     * @maxLength 2000
+     */
+    query: string
+    /** Maximum number of ranked chunks to return. Defaults to 10, capped at 20. */
+    limit?: number
+    /** When true, rerank search results with a listwise LLM pass for better relevance. Defaults to false (RRF order only). Falls back to RRF order on rerank failure. */
+    rerank?: boolean
+    /**
+     * Limit retrieval to sources in this library. Omit to search every ready source.
+     * @nullable
+     */
+    library_id?: string | null
+}
+
 export interface KnowledgeGapSuggestionApi {
     /** Unique identifier for this gap suggestion. */
     readonly id: string
@@ -250,7 +270,7 @@ export interface KnowledgeLibraryApi {
     id: string
     /** Library name. Unique in this project, ignoring case. */
     name: string
-    /** True for the library new learned sources join. There is at most one. */
+    /** True when new sources learned from support tickets join this library. Several libraries can have it. */
     is_default: boolean
     /** How many sources are in this library. */
     source_count: number
@@ -276,6 +296,8 @@ export interface PatchedKnowledgeLibraryUpdateApi {
     source_ids?: string[]
     /** Replaces this environment's repositories in the library. Omit to leave them unchanged. Repositories only another environment allows stay. */
     repos?: string[]
+    /** Whether new sources learned from support tickets join this library. Omit to leave it unchanged. Sources that are already in the library stay. At least one library must have it. */
+    is_default?: boolean
 }
 
 export interface PlaygroundChatListApi {
@@ -835,7 +857,7 @@ export type BusinessKnowledgeDocumentsSearchListParams = {
      */
     limit?: number
     /**
-     * Natural-language search query. Runs hybrid (semantic + full-text) retrieval over all SAFE, READY knowledge chunks in this project.
+     * Natural-language search query. Runs hybrid (semantic + full-text) retrieval over all SAFE, READY knowledge chunks in this project. At most 2000 characters.
      */
     query: string
     /**

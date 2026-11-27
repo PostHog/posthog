@@ -33,6 +33,7 @@ from products.signals.backend.models import (
     SignalSourceConfig,
 )
 from products.signals.backend.report_generation.resolve_reviewers import ReviewerIdentitySet
+from products.signals.backend.report_prompts import MAX_SUGGESTED_PROMPT_LENGTH
 from products.signals.backend.scout_harness.serializers import EditReportRequestSerializer, EmitReportRequestSerializer
 from products.signals.backend.scout_harness.tools.emit import remediation_for_skip
 from products.signals.backend.scout_harness.tools.report import (
@@ -561,16 +562,20 @@ class TestScoutReportAPI(APIBaseTest):
             emitted = self.client.post(
                 self._emit_url(str(run.id)),
                 data=self._payload(
-                    title="fix(checkout): p99 regressed", summary="## Problem\\n\\nThe \\`/checkout\\` p99 doubled."
+                    title="fix(checkout): p99 regressed",
+                    summary="## Problem\\n\\nThe \\`/checkout\\` p99 doubled.",
+                    suggested_prompts=["Which teams are affected?", "x" * (MAX_SUGGESTED_PROMPT_LENGTH + 1)],
                 ),
                 format="json",
             ).json()
             report = SignalReport.objects.get(id=emitted["report_id"])
             assert report.summary == "## Problem\n\nThe `/checkout` p99 doubled."
+            assert report.suggested_prompts == ["Which teams are affected?"]
             assert [(h["check_id"], h["severity"]) for h in emitted["quality_hints"]] == [
                 ("literal_newline_escapes", "repair"),
                 ("escaped_backticks", "repair"),
                 ("pr_style_title", "hint"),
+                ("suggested_prompt_too_long", "repair"),
             ]
             edited = self.client.post(
                 self._edit_url(str(run.id)),
@@ -589,6 +594,7 @@ class TestScoutReportAPI(APIBaseTest):
             ("emit_report", "literal_newline_escapes", run.skill_name),
             ("emit_report", "escaped_backticks", run.skill_name),
             ("emit_report", "pr_style_title", run.skill_name),
+            ("emit_report", "suggested_prompt_too_long", run.skill_name),
             ("edit_report", "literal_newline_escapes", run.skill_name),
         ]
 
@@ -3057,6 +3063,7 @@ class TestScoutReportAPI(APIBaseTest):
             ("omitted", {}, 1, None),
             ("null", {"suggested_prompts": None}, 1, None),
             ("empty_list", {"suggested_prompts": []}, 0, 0),
+            ("only_too_long", {"suggested_prompts": ["x" * (MAX_SUGGESTED_PROMPT_LENGTH + 1)]}, 1, None),
         ]
     )
     def test_edit_suggested_prompts_distinguishes_untouched_from_cleared(
@@ -3101,6 +3108,17 @@ class TestScoutReportAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert SignalReport.objects.get(id=created["report_id"]).suggested_prompts == []
+
+    def test_an_edit_left_empty_by_the_prompt_repair_names_the_bound(self) -> None:
+        run = _make_run(self.team)
+        response = self.client.post(
+            self._edit_url(str(run.id)),
+            data={"report_id": str(uuid4()), "suggested_prompts": ["x" * (MAX_SUGGESTED_PROMPT_LENGTH + 1)]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert f"longer than {MAX_SUGGESTED_PROMPT_LENGTH} characters" in str(response.json())
 
     @parameterized.expand(
         [
