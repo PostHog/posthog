@@ -7,9 +7,11 @@ import { LemonSelect, LemonSelectOption, Link } from '@posthog/lemon-ui'
 
 import { Logo } from 'lib/brand'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isObject } from 'lib/utils/guards'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { IconWindow } from 'scenes/session-recordings/player/icons'
@@ -26,6 +28,8 @@ import { PlayerShareMenu } from 'scenes/session-recordings/player/share/PlayerSh
 import { urls } from 'scenes/urls'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
+
+import { MessagingCtaChip } from 'products/workflows/frontend/MessagingCta/MessagingCtaChip'
 
 import { PlayerInspectorButton } from './PlayerInspectorButton'
 import { PlayerMetaExperimentTags } from './PlayerMetaExperimentTags'
@@ -130,9 +134,9 @@ function PlayerMetaControls({ size }: { size: PlayerMetaBreakpoints }): JSX.Elem
 export function PlayerMeta(): JSX.Element {
     const { logicProps, isFullScreen } = useValues(sessionRecordingPlayerLogic)
 
-    const { windowIds, trackedWindow, lastPageviewEvent, currentURL, currentWindowIndex, loading } = useValues(
-        playerMetaLogic(logicProps)
-    )
+    const { windowIds, trackedWindow, lastPageviewEvent, currentURL, currentWindowIndex, loading, startedFromEmail } =
+        useValues(playerMetaLogic(logicProps))
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const { setTrackedWindow } = useActions(playerMetaLogic(logicProps))
 
@@ -219,6 +223,11 @@ export function PlayerMeta(): JSX.Element {
                         )}
                     </div>
                     <PlayerMetaExperimentTags />
+                    {startedFromEmail && featureFlags[FEATURE_FLAGS.WORKFLOWS_TRANSACTIONAL_EMAIL_API] && (
+                        <span className="flex min-w-0 max-w-max grow basis-0 overflow-hidden">
+                            <MessagingCtaChip placement="replay.player_chip" />
+                        </span>
+                    )}
                     <PlayerMetaControls size={size} />
                 </div>
             </div>

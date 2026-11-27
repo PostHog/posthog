@@ -90,6 +90,25 @@ describe('playerMetaLogic', () => {
         })
     })
 
+    describe('startedFromEmail', () => {
+        it.each([
+            ['an email entry medium', { $entry_utm_medium: 'email' }, true],
+            ['an email entry medium in any case', { $entry_utm_medium: 'Email' }, true],
+            ['another entry medium', { $entry_utm_medium: 'cpc' }, false],
+            ['a medium that only contains email', { $entry_utm_medium: 'newsletter-email' }, false],
+            ['no entry medium', { $entry_utm_medium: null }, false],
+        ])('reads %s as %p', async (_, sessionProperties, expected) => {
+            await expectLogic(logic, () => {
+                sessionRecordingDataCoordinatorLogic(playerProps).actions.loadRecordingMeta()
+            }).toDispatchActions(['loadRecordingMetaSuccess'])
+            logic.actions.loadPropertiesForSessionsSuccess([
+                { id: recordingMetaJson.id, properties: sessionProperties },
+            ])
+
+            expect(logic.values.startedFromEmail).toBe(expected)
+        })
+    })
+
     describe('loading state', () => {
         it('stops loading after meta load is successful', async () => {
             const session: SessionRecordingType = {
