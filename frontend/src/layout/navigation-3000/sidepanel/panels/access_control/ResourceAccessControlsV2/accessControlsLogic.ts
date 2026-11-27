@@ -1140,20 +1140,26 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
     }),
 
     urlToAction(({ actions }) => ({
-        '/settings/:section': (_, searchParams) => {
-            const tab = searchParams.access_tab
+        '/settings/:section': (_, searchParams, hashParams) => {
+            const { access_tab: tab, access_role_id, access_member_id, ...rest } = searchParams
+            if (tab === undefined && access_role_id === undefined && access_member_id === undefined) {
+                return
+            }
             if (tab === 'roles' || tab === 'members' || tab === 'defaults') {
                 actions.setActiveTab(tab)
             }
-            if (tab === 'roles' && searchParams.access_role_id) {
-                actions.setFilters({ roleIds: [searchParams.access_role_id] })
+            if (tab === 'roles' && access_role_id) {
+                actions.setFilters({ roleIds: [access_role_id] })
             }
-            if (tab === 'members' && searchParams.access_member_id) {
-                sidePanelStateLogic.actions.openSidePanel(
-                    SidePanelTab.AccessDetail,
-                    `member:${searchParams.access_member_id}`
-                )
+            let panelHash = hashParams
+            if (tab === 'members' && access_member_id) {
+                sidePanelStateLogic.actions.openSidePanel(SidePanelTab.AccessDetail, `member:${access_member_id}`)
+                panelHash = { ...hashParams, panel: `${SidePanelTab.AccessDetail}:member:${access_member_id}` }
             }
+            // A deep link applies once. This handler runs on every location change, including the hash
+            // changing as the side panel opens, closes or switches subject, so leaving the params in the
+            // URL would re-open the linked member and reset the tab after each of those.
+            router.actions.replace(router.values.location.pathname, rest, panelHash)
         },
     })),
 ])

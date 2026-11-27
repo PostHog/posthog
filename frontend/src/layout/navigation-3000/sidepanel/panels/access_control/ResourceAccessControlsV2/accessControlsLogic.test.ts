@@ -1,3 +1,4 @@
+import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -280,6 +281,68 @@ describe('accessControlsLogic', () => {
             await expectLogic(logic, clickMemberRow)
                 .toDispatchActions(['loadPanelEntry', 'loadPanelEntrySuccess'])
                 .toMatchValues({ panelEntry: partial({ organization_membership_id: 'member-1' }) })
+        })
+    })
+    describe('deep links', () => {
+        let logic: ReturnType<typeof accessControlsLogic.build>
+        const settingsPath = '/project/997/settings/environment-access-control'
+
+        beforeEach(() => {
+            useMocks({
+                get: {
+                    '/api/projects/:id/access_control_members': { results: [] },
+                    '/api/projects/:id/access_control_roles': { results: [] },
+                },
+            })
+            initKeaTests()
+            logic = accessControlsLogic.build({ projectId: '997' })
+            logic.mount()
+        })
+
+        afterEach(() => {
+            logic.unmount()
+        })
+
+        it('opens the member once and drops the deep link params', async () => {
+            router.actions.push(settingsPath, { access_tab: 'members', access_member_id: 'member-1' })
+
+            await expectLogic(logic).toMatchValues({
+                activeTab: 'members',
+                activePanelSubject: { scopeType: 'member', subjectId: 'member-1' },
+            })
+            expect(sidePanelStateLogic.values.sidePanelOpen).toBe(true)
+            expect(router.values.searchParams).toEqual({})
+            expect(router.values.hashParams).toEqual({ panel: 'access-detail:member:member-1' })
+        })
+
+        it('lets the deep-linked panel close and stay closed', async () => {
+            router.actions.push(settingsPath, { access_tab: 'members', access_member_id: 'member-1' })
+
+            sidePanelStateLogic.actions.closeSidePanel()
+
+            expect(sidePanelStateLogic.values.sidePanelOpen).toBe(false)
+            expect(router.values.hashParams).toEqual({})
+        })
+
+        it('lets another member replace the deep-linked one', async () => {
+            router.actions.push(settingsPath, { access_tab: 'members', access_member_id: 'member-1' })
+
+            logic.actions.openAccessDetailPanel('member', 'member-2')
+            sidePanelStateLogic.actions.openSidePanel(SidePanelTab.AccessDetail, 'member:member-2')
+
+            await expectLogic(logic).toMatchValues({
+                activePanelSubject: { scopeType: 'member', subjectId: 'member-2' },
+            })
+            expect(router.values.hashParams).toEqual({ panel: 'access-detail:member:member-2' })
+        })
+
+        it('keeps a tab the user picked after a deep link', async () => {
+            router.actions.push(settingsPath, { access_tab: 'members' })
+
+            logic.actions.setActiveTab('defaults')
+            sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Support)
+
+            await expectLogic(logic).toMatchValues({ activeTab: 'defaults' })
         })
     })
 })

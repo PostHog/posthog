@@ -1,0 +1,105 @@
+import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
+import { useState } from 'react'
+
+import { IconEllipsis, IconGear, IconPeople, IconTrash } from '@posthog/icons'
+import {
+    AlertDialog,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+    Button,
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+    Text,
+} from '@posthog/quill'
+
+import { fullName } from 'lib/utils/strings'
+import { urls } from 'scenes/urls'
+
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+
+import { roleAccessControlLogic } from '../roleAccessControlLogic'
+import type { AccessControlRoleEntry } from './types'
+
+export function QuillRoleAccessHeader({ role }: { role: AccessControlRoleEntry }): JSX.Element {
+    const { sortedRoles, canEditRoles } = useValues(roleAccessControlLogic)
+    const { deleteRole } = useActions(roleAccessControlLogic)
+    const { closeSidePanel } = useActions(sidePanelStateLogic)
+    const [confirmOpen, setConfirmOpen] = useState(false)
+
+    const members = sortedRoles.find((r) => r.id === role.role_id)?.members ?? []
+    const memberNames = members
+        .map((m) => (m.user.first_name ? fullName(m.user) : m.user.email))
+        .sort()
+        .join(', ')
+
+    return (
+        <div className="flex items-center justify-between gap-2">
+            <div className="flex min-w-0 items-center gap-2">
+                <span className="flex items-center text-muted-foreground">
+                    <IconPeople />
+                </span>
+                <Text size="sm" weight="medium" render={<span className="truncate" />}>
+                    {role.role_name}
+                </Text>
+            </div>
+            <DropdownMenu>
+                <DropdownMenuTrigger render={<Button size="icon" aria-label="Role actions" tooltip="Role actions" />}>
+                    <IconEllipsis />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={() => router.actions.push(urls.settings('organization-roles'))}>
+                        <IconGear />
+                        Manage roles
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                        variant="destructive"
+                        disabledReason={canEditRoles === false ? 'You cannot edit roles' : undefined}
+                        onClick={() => setConfirmOpen(true)}
+                    >
+                        <IconTrash />
+                        Delete role
+                    </DropdownMenuItem>
+                </DropdownMenuContent>
+            </DropdownMenu>
+            <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Delete the {role.role_name} role?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            This removes every access rule the role grants, in this project and in every other project
+                            in the organization.
+                        </AlertDialogDescription>
+                        {members.length > 0 && (
+                            <AlertDialogDescription>
+                                {members.length === 1 ? '1 member loses' : `${members.length} members lose`} the role:{' '}
+                                <span className="ph-no-capture">{memberNames}</span>.
+                            </AlertDialogDescription>
+                        )}
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <Button variant="outline" onClick={() => setConfirmOpen(false)}>
+                            Cancel
+                        </Button>
+                        <Button
+                            variant="destructive-outline"
+                            onClick={() => {
+                                setConfirmOpen(false)
+                                deleteRole(role.role_id)
+                                // The role this panel shows is gone, so don't stay open on "Role not found"
+                                closeSidePanel()
+                            }}
+                        >
+                            Delete role
+                        </Button>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+        </div>
+    )
+}
