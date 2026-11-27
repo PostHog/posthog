@@ -21,7 +21,11 @@ use crate::{
     metrics_utils::{LIMITS_UPDATED, LIMIT_BALANCE},
     organization::Organization,
     recently_seen::{build_store, RecentlySeenStore},
+    route::EmbeddingRoute,
+    RetryBudget,
 };
+
+pub const WORKER_LIVENESS_DEADLINE: Duration = Duration::from_secs(60);
 
 pub struct AppContext {
     pub health_registry: HealthRegistry,
@@ -31,6 +35,8 @@ pub struct AppContext {
     pub pool: PgPool,
     pub config: Config,
     pub client: reqwest::Client,
+    pub route: EmbeddingRoute,
+    pub retry_budget: RetryBudget,
     pub org_cache: Cache<i32, Option<Organization>>,
     pub recently_seen: Arc<dyn RecentlySeenStore>,
     rate_limits: RwLock<HashMap<String, Limiter>>,
@@ -44,9 +50,11 @@ struct Limiter {
 
 impl AppContext {
     pub async fn new(config: Config) -> Result<Self> {
+        let route = config.embedding_route()?;
+
         let health_registry = HealthRegistry::new("liveness");
         let worker_liveness = health_registry
-            .register("worker".to_string(), Duration::from_secs(60))
+            .register("worker".to_string(), WORKER_LIVENESS_DEADLINE)
             .await;
 
         let kafka_consumer =
@@ -66,10 +74,9 @@ impl AppContext {
         let options = PgPoolOptions::new().max_connections(config.max_pg_connections);
         let pool = options.connect(&config.database_url).await?;
 
+        let retry_budget = retry_budget(&config);
         let client = reqwest::Client::builder()
-            .timeout(Duration::from_secs(
-                config.embedding_request_timeout_seconds,
-            ))
+            .timeout(retry_budget.request_timeout)
             .build()?;
 
         let org_cache = CacheBuilder::new(10_000)
@@ -86,6 +93,8 @@ impl AppContext {
             pool,
             config,
             client,
+            route,
+            retry_budget,
             org_cache,
             recently_seen,
             rate_limits: Default::default(),
@@ -153,6 +162,17 @@ impl AppContext {
                 }
             }
         }
+    }
+}
+
+fn retry_budget(config: &Config) -> RetryBudget {
+    let request_timeout = Duration::from_secs(config.embedding_request_timeout_seconds);
+    let batch_wait = Duration::from_secs(config.max_event_batch_wait_seconds);
+    RetryBudget {
+        request_timeout,
+        deadline: WORKER_LIVENESS_DEADLINE
+            .saturating_sub(batch_wait)
+            .saturating_sub(request_timeout),
     }
 }
 

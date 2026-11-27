@@ -7,8 +7,8 @@ from typing import Any
 
 from products.metrics.backend.dashboard_import.catalog import MetricCatalog
 from products.metrics.backend.dashboard_import.promql_text import metric_names
-from products.metrics.backend.dashboard_import.spec import DashboardSpec, ImportSource, PanelVerdict
-from products.metrics.backend.dashboard_import.validation import QueryCheck
+from products.metrics.backend.dashboard_import.spec import DashboardSpec, ImportSource, PanelSpec, PanelVerdict
+from products.metrics.backend.dashboard_import.validation import SMOKE_WORKERS, QueryCheck
 
 BRIEF_FILE_NAME = "brief.json"
 GRAFANA_FILE_NAME = "grafana-dashboard.json"
@@ -66,10 +66,9 @@ Keep each reason to one short sentence."""
 _GRAFANA_TASK = """\
 Convert the panels of a Grafana dashboard into PostHog panels.
 
-Input files:
-- brief.json: the panels to convert (panels_to_convert), the panels that PostHog already imported, the \
-metric names of this project, and the earlier check errors for each panel.
-- grafana-dashboard.json: the original Grafana JSON, for reference.
+Input file:
+- brief.json: the panels to convert (panels_to_convert), the metric names of this project, and the earlier \
+check errors for each panel.
 
 For each panel in panels_to_convert, find the metrics, logs or traces in this project that show the same \
 thing, write the query, and check it. Use the metric suggestions and the check errors in the brief first."""
@@ -92,7 +91,18 @@ colors success, warning or danger.
 - For a text panel, set outcome imported, the markdown in text, and no query.
 - Also set dashboard_name from the title in the screenshot."""
 
+_EFFICIENCY = """\
+Work in as few tool calls as you can, because every call costs time:
+- Read each input file once. Do not run shell commands.
+- Do not run query-metrics, query-logs or query-apm-spans only to test a query. \
+metrics-dashboard-panels-validate runs it.
+- Search metric names with a short search value, not the full list."""
+
 _FINISH = """\
+Before you answer, make sure that metrics-dashboard-panels-validate passed the query of every panel that you \
+mark imported or approximated. Check the panels that you did not check yet. When a check fails, fix the query \
+and check it again, or mark the panel failed.
+
 Finish: return the structured output, with one entry for each panel. Do not create dashboards or insights \
 yourself. PostHog builds the dashboard from your answer and checks every query again."""
 
@@ -131,13 +141,14 @@ def build_prompt(
             f"Use these PostHog tools:\n{_TOOLS}",
             metric_rules,
             _COMMON_RULES,
+            _EFFICIENCY,
             _FINISH,
             *([_LAYOUT_CHECK] if checks_layout else []),
             *(
                 [
                     f'In every metrics-dashboard-panels-validate call, set import_id to "{import_id}" and give each '
                     "panel its title. PostHog shows the user which panels pass. Check each panel as soon as you have "
-                    "its query, one to three panels per call. Do not keep the checks for the end."
+                    f"its query, up to {SMOKE_WORKERS} panels per call. Do not keep the checks for the end."
                 ]
                 if import_id
                 else []
@@ -160,7 +171,11 @@ def build_brief(
         "source": source,
         "promql_available": promql_available,
         "metric_catalog": [
-            {"name": entry.name, "type": entry.metric_type, "unit": entry.unit}
+            {
+                key: value
+                for key, value in (("name", entry.name), ("type", entry.metric_type), ("unit", entry.unit))
+                if value
+            }
             for entry in catalog.entries(limit=MAX_CATALOG_ENTRIES)
         ],
         "metric_catalog_is_complete": catalog.complete,
@@ -175,18 +190,32 @@ def build_brief(
                 name for target in panel.targets if target.language == "promql" for name in metric_names(target.expr)
             ]
             check = checks.get(panel.key)
+            suggestions = {
+                name: catalog.suggestions(name) for name in dict.fromkeys(names) if catalog.resolve(name) is None
+            }
             panels.append(
                 {
-                    **panel.model_dump(mode="json", exclude={"layout"}),
-                    "check_error": check.error if check is not None and not check.ok else None,
-                    "metric_suggestions": {
-                        name: catalog.suggestions(name)
-                        for name in dict.fromkeys(names)
-                        if catalog.resolve(name) is None
-                    },
+                    **_panel_brief(panel),
+                    **({"check_error": check.error} if check is not None and not check.ok else {}),
+                    **({"metric_suggestions": suggestions} if suggestions else {}),
                 }
             )
         brief["dashboard"] = {"title": spec.title, "description": spec.description, "variables": spec.variables}
         brief["panels_to_convert"] = panels
-        brief["imported_panels"] = [{"key": verdict.key, "title": verdict.title} for verdict in resolved]
-    return json.dumps(brief, indent=1).encode()
+    # Every model call rereads the brief, so it carries only what the agent uses to write queries. The agent's
+    # Read tool cuts lines over 2,000 characters, so every value keeps its own line.
+    return json.dumps(brief, indent=1, separators=(",", ":")).encode()
+
+
+def _panel_brief(panel: PanelSpec) -> dict[str, Any]:
+    # PostHog maps the display and keeps the variable references itself, so the agent needs only expr.
+    return panel.model_dump(
+        mode="json",
+        exclude={
+            "layout": True,
+            "display": True,
+            "notes": True,
+            "targets": {"__all__": {"original_expr", "templated_expr"}},
+        },
+        exclude_defaults=True,
+    )

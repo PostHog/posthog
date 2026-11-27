@@ -62,10 +62,16 @@ class ImportStepSpec:
     count_labels: tuple[tuple[str, str], ...] = ()
     # Steps that must complete first when the run includes them, such as opt-outs before contacts become people.
     requires: tuple[str, ...] = ()
+    # Starts the steps in `requires` over in a new run. Continuing a failed run would skip whoever opted out since.
+    requires_fresh: bool = False
     # Steps the run must include for this one to do anything, such as contacts for new people.
     needs: tuple[str, ...] = ()
     # Creates or updates people, and each of those counts as an event on the bill.
     counts_as_events: bool = False
+    # Hides the step, and refuses to start it, unless this flag is on for the team.
+    feature_flag: str | None = None
+    # Added to the provider's `not_imported` while the flag hides the step.
+    hidden_note: str = ""
 
 
 @frozen
@@ -141,7 +147,7 @@ class SavedPage:
     imported: int
     # Problems with single records that do not fail the step.
     warnings: tuple[str, ...] = ()
-    # Added to the step's totals, by the keys in the step's `count_labels`.
+    # Added to the step's totals. The summary shows only the keys in the step's `count_labels`.
     counts: Mapping[str, int] = field(default_factory=dict)
     items: tuple[ImportItem, ...] = ()
     people_imports: tuple[PeopleImportPlan, ...] = ()

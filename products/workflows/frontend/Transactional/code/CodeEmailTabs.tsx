@@ -54,6 +54,7 @@ export function CodeEmailTabs({ codeEmail }: { codeEmail: CodeEmailApi }): JSX.E
                         ) : (
                             <WorkflowMetrics
                                 id={codeEmail.hog_flow_id}
+                                transactional
                                 {...(sendLinks
                                     ? { onEmailMetricClick: openEmailMetricSends }
                                     : { onShowInvocations: showRuns })}

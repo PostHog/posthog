@@ -33,10 +33,14 @@ function afterLaunch(health: Schemas.ExperimentHealth | null): Pick<Schemas.Expe
     }
 }
 
-// Some checks run only on a draft, such as the one for a flag without calls, so the read comes before the launch.
+// Some checks run only on a draft, such as the one for a flag without calls, so the read comes before the launch. It
+// reads the draft at launch, so the checks that run only after launch, such as the one for a missing metric, run too.
 async function beforeRequest<T extends LaunchParams>(context: Context, params: T): Promise<T> {
     const projectId = await context.stateManager.getProjectId()
-    return { ...params, draftHealth: await readConfigHealth(context, projectId, params.id, DRAFT_HEALTH_TIMEOUT_MS) }
+    return {
+        ...params,
+        draftHealth: await readConfigHealth(context, projectId, params.id, DRAFT_HEALTH_TIMEOUT_MS, true),
+    }
 }
 
 function afterResponse(context: Context, params: LaunchParams, result: unknown): unknown {

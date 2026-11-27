@@ -72,7 +72,7 @@ if TYPE_CHECKING:
 class TestResolveSandboxAiProduct:
     """Must agree with resolveAiProduct in
     packages/agent/packages/agent/src/utils/gateway.ts — a disagreement makes a
-    routed run mint no token (degrades to Python) or mint an unused token."""
+    routed run mint no token (the run fails) or mint an unused token."""
 
     @pytest.mark.parametrize(
         "origin_product,ai_stage,expected",
@@ -357,11 +357,13 @@ class TestMintScopedToken:
         if product != "review_hog":
             expected -= {
                 "deepseek-ai/deepseek-v4-flash-0731",
+                "deepseek-ai/deepseek-v4.1-flash-1017",
                 "deepseek-ai/deepseek-v4.1-flash-1017-fast",
                 "zai-org/glm-5.3",
-                "zai-org/glm-5.3-flash",
                 "gpt-6.1-terra",
             }
+        if product not in ("review_hog", "slack_app"):
+            expected -= {"zai-org/glm-5.3-flash"}
         assert set(pin) == expected
 
     def test_onboarding_mint_carries_the_legacy_model_pin(self, mint_settings):
@@ -893,7 +895,6 @@ class TestProvisioningBoundaries:
 
         if task.is_scout_experiment:
             assert out == {
-                "LLM_GATEWAY_URL": "",
                 "AI_GATEWAY_URL": mint_settings.SANDBOX_AI_GATEWAY_URL,
                 "AI_GATEWAY_PRODUCTS": "signals_scout",
                 "AI_GATEWAY_TOKEN": "phe_private",
@@ -1433,6 +1434,7 @@ class TestSlackAppMint:
         routed = {entry.id for entry in model_catalog.MODELS if not entry.id.startswith("@cf/")}
         reserved = {
             "deepseek-ai/deepseek-v4-flash-0731",
+            "deepseek-ai/deepseek-v4.1-flash-1017",
             "deepseek-ai/deepseek-v4.1-flash-1017-fast",
             "zai-org/glm-5.3",
             "zai-org/glm-5.3-flash",
@@ -1799,6 +1801,7 @@ class TestPosthogCodeSandboxMint:
             "@cf/zai-org/glm-5.2",
             "zai-org/glm-5.2",
             "deepseek-ai/deepseek-v4-flash-0731",
+            "deepseek-ai/deepseek-v4.1-flash-1017",
             "moonshotai/kimi-k3",
             "moonshotai/kimi-k3.1-pro",
             "zai-org/glm-5.3-flash",
@@ -1813,6 +1816,8 @@ class TestPosthogCodeSandboxMint:
             "zai-org/glm-5.3-flash",
             "moonshotai/kimi-k3",
             "moonshotai/kimi-k3.1-pro",
+            "deepseek-ai/deepseek-v4-flash-0731",
+            "deepseek-ai/deepseek-v4.1-flash-1017",
         ],
     )
     def test_free_pin_admits_each_free_tier_spelling(self, model):

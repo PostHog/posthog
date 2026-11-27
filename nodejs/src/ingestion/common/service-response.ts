@@ -38,9 +38,9 @@ export class ServiceResponseError extends Error {
     }
 }
 
-const serviceItemFailures = new Counter({
-    name: 'ingestion_service_item_failures_total',
-    help: 'Items a service failed on their own, sent to the DLQ',
+const serviceItemResults = new Counter({
+    name: 'ingestion_service_item_results_total',
+    help: 'Item results a service returned. The code is the drop reason or the error code, and is empty for ok',
     labelNames: ['service', 'result', 'code'],
 })
 
@@ -85,39 +85,64 @@ export function parseItemResults<T>(body: unknown, valueSchema: z.ZodType<T>, ex
  * goes to the DLQ as `<service>_item_fail` or `<service>_item_retry`, and each item's warnings
  * become ingestion warnings on its result.
  *
+ * A caller that has somewhere to send a `retry` item passes `onRetry`. Its result replaces the DLQ
+ * for that item, and `undefined` keeps the DLQ.
+ *
  * @throws ServiceResponseError, retriable, when a batch of more than one item asks for a retry on
- * every item. The contract treats that as a failure of the whole request, so an outage of the
- * service fails the batch instead of sending all of it to the DLQ. A batch of one item is exempt,
- * because an item that always asks for a retry would otherwise fail the batch on every attempt.
+ * every item and the caller passes no `onRetry`. The contract treats that as a failure of the whole
+ * request, so an outage of the service fails the batch instead of sending all of it to the DLQ. A
+ * batch of one item is exempt, because an item that always asks for a retry would otherwise fail
+ * the batch on every attempt.
  * Pass the whole batch, not one HTTP response, because one response can hold a single slow item.
  */
-export function toPipelineResults<T, O>(
+export function toPipelineResults<T, O, R extends string = never>(
     service: string,
     results: ItemResult<T>[],
-    onOk: (value: T, index: number, warnings: PipelineWarning[]) => PipelineResult<O>
-): PipelineResult<O>[] {
-    if (results.length > 1 && results.every((item) => item.result === 'retry')) {
+    onOk: (value: T, index: number, warnings: PipelineWarning[]) => PipelineResult<O, R>,
+    onRetry?: (error: ItemError, index: number, warnings: PipelineWarning[]) => PipelineResult<O, R> | undefined
+): PipelineResult<O, R>[] {
+    if (!onRetry && results.length > 1 && results.every((item) => item.result === 'retry')) {
         throw new ServiceResponseError(`${service} asked to retry every item in the batch`, true)
+    }
+
+    const toDlq = (
+        item: { result: 'retry' | 'fail'; error: ItemError },
+        warnings: PipelineWarning[]
+    ): PipelineResult<O, R> => {
+        return dlq(
+            `${service}_item_${item.result}`,
+            new Error(`${item.error.code}: ${item.error.message}`),
+            [],
+            warnings
+        )
     }
 
     return results.map((item, index) => {
         const warnings = toPipelineWarnings(service, item.warnings)
+        serviceItemResults.labels({ service, result: item.result, code: itemCode(item) }).inc()
         switch (item.result) {
             case 'ok':
                 return onOk(item.value, index, warnings)
             case 'drop':
                 return drop(item.reason, [], warnings)
             case 'retry':
+                return onRetry?.(item.error, index, warnings) ?? toDlq(item, warnings)
             case 'fail':
-                serviceItemFailures.labels({ service, result: item.result, code: item.error.code }).inc()
-                return dlq(
-                    `${service}_item_${item.result}`,
-                    new Error(`${item.error.code}: ${item.error.message}`),
-                    [],
-                    warnings
-                )
+                return toDlq(item, warnings)
         }
     })
+}
+
+function itemCode<T>(item: ItemResult<T>): string {
+    switch (item.result) {
+        case 'ok':
+            return ''
+        case 'drop':
+            return item.reason
+        case 'retry':
+        case 'fail':
+            return item.error.code
+    }
 }
 
 function toPipelineWarnings(service: string, warnings: ItemWarning[] = []): PipelineWarning[] {

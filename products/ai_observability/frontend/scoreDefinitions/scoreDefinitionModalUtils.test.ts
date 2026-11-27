@@ -12,6 +12,8 @@ const definition: ScoreDefinitionApi = {
     config: {},
     archived: false,
     current_version: 1,
+    scope: 'item',
+    suite_keys: [],
     calculation: 'reported',
     composition: null,
     input_scorers: [],
@@ -21,6 +23,8 @@ const definition: ScoreDefinitionApi = {
     created_by: null,
     created_at: '2026-01-01T00:00:00Z',
     updated_by: null,
+    created_by_project_key_id: null,
+    updated_by_project_key_id: null,
     updated_at: '2026-01-01T00:00:00Z',
 }
 

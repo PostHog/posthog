@@ -41,6 +41,8 @@ import {
     MarketingAnalyticsRecommendationLevel,
     MarketingAnalyticsRecommendationResolutionState,
     MarketingAnalyticsRecommendationRule,
+    MarketingAnalyticsRecommendationsConversionSourceKind,
+    MarketingAnalyticsRecommendationsDataGapKind,
     NativeMarketingSource,
     NodeKind,
     ProductIntentContext,
@@ -142,6 +144,8 @@ export interface RecommendationsShownProperties {
     has_invest_impact: boolean
     source_types: string[]
     data_gap_count: number
+    server_data_gap_kinds: MarketingAnalyticsRecommendationsDataGapKind[]
+    conversion_source: MarketingAnalyticsRecommendationsConversionSourceKind | null
     resolved_count: number
     detected_applied_count: number
     intro_shown: boolean
@@ -156,6 +160,8 @@ export type RecommendationsAction =
     | 'open_step_link'
     | 'show_resolved'
     | 'undo'
+    | 'edit_conversion_goals'
+    | 'open_utm_audit'
 
 export type RecommendationsActionLocation =
     | 'section_empty'

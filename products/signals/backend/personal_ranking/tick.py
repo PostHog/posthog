@@ -37,7 +37,7 @@ from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.activity_summary.config import read_config as read_activity_summary_config
-from products.signals.backend.activity_summary.queue import read_enrolled_teams
+from products.signals.backend.activity_summary.queue import is_team_enrolled_for_read, read_enrolled_teams
 from products.signals.backend.facade.api import has_enabled_source, team_ids_with_enabled_source
 from products.signals.backend.models import PersonalInboxRanking, UserActivitySummary, UserActivitySummaryQueueState
 from products.signals.backend.org_rollout import in_rollout, parse_organization_ids
@@ -347,7 +347,10 @@ def is_team_enrolled(config: PersonalRankingConfig, team: Team) -> bool:
     tick = config.tick
     if not config.enabled or not tick.enabled:
         return False
-    if not _eligible_teams(tick).filter(id=team.id).exists():
+    # Not `_eligible_teams`: that computes every project's enrollment, once per pair of the tick.
+    if team.id in tick.skip_team_ids or team.organization_id in parse_organization_ids(tick.deny_organization_ids):
+        return False
+    if not is_team_enrolled_for_read(read_activity_summary_config(), team):
         return False
     if team.organization_id in parse_organization_ids(tick.organization_ids):
         return True

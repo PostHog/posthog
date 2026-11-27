@@ -28,6 +28,7 @@ from posthog.schema import (
     HogQLQueryModifiers,
     IntervalType,
     PropertyGroupsMode,
+    ResolvedDateRangeResponse,
     SpanHealthStatus,
     SpanTreeNode,
     TraceSpansAggregationQuery,
@@ -50,15 +51,25 @@ from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompare
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
 
+from .facade.contracts import TRACING_QUERY_STATUS_LABEL
+
 # _ROW_LIMIT lives in logic.py so the presentation layer can reach it through the
 # facade-allowed `logic` module; imported here (and re-exported) for the sibling runners.
-from .logic import _ROW_LIMIT, TIME_BUCKET_DATE_RANGE_WHERE, span_filter_exprs, split_span_filters
+from .logic import (
+    _ROW_LIMIT,
+    TIME_BUCKET_DATE_RANGE_WHERE,
+    assert_tracing_viewer,
+    span_filter_exprs,
+    split_span_filters,
+)
 from .models import TracingIdentityAttributeKeys
 from .service_health_query_runner import ServiceWindowStats, classify_service
 from .span_identity import identity_value_expr, str_attr_field
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
+
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 
 class _SpanAggregationMixin:
@@ -79,14 +90,20 @@ class _SpanAggregationMixin:
         modifiers: HogQLQueryModifiers
         timings: HogQLTimings
         limit_context: LimitContext
+        user: "User | None"
+
+        @property
+        def user_access_control(self) -> "UserAccessControl | None": ...
 
     def _extract_filters(self) -> None:
         self.filters = split_span_filters(self.query.filterGroup)
 
     def validate_query_runner_access(self, user: "User") -> bool:
-        from products.access_control.backend.facade.user_access_control import UserAccessControlError
+        return assert_tracing_viewer(user, self.team, self.user_access_control if self.user == user else None)
 
-        raise UserAccessControlError("tracing", "viewer")
+    def query_status_labels(self) -> list[str] | None:
+        # Retrieving an async result skips validate_query_runner_access, so the status asks for the check again.
+        return [TRACING_QUERY_STATUS_LABEL]
 
     @cached_property
     def query_date_range(self) -> QueryDateRange:
@@ -247,7 +264,13 @@ class TraceSpansAggregationQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunn
             self._classify(current_rows, previous_rows or [])
             if not (self.query.compareFilter and self.query.compareFilter.compare):
                 previous_rows = None
-        return TraceSpansAggregationQueryResponse(results=current_rows, compare=previous_rows)
+        return TraceSpansAggregationQueryResponse(
+            results=current_rows,
+            compare=previous_rows,
+            resolved_date_range=ResolvedDateRangeResponse(
+                date_from=self.query_date_range.date_from(), date_to=self.query_date_range.date_to()
+            ),
+        )
 
     def _classify(self, current_rows: list[AggregatedSpanRow], baseline_rows: list[AggregatedSpanRow]) -> None:
         # shortcut: rows carry no last-seen time, so silent never fires. Add a last_seen column if per-endpoint
@@ -365,11 +388,6 @@ class TraceSpansAggregationQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunn
             spans_with_session_id=row[10] if with_impact else None,
             spans_with_distinct_id=row[11] if with_impact else None,
         )
-
-    def run(self, *args, **kwargs) -> TraceSpansAggregationQueryResponse | CachedTraceSpansAggregationQueryResponse:
-        response = super().run(*args, **kwargs)
-        assert isinstance(response, TraceSpansAggregationQueryResponse | CachedTraceSpansAggregationQueryResponse)
-        return response
 
 
 def _window_stats(row: AggregatedSpanRow, last_seen: dt.datetime) -> ServiceWindowStats:

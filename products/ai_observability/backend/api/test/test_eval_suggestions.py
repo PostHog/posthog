@@ -400,14 +400,14 @@ class TestEvalSuggestionsApi(APIBaseTest):
         assert response.json()["backfill_id"] is None
         assert Evaluation.objects.filter(team=self.team, deleted=False).count() == 1
 
-    @parameterized.expand([("with_a_working_key", True, "gpt-5-mini", 0.2), ("without_a_key", False, None, None)])
+    @parameterized.expand([("with_a_working_key", True, "gpt-6-luna", 0.08), ("without_a_key", False, None, None)])
     @patch(f"{ACCEPT_MODULE}.count_backfill_candidates", return_value=BackfillScope(to_evaluate=20, already_judged=0))
     def test_judge_estimate_prices_whole_units_on_the_key_accept_uses(
         self, _name: str, with_key: bool, model: str | None, cost: float | None, _count: MagicMock
     ) -> None:
         if with_key:
             self._judge_key()
-        # One trace judge run reads a 40k-token transcript, at $0.25 per million input tokens.
+        # One trace judge run reads a 40k-token transcript, at $0.10 per million input tokens.
         suggestion = self._suggestion(EvalSuggestionKind.NEW_LLM_JUDGE, draft=JUDGE_DRAFT, mean_input_tokens=40_000)
 
         estimate = self.client.get(f"{self.url}/{suggestion.id}/accept_estimate/").json()

@@ -71,7 +71,9 @@ const Detected = z.object({
     macho: z.array(z.number()),
 })
 const Pairs = z.object({
-    pairs: z.array(z.union([PairState, z.object({ skipped: z.string() }), z.null()])),
+    pairs: z.array(
+        z.union([PairState, z.object({ skipped: z.string() }), z.object({ outside: z.string() }), z.null()])
+    ),
 })
 const InjectAction = z.enum(['injected', 'release_updated', 'unchanged'])
 const Outcomes = z.object({
@@ -297,9 +299,9 @@ export class Worker {
         }
     }
 
-    async readPairs(paths: string[], publicPathPrefix: string | undefined): Promise<PairAnswer[]> {
+    async readPairs(paths: string[], publicPathPrefix: string | undefined, roots: string[]): Promise<PairAnswer[]> {
         return (
-            await this.call({ op: 'read_pairs', paths, publicPathPrefix: publicPathPrefix ?? null }, Pairs, {
+            await this.call({ op: 'read_pairs', paths, publicPathPrefix: publicPathPrefix ?? null, roots }, Pairs, {
                 pairs: [],
             })
         ).pairs

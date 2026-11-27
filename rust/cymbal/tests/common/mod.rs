@@ -94,6 +94,8 @@ pub enum ServerBehavior {
     InterruptAfterFirst,
     /// Emit the first item as Done and every subsequent item as Error.
     ErrorAfterFirst { kind: ErrorKind },
+    /// Emit the first item as one Error and every subsequent item as another.
+    ErrorThenError { first: ErrorKind, rest: ErrorKind },
 }
 
 impl StubServer {
@@ -227,6 +229,11 @@ impl CymbalResolution for StubServer {
                                     send_outcome(&tx, accepted_outcome(&item)).await;
                                     send_outcome(&tx, error_outcome(&item, kind)).await;
                                 }
+                            }
+                            ServerBehavior::ErrorThenError { first, rest } => {
+                                let kind = if seen == 1 { first } else { rest };
+                                send_outcome(&tx, accepted_outcome(&item)).await;
+                                send_outcome(&tx, error_outcome(&item, kind)).await;
                             }
                             ServerBehavior::AlwaysUnavailable
                             | ServerBehavior::AlwaysInvalidArgument

@@ -417,9 +417,7 @@ def _get_openai_client(*, team: Team | None, delivery_id: str | None, user_tag: 
         properties["team_id"] = str(team.id)
     else:
         headers["X-PostHog-Billable"] = "false"
-    client = build_openai_client(
-        "subscriptions", ai_product="subscriptions", properties=properties, distinct_id=user_tag
-    )
+    client = build_openai_client(ai_product="subscriptions", properties=properties, distinct_id=user_tag)
     return client.with_options(max_retries=1, default_headers=headers)
 
 

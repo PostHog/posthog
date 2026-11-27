@@ -96,11 +96,13 @@ def hide_team_secrets_from_workload_tokens(representation: dict[str, Any], reque
     return representation
 
 
-def flag_evaluations_read_config_for(context: dict[str, Any], organization_id: UUID) -> FlagEvaluationsConfig:
+def flag_evaluations_read_config_for(
+    context: dict[str, Any], organization_id: UUID, team_id: int
+) -> FlagEvaluationsConfig:
     # Two fields read the config. A list serializes every object with one context, so one lookup serves the list.
     configs: dict[UUID, FlagEvaluationsConfig] = context.setdefault("flag_evaluations_read_configs", {})
     if organization_id not in configs:
-        configs[organization_id] = get_flag_evaluations_read_config(organization_id)
+        configs[organization_id] = get_flag_evaluations_read_config(organization_id, team_id=team_id)
     return configs[organization_id]
 
 
@@ -207,7 +209,8 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     flag_evaluations_mode = serializers.SerializerMethodField(
         help_text=(
             "Which table this project's feature flag usage data is read from. PostHog sets it for the "
-            "whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table."
+            "whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. An "
+            "organization whose every project reads the native JSON events table reads as 2."
         )
     )
     flag_calls_only_in_flag_evaluations = serializers.SerializerMethodField(
@@ -381,10 +384,12 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
     @extend_schema_field(serializers.ChoiceField(choices=FlagEvaluationsMode.choices))
     def get_flag_evaluations_mode(self, obj: Team) -> int:
-        return flag_evaluations_read_config_for(self.context, obj.organization_id).mode
+        return flag_evaluations_read_config_for(self.context, obj.organization_id, obj.id).mode
 
     def get_flag_calls_only_in_flag_evaluations(self, obj: Team) -> bool:
-        return events_lack_new_flag_calls(obj, flag_evaluations_read_config_for(self.context, obj.organization_id))
+        return events_lack_new_flag_calls(
+            obj, flag_evaluations_read_config_for(self.context, obj.organization_id, obj.id)
+        )
 
     @extend_schema_field(REALTIME_COHORTS_FIELD_SCHEMA)
     def get_realtime_cohorts(self, obj: Team) -> dict[str, str | int | None]:
@@ -656,6 +661,13 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 # but ClickHouse doesn't support Saturday as the first day of the week, so we fall back to Sunday
                 validated_data["week_start_day"] = 1 if week_start_day_for_user_ip_location == 1 else 0
 
+        if "session_recording_masking_config" in validated_data:
+            validated_data["session_recording_masking_config"] = (
+                session_recording_settings.merge_session_recording_masking_config(
+                    validated_data["session_recording_masking_config"], None
+                )
+            )
+
         team = Team.objects.create_with_data(
             initiating_user=request.user,
             organization=self.context["view"].organization,
@@ -778,6 +790,13 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 **instance.session_replay_config,
                 **validated_data["session_replay_config"],
             }
+
+        if "session_recording_masking_config" in validated_data:
+            validated_data["session_recording_masking_config"] = (
+                session_recording_settings.merge_session_recording_masking_config(
+                    validated_data["session_recording_masking_config"], instance.session_recording_masking_config
+                )
+            )
 
         # Merge modifiers with existing values so that updating one modifier doesn't wipe out others
         if "modifiers" in validated_data:

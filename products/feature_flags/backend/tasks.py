@@ -16,10 +16,13 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.api.capture import capture_batch_internal
 from posthog.models.team import Team
 from posthog.scoping_audit import skip_team_scope_audit
+from posthog.storage import cache_expiry_manager
+from posthog.storage.cache_expiry_manager import delete_entry_keeping_failed_delete_tracked
 from posthog.storage.hypercache_manager import (
     HYPERCACHE_SIGNAL_UPDATE_COUNTER,
     get_cache_stats as get_cache_stats_generic,
 )
+from posthog.tasks.hypercache_verification import _execute_verification_run
 from posthog.tasks.utils import CeleryQueue, PushGatewayTask
 
 from products.feature_flags.backend.canary import run_local_eval_canary
@@ -27,8 +30,8 @@ from products.feature_flags.backend.cross_region_flag_sync import sync_cross_reg
 from products.feature_flags.backend.flag_analytics import report_django_local_evaluation_usage
 from products.feature_flags.backend.flags_cache import (
     cleanup_stale_expiry_tracking,
-    clear_flags_cache,
     enqueue_cohort_cache_invalidation,
+    flags_hypercache,
     get_cache_stats,
     publish_shadow_invalidation,
     refresh_expiring_flags_caches,
@@ -38,6 +41,13 @@ from products.feature_flags.backend.local_evaluation import (
     FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG,
     flag_definitions_hypercache,
     update_flag_caches,
+)
+from products.feature_flags.backend.local_evaluation_v2 import (
+    FLAG_DEFINITIONS_V2_CACHE_TYPE,
+    FLAG_DEFINITIONS_V2_HYPERCACHE_MANAGEMENT_CONFIG,
+    flag_definitions_v2_hypercache,
+    update_flag_definitions_v2_cache,
+    verify_team_flag_definitions_v2,
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.rebuild_queue import drain_rebuild_requests
@@ -61,6 +71,8 @@ def update_team_flags_cache(team_id: int) -> None:
         return
 
     update_flag_caches(team)
+    # Runs after the legacy write. It catches its own errors, so a v2 failure leaves the legacy entry as written.
+    update_flag_definitions_v2_cache(team, skip_if_unchanged=True, entry_expected=False)
 
 
 # Bounded below the 1-minute schedule so a slow drain (e.g. a large post-eviction
@@ -238,11 +250,19 @@ def migrate_feature_enrollment_on_key_change(team_id: int, old_key: str, flag_id
         cursor = response.results[-1][0]
 
 
-@shared_task(ignore_result=True, queue=CeleryQueue.FEATURE_FLAGS.value)
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.FEATURE_FLAGS.value,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    max_retries=5,
+)
 @skip_team_scope_audit
 def clear_team_evaluation_cache(team_id: int) -> None:
-    """Clear the /flags evaluation cache for a specific team, enqueued by staff tooling."""
-    clear_flags_cache(team_id)
+    """Clear the /flags evaluation cache for a team, on team deletion or from staff tooling."""
+    if not settings.FLAGS_REDIS_URL:
+        return
+    delete_entry_keeping_failed_delete_tracked(flags_hypercache, team_id)
 
 
 # The task retries because no rebuild can repair the entry once the Team row is gone.
@@ -256,8 +276,9 @@ def clear_team_evaluation_cache(team_id: int) -> None:
 @skip_team_scope_audit
 def clear_team_definitions_cache(team_id: int) -> None:
     """Clear the /flags/definitions local-eval cache for a team, on team deletion or from staff tooling."""
+    delete_entry_keeping_failed_delete_tracked(flag_definitions_hypercache, team_id)
     # strict_mirror raises on a failed delete of the shared Redis copy too, so the task retries it.
-    flag_definitions_hypercache.delete_cache_entry(team_id, strict_mirror=True)
+    flag_definitions_v2_hypercache.delete_cache_entry(team_id, strict_mirror=True)
 
 
 @shared_task(bind=True, base=PushGatewayTask, ignore_result=True, queue=CeleryQueue.FEATURE_FLAGS_LONG_RUNNING.value)
@@ -569,6 +590,59 @@ def cleanup_stale_flag_definitions_expiry_tracking_task(self: PushGatewayTask) -
 
     entries_cleaned_gauge.set(removed_count)
     logger.info("Completed flag definitions expiry tracking cleanup", removed_count=removed_count)
+
+
+@shared_task(
+    bind=True,
+    base=PushGatewayTask,
+    ignore_result=True,
+    queue=CeleryQueue.FEATURE_FLAGS_LONG_RUNNING.value,
+    soft_time_limit=10 * 60,
+    time_limit=15 * 60,
+)
+def maintain_flag_definitions_v2_cache_entries(self: PushGatewayTask) -> None:
+    """
+    Periodic upkeep of the flag definitions v2 cache entries. Runs hourly.
+
+    The entry exists only for a team that holds a config version 2 flag. Each step covers
+    those teams and the teams whose entry is still tracked, never every team:
+
+    - verify each entry against the database, rewrite a missing or differing one, and remove
+      the entry of a team that no longer holds such a flag;
+    - refresh the entries inside the TTL threshold, because an unchanged rebuild does not
+      re-stamp the expiry;
+    - delete the entries of deleted teams.
+    """
+    lock_key = "posthog:flag_definitions_v2_cache_upkeep:lock"
+    if not django_cache.add(lock_key, "locked", timeout=self.time_limit):
+        logger.info("Skipping flag definitions v2 cache upkeep - already running")
+        return
+
+    try:
+        config = FLAG_DEFINITIONS_V2_HYPERCACHE_MANAGEMENT_CONFIG
+        # Logs its counts and records an unreachable database or a time limit as an incomplete run,
+        # so the refresh and the cleanup below still run.
+        _execute_verification_run(
+            config=config,
+            verify_team_fn=verify_team_flag_definitions_v2,
+            cache_type=FLAG_DEFINITIONS_V2_CACHE_TYPE,
+            chunk_size=settings.FLAGS_CACHE_VERIFICATION_CHUNK_SIZE,
+            soft_limit_seconds=self.soft_time_limit / 2,
+        )
+        refreshed = cache_expiry_manager.refresh_expiring_caches(
+            config=config,
+            ttl_threshold_hours=settings.FLAG_DEFINITIONS_CACHE_REFRESH_TTL_THRESHOLD_HOURS,
+            limit=settings.FLAG_DEFINITIONS_CACHE_REFRESH_LIMIT,
+        )
+        removed_count = cache_expiry_manager.cleanup_stale_expiry_tracking(config)
+        logger.info(
+            "Completed flag definitions v2 cache upkeep",
+            refreshed=refreshed.successful,
+            refresh_failures=refreshed.failed,
+            stale_entries_removed=removed_count,
+        )
+    finally:
+        django_cache.delete(lock_key)
 
 
 @shared_task(

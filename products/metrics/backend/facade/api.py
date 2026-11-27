@@ -19,7 +19,7 @@ from django.db import connection
 
 import structlog
 
-from posthog.schema import DateRange, MetricsDashboardVariable, MetricsDashboardVariableSource
+from posthog.schema import DateRange, MetricsDashboardVariable, MetricsDashboardVariableSource, MetricsQuery
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
@@ -106,6 +106,7 @@ from products.metrics.backend.metric_query_runner import (
     _align_to_interval,
     _interval_step,
     _pick_interval,
+    _resolve_interval,
 )
 from products.metrics.backend.metric_samples_query_runner import build_metric_query_runner
 from products.metrics.backend.metrics_overview_query_runner import MetricsOverviewQueryRunner
@@ -136,9 +137,10 @@ from products.metrics.backend.query_counts import (
     record_metric_queries,
     record_promql_query as _record_promql_query,
 )
+from products.metrics.backend.query_interval import resolve_query_interval
 from products.metrics.backend.recording_rules import logic as recording_rule_logic
 from products.metrics.backend.variable_options import check_options_window, compile_regex, list_variable_options
-from products.metrics.backend.variables import from_dashboard, with_values
+from products.metrics.backend.variables import from_dashboard, from_query, with_values
 
 logger = structlog.get_logger(__name__)
 
@@ -229,7 +231,9 @@ def _prometheus_name_unit(metric_name: str) -> str | None:
 def _output_unit(ingested: str | None, clause: MetricQueryClause) -> str | None:
     """The unit of the values a clause returns, which differs from the
     ingested unit when the clause transforms the values. COUNT returns a
-    number of series, so it has no unit, even after a range function. RATE
+    number of series, so it has no unit, even after a range function.
+    COUNT_RATE returns observations per second whatever the source unit, so
+    it keeps `1/s` even when the contributing series disagree. RATE
     divides by the bucket length in seconds, so it returns the ingested unit
     per second, as a UCUM string the frontend formatter reads. Every other
     aggregation keeps the ingested unit.
@@ -237,10 +241,10 @@ def _output_unit(ingested: str | None, clause: MetricQueryClause) -> str | None:
     A histogram quantile of series that all carry no unit reads the unit from
     a Prometheus name suffix: a percentile is in the unit of the observations,
     and `http_request_duration_seconds` observes seconds."""
-    if ingested is None or clause.aggregation in (MetricAggregation.COUNT, MetricAggregation.COUNT_INCREASE):
-        return None
     if clause.aggregation is MetricAggregation.COUNT_RATE:
         return "1/s"
+    if ingested is None or clause.aggregation in (MetricAggregation.COUNT, MetricAggregation.COUNT_INCREASE):
+        return None
     if clause.aggregation is MetricAggregation.RATE or clause.range_function is MetricRangeFunction.RATE:
         return f"{ingested or '1'}/s"
     if not ingested and clause.aggregation is MetricAggregation.HISTOGRAM_QUANTILE:
@@ -262,6 +266,7 @@ def _assemble_series(
     units_by_fingerprint: dict[int, str],
     zero_fill: bool = True,
     ingested_unit: str | None = None,
+    rank_by_last_bucket: bool = False,
 ) -> list[MetricSeries]:
     """Split bucketed rows into one series per label-set, zero-filled onto
     the shared grid so every series (and later, every clause of a formula)
@@ -288,8 +293,19 @@ def _assemble_series(
     # high-cardinality group-by never materializes label_sets x grid points
     # only to throw most of them away. Zero-filled points contribute nothing
     # to the magnitude, so the ranking is identical either way.
+    def magnitude(values: dict[str, float | None]) -> float:
+        return sum(abs(v) for v in values.values() if v is not None)
+
+    def last_bucket_magnitude(values: dict[str, float | None]) -> float:
+        return abs(values.get(grid[-1]) or 0.0)
+
     ranked = sorted(
-        by_labels.items(), key=lambda item: (-sum(abs(v) for v in item[1].values() if v is not None), item[0])
+        by_labels.items(),
+        key=lambda item: (
+            -last_bucket_magnitude(item[1]) if rank_by_last_bucket else 0.0,
+            -magnitude(item[1]),
+            item[0],
+        ),
     )
     return [
         MetricSeries(
@@ -706,6 +722,7 @@ def _run_metric_query(
             units_by_fingerprint=units_by_fingerprint,
             zero_fill=request.zero_fill,
             ingested_unit=derived_units.get(clause.name),
+            rank_by_last_bucket=request.rank_by_last_bucket,
         )
         for clause in request.clauses
     }
@@ -788,7 +805,12 @@ def run_metric_instant_query(
     window = metric_instant_window(team=team, time=time, interval=resolved)
     end = window.date_to
     request = MetricQueryRequest(
-        clauses=clauses, date_from=window.date_from, date_to=end, interval=resolved, formula=formula
+        clauses=clauses,
+        date_from=window.date_from,
+        date_to=end,
+        interval=resolved,
+        formula=formula,
+        rank_by_last_bucket=True,
     )
     # A bucket with no samples is missing from the series, so pick the last bucket by its start. Day and week
     # buckets follow the project timezone and can be an hour off a whole step across a DST change.
@@ -805,6 +827,13 @@ def metric_instant_window(*, team: Team, time: dt.datetime, interval: str | None
     resolved = interval or DEFAULT_INSTANT_INTERVAL
     end = _align_to_interval(time, resolved, tzinfo=team.timezone_info)
     return MetricInstantWindow(date_from=end - _INSTANT_BUCKETS * _interval_step(resolved), date_to=end)
+
+
+def metrics_query_interval(*, query: MetricsQuery, date_from: dt.datetime, date_to: dt.datetime) -> str:
+    """The bucket interval a MetricsQuery runs at over this range: its own or the auto pick, coarsened to the bucket limit."""
+    return _resolve_interval(
+        date_from, date_to, resolve_query_interval(query.interval, from_query(query.variables), date_from, date_to)
+    )
 
 
 def metric_query_concurrency_slots(team: Team) -> AbstractContextManager[None]:

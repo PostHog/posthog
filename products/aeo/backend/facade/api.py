@@ -49,6 +49,7 @@ from products.aeo.backend import (
     keyword_suggestions,
     keywords,
     movers,
+    prompt_limit,
     rankings,
     suggestions,
 )
@@ -60,6 +61,7 @@ from products.aeo.backend.brand import (
     mention_filter,
     segment_filter,
 )
+from products.aeo.backend.credits import raise_if_out_of_ai_credits
 from products.aeo.backend.engines import MAX_PROMPT_LENGTH, is_target_host, top_domains
 from products.aeo.backend.facade.contracts import (
     DEFAULT_DATE_FROM,
@@ -249,9 +251,11 @@ def update_prompt(team_id: int, prompt_id: str, change: PromptUpdate, *, user_id
     """
     text = _validated_text(change.prompt) if change.prompt is not None else None
     with transaction.atomic():
+        limit = prompt_limit.lock(team_id) if change.active else None
         # Locks the prompt row, so two concurrent text edits cannot take the same version number.
         prompt = _get_prompt_row(team_id, prompt_id, lock=True)
         _check_update_allowed(prompt, change)
+        was_on = prompt.active and prompt.archived_at is None
         if change.archived:
             _archive(prompt)
         else:
@@ -267,6 +271,8 @@ def update_prompt(team_id: int, prompt_id: str, change: PromptUpdate, *, user_id
                 _add_version(prompt, text, description=change.version_description or "", user_id=user_id)
             elif change.current_version is not None and change.current_version != prompt.current_version:
                 _switch_to_version(prompt, change.current_version)
+            if limit is not None and prompt.active and not was_on:
+                prompt_limit.check_room(limit, 1)
             _save_edit(prompt)
     return _to_prompts(team_id, [prompt])[0]
 
@@ -1238,7 +1244,9 @@ def get_keyword_modifiers(
 
 def start_keyword_suggestions(team_id: int, request: KeywordSuggestionRequest) -> KeywordSuggestionJob:
     """Queue keyword suggestions and return the pending job. Poll get_keyword_suggestions for the result.
-    Raises KeywordLimitError when the keyword list is already full."""
+    Raises KeywordLimitError when the keyword list is already full, and OutOfAICreditsError when the organization
+    has no AI credits left."""
+    raise_if_out_of_ai_credits(team_id)
     if keyword_suggestions.suggestion_count(request.count, len(keyword_suggestions.existing_keywords(team_id))) == 0:
         raise KeywordLimitError(keyword_suggestions.NO_ROOM_ERROR)
     job = keyword_suggestions.create_job(team_id)
@@ -1270,7 +1278,9 @@ def get_keyword_suggestions(team_id: int, job_id: str) -> KeywordSuggestionJob:
 
 
 def start_prompt_suggestions(team_id: int, request: PromptSuggestionRequest) -> PromptSuggestionJob:
-    """Queue prompt suggestions and return the pending job. Poll get_prompt_suggestions for the result."""
+    """Queue prompt suggestions and return the pending job. Poll get_prompt_suggestions for the result.
+    Raises OutOfAICreditsError when the organization has no AI credits left."""
+    raise_if_out_of_ai_credits(team_id)
     job = suggestions.create_job(team_id)
     try:
         suggest_aeo_prompts_task.delay(
@@ -1580,7 +1590,9 @@ def get_setup_context(team_id: int) -> SetupContext:
 
 def start_setup(team_id: int, request: SetupRequest) -> SetupJob:
     """Queue setup and return the pending job. Poll get_setup for the steps. Raises SetupRequestError when the
-    domain or the engines cannot be used, and SetupAlreadyRunningError while another setup job is pending."""
+    domain or the engines cannot be used, SetupAlreadyRunningError while another setup job is pending, and
+    OutOfAICreditsError when the organization has no AI credits left."""
+    raise_if_out_of_ai_credits(team_id)
     domain = ""
     engine_changes: dict[str, bool] = {}
     if not request.only_first_run:

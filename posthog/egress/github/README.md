@@ -23,6 +23,7 @@ GraphQL routes to `core`. GitHub meters GraphQL by points, which a request count
 ## Lanes and callers
 
 Tasks validates PR links for Slack runs without a preset repository on `NORMAL`, with source `tasks_slack_pr` and the run's GitHub credentials.
+Opted-in agent egress enrollment uses the existing App-JWT path to mint repository-scoped read tokens. Those calls record volume under `integration`; they do not consume an installation budget. Refresh uses the existing Tasks credential schedule; a failed refresh retains the previous grant only until its original expiry.
 
 All three budgets use the default reserve ladder.
 Every GitHub client (`GitHubIntegration`, `UserGitHubIntegration`, `GitHubIntegration.first_for_team_repository`) and every `github_request` call must pass `priority` and `source`.
@@ -47,6 +48,7 @@ Stamphog reads the author-familiarity blame and history (GraphQL) and the pull r
 Its merge base read (compare) stays on `CRITICAL`, because the review checkout needs it.
 The knowledge writer merge check (source `knowledge_writer`) reads each master merge's pull request and diff on `NORMAL`, because a merge whose reads are shed on all three attempts, one and then two minutes apart, is recorded as failed and never checked. Its search of the docs repository for a pull request that already covers the merge runs on `BATCH` and reads at most ten pull request file or comment lists. A shed read retries with the check; on the final attempt, or past a cap, the search stops and marks the verdict low confidence instead of failing the check. Its replay CLI sends the same reads through `github_request` with a personal token, so they record volume only.
 The Tasks infrastructure admin reads the sandbox version pin and recent image build runs on `NORMAL`, using a regional cache. When the GitHub App is configured, it discovers the `PostHog/posthog` installation and mints an ephemeral token restricted to that repository with Contents and Actions read permissions. Calls share the installation budget. Deployments without App credentials retain the shared-token behavior.
+Self-driving PR browsing (`signals_pr_browser`) searches the caller’s authored PRs on `NORMAL` (cached for one minute) and refreshes stale installation repository caches in the background on `BATCH`. Budget exhaustion returns a retryable unavailable response. PR monitoring (`signals_monitor_pr`) verifies the requested PR on `NORMAL`.
 
 The `BATCH` floor on the `core` resource is **demand-responsive**, because a reserve is only worth holding against traffic that exists.
 An installation whose only consumer is a bulk one (a warehouse backfill of a repository nothing else touches) would otherwise forfeit 30% of its hourly budget to contention that never arrives, and the hourly budget is what decides whether a large backfill finishes in one run.

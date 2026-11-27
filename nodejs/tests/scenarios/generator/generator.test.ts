@@ -71,7 +71,9 @@ function startDrive(
         sesFeedback = NO_FEEDBACK,
         halt,
         gate,
+        startedAt,
     }: {
+        startedAt?: number
         teamIds?: number[]
         signal?: AbortSignal
         halt?: AbortSignal
@@ -87,6 +89,7 @@ function startDrive(
         cdpApi,
         sesFeedback,
         runId: 'run-a',
+        startedAt,
         halt,
         gate,
     })
@@ -630,7 +633,7 @@ describe('drive', () => {
                     gates: {},
                     judgesRefusals: false,
                     driveStartedAt: startedAt,
-                    profile: {},
+                    admission: {},
                     journal: () => journaled,
                     samples: () => [],
                     host: () => [],
@@ -929,6 +932,22 @@ describe('drive', () => {
         30_000
     )
 
+    it('schedules its units and its step on the clock the caller started the drive on', async () => {
+        const startedAt = Date.now()
+        jest.setSystemTime(startedAt + 50)
+        const { driving, journal } = startDrive(cardWith({ ratePerSecond: 50, driveFor: '100ms' }), ACKNOWLEDGED, {
+            startedAt,
+        })
+
+        await jest.advanceTimersByTimeAsync(100)
+
+        const [step] = (await driving).steps
+        expect({
+            step: [step.startedAt - startedAt, step.endedAt - startedAt],
+            offeredAt: journal.map(({ offeredAt }) => offeredAt - startedAt),
+        }).toEqual({ step: [0, 100], offeredAt: [50, 50, 50, 60, 80] })
+    })
+
     it('offers every unit that fell due during a stall in one turn', async () => {
         const startedAt = Date.now()
         const { driving, journal } = startDrive(cardWith({ ratePerSecond: 1000, driveFor: '1s' }), ACKNOWLEDGED)
@@ -940,6 +959,38 @@ describe('drive', () => {
         await jest.advanceTimersByTimeAsync(1000)
         expect(await driving).toMatchObject({ targetUnits: 1000, offeredUnits: 1000 })
     })
+
+    it.each(['event_email', 'bounce_followup'])(
+        'drives more %s units than one Promise.all or Promise.allSettled takes',
+        async (traffic) => {
+            const cap = 100
+            for (const method of ['all', 'allSettled'] as const) {
+                const real = Promise[method].bind(Promise) as (values: unknown[]) => Promise<unknown>
+                jest.spyOn(Promise, method).mockImplementation(((values: Iterable<unknown>) => {
+                    const listed = [...values]
+                    return listed.length > cap
+                        ? Promise.reject(new RangeError(`Too many elements passed to Promise.${method}`))
+                        : real(listed)
+                }) as never)
+            }
+            try {
+                const { driving, journal } = startDrive(
+                    cardWith({ ratePerSecond: cap + 1, driveFor: '1s', traffic }),
+                    ACKNOWLEDGED,
+                    { sesFeedback: { settled: () => Promise.resolve('no feedback') } }
+                )
+
+                await jest.advanceTimersByTimeAsync(1000)
+
+                expect({ summary: await driving, journaled: journal.length }).toMatchObject({
+                    summary: { targetUnits: cap + 1, offeredUnits: cap + 1 },
+                    journaled: cap + 1,
+                })
+            } finally {
+                jest.restoreAllMocks()
+            }
+        }
+    )
 
     it('picks the same teams for the same seed and other teams for another seed', async () => {
         const firstTeamsFor = async (seed: number): Promise<number[]> => {

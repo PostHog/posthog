@@ -1,15 +1,19 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonSkeleton, LemonTable, LemonTableColumn, Link } from '@posthog/lemon-ui'
+import { IconInfo } from '@posthog/icons'
+import type { LemonTableColumn, LemonTableColumnGroup } from '@posthog/lemon-ui'
+import { Button, Skeleton, Text, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
-import { PagePerformanceCard } from 'scenes/web-analytics/PagePerformanceCard'
-import { PagePerformanceCardHeader } from 'scenes/web-analytics/PagePerformanceCardHeader'
 
 import type { AEOKeywordReportRowApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
 import { GOOGLE_SEARCH_CONSOLE_DOCS_URL } from '../searchAndAi/searchAndAiQueries'
+import { AiVisibilityBanner } from './AiVisibilityBanner'
+import { AiVisibilityCard } from './AiVisibilityCard'
+import { AiVisibilityTable } from './AiVisibilityTable'
 import { contentAutopilotKeywordSearchLogic } from './contentAutopilotKeywordSearchLogic'
 import { contentAutopilotKeywordsLogic } from './contentAutopilotKeywordsLogic'
 import type { KeywordSearchImpressions } from './keywordSearchImpressions'
@@ -19,11 +23,11 @@ type ReportColumn = LemonTableColumn<AEOKeywordReportRowApi, keyof AEOKeywordRep
 
 const Rate = ({ value, of }: { value: number | null; of?: number }): JSX.Element =>
     value === null ? (
-        <span className="text-muted">-</span>
+        <span className="text-muted-foreground">-</span>
     ) : (
         <span className="tabular-nums">
             {percentage(value, 0)}
-            {of !== undefined ? <span className="text-muted"> of {of}</span> : null}
+            {of !== undefined ? <span className="text-muted-foreground"> of {of}</span> : null}
         </span>
     )
 
@@ -32,18 +36,19 @@ const byRate =
     (a: AEOKeywordReportRowApi, b: AEOKeywordReportRowApi): number =>
         ((a[field] as number | null) ?? -1) - ((b[field] as number | null) ?? -1)
 
-const COLUMNS: ReportColumn[] = [
+const KEYWORD_COLUMN: ReportColumn = {
+    title: 'Keyword',
+    key: 'keyword',
+    render: (_, row) => <span className="font-semibold">{row.keyword}</span>,
+    sorter: (a, b) => a.keyword.localeCompare(b.keyword),
+}
+
+const AI_COLUMNS: ReportColumn[] = [
     {
-        title: 'Keyword',
-        key: 'keyword',
-        render: (_, row) => <span className="font-semibold">{row.keyword}</span>,
-        sorter: (a, b) => a.keyword.localeCompare(b.keyword),
-    },
-    {
-        title: 'Mention rate',
+        title: 'Visibility',
         key: 'answer_mention_rate',
         align: 'right',
-        tooltip: 'Of the answers that use this keyword, the share that name your brand or cite your site.',
+        tooltip: 'Share of answers containing this keyword that name your brand or link to your site.',
         sorter: byRate('answer_mention_rate'),
         render: (_, row) => <Rate value={row.answer_mention_rate} of={row.answer_checks} />,
     },
@@ -71,7 +76,7 @@ const COLUMNS: ReportColumn[] = [
         sorter: byRate('uses_per_answer'),
         render: (_, row) =>
             row.uses_per_answer === null ? (
-                <span className="text-muted">-</span>
+                <span className="text-muted-foreground">-</span>
             ) : (
                 <span className="tabular-nums">{row.uses_per_answer.toFixed(1)}</span>
             ),
@@ -86,10 +91,10 @@ const COLUMNS: ReportColumn[] = [
             row.prompts ? (
                 <span className="tabular-nums">
                     {pluralize(row.prompts, 'prompt')}
-                    <span className="text-muted">, {percentage(row.prompt_cited_rate ?? 0, 0)} cited</span>
+                    <span className="text-muted-foreground">, {percentage(row.prompt_cited_rate ?? 0, 0)} cited</span>
                 </span>
             ) : (
-                <span className="text-muted">-</span>
+                <span className="text-muted-foreground">-</span>
             ),
     },
     {
@@ -101,7 +106,7 @@ const COLUMNS: ReportColumn[] = [
         sorter: byRate('avg_citation_position'),
         render: (_, row) =>
             row.avg_citation_position === null ? (
-                <span className="text-muted">-</span>
+                <span className="text-muted-foreground">-</span>
             ) : (
                 <span className="tabular-nums">{row.avg_citation_position.toFixed(1)}</span>
             ),
@@ -118,6 +123,18 @@ const COLUMNS: ReportColumn[] = [
 ]
 
 type SearchMetric = keyof KeywordSearchImpressions
+
+const GroupTitle = ({ title, description }: { title: string; description: string }): JSX.Element => (
+    <span className="inline-flex items-center gap-1">
+        {title}
+        <Tooltip>
+            <TooltipTrigger delay={0} render={<Button size="icon-xs" aria-label={`About ${title}`} />}>
+                <IconInfo />
+            </TooltipTrigger>
+            <TooltipContent className="max-w-80">{description}</TooltipContent>
+        </Tooltip>
+    </span>
+)
 
 const SEARCH_COLUMNS: { metric: SearchMetric; title: string; tooltip: string }[] = [
     {
@@ -158,12 +175,12 @@ const searchColumns = (impressions: Record<string, KeywordSearchImpressions> | n
         },
         render: (_, row) => {
             if (!impressions) {
-                return <LemonSkeleton className="ml-auto h-4 w-12" />
+                return <Skeleton className="ml-auto h-4 w-12" />
             }
             const value = impressions[row.keyword]?.[metric] ?? null
             if (metric === 'position') {
                 return value === null ? (
-                    <span className="text-muted">-</span>
+                    <span className="text-muted-foreground">-</span>
                 ) : (
                     <span className="tabular-nums">{value.toFixed(1)}</span>
                 )
@@ -178,33 +195,53 @@ export const ContentAutopilotKeywordReportTable = (): JSX.Element => {
     const { searchTable, searchConsoleMissing, impressions, impressionsLoading, impressionsFailed } = useValues(
         contentAutopilotKeywordSearchLogic
     )
-    // The columns show only for a project with a Search Console source whose numbers loaded or are loading.
-    const columns =
-        searchTable && !impressionsFailed
-            ? [...COLUMNS, ...searchColumns(impressionsLoading ? null : impressions)]
-            : COLUMNS
+    const { loadImpressions } = useActions(contentAutopilotKeywordSearchLogic)
+    const columns: LemonTableColumnGroup<AEOKeywordReportRowApi>[] = [
+        { children: [KEYWORD_COLUMN] },
+        {
+            title: (
+                <GroupTitle
+                    title="AI answers"
+                    description="An answer or search counts for a keyword when its text contains the keyword."
+                />
+            ),
+            children: AI_COLUMNS,
+        },
+        // The columns show only for a project with a Search Console source whose numbers loaded or are loading.
+        ...(searchTable && !impressionsFailed
+            ? [
+                  {
+                      title: <GroupTitle title="Google search" description="From Google Search Console." />,
+                      children: searchColumns(impressionsLoading ? null : impressions),
+                  },
+              ]
+            : []),
+    ]
 
     return (
-        <PagePerformanceCard className="min-w-0">
-            <PagePerformanceCardHeader title="How your keywords perform" />
+        <AiVisibilityCard title="How your keywords perform">
             {reportError ? (
-                <LemonBanner
+                <AiVisibilityBanner
                     type="error"
-                    className="m-3"
                     action={{ children: 'Try again', onClick: loadReport, loading: reportLoading }}
                 >
                     Couldn't load the keyword report. Try again, and if it keeps happening contact support.
-                </LemonBanner>
+                </AiVisibilityBanner>
             ) : !report ? (
-                <LemonSkeleton className="h-32 m-3" />
+                <Skeleton className="h-32 w-full" />
             ) : report.answers === 0 ? (
-                <p className="m-0 p-3 text-muted" data-attr="content-autopilot-keywords-report-empty">
+                <Text
+                    size="xs"
+                    variant="muted"
+                    render={<p className="m-0" />}
+                    data-attr="content-autopilot-keywords-report-empty"
+                >
                     No answers {windowRange(report)}. Once the daily run checks your prompts, this table shows how each
                     keyword performs.
-                </p>
+                </Text>
             ) : (
                 <div className="overflow-x-auto" data-attr="content-autopilot-keywords-report">
-                    <LemonTable<AEOKeywordReportRowApi>
+                    <AiVisibilityTable<AEOKeywordReportRowApi>
                         size="small"
                         embedded
                         dataSource={report.keywords}
@@ -214,21 +251,29 @@ export const ContentAutopilotKeywordReportTable = (): JSX.Element => {
                         defaultSorting={{ columnKey: 'answer_mention_rate', order: -1 }}
                         footer={
                             searchConsoleMissing ? (
-                                <span className="px-3 py-2 text-xs text-muted">
-                                    <Link to={GOOGLE_SEARCH_CONSOLE_DOCS_URL} target="_blank">
+                                <Text size="xs" variant="muted" render={<p className="m-0" />}>
+                                    <Button
+                                        variant="link"
+                                        size="inline"
+                                        nativeButton={false}
+                                        render={<LinkPrimitive to={GOOGLE_SEARCH_CONSOLE_DOCS_URL} target="_blank" />}
+                                    >
                                         Connect Google Search Console
-                                    </Link>{' '}
+                                    </Button>{' '}
                                     to see how often your site appears on Google for each keyword.
-                                </span>
+                                </Text>
                             ) : impressionsFailed ? (
-                                <span className="px-3 py-2 text-xs text-muted">
-                                    Couldn't load the Search Console numbers. Reload the page to try again.
-                                </span>
+                                <Text size="xs" variant="muted" render={<p className="m-0" />}>
+                                    Couldn't load the Search Console numbers.{' '}
+                                    <Button variant="link" size="inline" onClick={loadImpressions}>
+                                        Try again
+                                    </Button>
+                                </Text>
                             ) : undefined
                         }
                     />
                 </div>
             )}
-        </PagePerformanceCard>
+        </AiVisibilityCard>
     )
 }

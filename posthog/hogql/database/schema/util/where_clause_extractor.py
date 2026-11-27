@@ -231,7 +231,7 @@ class WhereClauseExtractor(CloningVisitor):
         return ast.Constant(value=node.value)
 
     def visit_placeholder(self, node: ast.Placeholder) -> ast.Expr:
-        raise Exception()  # this should never happen, as placeholders should be resolved before this runs
+        raise QueryError("Resolve placeholders before you extract a where clause from the query.")
 
     def visit_and(self, node: ast.And) -> ast.Expr:
         exprs = [self.visit(expr) for expr in node.exprs]

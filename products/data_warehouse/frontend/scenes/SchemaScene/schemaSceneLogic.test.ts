@@ -141,26 +141,47 @@ describe('schemaSceneLogic', () => {
         expect(logic.values.savingLiveQuery).toBe(false)
     })
 
-    it.each([true, false])('confirms a pending schema before enabling when pending is %s', async (pending) => {
+    it.each([
+        ['a migrated table, with the frequency picked in the confirm dialog', true, '24hour'],
+        ['a regular table, with its own frequency and no dialog', false, '6hour'],
+    ] as const)('turning on syncing for %s', async (_, pending, expectedFrequency) => {
         await expectLogic(logic).toFinishAllListeners()
-        logic.actions.loadSchemaSuccess(makeSchema({ should_sync: false, pending_self_managed_table: pending }))
+        logic.actions.loadSchemaSuccess(
+            makeSchema({
+                should_sync: false,
+                sync_type: 'full_refresh',
+                sync_frequency: '6hour',
+                pending_self_managed_table: pending,
+            })
+        )
 
         const updateSpy = jest.spyOn(api.externalDataSchemas, 'update').mockResolvedValue(makeSchema())
-        const dialogSpy = jest.spyOn(LemonDialog, 'open').mockImplementation()
-        const schema = makeSchema({ should_sync: true, pending_self_managed_table: pending })
+        const dialogSpy = jest.spyOn(LemonDialog, 'openForm').mockImplementation()
+        const schema = makeSchema({
+            should_sync: true,
+            sync_type: 'full_refresh',
+            sync_frequency: '6hour',
+            pending_self_managed_table: pending,
+        })
 
         logic.actions.updateSchema(schema)
 
         if (pending) {
             expect(dialogSpy).toHaveBeenCalledTimes(1)
             expect(updateSpy).not.toHaveBeenCalled()
-            const confirm = dialogSpy.mock.calls[0][0].primaryButton?.onClick as () => void
-            confirm()
+            const { description, initialValues, onSubmit } = dialogSpy.mock.calls[0][0]
+            expect(description).toContain('This table uses full refresh')
+            await onSubmit(initialValues)
         } else {
             expect(dialogSpy).not.toHaveBeenCalled()
         }
 
         await expectLogic(logic).toFinishAllListeners()
-        expect(updateSpy).toHaveBeenCalledWith('schema-1', expect.objectContaining({ should_sync: true }))
+        // Without the dialog's frequency the migrated table keeps the 6 hour default nobody chose,
+        // and each full refresh bills every row again.
+        expect(updateSpy).toHaveBeenCalledWith(
+            'schema-1',
+            expect.objectContaining({ should_sync: true, sync_frequency: expectedFrequency })
+        )
     })
 })

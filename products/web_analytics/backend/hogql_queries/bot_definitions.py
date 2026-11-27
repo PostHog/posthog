@@ -181,6 +181,13 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
         "Anthropic",
         documentation_url="https://code.claude.com/docs/en/tools-reference",
     ),
+    "claude-code-mcp-client": BotDefinition(
+        "Claude Code",
+        "ai_assistant",
+        "AI Agent",
+        "Anthropic",
+        documentation_url="https://code.claude.com/docs/en/tools-reference",
+    ),
     "GitHubCopilot": BotDefinition(
         "GitHub Copilot", "ai_assistant", "AI Agent", "GitHub", documentation_url="https://github.com/features/copilot"
     ),
@@ -497,6 +504,8 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     ),
     # HTTP Clients
     "curl/": BotDefinition("curl", "http_client", "Automation", "curl", documentation_url="https://curl.se/"),
+    # Anchored so the bare token cannot match a browser UA or another product name that contains "curl".
+    "^curl$": BotDefinition("curl", "http_client", "Automation", "curl", documentation_url="https://curl.se/"),
     "Wget": BotDefinition(
         "Wget", "http_client", "Automation", "GNU", documentation_url="https://www.gnu.org/software/wget/"
     ),
@@ -665,6 +674,8 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     "Blackboard": BotDefinition("blackboard-crawler", "search_crawler", "Bot", "Blackboard"),
     "Foregenix": BotDefinition("Foregenix ThreatView/WebScan", "monitoring", "Bot", "Foregenix"),
     "FirecrawlAgent": BotDefinition("FirecrawlAgent", "ai_crawler", "AI Agent", "Firecrawl"),
+    "firecrawl-search/": BotDefinition("FirecrawlAgent", "ai_crawler", "AI Agent", "Firecrawl"),
+    "FirecrawlLocal/": BotDefinition("FirecrawlAgent", "ai_crawler", "AI Agent", "Firecrawl"),
     "Seekport": BotDefinition("seekport-crawler", "search_crawler", "Bot", "Seekport"),
     "ev-crawler": BotDefinition("Headline", "search_crawler", "Bot", "Headline"),
     "bitdiscovery": BotDefinition("Tenable.asm", "monitoring", "Bot", "Tenable.asm"),
@@ -766,6 +777,9 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     # Real Chromium always ends its WebKit token with "Safari/537.36"; a trailing "Safari/537.3"
     # is the truncation left by scraped fake user agent lists that dropped the final digit.
     r"Safari/537\.3$": BotDefinition("Truncated WebKit UA", "headless_browser", "Automation", "Unknown"),
+    # Every WebKit and Blink browser follows "AppleWebKit/537.36" with a "(KHTML, like Gecko)" clause
+    # and an engine token, so a UA that stops right after it was cut short by a scraper.
+    r"AppleWebKit/537\.36$": BotDefinition("Truncated WebKit UA", "headless_browser", "Automation", "Unknown"),
     # No browser emits a leading or trailing whitespace character in the user agent header.
     r"(^\s|\s$)": BotDefinition("Whitespace-padded UA", "headless_browser", "Automation", "Unknown"),
     # A bare "Mozilla/5.0" with no platform or engine token is a lazy scraper default.
@@ -1448,6 +1462,62 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     "l9scan/": BotDefinition("LeakIX", "monitoring", "Bot", "LeakIX", documentation_url="https://leakix.net"),
     "Cortex-Xpanse": BotDefinition("Cortex Xpanse", "monitoring", "Bot", "Palo Alto Networks"),
     "NetcraftSurveyAgent": BotDefinition("Netcraft", "monitoring", "Bot", "Netcraft"),
+    # Self-declared agents seen in docs request logs
+    # AI crawlers and docs indexers
+    "kapa\\.ai": BotDefinition("kapa.ai", "ai_crawler", "AI Agent", "kapa.ai", documentation_url="https://www.kapa.ai"),
+    "code-docs-corpus/": BotDefinition("code-docs-corpus", "ai_crawler", "AI Agent", "Unknown"),
+    "ConareBot": BotDefinition("ConareBot", "ai_crawler", "AI Agent", "Conare"),
+    "atlaswiedzy/": BotDefinition("Atlas Wiedzy", "ai_crawler", "AI Agent", "Atlas Wiedzy"),
+    "TrainingDataFoundationBot": BotDefinition("TrainingDataFoundationBot", "ai_crawler", "AI Agent", "Unknown"),
+    "Docs-Mirrors-": BotDefinition("Docs Mirrors", "ai_crawler", "AI Agent", "Unknown"),
+    "-docs-ingest": BotDefinition("Docs ingest", "ai_crawler", "AI Agent", "Unknown"),
+    "ClawifiBot": BotDefinition("ClawifiBot", "ai_crawler", "AI Agent", "Clawifi"),
+    "InfraStack surface reader": BotDefinition("InfraStack", "ai_crawler", "AI Agent", "InfraStack"),
+    "GeneralRetrieval-Research": BotDefinition("GeneralRetrieval", "ai_crawler", "AI Agent", "Unknown"),
+    "AiInsightsBot": BotDefinition("AiInsightsBot", "ai_crawler", "AI Agent", "Unknown"),
+    "imagelocbot": BotDefinition("imagelocbot", "ai_crawler", "AI Agent", "Unknown"),
+    # AI search
+    "KeenableBot": BotDefinition("Keenable", "ai_search", "AI Agent", "Keenable"),
+    "zedsearch-bot/": BotDefinition("zedsearch", "ai_search", "AI Agent", "Unknown"),
+    # AI assistants and agent tools that fetch pages for one user's request
+    "ZenaAI-DocResearch": BotDefinition("Zena AI", "ai_assistant", "AI Agent", "Zena AI"),
+    "mdbrowse": BotDefinition("mdbrowse", "ai_assistant", "AI Agent", "Unknown"),
+    "docs-reader": BotDefinition("docs-reader", "ai_assistant", "AI Agent", "Unknown"),
+    "vault-research-capture": BotDefinition("vault-research-capture", "ai_assistant", "AI Agent", "Unknown"),
+    "OpenAI File Downloader": BotDefinition("OpenAI File Downloader", "ai_assistant", "AI Agent", "OpenAI"),
+    "XaiImageApiFetch": BotDefinition("xAI Image Fetch", "ai_assistant", "AI Agent", "xAI"),
+    # Search crawlers
+    "Bravebot": BotDefinition(
+        "Bravebot",
+        "search_crawler",
+        "Bot",
+        "Brave",
+        documentation_url="https://search.brave.com/help/brave-search-crawler",
+    ),
+    "Kagibot": BotDefinition("Kagibot", "search_crawler", "Bot", "Kagi"),
+    "CREDBot": BotDefinition("CREDBot", "search_crawler", "Bot", "Unknown"),
+    "SearchMisterBot": BotDefinition("SearchMisterBot", "search_crawler", "Bot", "Unknown"),
+    "SearcliBot": BotDefinition("SearcliBot", "search_crawler", "Bot", "Unknown"),
+    "RiverBot": BotDefinition("RiverBot", "search_crawler", "Bot", "Unknown"),
+    "BashBot": BotDefinition("BashBot", "search_crawler", "Bot", "Unknown"),
+    # Monitors and link checkers
+    "Blackbox Exporter/": BotDefinition(
+        "Prometheus Blackbox Exporter",
+        "monitoring",
+        "Bot",
+        "Prometheus",
+        documentation_url="https://github.com/prometheus/blackbox_exporter",
+    ),
+    "markdown-link-check/": BotDefinition(
+        "markdown-link-check",
+        "monitoring",
+        "Bot",
+        "markdown-link-check",
+        documentation_url="https://github.com/tcort/markdown-link-check",
+    ),
+    "link-check/": BotDefinition("link-check", "monitoring", "Bot", "link-check"),
+    # Scrapers
+    "scrapibara": BotDefinition("scrapibara", "http_client", "Automation", "Unknown"),
 }
 
 

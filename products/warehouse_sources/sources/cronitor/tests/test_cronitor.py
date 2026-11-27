@@ -36,6 +36,9 @@ class _FakeResumableManager:
     def save_state(self, data: CronitorResumeConfig) -> None:
         self.saved.append(data)
 
+    def safe_point(self) -> None:
+        pass
+
 
 def _http_404() -> requests.HTTPError:
     response = MagicMock()
@@ -202,6 +205,9 @@ class TestPaginatedListEndpoints:
             ("issues", "/issues", "&orderBy=started", "issues"),
             # Sites nests its rows under `data` rather than a resource-named key.
             ("sites", "/sites", "", "data"),
+            # Without `past=true` the list drops every finished window.
+            ("maintenance_windows", "/maintenance_windows", "&past=true", "data"),
+            ("environments", "/environments", "", "environments"),
         ],
     )
     def test_requests_the_documented_path_and_reads_its_envelope(
@@ -287,6 +293,134 @@ class TestSiteErrors:
         assert [(row["site_key"], row["key"]) for row in rows] == [("site-b", "err-9")]
         # site-a finished before the crash, and site-b restarts at the saved page, not page 1.
         assert self._errors_url("site-a", 1) not in fetched
+
+
+def _iso(day: str) -> str:
+    return f"{day}T00:00:00Z"
+
+
+class TestSiteDailyMetrics:
+    def _run(
+        self,
+        monkeypatch: Any,
+        manager: _FakeResumableManager,
+        site_keys: list[str],
+        responses: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> tuple[list[dict], list[dict[str, Any]], list[int]]:
+        _freeze_now(monkeypatch)
+        monkeypatch.setattr(cronitor, "_list_site_keys", lambda session, api_key, logger: site_keys)
+        bodies: list[dict[str, Any]] = []
+
+        def fake_post(session: Any, url: str, api_key: str, logger: Any, body: dict[str, Any]) -> Any:
+            assert url == "https://cronitor.io/api/sites/query"
+            bodies.append(body)
+            result = (responses or {}).get(body["site"])
+            if isinstance(result, Exception):
+                raise result
+            if result is not None:
+                return result
+            return {"data": [{"ts": body["start"], "session_count": 1}], "time_bucket": "day"}
+
+        monkeypatch.setattr(cronitor, "_post", fake_post)
+        rows: list[dict] = []
+        saved_before_each_batch: list[int] = []
+        for batch in get_rows(
+            api_key="key",
+            endpoint="site_daily_metrics",
+            logger=MagicMock(),
+            resumable_source_manager=manager,  # type: ignore[arg-type]
+            **kwargs,
+        ):
+            saved_before_each_batch.append(len(manager.saved))
+            rows.extend(batch)
+        return rows, bodies, saved_before_each_batch
+
+    def test_backfill_walks_day_windows_per_site_and_stages_state_before_each_batch(self, monkeypatch: Any) -> None:
+        # NOW is 2025-06-15T15:06:40Z, so a 10-day lookback starts on 2025-06-05.
+        monkeypatch.setattr(cronitor, "SITE_METRICS_LOOKBACK_DAYS", 10)
+        monkeypatch.setattr(cronitor, "SITE_METRICS_WINDOW_DAYS", 4)
+        manager = _FakeResumableManager()
+        rows, bodies, saved_before_each_batch = self._run(monkeypatch, manager, ["site-a", "site-b"])
+
+        # The tail window folds the last partial days in rather than ending in the future.
+        windows = [(_iso("2025-06-05"), _iso("2025-06-09")), (_iso("2025-06-09"), _iso("2025-06-13"))]
+        windows.append((_iso("2025-06-13"), "2025-06-15T15:06:40Z"))
+        assert [(b["site"], b["start"], b["end"]) for b in bodies] == [
+            (site, start, end) for site in ("site-a", "site-b") for start, end in windows
+        ]
+        assert {(b["kind"], b["time"], b["time_bucket"], b["timezone"]) for b in bodies} == {
+            ("timeseries", "custom", "day", "UTC")
+        }
+        assert all(len(b["aggregate"]) <= 10 for b in bodies)
+        assert [row["site_key"] for row in rows] == ["site-a"] * 3 + ["site-b"] * 3
+
+        day = 24 * 3600
+        june_5 = 1749081600
+        assert manager.saved == [
+            CronitorResumeConfig(site_key="site-a", window_start=june_5 + 4 * day),
+            CronitorResumeConfig(site_key="site-a", window_start=june_5 + 8 * day),
+            CronitorResumeConfig(site_key="site-b", window_start=june_5),
+            CronitorResumeConfig(site_key="site-b", window_start=june_5 + 4 * day),
+            CronitorResumeConfig(site_key="site-b", window_start=june_5 + 8 * day),
+        ]
+        # Each batch's resume point is staged before the batch is yielded.
+        assert saved_before_each_batch == [1, 2, 3, 4, 5, 5]
+
+    @pytest.mark.parametrize(
+        "watermark, expected_start",
+        [
+            # No watermark backfills the full lookback.
+            (None, _iso("2024-06-15")),
+            # The watermark day was still filling, so it is read again with the day before it.
+            ("2025-06-12T00:00:00+00:00", _iso("2025-06-11")),
+            (datetime(2025, 6, 12, tzinfo=UTC), _iso("2025-06-11")),
+            # A watermark of today still sends a range of at least one day.
+            ("2025-06-15T00:00:00+00:00", _iso("2025-06-14")),
+            ("2025-07-01T00:00:00+00:00", _iso("2025-06-14")),
+            ("2020-01-01T00:00:00+00:00", _iso("2024-06-15")),
+        ],
+    )
+    def test_incremental_start(self, watermark: Any, expected_start: str, monkeypatch: Any) -> None:
+        _, bodies, _ = self._run(
+            monkeypatch,
+            _FakeResumableManager(),
+            ["site-a"],
+            should_use_incremental_field=watermark is not None,
+            db_incremental_field_last_value=watermark,
+        )
+
+        assert bodies[0]["start"] == expected_start
+        assert bodies[-1]["end"] == "2025-06-15T15:06:40Z"
+
+    def test_resumes_from_site_and_window_bookmark(self, monkeypatch: Any) -> None:
+        june_9 = 1749427200
+        _, bodies, _ = self._run(
+            monkeypatch,
+            _FakeResumableManager(CronitorResumeConfig(site_key="site-b", window_start=june_9)),
+            ["site-a", "site-b"],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2025-06-01T00:00:00+00:00",
+        )
+
+        # site-a finished before the crash, and site-b restarts at the saved window.
+        assert [(b["site"], b["start"]) for b in bodies] == [("site-b", _iso("2025-06-09"))]
+
+    def test_deleted_site_is_skipped_and_sync_continues(self, monkeypatch: Any) -> None:
+        rows, _, _ = self._run(monkeypatch, _FakeResumableManager(), ["gone", "site-b"], {"gone": _http_404()})
+
+        assert rows and {row["site_key"] for row in rows} == {"site-b"}
+
+    @pytest.mark.parametrize(
+        "response",
+        [
+            {"data": {"session_count": {"value": 1}}},
+            {"detail": "something unexpected"},
+        ],
+    )
+    def test_unexpected_shape_fails_the_sync(self, response: Any, monkeypatch: Any) -> None:
+        with pytest.raises(cronitor.CronitorResponseShapeError):
+            self._run(monkeypatch, _FakeResumableManager(), ["site-a"], {"site-a": response})
 
 
 class TestFlattenMetricsResponse:
@@ -397,9 +531,11 @@ class TestSourceResponse:
             # Metrics rows aren't globally stamp-ascending (batched per monitor group per window),
             # so desc defers the watermark to job end.
             ("metrics", ["monitor_key", "dimension", "stamp"], "desc"),
+            # Rows are read per site, so the series is not ascending across the run.
+            ("site_daily_metrics", ["site_key", "ts"], None),
         ]
     )
-    def test_primary_keys_and_sort_mode(self, endpoint: str, primary_keys: list[str], sort_mode: str) -> None:
+    def test_primary_keys_and_sort_mode(self, endpoint: str, primary_keys: list[str], sort_mode: str | None) -> None:
         response = cronitor_source(
             api_key="key",
             endpoint=endpoint,

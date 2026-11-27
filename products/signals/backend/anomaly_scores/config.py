@@ -67,7 +67,18 @@ class ScoringLimits:
 def _zscore(window: int) -> dict[str, Any]:
     # diffs_n is set explicitly: when preprocessing is given without it, the detector scores raw values,
     # and on sparse series raw values score almost every non-zero bucket near 1.0.
-    return {"type": "zscore", "threshold": 0.95, "window": window, "preprocessing": {"diffs_n": 1, "smooth_n": 3}}
+    # The quantile score is the share of training buckets that are less unusual than the bucket. With `window`
+    # training buckets, the highest threshold that the normalizer accepts is (window - 1) / window, and it flags
+    # only a bucket above every training bucket, about 1 in window + 1 buckets of a stable series. A tie with the
+    # largest training bucket does not flag. The same expression gives the score of that tie, so float error
+    # cannot put the tie above the threshold.
+    return {
+        "type": "zscore",
+        "threshold": (window - 1) / window,
+        "window": window,
+        "preprocessing": {"diffs_n": 1, "smooth_n": 3},
+        "normalizer": "quantile",
+    }
 
 
 def _zscore_and_judge(window: int) -> dict[str, Any]:

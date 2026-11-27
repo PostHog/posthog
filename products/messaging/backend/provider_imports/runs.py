@@ -116,7 +116,13 @@ def start_run(
     provider.check_step_access(team_id, credentials, ordered_steps)
     progress = {step: _new_step_progress() for step in ordered_steps}
     if provider.resumes_after_failure:
-        _continue_failed_steps(team_id, provider.key, progress, resolved_settings, _key_id(credentials.api_key))
+        fresh = {
+            required
+            for spec in provider.steps
+            if spec.requires_fresh and spec.key in progress
+            for required in spec.requires
+        }
+        _continue_failed_steps(team_id, provider.key, progress, resolved_settings, _key_id(credentials.api_key), fresh)
     try:
         with transaction.atomic():
             # Create the run before storing the credentials. A concurrent start then waits on the active-run index
@@ -386,6 +392,7 @@ def _continue_failed_steps(
     progress: dict[str, dict[str, Any]],
     settings: Mapping[str, str],
     key_id: str | None,
+    fresh: set[str],
 ) -> None:
     for step_progress in progress.values():
         step_progress["key_id"] = key_id
@@ -396,7 +403,7 @@ def _continue_failed_steps(
     for step, step_progress in progress.items():
         previous = latest.progress.get(step, {})
         # A cursor from another key can point into another account, so a new key starts the step over.
-        if previous.get("key_id") == key_id:
+        if previous.get("key_id") == key_id and step not in fresh:
             step_progress["checkpoint"] = previous.get("checkpoint")
 
 
@@ -600,12 +607,23 @@ def _report_finished(run: ProviderImportRun) -> None:
             "stage": "failed" if failed else "completed",
             "dry_run": False,
             "steps": run.steps,
+            "failed_steps": [
+                step
+                for step, step_progress in progress.items()
+                if step_progress.get("status") != ImportStepStatus.COMPLETED
+            ],
             "counts": {step: _step_outcomes(step_progress) for step, step_progress in progress.items()},
             "duration_seconds": int((run.finished_at - run.created_at).total_seconds()) if run.finished_at else None,
             "retried_chunks": sum(
                 step_progress.get("people_import", {}).get("retried_chunks", 0) for step_progress in progress.values()
             ),
         }
+        for step, step_progress in progress.items():
+            properties.update({f"{step}_{key}": value for key, value in step_progress.get("counts", {}).items()})
+            properties[f"{step}_status"] = step_progress.get("status")
+            properties[f"{step}_processed"] = step_progress.get("processed", 0)
+            properties[f"{step}_imported"] = step_progress.get("imported", 0)
+            properties[f"{step}_skipped"] = properties["counts"][step]["skipped"]
         if failed:
             properties["error_class"] = next(
                 (
