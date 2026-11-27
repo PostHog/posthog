@@ -32,6 +32,7 @@ import {
     captureMessageAudienceClicked,
     messageAudienceAccessDisabledReason,
 } from 'products/workflows/frontend/MessageAudience/messageAudience'
+import { MessageAudienceShown } from 'products/workflows/frontend/MessageAudience/MessageAudienceShown'
 import { openMessageAudience } from 'products/workflows/frontend/MessageAudience/messageAudienceWarnings'
 
 import { addPersonToCohortModalLogic } from './addPersonToCohortModalLogic'
@@ -72,6 +73,10 @@ function CohortSceneMenuBarInner({ id }: { id?: CohortType['id'] }): JSX.Element
                 {!isNewCohort && cohortIdNumber !== undefined && (
                     <>
                         <SceneMenuBarSubMenu label="Create">
+                            {!broadcastDisabledReason && (
+                                <MessageAudienceShown source="cohort" destination="broadcast" />
+                            )}
+                            {!accessDisabledReason && <MessageAudienceShown source="cohort" destination="workflow" />}
                             <SceneMenuBarItem
                                 onClick={() => {
                                     captureMessageAudienceClicked('cohort', 'broadcast')

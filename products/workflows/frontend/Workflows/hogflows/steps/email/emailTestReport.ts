@@ -7,7 +7,12 @@ import { sandboxTestOutcome } from './sandboxTestResult'
 
 type EmailSenderKind = 'sandbox' | 'own_domain'
 
-export function reportEmailTest(workflow: HogFlow, actionId: string | null, result: HogflowTestResult): void {
+export function reportEmailTest(
+    workflow: HogFlow,
+    actionId: string | null,
+    result: HogflowTestResult,
+    attemptId?: string
+): void {
     const action = workflow.actions?.find((candidate) => candidate.id === actionId)
     if (!isEmailStep(action) || result.mocked) {
         return
@@ -27,6 +32,10 @@ export function reportEmailTest(workflow: HogFlow, actionId: string | null, resu
     if (accepted) {
         const senderKind: EmailSenderKind = onSandbox ? 'sandbox' : 'own_domain'
         // pinned: analytics event name and properties, renaming breaks dashboards
-        posthog.capture('workflows test email sent', { step_type: action.type, sender_kind: senderKind })
+        posthog.capture('workflows test email sent', {
+            step_type: action.type,
+            sender_kind: senderKind,
+            ...(attemptId ? { attempt_id: attemptId } : {}),
+        })
     }
 }

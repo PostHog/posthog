@@ -15,6 +15,7 @@ import { cohortsCreate } from 'products/cohorts/frontend/generated/api'
 import type { CohortApi } from 'products/cohorts/frontend/generated/api.schemas'
 import {
     captureMessageAudienceClicked,
+    captureMessageAudienceShown,
     cohortAudienceProperties,
     messageAudienceAccessDisabledReason,
     messageAudienceUrl,
@@ -24,7 +25,7 @@ import { draftMessage } from 'products/workflows/frontend/MessageAudience/messag
 
 export const AFFECTED_LOOKBACK_DAYS = 30
 // pinned: sent as the broadcast's entry_source and the click event's source, so renaming it splits the history
-const SOURCE = 'error_tracking_affected'
+export const AFFECTED_SOURCE = 'error_tracking_affected'
 const RESOLVED_SOURCE = 'error_tracking_resolved'
 const MAX_NAME_LENGTH = 200
 
@@ -169,9 +170,9 @@ export const issueAffectedBroadcastLogic = kea<issueAffectedBroadcastLogicType>(
             },
         ],
         source: [
-            SOURCE as string,
+            AFFECTED_SOURCE as string,
             {
-                openModal: () => SOURCE,
+                openModal: () => AFFECTED_SOURCE,
                 openModalAfterResolve: () => RESOLVED_SOURCE,
             },
         ],
@@ -190,7 +191,9 @@ export const issueAffectedBroadcastLogic = kea<issueAffectedBroadcastLogicType>(
             {
                 // The audience cohort doesn't exist until Continue, so only the sender problems apply here.
                 loadSendWarnings: async () =>
-                    await loadMessageAudienceWarnings({ properties: [], source: SOURCE }, 'broadcast'),
+                    (await loadMessageAudienceWarnings({ properties: [], source: AFFECTED_SOURCE }, 'broadcast')).map(
+                        (warning) => warning.message
+                    ),
             },
         ],
         affectedCount: [
@@ -221,7 +224,7 @@ export const issueAffectedBroadcastLogic = kea<issueAffectedBroadcastLogicType>(
     listeners(({ actions, props, values, cache }) => ({
         openModal: () => {
             // The click on the entry point, before any outcome, so abandoned attempts count too.
-            captureMessageAudienceClicked(SOURCE, 'broadcast')
+            captureMessageAudienceClicked(AFFECTED_SOURCE, 'broadcast')
             actions.loadAffectedCount()
             actions.loadSendWarnings()
         },
@@ -245,6 +248,7 @@ export const issueAffectedBroadcastLogic = kea<issueAffectedBroadcastLogicType>(
             if (!affectedCount.withEmail) {
                 return
             }
+            captureMessageAudienceShown(RESOLVED_SOURCE, 'broadcast')
             lemonToast.success(
                 `Issue resolved. ${pluralize(affectedCount.withEmail, 'person', 'people')} with an email address hit it in the last ${AFFECTED_LOOKBACK_DAYS} days.`,
                 {

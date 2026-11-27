@@ -87,6 +87,7 @@ import {
 } from 'products/workflows/frontend/MessageAudience/messageAudience'
 import { MessageAudienceButton } from 'products/workflows/frontend/MessageAudience/MessageAudienceButton'
 import { messageAudienceOpenLogic } from 'products/workflows/frontend/MessageAudience/messageAudienceOpenLogic'
+import { MessageAudienceShown } from 'products/workflows/frontend/MessageAudience/MessageAudienceShown'
 
 import { AddPersonToCohortModal } from './AddPersonToCohortModal'
 import { addPersonToCohortModalLogic } from './addPersonToCohortModalLogic'
@@ -315,6 +316,10 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                     <ScenePanelDivider />
 
                     <ScenePanelActionsSection>
+                        {!broadcastDisabledReason && <MessageAudienceShown source="cohort" destination="broadcast" />}
+                        {!isNewCohort && !accessDisabledReason && (
+                            <MessageAudienceShown source="cohort" destination="workflow" />
+                        )}
                         <ButtonPrimitive
                             onClick={() => openBroadcast('broadcast')}
                             disabledReasons={{

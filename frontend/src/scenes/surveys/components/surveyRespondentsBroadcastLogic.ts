@@ -24,7 +24,7 @@ import { draftMessage } from 'products/workflows/frontend/MessageAudience/messag
 import type { NewSurvey } from '../constants'
 
 // pinned: sent as the broadcast's entry_source and the click event's source, so renaming it splits the history
-const SOURCE = 'survey_respondents'
+export const SURVEY_RESPONDENTS_SOURCE = 'survey_respondents'
 const MAX_NAME_LENGTH = 200
 
 export interface SurveyRespondentsBroadcastLogicProps {
@@ -152,7 +152,7 @@ export const surveyRespondentsBroadcastLogic = kea<surveyRespondentsBroadcastLog
                     await openMessageAudience(
                         {
                             properties: cohortAudienceProperties(cohort),
-                            source: SOURCE,
+                            source: SURVEY_RESPONDENTS_SOURCE,
                             broadcastName: truncate(`Following up on ${survey.name}`, MAX_NAME_LENGTH),
                             broadcastEmail: draftMessage({ kind: 'survey_responded' }),
                             draftSource: { source: 'survey', source_id: survey.id },
@@ -167,7 +167,7 @@ export const surveyRespondentsBroadcastLogic = kea<surveyRespondentsBroadcastLog
 
     listeners(() => ({
         // The click on the entry point, before any outcome, so abandoned attempts count too.
-        emailRespondents: () => captureMessageAudienceClicked(SOURCE, 'broadcast'),
+        emailRespondents: () => captureMessageAudienceClicked(SURVEY_RESPONDENTS_SOURCE, 'broadcast'),
         emailRespondentsFailure: () => {
             lemonToast.error("Couldn't save these respondents. Try again.")
         },

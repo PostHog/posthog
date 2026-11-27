@@ -37,6 +37,7 @@ import {
 
 import {
     captureMessageAudienceClicked,
+    captureMessageAudienceShown,
     messageAudienceAccessDisabledReason,
 } from 'products/workflows/frontend/MessageAudience/messageAudience'
 import { openMessageAudience } from 'products/workflows/frontend/MessageAudience/messageAudienceWarnings'
@@ -562,21 +563,24 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
                 !!previousStage &&
                 previousStage !== EarlyAccessFeatureStage.GeneralAvailability &&
                 _earlyAccessFeature.stage === EarlyAccessFeatureStage.GeneralAvailability
+            const offerBroadcast = reachedGeneralAvailability && !messageAudienceAccessDisabledReason()
+            if (offerBroadcast) {
+                captureMessageAudienceShown(EARLY_ACCESS_GA_SOURCE, 'broadcast')
+            }
             lemonToast.success('Early access feature saved', {
-                button:
-                    reachedGeneralAvailability && !messageAudienceAccessDisabledReason()
-                        ? {
-                              label: 'Email opted-in users',
-                              dataAttr: 'early-access-ga-broadcast',
-                              action: () => {
-                                  captureMessageAudienceClicked(EARLY_ACCESS_GA_SOURCE, 'broadcast')
-                                  void openMessageAudience(
-                                      enrolledPeopleAudience(_earlyAccessFeature, EARLY_ACCESS_GA_SOURCE),
-                                      'broadcast'
-                                  )
-                              },
-                          }
-                        : undefined,
+                button: offerBroadcast
+                    ? {
+                          label: 'Email opted-in users',
+                          dataAttr: 'early-access-ga-broadcast',
+                          action: () => {
+                              captureMessageAudienceClicked(EARLY_ACCESS_GA_SOURCE, 'broadcast')
+                              void openMessageAudience(
+                                  enrolledPeopleAudience(_earlyAccessFeature, EARLY_ACCESS_GA_SOURCE),
+                                  'broadcast'
+                              )
+                          },
+                      }
+                    : undefined,
             })
             earlyAccessFeaturesLogic.findMounted()?.actions.loadEarlyAccessFeatures()
             if (_earlyAccessFeature.id) {

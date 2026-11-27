@@ -96,6 +96,7 @@ import { featureFlagBreakdownInsightUrl, keyBeforeDelete } from 'products/featur
 import { FeatureFlagStaleBanner } from 'products/feature_flags/frontend/FeatureFlagStaleBanner'
 import { FeatureFlagRestoreVersionButton } from 'products/feature_flags/frontend/restoreVersion/FeatureFlagRestoreVersionButton'
 import { AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM, useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+import { MessageAudienceShown } from 'products/workflows/frontend/MessageAudience/MessageAudienceShown'
 
 import { featureFlagContextItems } from './featureFlagAiContext'
 import { openFeatureFlagArchiveDialog } from './featureFlagArchiveDialog'
@@ -106,6 +107,7 @@ import { FeedbackTab } from './FeatureFlagFeedbackTab'
 import { FeatureFlagLoadError } from './FeatureFlagLoadError'
 import {
     FINDING_FLAG_PEOPLE_MESSAGE,
+    FLAG_BROADCAST_SOURCE,
     FeatureFlagLogicProps,
     broadcastNoOneReason,
     featureFlagLogic,
@@ -523,6 +525,9 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 Create cohort
                             </ButtonPrimitive>
                         )}
+                        {canCreateFlagCohort && !broadcastDisabledReason && (
+                            <MessageAudienceShown source={FLAG_BROADCAST_SOURCE} destination="broadcast" />
+                        )}
                         {canCreateFlagCohort && (
                             <ButtonPrimitive
                                 menuItem
@@ -678,6 +683,9 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                             <IconPlusSmall />
                                             Cohort
                                         </SceneMenuBarItem>
+                                    )}
+                                    {canCreateFlagCohort && !broadcastDisabledReason && (
+                                        <MessageAudienceShown source={FLAG_BROADCAST_SOURCE} destination="broadcast" />
                                     )}
                                     {canCreateFlagCohort && (
                                         <SceneMenuBarItem

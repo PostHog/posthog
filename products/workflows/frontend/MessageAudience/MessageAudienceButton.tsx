@@ -5,6 +5,7 @@ import { LemonButton, LemonButtonProps, LemonMenu } from '@posthog/lemon-ui'
 
 import { MessageAudience, MessageAudienceDestination, messageAudienceAccessDisabledReason } from './messageAudience'
 import { messageAudienceOpenLogic } from './messageAudienceOpenLogic'
+import { MessageAudienceShown } from './MessageAudienceShown'
 
 const DESTINATION_LABELS: Record<MessageAudienceDestination, string> = {
     broadcast: 'Send a one-time email',
@@ -32,10 +33,16 @@ export function MessageAudienceButton({
     const logic = messageAudienceOpenLogic({ audience })
     const { opening } = useValues(logic)
     const { open } = useActions(logic)
+    const effectiveDisabledReason = disabledReason ?? messageAudienceAccessDisabledReason()
+    const shown = effectiveDisabledReason
+        ? null
+        : destinations.map((destination) => (
+              <MessageAudienceShown key={destination} source={audience.source} destination={destination} />
+          ))
     const buttonProps = {
         type,
         size,
-        disabledReason: disabledReason ?? messageAudienceAccessDisabledReason(),
+        disabledReason: effectiveDisabledReason,
         fullWidth,
         icon: <IconSend />,
         loading: opening,
@@ -43,26 +50,32 @@ export function MessageAudienceButton({
 
     if (destinations.length === 1) {
         return (
-            <LemonButton
-                {...buttonProps}
-                onClick={() => open(destinations[0])}
-                data-attr={`message-audience-${audience.source}-${destinations[0]}`}
-            >
-                {label}
-            </LemonButton>
+            <>
+                {shown}
+                <LemonButton
+                    {...buttonProps}
+                    onClick={() => open(destinations[0])}
+                    data-attr={`message-audience-${audience.source}-${destinations[0]}`}
+                >
+                    {label}
+                </LemonButton>
+            </>
         )
     }
     return (
-        <LemonMenu
-            items={destinations.map((destination) => ({
-                label: DESTINATION_LABELS[destination],
-                onClick: () => open(destination),
-                'data-attr': `message-audience-${audience.source}-${destination}`,
-            }))}
-        >
-            <LemonButton {...buttonProps} data-attr={`message-audience-${audience.source}`}>
-                {label}
-            </LemonButton>
-        </LemonMenu>
+        <>
+            {shown}
+            <LemonMenu
+                items={destinations.map((destination) => ({
+                    label: DESTINATION_LABELS[destination],
+                    onClick: () => open(destination),
+                    'data-attr': `message-audience-${audience.source}-${destination}`,
+                }))}
+            >
+                <LemonButton {...buttonProps} data-attr={`message-audience-${audience.source}`}>
+                    {label}
+                </LemonButton>
+            </LemonMenu>
+        </>
     )
 }

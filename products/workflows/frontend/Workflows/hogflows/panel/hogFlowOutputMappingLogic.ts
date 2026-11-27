@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 
 import type { CyclotronJobInvocationGlobals, HogFunctionTemplateType } from '../../../../../../frontend/src/types'
+import { workflowEntryAttempt } from '../../../MessageAudience/messageAudienceAttempts'
 import { WorkflowLogicProps, sanitizeWorkflow, workflowLogic } from '../../workflowLogic'
 import { OutputMappingSuggestion } from '../hogFlowEditorLogic'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
@@ -534,7 +535,7 @@ export const hogFlowOutputMappingLogic = kea<hogFlowOutputMappingLogicType>([
                         mock_async_functions: false,
                         current_action_id: selectedNode.data.id,
                     })
-                    reportEmailTest(workflow, selectedNode.data.id, result)
+                    reportEmailTest(workflow, selectedNode.data.id, result, workflowEntryAttempt(props))
 
                     if (result.execResult != null) {
                         actions.setTestResultData(result.execResult)

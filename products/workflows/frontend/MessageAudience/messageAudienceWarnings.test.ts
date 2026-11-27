@@ -1,3 +1,7 @@
+import posthog from 'posthog-js'
+
+import { LemonDialog } from '@posthog/lemon-ui'
+
 import { initKeaTests } from '~/test/init'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
@@ -5,15 +9,26 @@ import { cohortsRetrieve } from 'products/cohorts/frontend/generated/api'
 import { integrationsList } from 'products/integrations/frontend/generated/api'
 import { hogFlowsEmailSendingSuspensionRetrieve } from 'products/workflows/frontend/generated/api'
 
-import { MessageAudience, MessageAudienceDestination } from './messageAudience'
-import { loadMessageAudienceWarnings } from './messageAudienceWarnings'
+import { MessageAudience, MessageAudienceDestination, captureMessageAudienceClicked } from './messageAudience'
+import { MessageAudienceWarning, loadMessageAudienceWarnings, openMessageAudience } from './messageAudienceWarnings'
 
 jest.mock('products/cohorts/frontend/generated/api', () => ({ cohortsRetrieve: jest.fn() }))
 jest.mock('products/integrations/frontend/generated/api', () => ({ integrationsList: jest.fn() }))
 jest.mock('products/workflows/frontend/generated/api', () => ({ hogFlowsEmailSendingSuspensionRetrieve: jest.fn() }))
 
-const SUSPENDED = 'Email sending is suspended for this project. Workflow and broadcast emails are not being delivered.'
-const LIST_MATCHING = '"Signups" is still matching people. You can launch when it finishes.'
+const SUSPENDED: MessageAudienceWarning = {
+    kind: 'sending_suspended',
+    message: 'Email sending is suspended for this project. Workflow and broadcast emails are not being delivered.',
+}
+const NO_SENDER: MessageAudienceWarning = { kind: 'no_sender', message: 'Set up an email sender before sending' }
+const UNVERIFIED: MessageAudienceWarning = {
+    kind: 'unverified_sender',
+    message: "Verify the sender's domain before sending",
+}
+const LIST_MATCHING: MessageAudienceWarning = {
+    kind: 'cohort_not_ready',
+    message: '"Signups" is still matching people. You can launch when it finishes.',
+}
 
 const verified = { kind: 'email', config: { verified: true } }
 const unverified = { kind: 'email', config: { verified: false } }
@@ -35,7 +50,7 @@ describe('loadMessageAudienceWarnings', () => {
         senders?: object[] | Error
         morePages?: boolean
         cohort?: object | Error
-        expected: string[]
+        expected: MessageAudienceWarning[]
     }>([
         { case: 'nothing wrong', destination: 'broadcast', expected: [] },
         {
@@ -43,13 +58,13 @@ describe('loadMessageAudienceWarnings', () => {
             destination: 'broadcast',
             suspended: true,
             senders: [],
-            expected: [SUSPENDED, 'Set up an email sender before sending'],
+            expected: [SUSPENDED, NO_SENDER],
         },
         {
             case: 'only unverified senders',
             destination: 'broadcast',
             senders: [unverified],
-            expected: ["Verify the sender's domain before sending"],
+            expected: [UNVERIFIED],
         },
         {
             case: 'unverified senders on the first of several pages',
@@ -99,9 +114,55 @@ describe('loadMessageAudienceWarnings', () => {
             const warnings = loadMessageAudienceWarnings(audience, 'workflow')
             await jest.advanceTimersByTimeAsync(5000)
 
-            expect(await warnings).toEqual(['Set up an email sender before sending'])
+            expect(await warnings).toEqual([NO_SENDER])
         } finally {
             jest.useRealTimers()
         }
     })
+
+    it.each([
+        { case: 'a sender problem', suspended: false, kinds: ['no_sender'], secondary: 'Set up email' },
+        {
+            case: 'only a suspension',
+            suspended: true,
+            senders: [verified],
+            kinds: ['sending_suspended'],
+            secondary: 'Cancel',
+        },
+    ])(
+        'reports the warnings it shows for $case, and offers $secondary',
+        async ({ suspended, senders = [], kinds, secondary }) => {
+            const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
+            const dialog = jest.spyOn(LemonDialog, 'open').mockImplementation(() => undefined)
+            try {
+                jest.mocked(hogFlowsEmailSendingSuspensionRetrieve).mockResolvedValue({
+                    email_sending_suspended: suspended,
+                } as never)
+                jest.mocked(integrationsList).mockResolvedValue({
+                    count: senders.length,
+                    results: senders,
+                    next: null,
+                } as never)
+
+                captureMessageAudienceClicked('early_access', 'workflow')
+                await openMessageAudience({ ...audience, source: 'early_access' }, 'workflow')
+
+                const events = capture.mock.calls.map(([event, properties]) => ({ event, properties }))
+                const [clicked, shown] = events
+                expect(shown).toEqual({
+                    event: 'message audience warnings shown',
+                    properties: {
+                        source: 'early_access',
+                        destination: 'workflow',
+                        attempt_id: clicked.properties?.attempt_id,
+                        warnings: kinds,
+                    },
+                })
+                expect(dialog.mock.calls[0][0].secondaryButton?.children).toEqual(secondary)
+            } finally {
+                capture.mockRestore()
+                dialog.mockRestore()
+            }
+        }
+    )
 })

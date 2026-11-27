@@ -22,6 +22,7 @@ import type {
     HogFlowEmailSendingRateLimitApi,
 } from 'products/workflows/frontend/generated/api.schemas'
 
+import { captureMessageAudienceShown } from '../MessageAudience/messageAudience'
 import { draftMessage } from '../MessageAudience/messageDrafts'
 import { urlForNewBroadcastWithAudience } from './broadcastAudiencePrefill'
 import { broadcastTestSendLogic } from './broadcastTestSendLogic'
@@ -213,6 +214,56 @@ describe('broadcastWizardLogic', () => {
         await expectLogic(logic).toDispatchActions(['prefillFromLink'])
         expect(logic.values.audienceProperties).toEqual(properties)
         expect(logic.values.name).toEqual('Fix shipped')
+    })
+
+    it.each([
+        { link: 'the attempt of a shown spot', attempt: 'shown', sent: 'shown' },
+        { link: 'a malformed attempt', attempt: 'not-an-attempt', sent: undefined },
+    ])('stores $link on the first save only', async ({ attempt, sent }) => {
+        captureMessageAudienceShown('cohort_saved', 'broadcast')
+        const shownAttempt = new URL(
+            urlForNewBroadcastWithAudience({ properties: LOCAL_AUDIENCE, source: 'cohort_saved' }),
+            'https://app.example.com'
+        ).searchParams.get('attempt')
+        const savedBodies: Record<string, unknown>[] = []
+        const recordBody = async (request: Request): Promise<void> => {
+            savedBodies.push((await request.clone().json()) as Record<string, unknown>)
+        }
+        useMocks({
+            post: {
+                '/api/projects/:team_id/hog_flows/': async ({ request }) => {
+                    await recordBody(request)
+                    return [201, savedBroadcast({ name: '', subject: '', updatedAt: '2026-09-24T10:00:00Z' })]
+                },
+            },
+            patch: {
+                '/api/projects/:team_id/hog_flows/:id/': async ({ request }) => {
+                    await recordBody(request)
+                    return [200, savedBroadcast({ name: 'Renamed', subject: '', updatedAt: '2026-09-24T10:00:05Z' })]
+                },
+            },
+        })
+        logic.unmount()
+        router.actions.push('/broadcasts/new', {
+            audience: JSON.stringify(LOCAL_AUDIENCE),
+            source: 'cohort_saved',
+            attempt: attempt === 'shown' ? shownAttempt : attempt,
+        })
+        logic = broadcastWizardLogic({ id: 'new' })
+        logic.mount()
+
+        await expectLogic(logic, () => {
+            logic.actions.setStep('content')
+        }).toDispatchActions(['draftAutosaved'])
+        logic.actions.setName('Renamed')
+        await expectLogic(logic, () => {
+            logic.actions.saveName()
+        }).toFinishAllListeners()
+
+        expect(savedBodies.map((body) => body.entry_attempt_id)).toEqual([
+            sent === 'shown' ? shownAttempt : undefined,
+            undefined,
+        ])
     })
 
     it.each([

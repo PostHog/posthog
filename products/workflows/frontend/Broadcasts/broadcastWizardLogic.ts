@@ -65,6 +65,7 @@ import {
 } from '../MessageAudience/aiEmailDraft'
 import type { AiEmailDraftStatusProps } from '../MessageAudience/AiEmailDraftStatus'
 import { EmailBrand, applyEmailBrand, loadEmailBrand } from '../MessageAudience/emailBrand'
+import { ATTEMPT_PREFILL_PARAM, parseAttemptPrefill } from '../MessageAudience/messageAudienceAttempts'
 import {
     EMAIL_PREFILL_PARAM,
     MessageDraft,
@@ -454,6 +455,7 @@ export interface broadcastWizardLogicValues {
     emailSettings: BroadcastEmailSettings
     emailStepSensitive: boolean
     entrySource: string | null
+    entryAttemptId: string | null
     expandedRunIds: string[]
     expandedRunOverride: string[] | null
     firstInvalidStep: BroadcastWizardStep | null
@@ -1273,6 +1275,12 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             null as string | null,
             {
                 prefillFromLink: (_, { prefill }) => prefill.source ?? null,
+            },
+        ],
+        entryAttemptId: [
+            null as string | null,
+            {
+                prefillFromLink: (_, { prefill }) => prefill.entryAttemptId ?? null,
             },
         ],
         sourceRecord: [
@@ -2946,6 +2954,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             [SOURCE_RECORD_PREFILL_PARAM]: sourceRecordParam,
             [EMAIL_PREFILL_PARAM]: emailParam,
             [DRAFT_SOURCE_PARAM]: draftSourceParam,
+            [ATTEMPT_PREFILL_PARAM]: attemptParam,
         } = router.values.searchParams
         const properties = parseBroadcastAudiencePrefill(audience)
         const email = parseMessageDraftPrefill(emailParam)
@@ -2955,7 +2964,8 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             source !== undefined ||
             sourceRecordParam !== undefined ||
             emailParam !== undefined ||
-            draftSourceParam !== undefined
+            draftSourceParam !== undefined ||
+            attemptParam !== undefined
         if (fromLink) {
             const prefill: BroadcastPrefill = {
                 properties: properties ?? [],
@@ -2963,6 +2973,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 source: typeof source === 'string' ? source : undefined,
                 sourceRecord: parseSourceRecordPrefill(sourceRecordParam),
                 email: email ?? undefined,
+                entryAttemptId: parseAttemptPrefill(attemptParam),
             }
             // Not setAudienceProperties: opening /broadcasts/new must not create a draft.
             actions.prefillFromLink(prefill)
@@ -3070,6 +3081,7 @@ async function createDraft(projectId: string, values: broadcastWizardLogicType['
     const created = await hogFlowsCreate(projectId, {
         ...buildBroadcastPayload(values),
         ...(values.sourceRecord ? { source_record: values.sourceRecord } : {}),
+        ...(values.entryAttemptId ? { entry_attempt_id: values.entryAttemptId } : {}),
     } as any)
     // pinned: analytics event name
     posthog.capture('broadcast draft created', { broadcast_id: created.id, entry_source: values.entrySource })

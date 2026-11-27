@@ -22,6 +22,7 @@ import {
     PropertyFilterType,
 } from '~/types'
 
+import { workflowEntryAttempt } from '../../../../MessageAudience/messageAudienceAttempts'
 import { WorkflowLogicProps, workflowLogic } from '../../../workflowLogic'
 import { hogFlowEditorLogic } from '../../hogFlowEditorLogic'
 import { withSandboxRecipient } from '../../steps/email/emailStepVariants'
@@ -540,7 +541,7 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
             },
         ],
     })),
-    forms(({ actions, values }) => ({
+    forms(({ actions, values, props }) => ({
         testInvocation: {
             defaults: {
                 mock_async_functions: false,
@@ -593,7 +594,7 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
                         })),
                     }
 
-                    reportEmailTest(testedWorkflow, testedActionId, result)
+                    reportEmailTest(testedWorkflow, testedActionId, result, workflowEntryAttempt(props))
                     if (values.selectedNodeId === testedActionId) {
                         actions.setTestResult(
                             result,

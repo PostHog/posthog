@@ -1,4 +1,5 @@
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { LemonDialog } from '@posthog/lemon-ui'
 
@@ -17,16 +18,29 @@ import {
     UNVERIFIED_SENDER_MESSAGE,
 } from '../Channels/emailSendingMessages'
 import { MessageAudience, MessageAudienceDestination, messageAudienceUrl } from './messageAudience'
+import { startMessageAudienceAttempt } from './messageAudienceAttempts'
 
-export function emailSenderWarning(integrations: Pick<IntegrationConfigApi, 'kind' | 'config'>[]): string | null {
+// pinned: analytics property values of the warnings event
+export type MessageAudienceWarningKind = 'sending_suspended' | 'no_sender' | 'unverified_sender' | 'cohort_not_ready'
+
+export interface MessageAudienceWarning {
+    kind: MessageAudienceWarningKind
+    message: string
+}
+
+const SENDER_WARNING_KINDS: MessageAudienceWarningKind[] = ['no_sender', 'unverified_sender']
+
+export function emailSenderWarning(
+    integrations: Pick<IntegrationConfigApi, 'kind' | 'config'>[]
+): MessageAudienceWarning | null {
     const senders = integrations.filter((integration) => integration.kind === 'email')
     if (senders.length === 0) {
-        return NO_EMAIL_SENDER_MESSAGE
+        return { kind: 'no_sender', message: NO_EMAIL_SENDER_MESSAGE }
     }
     const verified = senders.some(
         (integration) => (integration.config as { verified?: boolean } | undefined)?.verified === true
     )
-    return verified ? null : UNVERIFIED_SENDER_MESSAGE
+    return verified ? null : { kind: 'unverified_sender', message: UNVERIFIED_SENDER_MESSAGE }
 }
 
 // The checks only advise, so a slow one must not hold the person on the page.
@@ -46,7 +60,7 @@ function withinTimeout<T>(request: Promise<T>): Promise<T | null> {
 export async function loadMessageAudienceWarnings(
     audience: MessageAudience,
     destination: MessageAudienceDestination
-): Promise<string[]> {
+): Promise<MessageAudienceWarning[]> {
     const projectId = String(ApiConfig.getCurrentProjectId())
     // A workflow sends per person as they qualify, so a cohort that is still calculating doesn't hold it up.
     const cohortIds = destination === 'broadcast' ? audienceCohortIds(audience.properties) : []
@@ -60,11 +74,16 @@ export async function loadMessageAudienceWarnings(
         ),
     ])
     return [
-        suspension?.email_sending_suspended ? EMAIL_SENDING_SUSPENDED_MESSAGE : null,
+        suspension?.email_sending_suspended
+            ? { kind: 'sending_suspended' as const, message: EMAIL_SENDING_SUSPENDED_MESSAGE }
+            : null,
         // A verified sender can sit on a later page, so only a complete list can say none is verified.
         integrations && !integrations.next ? emailSenderWarning(integrations.results) : null,
-        ...cohorts.map((cohort) => (cohort ? audienceCohortLaunchError(cohort) : null)),
-    ].filter((warning): warning is string => !!warning)
+        ...cohorts.map((cohort) => {
+            const message = cohort ? audienceCohortLaunchError(cohort) : null
+            return message ? { kind: 'cohort_not_ready' as const, message } : null
+        }),
+    ].filter((warning): warning is MessageAudienceWarning => !!warning)
 }
 
 let opening = false
@@ -95,13 +114,20 @@ export async function openMessageAudience(
             await navigate()
             return
         }
+        // pinned: analytics event name and properties
+        posthog.capture('message audience warnings shown', {
+            source: audience.source,
+            destination,
+            attempt_id: startMessageAudienceAttempt(audience.source, destination).attemptId,
+            warnings: warnings.map((warning) => warning.kind),
+        })
         // The modal covers the entry point, and Continue shows its own loading state while it opens the email.
         LemonDialog.open({
             title: 'Before you send',
             content: (
                 <ul className="list-disc pl-4 m-0 flex flex-col gap-1" data-attr="message-audience-warnings">
                     {warnings.map((warning) => (
-                        <li key={warning}>{warning}</li>
+                        <li key={warning.kind + warning.message}>{warning.message}</li>
                     ))}
                 </ul>
             ),
@@ -111,10 +137,13 @@ export async function openMessageAudience(
                 onClick: navigate,
                 'data-attr': `message-audience-${audience.source}-continue`,
             },
-            secondaryButton:
-                warnings.includes(NO_EMAIL_SENDER_MESSAGE) || warnings.includes(UNVERIFIED_SENDER_MESSAGE)
-                    ? { children: 'Set up email', onClick: () => router.actions.push(urls.workflows('channels')) }
-                    : { children: 'Cancel' },
+            secondaryButton: warnings.some((warning) => SENDER_WARNING_KINDS.includes(warning.kind))
+                ? {
+                      children: 'Set up email',
+                      onClick: () => router.actions.push(urls.workflows('channels')),
+                      'data-attr': `message-audience-${audience.source}-set-up-email`,
+                  }
+                : { children: 'Cancel' },
         })
     } finally {
         opening = false

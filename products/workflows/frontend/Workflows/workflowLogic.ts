@@ -82,6 +82,7 @@ import {
 } from '../MessageAudience/aiEmailDraft'
 import type { AiEmailDraftStatusProps } from '../MessageAudience/AiEmailDraftStatus'
 import { loadEmailBrand } from '../MessageAudience/emailBrand'
+import { rememberSavedWorkflowAttempt } from '../MessageAudience/messageAudienceAttempts'
 import { parseMessageDraftPrefill } from '../MessageAudience/messageDrafts'
 import { SENSITIVE_REASON } from '../TemplateLibrary/templateWorkflowDisabledReason'
 import { confirmEnableOnSandboxSender } from './confirmEnableOnSandboxSender'
@@ -144,6 +145,7 @@ export interface WorkflowLogicProps {
     messageTemplateId?: string
     draftSource?: string
     entrySource?: string
+    entryAttemptId?: string
 }
 
 /** Gives the workflow's name to the scene logic, which reports it as a recent and cannot import this logic back. */
@@ -4049,7 +4051,11 @@ export const workflowLogic = kea<workflowLogicType>([
                             const result = (await hogFlowsCreate(teamId, {
                                 ...updates,
                                 ...(createsBroadcast ? { origin_product: 'broadcasts' } : {}),
+                                ...(props.entryAttemptId ? { entry_attempt_id: props.entryAttemptId } : {}),
                             } as unknown as Parameters<typeof hogFlowsCreate>[1])) as unknown as HogFlow
+                            if (props.entryAttemptId) {
+                                rememberSavedWorkflowAttempt(result.id, props.entryAttemptId)
+                            }
                             actions.workflowCreated(result.id)
 
                             if (props.templateId) {

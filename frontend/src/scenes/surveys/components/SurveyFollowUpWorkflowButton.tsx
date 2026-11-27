@@ -10,6 +10,7 @@ import {
     captureMessageAudienceClicked,
     messageAudienceAccessDisabledReason,
 } from 'products/workflows/frontend/MessageAudience/messageAudience'
+import { MessageAudienceShown } from 'products/workflows/frontend/MessageAudience/MessageAudienceShown'
 import { draftMessage } from 'products/workflows/frontend/MessageAudience/messageDrafts'
 import {
     type WorkflowTriggerConfig,
@@ -34,25 +35,28 @@ function surveyFollowUpTrigger(surveyId: string): WorkflowTriggerConfig {
 export function SurveyFollowUpWorkflowButton({ surveyId }: { surveyId: string }): JSX.Element {
     const accessDisabledReason = messageAudienceAccessDisabledReason()
     return (
-        <ButtonPrimitive
-            menuItem
-            tooltip="Open a workflow that emails each person who responds to this survey"
-            onClick={() => {
-                captureMessageAudienceClicked(SOURCE, 'workflow')
-                router.actions.push(
-                    urlForNewWorkflowWithTrigger(
-                        surveyFollowUpTrigger(surveyId),
-                        SOURCE,
-                        draftMessage({ kind: 'survey_responded' }),
-                        { source: 'survey', source_id: surveyId }
+        <>
+            {!accessDisabledReason && <MessageAudienceShown source={SOURCE} destination="workflow" />}
+            <ButtonPrimitive
+                menuItem
+                tooltip="Open a workflow that emails each person who responds to this survey"
+                onClick={() => {
+                    captureMessageAudienceClicked(SOURCE, 'workflow')
+                    router.actions.push(
+                        urlForNewWorkflowWithTrigger(
+                            surveyFollowUpTrigger(surveyId),
+                            SOURCE,
+                            draftMessage({ kind: 'survey_responded' }),
+                            { source: 'survey', source_id: surveyId }
+                        )
                     )
-                )
-            }}
-            disabledReasons={accessDisabledReason ? { [accessDisabledReason]: true } : {}}
-            data-attr="survey-start-follow-up-workflow"
-        >
-            <IconSend />
-            Email everyone who responds
-        </ButtonPrimitive>
+                }}
+                disabledReasons={accessDisabledReason ? { [accessDisabledReason]: true } : {}}
+                data-attr="survey-start-follow-up-workflow"
+            >
+                <IconSend />
+                Email everyone who responds
+            </ButtonPrimitive>
+        </>
     )
 }

@@ -133,6 +133,7 @@ import {
 import { openRollbackReasonDialog } from 'products/feature_flags/frontend/rollbackReasonDialog'
 import {
     captureMessageAudienceClicked,
+    captureMessageAudienceShown,
     cohortAudienceProperties,
     messageAudienceAccessDisabledReason,
     messageAudienceUrl,
@@ -192,7 +193,7 @@ const REUSABLE_FLAG_COHORT_MAX_AGE_MS = 60 * 60 * 1000
 // insert_cohort_from_feature_flag stops at a 4-hour soft limit, so a cohort still calculating after that is stuck.
 const FLAG_COHORT_MAX_FILL_MS = 4 * 60 * 60 * 1000
 // pinned: sent as the broadcast's entry_source and the click event's source, so renaming it splits the history
-const FLAG_BROADCAST_SOURCE = 'feature_flag'
+export const FLAG_BROADCAST_SOURCE = 'feature_flag'
 // pinned: the toast offered when a save turns a flag on for everyone
 const FLAG_LIVE_BROADCAST_SOURCE = 'feature_flag_live'
 export const FINDING_FLAG_PEOPLE_MESSAGE = 'Finding the people who have this flag…'
@@ -318,6 +319,7 @@ function liveFlagToastOptions(
     ) {
         return undefined
     }
+    captureMessageAudienceShown(FLAG_LIVE_BROADCAST_SOURCE, 'broadcast')
     const button: ToastButton = {
         label: "Tell people it's live",
         dataAttr: 'feature-flag-live-broadcast',

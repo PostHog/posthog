@@ -727,6 +727,56 @@ describe('hogFlowOutputMappingLogic', () => {
                     ['workflows test email sent', { step_type: 'function_email', sender_kind: 'own_domain' }],
                 ])
             })
+
+            it('stores the attempt the editor opened with on create, and reports it with a later test email', async () => {
+                const attemptId = '0195f3a2-7c4e-7d10-9a6b-2f3c4d5e6f70'
+                const created: Record<string, unknown>[] = []
+                const email = {
+                    ...makeActionNode('email').data,
+                    type: 'function_email',
+                    config: { inputs: {} },
+                } as HogFlowAction
+                useMocks({
+                    post: {
+                        '/api/environments/:team_id/hog_flows/': async ({ request }) => {
+                            const body = (await request.json()) as Record<string, unknown>
+                            created.push(body)
+                            return [201, { ...body, id: WORKFLOW_ID, version: 1, status: 'draft' }]
+                        },
+                        '/api/environments/:team_id/hog_flows/:id/invocations': () => [
+                            200,
+                            {
+                                status: 'success',
+                                logs: [],
+                                nextActionId: null,
+                                emailSendResult: { status: 'accepted' },
+                            },
+                        ],
+                    },
+                })
+                const newEditor = workflowLogic({ id: 'new', entryAttemptId: attemptId })
+                newEditor.mount()
+                await expectLogic(newEditor).toDispatchActions(['loadWorkflowSuccess'])
+                await expectLogic(newEditor, () => newEditor.actions.submitWorkflow()).toDispatchActions([
+                    'saveWorkflowSuccess',
+                ])
+                newEditor.unmount()
+                const capture = jest.spyOn(posthog, 'capture')
+                await expectLogic(wfLogic).toFinishAllListeners()
+                wfLogic.actions.setWorkflowValues({ actions: [email] })
+                editorLogic.actions.setNodesRaw([{ ...makeActionNode('email'), data: email }])
+                editorLogic.actions.setSelectedNodeId('email')
+
+                await expectLogic(logic, () => logic.actions.runOutputTest()).toFinishAllListeners()
+
+                expect(created.map((body) => body.entry_attempt_id)).toEqual([attemptId])
+                expect(capture.mock.calls.filter(([event]) => event === 'workflows test email sent')).toEqual([
+                    [
+                        'workflows test email sent',
+                        { step_type: 'function_email', sender_kind: 'own_domain', attempt_id: attemptId },
+                    ],
+                ])
+            })
         })
     })
 })

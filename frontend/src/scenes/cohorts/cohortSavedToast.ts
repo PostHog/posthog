@@ -7,6 +7,7 @@ import { CohortType } from '~/types'
 
 import {
     captureMessageAudienceClicked,
+    captureMessageAudienceShown,
     cohortAudienceProperties,
     messageAudienceAccessDisabledReason,
 } from 'products/workflows/frontend/MessageAudience/messageAudience'
@@ -20,6 +21,7 @@ export function emailCohortToastButton(
     if (messageAudienceAccessDisabledReason()) {
         return undefined
     }
+    captureMessageAudienceShown(source, 'broadcast')
     return {
         label: 'Email this cohort',
         dataAttr: `message-audience-${source}-broadcast`,
