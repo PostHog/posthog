@@ -41,13 +41,17 @@ describe('AdventCalendarScene', () => {
 
     const pathname = (): string => router.values.location.pathname
     const showsCalendar = (): boolean => !!screen.queryByText('THE WORKFLOWS ADVENT CALENDAR')
+    const showsSpinner = (): boolean => !!document.querySelector('.SpinnerOverlay')
     const setCalendarFlag = (enabled: boolean): void =>
         act(() => featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_ADVENT_CALENDAR]: enabled }))
 
     it('sends a visitor without the calendar to Workflows once a fresh flag load agrees', async () => {
         const { unmount } = render(<AdventCalendarScene />)
         setCalendarFlag(false)
-        expect(pathname()).toMatch(/\/workflows\/advent$/)
+        expect({ pathname: pathname(), showsSpinner: showsSpinner() }).toEqual({
+            pathname: expect.stringMatching(/\/workflows\/advent$/),
+            showsSpinner: true,
+        })
 
         await finishFlagLoad('loaded')
 
@@ -59,6 +63,18 @@ describe('AdventCalendarScene', () => {
         const { unmount } = render(<AdventCalendarScene />)
         setCalendarFlag(false)
         act(() => router.actions.push(urls.insights()))
+
+        await finishFlagLoad('loaded')
+
+        expect(pathname()).toMatch(/\/insights$/)
+        unmount()
+    })
+
+    it('leaves a visitor who navigated on before the flag turned off where they went', async () => {
+        setCalendarFlag(true)
+        const { unmount } = render(<AdventCalendarScene />)
+        act(() => router.actions.push(urls.insights()))
+        setCalendarFlag(false)
 
         await finishFlagLoad('loaded')
 
