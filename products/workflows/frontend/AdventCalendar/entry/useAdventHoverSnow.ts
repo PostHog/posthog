@@ -1,9 +1,9 @@
-import { MouseEvent, useEffect, useRef } from 'react'
+import { useEffect, useRef } from 'react'
 
 import { retryImport } from 'lib/utils/retryImport'
 
 export interface AdventHoverSnowProps {
-    onMouseEnter: (event: MouseEvent<HTMLElement>) => void
+    onMouseEnter: () => void
     onMouseLeave: () => void
 }
 
@@ -27,13 +27,12 @@ export function useAdventHoverSnow(): AdventHoverSnowProps {
     useEffect(() => stop, [])
 
     return {
-        onMouseEnter: (event) => {
+        onMouseEnter: () => {
             if (prefersReducedMotion()) {
                 return
             }
             hovering.current = true
-            const trigger = event.currentTarget.getBoundingClientRect()
-            void loadSnowOrNothing().then((snow) => hovering.current && snow?.showAdventHoverSnow(trigger))
+            void loadSnowOrNothing().then((snow) => hovering.current && snow?.showAdventHoverSnow())
         },
         onMouseLeave: stop,
     }

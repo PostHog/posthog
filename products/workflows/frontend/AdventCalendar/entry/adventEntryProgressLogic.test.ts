@@ -38,6 +38,12 @@ describe('adventEntryProgressLogic', () => {
         ['is unknown while no user is loaded', null, { [MOCK_DEFAULT_USER.uuid]: { opened: [1] } }, null],
         ['reads the doors this person opened', MOCK_DEFAULT_USER, { [MOCK_DEFAULT_USER.uuid]: { opened: [1] } }, [1]],
         ['is empty when only someone else opened doors', MOCK_DEFAULT_USER, { other: { opened: [1] } }, []],
+        [
+            'stops before a question door left unanswered',
+            MOCK_DEFAULT_USER,
+            { [MOCK_DEFAULT_USER.uuid]: { opened: [1, 2, 3] } },
+            [1],
+        ],
         ['is empty when the stored progress is unreadable', MOCK_DEFAULT_USER, 'not json', []],
     ])('%s', (_, user, stored, opened) => {
         userLogic.actions.loadUserSuccess(user)

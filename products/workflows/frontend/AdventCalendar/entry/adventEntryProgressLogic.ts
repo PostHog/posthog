@@ -7,7 +7,12 @@ import type { UserType } from '~/types'
 import { ADVENT_LAST_DAY } from '../adventContent'
 import { AdventRewards, drawAdventRewards } from '../adventDraw'
 import { AdventDoor, AdventProgress, EMPTY_ADVENT_PROGRESS } from '../adventGraph'
-import { cleanProgressByUser, PROGRESS_STORAGE_KEY, storedProgressByUser } from '../adventProgressStorage'
+import {
+    cleanProgressByUser,
+    PROGRESS_STORAGE_KEY,
+    reachableProgress,
+    storedProgressByUser,
+} from '../adventProgressStorage'
 import { adventEntryDoors } from './adventEntryDoors'
 import { AdventEntryPhase, adventEntryPhase } from './adventEntryPhase'
 
@@ -83,7 +88,7 @@ export const adventEntryProgressLogic = kea<adventEntryProgressLogicType>([
         progress: [
             (s) => [s.progressByUser, s.user],
             (progressByUser: Record<string, AdventProgress> | null, user: UserType | null): AdventProgress | null =>
-                progressByUser && user ? (progressByUser[user.uuid] ?? EMPTY_ADVENT_PROGRESS) : null,
+                progressByUser && user ? reachableProgress(progressByUser[user.uuid] ?? EMPTY_ADVENT_PROGRESS) : null,
         ],
         rewards: [
             (s) => [s.user],
