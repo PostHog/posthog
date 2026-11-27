@@ -6,6 +6,7 @@ import { initKeaTests } from '~/test/init'
 
 import { aeoKeywordsList, aeoKeywordsReport } from '../generated/api'
 import { ContentAutopilotKeywords } from './ContentAutopilotKeywords'
+import { ContentAutopilotKeywordsActions } from './ContentAutopilotKeywordsActions'
 import { EXAMPLE_KEYWORD_REPORT, EXAMPLE_KEYWORDS } from './contentAutopilotStoryFixtures'
 
 jest.mock('../generated/api', () => ({
@@ -46,7 +47,13 @@ describe('ContentAutopilotKeywords', () => {
     })
 
     it('keeps the keyword editor in a modal that the manage button opens', async () => {
-        render(<ContentAutopilotKeywords />)
+        // The manage button sits in the scene header, and the tab mounts the modal.
+        render(
+            <>
+                <ContentAutopilotKeywordsActions />
+                <ContentAutopilotKeywords />
+            </>
+        )
 
         fireEvent.click(await screen.findByText('Manage keywords'))
 
@@ -60,7 +67,7 @@ describe('ContentAutopilotKeywords', () => {
         const report = await screen.findByTestId('content-autopilot-keywords-report')
         const headerRows = report.querySelectorAll('thead tr')
         const groups = Array.from(headerRows[0].querySelectorAll('th')).map((cell) => cell.textContent)
-        expect(groups).toEqual(['', 'AI answers', 'Google search'])
+        expect(groups).toEqual(['', '', 'AI answers', 'Google search'])
         expect(await within(report).findByText('Impressions')).toBeTruthy()
     })
 })

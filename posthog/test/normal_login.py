@@ -7,6 +7,7 @@ from django_otp.plugins.otp_totp.models import TOTPDevice
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, User
 from posthog.models.organization_domain import OrganizationDomain
+from posthog.models.user import UserType
 from posthog.models.webauthn_credential import WebauthnCredential
 
 # COSE identifier of ES256, the algorithm passkeys sign with by default.
@@ -24,11 +25,16 @@ class NormalLoginRequirement(StrEnum):
     TOTP = "totp"
     PASSKEY = "passkey"
     SSO_ENFORCED = "sso_enforced"
+    SERVICE_ACCOUNT = "service_account"
 
 
 def require_normal_login(user: User, organization: Organization, requirement: NormalLoginRequirement) -> None:
     """Give `user` the account setup that makes a login without the login page refuse them."""
-    if requirement == NormalLoginRequirement.TOTP:
+    if requirement == NormalLoginRequirement.SERVICE_ACCOUNT:
+        user.type = UserType.SERVICE_ACCOUNT
+        user.save(update_fields=["type"])
+
+    elif requirement == NormalLoginRequirement.TOTP:
         TOTPDevice.objects.create(user=user, name="default", confirmed=True)
 
     elif requirement == NormalLoginRequirement.PASSKEY:

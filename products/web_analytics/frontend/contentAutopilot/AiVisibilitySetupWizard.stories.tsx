@@ -6,9 +6,10 @@ import { FEATURE_FLAGS } from 'lib/constants'
 
 import { mswDecorator } from '~/mocks/browser'
 
-import type { AEOSetupContextApi, AEOSetupJobApi } from '../generated/api.schemas'
+import type { AEOPromptApi, AEOSetupContextApi, AEOSetupJobApi } from '../generated/api.schemas'
+import { AiVisibilitySetupWizard } from './AiVisibilitySetupWizard'
+import { ContentAutopilot } from './ContentAutopilot'
 import { ContentAutopilotFirstRunCard } from './ContentAutopilotFirstRunCard'
-import { ContentAutopilotSetupCard } from './ContentAutopilotSetupCard'
 import { contentAutopilotSetupLogic } from './contentAutopilotSetupLogic'
 
 const CONTEXT: AEOSetupContextApi = {
@@ -25,7 +26,9 @@ const CONTEXT: AEOSetupContextApi = {
     ai_data_processing_approved: true,
     first_run_available: true,
     prompt_target: 20,
+    prompt_count_max: 50,
     website_days: 7,
+    first_run_checks: [],
     engines: [
         { engine: 'claude-web-search', mode: 'web_search', available: true, enabled: true, frequency: 'daily' },
         { engine: 'openai-web-search', mode: 'web_search', available: true, enabled: true, frequency: 'daily' },
@@ -51,41 +54,33 @@ const RUNNING_JOB: AEOSetupJobApi = {
     steps: [
         { step: 'brand', status: 'done', added: 1, detail: '' },
         { step: 'prompts', status: 'done', added: 20, detail: '' },
-        { step: 'keywords', status: 'running', added: 0, detail: '' },
-        { step: 'first_run', status: 'pending', added: 0, detail: '' },
-    ],
-}
-
-const FINISHED_JOB: AEOSetupJobApi = {
-    id: '00000000-0000-4000-8000-000000000a02',
-    status: 'completed',
-    error: '',
-    steps: [
-        { step: 'brand', status: 'done', added: 1, detail: '' },
-        { step: 'prompts', status: 'done', added: 20, detail: 'paused' },
-        {
-            step: 'keywords',
-            status: 'failed',
-            added: 0,
-            detail: 'Keyword suggestions took too long. Try again with fewer keywords.',
-        },
-        { step: 'first_run', status: 'skipped', added: 0, detail: 'not_requested' },
-    ],
-}
-
-const FIRST_RUN_QUEUED_JOB: AEOSetupJobApi = {
-    id: '00000000-0000-4000-8000-000000000a03',
-    status: 'completed',
-    error: '',
-    steps: [
-        { step: 'brand', status: 'skipped', added: 0, detail: 'not_requested' },
-        { step: 'prompts', status: 'skipped', added: 0, detail: 'not_requested' },
-        { step: 'keywords', status: 'skipped', added: 0, detail: 'not_requested' },
         { step: 'first_run', status: 'done', added: 0, detail: '' },
+        { step: 'keywords', status: 'running', added: 0, detail: '' },
     ],
 }
 
-// The count reads 0 until the engines load, so a snapshot waits for a real number.
+const prompt = (id: number, text: string, topic: string, active = true): AEOPromptApi =>
+    ({
+        id: `00000000-0000-4000-8000-${String(id).padStart(12, '0')}`,
+        prompt: text,
+        topic,
+        active,
+    }) as AEOPromptApi
+
+const PROMPTS: AEOPromptApi[] = [
+    prompt(1, 'What is the best file sharing app for small teams?', 'File sharing'),
+    prompt(2, 'Which cloud storage is easiest to share with clients?', 'File sharing'),
+    prompt(3, 'How do I send large video files without email limits?', 'Large files', false),
+    prompt(4, 'Is Hedgebox a good alternative to bigger cloud drives?', 'Alternatives'),
+]
+
+const KEYWORDS = [
+    { id: '00000000-0000-4000-8000-0000000000b1', keyword: 'file sharing', created_at: '2026-11-12T00:00:00Z' },
+    { id: '00000000-0000-4000-8000-0000000000b2', keyword: 'cloud storage', created_at: '2026-11-12T00:00:00Z' },
+    { id: '00000000-0000-4000-8000-0000000000b3', keyword: 'large files', created_at: '2026-11-12T00:00:00Z' },
+]
+
+// The count reads 0 until the context loads, so a snapshot waits for a real number.
 const COUNTED = '[data-attr="content-autopilot-setup-cost-note"]:not([data-checks="0"])'
 
 const mocks = (context: AEOSetupContextApi): ReturnType<typeof mswDecorator> =>
@@ -93,23 +88,24 @@ const mocks = (context: AEOSetupContextApi): ReturnType<typeof mswDecorator> =>
         get: {
             '/api/projects/:team_id/aeo_setup/context/': () => [200, context],
             '/api/projects/:team_id/aeo_setup/:id/': () => [200, RUNNING_JOB],
-            '/api/projects/:team_id/web_analytics_content_autopilot_profiles/': () => [
+            '/api/projects/:team_id/aeo_prompts/': () => [
                 200,
-                { count: 0, next: null, previous: null, results: [] },
+                { count: PROMPTS.length, next: null, previous: null, results: PROMPTS },
             ],
-            '/api/projects/:team_id/aeo_prompts/': () => [200, { count: 0, next: null, previous: null, results: [] }],
             '/api/projects/:team_id/aeo_prompts/topics/': () => [200, []],
             '/api/projects/:team_id/aeo_engines/': () => [200, context.engines],
-            '/api/projects/:team_id/aeo_keywords/': () => [200, []],
+            '/api/projects/:team_id/aeo_keywords/': () => [200, KEYWORDS],
         },
     })
 
-const meta: Meta<typeof ContentAutopilotSetupCard> = {
+const meta: Meta<typeof AiVisibilitySetupWizard> = {
     title: 'Products/Web Analytics/Content autopilot/Setup',
-    component: ContentAutopilotSetupCard,
+    component: AiVisibilitySetupWizard,
     parameters: {
         featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT],
         mockDate: '2026-11-12',
+        // The wizard is one scene's flow, so its stories render and run without visual baselines.
+        testOptions: { snapshotBrowsers: [] },
     },
 }
 
@@ -117,17 +113,17 @@ export default meta
 
 const Frame = ({ children }: { children: JSX.Element }): JSX.Element => <div className="p-4 max-w-200">{children}</div>
 
-export const EmptyState: StoryFn = () => (
+export const YourWebsite: StoryFn = () => (
     <Frame>
-        <ContentAutopilotSetupCard />
+        <AiVisibilitySetupWizard step="website" />
     </Frame>
 )
-EmptyState.decorators = [mocks(CONTEXT)]
-EmptyState.parameters = { testOptions: { waitForSelector: COUNTED } }
+YourWebsite.decorators = [mocks(CONTEXT)]
+YourWebsite.parameters = { testOptions: { waitForSelector: '[data-attr="content-autopilot-setup-domain"]' } }
 
 export const AiDataProcessingNotApproved: StoryFn = () => (
     <Frame>
-        <ContentAutopilotSetupCard />
+        <AiVisibilitySetupWizard step="website" />
     </Frame>
 )
 AiDataProcessingNotApproved.decorators = [mocks({ ...CONTEXT, ai_data_processing_approved: false })]
@@ -141,40 +137,39 @@ const WithJob = ({ job, children }: { job: AEOSetupJobApi; children: JSX.Element
     return <Frame>{children}</Frame>
 }
 
-export const SetupRunning: StoryFn = () => (
+export const SettingUp: StoryFn = () => (
     <WithJob job={RUNNING_JOB}>
-        <ContentAutopilotSetupCard />
+        <AiVisibilitySetupWizard step="review" />
     </WithJob>
 )
-SetupRunning.decorators = [mocks(CONTEXT)]
-SetupRunning.parameters = {
+SettingUp.decorators = [mocks(CONTEXT)]
+SettingUp.parameters = {
     testOptions: {
         waitForLoadersToDisappear: false,
-        waitForSelector: '[data-attr="content-autopilot-setup-progress"]',
+        waitForSelector: '[data-attr="ai-visibility-setup-checklist"]',
     },
 }
 
-export const ConfiguredNoRunYet: StoryFn = () => (
+export const FirstCheckNotRun: StoryFn = () => (
     <Frame>
-        <ContentAutopilotFirstRunCard prompts={20} />
+        <AiVisibilitySetupWizard step="review" />
     </Frame>
 )
-ConfiguredNoRunYet.decorators = [mocks(CONFIGURED_CONTEXT)]
-ConfiguredNoRunYet.parameters = { testOptions: { waitForSelector: COUNTED } }
+FirstCheckNotRun.decorators = [mocks(CONFIGURED_CONTEXT)]
+FirstCheckNotRun.parameters = { testOptions: { waitForSelector: '[data-attr="ai-visibility-setup-not-run"]' } }
 
-export const SetupFinished: StoryFn = () => (
-    <WithJob job={FINISHED_JOB}>
-        <ContentAutopilotSetupCard />
-    </WithJob>
+export const Review: StoryFn = () => (
+    <Frame>
+        <AiVisibilitySetupWizard step="review" />
+    </Frame>
 )
-SetupFinished.decorators = [mocks(CONTEXT)]
-SetupFinished.parameters = {
-    testOptions: { waitForSelector: '[data-attr="content-autopilot-setup-dismiss"]' },
-}
+Review.decorators = [mocks(CONFIGURED_CONTEXT)]
+Review.parameters = { testOptions: { waitForSelector: '[data-attr="ai-visibility-setup-review-keyword"]' } }
 
+// The scene shows the error in place of setup, since the wizard can't open without the context.
 export const ContextLoadError: StoryFn = () => (
     <Frame>
-        <ContentAutopilotSetupCard />
+        <ContentAutopilot />
     </Frame>
 )
 ContextLoadError.decorators = [
@@ -182,17 +177,17 @@ ContextLoadError.decorators = [
         get: { '/api/projects/:team_id/aeo_setup/context/': () => [500, { detail: 'Server error' }] },
     }),
 ]
-ContextLoadError.parameters = { testOptions: { waitForSelector: '.LemonBanner' } }
-
-export const FirstChecksRunning: StoryFn = () => (
-    <WithJob job={FIRST_RUN_QUEUED_JOB}>
-        <ContentAutopilotFirstRunCard prompts={20} />
-    </WithJob>
-)
-FirstChecksRunning.decorators = [mocks(CONFIGURED_CONTEXT)]
-FirstChecksRunning.parameters = {
-    testOptions: { waitForSelector: '[data-attr="content-autopilot-first-run-queued"]' },
+ContextLoadError.parameters = {
+    testOptions: { waitForSelector: '[data-attr="content-autopilot-setup-context-error"]' },
 }
+
+export const PromptsReadyAfterSetup: StoryFn = () => (
+    <Frame>
+        <ContentAutopilotFirstRunCard prompts={20} />
+    </Frame>
+)
+PromptsReadyAfterSetup.decorators = [mocks(CONFIGURED_CONTEXT)]
+PromptsReadyAfterSetup.parameters = { testOptions: { waitForSelector: COUNTED } }
 
 export const PromptsSavedPaused: StoryFn = () => (
     <Frame>
@@ -201,20 +196,3 @@ export const PromptsSavedPaused: StoryFn = () => (
 )
 PromptsSavedPaused.decorators = [mocks({ ...CONFIGURED_CONTEXT, active_prompts: 0, paused_prompts: 20 })]
 PromptsSavedPaused.parameters = { testOptions: { waitForSelector: COUNTED } }
-
-export const UnavailableEngineChosen: StoryFn = () => (
-    <Frame>
-        <ContentAutopilotSetupCard />
-    </Frame>
-)
-UnavailableEngineChosen.decorators = [
-    mocks({
-        ...CONTEXT,
-        engines: CONTEXT.engines.map((setting) =>
-            setting.engine === 'perplexity-web-search' ? { ...setting, enabled: true } : setting
-        ),
-    }),
-]
-UnavailableEngineChosen.parameters = {
-    testOptions: { waitForSelector: '[data-attr="content-autopilot-setup-pending-engines"]' },
-}

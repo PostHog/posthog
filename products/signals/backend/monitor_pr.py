@@ -37,11 +37,13 @@ from products.authorization.backend.facade.contracts import CheckRequest, Resour
 from products.authorization.backend.facade.enums import Action, ResourceType
 from products.signals.backend.artefact_schemas import (
     CheckAuthoringStatus,
+    NoteArtefact,
     ReviewerProposal,
     ReviewerState,
     SuggestedReviewerEntry,
     SuggestedReviewers,
 )
+from products.signals.backend.credential_redaction import redact_credentials
 from products.signals.backend.daily_limit import check_daily_report_admission, team_day_start
 from products.signals.backend.github_actor import GITHUB_LOGIN_PATTERN
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalReportCheck
@@ -804,19 +806,47 @@ class PRMonitoringCheck(BaseModel):
         return CheckSpec.model_validate(self.model_dump(mode="json", exclude_none=True))
 
 
+_GUIDANCE_ACCESS_SENTINEL_QUERY: dict[str, Any] = {
+    "kind": "InsightVizNode",
+    "source": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+}
+
+
+def _has_disallowed_control_chars(value: str) -> bool:
+    return any(
+        (ord(ch) < 32 and ch not in ("\n", "\r", "\t")) or 0x7F <= ord(ch) <= 0x9F or 0xD800 <= ord(ch) <= 0xDFFF
+        for ch in value
+    )
+
+
 class PRMonitoringOutput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     inspected_commit: str
     metric: ReportMetric | None = None
     check: PRMonitoringCheck | None = None
     unavailable: bool = False
+    guidance_question: str | None = Field(
+        default=None,
+        max_length=1500,
+        description=(
+            "Required when unavailable is true, null otherwise. Plain markdown explaining what direct "
+            "instrumentation is missing, naming candidate proxy event names found in this project when "
+            "any exist, and asking what to monitor. Event names only; never include action names, "
+            "restricted properties, raw analytics counts, or property values."
+        ),
+    )
 
     @model_validator(mode="after")
     def coherent_measurement(self) -> "PRMonitoringOutput":
         if self.unavailable:
             if self.metric is not None or self.check is not None:
                 raise ValueError("An unavailable measurement must not include a metric or check")
+            question = redact_credentials((self.guidance_question or "").strip())
+            if not question or _has_disallowed_control_chars(question):
+                raise ValueError("Provide a non-empty guidance_question when unavailable is true")
+            self.guidance_question = question
             return self
+        self.guidance_question = None
         if self.metric is None or self.check is None:
             raise ValueError("Provide a primary metric and monitoring check, or set unavailable to true")
         if self.metric.role != "primary":
@@ -916,11 +946,23 @@ def finish_monitoring_research(inputs: MonitorPRInput, output: PRMonitoringOutpu
         initiator = require_pr_monitoring_initiator(report.team, inputs.user_id)
         actor = ArtefactAttribution.system()
         if output.unavailable:
+            assert output.guidance_question is not None
             report.save(
                 update_fields=report.transition_to(
                     SignalReport.Status.PENDING_INPUT,
-                    error="PR monitoring research could not identify a measurable metric.",
+                    error="PR monitoring research needs guidance on what to measure.",
                 )
+            )
+            SignalReportArtefact.add_log(
+                team_id=report.team_id,
+                report_id=str(report.id),
+                content=NoteArtefact(
+                    note=output.guidance_question,
+                    author="PR monitoring",
+                    analytics_query_context=[_GUIDANCE_ACCESS_SENTINEL_QUERY],
+                    restricted_to_user_id=inputs.user_id,
+                ),
+                attribution=actor,
             )
             return
         if not team_report_monitoring_enabled(inputs.team_id) or not team_report_metrics_enabled(inputs.team_id):

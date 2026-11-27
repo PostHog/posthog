@@ -69,7 +69,7 @@ from posthog.models.organization_invite import InviteExpiredException, Organizat
 from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
-from posthog.models.user import User
+from posthog.models.user import User, UserType
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.run_mode import derive_run_mode
 from posthog.settings import SITE_URL, base_variables
@@ -1822,10 +1822,14 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
             self.user.id,
         )
 
-    def test_impersonation_blocked_when_user_disallows(self):
-        """Verify regular impersonation fails when target user has allow_impersonation=False."""
-        self.other_user.allow_impersonation = False
-        self.other_user.save()
+    @parameterized.expand(
+        [
+            ("user_disallows", {"allow_impersonation": False}),
+            ("service_account", {"type": UserType.SERVICE_ACCOUNT}),
+        ]
+    )
+    def test_impersonation_blocked(self, _name: str, target_fields: dict[str, Any]) -> None:
+        User.objects.filter(pk=self.other_user.pk).update(**target_fields)
 
         self.login_as_other_user()
 
@@ -2014,6 +2018,7 @@ class TestAdminImpersonationMiddleware(APIBaseTest):
         [
             ("loses_staff", {"is_staff": False}),
             ("deactivated", {"is_active": False}),
+            ("not_human", {"type": UserType.SERVICE_ACCOUNT}),
         ]
     )
     def test_admin_blocked_when_original_user_cannot_swap(self, _name, user_attrs):

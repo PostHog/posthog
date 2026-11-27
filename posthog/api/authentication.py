@@ -576,6 +576,9 @@ class LoginSerializer(serializers.Serializer):
 
             raise serializers.ValidationError("Invalid email or password.", code="invalid_credentials")
 
+        if not user.is_human:
+            raise serializers.ValidationError("Invalid email or password.", code="invalid_credentials")
+
         if radar_attempt and radar_attempt.attempt_id:
             # Reported when the session signs in, so a login that stops at a second factor is never reported
             remember_login_attempt(
@@ -872,7 +875,7 @@ class DevLoginSerializer(serializers.Serializer):
 
         request = self.context["request"]
         user = EmailLookupHandler.get_user_by_email(validated_data["email"])
-        if user is None:
+        if user is None or not user.is_human:
             raise serializers.ValidationError("User not found", code="user_not_found")
 
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
@@ -964,7 +967,8 @@ class DevLoginViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
         # alphabetical: on instances with hundreds of test accounts, the handful you actually
         # switch between float up on their own. Email breaks ties to keep the order stable.
         users = list(
-            User.objects.filter(is_active=True)
+            User.objects.humans()
+            .filter(is_active=True)
             .annotate(is_seeded=Q(email__in=DEV_LOGIN_KNOWN_EMAIL_LABELS))
             .order_by("-is_seeded", F("last_login").desc(nulls_last=True), "email")
             .values("email", "first_name", "is_staff", "last_login")
@@ -1167,7 +1171,7 @@ class TwoFactorViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
             )
 
         try:
-            user = User.objects.get(pk=user_id)
+            user = User.objects.humans().get(pk=user_id)
         except User.DoesNotExist:
             raise serializers.ValidationError(
                 detail="Invalid 2FA session. Please log in again.",
@@ -1219,7 +1223,7 @@ class TwoFactorPasskeyViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
             )
 
         try:
-            user = User.objects.get(pk=user_id)
+            user = User.objects.humans().get(pk=user_id)
         except User.DoesNotExist:
             return Response(
                 {"error": "User not found."},
@@ -1252,7 +1256,7 @@ class TwoFactorPasskeyViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
             )
 
         try:
-            user = User.objects.get(pk=user_id)
+            user = User.objects.humans().get(pk=user_id)
         except User.DoesNotExist:
             return Response(
                 {"error": "User not found."},
@@ -1413,7 +1417,7 @@ class CodeBasedVerificationViewSet(NonCreatingViewSetMixin, viewsets.GenericView
         code = serializer.validated_data.get("code")
         user_id = code_based_verifier.get_pending_code_based_verification_user_id(request)
         try:
-            user = User.objects.get(pk=user_id, is_active=True)
+            user = User.objects.humans().get(pk=user_id, is_active=True)
         except User.DoesNotExist:
             code_based_verifier.clear_pending(request)
             raise invalid_error
@@ -1474,7 +1478,9 @@ class CodeBasedVerificationViewSet(NonCreatingViewSetMixin, viewsets.GenericView
         _require_fresh_idp_challenge(request)
 
         try:
-            user = User.objects.get(pk=code_based_verifier.get_pending_code_based_verification_user_id(request))
+            user = User.objects.humans().get(
+                pk=code_based_verifier.get_pending_code_based_verification_user_id(request)
+            )
         except User.DoesNotExist:
             raise serializers.ValidationError({"detail": "User not found."}, code="user_not_found")
 
@@ -1530,7 +1536,7 @@ class PasswordResetSerializer(serializers.Serializer):
                 code="email_not_available",
             )
 
-        if user:
+        if user and user.is_human:
             user.requested_password_reset_at = datetime.datetime.now(datetime.UTC)
             user.save()
             token = password_reset_token_generator.make_token(user)
@@ -1554,7 +1560,7 @@ class PasswordResetCompleteSerializer(serializers.Serializer):
             return {"email": "test@posthog.com"}
 
         try:
-            user = User.objects.filter(is_active=True).get(uuid=self.context["view"].kwargs["user_uuid"])
+            user = User.objects.humans().filter(is_active=True).get(uuid=self.context["view"].kwargs["user_uuid"])
         except (User.DoesNotExist, ValidationError):
             capture_exception(
                 Exception("User not found in password reset serializer"),
@@ -1613,7 +1619,7 @@ class PasswordResetCompleteViewSet(NonCreatingViewSetMixin, mixins.RetrieveModel
 
     def get_object(self):
         token = self.request.query_params.get("token")
-        user_uuid = self.kwargs.get("user_uuid")
+        user_uuid = self.kwargs["user_uuid"]
 
         if not token:
             raise serializers.ValidationError({"token": ["This field is required."]}, code="required")
@@ -1623,7 +1629,7 @@ class PasswordResetCompleteViewSet(NonCreatingViewSetMixin, mixins.RetrieveModel
             return {"success": True, "token": token}
 
         try:
-            user = User.objects.filter(is_active=True).get(uuid=user_uuid)
+            user = User.objects.humans().filter(is_active=True).get(uuid=user_uuid)
         except (User.DoesNotExist, ValidationError):
             capture_exception(
                 Exception("User not found in password reset viewset"), {"user_uuid": user_uuid, "token": token}
@@ -1799,11 +1805,13 @@ def social_reauth(
 def social_access_rules_allow(
     strategy: DjangoStrategy, backend: BaseAuth, user: User | None = None, **kwargs: Any
 ) -> None:
-    """Refuse an SSO login for an account that an enforced access rule blocks, before a session starts."""
+    """Refuse an SSO login for a service account or an account that an enforced access rule blocks, before a session starts."""
     if user is None:
         # A new account is checked where it is created: the signup serializer, or the SSO invite
         # and verified-domain joins in posthog/api/signup.py.
         return
+    if not user.is_human:
+        raise AuthFailed(backend, "Authentication failed.")
     if _sso_access_refused(strategy.request, user):
         raise AuthFailed(backend, SECURITY_REFUSAL_CODE)
 
