@@ -154,6 +154,12 @@ describe('load', () => {
             'measure.0.params.every: a series window spans at least 10s, one vacuum sample',
         ],
         [
+            'a series window one second shorter than one vacuum sample',
+            { ...card, measure: [{ name: 'dead_tuple_share', params: { every: '9s' } }] },
+            undefined,
+            'measure.0.params.every: a series window spans at least 10s, one vacuum sample',
+        ],
+        [
             'a measurement listed twice, whose keys would overwrite each other',
             {
                 ...card,

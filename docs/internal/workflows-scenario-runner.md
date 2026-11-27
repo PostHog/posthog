@@ -954,6 +954,13 @@ export type JournalEntry = {
       - `email_bounced`: the edge records a bounce only after the SES webhook answers, so the sink can trail the counter while the read settles.
       - `email_failed` and `email_failed_sink`: the sink cannot tell a refused send that the worker retried and sent from a refused send that another invocation of the same unit sent, so it can miss a failure the counter holds. `email_failed_counted` stays.
   - `step_claims_per_second`, per queue and ramp step, jobs per second: the claim rate from `cdp_cyclotron_jobs_processed` in each step, keyed `<queue>_<scale>x`, such as `hogflow_10x`, from the samples inside the step, and incomplete when a replica has a scrape gap in it or restarts in it. Read it against the step's offered rate to see whether the workers kept up.
+  - The soak measures read the samples of the vacuum probe. The loader refuses a measurement listed twice, because its keys would overwrite each other.
+    - A series measure takes `every`, a window of at least 10 seconds and 10 minutes by default, and keys each point `t<seconds into the drive>`, with the queue as a prefix for pickups. A window with no reading is `null` and censored, with its reason.
+    - `dead_tuple_share`, the highest share of dead tuples in each window. `heap_bytes_per_row`, the heap bytes per live row at the end of each window. `seconds_since_autovacuum`, the longest wait since the last autovacuum in each window, censored while the table had none.
+    - `pickup_p99_seconds`, per queue: the p99 pickup lateness in each window. Each scrape interval counts once, in the window of its closing scrape.
+    - `writer_cpu_percent`: the highest writer CPU minute that overlaps each window, so a minute across a window edge counts in both. A window that misses a whole minute of the drive is incomplete. It is unmeasured where the target has no Aurora writer.
+    - `cyclotron_jobs_tuples`, `index_bytes_per_row` and `bloat_growth` compare the first and the last sample of the drive. Each end needs a sample within 20 seconds of it, or the values are incomplete, and one sample alone is unmeasured. `bloat_growth` is the end-to-start ratio of bytes per live row for the heap, the TOAST, all indexes and each index.
+    - `autovacuum_runs`, `count` and `timed`, and `autovacuum_seconds`, `p50` and `max`. A run is placed by its end time, from the last sample at or before the drive's start to the first at or after its end. Runs that ended between two samples on both sides of a drive edge mark the count incomplete. A run is timed only when it ended alone between two samples and the earlier one saw it start after the previous run ended. When the role cannot see autovacuum workers, the times are unmeasured.
 
 ### Cyclotron probe
 
