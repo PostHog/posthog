@@ -233,6 +233,12 @@ class TestSnobBackendTestSelectionShadow(unittest.TestCase):
                 True,
             ),
             (
+                "django_dispatch_receiver_attribute_decorator",
+                "posthog/models/hooks.py",
+                "import django.dispatch\n\n@django.dispatch.receiver(post_save)\ndef on_save(**kwargs): pass\n",
+                True,
+            ),
+            (
                 "mutable_receiver_decorator",
                 "products/surveys/backend/activity_logging.py",
                 "@mutable_receiver(model_activity_signal, sender=Survey)\ndef on_activity(**kwargs): pass\n",
