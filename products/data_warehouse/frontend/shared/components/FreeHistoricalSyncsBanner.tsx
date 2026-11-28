@@ -94,8 +94,16 @@ export function FreeHistoricalSyncsBanner({ hideGetStarted }: { hideGetStarted?:
                         </div>
                     )}
 
-                    <p className="text-sm opacity-70">
-                        After the first 7-day period, standard Sources pricing will apply.
+                    <p className="text-sm">
+                        After your first 7 days,{' '}
+                        <Link
+                            to="https://posthog.com/data-pipelines/pricing"
+                            target="_blank"
+                            onClick={() => posthog.capture('historical_sync_banner_pricing_link_clicked')}
+                        >
+                            Sources pricing
+                        </Link>{' '}
+                        applies to your syncs.
                     </p>
                 </div>
             </LemonModal>
