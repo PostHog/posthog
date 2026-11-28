@@ -19,16 +19,19 @@ import {
     Skeleton,
 } from '@posthog/quill'
 
+import { pluralize } from 'lib/utils/strings'
+
 import { AnalyticsSearchInput } from './AnalyticsSearchInput'
 import { analyticsShareLogic } from './analyticsShareLogic'
 import { ShareToSpaceBreadcrumbs } from './ShareToSpaceBreadcrumbs'
 import { ShareToSpaceDialogRow } from './ShareToSpaceDialogRow'
 import { ShareToSpaceNewFolderForm } from './ShareToSpaceNewFolderForm'
 
-/** Picks the collection or folder an item is added or moved to, from the Analytics list or an insight's Share menu. */
+/** Picks the collection or folder one or several items are added or moved to, from the Analytics list or an insight's Share menu. */
 export function ShareToSpaceDialog(): JSX.Element {
     const {
         target,
+        bulkTargets,
         currentFolder,
         browsePath,
         pickerSearch,
@@ -45,15 +48,26 @@ export function ShareToSpaceDialog(): JSX.Element {
     const { closeShareToSpace, browseTo, setPickerSearch, setNewFolderOpen, moveHere } = useActions(analyticsShareLogic)
     const atRoot = browsePath === null
     const showCrumbs = !pickerSearching && !atRoot
+    const bulkCount = bulkTargets.length
 
     return (
-        <Dialog open={!!target} onOpenChange={(open: boolean) => !open && closeShareToSpace()}>
+        <Dialog open={!!target || bulkCount > 0} onOpenChange={(open: boolean) => !open && closeShareToSpace()}>
             {/* Wider than the default 24rem so the new-folder button fits across from Cancel and Move. */}
             <DialogContent className="sm:max-w-120" data-attr="analytics-share-dialog">
                 <DialogHeader className="gap-3">
-                    <DialogTitle>{currentFolder !== null ? 'Move to a collection' : 'Add to a collection'}</DialogTitle>
+                    <DialogTitle>
+                        {bulkCount
+                            ? `Add ${pluralize(bulkCount, 'item')} to a collection`
+                            : currentFolder !== null
+                              ? 'Move to a collection'
+                              : 'Add to a collection'}
+                    </DialogTitle>
                     <DialogDescription className="sr-only">
-                        {target ? `Pick a collection or folder for "${target.name}".` : ''}
+                        {bulkCount
+                            ? `Pick a collection or folder for ${pluralize(bulkCount, 'item')}. Items already in a collection move to the one you pick.`
+                            : target
+                              ? `Pick a collection or folder for "${target.name}".`
+                              : ''}
                     </DialogDescription>
                     <AnalyticsSearchInput
                         value={pickerSearch}

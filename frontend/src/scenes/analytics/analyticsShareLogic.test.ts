@@ -115,6 +115,24 @@ describe('analyticsShareLogic', () => {
         expect(logic.values.folderContents.map((entry) => entry.path)).toEqual(folders)
     })
 
+    it('moves every picked item into the destination, and keeps going past one that cannot move', async () => {
+        const logic = analyticsShareLogic()
+        logic.mount()
+        const targets = [
+            { type: 'insight' as const, ref: 'i1', name: 'Weekly active' },
+            { type: 'canvas' as const, ref: 'c2', name: 'Private' },
+            { type: 'dashboard' as const, ref: 'd1', name: 'Board' },
+        ]
+        logic.actions.openBulkShareToSpace(targets)
+        logic.actions.browseTo('Finance')
+        await expectLogic(logic, () => logic.actions.moveHere())
+            .toDispatchActions(['moveItems', 'itemsMoved', 'shareToSpaceDone'])
+            .toMatchValues({ bulkTargets: [], sharing: false })
+
+        expect(moves).toEqual(['fs-i1 -> Finance/Weekly active', 'fs-d1 -> Finance/Board'])
+        expect(logic.values.itemSpaces).toEqual({ 'insight:i1': 'Finance', 'dashboard:d1': 'Finance' })
+    })
+
     it('refuses to share a canvas from a private channel, since the space would not make it visible', async () => {
         const logic = analyticsShareLogic()
         logic.mount()

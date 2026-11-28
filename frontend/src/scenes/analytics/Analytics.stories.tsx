@@ -407,3 +407,15 @@ export const ListNewInsightDialog: Story = {
         await within(document.body).findByText('How does it change over time?', {}, { timeout: 15000 })
     },
 }
+
+export const ListBulkSelection: Story = {
+    parameters: { pageUrl: urls.analyticsList() },
+    play: async () => {
+        // The table draws its own checkbox column, so the header checkbox is reached by its label.
+        await userEvent.click(
+            await within(document.body).findByRole('checkbox', { name: 'Select all rows' }, { timeout: 15000 })
+        )
+        await clickWhenRendered('analytics-bulk-tags')
+        await within(document.body).findByText('Add tags…', {}, { timeout: 15000 })
+    },
+}
