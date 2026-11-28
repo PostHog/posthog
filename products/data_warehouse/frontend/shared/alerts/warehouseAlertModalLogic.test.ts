@@ -71,7 +71,8 @@ describe('warehouse alert logics', () => {
         expect(platformApi.platformAlertsCreate).toHaveBeenCalledWith(
             expect.any(String),
             expect.objectContaining({
-                source_config: { destination_ids: ['destination-a'], email_project_members: true },
+                // The form has no project members setting, so a new alert emails only the members a destination names.
+                source_config: { destination_ids: ['destination-a'], email_project_members: false },
             })
         )
         expect(warehouseApi.warehouseAlertsDestinationsCreate).toHaveBeenCalledWith(expect.any(String), 'new-alert', {
@@ -104,6 +105,27 @@ describe('warehouse alert logics', () => {
         notifications.actions.setWebhookUrl(webhookUrl)
 
         expect(notifications.values.addDisabledReason).toContain(reason)
+    })
+
+    it.each([
+        ['asks for members before it adds an email destination', [], [], 'Choose the project members to email'],
+        ['blocks an email destination naming the same members in another order', [2, 1], [[1, 2]], 'already sends'],
+        ['adds an email destination naming other members', [1, 3], [[1, 2]], undefined],
+    ])('%s', (_, chosen, pendingUserIds, reason) => {
+        const notifications = warehouseAlertNotificationLogic({})
+        notifications.mount()
+        notifications.actions.setSelectedType('email')
+        notifications.actions.setPendingNotifications(
+            pendingUserIds.map((userIds) => ({ type: 'email' as const, email_user_ids: userIds }))
+        )
+        notifications.actions.setEmailUserIds(chosen)
+
+        if (reason) {
+            expect(notifications.values.addDisabledReason).toContain(reason)
+        } else {
+            expect(notifications.values.addDisabledReason).toBeUndefined()
+            expect(notifications.values.selectedNotification).toEqual({ type: 'email', email_user_ids: [1, 3] })
+        }
     })
 
     it('asks only for the alerts of its kind, and reads every page', async () => {

@@ -1,9 +1,14 @@
 """Plugs warehouse alerts into the alerts platform, which imports no source. Called from `ready()`."""
 
+from collections.abc import Collection
 from uuid import UUID
 
 from products.alerts_platform.backend.facade.contracts import SourceConfigSpec, SourceKind
-from products.alerts_platform.backend.facade.delivery import register_source_describer, register_source_recipients
+from products.alerts_platform.backend.facade.delivery import (
+    register_source_describer,
+    register_source_recipients,
+    register_subscriber_access,
+)
 from products.alerts_platform.backend.facade.source_configs import register_source_config
 from products.warehouse_sources.backend.sync_alerts.wording import (
     describe_destination_transition,
@@ -35,6 +40,14 @@ def project_member_emails(*, team_id: int, configuration_id: UUID) -> list[str]:
     return resolve(team_id=team_id, configuration_id=configuration_id)
 
 
+def subscribers_with_warehouse_access(*, team_id: int, configuration_id: UUID, user_ids: Collection[int]) -> list[int]:
+    from products.warehouse_sources.backend.sync_alerts.email_recipients import (  # noqa: PLC0415 - keeps the platform API and the email tasks off the startup path
+        subscribers_with_warehouse_access as resolve,
+    )
+
+    return resolve(team_id=team_id, configuration_id=configuration_id, user_ids=user_ids)
+
+
 def register() -> None:
     # Native delivery only, so no legacy event emitter and no legacy webhook body.
     register_source_describer(SourceKind.WAREHOUSE_SOURCE, describe_source_transition)
@@ -43,3 +56,5 @@ def register() -> None:
     register_source_config(SourceKind.WAREHOUSE_DESTINATION, load_destination_alert_config)
     register_source_recipients(SourceKind.WAREHOUSE_SOURCE, project_member_emails)
     register_source_recipients(SourceKind.WAREHOUSE_DESTINATION, project_member_emails)
+    register_subscriber_access(SourceKind.WAREHOUSE_SOURCE, subscribers_with_warehouse_access)
+    register_subscriber_access(SourceKind.WAREHOUSE_DESTINATION, subscribers_with_warehouse_access)

@@ -49,6 +49,9 @@ const warehouseAlertsDestinationsCreate = (): ToolBase<
         if (params.pagerduty_region !== undefined) {
             body['pagerduty_region'] = params.pagerduty_region
         }
+        if (params.email_user_ids !== undefined) {
+            body['email_user_ids'] = params.email_user_ids
+        }
         const result = await context.api.request<Schemas.WarehouseAlertDestination>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_alerts/${encodeURIComponent(String(params.id))}/destinations/`,

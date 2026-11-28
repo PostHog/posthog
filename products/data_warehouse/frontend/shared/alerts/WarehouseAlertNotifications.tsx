@@ -1,5 +1,7 @@
 import { useActions, useValues } from 'kea'
+import { ReactNode } from 'react'
 
+import { IconLetter } from '@posthog/icons'
 import { LemonBanner } from '@posthog/lemon-ui'
 
 import {
@@ -25,6 +27,18 @@ const URL_INPUTS: Partial<Record<WarehouseAlertDestinationTypeEnumApi, AlertNoti
     },
 }
 
+function notificationTitle(type: WarehouseAlertDestinationTypeEnumApi, title: string): ReactNode {
+    if (type !== WarehouseAlertDestinationTypeEnumApi.Email) {
+        return title
+    }
+    return (
+        <span className="inline-flex items-center gap-1">
+            <IconLetter className="shrink-0" />
+            {title}
+        </span>
+    )
+}
+
 export function WarehouseAlertNotifications({ alertId }: { alertId?: string }): JSX.Element {
     const logic = warehouseAlertNotificationLogic({ alertId })
     const {
@@ -43,6 +57,8 @@ export function WarehouseAlertNotifications({ alertId }: { alertId?: string }): 
         pagerDutyRoutingKey,
         pagerDutySeverity,
         pagerDutyRegion,
+        emailUserIds,
+        memberNames,
         addDisabledReason,
     } = useValues(logic)
     const {
@@ -58,21 +74,30 @@ export function WarehouseAlertNotifications({ alertId }: { alertId?: string }): 
         setPagerDutyRoutingKey,
         setPagerDutySeverity,
         setPagerDutyRegion,
+        setEmailUserIds,
     } = useActions(logic)
 
-    const existing: AlertNotificationDestinationView[] = (destinations ?? []).map((destination) => ({
-        key: destinationKey(destination),
-        ...describeNotification(destination),
-        tags: destination.enabled ? [] : [{ label: 'Paused', type: 'default' as const }],
-        onDelete: () => deleteDestination(destination),
-        deleting: deletingKey === destinationKey(destination),
-    }))
+    const existing: AlertNotificationDestinationView[] = (destinations ?? []).map((destination) => {
+        const { title, detail } = describeNotification(destination, memberNames)
+        return {
+            key: destinationKey(destination),
+            title: notificationTitle(destination.type, title),
+            detail,
+            tags: destination.enabled ? [] : [{ label: 'Paused', type: 'default' as const }],
+            onDelete: () => deleteDestination(destination),
+            deleting: deletingKey === destinationKey(destination),
+        }
+    })
 
-    const pending: PendingAlertNotificationDestinationView[] = pendingNotifications.map((notification, index) => ({
-        key: `${notification.type}-${index}`,
-        ...describeNotification(notification),
-        onRemove: () => removePendingNotification(index),
-    }))
+    const pending: PendingAlertNotificationDestinationView[] = pendingNotifications.map((notification, index) => {
+        const { title, detail } = describeNotification(notification, memberNames)
+        return {
+            key: `${notification.type}-${index}`,
+            title: notificationTitle(notification.type, title),
+            detail,
+            onRemove: () => removePendingNotification(index),
+        }
+    })
 
     const urlInput = URL_INPUTS[selectedType]
 
@@ -91,7 +116,7 @@ export function WarehouseAlertNotifications({ alertId }: { alertId?: string }): 
                 </LemonBanner>
             ) : null}
             <AlertNotificationDestinationEditor
-                description="Each destination gets a message when the alert fires and when it resolves. PagerDuty opens an incident when the alert fires and resolves it when the alert resolves."
+                description="Each destination gets a message when the alert fires and when it resolves. PagerDuty opens an incident when the alert fires and resolves it when the alert resolves. Email skips members who can't view warehouse sources or who turned off data pipeline error emails."
                 destinations={{
                     showExisting: !!alertId,
                     existingLoading: destinationsLoading && destinations === null,
@@ -127,6 +152,11 @@ export function WarehouseAlertNotifications({ alertId }: { alertId?: string }): 
                               region: pagerDutyRegion,
                               onRegionChange: setPagerDutyRegion,
                           }
+                        : undefined
+                }
+                members={
+                    selectedType === WarehouseAlertDestinationTypeEnumApi.Email
+                        ? { value: emailUserIds, onChange: setEmailUserIds }
                         : undefined
                 }
                 add={{ onClick: addSelectedNotification, disabledReason: addDisabledReason }}

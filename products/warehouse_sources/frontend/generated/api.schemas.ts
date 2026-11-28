@@ -2644,6 +2644,7 @@ export interface SourceConfigMapResponseApi {
  * * `teams` - teams
  * * `discord` - discord
  * * `pagerduty` - pagerduty
+ * * `email` - email
  */
 export type WarehouseAlertDestinationTypeEnumApi =
     (typeof WarehouseAlertDestinationTypeEnumApi)[keyof typeof WarehouseAlertDestinationTypeEnumApi]
@@ -2654,6 +2655,7 @@ export const WarehouseAlertDestinationTypeEnumApi = {
     Teams: 'teams',
     Discord: 'discord',
     Pagerduty: 'pagerduty',
+    Email: 'email',
 } as const
 
 /**
@@ -2703,7 +2705,8 @@ export interface WarehouseAlertDestinationApi {
      * * `webhook` - webhook
      * * `teams` - teams
      * * `discord` - discord
-     * * `pagerduty` - pagerduty */
+     * * `pagerduty` - pagerduty
+     * * `email` - email */
     type: WarehouseAlertDestinationTypeEnumApi
     /** Whether the destination is sent to. */
     enabled: boolean
@@ -2731,6 +2734,8 @@ export interface WarehouseAlertDestinationApi {
      * * `us` - us
      * * `eu` - eu */
     pagerduty_region?: PagerDutyRegionEnumApi
+    /** IDs of the project members to email. Set when type=email. */
+    email_user_ids?: number[]
 }
 
 export interface WarehouseAlertCreateDestinationApi {
@@ -2740,7 +2745,8 @@ export interface WarehouseAlertCreateDestinationApi {
      * * `webhook` - webhook
      * * `teams` - teams
      * * `discord` - discord
-     * * `pagerduty` - pagerduty */
+     * * `pagerduty` - pagerduty
+     * * `email` - email */
     type: WarehouseAlertDestinationTypeEnumApi
     /**
      * Which transitions send a message. A PagerDuty destination opens an incident when the alert fires and resolves it when the alert resolves, whatever this lists. Defaults to every kind.
@@ -2769,6 +2775,12 @@ export interface WarehouseAlertCreateDestinationApi {
      * * `us` - us
      * * `eu` - eu */
     pagerduty_region?: PagerDutyRegionEnumApi
+    /**
+     * IDs of the project members to email. Required when type=email. Each send skips a member who lost access to the project or to warehouse sources, or who turned off data pipeline error emails.
+     * @minItems 1
+     * @maxItems 100
+     */
+    email_user_ids?: number[]
 }
 
 export interface WarehouseAlertDeleteDestinationApi {

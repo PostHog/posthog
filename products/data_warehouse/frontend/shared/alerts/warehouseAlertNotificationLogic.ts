@@ -4,9 +4,11 @@ import posthog from 'posthog-js'
 
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { fullNameOrEmail } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { IntegrationType } from '~/types'
+import { membersLogic } from '~/models/membersLogic'
+import { IntegrationType, OrganizationMemberType } from '~/types'
 
 import {
     AlertPagerDutyRegion,
@@ -44,8 +46,14 @@ function refusalDetail(result: PromiseSettledResult<unknown>): string | undefine
 
 type NotificationTarget = Pick<
     WarehouseAlertCreateDestinationApi,
-    'type' | 'slack_workspace_id' | 'slack_channel_id' | 'webhook_url' | 'pagerduty_routing_key'
+    'type' | 'slack_workspace_id' | 'slack_channel_id' | 'webhook_url' | 'pagerduty_routing_key' | 'email_user_ids'
 >
+
+function sameUsers(a: number[] | undefined, b: number[] | undefined): boolean {
+    const left = [...new Set(a ?? [])].sort((x, y) => x - y)
+    const right = [...new Set(b ?? [])].sort((x, y) => x - y)
+    return left.length === right.length && left.every((userId, index) => userId === right[index])
+}
 
 function isSameNotification(a: NotificationTarget, b: NotificationTarget): boolean {
     if (a.type !== b.type) {
@@ -57,6 +65,9 @@ function isSameNotification(a: NotificationTarget, b: NotificationTarget): boole
     if (a.type === WarehouseAlertDestinationTypeEnumApi.Pagerduty) {
         return a.pagerduty_routing_key === b.pagerduty_routing_key
     }
+    if (a.type === WarehouseAlertDestinationTypeEnumApi.Email) {
+        return sameUsers(a.email_user_ids, b.email_user_ids)
+    }
     return a.webhook_url === b.webhook_url
 }
 
@@ -64,6 +75,7 @@ function isSameNotification(a: NotificationTarget, b: NotificationTarget): boole
 export interface warehouseAlertNotificationLogicValues {
     integrationsLoading: boolean // integrationsLogic
     slackIntegrations: IntegrationType[] | undefined // integrationsLogic
+    meFirstMembers: OrganizationMemberType[] // membersLogic
     currentTeamId: number | null // teamLogic
     addDisabledReason: string | undefined
     creatingNotifications: boolean
@@ -71,7 +83,9 @@ export interface warehouseAlertNotificationLogicValues {
     destinations: WarehouseAlertDestinationApi[] | null
     destinationsFailed: boolean
     destinationsLoading: boolean
+    emailUserIds: number[]
     integrationsFailed: boolean
+    memberNames: Record<number, string>
     pagerDutyRegion: AlertPagerDutyRegion
     pagerDutyRoutingKey: string
     pagerDutySeverity: AlertPagerDutySeverity
@@ -101,6 +115,9 @@ export interface warehouseAlertNotificationLogicActions {
         integrations: IntegrationType[]
         payload?: any
     } // integrationsLogic
+    ensureAllMembersLoaded: () => {
+        value: true
+    } // membersLogic
     addPendingNotification: (notification: WarehouseAlertCreateDestinationApi) => {
         notification: WarehouseAlertCreateDestinationApi
     }
@@ -136,6 +153,9 @@ export interface warehouseAlertNotificationLogicActions {
     }
     setDeletingKey: (deletingKey: string | null) => {
         deletingKey: string | null
+    }
+    setEmailUserIds: (emailUserIds: number[]) => {
+        emailUserIds: number[]
     }
     setPagerDutyRegion: (pagerDutyRegion: AlertPagerDutyRegion) => {
         pagerDutyRegion: AlertPagerDutyRegion
@@ -178,7 +198,8 @@ export interface warehouseAlertNotificationLogicMeta {
             webhookUrl: string,
             pagerDutyRoutingKey: string,
             pagerDutySeverity: AlertPagerDutySeverity,
-            pagerDutyRegion: AlertPagerDutyRegion
+            pagerDutyRegion: AlertPagerDutyRegion,
+            emailUserIds: number[]
         ) => WarehouseAlertCreateDestinationApi | null
         addDisabledReason: (
             selectedType: WarehouseAlertDestinationTypeEnumApi,
@@ -186,11 +207,13 @@ export interface warehouseAlertNotificationLogicMeta {
             slackChannelValue: string | null,
             webhookUrl: string,
             pagerDutyRoutingKey: string,
+            emailUserIds: number[],
             creatingNotifications: boolean,
             destinations: WarehouseAlertDestinationApi[] | null,
             pendingNotifications: WarehouseAlertCreateDestinationApi[],
             selectedNotification: WarehouseAlertCreateDestinationApi | null
         ) => string | undefined
+        memberNames: (meFirstMembers: OrganizationMemberType[]) => Record<number, string>
     }
 }
 
@@ -206,8 +229,20 @@ export const warehouseAlertNotificationLogic = kea<warehouseAlertNotificationLog
     key(({ alertId }) => alertId ?? 'new'),
     path((key) => ['products', 'data_warehouse', 'shared', 'alerts', 'warehouseAlertNotificationLogic', key]),
     connect(() => ({
-        values: [teamLogic, ['currentTeamId'], integrationsLogic, ['integrationsLoading', 'slackIntegrations']],
-        actions: [integrationsLogic, ['loadIntegrations', 'loadIntegrationsFailure', 'loadIntegrationsSuccess']],
+        values: [
+            teamLogic,
+            ['currentTeamId'],
+            integrationsLogic,
+            ['integrationsLoading', 'slackIntegrations'],
+            membersLogic,
+            ['meFirstMembers'],
+        ],
+        actions: [
+            integrationsLogic,
+            ['loadIntegrations', 'loadIntegrationsFailure', 'loadIntegrationsSuccess'],
+            membersLogic,
+            ['ensureAllMembersLoaded'],
+        ],
     })),
     actions({
         addSelectedNotification: true,
@@ -225,6 +260,7 @@ export const warehouseAlertNotificationLogic = kea<warehouseAlertNotificationLog
         setPagerDutyRoutingKey: (pagerDutyRoutingKey: string) => ({ pagerDutyRoutingKey }),
         setPagerDutySeverity: (pagerDutySeverity: AlertPagerDutySeverity) => ({ pagerDutySeverity }),
         setPagerDutyRegion: (pagerDutyRegion: AlertPagerDutyRegion) => ({ pagerDutyRegion }),
+        setEmailUserIds: (emailUserIds: number[]) => ({ emailUserIds }),
     }),
     loaders(({ props, values }) => ({
         destinations: [
@@ -297,6 +333,7 @@ export const warehouseAlertNotificationLogic = kea<warehouseAlertNotificationLog
             'us' as AlertPagerDutyRegion,
             { setPagerDutyRegion: (_, { pagerDutyRegion }) => pagerDutyRegion },
         ],
+        emailUserIds: [[] as number[], { setEmailUserIds: (_, { emailUserIds }) => emailUserIds }],
     }),
     selectors({
         selectedSlackIntegration: [
@@ -317,6 +354,7 @@ export const warehouseAlertNotificationLogic = kea<warehouseAlertNotificationLog
                 s.pagerDutyRoutingKey,
                 s.pagerDutySeverity,
                 s.pagerDutyRegion,
+                s.emailUserIds,
             ],
             (
                 selectedType: WarehouseAlertDestinationTypeEnumApi,
@@ -325,7 +363,8 @@ export const warehouseAlertNotificationLogic = kea<warehouseAlertNotificationLog
                 webhookUrl: string,
                 pagerDutyRoutingKey: string,
                 pagerDutySeverity: AlertPagerDutySeverity,
-                pagerDutyRegion: AlertPagerDutyRegion
+                pagerDutyRegion: AlertPagerDutyRegion,
+                emailUserIds: number[]
             ): WarehouseAlertCreateDestinationApi | null => {
                 if (selectedType === WarehouseAlertDestinationTypeEnumApi.Slack) {
                     if (!selectedSlackIntegration || !slackChannelValue) {
@@ -348,6 +387,9 @@ export const warehouseAlertNotificationLogic = kea<warehouseAlertNotificationLog
                         pagerduty_region: pagerDutyRegion,
                     }
                 }
+                if (selectedType === WarehouseAlertDestinationTypeEnumApi.Email) {
+                    return emailUserIds.length > 0 ? { type: selectedType, email_user_ids: emailUserIds } : null
+                }
                 return { type: selectedType, webhook_url: webhookUrl.trim() }
             },
         ],
@@ -358,6 +400,7 @@ export const warehouseAlertNotificationLogic = kea<warehouseAlertNotificationLog
                 s.slackChannelValue,
                 s.webhookUrl,
                 s.pagerDutyRoutingKey,
+                s.emailUserIds,
                 s.creatingNotifications,
                 s.destinations,
                 s.pendingNotifications,
@@ -369,6 +412,7 @@ export const warehouseAlertNotificationLogic = kea<warehouseAlertNotificationLog
                 slackChannelValue: string | null,
                 webhookUrl: string,
                 pagerDutyRoutingKey: string,
+                emailUserIds: number[],
                 creatingNotifications: boolean,
                 destinations: WarehouseAlertDestinationApi[] | null,
                 pendingNotifications: WarehouseAlertCreateDestinationApi[],
@@ -381,13 +425,14 @@ export const warehouseAlertNotificationLogic = kea<warehouseAlertNotificationLog
                     return `An alert can have at most ${MAX_DESTINATIONS_PER_ALERT} destinations`
                 }
                 // Saved webhook and PagerDuty destinations come back redacted, so only a Slack channel
-                // can be matched against them.
+                // or a set of members can be matched against them.
                 const alreadyAdded =
                     selectedNotification &&
                     (pendingNotifications.some((pending) => isSameNotification(pending, selectedNotification)) ||
                         (destinations ?? []).some(
                             (destination) =>
-                                destination.type === WarehouseAlertDestinationTypeEnumApi.Slack &&
+                                (destination.type === WarehouseAlertDestinationTypeEnumApi.Slack ||
+                                    destination.type === WarehouseAlertDestinationTypeEnumApi.Email) &&
                                 isSameNotification(destination, selectedNotification)
                         ))
                 if (alreadyAdded) {
@@ -407,8 +452,16 @@ export const warehouseAlertNotificationLogic = kea<warehouseAlertNotificationLog
                         ? undefined
                         : 'The integration key is 32 letters and digits'
                 }
+                if (selectedType === WarehouseAlertDestinationTypeEnumApi.Email) {
+                    return emailUserIds.length > 0 ? undefined : 'Choose the project members to email'
+                }
                 return webhookUrl.trim() ? undefined : 'Enter a webhook URL'
             },
+        ],
+        memberNames: [
+            (s) => [s.meFirstMembers],
+            (meFirstMembers: OrganizationMemberType[]): Record<number, string> =>
+                Object.fromEntries(meFirstMembers.map((member) => [member.user.id, fullNameOrEmail(member.user)])),
         ],
     }),
     listeners(({ actions, values, props }) => ({
@@ -422,6 +475,8 @@ export const warehouseAlertNotificationLogic = kea<warehouseAlertNotificationLog
                 actions.setSlackChannelValue(null)
             } else if (notification.type === WarehouseAlertDestinationTypeEnumApi.Pagerduty) {
                 actions.setPagerDutyRoutingKey('')
+            } else if (notification.type === WarehouseAlertDestinationTypeEnumApi.Email) {
+                actions.setEmailUserIds([])
             } else {
                 actions.setWebhookUrl('')
             }
@@ -430,6 +485,12 @@ export const warehouseAlertNotificationLogic = kea<warehouseAlertNotificationLog
             // A saved alert takes the destination at once. A new one keeps it until the alert exists.
             if (props.alertId) {
                 actions.createPendingNotifications(props.alertId)
+            }
+        },
+        loadDestinationsSuccess: ({ destinations }) => {
+            // An email destination lists its members by name.
+            if (destinations.some((destination) => destination.type === WarehouseAlertDestinationTypeEnumApi.Email)) {
+                actions.ensureAllMembersLoaded()
             }
         },
         loadIntegrationsSuccess: () => {

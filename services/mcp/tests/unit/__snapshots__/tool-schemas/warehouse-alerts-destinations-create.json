@@ -1,6 +1,15 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "email_user_ids": {
+            "description": "IDs of the project members to email. Required when type=email. Each send skips a member who lost access to the project or to warehouse sources, or who turned off data pipeline error emails.",
+            "items": {
+                "type": "number"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "type": "array"
+        },
         "event_kinds": {
             "default": ["firing", "resolved"],
             "description": "Which transitions send a message. A PagerDuty destination opens an incident when the alert fires and resolves it when the alert resolves, whatever this lists. Defaults to every kind.",
@@ -44,8 +53,8 @@
             "type": "number"
         },
         "type": {
-            "description": "Notification destination type.\n\n* `slack` - slack\n* `webhook` - webhook\n* `teams` - teams\n* `discord` - discord\n* `pagerduty` - pagerduty",
-            "enum": ["slack", "webhook", "teams", "discord", "pagerduty"],
+            "description": "Notification destination type.\n\n* `slack` - slack\n* `webhook` - webhook\n* `teams` - teams\n* `discord` - discord\n* `pagerduty` - pagerduty\n* `email` - email",
+            "enum": ["slack", "webhook", "teams", "discord", "pagerduty", "email"],
             "type": "string"
         },
         "webhook_url": {

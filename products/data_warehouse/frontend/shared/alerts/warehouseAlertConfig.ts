@@ -23,6 +23,7 @@ export interface WarehouseAlertFormValues {
     targetIds: string[]
     groupBy: WarehouseAlertGroupBy
     includeBillingLimits: boolean
+    /** Not set by the form. A new alert emails nobody this way, and an edit keeps the stored value. */
     emailProjectMembers: boolean
 }
 
@@ -54,7 +55,7 @@ export function newWarehouseAlertForm(kind: WarehouseAlertKind, targetIds: strin
         targetIds,
         groupBy: WarehouseAlertGroupByEnumApi.Source,
         includeBillingLimits: false,
-        emailProjectMembers: true,
+        emailProjectMembers: false,
     }
 }
 
