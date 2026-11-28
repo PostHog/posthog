@@ -1,4 +1,3 @@
-import os
 import time
 import typing
 import datetime as dt
@@ -13,7 +12,6 @@ from posthog.hogql.transforms.trino.errors import TrinoLoweringError
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
-from posthog.ph_client import feature_enabled_or_false
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
@@ -36,14 +34,15 @@ from products.data_modeling.backend.facade.models import (
     Node,
     NodeType,
 )
+from products.data_modeling.backend.logic.managed_warehouse_shadow import (
+    is_managed_warehouse_shadow_enabled,
+    is_managed_warehouse_shadow_flag_enabled,
+)
 from products.endpoints.backend.facade.temporal import prepare_executable_query
 from products.managed_warehouse.backend.facade.api import (
     duckgres_data_modeling_schema,
     ducklake_data_modeling_schema,
     get_data_modeling_table_name,
-    has_provisioned_warehouse,
-    is_data_modeling_shadow_ready,
-    is_dev_mode,
 )
 from products.managed_warehouse.backend.facade.contracts import (
     DuckLakeCompiledQuery,
@@ -51,7 +50,6 @@ from products.managed_warehouse.backend.facade.contracts import (
     StoredColumnType,
     TrinoIncrementalWrite,
 )
-from products.managed_warehouse.backend.facade.feature_flags import DATA_MODELING_SHADOW_FLAG
 
 from ..metrics import (
     UNKNOWN_RUN_MODE,
@@ -68,8 +66,6 @@ from .utils import (
 )
 
 LOGGER = get_logger(__name__)
-
-FEATURE_FLAG = DATA_MODELING_SHADOW_FLAG
 
 
 @frozen
@@ -149,42 +145,6 @@ class _ManagedWarehouseShadowObjects:
     saved_query: DataWarehouseSavedQuery
 
 
-def _is_managed_warehouse_shadow_flag_enabled(team: Team) -> bool:
-    if is_dev_mode():
-        return os.environ.get("MANAGED_WAREHOUSE_SHADOW_ENABLED", "").lower() in ("1", "true")
-
-    if not has_provisioned_warehouse(str(team.organization_id)):
-        return False
-
-    try:
-        return feature_enabled_or_false(
-            FEATURE_FLAG,
-            str(team.pk),
-            groups={
-                "organization": str(team.organization_id),
-                "project": str(team.id),
-            },
-            group_properties={
-                "organization": {"id": str(team.organization_id)},
-                "project": {"id": str(team.id)},
-            },
-            only_evaluate_locally=True,
-            send_feature_flag_events=False,
-        )
-    except Exception:
-        return False
-
-
-def is_managed_warehouse_shadow_enabled(team: Team) -> bool:
-    if not _is_managed_warehouse_shadow_flag_enabled(team):
-        return False
-
-    return is_data_modeling_shadow_ready(
-        organization_id=team.organization_id,
-        team_id=team.pk,
-    )
-
-
 def _compile_hogql_for_ducklake(hogql_query: str, team_id: int) -> DuckLakeCompiledQuery:
     from posthog.schema import HogQLQuery
 
@@ -228,7 +188,7 @@ def _check_managed_warehouse_shadow_eligibility(inputs: ManagedWarehouseShadowEl
 async def _check_managed_warehouse_shadow_enabled_activity(team_id: int) -> bool:
     """Check the legacy team-level shadow prerequisites."""
     team = await database_sync_to_async_pool(Team.objects.get)(id=team_id)
-    return await database_sync_to_async_pool(_is_managed_warehouse_shadow_flag_enabled)(team)
+    return await database_sync_to_async_pool(is_managed_warehouse_shadow_flag_enabled)(team)
 
 
 @activity.defn

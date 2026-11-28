@@ -523,6 +523,18 @@ class _BaseSource(ABC, Generic[ConfigType]):
         """
         raise NotImplementedError()
 
+    def reconcile_schema_metadata(
+        self,
+        source: "ExternalDataSource",
+        source_schemas: list[SourceSchema],
+        team_id: int,
+    ) -> list[str]:
+        """Store the typed columns found at discovery on the source's schemas.
+
+        Callers run it only when `supports_column_selection` is set. Returns the schema names it soft-deleted.
+        """
+        return []
+
     def describe_pinned_schema(
         self, config: ConfigType, team_id: int, name: str, schema_metadata: Mapping[str, Any]
     ) -> SourceSchema | None:

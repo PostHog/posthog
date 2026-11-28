@@ -22,7 +22,6 @@ from products.warehouse_sources.backend.models.external_data_source import Exter
 from products.warehouse_sources.backend.models.ssh_tunnel import SSHGatewayClosedBeforeBannerError
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse.source import ClickHouseSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     AnySource,
     error_message_matches,
@@ -32,7 +31,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.err
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import known_source_key
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 LOGGER = get_logger(__name__)
@@ -63,7 +61,7 @@ def _persist_column_metadata(
     engine = get_direct_query_engine(source.direct_engine)
     if engine is not None:
         engine.reconcile_schemas(source=source, source_schemas=schemas, team_id=team_id)
-    elif isinstance(source_impl, (SQLSource, ClickHouseSource)) and source_impl.supports_column_selection:
+    elif source_impl.supports_column_selection:
         source_impl.reconcile_schema_metadata(source=source, source_schemas=schemas, team_id=team_id)
 
 

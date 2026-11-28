@@ -431,8 +431,6 @@ export-shape	products.data_modeling.backend.models.edge.Edge	products.data_model
 export-shape	products.data_modeling.backend.models.edge.NON_SCHEDULING_EDGES	products.data_modeling.backend.facade.models	export-unknown	1
 export-shape	products.data_modeling.backend.models.node.Node	products.data_modeling.backend.facade.models	export-denied(model)	1
 export-shape	products.data_modeling.backend.models.node.SAVED_QUERY_NODE_TYPES	products.data_modeling.backend.facade.models	export-unknown	1
-export-shape	products.data_modeling.backend.temporal.SEMANTIC_ENRICHMENT_WORKFLOWS	products.data_modeling.backend.facade.temporal	export-unknown	1
-export-shape	products.data_modeling.backend.temporal.WORKFLOWS	products.data_modeling.backend.facade.temporal	export-unknown	1
 export-shape	products.data_quality.backend.logic.subject_access.DeferredDatabase	products.data_quality.backend.facade.api	export-shape(class)	1
 export-shape	products.data_quality.backend.models.check.DataQualityCheck	products.data_quality.backend.facade.models	export-denied(model)	1
 export-shape	products.data_quality.backend.models.check_run.DataQualityCheckRun	products.data_quality.backend.facade.models	export-denied(model)	1
@@ -2651,7 +2649,6 @@ no-product-lists-in-core	posthog.hogql_queries.query_runner	products.web_analyti
 no-product-lists-in-core	posthog.management.commands.execute_temporal_workflow	posthog.temporal.ai_observability	1
 no-product-lists-in-core	posthog.management.commands.execute_temporal_workflow	products.batch_exports.backend.temporal.workflows	1
 no-product-lists-in-core	posthog.management.commands.execute_temporal_workflow	products.data_catalog.backend.temporal	1
-no-product-lists-in-core	posthog.management.commands.execute_temporal_workflow	products.data_modeling.backend.temporal	1
 no-product-lists-in-core	posthog.management.commands.execute_temporal_workflow	products.error_tracking.backend.temporal	1
 no-product-lists-in-core	posthog.management.commands.execute_temporal_workflow	products.logs.backend.temporal.retention_entitlements	1
 no-product-lists-in-core	posthog.management.commands.execute_temporal_workflow	products.posthog_ai.backend.temporal.backfill	1

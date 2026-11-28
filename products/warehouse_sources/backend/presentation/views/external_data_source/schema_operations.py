@@ -50,12 +50,10 @@ from products.warehouse_sources.backend.facade.models import (
 from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.facade.source_management import (
     AnySource,
-    ClickHouseSource,
     Config,
     CustomSource,
     MySQLSource,
     PostgresSource,
-    SQLSource,
     build_default_sync_settings,
     define_added_table_metadata,
     known_source_key,
@@ -491,9 +489,7 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
                 )
                 if reconciled_deleted_schemas:
                     schemas_deleted = list({*schemas_deleted, *reconciled_deleted_schemas})
-            elif isinstance(source, (SQLSource, ClickHouseSource)) and source.supports_column_selection:
-                # ClickHouse isn't a SQLSource but exposes the same column-selection
-                # capability and reconcile hook, so it reuses this path.
+            elif source.supports_column_selection:
                 source.reconcile_schema_metadata(source=instance, source_schemas=schemas, team_id=self.team_id)
 
         # Outside the atomic block: schedule creation talks to Temporal, which must not run under

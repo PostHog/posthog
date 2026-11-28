@@ -6,7 +6,6 @@ from temporalio import activity, workflow
 from temporalio.common import MetricCounter, MetricHistogramFloat
 
 from products.data_modeling.backend.facade.enums import MaterializationRunTrigger
-from products.data_modeling.backend.temporal.activities.utils import is_externally_aborted
 from products.managed_warehouse.backend.facade.contracts import TRINO_INSTANCE_REPLACED_ERROR_PREFIX
 
 # custom latency histogram buckets,
@@ -259,6 +258,10 @@ def get_node_finished_metric(
 
 
 def error_class(error: str) -> str:
+    # Activities import this module, so a module-level import of the activities package is a cycle
+    # whenever this module loads first, as it does from facade/temporal_metrics.
+    from products.data_modeling.backend.temporal.activities.utils import is_externally_aborted
+
     return "infra" if is_externally_aborted(error) else "other"
 
 

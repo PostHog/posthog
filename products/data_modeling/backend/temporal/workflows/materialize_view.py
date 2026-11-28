@@ -17,7 +17,6 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.utils import CDPProducerWorkflowInputs
 
 from products.customer_analytics.backend.facade.temporal_contracts import StageAccountPropertySyncInput
-from products.data_modeling.backend.facade.enums import MaterializationRunTrigger
 from products.data_modeling.backend.facade.models import DataModelingJobEngine, DataModelingJobRunMode
 from products.data_modeling.backend.temporal.activities import (
     ClearCDPStagingInputs,
@@ -67,6 +66,7 @@ from products.data_modeling.backend.temporal.metrics import (
     tag_run_request_on_workflow_span,
     tier_label,
 )
+from products.data_modeling.backend.temporal.workflow_inputs import MaterializeViewWorkflowInputs
 from products.data_modeling.backend.temporal.workflows.enrich_view_semantics import EnrichViewSemanticsWorkflow
 from products.data_quality.backend.facade.contracts import (
     CHECK_SUITE_WORKFLOW_NAME,
@@ -113,40 +113,6 @@ def _status_of_run_ended_by(error: BaseException) -> str | None:
     if temporalio.workflow.is_failure_exception(error):
         return FAILED_STATUS
     return None
-
-
-@dataclasses.dataclass(frozen=True, kw_only=True)
-class MaterializeViewWorkflowInputs:
-    """Inputs for the MaterializeViewWorkflow.
-
-    Attributes:
-        team_id: The team ID that owns the node.
-        dag_id: The DAG the node belongs to.
-        node_id: The UUID of the Node to materialize.
-        manually_triggered_by_id: The user who asked for this run, when a person did.
-        trigger: What started this run, a MaterializationRunTrigger value.
-        requested_at: The ISO 8601 time of the request that started this run, when its start recorded one.
-    """
-
-    team_id: int
-    dag_id: str
-    node_id: str
-    managed_warehouse_only: bool = False
-    dangerously_execute_raw_sql: bool = False
-    manually_triggered_by_id: int | None = None
-    skip_trino: bool = False
-    trigger: str = MaterializationRunTrigger.UNKNOWN.value
-    requested_at: str | None = None
-    # Old workflow payloads contain this field, so removing it would prevent replay after deployment.
-    duckgres_only: bool = False
-
-    @property
-    def properties_to_log(self) -> dict:
-        return {
-            "team_id": self.team_id,
-            "dag_id": self.dag_id,
-            "node_id": self.node_id,
-        }
 
 
 @dataclasses.dataclass(frozen=False)

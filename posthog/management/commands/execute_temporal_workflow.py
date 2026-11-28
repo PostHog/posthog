@@ -11,7 +11,9 @@ from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from posthog.temporal.ai import AI_WORKFLOWS
 from posthog.temporal.ai_observability import WORKFLOWS as LLM_ANALYTICS_WORKFLOWS
 from posthog.temporal.backfill_group_type_created_at import WORKFLOWS as BACKFILL_GROUP_TYPE_CREATED_AT_WORKFLOWS
+from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import connect
+from posthog.temporal.common.registration import combined_registration
 from posthog.temporal.delete_persons import WORKFLOWS as DELETE_PERSONS_WORKFLOWS
 from posthog.temporal.dlq_replay import WORKFLOWS as DLQ_REPLAY_WORKFLOWS
 from posthog.temporal.event_screenshots import WORKFLOWS as EVENT_SCREENSHOTS_WORKFLOWS
@@ -28,7 +30,6 @@ from posthog.temporal.weekly_digest import WORKFLOWS as WEEKLY_DIGEST_WORKFLOWS
 
 from products.batch_exports.backend.facade.temporal import WORKFLOWS as BATCH_EXPORT_WORKFLOWS
 from products.data_catalog.backend.facade.temporal import WORKFLOWS as DATA_CATALOG_DIGEST_WORKFLOWS
-from products.data_modeling.backend.facade.temporal import WORKFLOWS as DATA_MODELING_WORKFLOWS
 from products.error_tracking.backend.facade.temporal import WORKFLOWS as ERROR_TRACKING_WORKFLOWS
 from products.logs.backend.temporal.retention_entitlements import WORKFLOWS as LOGS_RETENTION_ENTITLEMENTS_WORKFLOWS
 from products.posthog_ai.backend.temporal.backfill import WORKFLOWS as CONVERSATION_BACKFILL_WORKFLOWS
@@ -152,7 +153,6 @@ class Command(BaseCommand):
             + ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS
             + SYNC_EVENTS_RETENTION_WORKFLOWS
             + WEEKLY_DIGEST_WORKFLOWS
-            + DATA_MODELING_WORKFLOWS
             + LLM_ANALYTICS_WORKFLOWS
             + EVENT_SCREENSHOTS_WORKFLOWS
             + LOGS_RETENTION_ENTITLEMENTS_WORKFLOWS
@@ -161,6 +161,12 @@ class Command(BaseCommand):
             + DATA_CATALOG_DIGEST_WORKFLOWS
             + ERROR_TRACKING_WORKFLOWS
             + BACKFILL_GROUP_TYPE_CREATED_AT_WORKFLOWS
+            + [
+                workflow
+                for queue in combined_registration().queues
+                for workflow in queue.workflows
+                if issubclass(workflow, PostHogWorkflow)
+            ]
         )
         try:
             workflow = next(workflow for workflow in WORKFLOWS if workflow.is_named(workflow_name))
