@@ -31,7 +31,7 @@ export function SlackTaskContextScene(): JSX.Element {
 
             <LemonBanner type="info">
                 Paste any Slack permalink from inside the thread (parent message or reply). Reply URLs that carry{' '}
-                <code>?thread_ts=…</code> resolve to the originating thread. Log URLs expire after ~1 hour.
+                <code>?thread_ts=…</code> resolve to the originating thread.
             </LemonBanner>
 
             <div className="flex items-end gap-2">
@@ -252,16 +252,10 @@ function SlackTaskContextRunCard({ run, index }: { run: SlackThreadContextRunApi
                         ),
                     ],
                     [
-                        'Logs (presigned, ~1h)',
-                        run.log_url ? (
-                            <Link key="log" to={run.log_url} target="_blank">
-                                Download JSONL
-                            </Link>
-                        ) : (
-                            <span key="empty" className="text-muted">
-                                —
-                            </span>
-                        ),
+                        'Logs',
+                        <Link key="log" to={run.log_entries_url} target="_blank">
+                            Download JSONL
+                        </Link>,
                     ],
                     [
                         'Error',
@@ -327,9 +321,9 @@ function RepoResearchBlock({ research }: { research: SlackThreadContextRepoResea
                         ),
                     ],
                     [
-                        'Logs (presigned, ~1h)',
-                        research.log_url ? (
-                            <Link key="rr-log" to={research.log_url} target="_blank">
+                        'Logs',
+                        research.log_entries_url ? (
+                            <Link key="rr-log" to={research.log_entries_url} target="_blank">
                                 Download JSONL
                             </Link>
                         ) : (
