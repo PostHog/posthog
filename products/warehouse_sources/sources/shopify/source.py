@@ -50,7 +50,7 @@ from products.warehouse_sources.sources.shopify.shopify import (
     SHOPIFY_GRAPHQL_UNAUTHORIZED_ERROR_MESSAGE,
     SHOPIFY_MISSING_CREDENTIALS_ERROR,
     SHOPIFY_PAYMENT_REQUIRED_ERROR_MATCH,
-    SHOPIFY_STORE_FROZEN_ERROR,
+    SHOPIFY_PAYMENT_REQUIRED_ERROR_MESSAGE,
     SHOPIFY_STORE_NOT_FOUND_ERROR,
     ShopifyPermissionError,
     ShopifyResumeConfig,
@@ -250,7 +250,7 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
             ),
             # 402 Payment Required from the Admin API — the store is frozen for an unpaid
             # bill. Retrying cannot recover; the shop owner must settle their Shopify balance.
-            SHOPIFY_PAYMENT_REQUIRED_ERROR_MATCH: SHOPIFY_STORE_FROZEN_ERROR,
+            SHOPIFY_PAYMENT_REQUIRED_ERROR_MATCH: SHOPIFY_PAYMENT_REQUIRED_ERROR_MESSAGE,
             # 401 from the Admin API GraphQL endpoint itself — the token was valid at mint
             # time but Shopify now rejects it. Retrying cannot recover; the user must
             # reconnect their integration.

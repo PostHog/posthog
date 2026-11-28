@@ -166,13 +166,19 @@ SHOPIFY_GRAPHQL_NOT_FOUND_ERROR_MATCH = "404 Client Error: Not Found"
 # `ShopifySource.get_non_retryable_errors` matches on the stable status text (not the
 # per-store URL) to fail the job fast.
 SHOPIFY_GRAPHQL_UNAUTHORIZED_ERROR_MATCH = "401 Client Error: Unauthorized"
+# A non-retryable sync error turns the table's sync off, and reconnecting resumes only tables
+# that still sync, so these sync-time messages end with re-enabling the sync.
 SHOPIFY_GRAPHQL_UNAUTHORIZED_ERROR_MESSAGE = (
-    "Shopify no longer accepts your access token, often because the app was uninstalled or its "
-    "access was revoked. Reinstall the app on your store, then reconnect."
+    "Shopify no longer accepts your access token. Reinstall the app on your store, update the "
+    "source's credentials, then re-enable the sync."
 )
+# The denied field can be nested and need a scope other than the table's own read scope.
 SHOPIFY_GRAPHQL_ACCESS_DENIED_ERROR_MESSAGE = (
-    "Your Shopify access token can't read this table. Grant the table's read access scope to your "
-    "Shopify app, then reconnect."
+    "Your Shopify access token is missing an access scope this table needs. Add the missing scope "
+    "to your Shopify app, then re-enable the sync."
+)
+SHOPIFY_PAYMENT_REQUIRED_ERROR_MESSAGE = (
+    "Your Shopify store is frozen because of an unpaid bill. Settle your balance in Shopify, then re-enable the sync."
 )
 
 # The wizard shows these when the token check in `validate_credentials` fails. A supplied Admin API

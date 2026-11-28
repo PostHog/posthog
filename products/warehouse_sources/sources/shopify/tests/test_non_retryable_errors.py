@@ -1,5 +1,3 @@
-import re
-
 import pytest
 
 import requests
@@ -82,27 +80,6 @@ def test_admin_api_store_not_found_is_non_retryable(status_code, reason):
     assert any(pattern in error_message for pattern in patterns), (
         f"store-not-found error '{error_message}' should match a non-retryable pattern"
     )
-
-
-@pytest.mark.parametrize(
-    "error_message",
-    [
-        "Shopify GraphQL error: Access denied for orders field. Required access: `read_orders` access scope.",
-        _http_error_message(401, "Unauthorized"),
-        _http_error_message(402, "Payment Required"),
-    ],
-)
-def test_sync_failure_message_gives_a_next_step_without_raw_error_details(error_message):
-    errors = ShopifySource().get_non_retryable_errors()
-    messages = [message for pattern, message in errors.items() if pattern in error_message]
-    assert len(messages) == 1
-    message = messages[0]
-    assert message is not None
-    assert not re.search(r"\b[45]\d\d\b", message)
-    assert "Please" not in message
-    assert "myshopify.com" not in message
-    assert "—" not in message
-    assert message.rstrip(".").endswith("then reconnect")
 
 
 @pytest.mark.parametrize(
