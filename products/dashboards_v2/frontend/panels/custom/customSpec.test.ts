@@ -12,6 +12,7 @@ describe('customSpec', () => {
                 defineContentPackage('test', {
                     banner: { Component, size: wide, showOnInteractiveOnly: true, movable: true, keepMounted: true },
                     plain: { Component },
+                    copied: { Component, duplicable: true },
                     service: defineContent({
                         Component,
                         propsSchema: z.strictObject({ service: z.string(), limit: z.int().optional() }),
@@ -23,15 +24,17 @@ describe('customSpec', () => {
     )
 
     it.each([
-        { content: 'test/banner', size: wide, flags: true, movable: true },
-        { content: 'test/plain', size: CUSTOM_PANEL_SIZE, flags: false, movable: false },
-        { content: 'test/missing', size: CUSTOM_PANEL_SIZE, flags: false, movable: true },
-    ])('reads the size and flags of $content content', ({ content, size, flags, movable }) => {
+        { content: 'test/banner', size: wide, flags: true, movable: true, duplicable: false },
+        { content: 'test/plain', size: CUSTOM_PANEL_SIZE, flags: false, movable: false, duplicable: false },
+        { content: 'test/copied', size: CUSTOM_PANEL_SIZE, flags: false, movable: false, duplicable: true },
+        { content: 'test/missing', size: CUSTOM_PANEL_SIZE, flags: false, movable: true, duplicable: true },
+    ])('reads the size and flags of $content content', ({ content, size, flags, movable, duplicable }) => {
         const panel = { type: 'custom', config: { content } }
         expect(spec.sizeOf(panel)).toEqual(size)
         expect(spec.showOnInteractiveOnly(panel)).toBe(flags)
         expect(spec.keepMounted(panel)).toBe(flags)
         expect(spec.movable(panel)).toBe(movable)
+        expect(spec.duplicable(panel)).toBe(duplicable)
     })
 
     it.each([

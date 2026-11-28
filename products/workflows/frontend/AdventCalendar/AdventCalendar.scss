@@ -123,6 +123,10 @@
     transition-property: clip-path;
 }
 
+.AdventCard--facesDown {
+    flex-direction: column-reverse;
+}
+
 .AdventCard__face {
     display: flex;
     flex-shrink: 0;
@@ -173,8 +177,4 @@
     .AdventCard__fade {
         transition: none;
     }
-}
-
-.AdventCard__door.AdventDoor--exit {
-    border-radius: 0.75rem 1.75rem 1.75rem 0.75rem;
 }

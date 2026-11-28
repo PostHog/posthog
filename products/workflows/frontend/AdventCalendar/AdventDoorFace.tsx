@@ -2,10 +2,9 @@ import { CSSProperties } from 'react'
 
 import { IconLock } from '@posthog/icons'
 
-import { cn } from 'lib/utils/css-classes'
-
 import { ADVENT_LAST_DAY } from './adventContent'
 import { ADVENT_DOOR_SIZE, AdventDoor, adventDoorColor } from './adventGraph'
+import { AdventPresent } from './AdventPresent'
 import { AdventRewardArt } from './AdventRewardArt'
 
 export interface AdventDoorFaceProps {
@@ -20,7 +19,6 @@ export interface AdventDoorFaceProps {
 
 export function AdventDoorFace({ door, size, zoom, style, tint, tabIndex, onClick }: AdventDoorFaceProps): JSX.Element {
     const color = tint ?? adventDoorColor(door)
-    const isExit = door.day === ADVENT_LAST_DAY
     return (
         <button
             type="button"
@@ -32,9 +30,11 @@ export function AdventDoorFace({ door, size, zoom, style, tint, tabIndex, onClic
         >
             {door.status === 'open' && door.reward ? (
                 <AdventRewardArt reward={door.reward} className="size-full" />
+            ) : door.day === ADVENT_LAST_DAY ? (
+                <AdventPresent className="size-full" />
             ) : (
                 <span
-                    className={cn('AdventCard__door', isExit && 'AdventDoor--exit')}
+                    className="AdventCard__door"
                     style={{
                         width: ADVENT_DOOR_SIZE,
                         height: ADVENT_DOOR_SIZE,
@@ -44,9 +44,7 @@ export function AdventDoorFace({ door, size, zoom, style, tint, tabIndex, onClic
                     }}
                 >
                     {door.day}
-                    {door.status === 'locked' && !tint && (
-                        <IconLock className={cn('absolute top-1 text-sm', isExit ? 'left-1' : 'right-1')} />
-                    )}
+                    {door.status === 'locked' && !tint && <IconLock className="absolute right-1 top-1 text-sm" />}
                 </span>
             )}
         </button>

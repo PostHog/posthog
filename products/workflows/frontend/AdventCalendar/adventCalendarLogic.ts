@@ -2,6 +2,7 @@ import { actions, afterMount, connect, kea, listeners, MakeLogicType, path, redu
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
+import { ApiError } from 'lib/api-error'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -35,6 +36,7 @@ import {
     reachableProgress,
     storedProgressByUser,
 } from './adventProgressStorage'
+import { adventOpenedOnItsDay } from './adventTickets'
 import { adventPicksDay, adventToday } from './adventToday'
 
 // pinned: analytics event names and property keys. Usage insights query them, so a rename breaks them.
@@ -47,9 +49,10 @@ const EVENTS = {
 } as const
 
 const CLOCK_REFRESH_MS = 60_000
+const OPEN_RETRY_DELAYS_MS = [2_000, 5_000, 15_000, 60_000]
 
 // A preview picked with ?day= sends nothing, so the usage insights count real opens only.
-function captureLive(isLive: boolean, event: string, properties: Record<string, number | string>): void {
+function captureLive(isLive: boolean, event: string, properties: Record<string, boolean | number | string>): void {
     if (isLive) {
         posthog.capture(event, properties)
     }
@@ -118,6 +121,16 @@ export interface AdventSnowPuff extends AdventPoint {
     id: string
 }
 
+const withDay = (days: number[], day: number): number[] => (days.includes(day) ? days : [...days, day])
+
+function withServerTicketDays(state: number[] | null, ticketDays: number[] | undefined): number[] | null {
+    return ticketDays ? [...new Set([...(state ?? []), ...ticketDays])].sort((x, y) => x - y) : state
+}
+
+function isRefused(error: unknown): boolean {
+    return error instanceof ApiError && !!error.status && error.status < 500 && error.status !== 429
+}
+
 function prefersReducedMotion(): boolean {
     return window.matchMedia('(prefers-reduced-motion: reduce)').matches
 }
@@ -157,7 +170,11 @@ export interface adventCalendarLogicValues {
     rewards: AdventRewards
     selectedDoor: AdventDoor | null
     selectedDoorId: string | null
+    sendingTicketDay: number | null
+    serverTicketDays: number[] | null
     snowPuffs: AdventSnowPuff[]
+    ticketDays: number[]
+    tickets: number | null
     today: number
 }
 
@@ -195,6 +212,9 @@ export interface adventCalendarLogicActions {
     clickTip: (day: number) => {
         day: number
     }
+    dropOpen: (day: number) => {
+        day: number
+    }
     finishReveal: () => {
         value: true
     }
@@ -205,10 +225,12 @@ export interface adventCalendarLogicActions {
         userUuid: string,
         day: number,
         optionId: string | null,
-        isLive: boolean
+        isLive: boolean,
+        isOnTime: boolean
     ) => {
         day: number
         isLive: boolean
+        isOnTime: boolean
         optionId: string | null
         stored: unknown
         userUuid: string
@@ -221,6 +243,13 @@ export interface adventCalendarLogicActions {
     }
     puffSnow: (puffs: AdventSnowPuff[]) => {
         puffs: AdventSnowPuff[]
+    }
+    receiveOpen: (
+        day: number,
+        ticketDays: number[] | undefined
+    ) => {
+        day: number
+        ticketDays: number[] | undefined
     }
     receivePollResults: (
         results: AdventCalendarResultsApi,
@@ -272,6 +301,13 @@ export interface adventCalendarLogicMeta {
         graph: (progress: AdventProgress, today: number, rewards: AdventRewards) => AdventGraph
         pollShares: (pollResults: AdventCalendarResultsApi | null, progress: AdventProgress) => AdventPollShares
         openCount: (graph: AdventGraph) => number
+        ticketDays: (
+            serverTicketDays: number[] | null,
+            sendingTicketDay: number | null,
+            previewProgress: AdventProgress,
+            isLive: boolean
+        ) => number[]
+        tickets: (ticketDays: number[], serverTicketDays: number[] | null, isLive: boolean) => number | null
         selectedDoor: (graph: AdventGraph, selectedDoorId: string | null) => AdventDoor | null
         revealingDoor: (graph: AdventGraph, revealingDoorId: string | null) => AdventDoor | null
     }
@@ -303,13 +339,16 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
         activateDoor: (doorId: string) => ({ doorId }),
         pinDoor: (doorId: string) => ({ doorId }),
         answerDoor: (doorId: string, optionId: string) => ({ doorId, optionId }),
-        openDoor: (userUuid: string, day: number, optionId: string | null, isLive: boolean) => ({
+        openDoor: (userUuid: string, day: number, optionId: string | null, isLive: boolean, isOnTime: boolean) => ({
             userUuid,
             day,
             optionId,
             isLive,
+            isOnTime,
             stored: storedProgressByUser(),
         }),
+        receiveOpen: (day: number, ticketDays: number[] | undefined) => ({ day, ticketDays }),
+        dropOpen: (day: number) => ({ day }),
         refreshClock: () => {
             const now = new Date()
             return { localDate: new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime() }
@@ -358,6 +397,21 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
                         ])
                     )
                 },
+            },
+        ],
+        serverTicketDays: [
+            null as number[] | null,
+            {
+                receivePollResults: (state, { results }) => withServerTicketDays(state, results.ticket_days),
+                receiveOpen: (state, { ticketDays }) => withServerTicketDays(state, ticketDays),
+            },
+        ],
+        sendingTicketDay: [
+            null as number | null,
+            {
+                openDoor: (state, { day, isLive, isOnTime }) => (isLive && isOnTime ? day : state),
+                receiveOpen: (state, { day }) => (state === day ? null : state),
+                dropOpen: (state, { day }) => (state === day ? null : state),
             },
         ],
         previewProgress: [
@@ -461,6 +515,28 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
             ): AdventPollShares => sharesOfAnswered(pollResults, progress.answers),
         ],
         openCount: [(s) => [s.graph], (graph: adventCalendarLogicValues['graph']): number => openDoors(graph).length],
+        ticketDays: [
+            (s) => [s.serverTicketDays, s.sendingTicketDay, s.previewProgress, s.isLive],
+            (
+                serverTicketDays: adventCalendarLogicValues['serverTicketDays'],
+                sendingTicketDay: adventCalendarLogicValues['sendingTicketDay'],
+                previewProgress: adventCalendarLogicValues['previewProgress'],
+                isLive: adventCalendarLogicValues['isLive']
+            ): number[] =>
+                !isLive
+                    ? previewProgress.opened
+                    : sendingTicketDay === null
+                      ? (serverTicketDays ?? [])
+                      : withDay(serverTicketDays ?? [], sendingTicketDay),
+        ],
+        tickets: [
+            (s) => [s.ticketDays, s.serverTicketDays, s.isLive],
+            (
+                ticketDays: adventCalendarLogicValues['ticketDays'],
+                serverTicketDays: adventCalendarLogicValues['serverTicketDays'],
+                isLive: adventCalendarLogicValues['isLive']
+            ): number | null => (isLive && serverTicketDays === null ? null : ticketDays.length),
+        ],
         selectedDoor: [
             (s) => [s.graph, s.selectedDoorId],
             (
@@ -503,6 +579,70 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
             const door = values.graph.doors.find((candidate) => candidate.id === doorId)
             return door?.status === 'ready' ? door : null
         }
+        const sendOpen = (day: number, utcOffsetMinutes: number, userUuid: string, retry = 0): void => {
+            const hoggy = values.graph.doors.find((door) => door.day === day && door.status === 'open')?.reward
+            if (!hoggy) {
+                actions.dropOpen(day)
+                return
+            }
+            const mount = cache.disposables
+            void api
+                .workflowAdventCalendarOpen(String(values.currentProjectId), {
+                    day,
+                    hoggy: hoggy.id,
+                    utc_offset_minutes: utcOffsetMinutes,
+                    user_uuid: userUuid,
+                })
+                .then(
+                    (open) => {
+                        if (!mount.isDisposed) {
+                            actions.receiveOpen(day, open.ticket_days)
+                        }
+                    },
+                    (error) => {
+                        if (mount.isDisposed) {
+                            return
+                        }
+                        if (isRefused(error)) {
+                            actions.dropOpen(day)
+                            return
+                        }
+                        mount.add(
+                            () => {
+                                const timer = window.setTimeout(
+                                    () => {
+                                        mount.dispose(`open-${day}`)
+                                        if (isOnTime(day)) {
+                                            sendOpen(day, utcOffsetMinutes, userUuid, retry + 1)
+                                        } else {
+                                            actions.dropOpen(day)
+                                        }
+                                    },
+                                    OPEN_RETRY_DELAYS_MS[Math.min(retry, OPEN_RETRY_DELAYS_MS.length - 1)]
+                                )
+                                return () => window.clearTimeout(timer)
+                            },
+                            `open-${day}`,
+                            { pauseOnPageHidden: false }
+                        )
+                    }
+                )
+        }
+        const recoverToday = (): void => {
+            const day = values.today
+            const ticketDays = values.serverTicketDays
+            if (cache.checkedToday || !day || !values.isLive || !values.user || !ticketDays) {
+                return
+            }
+            cache.checkedToday = true
+            if (values.progress.opened.includes(day) && !ticketDays.includes(day) && values.sendingTicketDay !== day) {
+                sendOpen(day, -new Date().getTimezoneOffset(), values.user.uuid)
+            }
+        }
+        const isOnTime = (day: number): boolean => {
+            const now = new Date()
+            return !values.isLive || adventOpenedOnItsDay(day, now, -now.getTimezoneOffset())
+        }
         return {
             loadPollResults: () => receive(api.workflowAdventCalendarResults(String(values.currentProjectId))),
             savePollAnswer: ({ answer }) =>
@@ -510,7 +650,7 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
             activateDoor: ({ doorId }) => {
                 const door = readyDoor(doorId)
                 if (door && !door.question) {
-                    actions.openDoor(values.user?.uuid ?? '', door.day, null, values.isLive)
+                    actions.openDoor(values.user?.uuid ?? '', door.day, null, values.isLive, isOnTime(door.day))
                     if (!prefersReducedMotion()) {
                         actions.startReveal(door.id)
                     }
@@ -525,13 +665,13 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
                 const uuid = values.user?.uuid ?? ''
                 const storedPick = cleanProgressByUser(storedProgressByUser())[uuid]?.answers[door.day]
                 if (storedPick) {
-                    actions.openDoor(uuid, door.day, storedPick, values.isLive)
+                    actions.openDoor(uuid, door.day, storedPick, values.isLive, isOnTime(door.day))
                     actions.loadPollResults()
                     return
                 }
                 const vanishing = doorsNotTaken(values.graph, door, index)
                 captureLive(values.isLive, EVENTS.answerPicked, { day: door.day, option: optionId })
-                actions.openDoor(uuid, door.day, optionId, values.isLive)
+                actions.openDoor(uuid, door.day, optionId, values.isLive, isOnTime(door.day))
                 const answer = pollAnswerOf(door.day, values.progress.answers[door.day] ?? optionId)
                 if (answer && values.isLive) {
                     actions.savePollAnswer(answer)
@@ -543,25 +683,20 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
                     actions.startReveal(door.id)
                 }
             },
-            openDoor: ({ day }) => {
-                captureLive(values.isLive, EVENTS.doorOpened, { day })
-                const hoggy = values.graph.doors.find((door) => door.day === day && door.status === 'open')?.reward
-                if (hoggy && values.isLive) {
-                    void api
-                        .workflowAdventCalendarOpen(String(values.currentProjectId), {
-                            day,
-                            hoggy: hoggy.id,
-                            utc_offset_minutes: -new Date().getTimezoneOffset(),
-                        })
-                        .catch(() => null)
+            openDoor: ({ userUuid, day, isLive, isOnTime }) => {
+                captureLive(isLive, EVENTS.doorOpened, { day, on_time: isOnTime })
+                if (isLive) {
+                    sendOpen(day, -new Date().getTimezoneOffset(), userUuid)
                 }
                 actions.preloadImages()
             },
+            receivePollResults: recoverToday,
+            refreshClock: recoverToday,
             clickTip: ({ day }) => {
-                posthog.capture(EVENTS.tipClicked, { day })
+                captureLive(values.isLive, EVENTS.tipClicked, { day })
             },
             share: () => {
-                posthog.capture(EVENTS.shared)
+                captureLive(values.isLive, EVENTS.shared, {})
             },
             loadUserSuccess: () => {
                 actions.preloadImages()
@@ -589,6 +724,7 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
         }, 'clock')
         posthog.capture(EVENTS.viewed, { has_workflows: adventHasWorkflows() })
         actions.preloadImages()
+        cache.checkedToday = false
         actions.loadPollResults()
     }),
 ])
