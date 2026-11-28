@@ -3,6 +3,9 @@
 Each case asks one question in natural language and is scored two ways: the routing scorer checks the
 agent reached for the typed web analytics tool the question calls for, and the answer judge compares the
 final message with an oracle the case seeder computes from the seeded project right before the agent runs.
+
+The ``ready_*`` cases ask the ready-made questions in ``ready_prompts.py`` word for word, so a question that stops
+working end to end shows up here.
 """
 
 from __future__ import annotations
@@ -12,18 +15,29 @@ from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.evals.cli_mcp.scorers import FirstRelevantTool
 from products.web_analytics.evals.offline_config import offline_suite
+from products.web_analytics.evals.ready_prompts import READY_PROMPTS, render_ready_prompt
 from products.web_analytics.evals.scorers import WebAnswerCorrectness
 from products.web_analytics.evals.seeders import (
     MIN_LANDING_PAGE_VISITORS,
+    SIGNUP_EVENT,
     Seeder,
+    seed_ai_agent_traffic,
+    seed_audience,
     seed_daily_visitors,
+    seed_goal_conversions_by_channel,
     seed_highest_bounce_landing_page,
+    seed_ready_compare_periods,
+    seed_ready_top_pages,
+    seed_ready_worst_bounce_landing_pages,
+    seed_ready_yesterday_vs_last_week,
     seed_signup_conversion_rate,
     seed_signups_by_channel,
     seed_top_channel,
     seed_top_countries,
     seed_top_pages,
     seed_top_referrers,
+    seed_traffic_change_drivers,
+    seed_traffic_sources,
     seed_unique_visitors,
     seed_web_vitals,
     seed_week_over_week,
@@ -43,14 +57,48 @@ WEB_TOOLS = frozenset(
 )
 
 
-def _case(name: str, prompt: str, tool: str, setup: Seeder) -> SandboxedEvalCase:
+def _case(name: str, prompt: str, tool: str, setup: Seeder, **metadata: str) -> SandboxedEvalCase:
     return SandboxedEvalCase(
         name=name,
         prompt=prompt,
         setup=setup,
         expected={"first_relevant_tool": {"tool": tool}},
-        metadata={"area": "web_analytics", "tool": tool},
+        metadata={"area": "web_analytics", "tool": tool, **metadata},
     )
+
+
+# The seeder whose oracle answers each ready-made question, and the arguments the case passes to it.
+READY_PROMPT_SEEDERS: dict[str, tuple[Seeder, dict[str, str]]] = {
+    "web-analytics-weekly-summary": (seed_weekly_digest, {}),
+    "web-analytics-traffic-change": (seed_traffic_change_drivers, {}),
+    "web-analytics-compare-periods": (seed_ready_compare_periods, {}),
+    "web-analytics-yesterday-vs-last-week": (seed_ready_yesterday_vs_last_week, {}),
+    "web-analytics-top-pages": (seed_ready_top_pages, {}),
+    "web-analytics-traffic-sources": (seed_traffic_sources, {}),
+    "web-analytics-worst-bounce-landing-pages": (seed_ready_worst_bounce_landing_pages, {}),
+    "web-analytics-goal-conversion-rate": (seed_signup_conversion_rate, {"goal": SIGNUP_EVENT}),
+    "web-analytics-goal-conversion-by-channel": (seed_goal_conversions_by_channel, {"goal": SIGNUP_EVENT}),
+    "web-analytics-worst-web-vitals": (seed_web_vitals, {}),
+    "web-analytics-ai-agent-traffic": (seed_ai_agent_traffic, {}),
+    "web-analytics-audience": (seed_audience, {}),
+    "web-analytics-daily-visitors": (seed_daily_visitors, {}),
+}
+
+
+def _ready_prompt_cases() -> list[SandboxedEvalCase]:
+    cases = []
+    for prompt in READY_PROMPTS:
+        seeder, arguments = READY_PROMPT_SEEDERS[prompt.name]
+        cases.append(
+            _case(
+                f"ready_{prompt.name.removeprefix('web-analytics-').replace('-', '_')}",
+                render_ready_prompt(prompt, arguments),
+                prompt.tools[0],
+                seeder,
+                ready_prompt=prompt.name,
+            )
+        )
+    return cases
 
 
 CASES = [
@@ -132,6 +180,7 @@ CASES = [
         "web-analytics-weekly-digest",
         seed_weekly_digest,
     ),
+    *_ready_prompt_cases(),
 ]
 
 
