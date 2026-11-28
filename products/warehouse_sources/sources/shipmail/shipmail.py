@@ -32,10 +32,17 @@ def _incremental_value(value: Any) -> str:
     return str(value)
 
 
-def _drop_repeated_rows(primary_keys: list[str]) -> Callable[[dict[str, Any]], dict[str, Any] | list[dict[str, Any]]]:
+def _drop_repeated_rows(
+    scope_field: str, primary_keys: list[str]
+) -> Callable[[dict[str, Any]], dict[str, Any] | list[dict[str, Any]]]:
+    # The fan-out finishes one parent before the next, so the seen keys only need to cover one scope.
+    scope: list[Any] = [None]
     seen: set[tuple[Any, ...]] = set()
 
     def drop(row: dict[str, Any]) -> dict[str, Any] | list[dict[str, Any]]:
+        if row.get(scope_field) != scope[0]:
+            scope[0] = row.get(scope_field)
+            seen.clear()
         key = tuple(row.get(field) for field in primary_keys)
         if key in seen:
             return []
@@ -135,8 +142,8 @@ def shipmail_source(
             initial_paginator_state=resume.fanout_state if resume else None,
             resume_parent_pagination=True,
         )
-        if endpoint_config.drop_repeated_rows and isinstance(resource, Resource):
-            resource.add_map(_drop_repeated_rows(endpoint_config.primary_keys))
+        if endpoint_config.drop_repeated_rows_per is not None and isinstance(resource, Resource):
+            resource.add_map(_drop_repeated_rows(endpoint_config.drop_repeated_rows_per, endpoint_config.primary_keys))
     else:
         resource = rest_api_resource(
             rest_config,
