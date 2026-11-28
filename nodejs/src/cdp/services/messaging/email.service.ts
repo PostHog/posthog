@@ -1870,7 +1870,7 @@ export class EmailService {
         if (params.cc?.trim() || params.bcc?.trim()) {
             addLog(
                 'warn',
-                'Not sending the cc and bcc copies: a marketing email goes only to its recipient, with their own unsubscribe link.'
+                "Not sending this email's copies: a marketing email goes only to its recipient, with their own unsubscribe link."
             )
         }
         return { ...params, cc: undefined, bcc: undefined }
