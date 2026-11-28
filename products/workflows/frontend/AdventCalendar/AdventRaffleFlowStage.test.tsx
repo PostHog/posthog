@@ -1,4 +1,4 @@
-import { act, fireEvent, render, RenderResult } from '@testing-library/react'
+import { act, fireEvent, render, RenderResult, screen, within } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
@@ -56,7 +56,6 @@ describe('AdventRaffleFlowStage', () => {
 
     const door = (day: number): HTMLElement =>
         document.querySelector(`[data-attr="advent-door-${day}"], [data-attr="advent-hog-${day}"]`) as HTMLElement
-    const card = (): HTMLElement | null => document.querySelector('[data-attr="advent-door-card"]')
     const flight = (): HTMLElement | null => document.querySelector('[data-attr="advent-ticket-flight"]')
     const advance = async (...steps: number[]): Promise<void> => {
         for (const step of steps) {
@@ -83,15 +82,22 @@ describe('AdventRaffleFlowStage', () => {
         jest.useRealTimers()
     })
 
-    it('draws the gold trail only into doors opened on their day', async () => {
-        useMocks(calendarMocks([1, 3, 4]))
+    it.each([
+        [
+            'into the doors opened on their day',
+            [1, 3, 4],
+            ['trigger>door-1', 'door-2>door-3-upper', 'door-3-upper>door-4-upper'],
+        ],
+        ['nowhere when no ticket is earned', [], []],
+    ])('draws the gold trail %s', async (_, tickets, trail) => {
+        useMocks(calendarMocks(tickets))
         await renderOn(new Date(2026, 11, 6, 9, 0), [1, 2, 3, 4, 5], DESKTOP)
 
         expect(
-            Array.from(document.querySelectorAll('[data-emphasized="true"]')).map(
-                (edge) => edge.getAttribute('data-edge')?.split('>')[1].split('-')[1]
+            Array.from(document.querySelectorAll('[data-emphasized="true"]')).map((edge) =>
+                edge.getAttribute('data-edge')
             )
-        ).toEqual(['1', '3', '4'])
+        ).toEqual(trail)
     })
 
     it('opens the card on the present once its opening has played', async () => {
@@ -100,10 +106,14 @@ describe('AdventRaffleFlowStage', () => {
 
         act(() => fireEvent.click(door(24)))
         await advance(ADVENT_FLOW_OPENING_MS - 100)
-        const beforeTheEnd = card()?.getAttribute('data-open') ?? null
+        const beforeTheEnd = screen.queryByRole('dialog')
         await advance(200, 100)
+        const card = screen.getByRole('dialog', { name: 'Heart' })
 
-        expect([beforeTheEnd, card()?.getAttribute('data-open')]).toEqual([null, 'true'])
+        expect([beforeTheEnd, !!within(card).queryByText('Open each door on its day to enter the raffle.')]).toEqual([
+            null,
+            true,
+        ])
     })
 
     it('holds the ticket flight while the door card covers the phone column', async () => {
@@ -112,10 +122,11 @@ describe('AdventRaffleFlowStage', () => {
 
         act(() => fireEvent.click(door(3)))
         await advance(ADVENT_FLOW_OPENING_MS, 200, 100)
-        const whileTheCardIsOpen = [card()?.getAttribute('data-open'), !!flight()]
-        act(() => fireEvent.click(card()?.querySelector('[data-attr="advent-door-card-close"]') as HTMLElement))
+        const card = screen.getByRole('dialog', { name: 'Scientist' })
+        const isFlyingUnderTheCard = !!flight()
+        act(() => fireEvent.click(within(card).getByRole('button', { name: 'Close' })))
         await advance(300, 300, 100)
 
-        expect([whileTheCardIsOpen, !!flight()]).toEqual([['true', false], true])
+        expect([isFlyingUnderTheCard, !!flight()]).toEqual([false, true])
     })
 })
