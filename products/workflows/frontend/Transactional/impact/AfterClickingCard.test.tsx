@@ -109,7 +109,10 @@ describe('AfterClickingCard', () => {
         }
         useMocks({
             get: {
-                '/api/projects/:team_id/transactional_email_log/impact/': () => [200, IMPACT],
+                '/api/projects/:team_id/transactional_email_log/impact/': () => [
+                    200,
+                    { ...IMPACT, link_tagging_enabled: linkTrackingOn },
+                ],
                 '/api/projects/:team_id/transactional_email_log/impact_sessions/': ({ request }) => {
                     if (!linkTrackingOn) {
                         return [200, { sessions: [], has_more: false }]
@@ -125,6 +128,11 @@ describe('AfterClickingCard', () => {
                         const at = Date.parse(first_pageview_at)
                         return at >= from && !(at >= before)
                     })
+                    landed.sort(
+                        (a, b) =>
+                            b.first_pageview_at.localeCompare(a.first_pageview_at) ||
+                            b.session_id.localeCompare(a.session_id)
+                    )
                     const sessions = landed.map((landing) => ({
                         ...landing,
                         message_id: `message-${landing.session_id}`,
@@ -262,12 +270,12 @@ describe('AfterClickingCard', () => {
         expect(screen.getByText('Inconclusive')).toBeInTheDocument()
         expect(screen.getByText('Watch session').closest('a')).toHaveAttribute(
             'href',
-            expect.stringMatching(/\/replay\/session-a$/)
+            expect.stringMatching(/\/replay\/session-b$/)
         )
         expect(screen.getByText(/^No answer for 1\ssession\.$/)).toBeInTheDocument()
         expect(vision.bodies).toEqual([
             expect.objectContaining({
-                session_ids: ['session-a', 'session-b'],
+                session_ids: ['session-b', 'session-a'],
                 inline: {
                     prompt: expect.stringContaining('Did the person finish what they came to do?'),
                     scanner_config: { allow_inconclusive: true },

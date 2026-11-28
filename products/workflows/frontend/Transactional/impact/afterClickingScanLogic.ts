@@ -174,7 +174,8 @@ export const afterClickingScanLogic = kea<afterClickingScanLogicType>([
     selectors({
         sessionIds: [
             (s) => [s.sessions],
-            (sessions): string[] => sessions?.sessions.map(({ session_id }) => session_id) ?? [],
+            (sessions: afterClickingScanLogicValues['sessions']): string[] =>
+                sessions?.sessions.map(({ session_id }) => session_id) ?? [],
         ],
         scanState: [
             (s) => [s.sessions, s.sessionIds, s.sessionsLoading, s.scanRequest, s.scanStarting, s.scanError],
