@@ -114,7 +114,6 @@ function ClosedDoor({ door }: { door: AdventDoor }): JSX.Element {
     )
 }
 
-// An opening door keeps its button, so a keyboard user who opened it keeps focus on it.
 function DoorTile({
     node,
     today,

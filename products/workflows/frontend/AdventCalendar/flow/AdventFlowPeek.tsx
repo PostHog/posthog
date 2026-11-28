@@ -12,8 +12,6 @@ interface Pose {
     shift: number
 }
 
-// Where each hoggy stands behind the opening. `sink` is the share of the art hidden under the bottom edge of
-// the frame, and `shift` moves it sideways away from the leaf, so faces stay whole.
 const POSES: Record<string, Partial<Pose>> = {
     safari: { height: 100, sink: 0.12, shift: 18 },
     scientist: { height: 93, sink: 0.4, shift: 15 },

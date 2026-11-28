@@ -79,8 +79,7 @@
 }
 
 // The glow is painted once on a layer of its own, and only its opacity and scale move, so the pulse runs on
-// the compositor. It pulses three times when the stage wakes, then rests: an endless pulse would keep the
-// compositor drawing every frame of an idle stage.
+// the compositor and repaints nothing while the stage sits idle.
 .AdventFlowStep__tile--today::after {
     position: absolute;
     inset: -2px;
@@ -119,7 +118,6 @@
     outline-offset: 4px;
 }
 
-// An open door: the button keeps the tile's place, and the peek inside it draws past its edges.
 .AdventFlowStep__tile--open {
     cursor: pointer;
     background: none;
@@ -152,7 +150,6 @@
     display: flex;
 }
 
-// The canvas edge throws a shadow onto the hoggy standing behind it.
 .AdventFlowPeek__shade {
     position: absolute;
     inset: 0;
@@ -208,8 +205,6 @@
     transform: rotateY(180deg);
 }
 
-// The opening moves only transforms and opacity, so it runs on the compositor. Under reduced motion the
-// logic skips the reveal, so the door shows open at once.
 @media (prefers-reduced-motion: no-preference) {
     .AdventFlowPeek--opening {
         .AdventFlowPeek__stitch,

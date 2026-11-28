@@ -25,8 +25,6 @@ const OPENING_MS = 2400
 const OPENING_STYLE = { '--advent-flow-opening': `${OPENING_MS}ms` } as CSSProperties
 
 export interface AdventFlowStageProps {
-    // Draws the last door in place of the peek door. While it opens, the stage holds the card back until the
-    // drawn door calls `onOpened`, so that door sets the length of its own opening.
     renderLastDoor?: (step: AdventFlowStepProps) => ReactNode
     isEdgeEmphasized?: (edge: AdventFlowEdge) => boolean
 }
@@ -42,7 +40,6 @@ function gridOf({ zoom, box }: AdventFlowFit): CSSProperties {
     } as CSSProperties
 }
 
-// The peek door's opening runs in CSS for this long, then the card shows.
 function useOpening(revealingDoor: AdventDoor | null, drawsLastDoor: boolean, finishReveal: () => void): void {
     const revealingDoorId = revealingDoor?.id ?? null
     const isHandedOff = drawsLastDoor && revealingDoor?.day === ADVENT_LAST_DAY
@@ -79,7 +76,6 @@ export function AdventFlowStage({ renderLastDoor, isEdgeEmphasized = noEmphasis 
             dismiss()
         }
     }
-    // Scrolling the column moves the doors under a card placed for the old scroll, so the card closes.
     const onColumnScroll = (): void => {
         if (revealingDoor || hover.card.current?.doorId) {
             dismiss()

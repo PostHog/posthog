@@ -1,7 +1,5 @@
 import { RefObject, useEffect } from 'react'
 
-// Today's glow pulses only after the stage comes into view or its tab shows again, so an idle stage costs no
-// compositor work. The attribute is set on the element directly, so a wake re-renders nothing.
 export function useAdventFlowWake(stage: RefObject<HTMLElement>): void {
     useEffect(() => {
         const root = stage.current

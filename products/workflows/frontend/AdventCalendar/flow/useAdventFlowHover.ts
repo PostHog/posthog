@@ -9,8 +9,6 @@ export interface AdventFlowHover {
     clearHover: () => void
 }
 
-// The card's hover state lives in AdventFlowCard, so a hover re-renders the card and not the stage with all of
-// its steps. The stage and the steps reach that state through these handlers, which keep their identity.
 export function useAdventFlowHover(): AdventFlowHover {
     const card = useRef<AdventCardState | null>(null)
     return useMemo(
