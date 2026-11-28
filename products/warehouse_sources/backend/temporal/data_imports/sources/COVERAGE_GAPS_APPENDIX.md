@@ -15015,10 +15015,10 @@ Diffed against: <https://developers.thinkific.com/openapi/thinkific-admin-api-v1
 - [x] `GET /chapters/{id}/contents (+ /contents/{id})` — lesson-level records, the join target for lesson completion and drop-off analysis (high) → `contents` (full refresh, fan-out over each course's `chapter_ids`)
 - [x] `GET /collections/{id}/products (+ /collection_memberships/{id})` — join table linking the synced collections to the synced products (medium) → `collection_products` (full refresh, fan-out over `collections`; `/collection_memberships/{id}` is POST/DELETE only)
 - [x] `GET /custom_profile_field_definitions` — lookup decoding the custom profile fields carried on user records (medium) → `custom_profile_field_definitions` (full refresh)
-- [ ] `GET /bundles/{id}/courses` — bundle-to-course mapping, needed to attribute bundle revenue to individual courses (medium)
-- [ ] `GET /bundles/{id}/enrollments` — enrollments scoped to a bundle, distinguishing bundle-driven from direct enrollment (medium)
-- [ ] `GET /groups/{group_id}/analysts` — who administers each synced group, a small membership lookup (low)
-- [ ] `GET /products/{id}/related` — product relationship graph used for cross-sell reporting (low)
+- [x] `GET /bundles/{id}/courses` — bundle-to-course mapping, needed to attribute bundle revenue to individual courses (medium) → `bundle_courses` (full refresh)
+- [x] `GET /bundles/{id}/enrollments` — enrollments scoped to a bundle, distinguishing bundle-driven from direct enrollment (medium) → `bundle_enrollments` (full refresh or incremental on `updated_at`)
+- [x] `GET /groups/{group_id}/analysts` — who administers each synced group, a small membership lookup (low) → `group_analysts` (full refresh)
+- [x] `GET /products/{id}/related` — product relationship graph used for cross-sell reporting (low) → `related_products` (full refresh)
 - [ ] `GET /product_publish_requests` — publication request state per product, useful for content-pipeline reporting (low)
 
 Note: Same vendor API as the Thinkific source; this variant already covers coupons and course_reviews, so the remaining gaps are curriculum depth and the lookup tables. Worth flagging that two PostHog sources point at one Thinkific Admin API v1 with overlapping-but-unequal table sets.

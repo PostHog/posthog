@@ -43,6 +43,12 @@ def _course_chapter_rows(course: dict[str, Any]) -> list[dict[str, Any]]:
     return [{"chapter_id": chapter_id, "course_id": course.get("id")} for chapter_id in course.get("chapter_ids") or []]
 
 
+def _bundle_rows(product: dict[str, Any]) -> list[dict[str, Any]]:
+    if product.get("productable_type") != "Bundle" or (bundle_id := product.get("productable_id")) is None:
+        return []
+    return [{"bundle_id": bundle_id}]
+
+
 # List endpoints of the Thinkific public Admin API (https://api.thinkific.com/api/public/v1). Every
 # top-level object carries a numeric `id` unique within its own collection, so `id` is a safe
 # table-wide primary key there. Fan-out children aggregate rows across parents, so their key
@@ -50,6 +56,35 @@ def _course_chapter_rows(course: dict[str, Any]) -> list[dict[str, Any]]:
 THINKIFIC_COURSES_ENDPOINTS: dict[str, ThinkificCoursesEndpointConfig] = {
     "courses": ThinkificCoursesEndpointConfig(name="courses", path="/courses"),
     "collections": ThinkificCoursesEndpointConfig(name="collections", path="/collections"),
+    "bundle_courses": ThinkificCoursesEndpointConfig(
+        name="bundle_courses",
+        path="/bundles/{bundle_id}/courses",
+        primary_keys=["bundle_id", "id"],
+        parent_data_map=_bundle_rows,
+        fanout=DependentEndpointConfig(
+            parent_name="products",
+            resolve_param="bundle_id",
+            resolve_field="bundle_id",
+            include_from_parent=["bundle_id"],
+            parent_field_renames={"bundle_id": "bundle_id"},
+        ),
+    ),
+    "bundle_enrollments": ThinkificCoursesEndpointConfig(
+        name="bundle_enrollments",
+        path="/bundles/{bundle_id}/enrollments",
+        primary_keys=["bundle_id", "id"],
+        supports_incremental=True,
+        incremental_fields=_UPDATED_AT_INCREMENTAL,
+        default_incremental_field="updated_at",
+        parent_data_map=_bundle_rows,
+        fanout=DependentEndpointConfig(
+            parent_name="products",
+            resolve_param="bundle_id",
+            resolve_field="bundle_id",
+            include_from_parent=["bundle_id"],
+            parent_field_renames={"bundle_id": "bundle_id"},
+        ),
+    ),
     # The reviews endpoint requires a course_id query param, so it fans out over courses. The
     # framework only binds resolve params in the path, hence the query string in the path template.
     "course_reviews": ThinkificCoursesEndpointConfig(
@@ -105,8 +140,6 @@ THINKIFIC_COURSES_ENDPOINTS: dict[str, ThinkificCoursesEndpointConfig] = {
             parent_field_renames={"id": "promotion_id"},
         ),
     ),
-    # Enrollments is the one endpoint the API documents server-side date filtering for
-    # (query[updated_after] / query[updated_on_or_after] / ...), so it's the only incremental one.
     "collection_products": ThinkificCoursesEndpointConfig(
         name="collection_products",
         path="/collections/{collection_id}/products",
@@ -131,9 +164,33 @@ THINKIFIC_COURSES_ENDPOINTS: dict[str, ThinkificCoursesEndpointConfig] = {
         default_incremental_field="updated_at",
     ),
     "groups": ThinkificCoursesEndpointConfig(name="groups", path="/groups"),
+    "group_analysts": ThinkificCoursesEndpointConfig(
+        name="group_analysts",
+        path="/groups/{group_id}/analysts",
+        primary_keys=["group_id", "user_id"],
+        fanout=DependentEndpointConfig(
+            parent_name="groups",
+            resolve_param="group_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "group_id"},
+        ),
+    ),
     "instructors": ThinkificCoursesEndpointConfig(name="instructors", path="/instructors"),
     "orders": ThinkificCoursesEndpointConfig(name="orders", path="/orders"),
     "products": ThinkificCoursesEndpointConfig(name="products", path="/products"),
+    "related_products": ThinkificCoursesEndpointConfig(
+        name="related_products",
+        path="/products/{product_id}/related",
+        primary_keys=["product_id", "id"],
+        fanout=DependentEndpointConfig(
+            parent_name="products",
+            resolve_param="product_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "product_id"},
+        ),
+    ),
     "promotions": ThinkificCoursesEndpointConfig(name="promotions", path="/promotions"),
     "users": ThinkificCoursesEndpointConfig(name="users", path="/users", partition_key="created_at"),
 }
