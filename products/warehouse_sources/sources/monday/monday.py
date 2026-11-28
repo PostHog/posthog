@@ -29,6 +29,12 @@ MONDAY_COLUMN_SETTINGS_FIELDS: dict[str, str] = {
 # Boards/users/folders page size; items_page caps at 500.
 PAGE_SIZE = 100
 ITEMS_PAGE_SIZE = 500
+# monday caps the root `updates` query at 100 per page.
+UPDATES_PAGE_SIZE = 100
+# Membership lists are nested per board, so a smaller board page keeps each query's complexity low.
+BOARD_SUBSCRIBERS_PAGE_SIZE = 25
+# team_owners/team_subscribers page with their own limit; 25 is monday's default for both.
+BOARD_TEAMS_PAGE_SIZE = 25
 # activity_logs accepts up to 10,000 per request; a smaller page keeps each query's complexity low.
 ACTIVITY_LOGS_PAGE_SIZE = 1000
 REQUEST_TIMEOUT_SECONDS = 120
@@ -131,6 +137,93 @@ query ($limit: Int!, $page: Int!) {
 }
 """
 
+_UPDATES_QUERY = """
+query ($limit: Int!, $page: Int!) {
+  updates (limit: $limit, page: $page) {
+    id
+    item_id
+    creator_id
+    body
+    text_body
+    created_at
+    updated_at
+    edited_at
+  }
+}
+"""
+
+_TEAMS_QUERY = """
+query {
+  teams {
+    id
+    name
+    picture_url
+    is_guest
+    owners { id }
+    users { id }
+  }
+}
+"""
+
+# `Team.created_at` arrives in 2026-07; 2024-10 rejects the field.
+_TEAMS_QUERY_WITH_CREATED_AT = """
+query {
+  teams {
+    id
+    name
+    picture_url
+    is_guest
+    created_at
+    owners { id }
+    users { id }
+  }
+}
+"""
+
+MONDAY_TEAMS_QUERIES: dict[str, str] = {
+    MONDAY_VERSION_V2: _TEAMS_QUERY,
+    MONDAY_VERSION_2026_07: _TEAMS_QUERY_WITH_CREATED_AT,
+    MONDAY_VERSION_2026_10: _TEAMS_QUERY_WITH_CREATED_AT,
+}
+
+_TAGS_QUERY = """
+query {
+  tags { id name color }
+}
+"""
+
+_BOARD_TAGS_QUERY = """
+query ($limit: Int!, $page: Int!) {
+  boards (limit: $limit, page: $page) {
+    id
+    tags { id name color }
+  }
+}
+"""
+
+_BOARD_SUBSCRIBERS_QUERY = """
+query ($limit: Int!, $page: Int!, $teamLimit: Int!) {
+  boards (limit: $limit, page: $page) {
+    id
+    owners { id }
+    subscribers { id }
+    team_owners (limit: $teamLimit) { id }
+    team_subscribers (limit: $teamLimit) { id }
+  }
+}
+"""
+
+
+def _board_team_page_query(team_field: str) -> str:
+    return f"""
+query ($boardId: [ID!], $limit: Int!, $page: Int!) {{
+  boards (ids: $boardId) {{
+    {team_field} (limit: $limit, page: $page) {{ id }}
+  }}
+}}
+"""
+
+
 _BOARD_ACTIVITY_LOGS_QUERY = """
 query ($boardId: [ID!], $limit: Int!, $page: Int!, $from: ISO8601DateTime) {
   boards (ids: $boardId) {
@@ -216,6 +309,41 @@ def _parse_activity_log_created_at(value: Any) -> Any:
         return datetime.fromtimestamp(int(value) / 10_000_000, tz=UTC)
     except (TypeError, ValueError):
         return value
+
+
+def _ids(entities: Any) -> list[str]:
+    return [entity["id"] for entity in (entities or []) if entity is not None]
+
+
+def _team_row(team: dict[str, Any]) -> dict[str, Any]:
+    row = {key: value for key, value in team.items() if key not in ("owners", "users")}
+    return {**row, "owner_ids": _ids(team.get("owners")), "user_ids": _ids(team.get("users"))}
+
+
+def _board_subscriber_rows(
+    board_id: str,
+    owner_ids: list[str],
+    subscriber_ids: list[str],
+    team_owner_ids: list[str],
+    team_subscriber_ids: list[str],
+) -> list[dict[str, Any]]:
+    # Owners are listed apart from subscribers; one row per member keeps the role as a flag.
+    rows: list[dict[str, Any]] = []
+    for subscriber_type, owners, subscribers in (
+        ("user", owner_ids, subscriber_ids),
+        ("team", team_owner_ids, team_subscriber_ids),
+    ):
+        owner_set = set(owners)
+        for member_id in dict.fromkeys([*subscribers, *owners]):
+            rows.append(
+                {
+                    "_board_id": board_id,
+                    "subscriber_type": subscriber_type,
+                    "id": member_id,
+                    "is_owner": member_id in owner_set,
+                }
+            )
+    return rows
 
 
 class MondayRetryableError(Exception):
@@ -321,17 +449,36 @@ def get_rows(
         return _execute(session, query, variables, logger)
 
     def iterate_paged(
-        query: str, data_key: str, extra_variables: Optional[dict[str, Any]] = None
+        query: str,
+        data_key: str,
+        extra_variables: Optional[dict[str, Any]] = None,
+        page_size: int = PAGE_SIZE,
     ) -> Iterator[list[dict[str, Any]]]:
         page = 1
         while True:
-            data = execute(query, {"limit": PAGE_SIZE, "page": page, **(extra_variables or {})})
+            data = execute(query, {"limit": page_size, "page": page, **(extra_variables or {})})
             items = data.get(data_key) or []
             if items:
                 yield items
-            if len(items) < PAGE_SIZE:
+            if len(items) < page_size:
                 return
             page += 1
+
+    def board_team_ids(board_id: str, team_field: str, first_page: list[str]) -> list[str]:
+        ids = list(first_page)
+        page = 1
+        last_page_size = len(first_page)
+        while last_page_size >= BOARD_TEAMS_PAGE_SIZE:
+            page += 1
+            data = execute(
+                _board_team_page_query(team_field),
+                {"boardId": [board_id], "limit": BOARD_TEAMS_PAGE_SIZE, "page": page},
+            )
+            boards = data.get("boards") or []
+            page_ids = _ids(boards[0].get(team_field) if boards else None)
+            ids.extend(page_ids)
+            last_page_size = len(page_ids)
+        return ids
 
     def iterate_board_children(query: str, child_key: str) -> Iterator[list[dict[str, Any]]]:
         for boards in iterate_paged(query, "boards"):
@@ -357,6 +504,59 @@ def get_rows(
 
     if endpoint == "workspaces":
         yield from iterate_paged(_WORKSPACES_QUERY, "workspaces")
+        return
+
+    if endpoint == "updates":
+        yield from iterate_paged(_UPDATES_QUERY, "updates", page_size=UPDATES_PAGE_SIZE)
+        return
+
+    if endpoint == "teams":
+        data = execute(MONDAY_TEAMS_QUERIES[api_version], {})
+        teams = [_team_row(team) for team in (data.get("teams") or []) if team is not None]
+        if teams:
+            yield teams
+        return
+
+    if endpoint == "tags":
+        # The root query returns only public tags; private and shareable boards keep their tags on the board.
+        seen_tag_ids: set[str] = set()
+
+        def new_tags(tags: list[Any]) -> list[dict[str, Any]]:
+            fresh = list({tag["id"]: tag for tag in tags if tag is not None and tag["id"] not in seen_tag_ids}.values())
+            seen_tag_ids.update(tag["id"] for tag in fresh)
+            return fresh
+
+        public_tags = new_tags(execute(_TAGS_QUERY, {}).get("tags") or [])
+        if public_tags:
+            yield public_tags
+        for boards in iterate_paged(_BOARD_TAGS_QUERY, "boards"):
+            board_tags = new_tags([tag for board in boards for tag in (board.get("tags") or [])])
+            if board_tags:
+                yield board_tags
+        return
+
+    if endpoint == "board_subscribers":
+        for boards in iterate_paged(
+            _BOARD_SUBSCRIBERS_QUERY,
+            "boards",
+            {"teamLimit": BOARD_TEAMS_PAGE_SIZE},
+            page_size=BOARD_SUBSCRIBERS_PAGE_SIZE,
+        ):
+            rows = [
+                row
+                for board in boards
+                for row in _board_subscriber_rows(
+                    board["id"],
+                    owner_ids=_ids(board.get("owners")),
+                    subscriber_ids=_ids(board.get("subscribers")),
+                    team_owner_ids=board_team_ids(board["id"], "team_owners", _ids(board.get("team_owners"))),
+                    team_subscriber_ids=board_team_ids(
+                        board["id"], "team_subscribers", _ids(board.get("team_subscribers"))
+                    ),
+                )
+            ]
+            if rows:
+                yield rows
         return
 
     if endpoint == "board_columns":
