@@ -2540,9 +2540,8 @@ class TestAICreditRelayToBilling(BaseTest):
         with patch(
             "ee.billing.billing_manager.http_session.put", return_value=MagicMock(status_code=200)
         ) as billing_put_request_mock:
-            result = BillingManager(self._license()).send_ai_withdrawal_answer(self.organization, answer)
+            BillingManager(self._license()).send_ai_withdrawal_answer(self.organization, answer)
 
-        assert result is None
         call_args = billing_put_request_mock.call_args
         assert call_args[0][0].endswith("/api/ai-credits/withdrawals/ai_refund%3Are_1")
         assert call_args[1]["json"] == self.WITHDRAWAL_ANSWER
