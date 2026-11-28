@@ -129,6 +129,20 @@ function patchPinnedPage(
     return onScreen ? patched : current
 }
 
+/**
+ * Drops every cached event definition page except the one just patched. A bulk edit can change any
+ * of them, and a page that filters on the edited field can gain or lose rows, so they load again.
+ */
+function dropOtherCachedPages(cache: Record<string, any>, keepKey: string | undefined): void {
+    if (!keepKey) {
+        return
+    }
+    const listPath = keepKey.split('?')[0]
+    cache.apiCache = Object.fromEntries(
+        Object.entries(cache.apiCache ?? {}).filter(([key]) => key === keepKey || key.split('?')[0] !== listPath)
+    )
+}
+
 function toastBulkResult(doneLabel: string, updatedCount: number, skippedCount: number): void {
     if (updatedCount > 0) {
         lemonToast.success(`${doneLabel} ${updatedCount} event${updatedCount !== 1 ? 's' : ''}`)
@@ -651,6 +665,7 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                         return values.eventDefinitions
                     }
                     const hiddenById = new Map(updates.map((u) => [String(u.id), u.hidden] as const))
+                    dropOtherCachedPages(cache, cache.bulkHiddenCacheKey)
                     return patchPinnedPage(cache, cache.bulkHiddenCacheKey, values.eventDefinitions, (d) => {
                         const hidden = hiddenById.get(String(d.id))
                         if (hidden === undefined) {
@@ -865,6 +880,10 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
             }
             const { hidden, updated, skipped } = bulkHiddenResult
             actions.applyBulkHiddenUpdates(updated)
+            if (updated.length > 0 && values.eventDefinitions.current !== cache.bulkHiddenCacheKey) {
+                // The user moved to another page while the request ran, and its cached copy is gone
+                actions.loadEventDefinitions(values.eventDefinitions.current)
+            }
             payload?.onSuccess?.()
             toastBulkResult(hidden ? 'Hid' : 'Unhid', updated.length, skipped.length)
         },

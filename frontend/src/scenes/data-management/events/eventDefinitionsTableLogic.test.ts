@@ -321,6 +321,49 @@ describe('eventDefinitionsTableLogic', () => {
             expect(results.find((d) => d.id === unverifiedRow.id)).toMatchObject({ verified: false, ...scheduled })
         })
 
+        it('bulk hide on a search shows the new state after clearing the search', async () => {
+            router.actions.push(urls.eventDefinitions())
+            await expectLogic(logic).toDispatchActions(['loadEventDefinitionsSuccess'])
+
+            const target = logic.values.eventDefinitions.results[0]
+            const hiddenIds = new Set<string>()
+            useMocks({
+                get: {
+                    '/api/projects/:team/event_definitions': () => [
+                        200,
+                        {
+                            results: mockEventDefinitions
+                                .slice(0, 50)
+                                .map((d) => (hiddenIds.has(d.id) ? { ...d, hidden: true } : d)),
+                            count: 50,
+                            previous: null,
+                            next: null,
+                        },
+                    ],
+                },
+                post: {
+                    '/api/projects/:team/event_definitions/bulk_update_hidden/': () => {
+                        hiddenIds.add(target.id)
+                        return [200, { updated: [{ id: target.id, hidden: true }], skipped: [] }]
+                    },
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.setFilters({ event: target.name }, false)
+            }).toDispatchActions(['loadEventDefinitionsSuccess'])
+            await expectLogic(logic, () => {
+                logic.actions.bulkUpdateHidden({ ids: [target.id], hidden: true })
+            }).toDispatchActions(['bulkUpdateHiddenSuccess'])
+            await expectLogic(logic, () => {
+                logic.actions.setFilters({ event: '' }, false)
+            }).toDispatchActions(['loadEventDefinitionsSuccess'])
+
+            expect(logic.values.eventDefinitions.results.find((d) => d.id === target.id)).toMatchObject({
+                hidden: true,
+            })
+        })
+
         it('bulk hide unverifies and bulk unhide clears a scheduled delete, like the server', async () => {
             router.actions.push(urls.eventDefinitions())
             await expectLogic(logic).toDispatchActions(['loadEventDefinitionsSuccess'])
