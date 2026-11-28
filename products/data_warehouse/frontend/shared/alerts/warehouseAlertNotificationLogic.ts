@@ -21,7 +21,7 @@ import {
 import {
     WarehouseAlertCreateDestinationApi,
     WarehouseAlertDestinationApi,
-    WarehouseAlertDestinationTypeEnumApi,
+    AlertDestinationTypeEnumApi,
 } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { PAGERDUTY_ROUTING_KEY_PATTERN, describeNotification } from './warehouseAlertNotificationFormat'
@@ -51,10 +51,10 @@ function isSameNotification(a: NotificationTarget, b: NotificationTarget): boole
     if (a.type !== b.type) {
         return false
     }
-    if (a.type === WarehouseAlertDestinationTypeEnumApi.Slack) {
+    if (a.type === AlertDestinationTypeEnumApi.Slack) {
         return a.slack_workspace_id === b.slack_workspace_id && a.slack_channel_id === b.slack_channel_id
     }
-    if (a.type === WarehouseAlertDestinationTypeEnumApi.Pagerduty) {
+    if (a.type === AlertDestinationTypeEnumApi.Pagerduty) {
         return a.pagerduty_routing_key === b.pagerduty_routing_key
     }
     return a.webhook_url === b.webhook_url
@@ -79,7 +79,7 @@ export interface warehouseAlertNotificationLogicValues {
     selectedNotification: WarehouseAlertCreateDestinationApi | null
     selectedSlackIntegration: IntegrationType | undefined
     selectedSlackIntegrationId: number | null
-    selectedType: WarehouseAlertDestinationTypeEnumApi
+    selectedType: AlertDestinationTypeEnumApi
     slackChannelValue: string | null
     webhookUrl: string
 }
@@ -152,8 +152,8 @@ export interface warehouseAlertNotificationLogicActions {
     setSelectedSlackIntegrationId: (integrationId: number | null) => {
         integrationId: number | null
     }
-    setSelectedType: (selectedType: WarehouseAlertDestinationTypeEnumApi) => {
-        selectedType: WarehouseAlertDestinationTypeEnumApi
+    setSelectedType: (selectedType: AlertDestinationTypeEnumApi) => {
+        selectedType: AlertDestinationTypeEnumApi
     }
     setSlackChannelValue: (slackChannelValue: string | null) => {
         slackChannelValue: string | null
@@ -172,7 +172,7 @@ export interface warehouseAlertNotificationLogicMeta {
             selectedSlackIntegrationId: number | null
         ) => IntegrationType | undefined
         selectedNotification: (
-            selectedType: WarehouseAlertDestinationTypeEnumApi,
+            selectedType: AlertDestinationTypeEnumApi,
             selectedSlackIntegration: IntegrationType | undefined,
             slackChannelValue: string | null,
             webhookUrl: string,
@@ -181,7 +181,7 @@ export interface warehouseAlertNotificationLogicMeta {
             pagerDutyRegion: AlertPagerDutyRegion
         ) => WarehouseAlertCreateDestinationApi | null
         addDisabledReason: (
-            selectedType: WarehouseAlertDestinationTypeEnumApi,
+            selectedType: AlertDestinationTypeEnumApi,
             selectedSlackIntegration: IntegrationType | undefined,
             slackChannelValue: string | null,
             webhookUrl: string,
@@ -219,7 +219,7 @@ export const warehouseAlertNotificationLogic = kea<warehouseAlertNotificationLog
         setSelectedSlackIntegrationId: (integrationId: number | null) => ({ integrationId }),
         deleteDestination: (destination: WarehouseAlertDestinationApi) => ({ destination }),
         setDeletingKey: (deletingKey: string | null) => ({ deletingKey }),
-        setSelectedType: (selectedType: WarehouseAlertDestinationTypeEnumApi) => ({ selectedType }),
+        setSelectedType: (selectedType: AlertDestinationTypeEnumApi) => ({ selectedType }),
         setSlackChannelValue: (slackChannelValue: string | null) => ({ slackChannelValue }),
         setWebhookUrl: (webhookUrl: string) => ({ webhookUrl }),
         setPagerDutyRoutingKey: (pagerDutyRoutingKey: string) => ({ pagerDutyRoutingKey }),
@@ -276,7 +276,7 @@ export const warehouseAlertNotificationLogic = kea<warehouseAlertNotificationLog
             },
         ],
         selectedType: [
-            WarehouseAlertDestinationTypeEnumApi.Slack as WarehouseAlertDestinationTypeEnumApi,
+            AlertDestinationTypeEnumApi.Slack as AlertDestinationTypeEnumApi,
             { setSelectedType: (_, { selectedType }) => selectedType },
         ],
         slackChannelValue: [
@@ -319,7 +319,7 @@ export const warehouseAlertNotificationLogic = kea<warehouseAlertNotificationLog
                 s.pagerDutyRegion,
             ],
             (
-                selectedType: WarehouseAlertDestinationTypeEnumApi,
+                selectedType: AlertDestinationTypeEnumApi,
                 selectedSlackIntegration: IntegrationType | undefined,
                 slackChannelValue: string | null,
                 webhookUrl: string,
@@ -327,7 +327,7 @@ export const warehouseAlertNotificationLogic = kea<warehouseAlertNotificationLog
                 pagerDutySeverity: AlertPagerDutySeverity,
                 pagerDutyRegion: AlertPagerDutyRegion
             ): WarehouseAlertCreateDestinationApi | null => {
-                if (selectedType === WarehouseAlertDestinationTypeEnumApi.Slack) {
+                if (selectedType === AlertDestinationTypeEnumApi.Slack) {
                     if (!selectedSlackIntegration || !slackChannelValue) {
                         return null
                     }
@@ -340,7 +340,7 @@ export const warehouseAlertNotificationLogic = kea<warehouseAlertNotificationLog
                         slack_channel_name: channelLabel?.replace('#', '') || channelId,
                     }
                 }
-                if (selectedType === WarehouseAlertDestinationTypeEnumApi.Pagerduty) {
+                if (selectedType === AlertDestinationTypeEnumApi.Pagerduty) {
                     return {
                         type: selectedType,
                         pagerduty_routing_key: pagerDutyRoutingKey.trim(),
@@ -364,7 +364,7 @@ export const warehouseAlertNotificationLogic = kea<warehouseAlertNotificationLog
                 s.selectedNotification,
             ],
             (
-                selectedType: WarehouseAlertDestinationTypeEnumApi,
+                selectedType: AlertDestinationTypeEnumApi,
                 selectedSlackIntegration: IntegrationType | undefined,
                 slackChannelValue: string | null,
                 webhookUrl: string,
@@ -387,19 +387,19 @@ export const warehouseAlertNotificationLogic = kea<warehouseAlertNotificationLog
                     (pendingNotifications.some((pending) => isSameNotification(pending, selectedNotification)) ||
                         (destinations ?? []).some(
                             (destination) =>
-                                destination.type === WarehouseAlertDestinationTypeEnumApi.Slack &&
+                                destination.type === AlertDestinationTypeEnumApi.Slack &&
                                 isSameNotification(destination, selectedNotification)
                         ))
                 if (alreadyAdded) {
                     return 'This alert already sends to this destination'
                 }
-                if (selectedType === WarehouseAlertDestinationTypeEnumApi.Slack) {
+                if (selectedType === AlertDestinationTypeEnumApi.Slack) {
                     if (!selectedSlackIntegration) {
                         return 'Connect Slack first'
                     }
                     return slackChannelValue ? undefined : 'Select a Slack channel'
                 }
-                if (selectedType === WarehouseAlertDestinationTypeEnumApi.Pagerduty) {
+                if (selectedType === AlertDestinationTypeEnumApi.Pagerduty) {
                     if (!pagerDutyRoutingKey.trim()) {
                         return 'Enter the PagerDuty integration key'
                     }
@@ -418,9 +418,9 @@ export const warehouseAlertNotificationLogic = kea<warehouseAlertNotificationLog
                 return
             }
             actions.addPendingNotification(notification)
-            if (notification.type === WarehouseAlertDestinationTypeEnumApi.Slack) {
+            if (notification.type === AlertDestinationTypeEnumApi.Slack) {
                 actions.setSlackChannelValue(null)
-            } else if (notification.type === WarehouseAlertDestinationTypeEnumApi.Pagerduty) {
+            } else if (notification.type === AlertDestinationTypeEnumApi.Pagerduty) {
                 actions.setPagerDutyRoutingKey('')
             } else {
                 actions.setWebhookUrl('')
@@ -433,11 +433,8 @@ export const warehouseAlertNotificationLogic = kea<warehouseAlertNotificationLog
             }
         },
         loadIntegrationsSuccess: () => {
-            if (
-                !values.selectedSlackIntegration &&
-                values.selectedType === WarehouseAlertDestinationTypeEnumApi.Slack
-            ) {
-                actions.setSelectedType(WarehouseAlertDestinationTypeEnumApi.Webhook)
+            if (!values.selectedSlackIntegration && values.selectedType === AlertDestinationTypeEnumApi.Slack) {
+                actions.setSelectedType(AlertDestinationTypeEnumApi.Webhook)
             }
         },
         createPendingNotifications: async ({ alertId }) => {

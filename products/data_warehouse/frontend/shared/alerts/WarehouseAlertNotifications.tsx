@@ -8,18 +8,18 @@ import {
     AlertNotificationUrlInput,
     PendingAlertNotificationDestinationView,
 } from 'products/alerts/frontend/components/AlertNotificationDestinationEditor'
-import { WarehouseAlertDestinationTypeEnumApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
+import { AlertDestinationTypeEnumApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { NOTIFICATION_TYPE_OPTIONS, describeNotification } from './warehouseAlertNotificationFormat'
 import { destinationKey, warehouseAlertNotificationLogic } from './warehouseAlertNotificationLogic'
 
-const URL_INPUTS: Partial<Record<WarehouseAlertDestinationTypeEnumApi, AlertNotificationUrlInput>> = {
-    [WarehouseAlertDestinationTypeEnumApi.Webhook]: { placeholder: 'https://example.com/webhook' },
-    [WarehouseAlertDestinationTypeEnumApi.Teams]: {
+const URL_INPUTS: Partial<Record<AlertDestinationTypeEnumApi, AlertNotificationUrlInput>> = {
+    [AlertDestinationTypeEnumApi.Webhook]: { placeholder: 'https://example.com/webhook' },
+    [AlertDestinationTypeEnumApi.Teams]: {
         placeholder: 'https://prod-00.westus.logic.azure.com:443/workflows/...',
         helpText: 'Paste the URL from a Teams "Workflows" (Power Automate) or incoming webhook connector.',
     },
-    [WarehouseAlertDestinationTypeEnumApi.Discord]: {
+    [AlertDestinationTypeEnumApi.Discord]: {
         placeholder: 'https://discord.com/api/webhooks/...',
         helpText: 'Paste the webhook URL from the Discord channel settings, under Integrations.',
     },
@@ -106,7 +106,7 @@ export function WarehouseAlertNotifications({ alertId }: { alertId?: string }): 
                     dropdownPlacement: 'top-start',
                 }}
                 slack={{
-                    notificationType: WarehouseAlertDestinationTypeEnumApi.Slack,
+                    notificationType: AlertDestinationTypeEnumApi.Slack,
                     integrationsLoading,
                     integrationsFailed,
                     onRetryIntegrations: loadIntegrations,
@@ -118,7 +118,7 @@ export function WarehouseAlertNotifications({ alertId }: { alertId?: string }): 
                 }}
                 url={urlInput ? { input: urlInput, value: webhookUrl, onChange: setWebhookUrl } : undefined}
                 pagerduty={
-                    selectedType === WarehouseAlertDestinationTypeEnumApi.Pagerduty
+                    selectedType === AlertDestinationTypeEnumApi.Pagerduty
                         ? {
                               routingKey: pagerDutyRoutingKey,
                               onRoutingKeyChange: setPagerDutyRoutingKey,

@@ -67,12 +67,12 @@ describe('logsAlertUtils', () => {
                 filters: {},
             }) as unknown as HogFunctionType
 
-        const teamsHf = (id: string, url: string, enabled = true): HogFunctionType =>
+        const webhookUrlHf = (id: string, templateId: string, url: string, enabled = true): HogFunctionType =>
             ({
                 id,
-                name: `teams-${id}`,
+                name: `${templateId}-${id}`,
                 enabled,
-                template: { id: 'template-microsoft-teams' },
+                template: { id: templateId },
                 inputs: { webhookUrl: { value: url } },
                 filters: {},
             }) as unknown as HogFunctionType
@@ -120,21 +120,25 @@ describe('logsAlertUtils', () => {
             expect(groups[0].hogFunctions).toHaveLength(2)
         })
 
-        it('collapses multiple HogFunctions for the same teams url into one group', () => {
-            const teamsUrl = 'https://prod-00.westus.logic.azure.com:443/workflows/abc/triggers/manual/paths/invoke'
-            const a = teamsHf('hf-1', teamsUrl)
-            const b = teamsHf('hf-2', teamsUrl)
+        const teamsUrl = 'https://prod-00.westus.logic.azure.com:443/workflows/abc/triggers/manual/paths/invoke'
+        const discordUrl = 'https://discord.com/api/webhooks/123/token'
 
-            const groups = groupLogsAlertDestinations([a, b], resolveSlack)
+        it.each([
+            ['template-microsoft-teams', teamsUrl, `teams:${teamsUrl}`, 'teams', `Microsoft Teams ${teamsUrl}`],
+            ['template-discord', discordUrl, `discord:${discordUrl}`, 'discord', 'Discord'],
+        ])(
+            'collapses multiple %s HogFunctions for the same url into one group',
+            (templateId, url, expectedKey, expectedType, expectedLabel) => {
+                const a = webhookUrlHf('hf-1', templateId, url)
+                const b = webhookUrlHf('hf-2', templateId, url)
 
-            expect(groups).toHaveLength(1)
-            expect(groups[0]).toMatchObject({
-                key: `teams:${teamsUrl}`,
-                type: 'teams',
-                label: `Microsoft Teams ${teamsUrl}`,
-            })
-            expect(groups[0].hogFunctions).toHaveLength(2)
-        })
+                const groups = groupLogsAlertDestinations([a, b], resolveSlack)
+
+                expect(groups).toHaveLength(1)
+                expect(groups[0]).toMatchObject({ key: expectedKey, type: expectedType, label: expectedLabel })
+                expect(groups[0].hogFunctions).toHaveLength(2)
+            }
+        )
 
         it('groups pagerduty HogFunctions by the key tail in their name, since the key itself is secret', () => {
             const groups = groupLogsAlertDestinations(
