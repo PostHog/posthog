@@ -1,0 +1,29 @@
+rules:
+    - id: console-lists-page-through-the-shell
+      message: |
+          A PostHog Admin list builds its pager with the shell's helpers, not with `Paging(...)`.
+          A hand-built pager picks its own page links, summary text and clamping, so lists drift
+          apart, and a page number past the end shows an empty page.
+
+          - A queryset or sequence: `paged = paginate(request, rows, noun="team")`, then show
+            `paged.rows` and `paged.paging`.
+          - A facade that pages with `posthog.paging`:
+            `paginate_facade(request, lambda page: facade.list_things(page), noun="thing")`.
+          - A page a facade already cut and clamped: `Paging.build(request, number=..., num_pages=..., count=..., noun=...)`.
+
+          See "Add a tool" in `posthog/admin/console/AGENTS.md`.
+      severity: ERROR
+      languages: [python]
+      paths:
+          include:
+              - 'posthog/admin/console/**'
+              - 'products/*/backend/console.py'
+              - 'products/*/backend/console/**'
+          exclude:
+              - 'posthog/admin/console/tools.py'
+              - '**/test/**'
+              - '**/tests/**'
+              - '**/test_*.py'
+      pattern: Paging(...)
+      metadata:
+          category: best-practice

@@ -68,7 +68,10 @@ class ResultRead:
 
 class ResultCodec:
     """Turns a result into JSON and back, so the cache can hold it encrypted. Decoding builds only the console
-    types listed here, never an arbitrary object."""
+    types listed here, never an arbitrary object.
+
+    A field added to one of these types needs a default, so a result stored before the deploy still opens.
+    """
 
     @staticmethod
     def _types() -> dict[str, type]:
@@ -93,8 +96,12 @@ class ResultCodec:
         if isinstance(value, list):
             return tuple(cls._decode(item, types) for item in value)
         if isinstance(value, dict):
-            fields = {name: cls._decode(item, types) for name, item in value.items() if name != "__type__"}
-            return types[value["__type__"]](**fields)
+            block_type = types[value["__type__"]]
+            # During a deploy, a newer pod can store a field this pod's type does not have yet. Dropping it shows the
+            # result without that field instead of failing to open it.
+            known = {field.name for field in dataclasses.fields(block_type)}
+            fields = {name: cls._decode(item, types) for name, item in value.items() if name in known}
+            return block_type(**fields)
         return value
 
     @classmethod
