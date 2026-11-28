@@ -1,5 +1,6 @@
 import type { z } from 'zod'
 
+import { targetsConnection } from '@/api/client'
 import { ExecuteSQLSchema } from '@/schema/tool-inputs'
 import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, type Context, type ToolBase } from '@/tools/types'
 
@@ -16,13 +17,18 @@ export const executeSqlHandler: ToolBase<typeof schema, ExecuteSqlResult>['handl
     context: Context,
     params: Params
 ): Promise<ExecuteSqlResult> => {
-    const result = await invokeMcpTool(context, 'execute_sql', {
-        query: params.query,
-        truncate: params.truncate ?? true,
-        ...(params.filters !== undefined && { filters: params.filters }),
-        ...(params.connectionId !== undefined && { connectionId: params.connectionId }),
-        ...(params.sendRawQuery !== undefined && { sendRawQuery: params.sendRawQuery }),
-    })
+    const result = await invokeMcpTool(
+        context,
+        'execute_sql',
+        {
+            query: params.query,
+            truncate: params.truncate ?? true,
+            ...(params.filters !== undefined && { filters: params.filters }),
+            ...(params.connectionId !== undefined && { connectionId: params.connectionId }),
+            ...(params.sendRawQuery !== undefined && { sendRawQuery: params.sendRawQuery }),
+        },
+        { idempotent: !targetsConnection(params) }
+    )
 
     return result.structured_content
         ? {

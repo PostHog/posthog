@@ -13,9 +13,14 @@ export const readDataSchemaHandler: ToolBase<typeof schema, string>['handler'] =
     context: Context,
     params: Params
 ) => {
-    const result = await invokeMcpTool(context, 'read_taxonomy', {
-        query: params.query,
-    })
+    const result = await invokeMcpTool(
+        context,
+        'read_taxonomy',
+        {
+            query: params.query,
+        },
+        { idempotent: true }
+    )
 
     return result.content
 }

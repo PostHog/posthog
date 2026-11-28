@@ -17,12 +17,14 @@ export type McpToolResult = Schemas.MCPToolResponse
  * @param context - The MCP context containing API client and state
  * @param toolName - Name of the MCP tool to invoke (e.g., 'execute_sql')
  * @param args - Arguments to pass to the tool
+ * @param options.idempotent - Set when the tool only reads, so a dropped connection retries the call
  * @returns The tool result with success status and content
  */
 export async function invokeMcpTool(
     context: Context,
     toolName: string,
-    args: Record<string, any>
+    args: Record<string, any>,
+    { idempotent = false }: { idempotent?: boolean } = {}
 ): Promise<McpToolResult> {
     const projectId = await context.stateManager.getProjectId()
 
@@ -30,6 +32,7 @@ export async function invokeMcpTool(
         method: 'POST',
         path: `/api/environments/${projectId}/mcp_tools/${toolName}/`,
         body: { args },
+        idempotent,
     })
     if (!result.success) {
         throw result.error_type

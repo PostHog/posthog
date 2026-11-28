@@ -13,6 +13,8 @@ import {
 import { getToolByName } from '@/shared/test-utils'
 import { GENERATED_TOOLS as PROXY_TOOLS } from '@/tools/generated/proxy-records'
 import { GENERATED_TOOLS } from '@/tools/generated/skills'
+import { executeSqlHandler } from '@/tools/posthogAiTools/executeSql'
+import { readDataSchemaHandler } from '@/tools/posthogAiTools/readDataSchema'
 import type { Context } from '@/tools/types'
 
 describe('ApiClient', () => {
@@ -809,18 +811,57 @@ describe('ApiClient', () => {
             expect(mockFetch).toHaveBeenCalledTimes(3)
         })
 
-        it('retries a token introspection that fails to connect', async () => {
+        it.each([
+            {
+                name: 'token introspection',
+                path: '/oauth/introspect',
+                send: (context: Context) => context.api.oauth().introspect({ token: 'pha_test' }),
+            },
+            {
+                name: 'execute-sql call',
+                path: '/api/environments/17/mcp_tools/execute_sql/',
+                send: (context: Context) => executeSqlHandler(context, { query: 'SELECT 1', truncate: true }),
+            },
+            {
+                name: 'read-data-schema call',
+                path: '/api/environments/17/mcp_tools/read_taxonomy/',
+                send: (context: Context) => readDataSchemaHandler(context, { query: { kind: 'events' } }),
+            },
+            {
+                name: 'insight query',
+                path: '/api/environments/17/query/',
+                send: (context: Context) =>
+                    context.api.insights({ projectId: '17' }).query({ query: { kind: 'HogQLQuery' } }),
+            },
+            {
+                name: 'query tool run',
+                path: '/api/environments/17/query/',
+                send: (context: Context) =>
+                    context.api.query({ projectId: '17' }).runQuery({ query: { kind: 'TrendsQuery' } }),
+            },
+            {
+                name: 'actors query',
+                path: '/api/environments/17/query/',
+                send: (context: Context) =>
+                    context.api
+                        .query({ projectId: '17' })
+                        .lifecycleActors({ query: { kind: 'InsightActorsQuery', source: { kind: 'LifecycleQuery' } } }),
+            },
+        ])('retries a read-only $name that fails to connect', async ({ path, send }) => {
             const mockFetch = stubFetch(
                 networkError(),
-                new Response(JSON.stringify({ active: true, scope: 'query:read' }), { status: 200 })
+                new Response(JSON.stringify({ success: true, content: 'ok', results: [] }), { status: 200 })
             )
-            const client = new ApiClient({ apiToken: 'pha_test', baseUrl: 'https://us.posthog.com' })
 
-            const result = await settle(client.oauth().introspect({ token: 'pha_test' }))
+            const result = await settle(send(skillContext()))
 
-            expect(result).toEqual({ success: true, data: { active: true, scope: 'query:read' } })
+            expect(result).not.toBeInstanceOf(Error)
+            expect(result).not.toMatchObject({ success: false })
             expect(mockFetch).toHaveBeenCalledTimes(2)
-            expect(mockFetch.mock.calls[1]![1]).toMatchObject({ method: 'POST' })
+            for (const [url, init] of mockFetch.mock.calls) {
+                expect(new URL(url).pathname).toBe(path)
+                expect(init).toMatchObject({ method: 'POST' })
+            }
         })
 
         it('does not repeat a write whose outcome is unknown', async () => {
@@ -834,6 +875,47 @@ describe('ApiClient', () => {
             // so telling the agent to send it again invites a double apply.
             expect((error as PostHogTransportError).retryable).toBe(false)
             expect((error as PostHogTransportError).message).toContain('may have been applied upstream')
+            expect(mockFetch).toHaveBeenCalledTimes(1)
+        })
+
+        const notifyQuery = { kind: 'HogQLQuery', query: "SELECT pg_notify('jobs', 'run')", connectionId: 'conn_1' }
+
+        it.each([
+            {
+                name: 'raw execute-sql call',
+                send: (context: Context) =>
+                    executeSqlHandler(context, {
+                        query: notifyQuery.query,
+                        truncate: true,
+                        connectionId: 'conn_1',
+                        sendRawQuery: true,
+                    }),
+            },
+            {
+                name: 'compiled execute-sql call',
+                send: (context: Context) =>
+                    executeSqlHandler(context, { query: notifyQuery.query, truncate: true, connectionId: 'conn_1' }),
+            },
+            {
+                name: 'query tool run',
+                send: (context: Context) =>
+                    context.api
+                        .query({ projectId: '17' })
+                        .runQuery({ query: { kind: 'DataVisualizationNode', source: notifyQuery } }),
+            },
+            {
+                name: 'query execution',
+                send: (context: Context) => context.api.query({ projectId: '17' }).execute({ queryBody: notifyQuery }),
+            },
+            {
+                name: 'insight query',
+                send: (context: Context) => context.api.insights({ projectId: '17' }).query({ query: notifyQuery }),
+            },
+        ])('does not repeat a $name on an external connection', async ({ send }) => {
+            const mockFetch = stubFetch()
+
+            await settle(send(skillContext()))
+
             expect(mockFetch).toHaveBeenCalledTimes(1)
         })
 

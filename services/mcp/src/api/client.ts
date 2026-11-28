@@ -60,6 +60,18 @@ const TRANSPORT_BASE_BACKOFF_MS = 250
  *  connection cannot apply the same work twice. */
 const SAFE_HTTP_METHODS = new Set(['GET', 'HEAD'])
 
+/** A query on an external connection can call that database's own functions, and a read-only
+ *  transaction still runs side effects such as Postgres `pg_notify`, so it is never repeated. */
+export function targetsConnection(value: unknown): boolean {
+    if (Array.isArray(value)) {
+        return value.some(targetsConnection)
+    }
+    if (value === null || typeof value !== 'object') {
+        return false
+    }
+    return Object.entries(value).some(([key, v]) => (key === 'connectionId' && Boolean(v)) || targetsConnection(v))
+}
+
 /** An aborted request is the caller's own timeout or cancellation, so a retry
  *  would only wait for a deadline that has already passed. Everything else
  *  thrown out of `fetch` or a body read is a transport fault. */
@@ -394,6 +406,8 @@ export class ApiClient {
         timeoutMs?: number
         /** Cancels the request, including any wait before a retry. */
         signal?: AbortSignal
+        /** Set for a non-GET request that has no upstream effect, so a transport fault retries it like a GET. */
+        idempotent?: boolean
     }): Promise<T> {
         const pathname = opts.path.split(/[?#]/, 1)[0]!
         if (
@@ -449,7 +463,10 @@ export class ApiClient {
             return (await response.text()) as T
         }
 
-        const result = await this.fetchJson<T>(url, fetchOptions, { timeoutMs: opts.timeoutMs })
+        const result = await this.fetchJson<T>(url, fetchOptions, {
+            idempotent: opts.idempotent,
+            timeoutMs: opts.timeoutMs,
+        })
 
         if (!result.success) {
             // Re-throw the original error instance so callers can instanceof-check
@@ -1225,7 +1242,8 @@ export class ApiClient {
                     {
                         method: 'POST',
                         body: JSON.stringify(queryRequest),
-                    }
+                    },
+                    { idempotent: true }
                 )
 
                 if (!result.success) {
@@ -1322,7 +1340,8 @@ export class ApiClient {
                                 {
                                     method: 'POST',
                                     body: JSON.stringify(queryRequest),
-                                }
+                                },
+                                { idempotent: true }
                             )
 
                             return result.success ? result.data : null
@@ -1352,7 +1371,8 @@ export class ApiClient {
                                 {
                                     method: 'POST',
                                     body: JSON.stringify(queryRequest),
-                                }
+                                },
+                                { idempotent: true }
                             )
 
                             return result.success ? result.data : null
@@ -1549,10 +1569,14 @@ export class ApiClient {
             query: async ({ query }: { query: Record<string, any> }): Promise<Result<QueryEndpointResponse>> => {
                 const url = `${this.baseUrl}/api/environments/${projectId}/query/`
 
-                return this.fetchJson<QueryEndpointResponse>(url, {
-                    method: 'POST',
-                    body: JSON.stringify({ query }),
-                })
+                return this.fetchJson<QueryEndpointResponse>(
+                    url,
+                    {
+                        method: 'POST',
+                        body: JSON.stringify({ query }),
+                    },
+                    { idempotent: !targetsConnection(query) }
+                )
             },
 
             validate: async ({
@@ -1584,10 +1608,14 @@ export class ApiClient {
                 if (connectionId) {
                     queryBody.connectionId = connectionId
                 }
-                return this.fetchJson(url, {
-                    method: 'POST',
-                    body: JSON.stringify({ query: queryBody }),
-                })
+                return this.fetchJson(
+                    url,
+                    {
+                        method: 'POST',
+                        body: JSON.stringify({ query: queryBody }),
+                    },
+                    { idempotent: true }
+                )
             },
 
             sqlInsight: async ({ query }: { query: string }): Promise<Result<any[]>> => {
@@ -1684,6 +1712,7 @@ export class ApiClient {
                 method: 'POST',
                 path: `/api/environments/${projectId}/query/`,
                 body: { query: wrappedQuery },
+                idempotent: !targetsConnection(wrappedQuery),
             })
 
             const baseUrl = this.getProjectBaseUrl(projectId)
@@ -1733,10 +1762,14 @@ export class ApiClient {
 
         return {
             execute: async ({ queryBody }: { queryBody: any }): Promise<Result<{ results: any[] }>> => {
-                return this.fetchJson<{ results: unknown[] }>(queryUrl, {
-                    method: 'POST',
-                    body: JSON.stringify({ query: queryBody }),
-                })
+                return this.fetchJson<{ results: unknown[] }>(
+                    queryUrl,
+                    {
+                        method: 'POST',
+                        body: JSON.stringify({ query: queryBody }),
+                    },
+                    { idempotent: !targetsConnection(queryBody) }
+                )
             },
 
             runQuery: async ({
@@ -1755,6 +1788,7 @@ export class ApiClient {
                 next_cursor?: string | null
                 hasMore?: boolean | null
             }> => {
+                const normalized = normalizeQuery(query)
                 return this.request<{
                     results: unknown
                     columns?: unknown[] | null
@@ -1767,7 +1801,8 @@ export class ApiClient {
                 }>({
                     method: 'POST',
                     path: `/api/environments/${projectId}/query/`,
-                    body: { query: normalizeQuery(query) },
+                    body: { query: normalized },
+                    idempotent: !targetsConnection(normalized),
                     signal,
                 })
             },
