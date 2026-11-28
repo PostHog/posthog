@@ -264,10 +264,25 @@ const isSensitiveMail = (mail: { tags?: Record<string, unknown> } | undefined): 
 // Applied to its own output, it returns that output, so a link redacted before queueing records the same value.
 const sensitiveClickLink = (link: string): string => sensitiveLinkOrigin(resolveClickDestination(link))
 
-const PREFERENCES_TOKEN =
-    /((?:\/|%2F|%252F)messaging-preferences(?:\/|%2F|%252F))eyJ[\w-]*(?:(?:\.|%2E|%252E)[\w-]+){2}/gi
+const PREFERENCES_TOKEN = /(\/messaging-preferences\/)eyJ[\w-]*\.eyJ[\w-]*\.[\w-]+/gi
 
-const withoutPreferencesToken = (link: string): string => link.replace(PREFERENCES_TOKEN, '$1*')
+const percentDecoded = (link: string): string => {
+    let decoded = link
+    for (let round = 0; round < 5; round++) {
+        const next = decoded.replace(/%([0-9a-f]{2})/gi, (_, hex: string) => String.fromCharCode(parseInt(hex, 16)))
+        if (next === decoded) {
+            break
+        }
+        decoded = next
+    }
+    return decoded
+}
+
+const withoutPreferencesToken = (link: string): string => {
+    const decoded = percentDecoded(link)
+    const redacted = decoded.replace(PREFERENCES_TOKEN, '$1*')
+    return redacted === decoded ? link : redacted
+}
 
 const clickedLink = (link: string, isSensitive: boolean): string =>
     isSensitive ? sensitiveClickLink(link) : withoutPreferencesToken(resolveClickDestination(link))

@@ -6,6 +6,7 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 import { FetchResponse, fetch } from '~/common/utils/request'
 
+import { RecipientTokensService } from '../recipient-tokens.service'
 import { SesWebhookHandler, nonexistentRecipients, normalizeClickUrl, resolveClickDestination } from './ses'
 import { SNS_SIGNING_CERT_CACHE_SIZE } from './sns-envelope'
 import { EmailTrackingCodeSigner } from './tracking-code'
@@ -175,46 +176,41 @@ describe('SesWebhookHandler', () => {
         })
     })
 
-    it.each([
-        [
-            'a preferences link',
-            'https://app.posthog.com/messaging-preferences/eyJhbGciOiJIUzI1NiJ9.eyJ0ZWFtIjoxfQ.c2lnbmF0dXJl/',
-            'https://app.posthog.com/messaging-preferences/*/',
-        ],
-        [
-            'a preferences link under a site path',
-            'https://host.example.com/posthog/messaging-preferences/eyJhbGciOiJIUzI1NiJ9.eyJ0ZWFtIjoxfQ.c2lnbmF0dXJl/?one_click_unsubscribe=1',
-            'https://host.example.com/posthog/messaging-preferences/*/?one_click_unsubscribe=1',
-        ],
-        [
-            'a preferences link inside a redirect',
-            `https://track.example.com/r?to=${encodeURIComponent('https://app.posthog.com/messaging-preferences/eyJhbGciOiJIUzI1NiJ9.eyJ0ZWFtIjoxfQ.c2lnbmF0dXJl/')}`,
-            `https://track.example.com/r?to=${encodeURIComponent('https://app.posthog.com/messaging-preferences/')}*${encodeURIComponent('/')}`,
-        ],
-        [
-            'a preferences link with encoded dots',
-            'https://app.posthog.com/messaging-preferences/eyJhbGciOiJIUzI1NiJ9%2EeyJ0ZWFtIjoxfQ%2Ec2lnbmF0dXJl/',
-            'https://app.posthog.com/messaging-preferences/*/',
-        ],
-        [
-            'a preferences link inside two redirects',
-            `https://track.example.com/r?to=${encodeURIComponent(`https://other.example.com/r?to=${encodeURIComponent('https://app.posthog.com/messaging-preferences/eyJhbGciOiJIUzI1NiJ9.eyJ0ZWFtIjoxfQ.c2lnbmF0dXJl/')}`)}`,
-            `https://track.example.com/r?to=${encodeURIComponent(`https://other.example.com/r?to=${encodeURIComponent('https://app.posthog.com/messaging-preferences/')}`)}*${encodeURIComponent(encodeURIComponent('/'))}`,
-        ],
-        [
-            'a customer link with a dotted path',
-            'https://example.com/docs/messaging-preferences/v1.2.3/',
-            'https://example.com/docs/messaging-preferences/v1.2.3/',
-        ],
-        [
-            'a customer link with the same path',
-            'https://example.com/messaging-preferences/weekly?locale=en',
-            'https://example.com/messaging-preferences/weekly?locale=en',
-        ],
-    ])('records a click on %s without the preferences token', async (_name, link, recorded) => {
-        const body = [{ eventType: 'Click', mail: baseMail, click: { link, timestamp: '2025-10-03T12:02:00Z' } }]
-        const result = await handler.handleWebhook({ body, headers: {} })
-        expect(result.metrics?.[0].properties?.$link_url).toBe(recorded)
+    describe('a click on a preferences link', () => {
+        const token = new RecipientTokensService(defaultConfig.ENCRYPTION_SALT_KEYS, '').generatePreferencesToken({
+            team_id: 1,
+            identifier: 'to@example.com',
+        })
+        const preferencesLink = `https://app.posthog.com/messaging-preferences/${token}/`
+        const redactedLink = 'https://app.posthog.com/messaging-preferences/*/'
+
+        it.each([
+            ['the link', preferencesLink, redactedLink],
+            [
+                'the link under a site path',
+                `https://host.example.com/posthog/messaging-preferences/${token}/?one_click_unsubscribe=1`,
+                'https://host.example.com/posthog/messaging-preferences/*/?one_click_unsubscribe=1',
+            ],
+            [
+                'the link with encoded characters in the token',
+                `https://app.posthog.com/messaging-preferences/${token.replace('.', '%2E').replace('J', '%4A')}/`,
+                redactedLink,
+            ],
+            [
+                'the link inside two redirects',
+                `https://track.example.com/r?to=${encodeURIComponent(`https://other.example.com/r?to=${encodeURIComponent(preferencesLink)}`)}`,
+                `https://track.example.com/r?to=https://other.example.com/r?to=${redactedLink}`,
+            ],
+            ...[
+                'https://example.com/messaging-preferences/weekly?locale=en',
+                'https://example.com/docs/messaging-preferences/v1.2.3/',
+                'https://example.com/docs/messaging-preferences/eyJrelease.v2.pdf/',
+            ].map((link) => [`a customer link ${link}`, link, link]),
+        ])('records %s without the token', async (_name, link, recorded) => {
+            const body = [{ eventType: 'Click', mail: baseMail, click: { link, timestamp: '2025-10-03T12:02:00Z' } }]
+            const result = await handler.handleWebhook({ body, headers: {} })
+            expect(result.metrics?.[0].properties?.$link_url).toBe(recorded)
+        })
     })
 
     it('records a click from a sensitive email with only the link origin and no subject', async () => {
