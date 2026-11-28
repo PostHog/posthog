@@ -16,7 +16,10 @@ from posthog.plugins.plugin_server_api import reload_team_workflows_config_on_wo
 
 from products.workflows.backend.facade.contracts import TierDecision
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
-from products.workflows.backend.services.email_sending_tier_audit import log_email_sending_tier_change
+from products.workflows.backend.services.email_sending_tier_audit import (
+    EmailSendingWindowMetrics,
+    log_email_sending_tier_change,
+)
 from products.workflows.backend.utils.email_sending_tiers import (
     MIN_EMAIL_SENDING_TIER,
     get_email_sending_tier_limits,
@@ -478,6 +481,8 @@ def apply_tier_decision(
     decision: TierDecision,
     *,
     trigger: Trigger | None = None,
+    window: EmailSendingWindowMetrics | None = None,
+    recent_window: EmailSendingWindowMetrics | None = None,
     user_id: int | None = None,
     was_impersonated: bool = False,
 ) -> bool:
@@ -523,6 +528,8 @@ def apply_tier_decision(
         new_tier=decision.new_tier,
         reason=decision.reason,
         pin_change=(False, False),
+        window=window,
+        recent_window=recent_window,
         trigger=trigger,
         user_id=user_id,
         was_impersonated=was_impersonated,
@@ -553,8 +560,10 @@ def recompute_email_sending_tiers(
     change nor its reason describes the row anymore.
     """
     now = timezone.now()
-    after = now - timedelta(days=settings.WORKFLOWS_EMAIL_TIER_RATE_WINDOW_DAYS)
-    recent_after = now - timedelta(days=settings.WORKFLOWS_EMAIL_TIER_DEMOTION_WINDOW_DAYS)
+    window_days = settings.WORKFLOWS_EMAIL_TIER_RATE_WINDOW_DAYS
+    recent_days = settings.WORKFLOWS_EMAIL_TIER_DEMOTION_WINDOW_DAYS
+    after = now - timedelta(days=window_days)
+    recent_after = now - timedelta(days=recent_days)
     windows = build_sending_history_windows(after=after, recent_after=recent_after, team_ids=team_ids)
     histories = windows.window
     demotion_window_start = recent_after.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -616,9 +625,11 @@ def recompute_email_sending_tiers(
         if config.email_sending_tier_pinned:
             continue
 
+        history = histories.get(team_id) or _empty_history(team_id)
+        recent_history = windows.recent.get(team_id) or _empty_history(team_id)
         decision = decide_tier(
-            history=histories.get(team_id) or _empty_history(team_id),
-            recent_history=windows.recent.get(team_id) or _empty_history(team_id),
+            history=history,
+            recent_history=recent_history,
             current_tier=config.email_sending_tier,
             tier_updated_at=config.email_sending_tier_updated_at or config.team.created_at,
             suspended=config.email_sending_suspended_at is not None,
@@ -633,7 +644,13 @@ def recompute_email_sending_tiers(
         if only_reasons is not None and decision.reason not in only_reasons:
             continue
         if not decision.changed or apply_tier_decision(
-            config, decision, trigger=trigger, user_id=user_id, was_impersonated=was_impersonated
+            config,
+            decision,
+            trigger=trigger,
+            window=EmailSendingWindowMetrics.from_history(history, window_days),
+            recent_window=EmailSendingWindowMetrics.from_history(recent_history, recent_days),
+            user_id=user_id,
+            was_impersonated=was_impersonated,
         ):
             decisions.append(decision)
     return decisions
