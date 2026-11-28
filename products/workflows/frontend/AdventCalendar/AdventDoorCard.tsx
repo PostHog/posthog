@@ -33,6 +33,7 @@ export interface AdventDoorCardProps {
     stage: { width: number; height: number }
     isOpen: boolean
     isPinned: boolean
+    isDialog?: boolean
     isClosing?: boolean
     onPin: (doorId: string) => void
     onAnswer: (doorId: string, optionId: string) => void
@@ -106,6 +107,7 @@ export function AdventDoorCard({
     stage,
     isOpen,
     isPinned,
+    isDialog,
     isClosing,
     onPin,
     onAnswer,
@@ -123,7 +125,7 @@ export function AdventDoorCard({
             style={style}
             data-attr="advent-door-card"
             data-open={isOpen}
-            {...dialogProps(door.day, isPinned, isClosing)}
+            {...dialogProps(door.day, isPinned && !!isDialog, isClosing)}
             onMouseEnter={onMouseEnter}
             onMouseLeave={onMouseLeave}
         >

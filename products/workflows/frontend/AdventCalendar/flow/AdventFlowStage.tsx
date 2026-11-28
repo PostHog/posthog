@@ -186,6 +186,7 @@ export function AdventFlowStage({ renderLastDoor, isEdgeEmphasized = noEmphasis 
                             stage={stage}
                             isOpen={card.isOpen}
                             isPinned={card.isPinned}
+                            isDialog
                             isClosing={card.isClosing}
                             onPin={activateDoor}
                             onAnswer={answerDoor}

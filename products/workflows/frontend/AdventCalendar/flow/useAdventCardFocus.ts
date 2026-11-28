@@ -12,13 +12,24 @@ function focusIsLost(root: HTMLElement): boolean {
 
 const doorOfNode = (nodeId: string): string => `button[aria-describedby="advent-flow-caption-${nodeId}"]`
 
+const isScrollStop = (body: HTMLElement | null | undefined): body is HTMLElement =>
+    !!body && body.scrollHeight > body.clientHeight && !body.querySelector('button, a[href]')
+
 function lastStopOf(card: Element | null): HTMLElement | null {
     const stops = Array.from(card?.querySelectorAll<HTMLElement>('button, a[href]') ?? []).filter(
         (stop) => stop.tabIndex >= 0
     )
     const body = card?.querySelector<HTMLElement>('.AdventCard__body')
-    const isScrollStop = !!body && body.scrollHeight > body.clientHeight && !body.querySelector('button, a[href]')
-    return isScrollStop ? body : (stops[stops.length - 1] ?? null)
+    return isScrollStop(body) ? body : (stops[stops.length - 1] ?? null)
+}
+
+function markScrollStop(card: Element | null): void {
+    const body = card?.querySelector<HTMLElement>('.AdventCard__body')
+    if (isScrollStop(body)) {
+        body.tabIndex = 0
+    } else {
+        body?.removeAttribute('tabindex')
+    }
 }
 
 export interface AdventCardGuards {
@@ -48,6 +59,7 @@ export function useAdventCardFocus(
             return
         }
         if (pinnedNodeId) {
+            markScrollStop(root.querySelector(CARD))
             if (lastPinned.current !== pinnedNodeId || document.activeElement === document.body) {
                 root.querySelector<HTMLElement>('[data-attr="advent-door-card-close"]')?.focus({ preventScroll: true })
             }
