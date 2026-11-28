@@ -83,6 +83,7 @@ export function EmailDocumentEditor(): JSX.Element {
         documentEditorInitialDoc,
         convertedEmailDocument,
         templatingEngine,
+        activeContentTab,
     } = useValues(emailTemplaterLogic)
     const { setEmailEditorRef, onEmailEditorReady, flushPendingDesignEdit } = useActions(emailTemplaterLogic)
     const { currentProjectId } = useValues(teamLogic)
@@ -454,7 +455,8 @@ export function EmailDocumentEditor(): JSX.Element {
                         <EmailOwnPlainTextNotice editor={editor} />
                     ) : null}
                     <EmailEditorSwitch.ConvertedNotice />
-                    <EmailEditorFeedback />
+                    {/* The editor stays mounted behind the Plain text tab, where the prompt would count as shown */}
+                    {activeContentTab === 'visual' ? <EmailEditorFeedback /> : null}
                     <EmailEditorSwitch.UseOldButton />
                     {mode === 'edit' ? (
                         <LemonButton

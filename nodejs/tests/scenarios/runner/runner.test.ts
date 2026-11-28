@@ -1947,12 +1947,16 @@ describe('runner through seed, drive and judge', () => {
                     settings: expect.objectContaining({ autovacuum: expect.stringMatching(/^(on|off)$/) }),
                     storage: expect.objectContaining({ cyclotron_jobs: null }),
                 }),
+                activity: expect.arrayContaining([{ at: expect.any(Number), backends: expect.any(Array) }]),
                 dependencies: [],
             })
             const { drive, vacuum } = evidenceOf(result, 'probes.json') as {
                 drive: { endedAt: number }
                 vacuum: { at: number }[]
             }
+            expect(vacuum.slice(0, -1).filter(({ at }) => at < drive.endedAt)).toEqual(
+                expect.arrayContaining([expect.objectContaining({ deadTuples: expect.any(Number) })])
+            )
             expect(vacuum.at(-1)).toMatchObject({ at: expect.any(Number), deadTuples: expect.any(Number) })
             expect(vacuum.at(-1)!.at).toBeGreaterThanOrEqual(drive.endedAt)
             expect(existsSync(path.join(result.evidenceDir, 'writer-cpu.json'))).toBe(false)
@@ -2158,23 +2162,6 @@ describe('runner through seed, drive and judge', () => {
         },
         60_000
     )
-
-    it('reads the writer CPU for a card that measures it without judging a bar on it', async () => {
-        const result = await run('all', [], undefined, {
-            measures: [{ name: 'writer_cpu_percent', params: {} }],
-            driveFor: '2s',
-        })
-
-        expect(result.measurements).toEqual([
-            {
-                name: 'writer_cpu_percent',
-                unit: '%',
-                value: null,
-                censored: true,
-                unmeasured: 'the local stack has no Aurora writer to read CPU from',
-            },
-        ])
-    }, 30_000)
 
     it('compares the autovacuum settings of the Cyclotron database with those the profile names', async () => {
         const result = await run('all', [], undefined, {

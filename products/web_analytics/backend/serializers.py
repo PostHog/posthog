@@ -99,7 +99,8 @@ class DigestMetadataSerializer(serializers.Serializer):
     filter_test_accounts = serializers.BooleanField(
         help_text=(
             "True when the headline metrics, top pages and top sources exclude events from test accounts. "
-            "Goal conversions include them."
+            'Follows the project\'s "Filter out internal and test users" default, like the query-web-* tools. '
+            "Goal conversions include them either way."
         )
     )
     notes = serializers.ListField(

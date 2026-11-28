@@ -13,7 +13,6 @@ import {
     Field,
     FieldDescription,
     FieldLabel,
-    Input,
     Textarea,
 } from '@posthog/quill'
 
@@ -22,6 +21,7 @@ import {
     aeoPromptsPartialUpdateBodyTopicMax,
 } from 'products/web_analytics/frontend/generated/api.zod'
 
+import { AiVisibilityTopicInput } from './AiVisibilityTopicInput'
 import { contentAutopilotPromptDetailLogic } from './contentAutopilotPromptDetailLogic'
 
 export const ContentAutopilotPromptEditModal = (): JSX.Element | null => {
@@ -68,11 +68,12 @@ export const ContentAutopilotPromptEditModal = (): JSX.Element | null => {
                     </Field>
                     <Field>
                         <FieldLabel htmlFor={`${id}-topic`}>Topic</FieldLabel>
-                        <Input
+                        <AiVisibilityTopicInput
                             id={`${id}-topic`}
                             value={topic}
-                            onChange={(event) => setTopic(event.target.value)}
+                            onChange={setTopic}
                             maxLength={aeoPromptsPartialUpdateBodyTopicMax}
+                            dataAttr="content-autopilot-prompt-edit-topic"
                         />
                         <FieldDescription>Leave empty to remove the topic.</FieldDescription>
                     </Field>

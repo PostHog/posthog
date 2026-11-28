@@ -49,12 +49,39 @@ DIGEST_METRIC_NOTES = [
     "Visitors, sessions, bounce rate and session duration count only sessions that contain at least one "
     "$pageview or $screen event. A direct count of the sessions table also includes sessions with other events, "
     "so it can be higher.",
-    "Visitors, pageviews, sessions, bounce rate, session duration, top pages and top sources exclude events from "
-    "test accounts, as set in the project's test account filters. Goal conversions include them.",
     "Sessions, bounce rate and session duration count only sessions that start in the period. Pageviews can be "
     "above zero while sessions are zero, when every pageview belongs to a session that started earlier.",
-    "The period starts at the start of the day `days` days ago and ends now, in the project timezone.",
+    "The period covers the last `days` complete days in the project timezone: it starts at the start of the day "
+    "`days` days ago and ends at the end of yesterday, so today's partial data is left out. The comparison period "
+    "is the `days` complete days before that.",
 ]
+_TEST_ACCOUNTS_EXCLUDED_NOTE = (
+    "Visitors, pageviews, sessions, bounce rate, session duration, top pages and top sources exclude events from "
+    "test accounts, as set in the project's test account filters. Goal conversions include them."
+)
+_TEST_ACCOUNTS_INCLUDED_NOTE = (
+    'Test accounts are included, because the project\'s "Filter out internal and test users" default is off. '
+    "Turn it on in project settings to exclude them here and in the web analytics dashboard."
+)
+
+
+def _digest_notes(filter_test_accounts: bool) -> list[str]:
+    return [
+        *DIGEST_METRIC_NOTES,
+        _TEST_ACCOUNTS_EXCLUDED_NOTE if filter_test_accounts else _TEST_ACCOUNTS_INCLUDED_NOTE,
+    ]
+
+
+def _filter_test_accounts(team: Team) -> bool:
+    """The digest follows the project default, the same way the web analytics dashboard and the
+    query-web-* MCP tools do, so its headline numbers agree with theirs."""
+    return bool(team.test_account_filters_default_checked)
+
+
+def _digest_date_range_filter(days: int) -> DateRange:
+    """Complete days only: a window that ran to now would set a partial day against a full one in the
+    comparison period and overstate the change."""
+    return DateRange(date_from=f"-{days}d", excludeIncompletePeriods=True)
 
 
 class DigestDataStatus(models.TextChoices):
@@ -98,9 +125,9 @@ def get_overview_for_team(
     result = _default_overview()
 
     query = WebOverviewQuery(
-        dateRange=DateRange(date_from=f"-{days}d"),
+        dateRange=_digest_date_range_filter(days),
         compareFilter=CompareFilter(compare=compare),
-        filterTestAccounts=True,
+        filterTestAccounts=_filter_test_accounts(team),
         properties=[],
     )
     runner = WebOverviewQueryRunner(
@@ -187,11 +214,11 @@ def _run_stats_table_query(
 ) -> WebStatsTableQueryResponse:
     query = WebStatsTableQuery(
         breakdownBy=breakdown_by,
-        dateRange=DateRange(date_from=f"-{days}d"),
+        dateRange=_digest_date_range_filter(days),
         compareFilter=CompareFilter(compare=compare),
         limit=limit,
         orderBy=[WebAnalyticsOrderByFields.VISITORS, WebAnalyticsOrderByDirection.DESC],
-        filterTestAccounts=True,
+        filterTestAccounts=_filter_test_accounts(team),
         properties=[],
     )
     runner = WebStatsTableQueryRunner(
@@ -280,7 +307,7 @@ def get_goals_for_team(
 
     try:
         query = WebGoalsQuery(
-            dateRange=DateRange(date_from=f"-{days}d"),
+            dateRange=_digest_date_range_filter(days),
             compareFilter=CompareFilter(compare=compare),
             properties=[],
         )
@@ -310,7 +337,7 @@ def get_goals_for_team(
 
 def _digest_date_range(team: Team, days: int) -> QueryDateRange:
     return QueryDateRange(
-        date_range=DateRange(date_from=f"-{days}d"),
+        date_range=_digest_date_range_filter(days),
         team=team,
         timezone_info=team.timezone_info,
         interval=None,
@@ -356,13 +383,14 @@ def get_digest_metadata(team: Team, overview: dict, days: int = 7) -> dict:
     else:
         data_status = _zero_traffic_status(team, date_from, date_to)
 
+    filter_test_accounts = _filter_test_accounts(team)
     return {
         "data_status": data_status.value,
         "date_from": date_from,
         "date_to": date_to,
         "timezone": team.timezone,
-        "filter_test_accounts": True,
-        "notes": DIGEST_METRIC_NOTES,
+        "filter_test_accounts": filter_test_accounts,
+        "notes": _digest_notes(filter_test_accounts),
     }
 
 

@@ -123,7 +123,10 @@
       inserted_at DateTime64(6, 'UTC')
   )
   ENGINE = Kafka(warpstream_shared, kafka_topic_list = 'clickhouse_billing_usage_records_test', kafka_group_name = 'clickhouse_billing_usage_records', kafka_format = 'JSONEachRow')
-  SETTINGS date_time_input_format = 'best_effort'
+  SETTINGS date_time_input_format = 'best_effort',
+           kafka_num_consumers = 1,
+           kafka_thread_per_consumer = 1,
+           kafka_skip_broken_messages = 100
   
   '''
 # ---
@@ -2882,7 +2885,10 @@
       inserted_at DateTime64(6, 'UTC')
   )
   ENGINE = Kafka(warpstream_shared, kafka_topic_list = 'clickhouse_billing_usage_records_test', kafka_group_name = 'clickhouse_billing_usage_records', kafka_format = 'JSONEachRow')
-  SETTINGS date_time_input_format = 'best_effort'
+  SETTINGS date_time_input_format = 'best_effort',
+           kafka_num_consumers = 1,
+           kafka_thread_per_consumer = 1,
+           kafka_skip_broken_messages = 100
   
   '''
 # ---

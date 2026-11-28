@@ -10,7 +10,8 @@ Topic rules live in [`.agents/`](.agents/).
 Before you write or review code in an area below, open its guide.
 Each row is the only place that says when to read a guide, so a new guide gets a new row here.
 
-| Guide                                            | Read it before you write or review                                                                  |
-| ------------------------------------------------ | --------------------------------------------------------------------------------------------------- |
-| [.agents/primitives.md](.agents/primitives.md)   | Any file under `frontend/`, or a change to what one primitive imports from another or from the host |
-| [.agents/performance.md](.agents/performance.md) | A change to how tiles, panels or the grid render, what a context holds, or when a query runs        |
+| Guide                                            | Read it before you write or review                                                                                       |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
+| [.agents/primitives.md](.agents/primitives.md)   | Any file under `frontend/`, or a change to what one primitive imports from another or from the host                      |
+| [.agents/performance.md](.agents/performance.md) | A change to how tiles, panels or the grid render, what a context holds, or when a query runs                             |
+| [.agents/composing.md](.agents/composing.md)     | Putting a dashboard, a tile or a filter bar on another product's page, or a change to the props or JSON a host passes in |

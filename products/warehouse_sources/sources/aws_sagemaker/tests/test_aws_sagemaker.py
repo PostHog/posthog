@@ -7,6 +7,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 import requests
+from botocore.credentials import Credentials
 
 from products.warehouse_sources.sources.aws_sagemaker._config import AwsSagemakerSourceConfig
 from products.warehouse_sources.sources.aws_sagemaker.aws_sagemaker import (
@@ -18,20 +19,26 @@ from products.warehouse_sources.sources.aws_sagemaker.aws_sagemaker import (
     aws_sagemaker_source,
     error_for_response,
     get_rows,
+    parent_operations,
     validate_credentials,
 )
+from products.warehouse_sources.sources.aws_sagemaker.settings import AWS_SESSION_ACTIONS, ENDPOINTS
 from products.warehouse_sources.sources.aws_sagemaker.source import AwsSagemakerSource
 from products.warehouse_sources.sources.sdk import ResumableSourceManager, UnknownResourceError
 from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
+CREDENTIALS = Credentials("AKIAEXAMPLE", "fake-secret", "fake-session")
+
 
 @pytest.fixture
 def config() -> AwsSagemakerSourceConfig:
-    return AwsSagemakerSourceConfig(
-        aws_access_key_id="AKIAEXAMPLE",
-        aws_secret_access_key="fake-secret",
-        aws_session_token="fake-session",
-        region="eu-west-1",
+    return AwsSagemakerSourceConfig.from_dict(
+        {
+            "aws_access_key_id": "AKIAEXAMPLE",
+            "aws_secret_access_key": "fake-secret",
+            "aws_session_token": "fake-session",
+            "region": "eu-west-1",
+        }
     )
 
 
@@ -73,9 +80,8 @@ def test_signed_json_request(
     config: AwsSagemakerSourceConfig, region: str, host: str, session_token: str | None
 ) -> None:
     config.region = region
-    config.aws_session_token = session_token
     with scripted_network([ScriptedResponse(json={"Models": []})]) as network:
-        client = AwsSagemakerClient(config, "2017-07-24")
+        client = AwsSagemakerClient(config, Credentials("AKIAEXAMPLE", "fake-secret", session_token), "2017-07-24")
         try:
             assert client.request("ListModels", {"MaxResults": 1}) == {"Models": []}
         finally:
@@ -93,7 +99,7 @@ def test_signed_json_request(
     assert sent.read_timeout == 60
 
     with scripted_network([ScriptedResponse(status=302, headers={"Location": "https://example.com/"})]) as network:
-        client = AwsSagemakerClient(config, "2017-07-24")
+        client = AwsSagemakerClient(config, CREDENTIALS, "2017-07-24")
         try:
             with pytest.raises(AwsSagemakerError):
                 client.request("ListModels", {"MaxResults": 1})
@@ -277,7 +283,7 @@ def test_pagination_describes_rows_and_stages_only_complete_pages(
         response({arn_field: "arn:aws:sagemaker:eu-west-1:123456789012:example/other", "CreationTime": 1704153600}),
     ]
     resume = manager()
-    resource = aws_sagemaker_source(config, endpoint, "2017-07-24", resume, False, 1700000000)
+    resource = aws_sagemaker_source(config, CREDENTIALS, endpoint, "2017-07-24", resume, False, 1700000000)
     rows = [row for batch in cast(Iterable[Any], resource.items()) for row in batch]
     assert len(rows) == 2
     assert rows[0]["creation_time"] == dt.datetime(2024, 1, 1, tzinfo=dt.UTC)
@@ -590,7 +596,7 @@ def test_failed_page_does_not_advance_resume(
             else response({"ModelName": "example"}),
         ]
     with pytest.raises((AwsSagemakerError, ValueError)):
-        list(get_rows(config, "models", "2017-07-24", resume, False, None))
+        list(get_rows(config, CREDENTIALS, "models", "2017-07-24", resume, False, None))
     resume.save_state.assert_not_called()
     transport.close.assert_called_once()
 
@@ -618,7 +624,7 @@ def test_body_throttle_retries_and_resigns(config: AwsSagemakerSourceConfig) -> 
     with scripted_network(
         [ScriptedResponse(status=400, json={"__type": "ThrottlingException"}), ScriptedResponse(json={"Models": []})]
     ) as network:
-        client = AwsSagemakerClient(config, "2017-07-24")
+        client = AwsSagemakerClient(config, CREDENTIALS, "2017-07-24")
         try:
             assert client.request("ListModels", {"MaxResults": 1}) == {"Models": []}
         finally:
@@ -633,7 +639,7 @@ def test_missing_permission_is_accepted_only_at_creation(
     config: AwsSagemakerSourceConfig, schema_name: str | None, allowed: bool, code: str
 ) -> None:
     with scripted_network([ScriptedResponse(status=400, json={"__type": code})]) as network:
-        valid, message = validate_credentials(config, schema_name, "2017-07-24")
+        valid, message = validate_credentials(config, CREDENTIALS, schema_name, "2017-07-24")
     assert valid is allowed
     assert len(network.requests_log) == 1
     if allowed:
@@ -652,7 +658,7 @@ def test_validation_probes_describe_only_for_selected_table(
             ScriptedResponse(json={"ModelArn": "example-arn"}),
         ]
     ) as network:
-        assert validate_credentials(config, schema_name, "2017-07-24") == (True, None)
+        assert validate_credentials(config, CREDENTIALS, schema_name, "2017-07-24") == (True, None)
     assert len(network.requests_log) == requests_count
     assert network.requests_log[0].json() == {"MaxResults": 1}
     if schema_name:
@@ -718,7 +724,7 @@ def test_validation_probes_parent_and_skips_missing_describe(
     expected_targets: list[tuple[str, dict[str, object]]],
 ) -> None:
     with scripted_network(script) as network:
-        assert validate_credentials(config, schema_name, "2017-07-24") == (True, None)
+        assert validate_credentials(config, CREDENTIALS, schema_name, "2017-07-24") == (True, None)
     assert [(sent.headers["x-amz-target"], sent.json()) for sent in network.requests_log] == [
         (f"SageMaker.{operation}", payload) for operation, payload in expected_targets
     ]
@@ -735,17 +741,34 @@ def test_validation_probes_parent_and_skips_missing_describe(
 def test_bad_config_never_sends_credentials(
     config: AwsSagemakerSourceConfig, field: str, value: str, message: str
 ) -> None:
-    setattr(config, field, value)
+    setattr(config.aws_auth if hasattr(config.aws_auth, field) else config, field, value)
     with scripted_network([]) as network:
-        valid, error = validate_credentials(config, None, "2017-07-24")
+        valid, error = AwsSagemakerSource().validate_credentials(config, team_id=1, api_version="2017-07-24")
     assert valid is False and error and message in error
     assert network.requests_log == []
 
 
+def test_a_role_session_allows_every_operation_a_table_calls() -> None:
+    operations = {
+        operation
+        for settings in ENDPOINTS.values()
+        for operation in (settings.list_operation, settings.describe_operation, *parent_operations(settings.parent))
+        if operation
+    }
+
+    assert {f"sagemaker:{operation}" for operation in operations} - set(AWS_SESSION_ACTIONS) == set()
+
+
 def test_unknown_table_and_version_are_rejected(config: AwsSagemakerSourceConfig) -> None:
     with scripted_network([]) as network:
-        assert validate_credentials(config, "unknown", "2017-07-24") == (False, "Unknown SageMaker table: unknown")
-        assert validate_credentials(config, None, "invalid") == (False, "Unsupported SageMaker API version: invalid")
+        assert validate_credentials(config, CREDENTIALS, "unknown", "2017-07-24") == (
+            False,
+            "Unknown SageMaker table: unknown",
+        )
+        assert validate_credentials(config, CREDENTIALS, None, "invalid") == (
+            False,
+            "Unsupported SageMaker API version: invalid",
+        )
     result = driver(config).run("unknown", [])
     assert isinstance(result.raised, UnknownResourceError)
     assert network.requests_log == []
@@ -756,7 +779,7 @@ def test_transient_validation_error_reports_an_unreachable_vendor(
     config: AwsSagemakerSourceConfig, transport: MagicMock
 ) -> None:
     transport.post.return_value = response({"__type": "ServiceUnavailable"}, 503)
-    assert validate_credentials(config, "models", "2017-07-24") == (
+    assert validate_credentials(config, CREDENTIALS, "models", "2017-07-24") == (
         False,
         "Couldn't reach AWS SageMaker to check your credentials. Try again in a few minutes.",
     )
@@ -765,7 +788,7 @@ def test_transient_validation_error_reports_an_unreachable_vendor(
 
 def test_non_object_success_response_is_rejected(config: AwsSagemakerSourceConfig) -> None:
     with scripted_network([ScriptedResponse(json=[])]) as network:
-        client = AwsSagemakerClient(config, "2017-07-24")
+        client = AwsSagemakerClient(config, CREDENTIALS, "2017-07-24")
         try:
             with pytest.raises(ValueError, match="invalid response"):
                 client.request("ListModels", {})
@@ -778,7 +801,7 @@ def test_non_json_error_does_not_leak_body(config: AwsSagemakerSourceConfig) -> 
     with scripted_network(
         always(ScriptedResponse(status=502, body=b"upstream error with sensitive details"))
     ) as network:
-        client = AwsSagemakerClient(config, "2017-07-24")
+        client = AwsSagemakerClient(config, CREDENTIALS, "2017-07-24")
         try:
             with pytest.raises(AwsSagemakerError, match="^AWS SageMaker request failed: HTTP 502$"):
                 client.request("ListModels", {})

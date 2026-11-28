@@ -35,14 +35,4 @@ bars:
               - email
 measure:
     - name: autovacuum_settings_differ
-    - name: cyclotron_jobs_tuples
-    - name: dead_tuple_share
-    - name: heap_bytes_per_row
-    - name: index_bytes_per_row
-    - name: bloat_growth
-    - name: autovacuum_runs
-    - name: autovacuum_seconds
-    - name: seconds_since_autovacuum
-    - name: pickup_p99_window_seconds
-    - name: writer_cpu_percent
 unpaired: it applies no valve, so the soak is its own fault-free control

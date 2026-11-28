@@ -1,10 +1,10 @@
 import clsx from 'clsx'
 import { Suspense, useContext, useMemo } from 'react'
 
-import type { ContentPanel } from '../../dashboard/document/dashboardTypes'
 import { FiltersContext } from '../../filters/filtersContext'
 import type { DataFrame, RunQuery } from '../../query/queryTypes'
 import { useQueryFrames } from '../../query/useQueryFrames'
+import { type ContentPanel } from '../core/panelSchema'
 import { PanelLoading, PanelMessage } from '../core/PanelView'
 import { type ChartConfig, chartTargets, hasNoOwnRange } from './chartSpec'
 import { type TargetFailure, combineTargetResults } from './data/targetResults'
@@ -59,9 +59,10 @@ function ChartData({
     const targets = chartTargets(panel.config)
     // Filters are left out when empty, so a chart's cached result from before any filter existed still matches.
     const results = useQueryFrames(
-        targets.map(({ query, legend }) => ({
+        targets.map(({ query, legend, project = panel.config.project }) => ({
             query,
             time,
+            ...(project ? { project } : {}),
             ...(legend ? { legend } : {}),
             ...(filters.length > 0 ? { filters } : {}),
         })),
@@ -89,7 +90,7 @@ function ChartData({
     return (
         <div
             className={clsx(
-                'flex min-h-0 flex-1 flex-col transition-opacity motion-reduce:transition-none',
+                'relative flex min-h-0 w-full flex-1 flex-col transition-opacity motion-reduce:transition-none',
                 result.refreshing && 'opacity-50'
             )}
             // Always rendered, so the chart inside keeps its instance when a refresh starts or ends.

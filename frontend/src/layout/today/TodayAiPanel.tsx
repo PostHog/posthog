@@ -13,7 +13,7 @@ import { SidePanelMax } from '~/layout/navigation-3000/sidepanel/panels/max/Side
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 
 export function TodayAiPanel(): JSX.Element {
-    const { isMaxAvailable, effectivePhaiView } = useValues(aiShellLogic)
+    const { isAiAvailable, effectivePhaiView } = useValues(aiShellLogic)
     const { selectedTabOptions } = useValues(sidePanelStateLogic)
 
     // Closing the panel unmounts this tree, so hold the chat logic to keep the open chat and draft.
@@ -21,7 +21,7 @@ export function TodayAiPanel(): JSX.Element {
         sidePanelMaxLogic()
     })
 
-    if (!isMaxAvailable) {
+    if (!isAiAvailable) {
         return (
             <Empty className="flex-1">
                 <EmptyHeader>
@@ -30,8 +30,14 @@ export function TodayAiPanel(): JSX.Element {
                     </EmptyMedia>
                     <EmptyTitle>PostHog AI isn't set up yet</EmptyTitle>
                     <EmptyDescription>
-                        PostHog AI runs on your own LLM provider key. Set <code>ANTHROPIC_API_KEY</code> for this
-                        instance and restart PostHog to start chatting.
+                        PostHog AI runs on your own LLM provider keys. Set <code>ANTHROPIC_API_KEY</code>
+                        {effectivePhaiView === 'legacy' && (
+                            <>
+                                {' '}
+                                and <code>OPENAI_API_KEY</code>
+                            </>
+                        )}{' '}
+                        for this instance and restart PostHog to start chatting.
                     </EmptyDescription>
                 </EmptyHeader>
                 <EmptyContent>

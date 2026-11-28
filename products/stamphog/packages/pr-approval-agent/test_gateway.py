@@ -18,7 +18,7 @@ def test_unset_returns_none_direct_path(monkeypatch):
 @pytest.mark.parametrize(
     "url,api_key",
     [
-        pytest.param("https://gateway.us.posthog.com/v1", "", id="url-only"),
+        pytest.param("https://ai-gateway.us.posthog.com/v1", "", id="url-only"),
         pytest.param("", "phs_secret", id="key-only"),
     ],
 )
@@ -29,14 +29,20 @@ def test_half_applied_config_falls_back(monkeypatch, url, api_key):
 
 
 def test_url_without_v1_falls_back(monkeypatch):
-    monkeypatch.setenv("AI_GATEWAY_URL", "https://gateway.us.posthog.com")
+    monkeypatch.setenv("AI_GATEWAY_URL", "https://ai-gateway.us.posthog.com")
+    monkeypatch.setenv("AI_GATEWAY_API_KEY", "phs_secret")
+    assert resolve_gateway_config() is None
+
+
+def test_legacy_product_route_falls_back(monkeypatch):
+    monkeypatch.setenv("AI_GATEWAY_URL", "https://ai-gateway.us.posthog.com/stamphog/v1")
     monkeypatch.setenv("AI_GATEWAY_API_KEY", "phs_secret")
     assert resolve_gateway_config() is None
 
 
 def test_schemeless_url_falls_back(monkeypatch):
     # Schemeless parses all into .path, so the /v1 check alone would pass.
-    monkeypatch.setenv("AI_GATEWAY_URL", "gateway.us.posthog.com/v1")
+    monkeypatch.setenv("AI_GATEWAY_URL", "ai-gateway.us.posthog.com/v1")
     monkeypatch.setenv("AI_GATEWAY_API_KEY", "phs_secret")
     assert resolve_gateway_config() is None
 
@@ -44,8 +50,8 @@ def test_schemeless_url_falls_back(monkeypatch):
 @pytest.mark.parametrize(
     "bad_url",
     [
-        pytest.param("https://gateway.us.posthog.com/v1?x=y", id="query"),
-        pytest.param("https://gateway.us.posthog.com/v1#frag", id="fragment"),
+        pytest.param("https://ai-gateway.us.posthog.com/v1?x=y", id="query"),
+        pytest.param("https://ai-gateway.us.posthog.com/v1#frag", id="fragment"),
     ],
 )
 def test_url_with_query_or_fragment_falls_back(monkeypatch, bad_url):
@@ -58,9 +64,9 @@ def test_url_with_query_or_fragment_falls_back(monkeypatch, bad_url):
 @pytest.mark.parametrize(
     "configured_url,expected_base",
     [
-        pytest.param("https://gateway.us.posthog.com/v1", "https://gateway.us.posthog.com", id="strips-v1"),
+        pytest.param("https://ai-gateway.us.posthog.com/v1", "https://ai-gateway.us.posthog.com", id="strips-v1"),
         pytest.param(
-            "https://gateway.us.posthog.com/v1/", "https://gateway.us.posthog.com", id="strips-v1-trailing-slash"
+            "https://ai-gateway.us.posthog.com/v1/", "https://ai-gateway.us.posthog.com", id="strips-v1-trailing-slash"
         ),
     ],
 )
@@ -72,8 +78,8 @@ def test_resolves_and_strips_v1_for_anthropic_base(monkeypatch, configured_url, 
 
 
 def test_gateway_env_points_sdk_at_gateway():
-    env = gateway_env("https://gateway.us.posthog.com", "phs_secret", {"stamphog_pr_number": 123})
-    assert env["ANTHROPIC_BASE_URL"] == "https://gateway.us.posthog.com"
+    env = gateway_env("https://ai-gateway.us.posthog.com", "phs_secret", {"stamphog_pr_number": 123})
+    assert env["ANTHROPIC_BASE_URL"] == "https://ai-gateway.us.posthog.com"
     assert env["ANTHROPIC_AUTH_TOKEN"] == "phs_secret"
     assert env["ANTHROPIC_API_KEY"] == "phs_secret"
 

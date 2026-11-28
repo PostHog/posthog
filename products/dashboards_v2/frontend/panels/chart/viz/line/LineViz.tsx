@@ -1,38 +1,23 @@
-import { useMemo, useRef } from 'react'
+import { useMemo } from 'react'
 
 import { TimeSeriesLineChart, type TimeSeriesLineChartConfig } from '@posthog/quill-charts'
 
-import { useChartConfig } from 'lib/charts/hooks'
-
 import type { DataFrame } from '../../../../query/queryTypes'
-import { timeSeriesFromFrames, yAxisFor } from '../../data/timeSeriesFrames'
-import { useSharedChartTheme } from '../../useSharedChartTheme'
-import type { LineOptions } from './lineSpec'
+import { useTimeSeriesChart } from '../../data/useTimeSeriesChart'
+import type { NoOptions } from '../../vizTypes'
 
-export function LineViz({ frames }: { frames: DataFrame[]; options: LineOptions }): JSX.Element {
-    const theme = useSharedChartTheme()
-    const assignedColors = useRef(new Map<string, string>())
-    const { labels, series, axes, multiTarget } = useMemo(
-        () => timeSeriesFromFrames(frames, theme.colors, assignedColors.current),
-        [frames, theme.colors]
-    )
+export function LineViz({ frames }: { frames: DataFrame[]; options: NoOptions }): JSX.Element {
+    const { labels, series, multiTarget, baseConfig } = useTimeSeriesChart(frames)
     const severalTargets = useMemo(() => new Set(frames.map((frame) => frame.refId)).size > 1, [frames])
-    const config = useChartConfig<TimeSeriesLineChartConfig>(
-        () => ({
-            xAxis: { allDays: labels },
-            yAxis: yAxisFor(axes, series),
-            legend: { show: series.length > 1, position: 'top' },
-            tooltip: { placement: 'cursor', sortedByValue: true },
+    const config = useMemo(
+        (): TimeSeriesLineChartConfig => ({
+            ...baseConfig,
             // Targets in other languages sample on their own steps, so a series is drawn across the others' points.
             connectNulls: severalTargets,
             // Their merged timestamps are unevenly spaced, so each point sits at its time rather than its index.
             ...(multiTarget ? { xScale: 'time' as const } : {}),
         }),
-        [labels, series, axes, multiTarget, severalTargets]
+        [baseConfig, multiTarget, severalTargets]
     )
-    return (
-        <div className="relative flex min-h-0 w-full flex-1 flex-col">
-            <TimeSeriesLineChart series={series} labels={labels} theme={theme} config={config} />
-        </div>
-    )
+    return <TimeSeriesLineChart series={series} labels={labels} config={config} />
 }
