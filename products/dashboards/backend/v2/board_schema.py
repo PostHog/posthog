@@ -9,7 +9,8 @@ same rules.
 
 import json
 import math
-from collections.abc import Callable
+import itertools
+from collections.abc import Callable, Iterator
 from typing import Any
 
 from products.dashboards.backend.facade.contracts import MAX_BOARD_SPEC_BYTES, BoardSpecInvalid
@@ -91,28 +92,48 @@ MAX_BOARD_DEPTH = 100
 def check_storable(spec: Any) -> None:
     """Refuse a document nested too deep, or holding a value Postgres refuses in jsonb, before it fails a save with a 500.
 
-    The walk uses an explicit stack, because a hostile document can nest deeper than Python's recursion limit.
+    The walk keeps one iterator per open container, so it never recurses and its memory grows with the depth,
+    not with the document's size. It runs before the size check, which serializes the document.
     """
-    stack = [(spec, 1)]
+    if isinstance(spec, str | float):
+        _check_scalar(spec)
+        return
+    if not isinstance(spec, dict | list):
+        return
+    stack: list[Iterator[Any]] = [_children(spec)]
     while stack:
-        value, depth = stack.pop()
-        if isinstance(value, str):
-            if "\x00" in value:
-                raise BoardSpecInvalid("The board document contains a NUL character (\\u0000), which cannot be saved.")
-            # A lone surrogate such as \ud800 parses into a str that has no UTF-8 form.
-            if not value.isascii():
-                try:
-                    value.encode()
-                except UnicodeEncodeError:
-                    raise BoardSpecInvalid("The board document contains an unpaired surrogate, which cannot be saved.")
-        elif isinstance(value, float):
-            if not math.isfinite(value):
-                raise BoardSpecInvalid("The board document contains NaN or an infinite number, which cannot be saved.")
-        elif isinstance(value, dict | list):
-            if depth > MAX_BOARD_DEPTH:
+        child = next(stack[-1], _DONE)
+        if child is _DONE:
+            stack.pop()
+        elif isinstance(child, str | float):
+            _check_scalar(child)
+        elif isinstance(child, dict | list):
+            if len(stack) >= MAX_BOARD_DEPTH:
                 raise BoardSpecInvalid(f"The board document is nested deeper than {MAX_BOARD_DEPTH} levels.")
-            children = [*value.keys(), *value.values()] if isinstance(value, dict) else value
-            stack.extend((child, depth + 1) for child in children)
+            stack.append(_children(child))
+
+
+_DONE = object()
+
+
+def _children(value: dict[str, Any] | list[Any]) -> Iterator[Any]:
+    if isinstance(value, list):
+        return iter(value)
+    return itertools.chain.from_iterable(value.items())
+
+
+def _check_scalar(value: str | float) -> None:
+    if isinstance(value, str):
+        if "\x00" in value:
+            raise BoardSpecInvalid("The board document contains a NUL character (\\u0000), which cannot be saved.")
+        # A lone surrogate such as \ud800 parses into a str that has no UTF-8 form.
+        if not value.isascii():
+            try:
+                value.encode()
+            except UnicodeEncodeError:
+                raise BoardSpecInvalid("The board document contains an unpaired surrogate, which cannot be saved.")
+    elif not math.isfinite(value):
+        raise BoardSpecInvalid("The board document contains NaN or an infinite number, which cannot be saved.")
 
 
 def title_of(spec: dict[str, Any]) -> str:

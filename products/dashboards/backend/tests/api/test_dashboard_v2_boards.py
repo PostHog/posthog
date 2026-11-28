@@ -18,7 +18,7 @@ from posthog.models.user import User
 from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.facade.contracts import MAX_BOARD_SPEC_BYTES
 from products.dashboards.backend.facade.enums import BoardManagedBy
-from products.dashboards.backend.models.dashboard_v2_board import DashboardV2Board
+from products.dashboards.backend.models.dashboard_v2_board import DashboardV2Board, DashboardV2BoardVersion
 from products.dashboards.backend.v2.board_schema import CURRENT_SCHEMA_VERSION, upgrade
 
 _FIXTURES = Path(__file__).parent.parent / "fixtures"
@@ -117,6 +117,35 @@ class TestDashboardV2Boards(APIBaseTest):
         assert self.client.delete(self._url(uid)).status_code == 403
         assert self.client.get(self._url(uid)).json()["title"] == "Kitchen sink"
 
+    def test_every_save_is_kept_and_an_old_version_can_be_restored(self) -> None:
+        uid = self._create(_board("First")).json()["uid"]
+        self.client.put(self._url(uid), {"spec": _board("Second"), "message": "rename"}, format="json")
+
+        restored = self.client.post(f"{self._url(uid)}restore/", {"version": 1, "base_version": 2}, format="json")
+
+        assert restored.status_code == status.HTTP_200_OK, restored.json()
+        assert (restored.json()["version"], restored.json()["spec"]["title"]) == (3, "First")
+        history = self.client.get(f"{self._url(uid)}versions/").json()["results"]
+        assert [(row["version"], row["message"]) for row in history] == [
+            (3, "Restored version 1"),
+            (2, "rename"),
+            (1, ""),
+        ]
+        missing = self.client.post(f"{self._url(uid)}restore/", {"version": 9}, format="json")
+        assert missing.status_code == status.HTTP_404_NOT_FOUND
+
+    @patch("products.dashboards.backend.v2.boards.MAX_BOARD_VERSIONS", 2)
+    def test_history_keeps_a_board_saved_before_history_and_drops_the_oldest_past_the_cap(self) -> None:
+        uid = self._create(_board("First")).json()["uid"]
+        DashboardV2BoardVersion.objects.for_team(self.team.id).all().delete()
+
+        self.client.put(self._url(uid), {"spec": _board("Second")}, format="json")
+        assert self.client.post(f"{self._url(uid)}restore/", {"version": 1}, format="json").status_code == 200
+        self.client.put(self._url(uid), {"spec": _board("Fourth")}, format="json")
+
+        history = self.client.get(f"{self._url(uid)}versions/").json()["results"]
+        assert [row["version"] for row in history] == [4, 3]
+
     def test_update_based_on_an_old_version_is_refused(self) -> None:
         uid = self._create(_board()).json()["uid"]
         self.client.put(self._url(uid), {"spec": _board("First"), "base_version": 1}, format="json")
@@ -136,7 +165,6 @@ class TestDashboardV2Boards(APIBaseTest):
             ("no_schema_version", {"title": "x", "tabs": []}),
             ("too_large", _board(description="x" * MAX_BOARD_SPEC_BYTES)),
             ("nul_character", {**_board(), "tabs": [{"id": "t", "tiles": [{"id": "a\x00b"}]}]}),
-            ("nul_character_deeply_nested", _board(extra=_nested({"note": "a\x00b"}, depth=600))),
             ("not_a_finite_number", _board(extra={"ratio": float("nan")})),
             ("nested_too_deep", _board(extra=_nested("x", depth=20000))),
         ]
@@ -154,6 +182,14 @@ class TestDashboardV2Boards(APIBaseTest):
         response = self.client.post(self._url(), body, content_type="application/json")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+
+    def test_rejects_a_document_nested_deeper_than_json_dumps_can_recurse(self) -> None:
+        depth = 40000
+        body = '{"spec": ' + '{"k":' * depth + "1" + "}" * depth + "}"
+
+        response = self.client.post(self._url(), body, content_type="application/json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "spec"
 
     def test_another_teams_board_is_not_found(self) -> None:

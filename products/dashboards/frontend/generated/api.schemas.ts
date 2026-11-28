@@ -449,10 +449,51 @@ export interface BoardUpdateApi {
     /** The board document, at most 1000000 bytes. `version` is its schema version, currently 2. It is upgraded to the current schema version before it is saved. Tiles are not checked, so a broken tile shows as an error tile, and unknown fields are kept. */
     spec: BoardUpdateApiSpec
     /**
+     * A note on what changed, kept in the history.
+     * @maxLength 1000
+     */
+    message?: string
+    /**
      * The `version` this save is based on. When the board is at another version, nothing is saved and the response is a 409. Leave it out to save over any version.
      * @minimum 1
      */
     base_version?: number
+}
+
+export interface BoardRestoreApi {
+    /**
+     * The saved version whose document to restore.
+     * @minimum 1
+     */
+    version: number
+    /**
+     * The `version` this restore is based on. A board at another version answers 409.
+     * @minimum 1
+     */
+    base_version?: number
+}
+
+export interface BoardVersionApi {
+    /** The board's `version` after this save. */
+    version: number
+    /** A note on what the save changed. Often empty. */
+    message: string
+    /** When this version was saved. */
+    created_at: string
+    /**
+     * ID of the user who saved this version.
+     * @nullable
+     */
+    created_by_id: number | null
+}
+
+export interface PaginatedBoardVersionListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: BoardVersionApi[]
 }
 
 /**
@@ -12034,6 +12075,18 @@ export const DashboardTemplatesListScope = {
 } as const
 
 export type DashboardV2BoardsListParams = {
+    /**
+     * Number of results to return per page.
+     * @maximum 1000
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type DashboardV2BoardsVersionsListParams = {
     /**
      * Number of results to return per page.
      * @maximum 1000

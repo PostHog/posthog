@@ -163,6 +163,8 @@ rules:
                               |DashboardTemplate
                               |DashboardV2Board
                               |DashboardWidget
+                              |DashboardV2Board
+                              |DashboardV2BoardVersion
                               |TeamHomeTabDashboardConfig
                               |DataColorTheme
                               |DataModelingJob
@@ -731,6 +733,8 @@ rules:
                         |DashboardTemplate
                         |DashboardV2Board
                         |DashboardWidget
+                        |DashboardV2Board
+                        |DashboardV2BoardVersion
                         |TeamHomeTabDashboardConfig
                         |DataColorTheme
                         |DataModelingJob

@@ -85,6 +85,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.dashboards.backend.v2 import (
+    board_schema as v2_board_schema,
     board_stream as v2_board_stream,
     boards as v2_boards,
     cached_tiles as v2_cached_tiles,
@@ -1578,20 +1579,43 @@ def get_board(team_id: int, uid: str) -> contracts.BoardDetail:
     return v2_boards.get_board(team_id, uid)
 
 
+def check_board_spec(spec: dict[str, JsonValue]) -> None:
+    """Raise `BoardSpecInvalid` for a document nested too deep or holding a value Postgres refuses in jsonb.
+
+    Safe on any parsed JSON, however deep: run it before anything that serializes the document recursively.
+    """
+    v2_board_schema.check_storable(spec)
+
+
 def create_board(team_id: int, user_id: int, spec: dict[str, JsonValue]) -> contracts.BoardDetail:
     """Save a document as a new native board at version 1, upgraded to the current schema. Raises `BoardSpecInvalid`."""
     return v2_boards.create_board(team_id, user_id, spec)
 
 
 def update_board(
-    team_id: int, uid: str, user_id: int, spec: dict[str, JsonValue], base_version: int | None
+    team_id: int, uid: str, user_id: int, spec: dict[str, JsonValue], base_version: int | None, message: str = ""
 ) -> contracts.BoardDetail:
     """Replace a board's document and add 1 to its version.
 
     Raises `BoardVersionConflict` when `base_version` is given and the board is at another version, and
     `BoardReadOnly` for a board that is not native.
     """
-    return v2_boards.update_board(team_id, uid, user_id, spec, base_version)
+    return v2_boards.update_board(team_id, uid, user_id, spec, base_version, message)
+
+
+def list_board_versions(team_id: int, uid: str, page: PageRequest) -> Page[contracts.BoardVersionSummary]:
+    """A live board's saved versions, newest first. Every save, restore included, adds one. Older ones are pruned."""
+    return v2_boards.list_versions(team_id, uid, page)
+
+
+def restore_board(
+    team_id: int, uid: str, user_id: int, version: int, base_version: int | None
+) -> contracts.BoardDetail:
+    """Save an earlier version's document as the board's next version. History is never rewritten.
+
+    Raises `BoardVersionNotFound`, `BoardVersionConflict` and `BoardReadOnly` as `update_board` does.
+    """
+    return v2_boards.restore_board(team_id, uid, user_id, version, base_version)
 
 
 def delete_board(team_id: int, uid: str, user_id: int) -> None:

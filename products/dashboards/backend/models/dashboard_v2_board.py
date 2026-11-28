@@ -57,3 +57,24 @@ class DashboardV2Board(TeamScopedRootMixin, UUIDModel):
 
     def __str__(self) -> str:
         return self.title
+
+
+class DashboardV2BoardVersion(TeamScopedRootMixin, UUIDModel):
+    """One saved document of a board. Rows are append-only: a restore saves an old document as a new version."""
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    # db_index=False: the unique constraint below leads with board_id.
+    board = models.ForeignKey(DashboardV2Board, on_delete=models.CASCADE, related_name="versions", db_index=False)
+    version = models.PositiveIntegerField()
+    spec = models.JSONField()
+    message = models.TextField(blank=True, default="")
+    created_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
+    )
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = "dashboards_v2_board_version"
+        constraints = [
+            models.UniqueConstraint(fields=["board", "version"], name="dashboards_v2_board_version_unique"),
+        ]
