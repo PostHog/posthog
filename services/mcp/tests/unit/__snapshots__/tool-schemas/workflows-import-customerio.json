@@ -66,9 +66,16 @@
                         "description": "The segment's rules: the `conditions` object from `GET /v1/environments/{environment_id}/segments/{segment_id}`. Never its members. With rules, a real import turns a dynamic segment the automations check into a realtime cohort when every rule has an exact cohort condition, and uses that cohort."
                     },
                     "id": {
-                        "description": "The segment's id.",
-                        "maxLength": 200,
-                        "type": "string"
+                        "anyOf": [
+                            {
+                                "maxLength": 200,
+                                "type": "string"
+                            },
+                            {
+                                "type": "number"
+                            }
+                        ],
+                        "description": "The segment's id."
                     },
                     "name": {
                         "description": "The segment's name.",
@@ -95,8 +102,16 @@
                         "type": "string"
                     },
                     "id": {
-                        "description": "The sender identity's id, which templates name in `from_identity_id`.",
-                        "type": "string"
+                        "anyOf": [
+                            {
+                                "maxLength": 200,
+                                "type": "string"
+                            },
+                            {
+                                "type": "number"
+                            }
+                        ],
+                        "description": "The sender identity's id, which templates name in `from_identity_id`."
                     },
                     "name": {
                         "default": "",
