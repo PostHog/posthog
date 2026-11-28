@@ -17,7 +17,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
 
 from posthog.constants import AvailableFeature
@@ -43,7 +43,7 @@ from products.warehouse_sources.backend.models.external_data_destination import 
     get_or_create_warehouse_destination,
 )
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_schema import INCREMENTAL_HISTORY_KEY, ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.models.warehouse_migration import WarehouseMigration, WarehouseMigrationItem
@@ -1068,6 +1068,18 @@ class TestAddSources(DestinationAPITestBase):
             self.destination.id
         ]
 
+    def test_a_source_whose_table_keeps_history_needs_the_posthog_warehouse(self) -> None:
+        self.schema.sync_type = ExternalDataSchema.SyncType.INCREMENTAL
+        self.schema.sync_type_config = {"cdc_table_mode": "both", INCREMENTAL_HISTORY_KEY: True}
+        self.schema.save()
+
+        response = self.client.post(self.url, {"source_ids": [str(self.source.id)]}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["attached"] == []
+        assert "PostHog warehouse" in response.json()["skipped"][0]["reason"]
+        assert not ExternalDataSourceDestination.objects.for_team(self.team.pk).filter(source=self.source).exists()
+
     def test_already_attached_source_is_skipped_without_duplicate(self) -> None:
         ExternalDataSourceDestination.objects.for_team(self.team.pk).create(
             team_id=self.team.pk, source=self.source, destination=self.destination
@@ -1606,6 +1618,89 @@ class TestDestinationLinkEndpoints(DestinationAPITestBase):
         body = self.client.get(self.schema_url).json()
         assert body["inherits_from_source"] is False
         assert body["destination_ids"] == [str(other.id)]
+
+    def _keep_history(self, mode: str) -> None:
+        self.schema.sync_type = ExternalDataSchema.SyncType.INCREMENTAL
+        self.schema.sync_type_config = {
+            "incremental_field": "created",
+            "incremental_field_type": "datetime",
+            "primary_key_columns": ["id"],
+            "cdc_table_mode": mode,
+            INCREMENTAL_HISTORY_KEY: mode != "consolidated",
+        }
+        self.schema.save()
+
+    @parameterized.expand(
+        [
+            ("table_override_without_the_warehouse", "schema", "both", False, "PostHog warehouse"),
+            ("source_set_without_the_warehouse", "source", "both", False, "charges: History tables"),
+            ("history_only_beside_another_destination", "schema", "cdc_only", True, "other destinations"),
+        ]
+    )
+    def test_a_table_that_keeps_history_keeps_the_posthog_warehouse(
+        self, _name: str, level: str, mode: str, with_warehouse: bool, refusal: str
+    ) -> None:
+        self._keep_history(mode)
+        warehouse = get_or_create_warehouse_destination(self.team.pk)
+        destination_ids = [str(self.destination.id), *([str(warehouse.id)] if with_warehouse else [])]
+
+        response = self.client.patch(
+            self.source_url if level == "source" else self.schema_url, {"destination_ids": destination_ids}
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert refusal in str(response.json())
+        assert not ExternalDataSchemaDestination.objects.for_team(self.team.pk).filter(schema=self.schema).exists()
+        assert not ExternalDataSourceDestination.objects.for_team(self.team.pk).filter(source=self.source).exists()
+
+    def test_a_source_edit_leaves_a_table_with_its_own_destinations_alone(self) -> None:
+        self._keep_history("both")
+        warehouse = get_or_create_warehouse_destination(self.team.pk)
+        assert self.client.patch(self.schema_url, {"destination_ids": [str(warehouse.id)]}).status_code == 200
+
+        response = self.client.patch(self.source_url, {"destination_ids": [str(self.destination.id)]})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+    @parameterized.expand(
+        [
+            ("both_without_the_warehouse", "both", False, "PostHog warehouse"),
+            ("history_only_beside_another_destination", "cdc_only", True, "other destinations"),
+            ("both_beside_another_destination", "both", True, None),
+        ]
+    )
+    def test_turning_history_on_needs_destinations_that_can_take_it(
+        self, _name: str, mode: str, with_warehouse: bool, refusal: str | None
+    ) -> None:
+        from products.warehouse_sources.backend.presentation.views.external_data_schema import (
+            ExternalDataSchemaSerializer,
+        )
+
+        warehouse = get_or_create_warehouse_destination(self.team.pk)
+        destination_ids = [str(self.destination.id), *([str(warehouse.id)] if with_warehouse else [])]
+        assert self.client.patch(self.schema_url, {"destination_ids": destination_ids}).status_code == 200
+        self._keep_history("consolidated")
+        serializer = ExternalDataSchemaSerializer(
+            self.schema,
+            data={"cdc_table_mode": mode},
+            partial=True,
+            context={"team_id": self.team.pk, "post_commit_actions": []},
+        )
+        views = "products.warehouse_sources.backend.presentation.views.external_data_schema"
+
+        with (
+            patch(f"{views}.is_incremental_history_enabled_for_team", return_value=True),
+            patch(f"{views}.is_any_external_data_schema_paused", return_value=False),
+        ):
+            serializer.is_valid(raise_exception=True)
+            if refusal:
+                with pytest.raises(ValidationError, match=refusal):
+                    serializer.save()
+            else:
+                serializer.save()
+
+        self.schema.refresh_from_db()
+        assert self.schema.cdc_table_mode == ("consolidated" if refusal else mode)
 
 
 @pytest.mark.ee

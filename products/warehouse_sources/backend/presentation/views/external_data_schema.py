@@ -106,6 +106,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     hand_reset_to_capture,
     hand_reset_to_capture_if_sync_running,
     history_columns,
+    history_destinations_refusal,
     history_naming_unless_taken,
     history_table_name,
     incremental_history_naming_unless_taken,
@@ -455,6 +456,8 @@ def _apply_incremental_history_mode(
             )
         _refuse_a_legacy_history_table(instance)
         _refuse_ineligible_incremental_history(payload)
+        if refusal := history_destinations_refusal(instance.team_id, instance.id, history_only=mode == "cdc_only"):
+            raise ValidationError(refusal)
         payload[INCREMENTAL_HISTORY_KEY] = True
     payload["cdc_table_mode"] = mode
     if instance.table is None or not _cdc_table_mode_change_needs_resnapshot(
@@ -3908,6 +3911,13 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "xmin_available": xmin_available,
             "incremental_history_available": is_incremental_history_enabled_for_team(self.team)
             and source_impl.supports_incremental_history,
+            # The form shows these on the history options, so a choice the next sync would refuse isn't offered.
+            "incremental_history_unavailable_reason": history_destinations_refusal(
+                instance.team_id, instance.id, history_only=False
+            ),
+            "history_only_unavailable_reason": history_destinations_refusal(
+                instance.team_id, instance.id, history_only=True
+            ),
             "full_refresh_available": not schema.webhook_only,
             "supports_webhooks": schema.supports_webhooks,
             "webhook_only": schema.webhook_only,

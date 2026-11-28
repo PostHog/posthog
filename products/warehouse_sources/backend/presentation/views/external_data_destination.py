@@ -55,6 +55,7 @@ from products.warehouse_sources.backend.facade.pipelines import (
     is_configuration_failure_of,
 )
 from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore
+from products.warehouse_sources.backend.facade.source_management import source_destinations_history_refusal
 from products.warehouse_sources.backend.presentation.destination_connect_tokens import (
     ConnectTokenInvalidIntegration,
     ConnectTokenNotFound,
@@ -1120,6 +1121,14 @@ class ExternalDataDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
                 elif links.filter(enabled=True).count() >= MAX_DESTINATIONS_PER_LINK:
                     reason = f"Source already has {MAX_DESTINATIONS_PER_LINK} enabled destinations."
                 else:
+                    # A source with no links syncs to the warehouse only, and its first link replaces that.
+                    types = {
+                        link.destination.type
+                        for link in links.filter(enabled=True).select_related("destination")
+                        if not link.destination.deleted
+                    } | {destination.type}
+                    reason = source_destinations_history_refusal(team_id, source.id, types)
+                if reason is None:
                     ExternalDataSourceDestination.objects.for_team(team_id).create(
                         team_id=team_id, source=source, destination=destination
                     )

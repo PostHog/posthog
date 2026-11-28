@@ -6671,6 +6671,10 @@ export type SchemaIncrementalFieldsResponse = {
     xmin_available?: boolean
     /** Whether the organization can keep a history table for an incremental table. */
     incremental_history_available?: boolean
+    /** Why this table's destinations can't take a history table, or null when they can. */
+    incremental_history_unavailable_reason?: string | null
+    /** Why this table's destinations can't take a history table on its own, or null when they can. */
+    history_only_unavailable_reason?: string | null
 }
 
 // numeric is snowflake specific and objectid is mongodb specific
@@ -6707,6 +6711,8 @@ export interface ExternalDataSourceSyncSchema {
     cdc_available?: boolean | null
     xmin_available?: boolean
     incremental_history_available?: boolean
+    incremental_history_unavailable_reason?: string | null
+    history_only_unavailable_reason?: string | null
     cdc_table_mode?: 'consolidated' | 'cdc_only' | 'both'
     supports_webhooks: boolean
     /** True when the resource has no API list endpoint and can only be populated via webhooks

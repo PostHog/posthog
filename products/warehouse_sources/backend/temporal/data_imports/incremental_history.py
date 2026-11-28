@@ -3,8 +3,9 @@
 Each version starts at the row's incremental field value, and the lane writes versions once per run (see `history_upsert`).
 """
 
+import uuid
 import functools
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from datetime import UTC, datetime
 from typing import TypeVar
 
@@ -18,7 +19,13 @@ from posthog.ph_client import feature_enabled_or_false
 
 from products.warehouse_sources.backend.facade.contracts import LegacyHistoryTableError
 from products.warehouse_sources.backend.facade.types import IncrementalFieldType
+from products.warehouse_sources.backend.models.external_data_destination import (
+    ExternalDataDestination,
+    ExternalDataSchemaDestination,
+    resolve_destinations,
+)
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
     CAPTURE_COLUMNS,
@@ -38,6 +45,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolutio
 from products.warehouse_sources.backend.temporal.data_imports.destinations.enablement import (
     external_destination_ids_for,
     includes_the_warehouse,
+    is_multi_destination_enabled,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import resolve_primary_keys
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import normalize_column_name
@@ -72,6 +80,62 @@ def incremental_history_refusal(*, incremental_field: str | None, incremental_fi
             "A history table needs an incremental field that holds a date and time, "
             "so each version can say when the row changed."
         )
+    return None
+
+
+HISTORY_NEEDS_THE_WAREHOUSE = (
+    "History tables are kept in the PostHog warehouse, and this table doesn't sync there. "
+    "Add the PostHog warehouse to its destinations to keep a history table."
+)
+HISTORY_ONLY_STAYS_IN_THE_WAREHOUSE = (
+    "A table that keeps only its history table can't sync to other destinations. "
+    "Keep both tables, or sync this table to the PostHog warehouse only."
+)
+
+
+def history_destination_types_refusal(types: Collection[str], *, history_only: bool) -> str | None:
+    if ExternalDataDestination.Type.POSTHOG_WAREHOUSE not in types:
+        return HISTORY_NEEDS_THE_WAREHOUSE
+    if history_only and set(types) != {ExternalDataDestination.Type.POSTHOG_WAREHOUSE}:
+        return HISTORY_ONLY_STAYS_IN_THE_WAREHOUSE
+    return None
+
+
+def history_destinations_refusal(team_id: int, schema_id: uuid.UUID | str, *, history_only: bool) -> str | None:
+    """Why the schema's saved destinations can't take its history table, the same check a run makes."""
+    schema = ExternalDataSchema.objects.select_related("source").get(id=schema_id, team_id=team_id)
+    if not is_multi_destination_enabled(schema.team_id, schema.source.source_type):
+        return None
+    types = {destination.type for destination in resolve_destinations(schema)}
+    return history_destination_types_refusal(types, history_only=history_only)
+
+
+def source_destinations_history_refusal(
+    team_id: int, source_id: uuid.UUID | str, destination_types: Collection[str]
+) -> str | None:
+    """Why a source's new destinations can't take the history table of a table that follows them, naming the table.
+
+    A table with destinations of its own doesn't follow its source, so the source's set doesn't reach it.
+    """
+    schemas = ExternalDataSchema.objects.filter(team_id=team_id, source_id=source_id).exclude(deleted=True)
+    keeping = [schema for schema in schemas if schema.is_incremental and schema.keeps_history]
+    if not keeping:
+        return None
+    overridden = set(
+        ExternalDataSchemaDestination.objects.for_team(team_id)
+        .filter(schema_id__in=[schema.id for schema in keeping])
+        .values_list("schema_id", flat=True)
+    )
+    following = [schema for schema in keeping if schema.id not in overridden]
+    if not following:
+        return None
+    source_type = ExternalDataSource.objects.values_list("source_type", flat=True).get(id=source_id, team_id=team_id)
+    if not is_multi_destination_enabled(team_id, source_type):
+        return None
+    for schema in following:
+        history_only = schema.cdc_table_mode == "cdc_only"
+        if refusal := history_destination_types_refusal(destination_types, history_only=history_only):
+            return f"{schema.name}: {refusal}"
     return None
 
 

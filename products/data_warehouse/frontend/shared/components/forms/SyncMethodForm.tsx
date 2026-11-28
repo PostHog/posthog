@@ -707,9 +707,14 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
     const outputTableMode = radioValue === 'cdc' ? cdcTableMode : incrementalTableMode
     // CDC always records every change. An incremental sync can only date a version by a cursor that holds a time.
     const historyDisabledReason =
-        radioValue === 'incremental' && !historyAvailable
-            ? 'Choose an incremental field that holds a date and time'
-            : undefined
+        radioValue !== 'incremental'
+            ? undefined
+            : !historyAvailable
+              ? 'Choose an incremental field that holds a date and time'
+              : (schema.incremental_history_unavailable_reason ?? undefined)
+    const historyOnlyDisabledReason =
+        historyDisabledReason ??
+        (radioValue === 'incremental' ? (schema.history_only_unavailable_reason ?? undefined) : undefined)
     const keyedSettings =
         keyedOptions.some((option) => option.value === radioValue) && (primaryKeySection || showsOutputTables) ? (
             <div className="flex flex-col gap-4">
@@ -740,7 +745,7 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
                                 },
                                 {
                                     value: 'cdc_only',
-                                    disabledReason: historyDisabledReason,
+                                    disabledReason: historyOnlyDisabledReason,
                                     label: (
                                         <div className="font-normal mb-2">
                                             <div className="font-semibold">History table only</div>

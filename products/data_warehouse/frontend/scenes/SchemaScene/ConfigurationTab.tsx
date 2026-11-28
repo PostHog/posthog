@@ -707,6 +707,10 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
                                 cdc_available: schemaIncrementalFields.cdc_available,
                                 xmin_available: schemaIncrementalFields.xmin_available,
                                 incremental_history_available: schemaIncrementalFields.incremental_history_available,
+                                incremental_history_unavailable_reason:
+                                    schemaIncrementalFields.incremental_history_unavailable_reason,
+                                history_only_unavailable_reason:
+                                    schemaIncrementalFields.history_only_unavailable_reason,
                                 cdc_table_mode: schema.cdc_table_mode,
                                 incremental_fields: schemaIncrementalFields.incremental_fields,
                                 supports_webhooks: schemaIncrementalFields.supports_webhooks ?? false,
