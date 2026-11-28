@@ -76,4 +76,37 @@ describe('DateTimePicker', () => {
         expect(applied.end).toEqual(new Date(2022, 11, 31, 23, 59, 59))
         expect(applied.range).toBe(lastMonth)
     })
+
+    it('keeps each endpoint time when days are clicked with time shown', async () => {
+        const onApply = jest.fn()
+        const value = { start: new Date(2023, 0, 10, 9, 30), end: new Date(2023, 0, 20, 17, 45), range: CUSTOM_RANGE }
+        render(<DateTimePicker value={value} maxDate={MAX} showTime onApply={onApply} />)
+
+        await userEvent.click(screen.getByLabelText('Select Jan 5, 2023'))
+        await userEvent.click(screen.getByLabelText('Select Jan 25, 2023'))
+        await userEvent.click(screen.getByLabelText('Apply date range'))
+
+        const applied = onApply.mock.calls[0][0]
+        expect(applied.start).toEqual(new Date(2023, 0, 5, 9, 30))
+        expect(applied.end).toEqual(new Date(2023, 0, 25, 17, 45))
+    })
+
+    describe('upper limit', () => {
+        beforeEach(() => {
+            jest.useFakeTimers({ now: new Date(2023, 0, 15) })
+        })
+
+        afterEach(() => {
+            jest.useRealTimers()
+        })
+
+        it.each([
+            ['stops at today by default', undefined, true],
+            ['allows later days when maxDate is null', null, false],
+        ])('%s', (_, maxDate, disabled) => {
+            render(<DateTimePicker value={VALUE} maxDate={maxDate} onApply={jest.fn()} />)
+
+            expect(screen.getByLabelText('Select Jan 25, 2023').getAttribute('aria-disabled') === 'true').toBe(disabled)
+        })
+    })
 })
