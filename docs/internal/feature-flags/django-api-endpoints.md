@@ -82,14 +82,19 @@ See [API write ownership](api-writes.md) for the call path and transaction bound
 
 ### Organization endpoints
 
-| Method | URL                                                 | Description                                     |
-| ------ | --------------------------------------------------- | ----------------------------------------------- |
-| `GET`  | `/api/organizations/{id}/feature_flags/{key}/`      | Get a flag by key across all accessible teams   |
-| `POST` | `/api/organizations/{id}/feature_flags/copy_flags/` | Copy a flag from one project to target projects |
+| Method | URL                                                         | Description                                     |
+| ------ | ----------------------------------------------------------- | ----------------------------------------------- |
+| `GET`  | `/api/organizations/{id}/feature_flags/{key}/`              | Get a flag by key across all accessible teams   |
+| `POST` | `/api/organizations/{id}/feature_flags/copy_flags/`         | Copy a flag from one project to target projects |
+| `POST` | `/api/organizations/{id}/feature_flags/delete_in_projects/` | Delete a flag by key from several projects      |
 
 `copy_flags` requires editor access to `feature_flag` in each target project, not just visibility.
 A caller who can see a project but can't edit flags there gets a `failed` entry for that target instead of a copy.
 `target_project_ids` is capped at `MAX_COPY_FLAGS_TARGET_PROJECTS` (50) per call, and the endpoint has its own burst/sustained throttles since each target project can create cohorts and a flag.
+
+`delete_in_projects` requires editor access to the flag in each project, and runs the checks of a single delete through `flag_deletion.delete_flag`, which also refuses flags that a survey or a product tour owns.
+Each project is independent: a project that fails gets a `failed` entry, and the flags already deleted stay deleted.
+`project_ids` is capped at `MAX_DELETE_FLAG_PROJECTS` (50) per call.
 
 ## Key actions in detail
 

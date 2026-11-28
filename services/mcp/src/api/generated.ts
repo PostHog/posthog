@@ -40743,6 +40743,38 @@ export namespace Schemas {
       Off: 'off',
     } as const;
 
+    export interface DeleteFlagInProjectsRequest {
+      /** Key of the feature flag to delete */
+      feature_flag_key: string;
+      /**
+         * IDs of the projects to delete the flag from. All of them must belong to this organization.
+         * @minItems 1
+         * @maxItems 50
+         */
+      project_ids: number[];
+    }
+
+    export interface DeletedFlagInProject {
+      /** Project the flag was deleted from */
+      project_id: number;
+      /** ID of the deleted feature flag */
+      flag_id: number;
+    }
+
+    export interface FailedFlagDeleteInProject {
+      /** Project where the flag was not deleted */
+      project_id: number;
+      /** Why the flag was not deleted from this project */
+      error_message: string;
+    }
+
+    export interface DeleteFlagInProjectsResponse {
+      /** Projects the flag was deleted from */
+      deleted: DeletedFlagInProject[];
+      /** Projects where the flag was not deleted */
+      failed: FailedFlagDeleteInProject[];
+    }
+
     export interface DeleteTileRequest {
       /** ID of the dashboard tile to delete. Use dashboard-get to look up tile IDs. */
       tile_id: number;

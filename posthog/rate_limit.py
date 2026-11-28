@@ -760,6 +760,17 @@ class CopyFlagsSustainedRateThrottle(PersonalApiKeyOrUserRateThrottle):
     rate = "300/hour"
 
 
+# One delete_in_projects call deletes a flag in up to 50 projects, so it gets its own budget.
+class DeleteFlagInProjectsBurstRateThrottle(PersonalApiKeyOrUserRateThrottle):
+    scope = "delete_flag_in_projects_burst"
+    rate = "60/minute"
+
+
+class DeleteFlagInProjectsSustainedRateThrottle(PersonalApiKeyOrUserRateThrottle):
+    scope = "delete_flag_in_projects_sustained"
+    rate = "300/hour"
+
+
 class _TeamBucketRateThrottle(PersonalApiKeyOrUserRateThrottle):
     """One bucket per project regardless of auth method, for endpoints whose cost has to be capped
     project-wide rather than per credential.

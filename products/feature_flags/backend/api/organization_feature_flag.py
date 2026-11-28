@@ -10,7 +10,12 @@ import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse
 from rest_framework import mixins, serializers, status, viewsets
-from rest_framework.exceptions import ValidationError as DRFValidationError
+from rest_framework.exceptions import (
+    APIException,
+    NotFound,
+    PermissionDenied,
+    ValidationError as DRFValidationError,
+)
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.utils.urls import replace_query_param
@@ -21,9 +26,17 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import ErrorResponseSerializer, action
 from posthog.constants import AvailableFeature
+from posthog.event_usage import report_user_action
+from posthog.exceptions import first_error_message
+from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 from posthog.models.property.parse import parse_property_group_data
-from posthog.rate_limit import CopyFlagsBurstRateThrottle, CopyFlagsSustainedRateThrottle
+from posthog.rate_limit import (
+    CopyFlagsBurstRateThrottle,
+    CopyFlagsSustainedRateThrottle,
+    DeleteFlagInProjectsBurstRateThrottle,
+    DeleteFlagInProjectsSustainedRateThrottle,
+)
 from posthog.user_permissions import UserPermissions
 from posthog.utils import safe_int
 
@@ -34,8 +47,13 @@ from products.access_control.backend.facade.user_access_control import (
 from products.approvals.backend.exceptions import ApprovalDetectionFailed, ApprovalRequired, PolicyConflict
 from products.approvals.backend.scheduled_changes import gate_scheduled_change
 from products.approvals.backend.transactions import gated_atomic
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource
+from products.authorization.backend.facade.enums import Action
+from products.authorization.backend.presentation.resources import resource_for_object
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
 from products.cohorts.backend.models.util import get_all_cohort_dependencies, sort_cohorts_topologically
+from products.feature_flags.backend.api.feature_flag import FlagLifecycleWriteRequest
 from products.feature_flags.backend.encrypted_flag_payloads import (
     get_decrypted_flag_payloads,
     get_decrypted_flag_payloads_protected,
@@ -43,6 +61,7 @@ from products.feature_flags.backend.encrypted_flag_payloads import (
 from products.feature_flags.backend.facade.api import create_flag, serialize_flags, update_flag
 from products.feature_flags.backend.facade.config import ConfigFormatError, require_v1_config
 from products.feature_flags.backend.flag_analytics import get_cached_evaluations_7d_by_team
+from products.feature_flags.backend.flag_deletion import delete_flag
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.scheduled_change import ScheduledChange
 
@@ -112,6 +131,10 @@ class FeatureFlagCopySourceContext:
 # (checked via serializer.is_valid()); shared with the frontend's BULK_COPY_MAX_TARGET_PROJECTS
 # in frontend/src/scenes/feature-flags/flagSelectionLogic.ts so the two can't drift apart.
 MAX_COPY_FLAGS_TARGET_PROJECTS = 50
+
+MAX_DELETE_FLAG_PROJECTS = 50
+DELETE_PERMISSION_ERROR = "You do not have permission to delete this flag."
+DELETE_UNEXPECTED_ERROR = "Something went wrong while deleting the flag. Try again."
 
 
 class CopyFlagsRequestSerializer(serializers.Serializer):
@@ -217,6 +240,32 @@ class CopyFlagsDependencyRequirementsResponseSerializer(serializers.Serializer):
         help_text="Reasons dependency copying is unavailable or needs user attention",
     )
     reason = serializers.CharField(allow_blank=True, help_text="Primary human-readable eligibility result")
+
+
+class DeleteFlagInProjectsRequestSerializer(serializers.Serializer):
+    feature_flag_key = serializers.CharField(required=True, help_text="Key of the feature flag to delete")
+    project_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        required=True,
+        max_length=MAX_DELETE_FLAG_PROJECTS,
+        min_length=1,
+        help_text="IDs of the projects to delete the flag from. All of them must belong to this organization.",
+    )
+
+
+class DeletedFlagInProjectSerializer(serializers.Serializer):
+    project_id = serializers.IntegerField(help_text="Project the flag was deleted from")
+    flag_id = serializers.IntegerField(help_text="ID of the deleted feature flag")
+
+
+class FailedFlagDeleteInProjectSerializer(serializers.Serializer):
+    project_id = serializers.IntegerField(help_text="Project where the flag was not deleted")
+    error_message = serializers.CharField(help_text="Why the flag was not deleted from this project")
+
+
+class DeleteFlagInProjectsResponseSerializer(serializers.Serializer):
+    deleted = DeletedFlagInProjectSerializer(many=True, help_text="Projects the flag was deleted from")
+    failed = FailedFlagDeleteInProjectSerializer(many=True, help_text="Projects where the flag was not deleted")
 
 
 class OrganizationFeatureFlagRowSerializer(serializers.Serializer):
@@ -584,6 +633,67 @@ class OrganizationFeatureFlagView(
             {"success": successful_projects, "failed": failed_projects},
             status=status.HTTP_200_OK,
         )
+
+    @extend_schema(
+        operation_id="org_feature_flags_delete_in_projects",
+        request=DeleteFlagInProjectsRequestSerializer,
+        responses={200: DeleteFlagInProjectsResponseSerializer},
+    )
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="delete_in_projects",
+        required_scopes=["feature_flag:write"],
+        throttle_classes=[
+            DeleteFlagInProjectsBurstRateThrottle,
+            DeleteFlagInProjectsSustainedRateThrottle,
+        ],
+    )
+    def delete_in_projects(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Delete the flag with a given key from several projects.
+
+        Each project is independent: a failure in one does not stop or undo the others.
+        """
+        serializer = DeleteFlagInProjectsRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        feature_flag_key = serializer.validated_data["feature_flag_key"]
+        project_ids = list(dict.fromkeys(serializer.validated_data["project_ids"]))
+
+        deleted: list[dict[str, Any]] = []
+        failed: list[dict[str, Any]] = []
+        for project_id in project_ids:
+            try:
+                flag = self._delete_flag_in_project(request, feature_flag_key, project_id)
+            except APIException as e:
+                failed.append({"project_id": project_id, "error_message": first_error_message(e.detail)})
+            except Exception as e:
+                # Earlier projects are already deleted, so the response must still report them.
+                capture_exception(e)
+                failed.append({"project_id": project_id, "error_message": DELETE_UNEXPECTED_ERROR})
+            else:
+                deleted.append({"project_id": project_id, "flag_id": flag.id})
+
+        report_user_action(
+            request.user,
+            "feature flag deleted in projects",
+            {"project_count": len(project_ids), "deleted_count": len(deleted), "failed_count": len(failed)},
+            organization=self.organization,
+            request=request,
+        )
+        return Response(DeleteFlagInProjectsResponseSerializer({"deleted": deleted, "failed": failed}).data)
+
+    def _delete_flag_in_project(self, request: Request, feature_flag_key: str, project_id: int) -> FeatureFlag:
+        # A flag lives on the project's main team, the one whose id is the project id.
+        team = Team.objects.filter(pk=project_id, project_id=project_id, organization_id=self.organization_id).first()
+        if team is None or not authorization.check(resource=Resource.project(team.pk), action=Action.VIEW):
+            raise NotFound("Project not found.")
+        flag = FeatureFlag.objects.filter(key=feature_flag_key, team=team).first()
+        if flag is None:
+            raise NotFound("Feature flag not found.")
+        if not authorization.check(resource=resource_for_object(flag, team=team), action=Action.DELETE):
+            raise PermissionDenied(DELETE_PERMISSION_ERROR)
+        user = cast(User, request.user)
+        return delete_flag(flag, team=team, user=user, request=FlagLifecycleWriteRequest(request))
 
     def _copy_dependency_flags_to_target(
         self,
