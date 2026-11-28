@@ -1,6 +1,5 @@
 import { DragEndEvent, DragOverEvent, DragStartEvent } from '@dnd-kit/core'
 import { useActions, useValues } from 'kea'
-import posthog from 'posthog-js'
 import { useEffect, useRef } from 'react'
 
 import { IconChevronRight, IconExternal, IconPlusSmall } from '@posthog/icons'
@@ -27,7 +26,6 @@ import {
 import { cn } from 'lib/utils/css-classes'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { PropertyDefinitionEditModal } from 'scenes/data-management/properties/PropertyDefinitionEditModal'
-import { urls } from 'scenes/urls'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
 import { DatabaseSerializedFieldType } from '~/queries/schema/schema-general'
@@ -95,8 +93,15 @@ export const QueryDatabase = ({
     const { dataWarehouseSavedQueriesLoaded, dataWarehouseSavedQueryDownstreamReferences } =
         useValues(dataWarehouseViewsLogic)
     const { expressionsByFieldName } = useValues(expressionModalLogic)
-    const { treeData, renameSavedViewEnabled, isPreviewableViewItem, previewItem, activateItem, getActionGroups } =
-        useSchemaTreeBehavior(extraTreeSections)
+    const {
+        treeData,
+        renameSavedViewEnabled,
+        isPreviewableViewItem,
+        previewItem,
+        activateItem,
+        getActionGroups,
+        addSource,
+    } = useSchemaTreeBehavior(extraTreeSections)
 
     const getFieldTypeIcon = (fieldType?: DatabaseSerializedFieldType): JSX.Element | null => {
         const Icon = getFieldTypeIconComponent(fieldType)
@@ -402,11 +407,7 @@ export const QueryDatabase = ({
                             className="z-2"
                             onClick={(e) => {
                                 e.stopPropagation()
-                                posthog.capture('sql-editor-add-source-clicked', {
-                                    source_type: null,
-                                    location: 'sources_header',
-                                })
-                                newInternalTab(urls.dataWarehouseSourceNew())
+                                addSource()
                             }}
                             data-attr="sql-editor-add-source"
                         >

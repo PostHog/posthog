@@ -1,52 +1,33 @@
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
-import posthog from 'posthog-js'
 import { useMemo } from 'react'
 
-import { IconEllipsis, IconPlus, IconSearch, IconX } from '@posthog/icons'
+import { IconSearch, IconX } from '@posthog/icons'
 import {
-    Button,
     DropdownMenu,
     DropdownMenuContent,
-    DropdownMenuTrigger,
     FilterCheckboxSubMenu,
     FilterClearItem,
     FilterMenuTrigger,
-    Input,
     InputGroup,
     InputGroupAddon,
     InputGroupButton,
     InputGroupInput,
     Text,
     Tree,
-    TreeItemActions,
-    TreeItemIcon,
-    TreeItemLabel,
-    TreeItemMeta,
     type TreeNode,
 } from '@posthog/quill'
 
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
-import { TreeNodeDisplayIcon } from 'lib/lemon-ui/LemonTree/LemonTreeUtils'
-import { newInternalTab } from 'lib/utils/newInternalTab'
-import { PropertyDefinitionFilter } from 'scenes/data-warehouse/editor/sidebar/PropertyDefinitionFilter'
 import { queryDatabaseLogic } from 'scenes/data-warehouse/editor/sidebar/queryDatabaseLogic'
 import { QuillSchemaItemMenuItems } from 'scenes/data-warehouse/editor/sidebar/QuillSchemaItemMenuItems'
-import { getFieldTypeIconComponent } from 'scenes/data-warehouse/editor/sidebar/schemaFieldTypeIcons'
-import { formatTraversalChain, getSchemaItemTooltip } from 'scenes/data-warehouse/editor/sidebar/schemaTreeData'
+import { getSchemaItemTooltip } from 'scenes/data-warehouse/editor/sidebar/schemaTreeData'
 import { useSchemaTreeBehavior } from 'scenes/data-warehouse/editor/sidebar/useSchemaTreeBehavior'
-import { getTableKindLabel } from 'scenes/data-warehouse/editor/sidebar/viewKind'
-import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 
-import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
-
-import { MaterializationStatusIcon } from 'products/data_modeling/frontend/MaterializationStatusIcon'
-import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
-import { TableCertificationIcon } from 'products/data_warehouse/frontend/shared/components/TableCertificationBadge'
 import { MATERIALIZATION_STATUS_FILTER_OPTIONS } from 'products/data_warehouse/frontend/shared/filterMaterializedViewsByStatus'
 
 import { QuillConnectionMenu } from './QuillConnectionMenu'
+import { QuillConnectSourcesRow } from './QuillConnectSourcesRow'
+import { QuillSchemaTreeRow } from './QuillSchemaTreeRow'
 
 interface SchemaTreeNode extends TreeNode {
     item: TreeDataItem
@@ -69,60 +50,6 @@ function toSchemaTreeNodes(items: TreeDataItem[], depth = 0): SchemaTreeNode[] {
         }))
 }
 
-const formatRowCount = (count: number | undefined): string | null =>
-    count
-        ? new Intl.NumberFormat('en', { notation: 'compact', compactDisplay: 'short' }).format(count).toLowerCase()
-        : null
-
-/** The quiet prompt to connect a first source, in place of the Lemon sidebar's banner. */
-function ConnectSourcesRow(): JSX.Element | null {
-    const { hasNonPosthogSources, syncMoreNoticeDismissed, databaseLoading } = useValues(queryDatabaseLogic)
-    const { setSyncMoreNoticeDismissed } = useActions(queryDatabaseLogic)
-    const { addProductIntent } = useActions(teamLogic)
-
-    if (hasNonPosthogSources || syncMoreNoticeDismissed || databaseLoading) {
-        return null
-    }
-
-    return (
-        <div
-            className="flex items-center gap-2 border-t p-2 ps-3"
-            // pinned: data-attr read by autocapture dashboards for this prompt
-            data-attr="sql-editor-source-empty-state"
-        >
-            <span className="flex shrink-0 -space-x-1">
-                <SourceIcon type="Postgres" size="xsmall" disableTooltip />
-                <SourceIcon type="Stripe" size="xsmall" disableTooltip />
-                <SourceIcon type="GoogleAds" size="xsmall" disableTooltip />
-            </span>
-            <Button
-                variant="link-foreground"
-                size="sm"
-                className="min-w-0 truncate"
-                onClick={() => {
-                    addProductIntent({
-                        product_type: ProductKey.DATA_WAREHOUSE,
-                        intent_context: ProductIntentContext.SQL_EDITOR_EMPTY_STATE,
-                    })
-                    router.actions.push(urls.dataWarehouseSourceNew())
-                }}
-                id="data-warehouse-sql-editor-add-data-source"
-            >
-                Connect Postgres, Stripe and more
-            </Button>
-            <Button
-                size="icon-xs"
-                className="ms-auto"
-                aria-label="Dismiss"
-                tooltip="Dismiss"
-                onClick={() => setSyncMoreNoticeDismissed(true)}
-            >
-                <IconX />
-            </Button>
-        </div>
-    )
-}
-
 /** The schema tab of the editor's side panel: the connection, a search, and the tables to query. */
 export function QuillSchemaPanel({ tabId }: { tabId: string }): JSX.Element {
     const {
@@ -130,7 +57,6 @@ export function QuillSchemaPanel({ tabId }: { tabId: string }): JSX.Element {
         searchText,
         connectionId,
         expandedItemIds,
-        editingDraftId,
         materializationStatusFilters,
         dataWarehouseSavedQueriesLoading,
     } = useValues(queryDatabaseLogic)
@@ -140,11 +66,9 @@ export function QuillSchemaPanel({ tabId }: { tabId: string }): JSX.Element {
         toggleFolderOpen,
         toggleMaterializationStatusFilter,
         clearMaterializationStatusFilters,
-        setPropertyDefinitionSearch,
-        renameDraft,
-        setEditingDraft,
     } = useActions(queryDatabaseLogic)
-    const { treeData, isPreviewableViewItem, previewItem, activateItem, getActionGroups } = useSchemaTreeBehavior()
+    const { treeData, isPreviewableViewItem, previewItem, activateItem, getActionGroups, addSource } =
+        useSchemaTreeBehavior()
 
     const nodes = useMemo(() => toSchemaTreeNodes(treeData), [treeData])
 
@@ -252,127 +176,19 @@ export function QuillSchemaPanel({ tabId }: { tabId: string }): JSX.Element {
                               : 'No tables yet.'}
                     </Text>
                 }
-                renderItem={(node, state) => {
-                    const { item } = node
-                    const record = item.record
-                    const isColumn = record?.type === 'column'
-                    const FieldIcon = isColumn ? getFieldTypeIconComponent(record?.field?.type) : null
-                    const columnType: string | undefined = isColumn ? record?.field?.type : undefined
-                    const label = typeof item.displayName === 'string' ? item.displayName : item.name
-                    const certification =
-                        record?.type === 'table'
-                            ? record?.table?.certification
-                            : record?.type === 'view'
-                              ? record?.certification
-                              : undefined
-                    const meta = isColumn
-                        ? columnType === 'field_traverser'
-                            ? (formatTraversalChain(record?.field?.chain) ?? columnType)
-                            : columnType
-                        : state.hasChildren
-                          ? (formatRowCount(record?.row_count) ?? getTableKindLabel(record))
-                          : null
-                    const groups = node.section && record?.type !== 'views' ? null : getActionGroups(item)
-
-                    if (record?.type === 'draft' && editingDraftId === record?.id) {
-                        return (
-                            <Input
-                                size="sm"
-                                autoFocus
-                                defaultValue={item.name}
-                                aria-label="Draft name"
-                                className="h-6"
-                                onClick={(event) => event.stopPropagation()}
-                                onKeyDown={(event) => {
-                                    event.stopPropagation()
-                                    if (event.key === 'Enter') {
-                                        const name = event.currentTarget.value.trim()
-                                        if (name && name !== item.name) {
-                                            renameDraft(record.id, name)
-                                        }
-                                        setEditingDraft('')
-                                    } else if (event.key === 'Escape') {
-                                        setEditingDraft('')
-                                    }
-                                }}
-                                onBlur={() => setEditingDraft('')}
-                            />
-                        )
-                    }
-
-                    return (
-                        <>
-                            {!node.section ? (
-                                <TreeItemIcon>
-                                    {FieldIcon ? (
-                                        <FieldIcon />
-                                    ) : record?.type === 'view' && record.isSavedQuery ? (
-                                        <MaterializationStatusIcon view={record.view} />
-                                    ) : (
-                                        <TreeNodeDisplayIcon item={item} expandedItemIds={expandedItemIds} />
-                                    )}
-                                </TreeItemIcon>
-                            ) : null}
-                            <TreeItemLabel
-                                highlight={searchText || undefined}
-                                className={isColumn ? 'font-mono' : undefined}
-                            >
-                                {label}
-                            </TreeItemLabel>
-                            <TableCertificationIcon certification={certification} />
-                            {meta ? <TreeItemMeta>{meta}</TreeItemMeta> : null}
-                            {record?.type === 'property-field' ? (
-                                <TreeItemActions>
-                                    <PropertyDefinitionFilter
-                                        propertyDefinitionKey={record.propertyDefinitionKey}
-                                        propertyDefinitionSearch={record.propertyDefinitionSearch ?? ''}
-                                        propertyDefinitionTarget={record.propertyDefinitionTarget}
-                                        setPropertyDefinitionSearch={setPropertyDefinitionSearch}
-                                    />
-                                </TreeItemActions>
-                            ) : record?.type === 'sources' ? (
-                                <TreeItemActions>
-                                    <Button
-                                        size="icon-xs"
-                                        aria-label="Add a source"
-                                        tooltip="Add a source"
-                                        onClick={() => {
-                                            posthog.capture('sql-editor-add-source-clicked', {
-                                                source_type: null,
-                                                location: 'sources_header',
-                                            })
-                                            newInternalTab(urls.dataWarehouseSourceNew())
-                                        }}
-                                        data-attr="sql-editor-add-source"
-                                    >
-                                        <IconPlus />
-                                    </Button>
-                                </TreeItemActions>
-                            ) : groups ? (
-                                <TreeItemActions>
-                                    <DropdownMenu>
-                                        <DropdownMenuTrigger
-                                            render={
-                                                <Button
-                                                    size="icon-xs"
-                                                    aria-label={`More for ${item.name}`}
-                                                    tooltip="More"
-                                                />
-                                            }
-                                        >
-                                            <IconEllipsis />
-                                        </DropdownMenuTrigger>
-                                        <DropdownMenuContent align="start" side="right">
-                                            <QuillSchemaItemMenuItems groups={groups} type="dropdown" />
-                                        </DropdownMenuContent>
-                                    </DropdownMenu>
-                                </TreeItemActions>
-                            ) : null}
-                        </>
-                    )
-                }}
+                renderItem={(node, state) => (
+                    <QuillSchemaTreeRow
+                        item={node.item}
+                        section={!!node.section}
+                        hasChildren={state.hasChildren}
+                        actionGroups={
+                            node.section && node.item.record?.type !== 'views' ? null : getActionGroups(node.item)
+                        }
+                        onAddSource={addSource}
+                    />
+                )}
             />
-            <ConnectSourcesRow />
+            <QuillConnectSourcesRow />
         </div>
     )
 }

@@ -62,30 +62,34 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
     // database tree gives the row rather than leaving dead space next to the schema list.
     const fillsColumn = props.constrainHeight === false
 
+    const editor = (
+        <AutoSizer
+            renderProp={({ height, width }) =>
+                height && width ? (
+                    <CodeEditor
+                        language="hogQL"
+                        value={props.queryInput}
+                        sourceQuery={props.sourceQuery}
+                        height={height}
+                        width={width}
+                        originalValue={props.originalValue}
+                        enableVimMode={props.editorVimModeEnabled}
+                        vimrc={props.editorVimrc}
+                        theme={quillSurface ? 'quill' : 'default'}
+                        {...props.codeEditorProps}
+                        autoFocus={!queryLoading && (props.codeEditorProps.autoFocus ?? true)}
+                        options={editorOptions}
+                    />
+                ) : null
+            }
+        />
+    )
+
     if (quillSurface) {
         return (
             <div className="relative flex h-full min-h-0 w-full min-w-0 flex-col bg-card">
                 <div className="absolute inset-0" data-attr="hogql-query-editor">
-                    <AutoSizer
-                        renderProp={({ height, width }) =>
-                            height && width ? (
-                                <CodeEditor
-                                    language="hogQL"
-                                    value={props.queryInput}
-                                    sourceQuery={props.sourceQuery}
-                                    height={height}
-                                    width={width}
-                                    originalValue={props.originalValue}
-                                    enableVimMode={props.editorVimModeEnabled}
-                                    vimrc={props.editorVimrc}
-                                    theme="quill"
-                                    {...props.codeEditorProps}
-                                    autoFocus={!queryLoading && (props.codeEditorProps.autoFocus ?? true)}
-                                    options={editorOptions}
-                                />
-                            ) : null
-                        }
-                    />
+                    {editor}
                 </div>
                 {queryLoading ? (
                     <div className="absolute inset-0 z-10 flex items-center justify-center gap-2 bg-card" role="status">
@@ -145,25 +149,7 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                         className={cn('flex-1 min-h-0', fillsColumn && 'absolute inset-0')}
                         data-attr="hogql-query-editor"
                     >
-                        <AutoSizer
-                            renderProp={({ height, width }) =>
-                                height && width ? (
-                                    <CodeEditor
-                                        language="hogQL"
-                                        value={props.queryInput}
-                                        sourceQuery={props.sourceQuery}
-                                        height={height}
-                                        width={width}
-                                        originalValue={props.originalValue}
-                                        enableVimMode={props.editorVimModeEnabled}
-                                        vimrc={props.editorVimrc}
-                                        {...props.codeEditorProps}
-                                        autoFocus={!queryLoading && (props.codeEditorProps.autoFocus ?? true)}
-                                        options={editorOptions}
-                                    />
-                                ) : null
-                            }
-                        />
+                        {editor}
                     </div>
                     {queryLoading && (
                         <div

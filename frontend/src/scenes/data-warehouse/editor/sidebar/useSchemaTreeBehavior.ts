@@ -33,6 +33,8 @@ export interface SchemaTreeBehavior {
     /** What clicking a row does: insert a column, open a draft, a metric or an unsaved query. */
     activateItem: (item: TreeDataItem) => void
     getActionGroups: (item: TreeDataItem) => SchemaItemAction[][] | null
+    /** The Sources heading's add button: opens a new source in a new tab. */
+    addSource: () => void
 }
 
 /**
@@ -138,6 +140,10 @@ export function useSchemaTreeBehavior(extraTreeSections?: TreeDataItem[]): Schem
 
     return {
         treeData,
+        addSource: () => {
+            posthog.capture('sql-editor-add-source-clicked', { source_type: null, location: 'sources_header' })
+            newInternalTab(urls.dataWarehouseSourceNew())
+        },
         renameSavedViewEnabled,
         isPreviewableViewItem,
         previewItem,
