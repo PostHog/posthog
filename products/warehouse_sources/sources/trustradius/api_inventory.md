@@ -45,9 +45,10 @@ The traffic reports require product identifiers, so the source reads `/product-i
 The TrustQuotes for Web report documents no `skip` or `limit`, and it groups days with `date-group`.
 The source therefore sends `date-group=day` and reads the range in windows of 30 days, one request per window.
 The specification calls `end-date` inclusive, but the intent API treats it as exclusive.
-Each window ends on the day the next one starts, and the source drops rows dated on or after that day, so neither reading loses or repeats a day.
+Each window ends on the day the next one starts, and the source drops rows dated outside the window, so neither reading loses or repeats a day.
+The specification requires `date`, so a row without a readable date is dropped too.
 Its `domain`, `page` and `link` fields are optional in the specification.
-The merge treats missing key values as equal, so all three fields are in the key.
+All three fields are in the key, and the source writes an empty string for a missing one, so every destination can match the key.
 The visitor insights reports accept no product filter from the source, so they cover every licensed product.
 The specification tags both visitor insights operations as Legacy, and they need the matching license.
 For all report tables, a full refresh and the first incremental run read the last 365 days, because the specification documents no retention.

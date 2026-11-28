@@ -196,8 +196,9 @@ def test_trustquotes_web_pages_requests_one_date_window_at_a_time(
             return []
         # Under an inclusive end date the API also returns the end day, which the next window owns.
         return [
-            {"date": first, "productId": "p1", "widgetId": "w1", "link": "https://example.com/a"},
+            {"date": first, "productId": "p1", "widgetId": "w1", "page": None, "link": "https://example.com/a"},
             {"date": f"{end}T00:00:00.000Z", "productId": "p1", "widgetId": "w1", "link": "https://example.com/a"},
+            # A row with no day would arrive once per window under the same key.
             {"date": None, "productId": "p1", "widgetId": "w1", "link": "https://example.com/b"},
         ]
 
@@ -217,12 +218,18 @@ def test_trustquotes_web_pages_requests_one_date_window_at_a_time(
         )
         for first, end in expected_windows
     ]
-    # A row with no readable date is kept rather than dropped silently.
-    assert [(row["date"], row["link"]) for row in rows] == [
-        row
+    # Missing or null optional key fields become "", so destinations that never match nulls can merge them.
+    assert rows == [
+        {
+            "date": first,
+            "productId": "p1",
+            "widgetId": "w1",
+            "domain": "",
+            "page": "",
+            "link": "https://example.com/a",
+        }
         for first, _ in expected_windows
         if first != "2026-03-07"
-        for row in [(first, "https://example.com/a"), (None, "https://example.com/b")]
     ]
 
 

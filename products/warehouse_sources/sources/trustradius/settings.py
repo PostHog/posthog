@@ -68,8 +68,8 @@ ENDPOINTS: dict[str, EndpointConfig] = {
     "trustquotes_web_pages": {
         "path": "reports/syndication/tqw/pages",
         "data_selector": "",
-        # The spec marks `domain`, `page` and `link` optional, and the merge treats missing values as equal,
-        # so all three are in the key: a row that lacks one still differs from the others by the rest.
+        # The spec marks `domain`, `page` and `link` optional, so all three are in the key and the source
+        # writes "" for a missing one: a row that lacks one still differs from the others by the rest.
         "primary_keys": ["date", "productId", "widgetId", "domain", "page", "link"],
         "partition_key": "date",
         "report": True,

@@ -104,7 +104,8 @@ def _window_pages(
 ) -> Iterator[list[dict[str, Any]]]:
     # The report has no paging, so fixed windows bound each response. The spec calls `end-date`
     # inclusive while the intent API treats it as exclusive, so each window ends where the next one
-    # starts and rows on or after that day are dropped. Neither reading then loses or repeats a day.
+    # starts and rows outside the window are dropped. Neither reading then loses or repeats a day.
+    # Optional key fields become "" so destinations whose merge does not match nulls can key the rows.
     window_start = start
     while window_start < end:
         window_end = min(window_start + timedelta(days=DATE_WINDOW_DAYS), end)
@@ -115,7 +116,11 @@ def _window_pages(
             "format": "json",
         }
         for page in client.paginate(settings["path"], params=params, data_selector="", data_selector_required=True):
-            rows = [row for row in page if (day := coerce_date(row.get("date"))) is None or day < window_end]
+            rows = [
+                {**row, **{key: "" for key in settings["primary_keys"] if row.get(key) is None}}
+                for row in page
+                if (day := coerce_date(row.get("date"))) is not None and window_start <= day < window_end
+            ]
             if rows:
                 yield rows
         reach_safe_point()
