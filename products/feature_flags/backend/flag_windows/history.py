@@ -69,7 +69,7 @@ def flag_histories(team_id: int, since: datetime) -> list[FlagHistory]:
         if entry.item_id and entry.item_id.isdigit():
             entries.setdefault(int(entry.item_id), []).append(entry)
     flags = FeatureFlag.objects_including_soft_deleted.filter(team_id=team_id, id__in=entries)
-    return [rebuild_history(flag.id, _config(flag), entries[flag.id]) for flag in flags]
+    return [rebuild_history(flag.id, exposure_config(flag), entries[flag.id]) for flag in flags]
 
 
 def owned_flag_ids(team_id: int, flag_ids: Iterable[int]) -> frozenset[int]:
@@ -144,7 +144,7 @@ def _rollback_reason(detail: Mapping[str, Any]) -> RollbackReason | None:
     return RollbackReason(reason) if reason in RollbackReason.values else None
 
 
-def _config(flag: FeatureFlag) -> FlagExposureConfig:
+def exposure_config(flag: FeatureFlag) -> FlagExposureConfig:
     return FlagExposureConfig(
         active=flag.active,
         deleted=flag.deleted,

@@ -57,6 +57,7 @@ class CloseReason(StrEnum):
     REVERTED = "reverted"
     SUPERSEDED = "superseded"
     EXPIRED = "expired"
+    EXCLUDED = "excluded"
     NO_REACH = "no_reach"
     NO_REGRESSION = "no_regression"
 
@@ -144,29 +145,10 @@ def advance_window(
 ) -> TickOutcome:
     """Advances the window by the tick at `now`. `flag` holds the fields of the flag at `now`. The other inputs are the
     ones that `score_window` takes. Raises `ConfigFormatError` when a config of the window is not version 1."""
-    if window.state == WindowState.CLOSED:
-        raise ValueError(f"A closed window doesn't tick, got the window of edit {window.edit.id}")
+    closed = close_by_config(window, flag=flag, now=now, max_duration=parameters.max_duration)
+    if closed is not None:
+        return closed
     edited_at = window.edit.edited_at
-    if now < edited_at:
-        raise ValueError(f"The tick at {now} comes before the edit at {edited_at}")
-
-    if not is_v1_config(flag.filters):
-        return _closed(CloseReason.UNREADABLE_CONFIG)
-    # The classification compares who gets which value, not the stored config, so a revert that keeps a payload change
-    # counts. A partial revert still raises exposure over the old config, so the next check finds it as another edit.
-    if classify_exposure_change(before=window.config_before, after=flag).direction != ExposureDirection.RAISES:
-        return _closed(CloseReason.REVERTED)
-    # An edit that moves nobody, such as a payload change, leaves the window open.
-    change_since_edit = classify_exposure_change(before=window.config_after, after=flag)
-    if change_since_edit.kinds:
-        return _closed(
-            CloseReason.SUPERSEDED,
-            successor_config_before=(
-                window.config_after if change_since_edit.direction == ExposureDirection.RAISES else window.config_before
-            ),
-        )
-    if now >= edited_at + parameters.max_duration:
-        return _closed(CloseReason.EXPIRED)
     if window.state == WindowState.SUSPICIOUS:
         return TickOutcome(state=WindowState.SUSPICIOUS, close_reason=None)
     # The exposure query has no bucket before the edit, so the share at the previous level is unknown. The level that
@@ -198,6 +180,37 @@ def advance_window(
     if stable_since is not None and now >= stable_since + parameters.post_stable:
         return _closed(CloseReason.NO_REGRESSION, score=score)
     return TickOutcome(state=WindowState.OPEN, close_reason=None, score=score)
+
+
+def close_by_config(
+    window: ObservationWindow, *, flag: FlagExposureConfig, now: datetime, max_duration: timedelta
+) -> TickOutcome | None:
+    """Checks 1 to 4 of the tick, which read only the config of the flag at `now`, or None when the window stays as it
+    is. Raises `ConfigFormatError` when a config of the window is not version 1."""
+    if window.state == WindowState.CLOSED:
+        raise ValueError(f"A closed window doesn't tick, got the window of edit {window.edit.id}")
+    edited_at = window.edit.edited_at
+    if now < edited_at:
+        raise ValueError(f"The tick at {now} comes before the edit at {edited_at}")
+
+    if not is_v1_config(flag.filters):
+        return _closed(CloseReason.UNREADABLE_CONFIG)
+    # The classification compares who gets which value, not the stored config, so a revert that keeps a payload change
+    # counts. A partial revert still raises exposure over the old config, so the next check finds it as another edit.
+    if classify_exposure_change(before=window.config_before, after=flag).direction != ExposureDirection.RAISES:
+        return _closed(CloseReason.REVERTED)
+    # An edit that moves nobody, such as a payload change, leaves the window open.
+    change_since_edit = classify_exposure_change(before=window.config_after, after=flag)
+    if change_since_edit.kinds:
+        return _closed(
+            CloseReason.SUPERSEDED,
+            successor_config_before=(
+                window.config_after if change_since_edit.direction == ExposureDirection.RAISES else window.config_before
+            ),
+        )
+    if now >= edited_at + max_duration:
+        return _closed(CloseReason.EXPIRED)
+    return None
 
 
 def _closed(

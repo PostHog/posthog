@@ -15,5 +15,7 @@ FIELD_EXCLUSIONS = {
         # FeatureFlagCodeAnalysis is team-scoped, so reading this relation for a diff hits the
         # fail-closed manager. A code analysis does not change the flag, so the diff skips it.
         "code_analyses",
+        # FlagObservationWindow is team-scoped too, and the flag windows workflow writes it, not an edit of the flag.
+        "observation_windows",
     ],
 }
