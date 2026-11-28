@@ -50,4 +50,16 @@ async fn startup_gauge_reaches_the_scrape_endpoint() {
         line.contains(r#"capture_mode="events""#) && line.contains(r#"role="capture-testing""#),
         "gauge must carry the recorder's global labels: {line}"
     );
+
+    let live_target = |target: &str| {
+        body.lines()
+            .find(|line| {
+                line.starts_with("capture_kafka_output_live_target{")
+                    && line.contains(&format!(r#"target="{target}""#))
+            })
+            .unwrap_or_else(|| panic!("live target gauge missing for {target}"))
+            .to_string()
+    };
+    assert!(live_target("primary").ends_with(" 1"));
+    assert!(live_target("fallback").ends_with(" 0"));
 }

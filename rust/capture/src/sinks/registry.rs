@@ -1,11 +1,15 @@
 //! Binds every fixed routing [`Destination`] to its output: a Kafka topic and
 //! the named producer that carries it.
 
+use std::collections::HashSet;
+use std::hash::Hash;
 use std::sync::Arc;
+use std::time::Duration;
 
 use crate::config::OutputsConfig;
 use crate::pipeline::{Address, AiLane, AnalyticsLane, BasicLane, PipelineLane, SessionReplayLane};
 use crate::producers::ProducerName;
+use crate::sinks::producer::KafkaProducer;
 
 /// Which configured output a routing decision selects, named by pipeline and
 /// lane. Distinct outputs may share a topic.
@@ -201,6 +205,31 @@ impl<R> OutputTable<R> {
         self.has_ai_overflow_lane
     }
 
+    /// The outputs a capture-analytics pod routes to: all but session replay.
+    /// Step 14's per-mode registries replace this hand-written list.
+    pub(crate) fn analytics_family_targets(&self) -> [&OutputTarget<R>; 9] {
+        [
+            &self.analytics_main,
+            &self.analytics_overflow,
+            &self.analytics_historical,
+            &self.heatmaps,
+            &self.client_warnings,
+            &self.error_tracking,
+            &self.dlq,
+            &self.ai_main,
+            &self.ai_overflow,
+        ]
+    }
+
+    pub(crate) fn producers(&self) -> HashSet<R>
+    where
+        R: Clone + Eq + Hash,
+    {
+        let mut producers = HashSet::new();
+        self.map_producers(|producer| producers.insert(producer.clone()));
+        producers
+    }
+
     /// Every registered output must resolve to a non-empty topic. `Custom` is
     /// excluded because it carries its own topic per event.
     pub fn check_complete(&self) -> anyhow::Result<()> {
@@ -213,6 +242,43 @@ impl<R> OutputTable<R> {
             );
         }
         Ok(())
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct TopicCheckFailure {
+    pub topic: Arc<str>,
+    pub error: String,
+}
+
+impl<P: KafkaProducer + 'static> OutputTable<Arc<P>> {
+    pub async fn check_analytics_family_topics(&self, timeout: Duration) -> Vec<TopicCheckFailure> {
+        let checks: Vec<_> = self
+            .analytics_family_targets()
+            .into_iter()
+            .filter(|target| !target.topic.is_empty())
+            .map(|target| {
+                let (producer, topic) = (Arc::clone(&target.producer), Arc::clone(&target.topic));
+                let check = tokio::task::spawn_blocking(move || {
+                    producer.check_topic_exists(&topic, timeout)
+                });
+                (target, check)
+            })
+            .collect();
+
+        let mut failures = Vec::new();
+        for (target, check) in checks {
+            let error = match check.await {
+                Ok(Ok(())) => continue,
+                Ok(Err(e)) => format!("{e:#}"),
+                Err(e) => format!("topic check task failed: {e}"),
+            };
+            failures.push(TopicCheckFailure {
+                topic: Arc::clone(&target.topic),
+                error,
+            });
+        }
+        failures
     }
 }
 
@@ -339,6 +405,28 @@ mod tests {
             .map(|output| *table.resolve(output).1)
             .collect();
         assert_eq!(producers.len(), Destination::REGISTERED.len() + 1);
+    }
+
+    #[tokio::test]
+    async fn analytics_family_topic_check_reports_each_missing_topic() {
+        use crate::sinks::producer::MockKafkaProducer;
+        let producer = Arc::new(MockKafkaProducer::new().with_missing_topics([
+            "heatmaps",
+            "ai_events",
+            "replay_overflow",
+        ]));
+        let mut table = test_outputs().map_producers(|_| Arc::clone(&producer));
+        table.dlq.topic = Arc::from("");
+
+        let mut failed: Vec<String> = table
+            .check_analytics_family_topics(Duration::from_secs(1))
+            .await
+            .into_iter()
+            .map(|failure| failure.topic.to_string())
+            .collect();
+        failed.sort();
+
+        assert_eq!(failed, vec!["ai_events", "heatmaps"]);
     }
 
     #[test]

@@ -3,7 +3,6 @@ use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::Context;
 use axum::Router;
 use common_ingestion_warnings::{
     observe_delivery, KafkaWarningEmitter, WarningEmitter, WarningThrottle,
@@ -20,6 +19,7 @@ use crate::ai_event_size_caps::AiEventSizeCaps;
 use crate::config::{CaptureMode, Config};
 use crate::event_restrictions::{EventRestrictionService, Pipeline, RedisRestrictionsRepository};
 use crate::events::ai_byte_limit::ENVELOPE_WEIGHT_BYTES;
+use crate::fallback;
 use crate::global_rate_limiter::{ai_byte_limit_window, GlobalRateLimiter};
 use crate::outputs::{Output, OutputRegistry};
 use crate::producers::{self, ProducerConfig, ProducerName, ProducerRegistry};
@@ -29,10 +29,8 @@ use crate::quota_limiters::{
 };
 use crate::router;
 use crate::router::{AI_BODY_SIZE, BATCH_BODY_SIZE};
-use crate::sinks::kafka::KafkaSink;
 use crate::sinks::noop::NoOpSink;
 use crate::sinks::print::PrintSink;
-use crate::sinks::registry::OutputTable;
 use crate::sinks::s3::S3Sink;
 use crate::v1::constants::CAPTURE_V1_LEGACY_PROPERTY_SPLICE;
 use limiters::overflow::OverflowLimiter;
@@ -278,7 +276,7 @@ pub async fn build_components(
     let (outputs, producers) =
         create_output_registry(&config, &producer_configs, sink_handle, advisory_handle)
             .await
-            .expect("failed to create the output registry");
+            .unwrap_or_else(|e| panic!("fatal: failed to create the output registry: {e:#}"));
     let outputs = Arc::new(outputs);
 
     let event_restriction_service = if let Some(handle) = event_restrictions_handle {
@@ -550,38 +548,18 @@ async fn create_output(
         return Ok((Output::single(NoOpSink::new()), None));
     }
 
-    // Runs before any producer connects, so a blank topic refuses boot
-    // immediately instead of after a broker connect attempt.
-    let outputs = OutputTable::new(&config.outputs, config.capture_mode.has_ai_overflow_lane());
-    if config.outputs_completeness_check_enabled {
-        outputs.check_complete()?;
-    } else {
-        info!("outputs completeness check disabled; a blank output topic will fail at first produce instead of at boot");
-    }
-
-    // With the S3 fallback, the Kafka producer reports to the advisory handle
-    // so an unhealthy primary never gates the pod.
+    // With the S3 fallback, the live Kafka producers report to the advisory
+    // handle so an unhealthy cluster never gates the pod.
     let kafka_handle = if config.s3_fallback_enabled {
         Some(advisory_handle.expect("kafka advisory handle required for fallback"))
     } else {
         sink_handle.clone()
     };
-    let producers = ProducerRegistry::build(
-        producer_configs,
-        kafka_handle
-            .clone()
-            .map(|handle| (ProducerName::Ingestion, handle))
-            .into_iter()
-            .collect(),
-    )
-    .context("failed to start Kafka producers")?;
-    let kafka_sink = KafkaSink::new(
-        outputs.map_producers(|name| producers.get(*name)),
-        config.replay_envelope_compression,
-    );
+    let (kafka_output, producers) =
+        fallback::build_kafka_output(config, producer_configs, kafka_handle.clone()).await?;
 
     if !config.s3_fallback_enabled {
-        return Ok((Output::single(kafka_sink), Some(producers)));
+        return Ok((kafka_output, Some(producers)));
     }
 
     let s3_handle = sink_handle.expect("sink lifecycle handle required for S3 fallback");
@@ -597,11 +575,7 @@ async fn create_output(
     .await
     .expect("failed to create S3 sink");
 
-    let output = Output::failover(
-        Output::single(kafka_sink),
-        Output::single(s3_sink),
-        kafka_handle,
-    );
+    let output = Output::failover(kafka_output, Output::single(s3_sink), kafka_handle);
     Ok((output, Some(producers)))
 }
 

@@ -30,14 +30,33 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 pub enum ProducerName {
     /// The cluster the ingestion pipelines consume capture's topics from.
     Ingestion,
+    Fallback,
 }
 
 impl ProducerName {
-    pub const ALL: [ProducerName; 1] = [ProducerName::Ingestion];
+    pub const ALL: [ProducerName; 2] = [ProducerName::Ingestion, ProducerName::Fallback];
 
     pub fn as_str(&self) -> &'static str {
         match self {
             ProducerName::Ingestion => "INGESTION",
+            ProducerName::Fallback => "FALLBACK",
+        }
+    }
+
+    /// The fallback's topic check must never create the topic it checks.
+    fn default_overrides(&self) -> &'static [(&'static str, &'static str)] {
+        match self {
+            ProducerName::Ingestion => &[],
+            ProducerName::Fallback => &[("ALLOW_AUTO_CREATE_TOPICS", "false")],
+        }
+    }
+
+    fn is_configured(&self, env: &HashMap<String, String>) -> bool {
+        match self {
+            ProducerName::Ingestion => true,
+            ProducerName::Fallback => env
+                .get(&format!("{}METADATA_BROKER_LIST", self.env_prefix()))
+                .is_some_and(|brokers| !brokers.is_empty()),
         }
     }
 
@@ -200,13 +219,18 @@ pub struct ProducerConfig {
 impl ProducerConfig {
     pub fn load(name: ProducerName, env: &HashMap<String, String>) -> anyhow::Result<Self> {
         let prefix = name.env_prefix();
-        let slot_env: HashMap<String, String> = env
+        let mut slot_env: HashMap<String, String> = env
             .iter()
             .filter_map(|(k, v)| {
                 k.strip_prefix(&prefix)
                     .map(|key| (key.to_string(), v.clone()))
             })
             .collect();
+        for (key, value) in name.default_overrides() {
+            slot_env
+                .entry(key.to_string())
+                .or_insert_with(|| value.to_string());
+        }
         Self::init_from_hashmap(&slot_env)
             .map_err(|e| anyhow::anyhow!("producer {}: {e}", name.as_str()))
     }
@@ -305,14 +329,15 @@ impl ProducerRegistry {
         mut liveness: HashMap<ProducerName, lifecycle::Handle>,
     ) -> anyhow::Result<Self> {
         let mut producers = HashMap::new();
-        for name in ProducerName::ALL {
-            let config = configs
-                .get(&name)
-                .ok_or_else(|| anyhow::anyhow!("no config for producer {}", name.as_str()))?;
+        for (&name, config) in configs {
             let producer = create_producer(name, config, liveness.remove(&name))?;
             producers.insert(name, producer);
         }
         Ok(Self { producers })
+    }
+
+    pub fn contains(&self, name: ProducerName) -> bool {
+        self.producers.contains_key(&name)
     }
 
     pub fn get(&self, name: ProducerName) -> ProducerHandle {
@@ -333,6 +358,7 @@ pub fn load_all(
 ) -> anyhow::Result<HashMap<ProducerName, ProducerConfig>> {
     ProducerName::ALL
         .into_iter()
+        .filter(|name| name.is_configured(env))
         .map(|name| Ok((name, ProducerConfig::load(name, env)?)))
         .collect()
 }
@@ -559,11 +585,79 @@ mod tests {
         );
     }
 
+    #[rstest::rstest]
+    #[case::unset(&[], false)]
+    #[case::empty(&[("KAFKA_FALLBACK_PRODUCER_METADATA_BROKER_LIST", "")], false)]
+    #[case::other_keys_only(&[("KAFKA_FALLBACK_PRODUCER_SECURITY_PROTOCOL", "ssl")], false)]
+    #[case::set(&[("KAFKA_FALLBACK_PRODUCER_METADATA_BROKER_LIST", "ws:9092")], true)]
+    fn fallback_slot_loads_only_when_its_brokers_are_set(
+        #[case] pairs: &[(&str, &str)],
+        #[case] loaded: bool,
+    ) {
+        let configs = load_all(&env(pairs)).unwrap();
+
+        assert!(configs.contains_key(&ProducerName::Ingestion));
+        assert_eq!(configs.contains_key(&ProducerName::Fallback), loaded);
+    }
+
+    #[test]
+    fn fallback_slot_reads_its_own_connection_and_authentication() {
+        let configs = load_all(&env(&[
+            ("KAFKA_INGESTION_PRODUCER_METADATA_BROKER_LIST", "msk:9094"),
+            ("KAFKA_FALLBACK_PRODUCER_METADATA_BROKER_LIST", "ws:9092"),
+            ("KAFKA_FALLBACK_PRODUCER_SECURITY_PROTOCOL", "sasl_ssl"),
+            ("KAFKA_FALLBACK_PRODUCER_SASL_MECHANISMS", "plain"),
+            ("KAFKA_FALLBACK_PRODUCER_SASL_USERNAME", "user"),
+            ("KAFKA_FALLBACK_PRODUCER_SASL_PASSWORD", "pass"),
+            ("KAFKA_FALLBACK_PRODUCER_ALLOW_AUTO_CREATE_TOPICS", "false"),
+        ]))
+        .unwrap();
+
+        let fallback = configs[&ProducerName::Fallback].client_config();
+        assert_eq!(fallback.get("bootstrap.servers"), Some("ws:9092"));
+        assert_eq!(fallback.get("security.protocol"), Some("sasl_ssl"));
+        assert_eq!(fallback.get("sasl.mechanisms"), Some("PLAIN"));
+        assert_eq!(fallback.get("sasl.username"), Some("user"));
+        assert_eq!(fallback.get("sasl.password"), Some("pass"));
+        assert_eq!(fallback.get("allow.auto.create.topics"), Some("false"));
+        let ingestion = configs[&ProducerName::Ingestion].client_config();
+        assert_eq!(ingestion.get("bootstrap.servers"), Some("msk:9094"));
+        assert_eq!(ingestion.get("security.protocol"), None);
+        assert_eq!(ingestion.get("allow.auto.create.topics"), Some("true"));
+    }
+
+    #[rstest::rstest]
+    #[case::fallback_default(ProducerName::Fallback, None, "false")]
+    #[case::fallback_override(ProducerName::Fallback, Some("true"), "true")]
+    #[case::ingestion_default(ProducerName::Ingestion, None, "true")]
+    fn auto_topic_creation_defaults_per_slot(
+        #[case] name: ProducerName,
+        #[case] configured: Option<&str>,
+        #[case] expected: &str,
+    ) {
+        let key = format!("KAFKA_{}_PRODUCER_ALLOW_AUTO_CREATE_TOPICS", name.as_str());
+        let env: HashMap<String, String> = configured
+            .map(|value| (key, value.to_string()))
+            .into_iter()
+            .collect();
+
+        let config = ProducerConfig::load(name, &env).unwrap();
+
+        assert_eq!(
+            config.client_config().get("allow.auto.create.topics"),
+            Some(expected)
+        );
+    }
+
     #[test]
     fn producer_name_parses_only_declared_slots() {
         assert_eq!(
             "INGESTION".parse::<ProducerName>().unwrap(),
             ProducerName::Ingestion
+        );
+        assert_eq!(
+            "FALLBACK".parse::<ProducerName>().unwrap(),
+            ProducerName::Fallback
         );
         for unknown in ["ingestion", "WARPSTREAM", ""] {
             let err = unknown.parse::<ProducerName>().unwrap_err();

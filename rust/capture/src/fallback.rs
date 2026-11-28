@@ -1,0 +1,590 @@
+//! capture-analytics' emergency Kafka fallback. The idle fallback's topics
+//! are checked on every boot, so a broken fallback shows up on an ordinary
+//! deploy rather than in the emergency.
+
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::time::Duration;
+
+use anyhow::Context;
+
+use metrics::gauge;
+use tracing::{error, info, warn};
+
+use crate::config::{CaptureMode, Config, FallbackOutputsConfig};
+use crate::outputs::{record_live_target, Output, Target};
+use crate::producers::{ProducerConfig, ProducerName, ProducerRegistry};
+use crate::sinks::kafka::KafkaSink;
+use crate::sinks::producer::KafkaProducer;
+use crate::sinks::registry::{OutputTable, OutputTarget};
+
+pub const CHECK_VAR: &str = "CAPTURE_ANALYTICS_KAFKA_EMERGENCY_FALLBACK_CHECK";
+pub const FALLBACK_BROKERS_VAR: &str = "KAFKA_FALLBACK_PRODUCER_METADATA_BROKER_LIST";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CheckMode {
+    Warn,
+    Strict,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct FallbackSettings {
+    check: CheckMode,
+}
+
+impl FallbackSettings {
+    fn from_config(config: &Config) -> anyhow::Result<Option<Self>> {
+        let check = config.kafka_emergency_fallback_check.as_deref();
+        if config.capture_mode != CaptureMode::Events {
+            if check.is_some_and(|v| !v.is_empty()) {
+                warn!(
+                    capture_mode = config.capture_mode.as_tag(),
+                    "{CHECK_VAR} applies only to CAPTURE_MODE=events; ignored"
+                );
+            }
+            return Ok(None);
+        }
+        Ok(Some(Self {
+            check: parse_check(check)?,
+        }))
+    }
+}
+
+fn parse_check(raw: Option<&str>) -> anyhow::Result<CheckMode> {
+    match raw {
+        None | Some("") | Some("warn") => Ok(CheckMode::Warn),
+        Some("strict") => Ok(CheckMode::Strict),
+        Some(other) => {
+            anyhow::bail!(
+                "invalid {CHECK_VAR}={other:?}: expected \"warn\" (default) or \"strict\""
+            )
+        }
+    }
+}
+
+fn fallback_table(primary: &OutputTable, fallback_config: &FallbackOutputsConfig) -> OutputTable {
+    let target =
+        |primary: &OutputTarget, topic: &Option<String>, producer: Option<ProducerName>| {
+            OutputTarget {
+                topic: topic
+                    .as_deref()
+                    .filter(|topic| !topic.is_empty())
+                    .map(Arc::from)
+                    .unwrap_or_else(|| Arc::clone(&primary.topic)),
+                producer: producer.unwrap_or(ProducerName::Fallback),
+            }
+        };
+    OutputTable {
+        analytics_main: target(
+            &primary.analytics_main,
+            &fallback_config.analytics_main_topic,
+            fallback_config.analytics_main_producer,
+        ),
+        analytics_overflow: target(
+            &primary.analytics_overflow,
+            &fallback_config.analytics_overflow_topic,
+            fallback_config.analytics_overflow_producer,
+        ),
+        analytics_historical: target(
+            &primary.analytics_historical,
+            &fallback_config.analytics_historical_topic,
+            fallback_config.analytics_historical_producer,
+        ),
+        session_replay_main: target(&primary.session_replay_main, &None, None),
+        session_replay_overflow: target(&primary.session_replay_overflow, &None, None),
+        client_warnings: target(
+            &primary.client_warnings,
+            &fallback_config.client_warnings_topic,
+            fallback_config.client_warnings_producer,
+        ),
+        heatmaps: target(
+            &primary.heatmaps,
+            &fallback_config.heatmaps_topic,
+            fallback_config.heatmaps_producer,
+        ),
+        dlq: target(
+            &primary.dlq,
+            &fallback_config.dlq_topic,
+            fallback_config.dlq_producer,
+        ),
+        error_tracking: target(
+            &primary.error_tracking,
+            &fallback_config.error_tracking_topic,
+            fallback_config.error_tracking_producer,
+        ),
+        ai_main: target(
+            &primary.ai_main,
+            &fallback_config.ai_main_topic,
+            fallback_config.ai_main_producer,
+        ),
+        ai_overflow: target(
+            &primary.ai_overflow,
+            &fallback_config.ai_overflow_topic,
+            fallback_config.ai_overflow_producer,
+        ),
+        has_ai_overflow_lane: primary.has_ai_overflow_lane,
+        custom_producer: fallback_config
+            .custom_producer
+            .unwrap_or(ProducerName::Fallback),
+    }
+}
+
+enum Fallback {
+    NotApplicable,
+    NotConfigured,
+    Configured {
+        settings: FallbackSettings,
+        table: Box<OutputTable>,
+    },
+}
+
+impl Fallback {
+    fn resolve(
+        config: &Config,
+        primary: &OutputTable,
+        producer_configs: &HashMap<ProducerName, ProducerConfig>,
+    ) -> anyhow::Result<Self> {
+        let Some(settings) = FallbackSettings::from_config(config)? else {
+            return Ok(Self::NotApplicable);
+        };
+        if !producer_configs.contains_key(&ProducerName::Fallback) {
+            anyhow::ensure!(
+                settings.check == CheckMode::Warn,
+                "{CHECK_VAR}=strict but {FALLBACK_BROKERS_VAR} is not set"
+            );
+            return Ok(Self::NotConfigured);
+        }
+        Ok(Self::Configured {
+            settings,
+            table: Box::new(fallback_table(primary, &config.fallback_outputs)),
+        })
+    }
+
+    fn table(&self) -> Option<&OutputTable> {
+        match self {
+            Self::Configured { table, .. } => Some(table),
+            Self::NotApplicable | Self::NotConfigured => None,
+        }
+    }
+
+    fn producer_configs(
+        &self,
+        configs: &HashMap<ProducerName, ProducerConfig>,
+    ) -> HashMap<ProducerName, ProducerConfig> {
+        let mut configs = configs.clone();
+        if matches!(self, Self::NotApplicable) && configs.remove(&ProducerName::Fallback).is_some()
+        {
+            info!("{FALLBACK_BROKERS_VAR} is ignored outside CAPTURE_MODE=events");
+        }
+        configs
+    }
+
+    async fn check_at_boot(
+        &self,
+        producers: &ProducerRegistry,
+        producer_configs: &HashMap<ProducerName, ProducerConfig>,
+    ) -> anyhow::Result<()> {
+        let Self::Configured { settings, table } = self else {
+            return Ok(());
+        };
+        ensure_checks_cannot_create_topics(table, producer_configs)?;
+        let table = table.map_producers(|name| producers.get(*name));
+        run_boot_checks(&table, *settings).await
+    }
+}
+
+pub async fn build_kafka_output(
+    config: &Config,
+    producer_configs: &HashMap<ProducerName, ProducerConfig>,
+    liveness: Option<lifecycle::Handle>,
+) -> anyhow::Result<(Output, ProducerRegistry)> {
+    // Runs before any producer connects, so a blank topic refuses boot
+    // immediately instead of after a broker connect attempt.
+    let primary = OutputTable::new(&config.outputs, config.capture_mode.has_ai_overflow_lane());
+    if config.outputs_completeness_check_enabled {
+        primary.check_complete()?;
+    } else {
+        info!("outputs completeness check disabled; a blank output topic will fail at first produce instead of at boot");
+    }
+
+    let fallback = Fallback::resolve(config, &primary, producer_configs)?;
+    let producer_configs = fallback.producer_configs(producer_configs);
+    for table in std::iter::once(&primary).chain(fallback.table()) {
+        for name in table.producers() {
+            anyhow::ensure!(
+                producer_configs.contains_key(&name),
+                "an output publishes through producer {}, which is not configured",
+                name.as_str()
+            );
+        }
+    }
+
+    let live_producers = primary.producers();
+    let liveness = liveness
+        .map(|handle| {
+            live_producers
+                .iter()
+                .map(|&name| (name, handle.clone()))
+                .collect()
+        })
+        .unwrap_or_default();
+    let producers = ProducerRegistry::build(&producer_configs, liveness)
+        .context("failed to start Kafka producers")?;
+
+    fallback
+        .check_at_boot(&producers, &producer_configs)
+        .await?;
+    let output = Output::single(KafkaSink::new(
+        primary.map_producers(|name| producers.get(*name)),
+        config.replay_envelope_compression,
+    ));
+    record_live_target(Target::Primary);
+    Ok((output, producers))
+}
+
+/// A topic check that names a missing topic makes the broker create it when
+/// the producer allows auto-creation, and then the check passes.
+fn ensure_checks_cannot_create_topics(
+    fallback: &OutputTable,
+    producer_configs: &HashMap<ProducerName, ProducerConfig>,
+) -> anyhow::Result<()> {
+    for target in fallback.analytics_family_targets() {
+        let producer = target.producer;
+        anyhow::ensure!(
+            producer_configs
+                .get(&producer)
+                .is_some_and(|config| !config.allow_auto_create_topics),
+            "fallback topic {:?} is checked through producer {}, which allows topic \
+             auto-creation, so the check could create it; set \
+             KAFKA_{}_PRODUCER_ALLOW_AUTO_CREATE_TOPICS=false",
+            target.topic,
+            producer.as_str(),
+            producer.as_str(),
+        );
+    }
+    Ok(())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OnCheckFailure {
+    Warn,
+    RefuseBoot,
+}
+
+fn on_check_failure(target: Target, settings: FallbackSettings) -> OnCheckFailure {
+    match (target, settings.check) {
+        (Target::Fallback, CheckMode::Strict) => OnCheckFailure::RefuseBoot,
+        (Target::Fallback, CheckMode::Warn) | (Target::Primary, _) => OnCheckFailure::Warn,
+    }
+}
+
+const OUTPUT_TOPIC_READY: &str = "capture_kafka_output_topic_ready";
+
+const TOPIC_CHECK_TIMEOUT: Duration = Duration::from_secs(10);
+
+async fn run_boot_checks<P: KafkaProducer + 'static>(
+    fallback: &OutputTable<Arc<P>>,
+    settings: FallbackSettings,
+) -> anyhow::Result<()> {
+    check_target(fallback, Target::Fallback, settings).await
+}
+
+async fn check_target<P: KafkaProducer + 'static>(
+    table: &OutputTable<Arc<P>>,
+    target: Target,
+    settings: FallbackSettings,
+) -> anyhow::Result<()> {
+    let failures = table
+        .check_analytics_family_topics(TOPIC_CHECK_TIMEOUT)
+        .await;
+    for output in table.analytics_family_targets() {
+        let ready = !failures.iter().any(|failure| failure.topic == output.topic);
+        gauge!(OUTPUT_TOPIC_READY, "target" => target.as_str(), "topic" => output.topic.to_string())
+            .set(if ready { 1.0 } else { 0.0 });
+    }
+    if failures.is_empty() {
+        return Ok(());
+    }
+
+    let message = format!(
+        "{} target failed its topic check: {}",
+        target.as_str(),
+        failures
+            .iter()
+            .map(|f| format!("topic {:?}: {}", f.topic, f.error))
+            .collect::<Vec<_>>()
+            .join("; ")
+    );
+    match on_check_failure(target, settings) {
+        OnCheckFailure::Warn => error!("{message}"),
+        OnCheckFailure::RefuseBoot => anyhow::bail!(message),
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sinks::producer::MockKafkaProducer;
+    use crate::sinks::registry::test_outputs;
+    use rstest::rstest;
+
+    fn fallback_config(pairs: &[(&str, &str)]) -> FallbackOutputsConfig {
+        envconfig::Envconfig::init_from_hashmap(&env(pairs)).unwrap()
+    }
+
+    fn env(pairs: &[(&str, &str)]) -> HashMap<String, String> {
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
+    }
+
+    #[rstest]
+    #[case(None, CheckMode::Warn)]
+    #[case(Some(""), CheckMode::Warn)]
+    #[case(Some("warn"), CheckMode::Warn)]
+    #[case(Some("strict"), CheckMode::Strict)]
+    fn check_mode_defaults_to_warn(#[case] raw: Option<&str>, #[case] mode: CheckMode) {
+        assert_eq!(parse_check(raw).unwrap(), mode);
+    }
+
+    #[test]
+    fn unknown_check_mode_refuses_boot() {
+        let err = parse_check(Some("STRICT")).unwrap_err().to_string();
+        assert!(err.contains(CHECK_VAR), "{err}");
+    }
+
+    fn config(mode: &str, check: &str) -> Config {
+        envconfig::Envconfig::init_from_hashmap(&env(&[
+            ("REDIS_URL", "redis://localhost:6379/"),
+            ("CAPTURE_MODE", mode),
+            (CHECK_VAR, check),
+        ]))
+        .unwrap()
+    }
+
+    #[test]
+    fn settings_read_the_check_variable_on_events_pods() {
+        let settings = FallbackSettings::from_config(&config("events", "strict"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(settings.check, CheckMode::Strict);
+
+        assert!(FallbackSettings::from_config(&config("events", "bogus")).is_err());
+    }
+
+    #[rstest]
+    #[case("recordings")]
+    #[case("ai")]
+    #[case("import")]
+    fn other_modes_never_parse_the_fallback_settings(#[case] mode: &str) {
+        assert_eq!(
+            FallbackSettings::from_config(&config(mode, "bogus")).unwrap(),
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn strict_without_a_fallback_cluster_refuses_boot() {
+        let producer_configs = crate::producers::load_all(&HashMap::new()).unwrap();
+
+        let err = build_kafka_output(&config("events", "strict"), &producer_configs, None)
+            .await
+            .err()
+            .expect("boot must be refused");
+
+        assert!(format!("{err:#}").contains(FALLBACK_BROKERS_VAR), "{err:#}");
+    }
+
+    #[rstest]
+    #[case("recordings")]
+    #[case("ai")]
+    #[case("import")]
+    #[tokio::test]
+    async fn other_modes_never_build_the_fallback_producer(#[case] mode: &str) {
+        let producer_configs =
+            crate::producers::load_all(&env(&[(FALLBACK_BROKERS_VAR, "127.0.0.1:1")])).unwrap();
+
+        let (_, producers) = build_kafka_output(&config(mode, "bogus"), &producer_configs, None)
+            .await
+            .expect("other modes must boot whatever the fallback settings say");
+
+        assert!(producers.contains(ProducerName::Ingestion));
+        assert!(!producers.contains(ProducerName::Fallback));
+    }
+
+    #[test]
+    fn fallback_targets_default_to_the_primary_topic_on_the_fallback_producer() {
+        let primary = test_outputs();
+        let fallback = fallback_table(&primary, &FallbackOutputsConfig::default());
+
+        for (p, s) in primary
+            .analytics_family_targets()
+            .into_iter()
+            .zip(fallback.analytics_family_targets())
+        {
+            assert_eq!(s.topic, p.topic);
+            assert_eq!(s.producer, ProducerName::Fallback, "{}", s.topic);
+        }
+        assert_eq!(
+            fallback.session_replay_main.topic,
+            primary.session_replay_main.topic
+        );
+        assert!(fallback
+            .producers()
+            .iter()
+            .all(|p| *p == ProducerName::Fallback));
+        assert_eq!(
+            fallback.has_ai_overflow_lane(),
+            primary.has_ai_overflow_lane()
+        );
+    }
+
+    #[test]
+    fn fallback_targets_read_their_own_variables() {
+        let fallback = fallback_table(
+            &test_outputs(),
+            &fallback_config(&[
+                ("CAPTURE_OUTPUT_ANALYTICS_MAIN_FALLBACK_TOPIC", "ws_events"),
+                ("CAPTURE_OUTPUT_DLQ_FALLBACK_TOPIC", "ws_dlq"),
+                ("CAPTURE_OUTPUT_DLQ_FALLBACK_PRODUCER", "INGESTION"),
+                ("CAPTURE_OUTPUT_AI_MAIN_FALLBACK_TOPIC", ""),
+                ("CAPTURE_OUTPUT_CUSTOM_FALLBACK_PRODUCER", "INGESTION"),
+            ]),
+        );
+
+        assert_eq!(&*fallback.analytics_main.topic, "ws_events");
+        assert_eq!(&*fallback.dlq.topic, "ws_dlq");
+        assert_eq!(fallback.dlq.producer, ProducerName::Ingestion);
+        assert_eq!(&*fallback.ai_main.topic, "ai_events", "empty means unset");
+        assert_eq!(fallback.heatmaps.producer, ProducerName::Fallback);
+        assert_eq!(fallback.custom_producer, ProducerName::Ingestion);
+    }
+
+    #[test]
+    fn an_unknown_fallback_producer_names_its_variable() {
+        let err = <FallbackOutputsConfig as envconfig::Envconfig>::init_from_hashmap(&env(&[(
+            "CAPTURE_OUTPUT_AI_OVERFLOW_FALLBACK_PRODUCER",
+            "WARPSTREAM",
+        )]))
+        .err()
+        .unwrap()
+        .to_string();
+
+        assert!(
+            err.contains("CAPTURE_OUTPUT_AI_OVERFLOW_FALLBACK_PRODUCER"),
+            "{err}"
+        );
+    }
+
+    #[rstest]
+    #[case::fallback_default(&[], true)]
+    #[case::fallback_output_on_ingestion(&[("CAPTURE_OUTPUT_DLQ_FALLBACK_PRODUCER", "INGESTION")], false)]
+    #[case::fallback_allows_it(&[("KAFKA_FALLBACK_PRODUCER_ALLOW_AUTO_CREATE_TOPICS", "true")], false)]
+    fn fallback_checks_refuse_a_producer_that_can_create_topics(
+        #[case] pairs: &[(&str, &str)],
+        #[case] boots: bool,
+    ) {
+        let mut env = env(pairs);
+        env.insert(FALLBACK_BROKERS_VAR.to_string(), "ws:9092".to_string());
+        let configs = crate::producers::load_all(&env).unwrap();
+        let fallback = fallback_table(
+            &test_outputs(),
+            &envconfig::Envconfig::init_from_hashmap(&env).unwrap(),
+        );
+
+        let result = ensure_checks_cannot_create_topics(&fallback, &configs);
+
+        assert_eq!(result.is_ok(), boots, "{result:?}");
+        if let Err(err) = result {
+            assert!(
+                err.to_string().contains("ALLOW_AUTO_CREATE_TOPICS=false"),
+                "{err}"
+            );
+        }
+    }
+
+    #[rstest]
+    #[case::warn(Target::Fallback, CheckMode::Warn, OnCheckFailure::Warn)]
+    #[case::strict(Target::Fallback, CheckMode::Strict, OnCheckFailure::RefuseBoot)]
+    fn check_failure_matrix(
+        #[case] target: Target,
+        #[case] check: CheckMode,
+        #[case] expected: OnCheckFailure,
+    ) {
+        assert_eq!(
+            on_check_failure(target, FallbackSettings { check }),
+            expected
+        );
+    }
+
+    async fn check(missing_topics: &[&str], check: CheckMode) -> anyhow::Result<()> {
+        let producer =
+            Arc::new(MockKafkaProducer::new().with_missing_topics(missing_topics.iter().copied()));
+        let fallback = fallback_table(&test_outputs(), &FallbackOutputsConfig::default())
+            .map_producers(|_| Arc::clone(&producer));
+        run_boot_checks(&fallback, FallbackSettings { check }).await
+    }
+
+    #[rstest]
+    #[case::warn(CheckMode::Warn, true)]
+    #[case::strict(CheckMode::Strict, false)]
+    #[tokio::test]
+    async fn a_missing_fallback_topic_warns_or_refuses_boot(
+        #[case] mode: CheckMode,
+        #[case] boots: bool,
+    ) {
+        let result = check(&["heatmaps"], mode).await;
+
+        assert_eq!(result.is_ok(), boots, "{result:?}");
+        if let Err(err) = result {
+            let err = err.to_string();
+            assert!(
+                err.contains("fallback") && err.contains("\"heatmaps\""),
+                "{err}"
+            );
+        }
+    }
+
+    #[rstest]
+    #[case(CheckMode::Warn)]
+    #[case(CheckMode::Strict)]
+    #[tokio::test]
+    async fn a_complete_fallback_passes_every_mode(#[case] mode: CheckMode) {
+        check(&[], mode).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn the_topic_gauge_marks_only_the_failing_output() {
+        let recorder = metrics_util::debugging::DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        let _guard = metrics::set_default_local_recorder(&recorder);
+
+        check(&["heatmaps"], CheckMode::Warn).await.unwrap();
+
+        let mut not_ready: Vec<(String, f64)> = snapshotter
+            .snapshot()
+            .into_vec()
+            .into_iter()
+            .filter(|(key, ..)| key.key().name() == OUTPUT_TOPIC_READY)
+            .map(|(key, _, _, value)| {
+                let output = key
+                    .key()
+                    .labels()
+                    .find(|label| label.key() == "topic")
+                    .unwrap()
+                    .value()
+                    .to_string();
+                let metrics_util::debugging::DebugValue::Gauge(value) = value else {
+                    panic!("{OUTPUT_TOPIC_READY} is a gauge");
+                };
+                (output, value.into_inner())
+            })
+            .filter(|(_, value)| *value == 0.0)
+            .collect();
+        not_ready.sort_by(|a, b| a.0.cmp(&b.0));
+
+        assert_eq!(not_ready, vec![("heatmaps".to_string(), 0.0)]);
+    }
+}
