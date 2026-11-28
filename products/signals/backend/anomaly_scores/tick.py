@@ -62,6 +62,7 @@ from products.signals.backend.anomaly_scores.queue import (
     SKIP_COOLDOWN,
     FirstTrainReport,
     InsightPick,
+    ScoredDueBacklog,
     TeamCensus,
     analytics_source_enabled_at,
     charge_queries,
@@ -169,6 +170,7 @@ class AnomalyScoringTickPlan:
     oldest_due_seconds: int | None = None
     oldest_refresh_seconds: int | None = None
     due_unread: int | None = None
+    scored_due: ScoredDueBacklog | None = None
     first_train: FirstTrainReport | None = None
     cpu: CpuSpendReport | None = None
     ai_judge: AIJudgeConfig = NO_AI_JUDGE
@@ -258,6 +260,8 @@ class AnomalyScoringTickResult:
     oldest_refresh_seconds: int | None = None
     # Due rows that the read caps left out, so the backlog counts above do not include them.
     due_unread: int | None = None
+    # The scored due rows of the whole due list, which the read caps do not cut. None when the plan does not read it.
+    scored_due: ScoredDueBacklog | None = None
     first_train: FirstTrainReport | None = None
     # The CPU spend that the plan read, and what its CPU limits left out. None when the plan did not run.
     cpu: CpuSpendReport | None = None
@@ -322,6 +326,7 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> AnomalyScoringTickPl
         oldest_due_seconds=selection.oldest_due_seconds,
         oldest_refresh_seconds=selection.oldest_refresh_seconds,
         due_unread=selection.due_unread,
+        scored_due=selection.scored_due,
         first_train=selection.first_train,
         cpu=selection.cpu,
         ai_judge=config.ai_judge,
@@ -738,6 +743,7 @@ def capture_tick(result: AnomalyScoringTickResult) -> None:
         oldest_due_seconds=result.oldest_due_seconds,
         oldest_refresh_seconds=result.oldest_refresh_seconds,
         due_unread=result.due_unread,
+        scored_due=result.scored_due,
         first_train=result.first_train,
         shards=result.shards,
         max_shard_picks=result.max_shard_picks,
@@ -747,6 +753,7 @@ def capture_tick(result: AnomalyScoringTickResult) -> None:
     )
     cpu = result.cpu
     first_train = result.first_train
+    scored_due = result.scored_due
     ph_background_capture()(
         distinct_id=ANOMALY_SCORING_FLAG_DISTINCT_ID,
         event="anomaly scoring tick",
@@ -789,6 +796,10 @@ def capture_tick(result: AnomalyScoringTickResult) -> None:
             "oldest_due_seconds": result.oldest_due_seconds,
             "oldest_refresh_seconds": result.oldest_refresh_seconds,
             "due_unread": result.due_unread,
+            "score_ready_due": scored_due.score_ready if scored_due else None,
+            "score_ready_oldest_due_seconds": scored_due.score_ready_oldest_due_seconds if scored_due else None,
+            "needs_train_due": scored_due.needs_train if scored_due else None,
+            "needs_train_oldest_due_seconds": scored_due.needs_train_oldest_due_seconds if scored_due else None,
             "first_train_waiting_teams": first_train.waiting_teams if first_train else None,
             "picked_first_train": first_train.picked if first_train else None,
             "never_scored_due": first_train.never_scored_due if first_train else None,
@@ -907,6 +918,7 @@ class AnomalyScoringTickWorkflow:
             oldest_due_seconds=plan.oldest_due_seconds,
             oldest_refresh_seconds=plan.oldest_refresh_seconds,
             due_unread=plan.due_unread,
+            scored_due=plan.scored_due,
             first_train=plan.first_train,
             shards=len(shards),
             max_shard_picks=max((len(shard.started) for shard in shards), default=0),
