@@ -313,7 +313,7 @@ async fn writer_upsert_does_not_wait_on_a_person_foreign_key_check() {
 }
 
 #[tokio::test]
-async fn writer_merges_last_seen_instead_of_assigning() {
+async fn writer_merges_last_seen_and_clears_legacy_meta() {
     let pool = create_test_pool().await;
     let team_id: i32 = 99_006;
     cleanup_team(&pool, team_id).await;
@@ -345,6 +345,18 @@ async fn writer_merges_last_seen_instead_of_assigning() {
     ));
     assert_eq!(fetch(pool.clone()).await, (1, Some(5000)));
 
+    sqlx::query(
+        "UPDATE personhog_person_tmp
+         SET properties_last_updated_at = '{\"email\": \"2024-01-01T00:00:00Z\"}',
+             properties_last_operation = '{\"email\": \"set\"}'
+         WHERE team_id = $1 AND id = $2",
+    )
+    .bind(team_id)
+    .bind(1_i64)
+    .execute(&pool)
+    .await
+    .unwrap();
+
     // A newer record with an older last-seen. The version guard admits it,
     // but it must not lower the last-seen value.
     let mut older_last_seen = make_person(team_id as i64, 1, 2);
@@ -357,6 +369,20 @@ async fn writer_merges_last_seen_instead_of_assigning() {
         fetch(pool.clone()).await,
         (2, Some(5000)),
         "a record with an older last-seen must not lower the stored value"
+    );
+    let meta: (Option<String>, Option<String>) = sqlx::query_as(
+        "SELECT properties_last_updated_at::text, properties_last_operation::text
+         FROM personhog_person_tmp WHERE team_id = $1 AND id = $2",
+    )
+    .bind(team_id)
+    .bind(1_i64)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        meta,
+        (Some("{}".to_string()), Some("{}".to_string())),
+        "an update must clear legacy meta left on the row"
     );
 
     // A record with no last-seen at all (predating the field) must also

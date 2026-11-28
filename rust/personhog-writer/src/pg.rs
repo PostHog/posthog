@@ -66,6 +66,8 @@ impl PgStore {
                    last_seen_at, is_deleted)
             ON CONFLICT (team_id, id) DO UPDATE SET
                 properties = EXCLUDED.properties,
+                properties_last_updated_at = '{{}}'::jsonb,
+                properties_last_operation = '{{}}'::jsonb,
                 created_at = EXCLUDED.created_at,
                 version = EXCLUDED.version,
                 is_identified = EXCLUDED.is_identified,
