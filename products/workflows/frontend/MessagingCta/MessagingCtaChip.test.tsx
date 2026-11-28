@@ -313,6 +313,8 @@ describe('MessagingCtaChip', () => {
 
             await failFlagsRefresh()
             expect(chip()?.textContent).toContain('From an email?')
+            renderChip()
+            expect(chip()?.textContent).toContain('From an email?')
         }
     )
 
