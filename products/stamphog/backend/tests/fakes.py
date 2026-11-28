@@ -616,7 +616,10 @@ class FakeSlackClient:
         joined: list[str],
         fail_thread_replies: bool,
         fail_permalinks: bool = False,
+        reactions: dict[tuple[str, str], set[str]] | None = None,
     ) -> None:
+        self._reactions = reactions if reactions is not None else {}
+        self.retry_handlers: list[Any] = []
         self._posted = posted
         self._updated = updated
         self._needs_join = needs_join
@@ -651,6 +654,20 @@ class FakeSlackClient:
         self._joined.append(channel)
         return {"ok": True}
 
+    def reactions_add(self, *, channel: str, timestamp: str, name: str) -> dict[str, Any]:
+        names = self._reactions.setdefault((channel, timestamp), set())
+        if name in names:
+            raise SlackApiError("already_reacted", {"ok": False, "error": "already_reacted"})
+        names.add(name)
+        return {"ok": True}
+
+    def reactions_remove(self, *, channel: str, timestamp: str, name: str) -> dict[str, Any]:
+        names = self._reactions.get((channel, timestamp), set())
+        if name not in names:
+            raise SlackApiError("no_reaction", {"ok": False, "error": "no_reaction"})
+        names.remove(name)
+        return {"ok": True}
+
 
 def slack_permalink(channel: str, ts: str) -> str:
     """The link the fake Slack gives for a posted message, on a workspace domain like Slack's own."""
@@ -676,6 +693,7 @@ class FakeSlackIntegration:
     fail_thread_replies: bool = False
     # Makes every permalink lookup fail, as Slack does when it rate limits the call.
     fail_permalinks: bool = False
+    reactions: dict[tuple[str, str], set[str]] = {}
 
     def __init__(self, integration: Any, *, source: str = "integration") -> None:
         self.integration = integration
@@ -689,6 +707,7 @@ class FakeSlackIntegration:
             FakeSlackIntegration.joined_channels,
             FakeSlackIntegration.fail_thread_replies,
             FakeSlackIntegration.fail_permalinks,
+            FakeSlackIntegration.reactions,
         )
 
     def list_channels(self, should_include_private_channels: bool = False, authed_user: str = "") -> list[dict]:
@@ -711,6 +730,7 @@ class FakeSlackIntegration:
         cls.joined_channels = []
         cls.fail_thread_replies = fail_thread_replies
         cls.fail_permalinks = False
+        cls.reactions = {}
 
 
 # --- Sandbox fake at the ``get_sandbox_class_for_backend`` seam ---

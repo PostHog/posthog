@@ -46,6 +46,7 @@ from .broadcast_request_slack import (
     find_card_integration,
     ping_lookers,
     post_card,
+    set_reactions,
     update_card,
 )
 from .github_client import StamphogGitHubClient, expected_app_bot_login
@@ -332,6 +333,8 @@ def open_link_request(
 # The review states that replace a person's earlier review. A COMMENTED review leaves an approval standing.
 _DECIDING_REVIEW_STATES = frozenset({"APPROVED", "CHANGES_REQUESTED", "DISMISSED"})
 _REVIEWABLE_STATUSES = frozenset({BroadcastRequestStatus.OPEN, BroadcastRequestStatus.PENDING})
+_APPROVED_STATUSES = frozenset({BroadcastRequestStatus.APPROVED, BroadcastRequestStatus.STAMPHOG_APPROVED})
+_LINK_POST_DONE_STATUSES = _APPROVED_STATUSES | {BroadcastRequestStatus.MERGED}
 
 
 def stamphog_status_at_head(
@@ -791,6 +794,7 @@ def _refresh_locked(request: BroadcastRequest, *, decided_head_sha: str, using: 
     except BroadcastRequestSlackError as e:
         logger.warning("stamphog_broadcast_request_update_refused", broadcast_request_id=str(request.id), error=str(e))
         return
+    _set_reactions(card, delivery, using=using)
     if head_sha == request.pinged_head_sha:
         return
     # Recorded before the reply, so a failed reply is not sent again.
@@ -805,6 +809,50 @@ def _refresh_locked(request: BroadcastRequest, *, decided_head_sha: str, using: 
             delivery.thread_ts or delivery.message_ts,
             reviewing=state.status == BroadcastRequestStatus.PENDING,
         )
+
+
+def _set_reactions(card: BroadcastRequestCard, delivery: BroadcastRequestDelivery, *, using: str) -> None:
+    # A merged or closed request keeps the reactions it had, so a merge after an approval does not remove the ✅.
+    if card.status not in (BroadcastRequestStatus.MERGED, BroadcastRequestStatus.CLOSED):
+        approved = card.status in _APPROVED_STATUSES
+        set_reactions(card, delivery.channel_id, delivery.message_ts, looking=bool(card.lookers), approved=approved)
+    if delivery.thread_ts:
+        # After the commit, so two cards of one post approved at the same time each see the other's new status.
+        transaction.on_commit(lambda: _set_link_post_reactions(card, delivery, using=using), using=using)
+
+
+def _set_link_post_reactions(card: BroadcastRequestCard, delivery: BroadcastRequestDelivery, *, using: str) -> None:
+    """👀 while anybody looks at one of the post's pull requests, and ✅ only when every one is approved or merged."""
+    thread_cards = (
+        BroadcastRequestDelivery.objects.unscoped()
+        .using(using)
+        .filter(
+            kind=BroadcastRequestDeliveryKind.SLACK_MESSAGE,
+            channel_id=delivery.channel_id,
+            thread_ts=delivery.thread_ts,
+        )
+    )
+    # Another project's state never reaches this post, so a card of another project only holds the ✅ back.
+    other_projects = thread_cards.exclude(team_id=card.team_id).exists()
+    requests = (
+        BroadcastRequest.objects.for_team(card.team_id)
+        .using(using)
+        .filter(
+            deliveries__in=thread_cards,
+            # A repository that turned Broadcast off or moved it to another channel shares nothing more here.
+            pull_request__repo_config__broadcast_enabled=True,
+            pull_request__repo_config__broadcast_slack_channel_id=delivery.channel_id,
+        )
+    )
+    statuses = set(requests.values_list("status", flat=True))
+    looking = (
+        BroadcastRequestParticipant.objects.for_team(card.team_id)
+        .using(using)
+        .filter(broadcast_request__in=requests, looking=True)
+        .exists()
+    )
+    approved = not other_projects and bool(statuses) and statuses <= _LINK_POST_DONE_STATUSES
+    set_reactions(card, delivery.channel_id, delivery.thread_ts, looking=looking, approved=approved)
 
 
 def record_look(click: LookClick) -> bool:

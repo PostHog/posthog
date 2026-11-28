@@ -19,6 +19,7 @@ from typing import Any
 
 import structlog
 from slack_sdk.errors import SlackApiError
+from slack_sdk.http_retry.builtin_handlers import RateLimitErrorRetryHandler
 
 from posthog.dataclasses import frozen
 from posthog.integrations import IntegrationManager, IntegrationNotFound
@@ -73,6 +74,10 @@ _STATUS_LINES: dict[BroadcastRequestStatus, str] = {
 }
 # People can still say they will look while stamphog reviews new commits.
 _STATUSES_WITH_BUTTONS = frozenset({BroadcastRequestStatus.OPEN, BroadcastRequestStatus.PENDING})
+
+LOOKING_REACTION = "eyes"
+APPROVED_REACTION = "white_check_mark"
+_REACTION_ALREADY_SET_ERRORS = frozenset({"already_reacted", "no_reaction"})
 
 
 # Slack errors that a retry cannot fix: the card or the channel is gone, or the integration lost access.
@@ -216,7 +221,7 @@ def button_value(card: BroadcastRequestCard) -> str:
     )
 
 
-def _button(text: str, action_id: str, value: str, *, primary: bool = False) -> dict[str, Any]:
+def _button(text: str, action_id: str, value: str, *, primary: bool = False, url: str = "") -> dict[str, Any]:
     # posthog.slack.channels builds link buttons only, and these carry an action id and a value instead.
     element: dict[str, Any] = {
         "type": "button",
@@ -226,6 +231,9 @@ def _button(text: str, action_id: str, value: str, *, primary: bool = False) -> 
     }
     if primary:
         element["style"] = "primary"
+    if url:
+        # Slack opens the link and still sends the click, so the person lands on the pull request.
+        element["url"] = url
     return element
 
 
@@ -255,7 +263,7 @@ def card_blocks(card: BroadcastRequestCard) -> list[dict[str, Any]]:
     blocks.extend(context_block(line) for line in context)
     if card.status in _STATUSES_WITH_BUTTONS:
         value = button_value(card)
-        buttons = [_button("I'll take a look", LOOK_ACTION_ID, value, primary=True)]
+        buttons = [_button("I'll take a look", LOOK_ACTION_ID, value, primary=True, url=card.pr_url)]
         if card.lookers:
             buttons.append(_button("Stop looking", STOP_LOOKING_ACTION_ID, value))
         blocks.append({"type": "actions", "block_id": ACTIONS_BLOCK_ID, "elements": buttons})
@@ -423,6 +431,31 @@ def update_card(card: BroadcastRequestCard, channel_id: str, ts: str) -> None:
     except SlackApiError as e:
         _raise_if_permanent(e)
         raise
+
+
+def set_reactions(card: BroadcastRequestCard, channel_id: str, ts: str, *, looking: bool, approved: bool) -> None:
+    """Show or hide 👀 and ✅ on one message. Never raises.
+
+    The reactions only repeat what the cards say, so a failure is logged and the next refresh sets them again.
+    Slack removes only the app's own reaction, so a reaction that a person added stays.
+    """
+    try:
+        client = _slack(card.team_id, card.integration_id).client
+    except BroadcastRequestSlackError:
+        return
+    # A Stamphog approval ends the request, so no later refresh sets a ✅ that a rate limit dropped.
+    client.retry_handlers.append(RateLimitErrorRetryHandler(max_retry_count=1))
+    for name, show in ((LOOKING_REACTION, looking), (APPROVED_REACTION, approved)):
+        try:
+            if show:
+                client.reactions_add(channel=channel_id, timestamp=ts, name=name)
+            else:
+                client.reactions_remove(channel=channel_id, timestamp=ts, name=name)
+        except SlackApiError as e:
+            if str(e.response.get("error") or "") not in _REACTION_ALREADY_SET_ERRORS:
+                logger.warning("stamphog_broadcast_reaction_failed", slack_channel_id=channel_id, error=str(e))
+        except Exception as e:
+            logger.warning("stamphog_broadcast_reaction_failed", slack_channel_id=channel_id, error=str(e))
 
 
 def ping_lookers(card: BroadcastRequestCard, channel_id: str, ts: str, *, reviewing: bool) -> None:

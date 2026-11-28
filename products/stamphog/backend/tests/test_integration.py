@@ -4506,6 +4506,10 @@ def _ask_people(team_id: int, number: int, sandbox: Any, ask: BroadcastRequestAs
     return BroadcastRequest.objects.for_team(team_id).get(id=queued.broadcast_request.id)
 
 
+def _reactions(ts: str) -> set[str]:
+    return fakes.FakeSlackIntegration.reactions.get((BROADCAST_CHANNEL, ts), set())
+
+
 def _cards() -> list[dict]:
     return [
         m
@@ -5054,11 +5058,13 @@ def test_a_click_on_the_card_marks_who_is_looking(
     assert [(p.slack_user_id, p.looking) for p in participants] == ([("U0LOOKER", True)] if looking else [])
     updates = fakes.FakeSlackIntegration.updated_messages[updates_before:]
     assert len(updates) == int(looking)
+    assert _reactions(card["ts"]) == ({"eyes"} if looking else set())
     if looking:
         assert "<@U0LOOKER> is looking" in _rendered(updates[0]["blocks"])
         _click(card, "stamphog_broadcast.stop_looking", **click)
         assert [p.looking for p in participants.all()] == [False]
         assert "is looking" not in _rendered(fakes.FakeSlackIntegration.updated_messages[-1]["blocks"])
+        assert _reactions(card["ts"]) == set()
 
 
 LINK_WORKSPACE = "T0CARD"
@@ -5129,6 +5135,8 @@ def test_a_pull_request_link_in_the_broadcast_channel_asks_people_without_a_revi
     assert f"Asked by <@{POSTER}>" in blocks
     assert "Stamphog is reviewing" not in blocks
     assert "@posthog stamp --allow-broadcast" in blocks
+    (actions,) = [block for block in card["blocks"] if block["type"] == "actions"]
+    assert actions["elements"][0]["url"] == f"https://github.com/{REPO}/pull/190"
     assert _link_replies() == []
 
     # A push reaches the people looking in the thread of the post, and no review of the new head holds it.
@@ -5144,6 +5152,7 @@ def test_a_pull_request_link_in_the_broadcast_channel_asks_people_without_a_revi
     (ping,) = _link_replies()
     assert ping == "<@U0LOOKER> new commits were pushed."
     assert fakes.FakeSlackIntegration.posted_messages[-1]["thread_ts"] == LINK_TS
+    assert _reactions(card["ts"]) == _reactions(LINK_TS) == {"eyes"}
 
     ReviewRun.objects.for_team(team.id).filter(head_sha="sha190b").update(
         status=ReviewRunStatus.COMPLETED, verdict=ReviewVerdict.APPROVED, verdict_posted_at=VERDICT_POSTED_AT
@@ -5154,6 +5163,7 @@ def test_a_pull_request_link_in_the_broadcast_channel_asks_people_without_a_revi
     with override_settings(STAMPHOG_GITHUB_APP_SLUG="stamphog"):
         assert _refresh(request).status == BroadcastRequestStatus.STAMPHOG_APPROVED
     assert fakes.FakeSlackIntegration.updated_messages[-1]["ts"] == card["ts"]
+    assert _reactions(card["ts"]) == _reactions(LINK_TS) == {"eyes", "white_check_mark"}
     assert len(_link_cards()) == 1
 
 
@@ -5313,6 +5323,46 @@ def test_every_pull_request_link_in_a_post_gets_its_own_answer(team, user, stamp
     assert "pull/193" in _rendered(card["blocks"])
     assert _link_replies() == [f"{REPO}#194: Already approved by maintainer."]
     assert list(BroadcastRequest.objects.for_team(team.id).values_list("pull_request__pr_number", flat=True)) == [193]
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_post_with_several_pull_requests_shows_the_check_mark_once_every_one_is_approved(
+    team, user, stamphog_chain: StamphogChain
+) -> None:
+    _link_channel(team.id)
+    recorder = stamphog_chain.recorder
+    for number in (196, 197):
+        recorder.register_pr(REPO, number, _silent_review_pr(number, f"sha{number}a"), _pr_files())
+    assert _post_link(
+        f"Two for review: <https://github.com/{REPO}/pull/196> <https://github.com/{REPO}/pull/197>",
+        user_ids=(user.id,),
+    )
+    first, second = (
+        BroadcastRequest.objects.for_team(team.id).get(pull_request__pr_number=number) for number in (196, 197)
+    )
+    first_card, second_card = _link_cards()
+
+    def _approve(number: int) -> None:
+        recorder.pr_reviews[(REPO, number)] = [
+            {
+                "user": {"login": "maintainer", "type": "User"},
+                "author_association": "MEMBER",
+                "state": "APPROVED",
+                "commit_id": f"sha{number}a",
+            }
+        ]
+
+    BroadcastRequestParticipant.objects.for_team(team.id).create(
+        team_id=team.id, broadcast_request=second, slack_user_id="U0LOOKER", display_name="Lou"
+    )
+    _approve(196)
+    assert _refresh(first).status == BroadcastRequestStatus.APPROVED
+    assert _reactions(first_card["ts"]) == {"white_check_mark"}
+    assert _reactions(LINK_TS) == {"eyes"}
+
+    _approve(197)
+    assert _refresh(second).status == BroadcastRequestStatus.APPROVED
+    assert _reactions(second_card["ts"]) == _reactions(LINK_TS) == {"eyes", "white_check_mark"}
 
 
 @pytest.mark.parametrize(
