@@ -74,6 +74,7 @@ export interface Judge {
         unread?: string
         unsettled?: string
         horizonAt?: number
+        horizonSeq?: number
         feedbackInFlight?: number
     }
 }
@@ -86,6 +87,7 @@ export type JudgeOptions = {
     finalRead?: FinalRead
     pollMs?: number
     now?: () => number
+    drainsFeedback?: boolean
 }
 
 export type FinalRead = { attempts: number; backoffMs: number }
@@ -93,6 +95,7 @@ export type FinalRead = { attempts: number; backoffMs: number }
 const FINAL_READ: FinalRead = { attempts: 3, backoffMs: 1000 }
 const FINAL_PASSES = 3
 const FINAL: TruthRead = { final: true }
+const FEEDBACK_HEAD_WAIT_MS = 5000
 
 const messageOf = (error: unknown): string =>
     typeof error === 'object' && error !== null && 'message' in error ? String(error.message) : String(error)
@@ -124,6 +127,7 @@ export function createJudge({
     finalRead = FINAL_READ,
     pollMs = 1000,
     now = Date.now,
+    drainsFeedback = false,
 }: JudgeOptions): Judge {
     let journal: JournalEntry[] = []
     let truth: TruthRecord[] = []
@@ -254,14 +258,23 @@ export function createJudge({
 
         async converge(withinMs, signal) {
             const startedAt = now()
+            const awaitFeedbackLanded = async (leftMs: number): Promise<boolean> => {
+                if (!drainsFeedback) {
+                    return true
+                }
+                await source.head({ waitMs: Math.max(0, Math.min(leftMs, FEEDBACK_HEAD_WAIT_MS)) })
+                return (source.feedbackInFlight?.() ?? 0) === 0
+            }
             for (;;) {
                 let jobs: number | undefined
                 const quiet = await read(async () => {
+                    const feedbackLanded = await awaitFeedbackLanded(withinMs - (now() - startedAt))
                     await pullTruth()
                     const settled = runRecords()
                     jobs = await probe.unfinishedJobs({ teams, queues: ['hogflow', 'email'] })
+                    const feedbackStillLanded = await awaitFeedbackLanded(withinMs - (now() - startedAt))
                     await pullTruth()
-                    return runRecords() === settled
+                    return runRecords() === settled && feedbackLanded && feedbackStillLanded
                 })
                 const unrecorded = unrecordedUnits()
                 const tookMs = now() - startedAt
@@ -318,7 +331,7 @@ export function createJudge({
             fetchRetries,
             ...(unread !== undefined && { unread }),
             ...(unsettled !== undefined && { unsettled }),
-            ...(horizon !== undefined && 'at' in horizon && { horizonAt: horizon.at }),
+            ...(horizon !== undefined && 'at' in horizon && { horizonAt: horizon.at, horizonSeq: horizon.seq }),
             ...(feedbackInFlight !== undefined && { feedbackInFlight }),
         }),
     }

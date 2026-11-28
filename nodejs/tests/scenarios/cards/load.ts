@@ -204,14 +204,18 @@ function checkWorkflowRate(card: Card, profile: Profile, defaults: Settings): st
 
 const ROLE_STOPPING_VALVES = [roleKill.name, roleTerminate.name, roleFreeze.name]
 
+const WHAT_REPLICA_0_CANNOT_STOP: Record<string, string> = {
+    'cdp-api': 'the runner keeps sending every other request to it',
+    'cdp-ses-webhooks': 'another replica can keep consuming SES notifications',
+}
+
 function checkIntakeReplicaValves(card: Card, profile: Profile): string[] {
-    if ((profile.replicas['cdp-api'] ?? 1) === 1) {
-        return []
-    }
     return card.valves.flatMap(({ valve, target }, i) =>
-        ROLE_STOPPING_VALVES.includes(valve) && target === 'cdp-api'
+        ROLE_STOPPING_VALVES.includes(valve) &&
+        Object.hasOwn(WHAT_REPLICA_0_CANNOT_STOP, target) &&
+        (profile.replicas[target as keyof Profile['replicas']] ?? 1) > 1
             ? [
-                  `valves.${i}.target: ${valve} stops cdp-api replica 0 only, and the runner keeps sending every other request to it; run one cdp-api replica on this card`,
+                  `valves.${i}.target: ${valve} stops ${target} replica 0 only, and ${WHAT_REPLICA_0_CANNOT_STOP[target]}; run one ${target} replica on this card`,
               ]
             : []
     )

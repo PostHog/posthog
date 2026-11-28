@@ -55,6 +55,7 @@ const scrapedEvery5s = (
         pgClientErrors: 0,
         consumerLoopErrors: 0,
         janitorStalled: 0,
+        sesNotifications: {},
         ...at(atS),
     }))
 

@@ -29,6 +29,7 @@ export type MetricSample = {
     consumerLoopErrors: number
     janitorStalled: number
     lateness: Record<string, Record<string, number>>
+    sesNotifications: Record<string, number>
 }
 
 export type MissedScrape = { role: string; replica: number; at: number }
@@ -73,6 +74,7 @@ export type MeasureEvidence = Omit<JudgeEvidence, 'janitorResets' | 'boundary'> 
         truthFrom: number
         unread?: string
         horizonAt?: number
+        horizonSeq?: number
         converged?: boolean
         unsettled?: string
         feedbackInFlight?: number
@@ -294,6 +296,96 @@ export const sesFeedbackPosts: MeasurementDefinition = {
                 ...feedbackCompleteness(evidence),
             }))
         )
+    },
+}
+
+const SES_NOTIFICATION_STAGES = ['queued', 'recorded', 'skipped', 'failed'] as const
+
+const QUEUEING_AND_RECORDING_ROLES: readonly string[] = ['cdp-api', 'cdp-ses-webhooks']
+
+const feedbackAnswersOf = ({ truth }: MeasureEvidence): { status: number; answeredAt: number; seq: number }[] =>
+    truth
+        .filter(({ kind, detail }) => kind === 'ses.feedback' && detail.feedback !== undefined)
+        .map(({ status, at, seq }) => ({ status, answeredAt: Date.parse(at), seq }))
+
+const lossUnknown = (evidence: MeasureEvidence, failed: number, lost: number): string | undefined => {
+    const { converged, unread, unsettled, horizonAt, horizonSeq } = evidence
+    const answers = feedbackAnswersOf(evidence)
+    return converged === false
+        ? 'the run did not converge, so the consumer may still have been recording'
+        : unread !== undefined
+          ? `the truth could not be read (${unread}), so a late or unanswered SES feedback post may be missing from it`
+          : unsettled !== undefined
+            ? `the truth never settled (${unsettled}), so cdp-api may have queued notifications after the counters were read`
+            : answers.some(({ status }) => status === 0)
+              ? 'an SES feedback post got no status, so cdp-api may have queued it after the counters were read'
+              : answers.some(
+                      ({ answeredAt, seq }) =>
+                          (horizonAt !== undefined && answeredAt > horizonAt) ||
+                          (horizonSeq !== undefined && seq > horizonSeq)
+                  )
+                ? 'an SES feedback post was answered after the run converged, so the consumer may not have recorded it when the counters were read'
+                : failed > 0
+                  ? `the consumer failed ${failed} notifications and replayed their batches, so recorded may count some twice`
+                  : lost < 0
+                    ? 'recorded and skipped add up to more than queued; the counters do not show why'
+                    : undefined
+}
+
+export const sesNotificationsLost: MeasurementDefinition = {
+    name: 'ses_notifications_lost',
+    params: z.object({}).strict(),
+    unit: 'notifications',
+    measure: (evidence) => {
+        const { samples, missed, sampledFrom } = evidence
+        const replicas = [...byRole(samples).values()]
+            .flatMap(replicasOf)
+            .filter((ofReplica) => QUEUEING_AND_RECORDING_ROLES.includes(ofReplica[0].role))
+        const neverScraped = missed.some(
+            (miss) =>
+                QUEUEING_AND_RECORDING_ROLES.includes(miss.role) &&
+                !replicas.some((ofReplica) => ofReplica[0].role === miss.role && ofReplica[0].replica === miss.replica)
+        )
+        const incomplete =
+            neverScraped || replicas.some((ofReplica) => lostCpu(ofReplica, missed))
+                ? { incomplete: true as const }
+                : {}
+        if (
+            !replicas.some((ofReplica) =>
+                ofReplica.some(({ sesNotifications }) => Object.keys(sesNotifications).length > 0)
+            )
+        ) {
+            return incomplete.incomplete
+                ? [
+                      {
+                          key: 'lost_floor',
+                          value: null,
+                          censored: true,
+                          unmeasured:
+                              'no replica counted an SES notification, but a scrape was missed, so the counters may hold some',
+                          ...incomplete,
+                      },
+                  ]
+                : []
+        }
+        const [queued, recorded, skipped, failed] = SES_NOTIFICATION_STAGES.map((stage) =>
+            increaseAcrossReplicas(replicas, ({ sesNotifications }) => sesNotifications[stage] ?? 0, sampledFrom)
+        )
+        const lost = queued - recorded - skipped
+        const unknown = lossUnknown(evidence, failed, lost)
+        return [
+            {
+                key: 'lost_floor',
+                ...(unknown === undefined
+                    ? { value: lost }
+                    : { value: null, censored: true as const, unmeasured: unknown }),
+                ...incomplete,
+            },
+            { key: 'queued', value: queued, ...incomplete },
+            { key: 'recorded', value: recorded, ...incomplete },
+            { key: 'skipped', value: skipped, ...incomplete },
+            { key: 'failed', value: failed, ...incomplete },
+        ]
     },
 }
 
@@ -1121,6 +1213,7 @@ export const MEASUREMENTS: MeasurementDefinition[] = [
     deliveryLatencyMs,
     sesFeedbackMs,
     sesFeedbackPosts,
+    sesNotificationsLost,
     roleExitMs,
     leaseReclaimMs,
     resentInvocations,
@@ -1172,6 +1265,16 @@ function processedOf(text: string): Record<string, number> {
     return processed
 }
 
+function sesNotificationsOf(text: string): Record<string, number> {
+    const stages: Record<string, number> = {}
+    for (const { labels, value } of seriesOf(text, 'email_tracking_ses_queued_notifications_total')) {
+        if (labels.stage !== undefined) {
+            stages[labels.stage] = (stages[labels.stage] ?? 0) + value
+        }
+    }
+    return stages
+}
+
 function latenessOf(text: string): Record<string, Record<string, number>> {
     const lateness: Record<string, Record<string, number>> = {}
     for (const { labels, value } of seriesOf(text, 'cdp_cyclotron_job_lateness_seconds_bucket')) {
@@ -1201,6 +1304,7 @@ export function sampleOf({ role, replica }: Target, at: number, text: string): M
               consumerLoopErrors: totalOf(text, 'cdp_cyclotron_v2_consumer_loop_errors_total'),
               janitorStalled: totalOf(text, 'cdp_cyclotron_v2_janitor_stalled'),
               lateness: latenessOf(text),
+              sesNotifications: sesNotificationsOf(text),
           }
 }
 

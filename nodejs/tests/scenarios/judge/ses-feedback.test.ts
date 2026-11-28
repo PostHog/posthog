@@ -1,7 +1,7 @@
 import type { Step } from '../cards'
 import type { TruthRecord } from '../provider-edge'
 import { type JournalEntry, feedbackInFlightReasonOf } from './judge'
-import { MeasureEvidence, measure } from './measurements'
+import { MeasureEvidence, MetricSample, MissedScrape, measure } from './measurements'
 
 const FROM = Date.parse('2026-01-05T10:00:00.000Z')
 const MINUTE = 60_000
@@ -235,5 +235,169 @@ describe('SES feedback per ramp step', () => {
                 unmeasured: 'the truth could not be read (the edge answered 503)',
             }))
         )
+    })
+})
+
+describe('SES notifications lost', () => {
+    const scraped = (
+        role: string,
+        atS: number,
+        sesNotifications: Record<string, number>,
+        startedAtS = -60,
+        replica = 0
+    ): MetricSample => ({
+        role,
+        replica,
+        at: FROM + atS * 1000,
+        startedAt: FROM / 1000 + startedAtS,
+        cpuSeconds: 1,
+        rssBytes: 1,
+        processed: {},
+        pgClientErrors: 0,
+        consumerLoopErrors: 0,
+        janitorStalled: 0,
+        lateness: {},
+        sesNotifications,
+    })
+
+    const lostOf = (samples: MetricSample[], judged: Partial<MeasureEvidence> = {}): ReturnType<typeof measure> =>
+        measure([{ name: 'ses_notifications_lost', params: {} }], evidence([], { samples, ...judged }))
+
+    const run = [
+        scraped('cdp-api', 0, { queued: 4 }),
+        scraped('cdp-api', 60, { queued: 24 }),
+        scraped('cdp-ses-webhooks', 0, { recorded: 3, skipped: 1 }),
+        scraped('cdp-ses-webhooks', 60, { recorded: 19, skipped: 2, redelivered: 5 }),
+    ]
+
+    it('counts the notifications the webhook queued that the consumer neither recorded nor skipped', () => {
+        expect(lostOf(run)).toEqual(
+            Object.entries({ lost_floor: 3, queued: 20, recorded: 16, skipped: 1, failed: 0 }).map(([key, value]) => ({
+                name: 'ses_notifications_lost',
+                unit: 'notifications',
+                key,
+                value,
+            }))
+        )
+    })
+
+    it.each<[string, MetricSample[], MissedScrape[]]>([
+        ['a role restarted', [...run, scraped('cdp-ses-webhooks', 90, { recorded: 1 }, 80)], []],
+        ['a scrape was missed after the last one', run, [{ role: 'cdp-api', replica: 0, at: FROM + 90_000 }]],
+        [
+            'a consumer replica that had counted nothing yet missed its last scrape',
+            [...run, scraped('cdp-ses-webhooks', 0, {}, -60, 1)],
+            [{ role: 'cdp-ses-webhooks', replica: 1, at: FROM + 90_000 }],
+        ],
+        ['a consumer replica was never scraped', run, [{ role: 'cdp-ses-webhooks', replica: 1, at: FROM + 90_000 }]],
+    ])('marks the count incomplete when %s', (_story, samples, missed) => {
+        const measured = lostOf(samples, { missed })
+
+        expect(measured.length).toBeGreaterThan(0)
+        expect(measured.filter(({ incomplete }) => incomplete !== true)).toEqual([])
+    })
+
+    it.each<[string, MetricSample[], string]>([
+        [
+            'the consumer failed notifications, so their batches replayed',
+            [...run.slice(0, 3), scraped('cdp-ses-webhooks', 60, { recorded: 19, skipped: 2, failed: 2 })],
+            'the consumer failed 2 notifications and replayed their batches, so recorded may count some twice',
+        ],
+        [
+            'recorded and skipped add up to more than queued',
+            [...run.slice(0, 3), scraped('cdp-ses-webhooks', 60, { recorded: 30, skipped: 2 })],
+            'recorded and skipped add up to more than queued; the counters do not show why',
+        ],
+    ])('leaves the loss unknown when %s', (_story, samples, unmeasured) => {
+        expect(lostOf(samples).find(({ key }) => key === 'lost_floor')).toEqual({
+            name: 'ses_notifications_lost',
+            unit: 'notifications',
+            key: 'lost_floor',
+            value: null,
+            censored: true,
+            unmeasured,
+        })
+    })
+
+    it('leaves the loss unknown when the run did not converge', () => {
+        expect(lostOf(run, { converged: false }).find(({ key }) => key === 'lost_floor')).toEqual({
+            name: 'ses_notifications_lost',
+            unit: 'notifications',
+            key: 'lost_floor',
+            value: null,
+            censored: true,
+            unmeasured: 'the run did not converge, so the consumer may still have been recording',
+        })
+    })
+
+    it.each<[string, Partial<MeasureEvidence>, string]>([
+        [
+            'the final truth read failed',
+            { unread: 'the edge did not answer' },
+            'the truth could not be read (the edge did not answer), so a late or unanswered SES feedback post may be missing from it',
+        ],
+        [
+            'the truth never settled',
+            { unsettled: 'feedback in flight at the final read: the edge was still posting the feedback of 1 send' },
+            'the truth never settled (feedback in flight at the final read: the edge was still posting the feedback of 1 send), so cdp-api may have queued notifications after the counters were read',
+        ],
+        [
+            'a feedback post got no status',
+            { truth: [posted('run-1', 30_000, 3000, 0)], horizonAt: FROM + 100_000 },
+            'an SES feedback post got no status, so cdp-api may have queued it after the counters were read',
+        ],
+        [
+            'a feedback post was answered after the run converged',
+            { truth: [posted('run-1', 99_000, 2000)], horizonAt: FROM + 100_000 },
+            'an SES feedback post was answered after the run converged, so the consumer may not have recorded it when the counters were read',
+        ],
+        [
+            'a feedback post landed after the last convergence read but before the horizon',
+            (() => {
+                const late = posted('run-1', 30_000, 20)
+                return { truth: [late], horizonAt: FROM + 100_000, horizonSeq: late.seq - 1 }
+            })(),
+            'an SES feedback post was answered after the run converged, so the consumer may not have recorded it when the counters were read',
+        ],
+    ])('leaves the loss unknown when %s', (_story, judged, unmeasured) => {
+        expect(lostOf(run, judged).find(({ key }) => key === 'lost_floor')).toEqual({
+            name: 'ses_notifications_lost',
+            unit: 'notifications',
+            key: 'lost_floor',
+            value: null,
+            censored: true,
+            unmeasured,
+        })
+    })
+
+    it('keeps the loss when every feedback post was answered before the run converged', () => {
+        expect(
+            lostOf(run, { truth: [posted('run-1', 30_000, 20)], horizonAt: FROM + 100_000, horizonSeq: seq }).find(
+                ({ key }) => key === 'lost_floor'
+            )
+        ).toMatchObject({ value: 3 })
+    })
+
+    it('measures nothing on a run whose webhook queued no notification', () => {
+        expect(lostOf([scraped('cdp-api', 0, {}), scraped('cdp-api', 60, {})])).toEqual([])
+    })
+
+    it('marks the loss unknown and incomplete when no replica counted a notification and a scrape was missed', () => {
+        expect(
+            lostOf([scraped('cdp-api', 0, {}), scraped('cdp-api', 60, {})], {
+                missed: [{ role: 'cdp-api', replica: 0, at: FROM + 90_000 }],
+            })
+        ).toEqual([
+            {
+                name: 'ses_notifications_lost',
+                unit: 'notifications',
+                key: 'lost_floor',
+                value: null,
+                censored: true,
+                unmeasured:
+                    'no replica counted an SES notification, but a scrape was missed, so the counters may hold some',
+                incomplete: true,
+            },
+        ])
     })
 })

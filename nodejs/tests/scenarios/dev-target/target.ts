@@ -108,6 +108,7 @@ export function devTarget(config: DevConfig): RunTarget {
             const { teamId, workflowId } = config.offers
             return {
                 truth: receiptTruth(config, runId),
+                drainsFeedback: false,
                 probe: { unfinishedJobs, runningJobs: unfinishedJobs },
                 fetchRetries: 0,
                 groups: [],

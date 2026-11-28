@@ -47,6 +47,9 @@ export const INTAKE_TRANSACTIONAL_EMAIL_GROUP = 'cdp-intake-transactional-email-
 export const INTAKE_WORKFLOW_WEBHOOK_GROUP = 'cdp-intake-workflow-webhook-consumer'
 export const INTAKE_GROUPS: readonly string[] = [INTAKE_TRANSACTIONAL_EMAIL_GROUP, INTAKE_WORKFLOW_WEBHOOK_GROUP]
 
+export const drainedGroupsOf = (groups: readonly ConsumerGroup[], postsSesFeedback: boolean): ConsumerGroup[] =>
+    groups.filter(({ group }) => INTAKE_GROUPS.includes(group) || (postsSesFeedback && group === SES_WEBHOOKS_GROUP))
+
 const INTAKE_ROLES: readonly Role[] = ['cdp-intake-transactional-email', 'cdp-intake-workflow-webhook']
 
 const isIntake = (role: Role): boolean => INTAKE_ROLES.includes(role)

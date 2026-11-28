@@ -269,6 +269,7 @@ function judgedOf(verdict: Verdict): { status: Status; statusReason: string } {
     })
     const { unread, feedbackInFlight: _feedbackInFlight, ...read } = convergence
     const rampJudgesConvergence =
+        ramp.end === 'harness_limit' ||
         convergence.unfinishedJobs !== 0 ||
         invariants.some(({ name, crossedBy }) => name === 'at_least_once' && crossedBy !== undefined)
     const unjudgedOnRamp = invariants.filter(
