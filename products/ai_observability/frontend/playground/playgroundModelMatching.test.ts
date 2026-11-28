@@ -4,6 +4,7 @@ import {
     matchClosestModel,
     matchClosestModelOption,
     type MatchModelOption,
+    resolveProviderKeyForPrompt,
     resolveTraceModelSelection,
 } from './playgroundModelMatching'
 
@@ -127,6 +128,24 @@ describe('playgroundModelMatching', () => {
             const keys = [providerKey('key-a', 'anthropic'), providerKey('key-z', 'anthropic')]
             const result = resolveTraceModelSelection('claude-sonnet-4', 'anthropic', models, keys)
             expect(result.providerKeyId).toBe('key-a')
+        })
+    })
+
+    describe('resolveProviderKeyForPrompt', () => {
+        // The server refuses a teammate's own key, so the run goes to PostHog's key instead of failing.
+        const teammatesKey = { ...providerKey('their-key', 'openai'), can_use: false }
+        const option = { id: 'gpt-6-luna', name: 'gpt-6-luna', provider: 'OpenAI', description: '' }
+
+        it.each([
+            ['the prompt names it', { model: 'gpt-6-luna', selectedProviderKeyId: 'their-key' }, [option]],
+            [
+                'the model is linked to it',
+                { model: 'gpt-6-luna', selectedProviderKeyId: null },
+                [{ ...option, providerKeyId: 'their-key' }],
+            ],
+            ['it is the only key for the provider', { model: 'gpt-6-luna', selectedProviderKeyId: null }, [option]],
+        ])('skips a key the person cannot use when %s', (_, prompt, options) => {
+            expect(resolveProviderKeyForPrompt(prompt, options, [teammatesKey])).toBeNull()
         })
     })
 })

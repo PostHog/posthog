@@ -320,8 +320,10 @@ export function matchClosestModel(targetModel: string, availableModels: MatchMod
 export function resolveProviderKeyForPrompt(
     prompt: Pick<PromptConfig, 'model' | 'selectedProviderKeyId'>,
     modelOptions: ModelOption[],
-    providerKeys: LLMProviderKey[]
+    allProviderKeys: LLMProviderKey[]
 ): LLMProviderKey | null {
+    // A teammate's own key is refused by the server, so a model without a usable key runs on PostHog's.
+    const providerKeys = allProviderKeys.filter((k) => k.can_use !== false)
     if (prompt.selectedProviderKeyId) {
         const exactMatch = providerKeys.find((k) => k.id === prompt.selectedProviderKeyId)
         if (exactMatch) {

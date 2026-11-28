@@ -53,9 +53,9 @@ def get_eval_suggestion(team: Team, access: UserAccessControl | None, suggestion
 
 
 def estimate_eval_suggestion_accept(
-    team: Team, access: UserAccessControl | None, suggestion_id: UUID
+    team: Team, access: UserAccessControl | None, suggestion_id: UUID, user_id: int | None
 ) -> contracts.EvalSuggestionAcceptEstimate:
-    estimate = eval_suggestion_accept.estimate(_find_eval_suggestion(team, access, suggestion_id), team)
+    estimate = eval_suggestion_accept.estimate(_find_eval_suggestion(team, access, suggestion_id), team, user_id)
     return contracts.EvalSuggestionAcceptEstimate(
         target=estimate.target,
         units=estimate.units,

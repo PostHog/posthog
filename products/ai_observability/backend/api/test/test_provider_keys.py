@@ -17,7 +17,7 @@ from posthog.models import Organization, OrganizationMembership, Project, Team, 
 from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.ai_observability.backend.api.provider_keys import LLMProviderKeySerializer
+from products.ai_observability.backend.api.provider_keys import LLMProviderKeySerializer, ProviderKeyValidationThrottle
 from products.ai_observability.backend.api.proxy import LLMProxyCompletionSerializer, models_cache_key
 from products.ai_observability.backend.llm.client import Client
 from products.ai_observability.backend.llm.providers.azure_openai import DEFAULT_API_VERSION
@@ -153,7 +153,9 @@ def _setup_team():
     return team
 
 
-def _grant_provider_key_management_without_evaluation_access(team: Team, membership: OrganizationMembership) -> None:
+def _grant_provider_key_management_without_evaluation_access(
+    team: Team, membership: OrganizationMembership, project_access: str = "admin"
+) -> None:
     organization = membership.organization
     organization.available_product_features = [
         {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
@@ -166,7 +168,7 @@ def _grant_provider_key_management_without_evaluation_access(team: Team, members
         team=team,
         resource="project",
         resource_id=str(team.id),
-        access_level="admin",
+        access_level=project_access,
         organization_member=membership,
     )
     AccessControl.objects.create(
@@ -181,6 +183,26 @@ def _grant_provider_key_management_without_evaluation_access(team: Team, members
         access_level="none",
         organization_member=membership,
     )
+
+
+def _url(team: Team, path: str) -> str:
+    return f"/api/environments/{team.id}/llm_analytics/{path}"
+
+
+def _key(team: Team, user: User, provider: str = "openai", **config: str) -> LLMProviderKey:
+    return LLMProviderKey.objects.create(
+        team=team,
+        provider=provider,
+        name=f"{provider} key",
+        state=LLMProviderKey.State.OK,
+        encrypted_config={"api_key": "sk-active", **config},
+        created_by=user,
+    )
+
+
+def _make_member(membership: OrganizationMembership) -> None:
+    membership.level = OrganizationMembership.Level.MEMBER
+    membership.save()
 
 
 class TestLLMProviderKeyViewSet(APIBaseTest):
@@ -322,6 +344,113 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         response = self.client.post(f"{url}{key.id}/validate/")
         self.assertEqual(response.status_code, 200, response.data)
         self.assertEqual(str(request.call_args.args[0].url), "https://other.example.com/v1/systemone")
+
+    @parameterized.expand(
+        [
+            ("update", "patch", "", status.HTTP_200_OK),
+            ("validate", "post", "validate/", status.HTTP_200_OK),
+            ("delete", "delete", "", status.HTTP_204_NO_CONTENT),
+        ]
+    )
+    @patch("products.ai_observability.backend.api.provider_keys.validate_provider_key")
+    def test_project_member_manages_keys_they_created(
+        self, _name: str, method: str, path: str, expected_status: int, mock_validate: Mock
+    ) -> None:
+        mock_validate.return_value = (LLMProviderKey.State.OK, None)
+        _make_member(self.organization_membership)
+        key = _key(self.team, self.user)
+
+        response = getattr(self.client, method)(
+            _url(self.team, f"provider_keys/{key.id}/{path}"),
+            {"name": "Renamed"} if method == "patch" else None,
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, expected_status)
+        self.assertEqual(
+            LLMProviderKey.objects.filter(id=key.id).exists(), expected_status != status.HTTP_204_NO_CONTENT
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "create_openai_compatible",
+                "post",
+                "provider_keys/",
+                {"provider": "openai_compatible", "base_url": "https://8.8.8.8/v1"},
+            ),
+            (
+                "create_azure",
+                "post",
+                "provider_keys/",
+                {"provider": "azure_openai", "azure_endpoint": "https://my-resource.openai.azure.com/"},
+            ),
+            (
+                "create_foundry",
+                "post",
+                "provider_keys/",
+                {"provider": "anthropic", "azure_endpoint": "https://my-resource.services.ai.azure.com/"},
+            ),
+            (
+                "prevalidate_openai_compatible",
+                "post",
+                "provider_key_validations/",
+                {"provider": "openai_compatible", "base_url": "https://8.8.8.8/v1"},
+            ),
+            ("update_own_base_url", "patch", "provider_keys/{key_id}/", {"base_url": "https://8.8.4.4/v1"}),
+        ]
+    )
+    @patch("products.ai_observability.backend.api.provider_keys.validate_provider_key")
+    def test_project_member_cannot_set_a_custom_endpoint(
+        self, _name: str, method: str, path: str, payload: dict, mock_validate: Mock
+    ) -> None:
+        _make_member(self.organization_membership)
+        own_key = _key(self.team, self.user, "openai_compatible", base_url="https://8.8.8.8/v1")
+
+        response = getattr(self.client, method)(
+            _url(self.team, path.format(key_id=own_key.id)),
+            {"name": "Endpoint Key", "api_key": "sk-test-key-12345", **payload},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.json())
+        mock_validate.assert_not_called()
+        own_key.refresh_from_db()
+        self.assertEqual(own_key.encrypted_config["base_url"], "https://8.8.8.8/v1")
+        self.assertEqual(LLMProviderKey.objects.count(), 1)
+
+    @parameterized.expand(
+        [("prevalidate", "provider_key_validations/"), ("validate", "provider_keys/{key_id}/validate/")]
+    )
+    @patch.object(ProviderKeyValidationThrottle, "rate", "1/minute")
+    @patch("products.ai_observability.backend.api.provider_keys.validate_provider_key")
+    def test_key_validation_is_throttled_per_user(self, _name: str, path: str, mock_validate: Mock) -> None:
+        mock_validate.return_value = (LLMProviderKey.State.OK, None)
+        url = _url(self.team, path.format(key_id=_key(self.team, self.user).id))
+        body = {"provider": "openai", "api_key": "sk-test-key-12345"}
+
+        first = self.client.post(url, body)
+        second = self.client.post(url, body)
+
+        self.assertEqual(first.status_code, status.HTTP_200_OK)
+        self.assertEqual(second.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+    @parameterized.expand(
+        [
+            ("create_list", "post", "provider_keys/", []),
+            ("create_scalar", "post", "provider_keys/", "key"),
+            ("update_list", "patch", "provider_keys/{key_id}/", []),
+            ("prevalidate_list", "post", "provider_key_validations/", []),
+        ]
+    )
+    def test_non_object_body_is_rejected_with_400(self, _name: str, method: str, path: str, body: object) -> None:
+        key = _key(self.team, self.user)
+
+        response = getattr(self.client, method)(
+            _url(self.team, path.format(key_id=key.id)), json.dumps(body), content_type="application/json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_api_key_required_on_create(self):
         response = self.client.post(
@@ -742,8 +871,35 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
             api_version="2024-10-21",
         )
 
+    @parameterized.expand(
+        [
+            ("azure_endpoint", "anthropic", "https://u:secret@contoso.services.ai.azure.com/"),
+            ("base_url", "openai_compatible", "https://u:secret@llm.example.com/v1"),
+        ]
+    )
+    def test_an_endpoint_saved_with_a_credential_is_shown_without_it(self, field: str, provider: str, url: str):
+        LLMProviderKey.objects.create(
+            team=self.team,
+            provider=provider,
+            name="Old key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk", field: url},
+            created_by=self.user,
+        )
+
+        [row] = self.client.get(_url(self.team, "provider_keys/")).json()["results"]
+
+        self.assertNotIn("secret", row[f"{field}_display"])
+
+    # The endpoint is shown to every project member, so a credential typed into it is dropped.
+    @parameterized.expand(
+        [
+            ("plain", "https://contoso.services.ai.azure.com/"),
+            ("with_credential", "https://u:secret@contoso.services.ai.azure.com/"),
+        ]
+    )
     @patch("products.ai_observability.backend.api.provider_keys.validate_provider_key")
-    def test_can_create_anthropic_key_on_microsoft_foundry(self, mock_validate):
+    def test_can_create_anthropic_key_on_microsoft_foundry(self, _name: str, endpoint: str, mock_validate: Mock):
         mock_validate.return_value = (LLMProviderKey.State.OK, None)
 
         response = self.client.post(
@@ -752,7 +908,7 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
                 "provider": "anthropic",
                 "name": "Foundry Claude",
                 "api_key": "foundry-hex-123",
-                "azure_endpoint": "https://contoso.services.ai.azure.com/",
+                "azure_endpoint": endpoint,
             },
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -1230,6 +1386,122 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["results"][0]["id"], str(key2.id))
         self.assertEqual(response.data["results"][1]["id"], str(key1.id))
+
+
+class TestPinningAnotherPersonsKey(APIBaseTest):
+    """A member's key may bill their own provider account, so only they and project admins use it."""
+
+    def _key_added_by(self, added_by: str) -> LLMProviderKey:
+        if added_by == "me":
+            return _key(self.team, self.user)
+        level = OrganizationMembership.Level.ADMIN if added_by == "admin" else OrganizationMembership.Level.MEMBER
+        teammate = User.objects.create_and_join(self.organization, f"{added_by}@example.com", None, level=level)
+        key = _key(self.team, teammate)
+        # The API shares the keys a project admin adds.
+        LLMProviderKey.objects.filter(id=key.id).update(shared=added_by == "admin")
+        key.refresh_from_db()
+        return key
+
+    @parameterized.expand(
+        [
+            ("own_key", "member", "me", True),
+            ("a_project_admins_key", "member", "admin", True),
+            ("another_members_key", "member", "member", False),
+            ("admin_pins_a_members_key", "admin", "member", True),
+        ]
+    )
+    def test_who_can_pin_a_key_to_a_judge(self, _name: str, my_level: str, added_by: str, allowed: bool) -> None:
+        self.organization_membership.level = (
+            OrganizationMembership.Level.ADMIN if my_level == "admin" else OrganizationMembership.Level.MEMBER
+        )
+        self.organization_membership.save()
+        key = self._key_added_by(added_by)
+
+        listed = self.client.get(_url(self.team, "provider_keys/")).json()["results"]
+        created = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/",
+            {
+                "name": "Judge",
+                "evaluation_type": "llm_judge",
+                "evaluation_config": {"prompt": "Is this good?"},
+                "output_type": "boolean",
+                "model_configuration": {"provider": "openai", "model": "gpt-5-mini", "provider_key_id": str(key.id)},
+                "enabled": False,
+            },
+            format="json",
+        )
+
+        self.assertEqual([row["can_use"] for row in listed], [allowed])
+        self.assertEqual(created.status_code, 201 if allowed else 400, created.json())
+
+    @parameterized.expand(
+        [("provider_key_models", "provider_keys/{key}/models/"), ("models_list", "models/?key_id={key}")]
+    )
+    @patch("products.ai_observability.backend.llm.client.Client.list_models")
+    def test_listing_models_cannot_call_the_provider_with_another_members_key(
+        self, _name: str, path: str, list_models: Mock
+    ) -> None:
+        _make_member(self.organization_membership)
+        key = self._key_added_by("member")
+
+        response = self.client.get(_url(self.team, path.format(key=key.id)))
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        list_models.assert_not_called()
+
+    @parameterized.expand([("keeps_the_pinned_key", True, 200), ("switches_to_it", False, 400)])
+    def test_an_editor_keeps_but_cannot_newly_pin_another_members_key(
+        self, _name: str, already_pinned: bool, expected_status: int
+    ) -> None:
+        _make_member(self.organization_membership)
+        others_key = self._key_added_by("member")
+        pinned = others_key if already_pinned else _key(self.team, self.user)
+        evaluation = Evaluation.objects.create(
+            team=self.team,
+            name="Judge",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "Is this good?"},
+            output_type="boolean",
+            model_configuration=LLMModelConfiguration.objects.create(
+                team=self.team, provider="openai", model="gpt-5-mini", provider_key=pinned
+            ),
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/evaluations/{evaluation.id}/",
+            {"model_configuration": {"provider": "openai", "model": "gpt-5", "provider_key_id": str(others_key.id)}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, expected_status, response.json())
+
+    @parameterized.expand([("member", False), ("admin", True)])
+    @patch("products.ai_observability.backend.api.provider_keys.validate_provider_key")
+    def test_a_key_is_shared_when_a_project_admin_adds_it(self, level: str, shared: bool, mock_validate: Mock) -> None:
+        mock_validate.return_value = (LLMProviderKey.State.OK, None)
+        self.organization_membership.level = (
+            OrganizationMembership.Level.ADMIN if level == "admin" else OrganizationMembership.Level.MEMBER
+        )
+        self.organization_membership.save()
+
+        response = self.client.post(
+            _url(self.team, "provider_keys/"), {"provider": "openai", "name": "Key", "api_key": "sk-test-key-12345"}
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        self.assertEqual(LLMProviderKey.objects.get(id=response.json()["id"]).shared, shared)
+
+    def test_deleting_a_key_cannot_move_its_judges_to_another_members_key(self) -> None:
+        _make_member(self.organization_membership)
+        own_key = _key(self.team, self.user)
+        others_key = self._key_added_by("member")
+
+        response = self.client.delete(
+            _url(self.team, f"provider_keys/{own_key.id}/?replacement_key_id={others_key.id}")
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertTrue(LLMProviderKey.objects.filter(id=own_key.id).exists())
 
 
 class TestLLMProviderKeyValidationViewSet(APIBaseTest):
@@ -1871,3 +2143,56 @@ class TestLLMProviderKeyScopedTokenAccess(APIBaseTest):
             HTTP_AUTHORIZATION=f"Bearer {self.create_personal_api_key_with_scopes(scopes)}",
         )
         self.assertEqual(response.status_code, expected_status, response.json())
+
+    @parameterized.expand(
+        [
+            ("rotate_unused_key", "patch", "{key}/", False, ["llm_provider_key:write"], status.HTTP_200_OK),
+            ("rotate_pinned_key", "patch", "{key}/", True, ["llm_provider_key:write"], status.HTTP_403_FORBIDDEN),
+            ("delete_unused_key", "delete", "{key}/", False, ["llm_provider_key:write"], status.HTTP_204_NO_CONTENT),
+            ("delete_pinned_key", "delete", "{key}/", True, ["llm_provider_key:write"], status.HTTP_403_FORBIDDEN),
+            (
+                "delete_pinned_key_with_evaluation_scope",
+                "delete",
+                "{key}/",
+                True,
+                ["llm_provider_key:write", "evaluation:write"],
+                status.HTTP_204_NO_CONTENT,
+            ),
+        ]
+    )
+    @patch("products.ai_observability.backend.api.provider_keys.validate_provider_key")
+    def test_key_changes_evaluations_depend_on_require_evaluation_write_scope(
+        self,
+        _name: str,
+        method: str,
+        path: str,
+        pinned: bool,
+        scopes: list[str],
+        expected_status: int,
+        mock_validate: Mock,
+    ) -> None:
+        mock_validate.return_value = (LLMProviderKey.State.OK, None)
+        if pinned:
+            Evaluation.objects.create(
+                team=self.team,
+                name="Pinned",
+                evaluation_type="llm_judge",
+                evaluation_config={"prompt": "Is this good?"},
+                output_type="boolean",
+                model_configuration=LLMModelConfiguration.objects.create(
+                    team=self.team, provider="openai", model="gpt-5-mini", provider_key=self.key
+                ),
+                enabled=True,
+            )
+        body = {
+            "patch": {"api_key": "sk-new-key-12345"},
+        }.get(method)
+
+        response = getattr(self.client, method)(
+            _url(self.team, f"provider_keys/{path.format(key=self.key.id)}"),
+            body,
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.create_personal_api_key_with_scopes(scopes)}",
+        )
+
+        self.assertEqual(response.status_code, expected_status)

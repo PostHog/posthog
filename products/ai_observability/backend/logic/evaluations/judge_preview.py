@@ -18,6 +18,7 @@ from posthog.temporal.ai_observability.evaluation_types import EvaluationActivit
 
 from ...facade import contracts
 from ...llm.errors import LLMError
+from ...logic.provider_key_access import PIN_KEY_MESSAGE, can_use_provider_key
 from ...models.evaluation_configs import EvaluationType
 from ...models.model_configuration import LLMModelConfiguration
 from ...models.provider_keys import LLMProviderKey
@@ -36,7 +37,7 @@ JUDGE_TEST_LOCK_SECONDS = 600
 _UNSAVED_EVALUATION_ID = "unsaved"
 
 
-def _model_configuration(team: Team, model: contracts.JudgeModel | None) -> dict[str, Any] | None:
+def _model_configuration(team: Team, model: contracts.JudgeModel | None, user: User) -> dict[str, Any] | None:
     """The model settings the judge resolves its provider key from. Raises `JudgeModelError` for a pinned key
     that is not this team's or belongs to another provider, which would send the key to the wrong provider."""
     if model is None:
@@ -46,6 +47,8 @@ def _model_configuration(team: Team, model: contracts.JudgeModel | None) -> dict
         provider_key = LLMProviderKey.objects.filter(id=model.provider_key_id, team=team).first()
         if provider_key is None:
             raise contracts.JudgeModelError("Provider key not found")
+        if not can_use_provider_key(provider_key, user.pk):
+            raise contracts.JudgeModelError(PIN_KEY_MESSAGE)
     try:
         LLMModelConfiguration(team=team, provider=model.provider, model=model.model, provider_key=provider_key).clean()
     except ValidationError as error:
@@ -53,7 +56,7 @@ def _model_configuration(team: Team, model: contracts.JudgeModel | None) -> dict
     return {"provider": model.provider, "model": model.model, "provider_key_id": model.provider_key_id}
 
 
-def _evaluation_payload(team: Team, judge: contracts.UnsavedJudge) -> dict[str, Any]:
+def _evaluation_payload(team: Team, judge: contracts.UnsavedJudge, user: User) -> dict[str, Any]:
     """The unsaved judge in the shape the live judge functions read a saved evaluation in."""
     return {
         "id": _UNSAVED_EVALUATION_ID,
@@ -64,7 +67,7 @@ def _evaluation_payload(team: Team, judge: contracts.UnsavedJudge) -> dict[str, 
         "output_config": dict(judge.output_config),
         "team_id": team.pk,
         # Resolution only ever runs on the team's own provider key, so a keyless config is a per-row error.
-        "model_configuration": _model_configuration(team, judge.model),
+        "model_configuration": _model_configuration(team, judge.model, user),
         "enabled": False,
         "deleted": False,
     }
@@ -133,7 +136,7 @@ def run_judge_test(
     Raises `JudgeModelError` for a provider key the model cannot use, and `JudgeTestAlreadyRunningError` while
     this user's previous test is still running.
     """
-    evaluation = _evaluation_payload(team, judge)
+    evaluation = _evaluation_payload(team, judge, user)
     # One test per user at a time: a single call can run to the provider's timeout, which the budget below
     # cannot cut short, so this bounds how many web workers one user holds to one. Taken before the reads, so
     # a second click costs nothing.

@@ -51,6 +51,9 @@ class LLMProviderKey(UUIDTModel):
     created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     last_used_at = models.DateTimeField(null=True, blank=True)
+    # Set when a project admin adds the key. Anyone in the project may use a shared key; a member's own key may
+    # bill their personal provider account, so only they and project admins use it.
+    shared = models.BooleanField(default=False, db_default=False)
 
     class Meta:
         db_table = "llm_analytics_llmproviderkey"

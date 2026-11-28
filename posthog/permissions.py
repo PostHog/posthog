@@ -536,6 +536,26 @@ class TeamMemberStrictManagementPermission(BasePermission):
         return _can_in_project(request, view.team, Action.VIEW if request.method in SAFE_METHODS else Action.EDIT, view)
 
 
+class TeamMemberCreatorManagementPermission(BasePermission):
+    """
+    Require effective project membership to read and create,
+    and the object's creator or at least admin effective project access level to change or delete it.
+    """
+
+    message = "Only the person who created this or a project admin can change it."
+
+    def has_permission(self, request, view) -> bool:
+        return _can_in_project(request, view.team, Action.VIEW, view)
+
+    def has_object_permission(self, request, view, obj) -> bool:
+        if request.method in SAFE_METHODS:
+            return True
+        # created_by is null after its user is deleted, and a non-user principal has no pk, so check both.
+        if obj.created_by_id is not None and obj.created_by_id == getattr(request.user, "pk", None):
+            return True
+        return _can_in_project(request, view.team, Action.EDIT, view)
+
+
 class TeamMemberAdminManagementPermission(BasePermission):
     """
     Require at least admin effective project access level for ALL methods, including reads.

@@ -7,11 +7,13 @@ export function QuillFoundryEndpointField({
     onChange,
     errorMessage,
     optional,
+    disabledReason = null,
 }: {
     value: string
     onChange: (value: string) => void
     errorMessage: string | null
     optional: boolean
+    disabledReason?: string | null
 }): JSX.Element {
     const id = useId()
 
@@ -26,9 +28,12 @@ export function QuillFoundryEndpointField({
                 onChange={(event) => onChange(event.target.value)}
                 placeholder="https://my-resource.services.ai.azure.com/"
                 aria-invalid={!!errorMessage || undefined}
+                disabled={!!disabledReason}
             />
             {errorMessage ? (
                 <FieldError>{errorMessage}</FieldError>
+            ) : disabledReason ? (
+                <FieldDescription>{disabledReason}</FieldDescription>
             ) : (
                 <FieldDescription>
                     {optional

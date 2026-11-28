@@ -1,4 +1,5 @@
 import logging
+from collections.abc import Mapping
 from urllib.parse import urlsplit
 from uuid import UUID
 
@@ -12,6 +13,8 @@ from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.throttling import BaseThrottle, UserRateThrottle
+from rest_framework.views import APIView
 
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.monitoring import monitor
@@ -19,7 +22,12 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
 from posthog.models.utils import mask_key_value
-from posthog.permissions import TeamMemberStrictManagementPermission, is_service_auth
+from posthog.permissions import (
+    TeamMemberCreatorManagementPermission,
+    TeamMemberStrictManagementPermission,
+    is_service_auth,
+    scopes_caller_lacks,
+)
 from posthog.plugins.plugin_server_api import reload_evaluations_on_workers
 from posthog.security.url_validation import strip_userinfo
 
@@ -45,6 +53,7 @@ from ..llm.providers.openai_compatible import (
     error_field_for_validation_message as openai_compatible_error_field,
     is_allowed_custom_base_url,
 )
+from ..logic.provider_key_access import PIN_KEY_MESSAGE, can_use_provider_key, usable_provider_key_ids
 from ..models.evaluations import Evaluation
 from ..models.model_configuration import LLMModelConfiguration
 from ..models.provider_keys import LLMProvider, LLMProviderKey
@@ -112,6 +121,37 @@ _ALL_PROVIDER_CONFIG_FIELDS: tuple[str, ...] = tuple(
 )
 
 
+# Fields that choose the host a key sends prompts to. Only a project admin may set them, so a member
+# cannot add a server they control to the keys that evaluations and teammates' pickers use.
+_CUSTOM_ENDPOINT_FIELDS = ("base_url", "azure_endpoint")
+_CONNECTION_FIELDS = ("api_key", *_CUSTOM_ENDPOINT_FIELDS, "api_version", "system_one_model")
+
+
+def _require_admin_to_set_custom_endpoint(request: Request, view: APIView, data: object) -> None:
+    # A body that is not an object carries no endpoint, and the serializer rejects it with a 400.
+    if not isinstance(data, Mapping):
+        return
+    if any(data.get(field) for field in _CUSTOM_ENDPOINT_FIELDS) and not (
+        TeamMemberStrictManagementPermission().has_permission(request, view)
+    ):
+        raise exceptions.PermissionDenied("Only a project admin can set a custom endpoint.")
+
+
+def _require_evaluation_write_scope(request: Request) -> None:
+    if not is_service_auth(request) and scopes_caller_lacks(request, ["evaluation:write"]):
+        raise exceptions.PermissionDenied("This API key needs the evaluation:write scope.")
+
+
+class ProviderKeyValidationThrottle(UserRateThrottle):
+    """Validating a key makes a synchronous call to the provider, and the default throttles skip session users."""
+
+    scope = "llm_provider_key_validation"
+    rate = "30/minute"
+
+
+_PROVIDER_CALL_ACTIONS = ("create", "update", "partial_update", "validate")
+
+
 def _is_typesafe_host(url: str) -> bool:
     try:
         host = (urlsplit(url).hostname or "").encode("idna").decode("ascii").lower().rstrip(".")
@@ -152,6 +192,9 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
         help_text="Configured provider base URL (read-only, for display)"
     )
     created_by = UserBasicSerializer(read_only=True)
+    can_use = serializers.SerializerMethodField(
+        help_text="Whether you can pin this key to a judge or run it in the playground: you added it, a project admin added it, or you are a project admin."
+    )
 
     class Meta:
         model = LLMProviderKey
@@ -173,9 +216,22 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
             "api_version_display",
             "created_at",
             "created_by",
+            "can_use",
             "last_used_at",
         ]
         read_only_fields = ["id", "state", "error_message", "created_at", "created_by", "last_used_at"]
+
+    def get_can_use(self, obj: LLMProviderKey) -> bool:
+        request = self.context.get("request")
+        if request is None or is_service_auth(request):
+            return True
+        # Computed once for the project's keys, so a list costs one batch of access checks.
+        usable = self.context.get("_usable_provider_key_ids")
+        if usable is None:
+            keys = LLMProviderKey.objects.filter(team_id=obj.team_id).only("id", "team_id", "created_by_id")
+            usable = usable_provider_key_ids(obj.team_id, keys, getattr(request.user, "pk", None))
+            self.context["_usable_provider_key_ids"] = usable
+        return obj.id in usable
 
     def get_api_key_masked(self, obj: LLMProviderKey) -> str:
         return mask_key_value(obj.encrypted_config.get("api_key", ""))
@@ -186,7 +242,9 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
     def get_azure_endpoint_display(self, obj: LLMProviderKey) -> str | None:
         if obj.provider not in (LLMProvider.AZURE_OPENAI, LLMProvider.ANTHROPIC):
             return None
-        return obj.encrypted_config.get("azure_endpoint")
+        endpoint = obj.encrypted_config.get("azure_endpoint")
+        # Keys saved before writes were stripped can still hold a credential, and every project member reads this.
+        return strip_userinfo(endpoint) if endpoint else endpoint
 
     def get_api_version_display(self, obj: LLMProviderKey) -> str | None:
         if obj.provider != LLMProvider.AZURE_OPENAI:
@@ -196,7 +254,8 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
     def get_base_url_display(self, obj: LLMProviderKey) -> str | None:
         if obj.provider not in (LLMProvider.OPENAI_COMPATIBLE, LLMProvider.SYSTEM_ONE):
             return None
-        return obj.encrypted_config.get("base_url")
+        base_url = obj.encrypted_config.get("base_url")
+        return strip_userinfo(base_url) if base_url else base_url
 
     def validate_base_url(self, value: str) -> str:
         provider = self.initial_data.get("provider", self.instance.provider if self.instance else None)
@@ -213,6 +272,10 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
         # `base_url_display` is readable by any project member while the API key is masked, and the
         # URL also reaches exception messages and log lines. A credential typed into this field
         # would leak through all three, so drop it before anything stores or echoes the value.
+        return strip_userinfo(value)
+
+    def validate_azure_endpoint(self, value: str) -> str:
+        # Shown to every project member through `azure_endpoint_display`, so drop any credential typed into it.
         return strip_userinfo(value)
 
     def validate_provider(self, value: str) -> str:
@@ -467,7 +530,7 @@ class ProviderKeyDependentConfigsSerializer(serializers.Serializer):
 
 class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "llm_provider_key"
-    permission_classes = [TeamMemberStrictManagementPermission]
+    permission_classes = [TeamMemberCreatorManagementPermission]
     serializer_class = LLMProviderKeySerializer
     queryset = LLMProviderKey.objects.all()
 
@@ -475,17 +538,30 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
         return queryset.filter(team_id=self.team_id).select_related("created_by").order_by("-created_at")
 
     def _require_write_access_to_evaluations(self, evaluations: list[Evaluation]) -> None:
-        if is_service_auth(self.request):
+        if is_service_auth(self.request) or not evaluations:
             return
 
+        _require_evaluation_write_scope(self.request)
         if any(
             not self.user_access_control.check_access_level_for_object(evaluation, "editor")
             for evaluation in evaluations
         ):
             raise exceptions.PermissionDenied("You do not have editor access to all affected evaluations.")
 
+    def _require_write_access_to_key_dependents(self, key: LLMProviderKey) -> None:
+        self._require_write_access_to_evaluations(
+            list(Evaluation.objects.filter(model_configuration__provider_key=key, team_id=self.team_id, deleted=False))
+        )
+
+    def get_throttles(self) -> list[BaseThrottle]:
+        throttles = super().get_throttles()
+        if self.action in _PROVIDER_CALL_ACTIONS:
+            throttles.append(ProviderKeyValidationThrottle())
+        return throttles
+
     def perform_create(self, serializer):
-        instance = serializer.save()
+        # A key a project admin adds is the project's; a member's may be their own account.
+        instance = serializer.save(shared=TeamMemberStrictManagementPermission().has_permission(self.request, self))
         report_user_action(
             self.request.user,
             "llma provider key created",
@@ -498,6 +574,11 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
         )
 
     def perform_update(self, serializer):
+        # Evaluations reload the key on every run, so a new credential or host takes effect for every
+        # evaluation that uses it. Changing it needs the same access as deleting the key.
+        if any(field in serializer.validated_data for field in _CONNECTION_FIELDS):
+            self._require_write_access_to_key_dependents(serializer.instance)
+
         instance = serializer.save()
 
         # The model list belongs to the endpoint the key points at (azure_endpoint, base_url),
@@ -544,6 +625,10 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
     @monitor(feature=None, endpoint="llma_provider_keys_validate", method="POST")
     def validate(self, request: Request, **_kwargs) -> Response:
         instance = self.get_object()
+        # The result is saved on the key, and a failed state turns off the evaluations that use it. A project
+        # admin may still re-check any key, which is how a key in the error state is recovered.
+        if not TeamMemberStrictManagementPermission().has_permission(request, self):
+            self._require_write_access_to_key_dependents(instance)
         api_key = instance.encrypted_config.get("api_key")
 
         if not api_key and instance.provider != LLMProvider.SYSTEM_ONE:
@@ -587,11 +672,15 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
     @llma_track_latency("llma_provider_keys_create")
     @monitor(feature=None, endpoint="llma_provider_keys_create", method="POST")
     def create(self, request, *args, **kwargs):
+        # Checked before serializer validation, which resolves the endpoint's host.
+        _require_admin_to_set_custom_endpoint(request, self, request.data)
         return super().create(request, *args, **kwargs)
 
     @llma_track_latency("llma_provider_keys_update")
     @monitor(feature=None, endpoint="llma_provider_keys_update", method="PUT")
     def update(self, request, *args, **kwargs):
+        # PATCH reaches here through partial_update.
+        _require_admin_to_set_custom_endpoint(request, self, request.data)
         return super().update(request, *args, **kwargs)
 
     @llma_track_latency("llma_provider_keys_partial_update")
@@ -606,7 +695,11 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
     def models(self, request: Request, **_kwargs) -> Response:
         """Models this provider key can run, as the model pickers list them. Scoped to the project in the URL, so a
         page on a project other than the user's current one still lists its own keys' models."""
-        return Response(provider_key_models(self.get_object()))
+        instance = self.get_object()
+        # Listing models calls the provider with the key's stored credential.
+        if not is_service_auth(request) and not can_use_provider_key(instance, request.user.pk):
+            raise exceptions.PermissionDenied(PIN_KEY_MESSAGE)
+        return Response(provider_key_models(instance))
 
     @extend_schema(responses={200: ProviderKeyDependentConfigsSerializer})
     @action(detail=True, methods=["get"], required_scopes=["llm_provider_key:read"])
@@ -640,11 +733,17 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
                     }
                 )
 
-        alternative_keys = LLMProviderKey.objects.filter(
-            team_id=self.team_id,
-            provider=instance.provider,
-            state=LLMProviderKey.State.OK,
-        ).exclude(id=instance.id)
+        alternative_keys: list[LLMProviderKey] = list(
+            LLMProviderKey.objects.filter(
+                team_id=self.team_id,
+                provider=instance.provider,
+                state=LLMProviderKey.State.OK,
+            ).exclude(id=instance.id)
+        )
+        # Deleting with a replacement pins it to every dependent judge, so only offer keys the caller may use.
+        if not is_service_auth(request):
+            usable = usable_provider_key_ids(self.team_id, alternative_keys, request.user.pk)
+            alternative_keys = [key for key in alternative_keys if key.id in usable]
 
         return Response(
             ProviderKeyDependentConfigsSerializer(
@@ -662,15 +761,7 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
         replacement_key_id = request.query_params.get("replacement_key_id")
-
-        affected_evaluations = list(
-            Evaluation.objects.filter(
-                team_id=self.team_id,
-                model_configuration__provider_key=instance,
-                deleted=False,
-            )
-        )
-        self._require_write_access_to_evaluations(affected_evaluations)
+        self._require_write_access_to_key_dependents(instance)
 
         if replacement_key_id:
             try:
@@ -688,6 +779,10 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
                 return Response(
                     {"detail": "Replacement key must be from the same provider"}, status=status.HTTP_400_BAD_REQUEST
                 )
+
+            # The replacement gets pinned to every evaluation that used the deleted key.
+            if not is_service_auth(request) and not can_use_provider_key(replacement_key, request.user.pk):
+                raise exceptions.PermissionDenied(PIN_KEY_MESSAGE)
 
             with transaction.atomic():
                 model_config_ids = list(
@@ -727,14 +822,21 @@ class LLMProviderKeyValidationViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
     scope_object = "llm_provider_key"
     serializer_class = _FallbackSerializer
-    permission_classes = [TeamMemberStrictManagementPermission]
+    permission_classes = [TeamMemberCreatorManagementPermission]
+
+    def get_throttles(self) -> list[BaseThrottle]:
+        return [*super().get_throttles(), ProviderKeyValidationThrottle()]
 
     @extend_schema(responses={200: OpenApiTypes.OBJECT})
     @llma_track_latency("llma_provider_key_validations_create")
     @monitor(feature=None, endpoint="llma_provider_key_validations_create", method="POST")
     def create(self, request: Request, **_kwargs) -> Response:
-        api_key = request.data.get("api_key")
-        provider = request.data.get("provider", LLMProvider.OPENAI)
+        # The stubs type request.data as a mapping, but a JSON body can be a list or a scalar.
+        data: object = request.data
+        if not isinstance(data, Mapping):
+            return Response({"detail": "Expected a JSON object."}, status=status.HTTP_400_BAD_REQUEST)
+        api_key = data.get("api_key")
+        provider = data.get("provider", LLMProvider.OPENAI)
 
         if not api_key:
             return Response(
@@ -750,21 +852,22 @@ class LLMProviderKeyValidationViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
         extra_kwargs = {}
         if provider == LLMProvider.ANTHROPIC:
-            azure_endpoint = request.data.get("azure_endpoint")
+            azure_endpoint = data.get("azure_endpoint")
             if azure_endpoint:
                 extra_kwargs["azure_endpoint"] = azure_endpoint
         elif provider == LLMProvider.AZURE_OPENAI:
-            azure_endpoint = request.data.get("azure_endpoint")
-            api_version = request.data.get("api_version")
+            azure_endpoint = data.get("azure_endpoint")
+            api_version = data.get("api_version")
             if azure_endpoint:
                 extra_kwargs["azure_endpoint"] = azure_endpoint
             if api_version:
                 extra_kwargs["api_version"] = api_version
         elif provider == LLMProvider.OPENAI_COMPATIBLE:
-            base_url = request.data.get("base_url")
+            base_url = data.get("base_url")
             if base_url:
                 extra_kwargs["base_url"] = base_url
 
+        _require_admin_to_set_custom_endpoint(request, self, extra_kwargs)
         state, error_message = validate_provider_key(provider, api_key, team_id=self.team_id, **extra_kwargs)
         error_field = _validation_error_field(provider, error_message)
         return Response({"state": state, "error_message": error_message, "error_field": error_field})

@@ -2330,6 +2330,7 @@ class TestEvaluationSamplePreviews(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             provider="openai",
             name="team key",
+            shared=True,
             state=LLMProviderKey.State.OK,
             encrypted_config={"api_key": "sk-test"},
         )
@@ -2378,6 +2379,7 @@ class TestEvaluationSamplePreviews(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             provider="openai",
             name="team key",
+            shared=True,
             state=LLMProviderKey.State.OK,
             encrypted_config={"api_key": "sk-test"},
         )
@@ -2417,7 +2419,12 @@ class TestEvaluationSamplePreviews(ClickhouseTestMixin, APIBaseTest):
     @patch("products.ai_observability.backend.logic.evaluations.preview_units.run_generation_llm_judge")
     def test_test_on_sample_refuses_a_second_test_while_one_runs(self, mock_judge: Mock, mock_load: Mock) -> None:
         key = LLMProviderKey.objects.create(
-            team=self.team, provider="openai", name="team key", state=LLMProviderKey.State.OK, encrypted_config={}
+            team=self.team,
+            provider="openai",
+            name="team key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={},
+            shared=True,
         )
         cache.set(f"llma_eval_judge_test_running:{self.user.pk}", True)
         self.addCleanup(cache.delete, f"llma_eval_judge_test_running:{self.user.pk}")

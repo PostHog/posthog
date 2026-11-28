@@ -26,6 +26,8 @@ from posthog.llm.system_one import (
     ScoreQuestion,
     SystemOneResult,
 )
+from posthog.models.organization import OrganizationMembership
+from posthog.models.user import User
 from posthog.rate_limit import (
     LLMProxyBurstRateThrottle,
     LLMProxyBYOKBurstRateThrottle,
@@ -50,6 +52,7 @@ from products.ai_observability.backend.llm import (
 )
 from products.ai_observability.backend.llm.errors import AuthenticationError
 from products.ai_observability.backend.llm.types import OutputSchema
+from products.ai_observability.backend.logic.provider_key_access import PIN_KEY_MESSAGE
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 
 PLAYGROUND_THROTTLES = (LLMProxyBurstRateThrottle, LLMProxySustainedRateThrottle, LLMProxyDailyRateThrottle)
@@ -373,6 +376,26 @@ class TestPlaygroundModelEnforcement(APIBaseTest):
         # Consume the streaming response to trigger the generator
         b"".join(response.streaming_content)  # type: ignore[attr-defined]
         mock_client_cls.return_value.stream.assert_called_once()
+
+    @patch("products.ai_observability.backend.api.proxy.Client")
+    def test_completion_refuses_another_members_key(self, mock_client_cls) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        teammate = User.objects.create_and_join(self.organization, "teammate@example.com", None)
+        teammates_key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="Their key",
+            encrypted_config={"api_key": "sk-test-key"},
+            created_by=teammate,
+        )
+        payload = {**self._completion_payload("gpt-5.4", "openai"), "provider_key_id": str(teammates_key.id)}
+
+        response = self.client.post("/api/llm_proxy/completion/", data=payload, format="json")
+
+        assert response.status_code == 400
+        assert response.json()["error"] == PIN_KEY_MESSAGE
+        mock_client_cls.return_value.stream.assert_not_called()
 
     def test_models_endpoint_returns_only_playground_models(self) -> None:
         response = self.client.get("/api/llm_proxy/models/")

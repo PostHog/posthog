@@ -249,7 +249,7 @@ not a reason to stop. `provider_key_id` controls whether the evaluation pins one
 Hog and sentiment evaluations skip this step.
 
 ```json
-posthog:llma-provider-key-list            // find an ok-state key to pin
+posthog:llma-provider-key-list            // find an ok-state key with can_use true to pin
 posthog:llma-evaluation-judge-models      // {} → every provider and its models; { "provider": "openai" } narrows it
 ```
 
@@ -258,14 +258,15 @@ Call it with no arguments to see the whole catalog at once.
 Providers PostHog funds no models for come back empty unless you pass `key_id` for one of the team's keys; the response's `providers` list flags which ones those are.
 A listed model is not a free model. Running any `llm_judge` needs one of the team's own provider keys, so enabling fails until a usable key exists.
 Pin the chosen key with `provider_key_id`. Enabling a judge fails without a pinned `ok`-state key.
+Pin only a key whose `can_use` is true: a key shared with the project, or one the caller added.
 
 No usable key does not block creating the judge. Keys cannot be added through MCP, so:
 
-- If the team has an `ok` key that the judge isn't set to use, pin it with `provider_key_id` instead of asking
+- If the team has an `ok` key with `can_use` true that the judge isn't set to use, pin it with `provider_key_id` instead of asking
   for a new one.
 - If the team has no usable key, still create the judge with `enabled: false`. Do not spot-run or enable it.
-- Tell the user plainly that the judge starts scoring once a project admin adds a key in Settings > AI
-  observability > Bring your own key (BYOK) and enables it. A judge left disabled with no word to the user
+- Tell the user plainly that the judge starts scoring once they add a key in Settings > AI
+  observability > Bring your own key (BYOK), pick it as the judge's model, and enable it. A judge left disabled with no word to the user
   never runs, so this message is part of the job, including when a create with `enabled: true` is rejected
   for a missing key and you retry it disabled.
 

@@ -10,9 +10,6 @@ import {
     EmptyHeader,
     EmptyMedia,
     EmptyTitle,
-    Item,
-    ItemContent,
-    ItemDescription,
     Skeleton,
     Text,
     Tooltip,
@@ -60,7 +57,10 @@ export interface QuillLLMProviderKeysSettingsProps {
     isLoading: boolean
     providerKeys: LLMProviderKey[]
     validatingKeyId: string | null
-    restrictionReason: string | null
+    addKeyDisabledReason: string | null
+    manageKeyDisabledReason: (key: LLMProviderKey) => string | null
+    editKeyDisabledReason: (key: LLMProviderKey) => string | null
+    deleteKeyDisabledReason: (key: LLMProviderKey) => string | null
     onAdd: () => void
     onValidate: (key: LLMProviderKey) => void
     onEdit: (key: LLMProviderKey) => void
@@ -71,7 +71,10 @@ export function QuillLLMProviderKeysSettings({
     isLoading,
     providerKeys,
     validatingKeyId,
-    restrictionReason,
+    addKeyDisabledReason,
+    manageKeyDisabledReason,
+    editKeyDisabledReason,
+    deleteKeyDisabledReason,
     onAdd,
     onValidate,
     onEdit,
@@ -163,6 +166,7 @@ export function QuillLLMProviderKeysSettings({
             meta: { align: 'right' },
             cell: ({ row }) => {
                 const key = row.original
+                const disabledReason = manageKeyDisabledReason(key)
 
                 return (
                     <div className="flex justify-end gap-1">
@@ -170,12 +174,16 @@ export function QuillLLMProviderKeysSettings({
                             variant="outline"
                             loading={validatingKeyId === key.id}
                             onClick={() => onValidate(key)}
-                            disabledReason={restrictionReason}
+                            disabledReason={disabledReason}
                         >
                             <IconRefresh />
                             Validate
                         </Button>
-                        <Button variant="outline" onClick={() => onEdit(key)} disabledReason={restrictionReason}>
+                        <Button
+                            variant="outline"
+                            onClick={() => onEdit(key)}
+                            disabledReason={editKeyDisabledReason(key)}
+                        >
                             Edit
                         </Button>
                         <Button
@@ -184,7 +192,7 @@ export function QuillLLMProviderKeysSettings({
                             aria-label="Delete key"
                             tooltip="Delete key"
                             onClick={() => onDelete(key)}
-                            disabledReason={restrictionReason}
+                            disabledReason={deleteKeyDisabledReason(key)}
                         >
                             <IconTrash />
                         </Button>
@@ -200,21 +208,11 @@ export function QuillLLMProviderKeysSettings({
 
     return (
         <div className="flex flex-col gap-4">
-            {restrictionReason && (
-                <Item tone="info" size="sm">
-                    <ItemContent>
-                        <ItemDescription>
-                            {restrictionReason} Ask a project admin to add or manage API keys on your behalf.
-                        </ItemDescription>
-                    </ItemContent>
-                </Item>
-            )}
-
             <TurnedOffEvaluationsBanner />
 
             {providerKeys.length > 0 && (
                 <div className="flex">
-                    <Button variant="primary" onClick={onAdd} disabledReason={restrictionReason}>
+                    <Button variant="primary" onClick={onAdd} disabledReason={addKeyDisabledReason}>
                         <IconPlus />
                         Add API key
                     </Button>
@@ -229,29 +227,17 @@ export function QuillLLMProviderKeysSettings({
                         </EmptyMedia>
                         <EmptyTitle>No API keys configured</EmptyTitle>
                         <EmptyDescription>
-                            {restrictionReason ? (
-                                <>
-                                    Only project admins can add API keys for AI observability.
-                                    <br />
-                                    Ask a project admin to add a key for evaluations and the playground.
-                                </>
-                            ) : (
-                                <>
-                                    Add your API key for AI observability features with your own account.
-                                    <br />
-                                    Used for evaluations and the playground.
-                                </>
-                            )}
+                            Add your API key for AI observability features with your own account.
+                            <br />
+                            Used for evaluations and the playground.
                         </EmptyDescription>
                     </EmptyHeader>
-                    {!restrictionReason && (
-                        <EmptyContent>
-                            <Button variant="primary" onClick={onAdd}>
-                                <IconPlus />
-                                Add API key
-                            </Button>
-                        </EmptyContent>
-                    )}
+                    <EmptyContent>
+                        <Button variant="primary" onClick={onAdd} disabledReason={addKeyDisabledReason}>
+                            <IconPlus />
+                            Add API key
+                        </Button>
+                    </EmptyContent>
                 </Empty>
             ) : (
                 <DataTable columns={columns} data={providerKeys} getRowId={(key) => key.id} />

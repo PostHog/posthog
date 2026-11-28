@@ -81,6 +81,7 @@ from products.ai_observability.backend.llm.errors import (
 )
 from products.ai_observability.backend.llm.providers.openai import OpenAIConfig
 from products.ai_observability.backend.llm.providers.openrouter import decision_model_ids, non_chat_model_ids
+from products.ai_observability.backend.logic.provider_key_access import PIN_KEY_MESSAGE, can_use_provider_key
 from products.ai_observability.backend.models.provider_keys import (
     LLMProvider,
     LLMProviderKey,
@@ -482,6 +483,9 @@ class LLMProxyViewSet(viewsets.ViewSet):
         except LLMProviderKey.DoesNotExist:
             raise ValueError("Provider key not found")
 
+        if not can_use_provider_key(key, getattr(user, "pk", None)):
+            raise ValueError(PIN_KEY_MESSAGE)
+
         api_key = key.encrypted_config.get("api_key")
         if not api_key and key.provider != LLMProvider.SYSTEM_ONE:
             raise ValueError("No API key configured for this provider key")
@@ -574,8 +578,8 @@ class LLMProxyViewSet(viewsets.ViewSet):
             provider_key_id = data.get("provider_key_id")
             try:
                 provider_key = self._get_provider_key(provider_key_id, request.user)
-            except ValueError:
-                return Response({"error": "Invalid provider key configuration"}, status=400)
+            except ValueError as e:
+                return Response({"error": str(e)}, status=400)
 
             # Enforce playground model allowlist when using PostHog-funded keys
             if provider_key is None and model not in PLAYGROUND_MODEL_IDS:

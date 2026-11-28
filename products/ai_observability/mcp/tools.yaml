@@ -575,9 +575,9 @@ tools:
             eval suites); those are offline experiments. 'llm_judge': set evaluation_config.prompt and
             model_configuration with provider and model. An llm_judge runs only on the key pinned in
             model_configuration.provider_key_id, and keys can't be added through MCP. Check llma-provider-key-list first
-            and pin an ok-state key; enabling needs one. With no usable key, create the judge with enabled=false and
-            provider_key_id null, and tell the user it starts scoring once a project admin adds a key in Settings > AI
-            observability > Bring your own key (BYOK), picks it as the judge's model, and enables it. 'hog':
+            and pin an ok-state key whose can_use is true; enabling needs one. With no usable key, create the judge with
+            enabled=false and provider_key_id null, and tell the user it starts scoring once they add a key in Settings
+            > AI observability > Bring your own key (BYOK), pick it as the judge's model, and enable it. 'hog':
             evaluation_config.source (Hog returning a boolean, a finite number, or category keys). For 'hog' and
             'llm_judge', choose output_type='boolean', 'numeric', or 'categorical'; numeric output_config accepts min,
             max, step, allows_na, and passing_rule; categorical output_config accepts options, selection_mode,
@@ -1550,8 +1550,9 @@ tools:
         description: >
             List the team's configured LLM provider keys (OpenAI, Anthropic, Azure, etc.). Returns each key's provider,
             name, validation state, and a masked preview — never the secret itself. Call this before creating an
-            llm_judge evaluation to discover which providers have a usable ('ok' state) key available. Creating,
-            updating, and deleting keys are intentionally UI-only.
+            llm_judge evaluation to discover which keys are usable: 'ok' state and can_use true, which means the key is
+            shared with the project or the caller added it. Creating, updating, and deleting keys are intentionally
+            UI-only.
     llma-review-queue-create:
         operation: llm_analytics_review_queues_create
         enabled: true

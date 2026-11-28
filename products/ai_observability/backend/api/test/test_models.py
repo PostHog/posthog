@@ -90,7 +90,7 @@ class TestLLMModelsViewSet(APIBaseTest):
     @patch("products.ai_observability.backend.api.models.LLMModelConfiguration")
     def test_key_id_alone_resolves_the_provider_from_the_key(self, mock_config_cls):
         mock_config_cls.return_value.get_available_models.return_value = ["claude-sonnet-4-5"]
-        key = LLMProviderKey.objects.create(team=self.team, provider="anthropic", name="team key")
+        key = LLMProviderKey.objects.create(team=self.team, provider="anthropic", name="team key", shared=True)
 
         response = self._list(f"?key_id={key.id}")
 
@@ -101,7 +101,7 @@ class TestLLMModelsViewSet(APIBaseTest):
         self.assertEqual(mock_config_cls.call_args.kwargs["provider_key"], key)
 
     def test_rejects_key_id_that_belongs_to_another_provider(self):
-        key = LLMProviderKey.objects.create(team=self.team, provider="anthropic", name="team key")
+        key = LLMProviderKey.objects.create(team=self.team, provider="anthropic", name="team key", shared=True)
 
         response = self._list(f"?provider=openai&key_id={key.id}")
 
@@ -138,6 +138,7 @@ class TestLLMModelsViewSet(APIBaseTest):
     def test_key_scoped_listing_forwards_provider_config(self, mock_list_models):
         mock_list_models.return_value = ["qwen3-max"]
         key = LLMProviderKey.objects.create(
+            shared=True,
             team=self.team,
             provider="openai_compatible",
             name="Custom endpoint",

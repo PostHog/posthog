@@ -4,7 +4,12 @@ import { ApiError } from 'lib/api'
 
 import { modelPickerLogic, type ModelOption } from '../modelPickerLogic'
 import type { ProviderModelGroup } from '../modelPickerLogic'
-import { LLMProviderKey, llmProviderKeysLogic, normalizeLLMProvider } from '../settings/llmProviderKeysLogic'
+import {
+    LLMProviderKey,
+    isUsableProviderKey,
+    llmProviderKeysLogic,
+    normalizeLLMProvider,
+} from '../settings/llmProviderKeysLogic'
 import { llmPlaygroundPromptsLogic, type PromptConfig } from './llmPlaygroundPromptsLogic'
 import type { PlaygroundSetupPayload } from './llmPlaygroundPromptsLogic'
 import { messagesToDecisionInput } from './playgroundDecisions'
@@ -257,7 +262,7 @@ export const llmPlaygroundModelLogic = kea<llmPlaygroundModelLogicType>([
             {
                 loadProviderKeys: () => false,
                 loadProviderKeysSuccess: (_: boolean, { providerKeys }: { providerKeys: LLMProviderKey[] }) =>
-                    !providerKeys.some((key) => key.state === 'ok'),
+                    !providerKeys.some(isUsableProviderKey),
                 loadByokModelsSuccess: () => true,
                 loadByokModelsFailure: () => true,
             },

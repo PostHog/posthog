@@ -3,7 +3,6 @@ import { useEffect, useState } from 'react'
 
 import { IconPlus, IconRefresh, IconTrash } from '@posthog/icons'
 import {
-    LemonBanner,
     LemonButton,
     LemonInput,
     LemonModal,
@@ -19,6 +18,10 @@ import { TeamMembershipLevel } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconKey } from 'lib/lemon-ui/icons'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+import { userLogic } from 'scenes/userLogic'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { ProviderKeyDependentConfigsApi } from '../generated/api.schemas'
 import { LLMProviderIcon } from '../LLMProviderIcon'
@@ -34,6 +37,7 @@ import {
     LLMProviderKeyState,
     LLM_PROVIDER_LABELS,
     UpdateLLMProviderKeyPayload,
+    hasCustomEndpoint,
     isFoundryKey,
     llmProviderKeysLogic,
     normalizeSystemOneBaseUrlForComparison,
@@ -575,10 +579,23 @@ export function LLMProviderKeysSettings(): JSX.Element {
         dependentConfigsLoading,
     } = useValues(llmProviderKeysLogic)
     const { setNewKeyModalOpen, validateProviderKey, setEditingKey, setKeyToDelete } = useActions(llmProviderKeysLogic)
-    const restrictionReason = useRestrictedArea({
+    const { user } = useValues(userLogic)
+    const adminRestrictionReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
+    const addKeyDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.LlmAnalytics,
+        AccessControlLevel.Editor
+    )
+    const manageKeyDisabledReason = (key: LLMProviderKey): string | null =>
+        addKeyDisabledReason ??
+        (adminRestrictionReason && key.created_by?.id !== user?.id
+            ? 'Only the person who added this key or a project admin can change it.'
+            : null)
+    const editKeyDisabledReason = (key: LLMProviderKey): string | null =>
+        manageKeyDisabledReason(key) ??
+        (adminRestrictionReason && hasCustomEndpoint(key) ? 'Only a project admin can change a custom endpoint.' : null)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const handleAdd = (): void => setNewKeyModalOpen(true)
@@ -650,7 +667,7 @@ export function LLMProviderKeysSettings(): JSX.Element {
                         icon={<IconRefresh />}
                         loading={validatingKeyId === key.id}
                         onClick={() => handleValidate(key)}
-                        disabledReason={restrictionReason}
+                        disabledReason={manageKeyDisabledReason(key)}
                     >
                         Validate
                     </LemonButton>
@@ -658,7 +675,7 @@ export function LLMProviderKeysSettings(): JSX.Element {
                         size="small"
                         type="secondary"
                         onClick={() => setEditingKey(key)}
-                        disabledReason={restrictionReason}
+                        disabledReason={editKeyDisabledReason(key)}
                     >
                         Edit
                     </LemonButton>
@@ -668,7 +685,7 @@ export function LLMProviderKeysSettings(): JSX.Element {
                         status="danger"
                         icon={<IconTrash />}
                         onClick={() => setKeyToDelete(key)}
-                        disabledReason={restrictionReason}
+                        disabledReason={manageKeyDisabledReason(key)}
                     />
                 </div>
             ),
@@ -684,20 +701,25 @@ export function LLMProviderKeysSettings(): JSX.Element {
                     isLoading={isLoading}
                     providerKeys={sortProviderKeys(providerKeys)}
                     validatingKeyId={validatingKeyId}
-                    restrictionReason={restrictionReason}
+                    addKeyDisabledReason={addKeyDisabledReason}
+                    manageKeyDisabledReason={manageKeyDisabledReason}
+                    editKeyDisabledReason={editKeyDisabledReason}
+                    deleteKeyDisabledReason={manageKeyDisabledReason}
                     onAdd={handleAdd}
                     onValidate={handleValidate}
                     onEdit={setEditingKey}
                     onDelete={setKeyToDelete}
                 />
                 <AddKeyModal />
-                {editingKey && <EditKeyModal keyToEdit={editingKey} restrictionReason={restrictionReason} />}
+                {editingKey && (
+                    <EditKeyModal keyToEdit={editingKey} restrictionReason={editKeyDisabledReason(editingKey)} />
+                )}
                 {keyToDelete && (
                     <DeleteKeyModal
                         keyToDelete={keyToDelete}
                         dependentConfigs={dependentConfigs}
                         dependentConfigsLoading={dependentConfigsLoading}
-                        restrictionReason={restrictionReason}
+                        restrictionReason={manageKeyDisabledReason(keyToDelete)}
                     />
                 )}
             </>
@@ -711,12 +733,6 @@ export function LLMProviderKeysSettings(): JSX.Element {
                     <LemonSkeleton className="w-full h-64" />
                 ) : (
                     <>
-                        {restrictionReason && (
-                            <LemonBanner type="info">
-                                {restrictionReason} Ask a project admin to add or manage API keys on your behalf.
-                            </LemonBanner>
-                        )}
-
                         <TurnedOffEvaluationsBanner />
 
                         {providerKeys.length > 0 && (
@@ -725,7 +741,7 @@ export function LLMProviderKeysSettings(): JSX.Element {
                                     type="primary"
                                     icon={<IconPlus />}
                                     onClick={handleAdd}
-                                    disabledReason={restrictionReason}
+                                    disabledReason={addKeyDisabledReason}
                                 >
                                     Add API key
                                 </LemonButton>
@@ -737,25 +753,18 @@ export function LLMProviderKeysSettings(): JSX.Element {
                                 <IconKey className="text-muted text-4xl mb-4" />
                                 <h3 className="font-semibold mb-2">No API keys configured</h3>
                                 <p className="text-muted mb-4 text-center">
-                                    {restrictionReason ? (
-                                        <>
-                                            Only project admins can add API keys for AI observability.
-                                            <br />
-                                            Ask a project admin to add a key for evaluations and the playground.
-                                        </>
-                                    ) : (
-                                        <>
-                                            Add your API key for AI observability features with your own account.
-                                            <br />
-                                            Used for evaluations and the playground.
-                                        </>
-                                    )}
+                                    Add your API key for AI observability features with your own account.
+                                    <br />
+                                    Used for evaluations and the playground.
                                 </p>
-                                {!restrictionReason && (
-                                    <LemonButton type="primary" icon={<IconPlus />} onClick={handleAdd}>
-                                        Add API key
-                                    </LemonButton>
-                                )}
+                                <LemonButton
+                                    type="primary"
+                                    icon={<IconPlus />}
+                                    onClick={handleAdd}
+                                    disabledReason={addKeyDisabledReason}
+                                >
+                                    Add API key
+                                </LemonButton>
                             </div>
                         ) : (
                             <LemonTable
@@ -769,13 +778,15 @@ export function LLMProviderKeysSettings(): JSX.Element {
                 )}
             </div>
             <AddKeyModal />
-            {editingKey && <EditKeyModal keyToEdit={editingKey} restrictionReason={restrictionReason} />}
+            {editingKey && (
+                <EditKeyModal keyToEdit={editingKey} restrictionReason={editKeyDisabledReason(editingKey)} />
+            )}
             {keyToDelete && (
                 <DeleteKeyModal
                     keyToDelete={keyToDelete}
                     dependentConfigs={dependentConfigs}
                     dependentConfigsLoading={dependentConfigsLoading}
-                    restrictionReason={restrictionReason}
+                    restrictionReason={manageKeyDisabledReason(keyToDelete)}
                 />
             )}
         </>
