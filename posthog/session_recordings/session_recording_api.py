@@ -84,6 +84,7 @@ from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.comment import Comment
 from posthog.models.person.util import get_persons_mapped_by_distinct_id
 from posthog.models.utils import hash_key_value
+from posthog.oauth_provenance import get_oauth_access_token
 from posthog.otel_metrics import OtelInstrumentFactory
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.rate_limit import (
@@ -217,21 +218,6 @@ def _request_auth_type(request) -> str:
     return "logged_in"
 
 
-# Every blob key in a range becomes a block that recording-api decompresses and holds in memory to serve.
-SNAPSHOT_MAX_BLOB_KEYS_PLAYER = 100
-SNAPSHOT_MAX_BLOB_KEYS_SCRIPTED = 20
-
-
-def _max_snapshot_blob_keys(request: Request, auth_type: str) -> int:
-    if auth_type in ("logged_in", "shared", "jwt"):
-        return SNAPSHOT_MAX_BLOB_KEYS_PLAYER
-    application = getattr(getattr(request.successful_authenticator, "access_token", None), "application", None)
-    # Only staff can mark an application first-party, so a client cannot opt itself into the player limit.
-    if auth_type == "oauth" and application is not None and application.is_first_party:
-        return SNAPSHOT_MAX_BLOB_KEYS_PLAYER
-    return SNAPSHOT_MAX_BLOB_KEYS_SCRIPTED
-
-
 # The replay asset proxy serves only the web player under a login session, a share link, or an export.
 # Every OAuth client gets no token, which includes the player in standalone OAuth mode, and so do personal API keys.
 _PLAYER_AUTHENTICATION_CLASSES = (
@@ -240,6 +226,22 @@ _PLAYER_AUTHENTICATION_CLASSES = (
     SharingPasswordProtectedAuthentication,
     ExportRendererAuthentication,
 )
+
+
+# Every blob key in a range becomes a block that recording-api decompresses and holds in memory to serve.
+SNAPSHOT_MAX_BLOB_KEYS_PLAYER = 100
+SNAPSHOT_MAX_BLOB_KEYS_SCRIPTED = 20
+
+
+def _max_snapshot_blob_keys(request: Request) -> int:
+    authenticator = getattr(request, "successful_authenticator", None)
+    if isinstance(authenticator, (*_PLAYER_AUTHENTICATION_CLASSES, JwtAuthentication)):
+        return SNAPSHOT_MAX_BLOB_KEYS_PLAYER
+    application = getattr(get_oauth_access_token(request), "application", None)
+    # Only staff can mark an application first-party, so a client cannot opt itself into the player limit.
+    if application is not None and application.is_first_party:
+        return SNAPSHOT_MAX_BLOB_KEYS_PLAYER
+    return SNAPSHOT_MAX_BLOB_KEYS_SCRIPTED
 
 
 def _replay_proxy_token_for_player(request, team_id: int) -> str | None:
@@ -594,7 +596,7 @@ class SessionRecordingSnapshotsRequestSerializer(serializers.Serializer):
             except (ValueError, TypeError):
                 raise serializers.ValidationError("Blob keys must be integers")
 
-            max_blobs_allowed = self.context.get("max_blob_keys", SNAPSHOT_MAX_BLOB_KEYS_SCRIPTED)
+            max_blobs_allowed = self.context["max_blob_keys"]
             if int(end_blob_key) - int(start_blob_key) > max_blobs_allowed:
                 raise serializers.ValidationError(f"Cannot request more than {max_blobs_allowed} blob keys at once")
 
@@ -1667,7 +1669,7 @@ class SessionRecordingViewSet(
         serializer = SessionRecordingSnapshotsRequestSerializer(
             data=request.GET.dict(),
             context={
-                "max_blob_keys": _max_snapshot_blob_keys(request, auth_type),
+                "max_blob_keys": _max_snapshot_blob_keys(request),
                 "if_none_match": request.headers.get("If-None-Match"),
             },
         )

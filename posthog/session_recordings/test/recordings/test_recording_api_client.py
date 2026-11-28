@@ -12,7 +12,11 @@ from posthog.session_recordings.recordings.errors import (
     RecordingApiConfigurationError,
     RecordingDeletedError,
 )
-from posthog.session_recordings.recordings.recording_api_client import RecordingApiClient, recording_api_client
+from posthog.session_recordings.recordings.recording_api_client import (
+    BUSY_RETRIES,
+    RecordingApiClient,
+    recording_api_client,
+)
 from posthog.session_recordings.recordings.recording_api_jwt import recording_api_auth_headers
 
 AUTH_HEADERS = {"Authorization": "Bearer test-token"}
@@ -517,4 +521,4 @@ class TestBusyRetry:
                     else:
                         assert await client.fetch_block("key", 0, 1, "session-1", 1) == expected
 
-        assert attempts == min(busy_responses + 1, 4)
+        assert attempts == min(busy_responses + 1, BUSY_RETRIES + 1)

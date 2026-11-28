@@ -64,6 +64,12 @@ function sendRecordingDeleted(res: express.Response, deletion: RecordingDeletedR
     res.status(410).json({ error: 'recording_deleted', deleted_at: deletion.deletedAt, deleted_by: deletion.deletedBy })
 }
 
+// The Python recording-api client retries exactly this reply, so both block routes send it the same way.
+function sendBusy(res: express.Response): void {
+    res.set('Retry-After', '1')
+    res.status(503).json({ error: 'Busy' })
+}
+
 export class RecordingApi {
     private s3Client: S3Client | null = null
     private s3Bucket: string | null = null
@@ -370,8 +376,7 @@ export class RecordingApi {
         const requestedBytes = (endByte - startByte + 1) * (decompress ? DECOMPRESSED_SIZE_ESTIMATE : 1)
         if (!this.admitInternalBlock(requestedBytes)) {
             RecordingApiMetrics.incrementInternalBlockBusy()
-            res.set('Retry-After', '1')
-            res.status(503).json({ error: 'Busy' })
+            sendBusy(res)
             return
         }
         let heldBytes = requestedBytes
@@ -397,15 +402,15 @@ export class RecordingApi {
             }
 
             // A decompressed block is several times its stored size, so the budget holds what the response holds.
-            heldBytes = this.resizeInternalBlockCharge(heldBytes, Buffer.byteLength(result.data))
+            const sentBytes = Buffer.byteLength(result.data)
+            this.chargeInternalBlock(sentBytes - heldBytes)
+            heldBytes = 0
+            this.releaseOnFinish(res, () => this.chargeInternalBlock(-sentBytes))
             const contentType = decompress ? 'application/jsonl' : 'application/octet-stream'
             res.set('Content-Type', contentType)
-            res.set('Content-Length', String(Buffer.byteLength(result.data)))
+            res.set('Content-Length', String(sentBytes))
             res.set('Cache-Control', 'public, max-age=2592000, immutable')
             // Internal callers keep connections alive, so this route keeps send() rather than the write that closes the socket.
-            const sentBytes = heldBytes
-            heldBytes = 0
-            this.releaseOnFinish(res, () => this.releaseInternalBlock(sentBytes))
             res.send(result.data)
         } catch (error) {
             logger.error('[RecordingApi] Error fetching block from S3', {
@@ -419,7 +424,7 @@ export class RecordingApi {
             captureException(error)
             res.status(500).json({ error: 'Failed to fetch block from S3' })
         } finally {
-            this.releaseInternalBlock(heldBytes)
+            this.chargeInternalBlock(-heldBytes)
         }
     }
 
@@ -537,22 +542,15 @@ export class RecordingApi {
         ) {
             return false
         }
-        this.internalBlockBytesInFlight += bytes
-        RecordingApiMetrics.setInternalBlockBytesInFlight(this.internalBlockBytesInFlight)
+        this.chargeInternalBlock(bytes)
         return true
     }
 
-    private resizeInternalBlockCharge(heldBytes: number, actualBytes: number): number {
-        this.internalBlockBytesInFlight += actualBytes - heldBytes
-        RecordingApiMetrics.setInternalBlockBytesInFlight(this.internalBlockBytesInFlight)
-        return actualBytes
-    }
-
-    private releaseInternalBlock(bytes: number): void {
-        if (bytes === 0) {
+    private chargeInternalBlock(delta: number): void {
+        if (delta === 0) {
             return
         }
-        this.internalBlockBytesInFlight -= bytes
+        this.internalBlockBytesInFlight += delta
         RecordingApiMetrics.setInternalBlockBytesInFlight(this.internalBlockBytesInFlight)
     }
 
@@ -564,6 +562,11 @@ export class RecordingApi {
                 clearTimeout(timer)
                 onRelease()
             }
+        }
+        // A caller that hung up during the read already emitted close, so nothing else would release its bytes.
+        if (res.writableFinished) {
+            onRelease()
+            return
         }
         const timer = setTimeout(release, PUBLIC_BLOCK_HOLD_CAP_MS)
         timer.unref()
@@ -672,8 +675,7 @@ export class RecordingApi {
                     return
                 }
                 if (result.error === 'busy') {
-                    res.set('Retry-After', '1')
-                    res.status(503).json({ error: 'Busy' })
+                    sendBusy(res)
                     return
                 }
                 res.status(404).json({ error: 'Block not found' })

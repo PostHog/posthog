@@ -68,12 +68,13 @@ class RecordingApiClient:
 
         try:
             for attempt in range(BUSY_RETRIES + 1):
+                if attempt:
+                    # Kube-proxy balances per connection, so a retry that closes its connection lets the next one reach another pod.
+                    headers = {**headers, "Connection": "close"}
+                    await asyncio.sleep(BUSY_RETRY_BASE_DELAY_SECONDS * attempt * (0.5 + random.random()))
                 async with self.session.get(url, params=params, headers=headers) as response:
-                    if response.status != 503 or attempt == BUSY_RETRIES:
+                    if response.status != 503:
                         return await self._read_block(response, session_id, team_id)
-                # Kube-proxy balances per connection, so a retry that closes its connection lets the next one reach another pod.
-                headers = {**headers, "Connection": "close"}
-                await asyncio.sleep(BUSY_RETRY_BASE_DELAY_SECONDS * (attempt + 1) * (0.5 + random.random()))
             raise BlockFetchError("Recording API stayed busy")
         except (RecordingDeletedError, BlockFetchError):
             raise
