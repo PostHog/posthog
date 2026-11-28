@@ -2,7 +2,7 @@ import re
 import json
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, Literal, NoReturn, Optional, cast
 from uuid import UUID
 from zoneinfo import ZoneInfo
@@ -22,6 +22,7 @@ from rest_framework.exceptions import APIException, NotFound, PermissionDenied, 
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.current_alias_deprecation import set_deprecation_headers, successor_url
 from posthog.api.documentation import PostHogAutoSchema
 from posthog.api.fields import OptionalBooleanField
 from posthog.api.mixins import ValidatedRequest, validated_request
@@ -841,6 +842,18 @@ class _BillingSchema(PostHogAutoSchema):
         return super().get_operation(path, path_regex, path_prefix, method, registry)
 
 
+FLAT_BILLING_DEPRECATED_AT = datetime(2026, 11, 26, tzinfo=UTC)
+# RFC 9745 gives the Deprecation header a structured-field date: "@" and Unix seconds.
+FLAT_BILLING_DEPRECATION = f"@{int(FLAT_BILLING_DEPRECATED_AT.timestamp())}"
+# The organization billing API serves these reads at other paths, in its own shapes.
+_FLAT_BILLING_SUCCESSOR_PATHS = {
+    "usage": "usage/timeseries",
+    "spend": "spend/timeseries",
+    "usage/team_options": "projects",
+}
+_TIMESERIES_SUCCESSOR_PATHS = frozenset({"usage/timeseries", "spend/timeseries"})
+
+
 def _billing_period_response(organization: Organization) -> dict[str, Any]:
     billing_period = organization.current_billing_period
     return BillingPeriodResponseSerializer(
@@ -874,6 +887,8 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if actions and actions.get("get") == "list":
             actions = {**actions, "patch": "update_limits"}
         return super().as_view(actions, **initkwargs)
+
+    serves_flat_route = True
 
     @property
     def _organization_in_path(self) -> bool:
@@ -922,6 +937,41 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 matches = False
             if not matches:
                 raise ValidationError({"organization_id": "Does not match the organization in the path."})
+
+    def finalize_response(self, request: Request, response: Response, *args: Any, **kwargs: Any) -> Response:
+        response = super().finalize_response(request, response, *args, **kwargs)
+        # initial() adds the organization to self.kwargs for actions that send organization_id, so the class says
+        # which route served the request, not the kwargs.
+        if self.serves_flat_route:
+            self._mark_flat_route_deprecated(request, response)
+        return response
+
+    def _mark_flat_route_deprecated(self, request: Request, response: Response) -> None:
+        """/api/billing/ takes the organization from the user's current project, so its responses carry the same
+        deprecation headers as @current and link the organization route that replaces it."""
+        organization = self._get_org() if 200 <= response.status_code < 300 else None
+        successor = self._flat_route_successor(request, organization) if organization is not None else None
+        set_deprecation_headers(response, FLAT_BILLING_DEPRECATION, successor)
+
+    def _flat_route_successor(self, request: Request, organization: Organization) -> str:
+        format_suffix = f".{self.kwargs['format']}" if self.kwargs.get("format") else ""
+        action_path = request.path.removeprefix("/api/billing").removesuffix(format_suffix).strip("/")
+        successor_action_path = _FLAT_BILLING_SUCCESSOR_PATHS.get(action_path, action_path)
+        path = f"/api/organizations/{organization.id}/billing"
+        if successor_action_path:
+            path += f"/{successor_action_path}"
+        if format_suffix:
+            path += format_suffix
+        elif request.path.endswith("/") or not successor_action_path:
+            path += "/"
+
+        query = request.GET.copy()
+        if successor_action_path in _TIMESERIES_SUCCESSOR_PATHS:
+            # The time-series reads page with limit and cursor, which carry the same values as page_size and after.
+            for legacy_name, name in (("page_size", "limit"), ("after", "cursor")):
+                if legacy_name in query:
+                    query.setlist(name, query.pop(legacy_name))
+        return successor_url(path, query)
 
     def get_billing_manager(self) -> BillingManager:
         license = get_cached_instance_license()
@@ -1814,6 +1864,7 @@ class OrganizationPathBillingViewset(BillingViewset):
     paths in its own shapes, so this viewset leaves those reads to it.
     """
 
+    serves_flat_route = False
     schema = _OrganizationPathBillingSchema()
     # The project route serves the billing period too, for callers that know only the project.
     schema_org_paths_are_not_duplicates = True

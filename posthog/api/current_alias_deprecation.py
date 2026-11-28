@@ -8,11 +8,11 @@ from posthog.api.request_scope import request_scope_shadow
 from posthog.api.scope_resolution import CURRENT_ALIAS
 
 CURRENT_ALIAS_DEPRECATED_AT = datetime(2026, 11, 25, tzinfo=UTC)
-CURRENT_ALIAS_SUNSET_AT = datetime(2027, 4, 30, 23, 59, 59, tzinfo=UTC)
-CURRENT_ALIAS_DOCS_URL = "https://posthog.com/docs/api/current-alias-deprecation"
+STATE_DEPENDENT_REQUESTS_SUNSET_AT = datetime(2027, 4, 30, 23, 59, 59, tzinfo=UTC)
+STATE_DEPENDENT_REQUESTS_DOCS_URL = "https://posthog.com/docs/api/state-dependent-requests"
 # RFC 9745 gives the Deprecation header a structured-field date: "@" and Unix seconds.
 CURRENT_ALIAS_DEPRECATION = f"@{int(CURRENT_ALIAS_DEPRECATED_AT.timestamp())}"
-CURRENT_ALIAS_SUNSET = http_date(CURRENT_ALIAS_SUNSET_AT.timestamp())
+STATE_DEPENDENT_REQUESTS_SUNSET = http_date(STATE_DEPENDENT_REQUESTS_SUNSET_AT.timestamp())
 # personal_api_keys/@current names the key that signs the request, so it stays.
 DEPRECATED_COLLECTIONS = frozenset({"projects", "environments", "organizations"})
 # Query parameters that carry a credential. A successor link goes back in a response header, so it leaves them out.
@@ -46,10 +46,15 @@ def add_current_alias_deprecation_headers(request: HttpRequest, response: HttpRe
     if segments[2] != CURRENT_ALIAS:
         return
 
-    response["Deprecation"] = CURRENT_ALIAS_DEPRECATION
-    response["Sunset"] = CURRENT_ALIAS_SUNSET
-    links = [f'<{CURRENT_ALIAS_DOCS_URL}>; rel="deprecation"']
-    successor = _successor(request, response, segments)
+    set_deprecation_headers(response, CURRENT_ALIAS_DEPRECATION, _successor(request, response, segments))
+
+
+def set_deprecation_headers(response: HttpResponseBase, deprecation: str, successor: str | None) -> None:
+    """Set the RFC 9745 Deprecation header, the shared Sunset date, and a Link to the docs and, when known, to the
+    request that replaces this one."""
+    response["Deprecation"] = deprecation
+    response["Sunset"] = STATE_DEPENDENT_REQUESTS_SUNSET
+    links = [f'<{STATE_DEPENDENT_REQUESTS_DOCS_URL}>; rel="deprecation"']
     if successor is not None:
         links.insert(0, f'<{successor}>; rel="successor-version"')
     response["Link"] = ", ".join(links)

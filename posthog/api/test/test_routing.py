@@ -31,8 +31,8 @@ from rest_framework.response import Response
 
 from posthog.api.current_alias_deprecation import (
     CURRENT_ALIAS_DEPRECATION,
-    CURRENT_ALIAS_DOCS_URL,
-    CURRENT_ALIAS_SUNSET,
+    STATE_DEPENDENT_REQUESTS_DOCS_URL,
+    STATE_DEPENDENT_REQUESTS_SUNSET,
 )
 from posthog.api.request_scope import ScopeLevel, resolve_request_scope
 from posthog.api.routing import DefaultRouterPlusPlus, PathParameter, RouterRegistry, TeamAndOrgViewSetMixin
@@ -854,8 +854,8 @@ class TestCurrentAliasDeprecationHeaders(APIBaseTest):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response["Deprecation"], CURRENT_ALIAS_DEPRECATION)
-        self.assertEqual(response["Sunset"], CURRENT_ALIAS_SUNSET)
-        docs_link = f'<{CURRENT_ALIAS_DOCS_URL}>; rel="deprecation"'
+        self.assertEqual(response["Sunset"], STATE_DEPENDENT_REQUESTS_SUNSET)
+        docs_link = f'<{STATE_DEPENDENT_REQUESTS_DOCS_URL}>; rel="deprecation"'
         if successor is None:
             self.assertEqual(response["Link"], docs_link)
         else:
@@ -881,7 +881,7 @@ class TestCurrentAliasDeprecationHeaders(APIBaseTest):
 
         self.assertEqual(response.status_code, 403)
         self.assertEqual(response["Deprecation"], CURRENT_ALIAS_DEPRECATION)
-        self.assertEqual(response["Link"], f'<{CURRENT_ALIAS_DOCS_URL}>; rel="deprecation"')
+        self.assertEqual(response["Link"], f'<{STATE_DEPENDENT_REQUESTS_DOCS_URL}>; rel="deprecation"')
 
     def test_successor_keeps_the_path_encoded_and_leaves_out_credentials(self) -> None:
         key_value = generate_random_token_personal()
@@ -897,7 +897,8 @@ class TestCurrentAliasDeprecationHeaders(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         successor = f"/api/projects/{self.team.project_id}/feature_flags/1%3Fa%0Ab/?limit=1"
         self.assertEqual(
-            response["Link"], f'<{successor}>; rel="successor-version", <{CURRENT_ALIAS_DOCS_URL}>; rel="deprecation"'
+            response["Link"],
+            f'<{successor}>; rel="successor-version", <{STATE_DEPENDENT_REQUESTS_DOCS_URL}>; rel="deprecation"',
         )
 
     def test_request_naming_its_project_is_not_deprecated(self) -> None:

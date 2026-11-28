@@ -24,6 +24,7 @@ from requests import Response, get
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
 
+from posthog.api.current_alias_deprecation import STATE_DEPENDENT_REQUESTS_DOCS_URL, STATE_DEPENDENT_REQUESTS_SUNSET
 from posthog.auth import ProjectSecretAPIKeyUser
 from posthog.cloud_utils import TEST_clear_instance_license_cache, get_cached_instance_license
 from posthog.constants import AvailableFeature
@@ -44,6 +45,7 @@ from ee.api.billing import (
     _EXPORT_STREAMS,
     BILLING_ACCESS_DENIED_MESSAGE,
     BILLING_PROJECT_ACCESS_DENIED_MESSAGE,
+    FLAT_BILLING_DEPRECATION,
     BillingDateRangeTooLong,
     BillingExportThrottle,
     BillingNotManagedByPartner,
@@ -1370,6 +1372,67 @@ class TestActivateBillingAPI(APILicensedTest):
         match = resolve(f"/api/organizations/{self.organization.id}/billing/{path}")
 
         assert getattr(match.func, "cls", None) is OrganizationBillingViewSet
+
+    @parameterized.expand(
+        [
+            ("overview", "/api/billing/", "get_billing", "/api/organizations/{organization_id}/billing/"),
+            (
+                "coupons",
+                "/api/billing/coupons/overview/?limit=1",
+                "coupons_overview",
+                "/api/organizations/{organization_id}/billing/coupons/overview/?limit=1",
+            ),
+            (
+                "usage",
+                "/api/billing/usage/",
+                "get_usage_data",
+                "/api/organizations/{organization_id}/billing/usage/timeseries/",
+            ),
+            (
+                "overview_naming_its_organization",
+                "/api/billing/?organization_id={organization_id}",
+                "get_billing",
+                "/api/organizations/{organization_id}/billing/?organization_id={organization_id}",
+            ),
+            (
+                "paged_usage",
+                "/api/billing/usage/?page_size=10&after=abc",
+                "get_usage_data",
+                "/api/organizations/{organization_id}/billing/usage/timeseries/?limit=10&cursor=abc",
+            ),
+            (
+                "format_suffix",
+                "/api/billing/usage.json",
+                "get_usage_data",
+                "/api/organizations/{organization_id}/billing/usage/timeseries.json",
+            ),
+            ("organization_route", "/api/organizations/{organization_id}/billing/", "get_billing", None),
+        ]
+    )
+    def test_flat_route_is_deprecated_with_the_organization_route_as_successor(
+        self, _name: str, url: str, manager_method: str, successor: str | None
+    ) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
+
+        with (
+            patch.object(
+                BillingManager, "get_billing", return_value={"products": [], "available_product_features": []}
+            ),
+            patch.object(BillingManager, manager_method, return_value={"products": [], "status": "ok", "results": []}),
+        ):
+            response = self.client.get(url.format(organization_id=self.organization.id))
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        if successor is None:
+            assert "Deprecation" not in response
+            return
+        assert response["Deprecation"] == FLAT_BILLING_DEPRECATION
+        assert response["Sunset"] == STATE_DEPENDENT_REQUESTS_SUNSET
+        assert response["Link"] == (
+            f'<{successor.format(organization_id=self.organization.id)}>; rel="successor-version", '
+            f'<{STATE_DEPENDENT_REQUESTS_DOCS_URL}>; rel="deprecation"'
+        )
 
     def test_organization_in_the_path_requires_membership(self) -> None:
         organization = Organization.objects.create(name="Organization the user is not in")

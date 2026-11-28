@@ -6,7 +6,7 @@ from django.test import RequestFactory, SimpleTestCase, override_settings
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.api.current_alias_deprecation import CURRENT_ALIAS_DEPRECATION, CURRENT_ALIAS_DOCS_URL
+from posthog.api.current_alias_deprecation import CURRENT_ALIAS_DEPRECATION, STATE_DEPENDENT_REQUESTS_DOCS_URL
 from posthog.middleware import EnvironmentsRewriteMiddleware
 from posthog.models.organization import OrganizationMembership
 
@@ -82,7 +82,7 @@ class TestEnvironmentsRewriteIntegration(APIBaseTest):
         # No redirect — the client gets the response on the original URL.
         self.assertNotIn("Location", response)
         self.assertEqual(response["Deprecation"], CURRENT_ALIAS_DEPRECATION)
-        self.assertEqual(response["Link"], f'<{CURRENT_ALIAS_DOCS_URL}>; rel="deprecation"')
+        self.assertEqual(response["Link"], f'<{STATE_DEPENDENT_REQUESTS_DOCS_URL}>; rel="deprecation"')
 
     def test_write_round_trips_method_and_body(self):
         # Renaming is admin-only, so run as an admin here — this test covers the rewrite, not the permission check.
