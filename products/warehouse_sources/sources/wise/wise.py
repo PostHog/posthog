@@ -105,22 +105,16 @@ def _client_config(token: str) -> ClientConfig:
     }
 
 
-def _balance_pages(client: ClientConfig, team_id: int, job_id: str) -> Iterable[list[dict[str, Any]]]:
+def _statement_balance_pages(client: RESTClient, safe_point: Callable[[], None]) -> Iterator[list[dict[str, Any]]]:
     balances = ENDPOINTS["balances"]
-    assert balances.fanout is not None
-    return build_dependent_resource(
-        endpoint_configs=ENDPOINTS,
-        child_endpoint=balances.name,
-        fanout=balances.fanout,
-        client_config=client,
-        path_format_values={},
-        team_id=team_id,
-        job_id=job_id,
-        db_incremental_field_last_value=None,
-        child_endpoint_extra=_endpoint_extra(balances),
-        child_params_extra=_child_params(balances),
-        page_size_param=None,
-    )
+    for profiles in client.paginate(ENDPOINTS["profiles"].path, data_selector_required=True):
+        safe_point()
+        for profile in profiles:
+            profile_id = int(profile["id"])
+            path = balances.path.format(profile_id=profile_id)
+            for page in client.paginate(path, params=_child_params(balances), data_selector_required=True):
+                safe_point()
+                yield [{**balance, "profileId": profile_id} for balance in page]
 
 
 def _statement_params(currency: str, start: datetime, end: datetime) -> dict[str, str]:
@@ -134,10 +128,10 @@ def _statement_params(currency: str, start: datetime, end: datetime) -> dict[str
 def _statement_pages(
     token: str,
     endpoint: WiseEndpoint,
-    balance_pages: Iterable[list[dict[str, Any]]],
     watermark: datetime | None,
     initial_state: dict[str, Any] | None,
     save_state: Callable[[dict[str, Any]], None],
+    safe_point: Callable[[], None],
 ) -> Iterator[list[dict[str, Any]]]:
     client = RESTClient(
         base_url=BASE_URL,
@@ -148,7 +142,7 @@ def _statement_pages(
     run_end = datetime.fromisoformat(initial_state["end"]) if initial_state else datetime.now(UTC)
     next_intervals: dict[str, StatementInterval | None] = dict(initial_state["next_intervals"]) if initial_state else {}
 
-    for balance_page in balance_pages:
+    for balance_page in _statement_balance_pages(client, safe_point):
         for balance in balance_page:
             profile_id, balance_id = int(balance["profileId"]), int(balance["id"])
             path = endpoint.path.format(profile_id=profile_id, balance_id=balance_id)
@@ -187,9 +181,11 @@ def _statement_pages(
                         if next_start is not None
                         else None
                     )
+                    save_state({"end": run_end.isoformat(), "next_intervals": next_intervals})
                     if rows:
-                        save_state({"end": run_end.isoformat(), "next_intervals": next_intervals})
                         yield rows
+                    else:
+                        safe_point()
 
                 if next_start is None:
                     break
@@ -232,10 +228,10 @@ def wise_source(
         resource = _statement_pages(
             token,
             endpoint,
-            _balance_pages(client, team_id, job_id),
             parse_datetime_value(db_incremental_field_last_value) if should_use_incremental_field else None,
             initial_state,
             save_state,
+            resumable_source_manager.safe_point,
         )
     elif endpoint.fanout is not None:
         resource = build_dependent_resource(

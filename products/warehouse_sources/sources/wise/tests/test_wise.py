@@ -3,7 +3,9 @@ from typing import Any
 
 import pytest
 import time_machine
+from unittest.mock import patch
 
+from products.warehouse_sources.sources.sdk import ResumableSourceManager
 from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
@@ -229,6 +231,9 @@ def test_balance_statements_walk_past_empty_windows_and_keep_balance_keys() -> N
     )
 
     assert result.raised is None
+    assert result.committed_states[0].paginator_state["next_intervals"][STATEMENT_PATH]["start"] == (
+        "2024-04-13T23:59:59.999000+00:00"
+    )
     statement_requests = [request for request in result.requests if request.path.endswith("/statement.json")]
     assert [request.param("currency") for request in statement_requests] == ["EUR", "EUR", "GBP"]
     assert [request.param("type") for request in statement_requests] == ["COMPACT"] * 3
@@ -243,6 +248,24 @@ def test_balance_statements_walk_past_empty_windows_and_keep_balance_keys() -> N
         "2024-05-01T00:00:00.000Z",
     ]
     assert result.rows == [{**transaction, "profileId": profile_id, "balanceId": 1} for profile_id in (101, 202)]
+
+
+def test_balance_statements_can_stop_after_a_profile_with_no_balances() -> None:
+    shutdown = RuntimeError("Worker shutdown")
+    with patch.object(ResumableSourceManager, "safe_point", side_effect=[None, shutdown]):
+        result = driver().run(
+            "balance_statements",
+            responder(
+                {
+                    ("/profiles", None): [ScriptedResponse(json=PROFILES)],
+                    ("/profiles/101/balances", None): [ScriptedResponse(json=[])],
+                    ("/profiles/202/balances", None): [ScriptedResponse(json=[])],
+                }
+            ),
+        )
+
+    assert result.raised is shutdown
+    assert result.paths == ["/2026Q4/profiles", "/2026Q4/profiles/101/balances"]
 
 
 @pytest.mark.parametrize(
