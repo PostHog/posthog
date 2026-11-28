@@ -22,6 +22,7 @@ and fills its option only when that option is unset.
 from __future__ import annotations
 
 import time
+import random
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -31,7 +32,6 @@ from uuid import uuid4
 
 import structlog
 from prometheus_client import Counter
-from requests.adapters import HTTPAdapter, Retry
 from requests.exceptions import RequestException
 
 from posthog.dataclasses import frozen
@@ -45,7 +45,7 @@ from posthog.settings.ingestion import (
     CAPTURE_V1_INTERNAL_ENDPOINT,
     CAPTURE_V1_INTERNAL_MAX_ATTEMPTS,
     CAPTURE_V1_INTERNAL_RETRY_AFTER_CAP_SECONDS,
-    CAPTURE_V1_INTERNAL_TRANSPORT_RETRIES,
+    CAPTURE_V1_INTERNAL_RETRY_BASE_SECONDS,
 )
 
 logger = structlog.get_logger(__name__)
@@ -79,6 +79,8 @@ _MAX_REPORTED_REASON_CHARS = 64
 
 _KNOWN_RESULT_STATUSES = frozenset({"ok", "drop", "warning", "retry"})
 
+_RETRYABLE_STATUSES = frozenset({404, 408, 429, 500, 502, 503, 504})
+
 # --------------------------------------------------------------------------- #
 # Metrics
 # --------------------------------------------------------------------------- #
@@ -106,6 +108,11 @@ CAPTURE_V1_EVENT_RESULT = Counter(
 CAPTURE_V1_REQUEST_FAILED = Counter(
     "capture_v1_internal_request_failed",
     "Whole-request failures from capture v1 endpoint.",
+    labelnames=["event_source", "status_code", "lane"],
+)
+CAPTURE_V1_REQUEST_RETRIED = Counter(
+    "capture_v1_internal_request_retried",
+    "Whole requests retried after a retryable status or a transport error",
     labelnames=["event_source", "status_code", "lane"],
 )
 CAPTURE_V1_RESUBMIT = Counter(
@@ -237,15 +244,28 @@ def _reported_reason(details: Any) -> str:
 # --------------------------------------------------------------------------- #
 
 
-def _build_v1_headers(token: str, attempt: int) -> dict[str, str]:
+def _utc_timestamp(dt: datetime) -> str:
+    """RFC 3339 in UTC. Microseconds are always written: capture v1 wants at least three digits."""
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC).isoformat(timespec="microseconds")
+
+
+def _retry_wait(attempt: int, retry_after: Optional[str]) -> float:
+    """Capture v1 backoff: the base doubled per attempt, ±25% jitter, raised to a capped Retry-After."""
+    backoff = CAPTURE_V1_INTERNAL_RETRY_BASE_SECONDS * (2 ** (attempt - 1)) * random.uniform(0.75, 1.25)
+    return max(backoff, _parse_retry_after(retry_after))
+
+
+def _build_v1_headers(token: str, attempt: int, request_id: str) -> dict[str, str]:
     return {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
         "User-Agent": SDK_INFO,
         "PostHog-Sdk-Info": SDK_INFO,
         "PostHog-Attempt": str(attempt),
-        "PostHog-Request-Id": str(uuid4()),
-        "PostHog-Request-Timestamp": datetime.now(UTC).isoformat(),
+        "PostHog-Request-Id": request_id,
+        "PostHog-Request-Timestamp": _utc_timestamp(datetime.now(UTC)),
     }
 
 
@@ -442,11 +462,9 @@ def prepare_capture_internal_batch(
 
         raw_ts: Any = ev.get("timestamp", "")
         if not raw_ts:
-            timestamp_str = datetime.now(UTC).isoformat()
+            timestamp_str = _utc_timestamp(datetime.now(UTC))
         elif isinstance(raw_ts, datetime):
-            if raw_ts.tzinfo is None:
-                raw_ts = raw_ts.replace(tzinfo=UTC)
-            timestamp_str = raw_ts.astimezone(UTC).isoformat()
+            timestamp_str = _utc_timestamp(raw_ts)
         else:
             timestamp_str = str(raw_ts)
 
@@ -477,7 +495,7 @@ def prepare_capture_internal_batch(
         batch.append(entry)
 
     payload: dict[str, Any] = {
-        "created_at": datetime.now(UTC).isoformat(),
+        "created_at": _utc_timestamp(datetime.now(UTC)),
         "capture_internal": True,
         "historical_migration": historical_migration,
         "batch": batch,
@@ -557,21 +575,12 @@ def _submit_batch_chunk(
                 result.unaccounted.append(uid)
         return result
 
+    # Capture v1 retries keep one PostHog-Request-Id and restamp PostHog-Attempt and
+    # PostHog-Request-Timestamp, so retries stay in this loop, never in an HTTP library.
     with internal_requests_session() as session:
-        session.mount(
-            url,
-            HTTPAdapter(
-                max_retries=Retry(
-                    total=CAPTURE_V1_INTERNAL_TRANSPORT_RETRIES,
-                    backoff_factor=0.1,
-                    status_forcelist=[500, 502, 503, 504],
-                    allowed_methods={"POST"},
-                )
-            ),
-        )
-
+        request_id = str(uuid4())
         while True:
-            headers = _build_v1_headers(token, attempt)
+            headers = _build_v1_headers(token, attempt, request_id)
             submit_payload: dict[str, Any] = {
                 "created_at": payload["created_at"],
                 "capture_internal": payload["capture_internal"],
@@ -583,18 +592,33 @@ def _submit_batch_chunk(
             try:
                 resp = session.post(url, json=submit_payload, headers=headers, timeout=timeout)
             except RequestException as exc:
+                if attempt < max_attempts:
+                    CAPTURE_V1_REQUEST_RETRIED.labels(
+                        event_source=event_source, status_code="transport", lane=lane
+                    ).inc()
+                    _sleep(_retry_wait(attempt, None))
+                    attempt += 1
+                    continue
                 CAPTURE_V1_REQUEST_FAILED.labels(event_source=event_source, status_code="transport", lane=lane).inc()
                 logger.warning(
                     "capture_internal_transport_error",
                     event_source=event_source,
                     lane=lane,
                     request_id=headers.get("PostHog-Request-Id", ""),
+                    attempts=attempt,
                     batch_size=len(pending_batch),
                     error=str(exc),
                 )
                 return _finalize(0, {"error": "transport_error", "error_description": str(exc)})
 
             if resp.status_code != 200:
+                if resp.status_code in _RETRYABLE_STATUSES and attempt < max_attempts:
+                    CAPTURE_V1_REQUEST_RETRIED.labels(
+                        event_source=event_source, status_code=str(resp.status_code), lane=lane
+                    ).inc()
+                    _sleep(_retry_wait(attempt, resp.headers.get("Retry-After")))
+                    attempt += 1
+                    continue
                 CAPTURE_V1_REQUEST_FAILED.labels(
                     event_source=event_source,
                     status_code=str(resp.status_code),
@@ -613,6 +637,7 @@ def _submit_batch_chunk(
                     lane=lane,
                     request_id=headers.get("PostHog-Request-Id", ""),
                     status_code=resp.status_code,
+                    attempts=attempt,
                     batch_size=len(pending_batch),
                     error=error_body.get("error", "unknown"),
                 )
@@ -659,9 +684,7 @@ def _submit_batch_chunk(
 
             # --- resubmit retry-uuids ---
             CAPTURE_V1_RESUBMIT.labels(event_source=event_source).inc()
-            retry_after = _parse_retry_after(resp.headers.get("Retry-After"))
-            if retry_after > 0:
-                time.sleep(retry_after)
+            _sleep(_retry_wait(attempt, resp.headers.get("Retry-After")))
 
             pending_batch = [uuid_to_event[uid] for uid in retry_uuids]
             attempt += 1
@@ -984,6 +1007,11 @@ def capture_batch_internal(
         timeout=timeout,
         ai_lane=False,
     )
+
+
+def _sleep(seconds: float) -> None:
+    if seconds > 0:
+        time.sleep(seconds)
 
 
 def _parse_retry_after(header_value: Optional[str]) -> float:

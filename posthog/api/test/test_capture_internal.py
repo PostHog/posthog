@@ -1,15 +1,15 @@
 import inspect
 import threading
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
+import time_machine
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
-from requests.adapters import HTTPAdapter
 from requests.exceptions import ConnectionError as RequestsConnectionError
 from structlog.testing import capture_logs
 
@@ -17,6 +17,7 @@ from posthog.api.capture import (
     CAPTURE_V1_EVENTS_REROUTED,
     CAPTURE_V1_OPTION_CONFLICT,
     CAPTURE_V1_REQUEST_FAILED,
+    CAPTURE_V1_REQUEST_RETRIED,
     CAPTURE_V1_REQUEST_SUBMITTED,
     CaptureInternalError,
     CaptureInternalResult,
@@ -40,6 +41,9 @@ from posthog.settings.ingestion import (
 )
 
 EXPECTED_URL = f"{CAPTURE_INTERNAL_URL}{CAPTURE_V1_INTERNAL_ENDPOINT}"
+
+# A whole second: isoformat() without timespec would drop the fraction here.
+WHOLE_SECOND = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
 EXPECTED_AI_URL = f"{CAPTURE_AI_INTERNAL_URL}{CAPTURE_V1_AI_INTERNAL_ENDPOINT}"
 
 
@@ -73,12 +77,12 @@ class InstallV1Spy:
     def __init__(
         self,
         mock_session_fn: MagicMock,
-        responses: list[MockResponse] | None = None,
+        responses: list[MockResponse | Exception] | None = None,
         *,
         responses_by_url: dict[str, MockResponse] | None = None,
     ):
         self.calls: list[dict[str, Any]] = []
-        self._responses = list(responses or [MockResponse(body={})])
+        self._responses: list[MockResponse | Exception] = list(responses or [MockResponse(body={})])
         self._call_idx = 0
         self._lock = threading.Lock()
 
@@ -89,7 +93,9 @@ class InstallV1Spy:
                     return responses_by_url[url]
                 resp = self._responses[min(self._call_idx, len(self._responses) - 1)]
                 self._call_idx += 1
-                return resp
+            if isinstance(resp, Exception):
+                raise resp
+            return resp
 
         mock_session = MagicMock()
         mock_session.post.side_effect = spy_post
@@ -113,26 +119,22 @@ def _make_event(
 
 
 class TestBuildV1Headers(SimpleTestCase):
+    @time_machine.travel(WHOLE_SECOND, tick=False)
     def test_all_required_headers_present(self) -> None:
-        headers = _build_v1_headers("phc_test123", attempt=1)
+        headers = _build_v1_headers("phc_test123", attempt=1, request_id="0199c3e8-4c7b-7e2e-9f21-2b6d5a1c9e04")
         assert headers["Authorization"] == "Bearer phc_test123"
         assert headers["Content-Type"] == "application/json"
         assert "posthog-capture-v1-internal" in headers["User-Agent"]
         assert headers["PostHog-Sdk-Info"] == "posthog-capture-v1-internal/1.0"
         assert headers["PostHog-Attempt"] == "1"
-        assert len(headers["PostHog-Request-Id"]) == 36
-        assert "T" in headers["PostHog-Request-Timestamp"]
+        assert headers["PostHog-Request-Id"] == "0199c3e8-4c7b-7e2e-9f21-2b6d5a1c9e04"
+        assert headers["PostHog-Request-Timestamp"] == "2026-01-01T12:00:00.000000+00:00"
 
     def test_attempt_increments(self) -> None:
-        h1 = _build_v1_headers("tok", attempt=1)
-        h2 = _build_v1_headers("tok", attempt=3)
+        h1 = _build_v1_headers("tok", attempt=1, request_id="r")
+        h2 = _build_v1_headers("tok", attempt=3, request_id="r")
         assert h1["PostHog-Attempt"] == "1"
         assert h2["PostHog-Attempt"] == "3"
-
-    def test_request_id_unique_per_call(self) -> None:
-        h1 = _build_v1_headers("tok", attempt=1)
-        h2 = _build_v1_headers("tok", attempt=1)
-        assert h1["PostHog-Request-Id"] != h2["PostHog-Request-Id"]
 
 
 class TestNormalizeOptionsAndProperties(SimpleTestCase):
@@ -361,13 +363,11 @@ class TestPrepareCaptureInternalBatch(SimpleTestCase):
         payload, _ = prepare_capture_internal_batch(events, token="tok", event_source="test")
         assert payload["batch"][0]["distinct_id"] == "from_props"
 
-    def test_timestamp_defaults_to_now(self) -> None:
-        events = [_make_event()]
-        before = datetime.now(UTC).isoformat()
-        payload, _ = prepare_capture_internal_batch(events, token="tok", event_source="test")
-        after = datetime.now(UTC).isoformat()
-        ts = payload["batch"][0]["timestamp"]
-        assert before <= ts <= after
+    @time_machine.travel(WHOLE_SECOND, tick=False)
+    def test_timestamp_and_created_at_default_to_now(self) -> None:
+        payload, _ = prepare_capture_internal_batch([_make_event()], token="tok", event_source="test")
+        assert payload["batch"][0]["timestamp"] == "2026-01-01T12:00:00.000000+00:00"
+        assert payload["created_at"] == "2026-01-01T12:00:00.000000+00:00"
 
     def test_timestamp_non_utc_datetime_converted_correctly(self) -> None:
         from datetime import timedelta, timezone
@@ -377,13 +377,13 @@ class TestPrepareCaptureInternalBatch(SimpleTestCase):
         ts_est = datetime(2024, 1, 15, 17, 0, 0, tzinfo=est)
         events = [_make_event(timestamp=ts_est)]
         payload, _ = prepare_capture_internal_batch(events, token="tok", event_source="test")
-        assert payload["batch"][0]["timestamp"] == "2024-01-15T22:00:00+00:00"
+        assert payload["batch"][0]["timestamp"] == "2024-01-15T22:00:00.000000+00:00"
 
     def test_timestamp_naive_datetime_assumed_utc(self) -> None:
         ts_naive = datetime(2024, 6, 1, 12, 0, 0)
         events = [_make_event(timestamp=ts_naive)]
         payload, _ = prepare_capture_internal_batch(events, token="tok", event_source="test")
-        assert payload["batch"][0]["timestamp"] == "2024-06-01T12:00:00+00:00"
+        assert payload["batch"][0]["timestamp"] == "2024-06-01T12:00:00.000000+00:00"
 
     @parameterized.expand(
         [
@@ -649,7 +649,7 @@ class TestCaptureBatchInternal(SimpleTestCase):
         # Second request should have incremented attempt and only retry uuid.
         second_headers = spy.calls[1]["headers"]
         assert second_headers["PostHog-Attempt"] == "2"
-        assert second_headers["PostHog-Request-Id"] != spy.calls[0]["headers"]["PostHog-Request-Id"]
+        assert second_headers["PostHog-Request-Id"] == spy.calls[0]["headers"]["PostHog-Request-Id"]
         second_batch = spy.calls[1]["json"]["batch"]
         assert len(second_batch) == 1
         assert second_batch[0]["uuid"] == u_retry
@@ -705,25 +705,78 @@ class TestCaptureBatchInternal(SimpleTestCase):
         h2 = spy.calls[1]["headers"]
         assert h1["PostHog-Attempt"] == "1"
         assert h2["PostHog-Attempt"] == "2"
-        assert h1["PostHog-Request-Id"] != h2["PostHog-Request-Id"]
+        assert h1["PostHog-Request-Id"] == h2["PostHog-Request-Id"]
         for h in (h1, h2):
             assert "Authorization" in h
             assert "PostHog-Sdk-Info" in h
             assert "PostHog-Request-Timestamp" in h
 
+    @parameterized.expand(
+        [
+            (str(code), MockResponse(status_code=code, body={"error": "x"}))
+            for code in (404, 408, 429, 500, 502, 503, 504)
+        ]
+        + [("transport", RequestsConnectionError("reset"))]
+    )
+    @patch("posthog.api.capture.CAPTURE_V1_INTERNAL_RETRY_BASE_SECONDS", 0.1)
+    @patch("posthog.api.capture.time.sleep")
     @patch("posthog.api.capture.internal_requests_session")
-    def test_transport_retry_adapter_mounted(self, mock_session_fn: MagicMock) -> None:
+    def test_whole_request_retry_keeps_request_id_and_restamps(
+        self, _name: str, first: Any, mock_session_fn: MagicMock, mock_sleep: MagicMock
+    ) -> None:
         uid = str(uuid4())
-        events = [_make_event(event_uuid=uid)]
-        spy = InstallV1Spy(mock_session_fn, [MockResponse(body=_ok_results(uid))])
+        spy = InstallV1Spy(mock_session_fn, [first, MockResponse(body=_ok_results(uid))])
+        with time_machine.travel(WHOLE_SECOND, tick=False) as traveller:
+            mock_sleep.side_effect = lambda _seconds: traveller.shift(timedelta(seconds=1))
+            result = capture_batch_internal(
+                events=[_make_event(event_uuid=uid)], token="tok", event_source="wholeretry"
+            )
 
-        capture_batch_internal(events=events, token="tok", event_source="mount")
+        assert result.succeeded()
+        h1, h2 = (call["headers"] for call in spy.calls)
+        assert (h1["PostHog-Attempt"], h2["PostHog-Attempt"]) == ("1", "2")
+        assert h1["PostHog-Request-Id"] == h2["PostHog-Request-Id"]
+        assert h1["PostHog-Request-Timestamp"] != h2["PostHog-Request-Timestamp"]
+        assert spy.calls[0]["json"]["created_at"] == spy.calls[1]["json"]["created_at"]
 
-        spy._mock_session.mount.assert_called_once()
-        args = spy._mock_session.mount.call_args
-        assert args[0][0] == EXPECTED_URL
-        adapter = args[0][1]
-        assert isinstance(adapter, HTTPAdapter)
+    @parameterized.expand([("400", 400), ("401", 401), ("402", 402), ("413", 413), ("415", 415)])
+    @patch("posthog.api.capture.internal_requests_session")
+    def test_terminal_status_is_not_retried(self, _name: str, code: int, mock_session_fn: MagicMock) -> None:
+        spy = InstallV1Spy(mock_session_fn, [MockResponse(status_code=code, body={"error": "x"})])
+
+        result = capture_batch_internal(events=[_make_event()], token="tok", event_source="terminal")
+
+        assert len(spy.calls) == 1
+        assert result.status_code == code
+
+    @parameterized.expand(
+        [
+            ("backoff_doubles", None, [0.1, 0.2, 0.4]),
+            ("retry_after_is_a_floor", "3", [3.0, 3.0, 3.0]),
+            ("retry_after_is_capped", "9999", [5.0, 5.0, 5.0]),
+        ]
+    )
+    @patch("posthog.api.capture.random.uniform", return_value=1.0)
+    @patch("posthog.api.capture.CAPTURE_V1_INTERNAL_RETRY_BASE_SECONDS", 0.1)
+    @patch("posthog.api.capture.time.sleep")
+    @patch("posthog.api.capture.internal_requests_session")
+    def test_retry_waits(
+        self,
+        _name: str,
+        retry_after: str | None,
+        expected: list[float],
+        mock_session_fn: MagicMock,
+        mock_sleep: MagicMock,
+        _mock_uniform: MagicMock,
+    ) -> None:
+        headers = {"Retry-After": retry_after} if retry_after else {}
+        spy = InstallV1Spy(mock_session_fn, [MockResponse(status_code=503, body={"error": "x"}, headers=headers)])
+
+        result = capture_batch_internal(events=[_make_event()], token="tok", event_source="waits")
+
+        assert [round(c.args[0], 6) for c in mock_sleep.call_args_list] == expected
+        assert len(spy.calls) == 4
+        assert result.status_code == 503
 
     @patch("posthog.api.capture.internal_requests_session")
     def test_all_drop_batch(self, mock_session_fn: MagicMock) -> None:
@@ -838,7 +891,11 @@ class TestCaptureBatchInternal(SimpleTestCase):
 
     @patch("posthog.api.capture.time.sleep")
     @patch("posthog.api.capture.internal_requests_session")
-    def test_retry_without_retry_after_header(self, mock_session_fn: MagicMock, mock_sleep: MagicMock) -> None:
+    @patch("posthog.api.capture.random.uniform", return_value=1.0)
+    @patch("posthog.api.capture.CAPTURE_V1_INTERNAL_RETRY_BASE_SECONDS", 0.1)
+    def test_retry_without_retry_after_header(
+        self, _mock_uniform: MagicMock, mock_session_fn: MagicMock, mock_sleep: MagicMock
+    ) -> None:
         u_retry = str(uuid4())
         events = [_make_event(event_uuid=u_retry)]
         resp1 = MockResponse(
@@ -850,7 +907,7 @@ class TestCaptureBatchInternal(SimpleTestCase):
         result = capture_batch_internal(events=events, token="tok", event_source="noheader")
 
         assert result.succeeded()
-        mock_sleep.assert_not_called()
+        mock_sleep.assert_called_once_with(0.1)
 
     @patch("posthog.api.capture.time.sleep")
     @patch("posthog.api.capture.internal_requests_session")
@@ -958,6 +1015,7 @@ class TestCaptureBatchInternal(SimpleTestCase):
 
         result = capture_batch_internal(events=events, token="tok", event_source="transport")
 
+        assert mock_session.post.call_count == 4
         assert result.status_code == 0
         assert result.error is not None
         assert result.error["error"] == "transport_error"
@@ -1005,12 +1063,17 @@ class TestCaptureBatchInternal(SimpleTestCase):
     ) -> None:
         InstallV1Spy(mock_session_fn, [MockResponse(status_code=503, body={"error": "down"})])
         submitted = CAPTURE_V1_REQUEST_SUBMITTED.labels(event_source="lanemetric", lane=lane)
+        retried = CAPTURE_V1_REQUEST_RETRIED.labels(event_source="lanemetric", status_code="503", lane=lane)
         failed = CAPTURE_V1_REQUEST_FAILED.labels(event_source="lanemetric", status_code="503", lane=lane)
-        before = (submitted._value.get(), failed._value.get())
+        before = (submitted._value.get(), retried._value.get(), failed._value.get())
 
         result = entry_point(events=[_make_event(event=event_name)], token="tok", event_source="lanemetric")
 
-        assert (submitted._value.get(), failed._value.get()) == (before[0] + 1, before[1] + 1)
+        assert (submitted._value.get(), retried._value.get(), failed._value.get()) == (
+            before[0] + 4,
+            before[1] + 3,
+            before[2] + 1,
+        )
         assert result.request_failures == [
             RequestFailure(lane=lane, status_code=503, error={"error": "down"}, event_count=1)
         ]
