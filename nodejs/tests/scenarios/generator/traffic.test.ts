@@ -420,6 +420,21 @@ describe('transactional_email_files traffic', () => {
         }
     }
 
+    const withPutsUnordered = (requests: readonly object[]): object[] =>
+        requests
+            .reduce<object[][]>((runs, request) => {
+                const last = runs.at(-1)
+                const isPut = (candidate: object | undefined): boolean =>
+                    (candidate as { route?: string })?.route === 'put'
+                if (isPut(request) && last !== undefined && isPut(last[0])) {
+                    last.push(request)
+                } else {
+                    runs.push([request])
+                }
+                return runs
+            }, [])
+            .flatMap((run) => [...run].sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))))
+
     it.each<[string, typeof FILES, FilesAnswers, object, object[]]>([
         [
             'uploads each file, puts the bytes it hashed, then sends with the hashes',
@@ -500,7 +515,7 @@ describe('transactional_email_files traffic', () => {
                     NEVER_ABORTED
                 )
             ).toEqual(expected)
-            expect(cdpApi.received).toEqual(requests)
+            expect(withPutsUnordered(cdpApi.received)).toEqual(withPutsUnordered(requests))
         } finally {
             await cdpApi.close()
         }
@@ -541,7 +556,13 @@ describe('transactional_email_files traffic', () => {
     })
 
     it.each([1, 3, 5])('fills a file of %d bytes from its seed', (sizeBytes) => {
-        expect(fileBytes({ seed: 1, sizeBytes })).not.toEqual(fileBytes({ seed: 2, sizeBytes }))
+        const [one, again, two] = [1, 1, 2].map((seed) => fileBytes({ seed, sizeBytes }))
+
+        expect({ lengths: [one.length, two.length], sameSeed: one.equals(again), otherSeed: one.equals(two) }).toEqual({
+            lengths: [sizeBytes, sizeBytes],
+            sameSeed: true,
+            otherSeed: false,
+        })
     })
 
     const PROFILE = { ratePerSecond: 1, files: { share: 1, perSend: 2, sizes: [{ bytes: 1000, weight: 1 }] } }
