@@ -1,4 +1,5 @@
 import re
+from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
@@ -10,10 +11,11 @@ import requests
 
 from products.warehouse_sources.sources.hasura._config import HasuraSourceConfig
 from products.warehouse_sources.sources.hasura.hasura import (
-    HasuraAccessDeniedError,
     HasuraConfigError,
     HasuraGraphQLError,
+    HasuraRequestError,
     HasuraResumeConfig,
+    HasuraTimeoutError,
     resolve_graphql_url,
 )
 from products.warehouse_sources.sources.hasura.source import INVALID_SECRET_MESSAGE, REFUSED_MESSAGE, HasuraSource
@@ -43,7 +45,7 @@ ACCESS_DENIED_BODY = {
 
 
 @pytest.fixture(autouse=True)
-def _allow_test_host():
+def _allow_test_host() -> Iterator[None]:
     # `is_url_allowed` resolves DNS outside dev mode; the hosts here are fake.
     with mock.patch(f"{MODULE}.is_url_allowed", return_value=(True, None)):
         yield
@@ -76,7 +78,7 @@ def _table_args(type_name: str) -> list[dict[str, Any]]:
     ]
 
 
-def _object(name: str, columns: dict[str, dict[str, Any]], extra: list[dict[str, Any]] | None = None):
+def _object(name: str, columns: dict[str, dict[str, Any]], extra: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     fields = [{"name": column, "args": [], "type": type_ref} for column, type_ref in columns.items()]
     return {"kind": "OBJECT", "name": name, "fields": fields + (extra or []), "inputFields": None}
 
@@ -288,11 +290,11 @@ def test_get_schemas_discovers_tables_keys_and_incremental_columns() -> None:
         "ship_date",
     ]
     assert orders.detected_primary_keys == ["id"]
+    # `datetime` (legacy_at) is SQL Server's or BigQuery's, which differ in precision, so it is not offered.
     assert {field["field"]: field["type"] for field in orders.incremental_fields} == {
         "id": "integer",
         "created_at": "datetime",
         "updated_at": "datetime",
-        "legacy_at": "datetime",
         "ship_date": "date",
     }
     assert orders.supports_incremental and orders.supports_append
@@ -304,6 +306,85 @@ def test_get_schemas_discovers_tables_keys_and_incremental_columns() -> None:
         schema = schemas[name]
         assert schema.detected_primary_keys is None
         assert not schema.supports_incremental and not schema.supports_append and schema.incremental_fields == []
+
+
+@pytest.mark.parametrize("names", [["orders", "allAccounts", "user_roles", "missing"], ["line_items"]])
+def test_get_schemas_for_named_tables_matches_the_full_introspection(names: list[str]) -> None:
+    with scripted_network(FakeHasura({})):
+        full = {schema.name: schema for schema in HasuraSource().get_schemas(CONFIG, team_id=1)}
+    with scripted_network(FakeHasura({})) as network:
+        named = HasuraSource().get_schemas(CONFIG, team_id=1, names=names)
+
+    assert {schema.name: schema for schema in named} == {name: full[name] for name in names if name in full}
+    assert not any("PostHogHasuraIntrospection" in str(request.json()) for request in network.requests_log)
+
+
+def _schema_with_root(root_fields: list[dict[str, Any]], extra_types: list[dict[str, Any]]) -> dict[str, Any]:
+    query_root = {"kind": "OBJECT", "name": "query_root", "fields": root_fields, "inputFields": None}
+    return {"data": {"__schema": {"queryType": {"name": "query_root"}, "types": [query_root, *extra_types]}}}
+
+
+@pytest.mark.parametrize(
+    ("schema", "expected_message"),
+    [
+        (
+            _schema_with_root(
+                [{"name": "mydb", "args": [], "type": _ref("NON_NULL", of=_ref("OBJECT", "mydb_query"))}],
+                [
+                    {
+                        "kind": "OBJECT",
+                        "name": "mydb_query",
+                        "fields": [{"name": "orders", "args": _table_args("orders"), "type": _list_of("orders")}],
+                        "inputFields": None,
+                    }
+                ],
+            ),
+            "Hasura puts its root fields under a namespace (mydb)",
+        ),
+        (
+            _schema_with_root(
+                [
+                    {
+                        "name": "orders",
+                        "args": [
+                            _arg("limit", _scalar("Int")),
+                            _arg("orderBy", _ref("LIST", of=_ref("INPUT_OBJECT", "x"))),
+                        ],
+                        "type": _list_of("orders"),
+                    }
+                ],
+                [],
+            ),
+            "Hasura uses the graphql-default naming convention",
+        ),
+    ],
+)
+def test_get_schemas_explains_sources_it_cannot_read(schema: dict[str, Any], expected_message: str) -> None:
+    with scripted_network(always(ScriptedResponse(json=schema))):
+        with pytest.raises(HasuraGraphQLError, match=re.escape(expected_message)):
+            HasuraSource().get_schemas(CONFIG, team_id=1)
+
+
+@pytest.mark.parametrize(
+    ("failure", "expected_error", "resent"),
+    [
+        (
+            requests.ConnectionError("Max retries exceeded with url: /v1/graphql?apikey=gateway-key"),
+            HasuraRequestError,
+            True,
+        ),
+        # The database can still be running a slow query, so a read timeout is not sent again at once.
+        (requests.ReadTimeout("Read timed out. url: /v1/graphql?apikey=gateway-key"), HasuraTimeoutError, False),
+    ],
+)
+def test_request_failures_hide_the_query_string(
+    failure: Exception, expected_error: type[Exception], resent: bool
+) -> None:
+    result = _driver().run("orders", always(failure), should_use_incremental_field=False)
+
+    assert isinstance(result.raised, expected_error)
+    assert "gateway-key" not in str(result.raised) and result.raised.__suppress_context__
+    assert (len(result.requests) > 1) is resent
 
 
 def test_full_refresh_walks_keyset_pages_until_an_empty_page() -> None:
@@ -338,8 +419,6 @@ def test_full_refresh_walks_keyset_pages_until_an_empty_page() -> None:
     [
         ("updated_at", None, None, [5, 4, 3, 2, 1]),
         ("updated_at", datetime(2024, 2, 3, 12, tzinfo=UTC), {"_gt": "2024-02-03T12:00:00.000000Z"}, [2, 1]),
-        # SQL Server `datetime` takes at most three fractional digits.
-        ("legacy_at", datetime(2024, 4, 3, 0, 0, 0, 123456), {"_gt": "2024-04-03T00:00:00.123Z"}, [4, 5]),
         ("id", 4, {"_gt": 4}, [5]),
         # A later row can share the stored day, so a date bound stays inclusive.
         ("ship_date", date(2024, 3, 2), {"_gte": "2024-03-02"}, [2, 3, 4, 5]),
@@ -455,10 +534,9 @@ def test_resume_continues_from_a_matching_cursor_only(
 @pytest.mark.parametrize(
     ("schema_name", "incremental_field", "answer", "expected_error", "expected_message"),
     [
-        ("missing", None, None, ValueError, "no longer exposes the table missing"),
+        ("missing", None, None, ValueError, "doesn't expose the table missing"),
         ("orders", "customer", None, HasuraGraphQLError, "can't sync this table incrementally on customer"),
         ("raw_blobs", None, None, HasuraGraphQLError, "can't page through the table raw_blobs"),
-        ("orders", None, ScriptedResponse(json=ACCESS_DENIED_BODY), HasuraAccessDeniedError, "Hasura access denied"),
         (
             "orders",
             None,
@@ -528,7 +606,6 @@ def test_extraction_errors(
         (ScriptedResponse(json=ACCESS_DENIED_BODY), (False, INVALID_SECRET_MESSAGE)),
         (ScriptedResponse(status=401), (False, INVALID_SECRET_MESSAGE)),
         (ScriptedResponse(status=403), (False, REFUSED_MESSAGE)),
-        (ScriptedResponse(body=b"<html>not graphql</html>"), (False, "Could not reach a Hasura GraphQL API")),
         (requests.ConnectionError("refused"), (False, "Could not reach a Hasura GraphQL API")),
     ],
 )

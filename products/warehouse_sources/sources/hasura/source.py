@@ -4,7 +4,9 @@ from products.warehouse_sources.sources.hasura._config import HasuraSourceConfig
 from products.warehouse_sources.sources.hasura.hasura import (
     ACCESS_DENIED_ERROR,
     INCREMENTAL_FIELD_ERROR,
+    NAMESPACE_ERROR,
     NAMING_CONVENTION_ERROR,
+    REQUEST_FAILED_ERROR,
     STATEMENT_TIMEOUT_ERROR,
     TABLE_MISSING_ERROR,
     UNORDERED_TABLE_ERROR,
@@ -36,12 +38,15 @@ from products.warehouse_sources.sources.sdk import (
 )
 
 SOURCE_KEY = "Hasura"
+NAMED_INTROSPECTION_LIMIT = 10
 
 CAPTION = """Connect your Hasura GraphQL Engine (Hasura Cloud or self-hosted v2) to pull the tables and views it exposes into the PostHog Data warehouse.
 
 Enter your GraphQL endpoint, for example `https://my-project.hasura.app/v1/graphql`, and the project's **admin secret** (the `HASURA_GRAPHQL_ADMIN_SECRET` value). On Hasura Cloud, you can find both on the project's **General** settings page.
 
-PostHog reads with the admin role, so it can see every tracked table. Tables with a primary key can sync incrementally on a timestamp, date or integer column. Views and tables without a primary key sync with a full refresh."""
+PostHog reads with the admin role, so it can see every tracked table. Tables with a primary key can sync incrementally on a timestamp, date or integer column. Pick a column that has an index, because each page is ordered by it. Views and tables without a primary key sync with a full refresh.
+
+PostHog reads sources that use the hasura-default naming convention and no root field namespace. It does not list the tables of other sources."""
 
 INVALID_SECRET_MESSAGE = "Hasura rejected the admin secret. Check the secret on your Hasura project, then reconnect."
 # Hasura answers a bad secret with HTTP 200, so a 403 comes from a proxy, firewall or IP allowlist.
@@ -106,12 +111,23 @@ class HasuraSource(ResumableSource[HasuraSourceConfig, HasuraResumeConfig]):
             ACCESS_DENIED_ERROR: INVALID_SECRET_MESSAGE,
             "401 Client Error": INVALID_SECRET_MESSAGE,
             "403 Client Error": REFUSED_MESSAGE,
-            TABLE_MISSING_ERROR: "Hasura no longer exposes this table. Track it again in Hasura, or turn off its sync.",
             INCREMENTAL_FIELD_ERROR: "This table can no longer sync incrementally on the chosen column. Pick another column or use a full refresh.",
-            UNORDERED_TABLE_ERROR: "This table has no primary key and no column to order by, so PostHog can't page through it.",
+            UNORDERED_TABLE_ERROR: "This table has no primary key and no column to order by, so PostHog can't page through it. Add a primary key in your database, then sync again.",
             NAMING_CONVENTION_ERROR: "Your Hasura source uses the graphql-default naming convention. Switch it to hasura-default to sync it.",
-            STATEMENT_TIMEOUT_ERROR: "Your database stopped a query on its statement timeout. Tables without a primary key and views read slower the deeper the sync gets. Add a primary key or raise the timeout.",
+            NAMESPACE_ERROR: "Your Hasura source puts its root fields under a namespace. Remove the namespace in Hasura to sync it.",
             URL_NOT_ALLOWED_ERROR: None,
+        }
+
+    def get_retryable_errors(self) -> set[str]:
+        # A missing table can come from inconsistent Hasura metadata after a restart, and a statement
+        # timeout from load on the database, so both are retried instead of turning the sync off.
+        return {TABLE_MISSING_ERROR, STATEMENT_TIMEOUT_ERROR, REQUEST_FAILED_ERROR}
+
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        return {
+            TABLE_MISSING_ERROR: "Hasura doesn't expose this table right now. Check that the table is tracked and that the Hasura metadata is consistent.",
+            STATEMENT_TIMEOUT_ERROR: "Your database stopped a query on its statement timeout. Views, tables without a primary key and incremental columns without an index read slower the deeper the sync gets. Add a primary key or an index, or raise the timeout.",
+            REQUEST_FAILED_ERROR: "PostHog couldn't reach your Hasura endpoint. Check that it's online and accepts requests from PostHog.",
         }
 
     def validate_credentials(
@@ -142,7 +158,12 @@ class HasuraSource(ResumableSource[HasuraSourceConfig, HasuraResumeConfig]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        tables = HasuraClient(config.graphql_url, config.admin_secret).get_tables()
+        client = HasuraClient(config.graphql_url, config.admin_secret)
+        # A refresh of a few selected tables introspects only those, not every type of the schema.
+        if names is not None and len(names) <= NAMED_INTROSPECTION_LIMIT:
+            tables = client.get_named_tables(names)
+        else:
+            tables = client.get_tables()
         schemas = []
         for table in tables.values():
             if names is not None and table.name not in names:
@@ -178,7 +199,7 @@ class HasuraSource(ResumableSource[HasuraSourceConfig, HasuraResumeConfig]):
         inputs: SourceInputs,
     ) -> SourceResponse:
         client = HasuraClient(config.graphql_url, config.admin_secret)
-        table = client.get_table(inputs.schema_name)
+        table = client.get_named_tables([inputs.schema_name]).get(inputs.schema_name)
         if table is None:
             raise ValueError(f"{TABLE_MISSING_ERROR} {inputs.schema_name}")
 

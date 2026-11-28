@@ -17,11 +17,11 @@ VALIDATION_TIMEOUT = (10, 20)
 
 # Hasura names a column's GraphQL scalar after the database type. These are the scalars of the
 # Postgres, MS SQL and BigQuery backends whose values sort in time or number order, so they can
-# carry an incremental watermark.
+# carry an incremental watermark. `datetime` is left out: SQL Server's takes three fractional digits
+# and BigQuery's keeps six, and the scalar name does not tell the two apart.
 INCREMENTAL_SCALARS: dict[str, IncrementalFieldType] = {
     "timestamptz": IncrementalFieldType.DateTime,
     "datetimeoffset": IncrementalFieldType.DateTime,
-    "datetime": IncrementalFieldType.DateTime,
     "datetime2": IncrementalFieldType.DateTime,
     "timestamp": IncrementalFieldType.Timestamp,
     "date": IncrementalFieldType.Date,
@@ -29,8 +29,6 @@ INCREMENTAL_SCALARS: dict[str, IncrementalFieldType] = {
     "bigint": IncrementalFieldType.Integer,
     "smallint": IncrementalFieldType.Integer,
 }
-# SQL Server `datetime` accepts at most three fractional digits in a string.
-MILLISECOND_SCALARS = frozenset({"datetime"})
 # Exact decimal scalars. Hasura sends them as JSON numbers, which a float would round.
 DECIMAL_SCALARS = frozenset({"numeric", "decimal", "bignumeric"})
 

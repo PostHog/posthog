@@ -10,7 +10,6 @@ import requests
 from products.warehouse_sources.sources.hasura.settings import (
     ADMIN_SECRET_HEADER,
     DEFAULT_GRAPHQL_PATH,
-    MILLISECOND_SCALARS,
     OFFSET_PAGE_SIZE,
     PAGE_SIZE,
     REQUEST_TIMEOUT,
@@ -31,15 +30,18 @@ from products.warehouse_sources.sources.sdk import (
     raise_for_retryable_status,
     raise_for_status_redacted,
     safe_url,
+    suspend_adapter_retries,
     vendor_retry,
 )
 
 # Prefixes of the messages raised below. `get_non_retryable_errors` matches on them.
 ACCESS_DENIED_ERROR = "Hasura access denied"
-TABLE_MISSING_ERROR = "Hasura no longer exposes the table"
+TABLE_MISSING_ERROR = "Hasura doesn't expose the table"
 INCREMENTAL_FIELD_ERROR = "Hasura can't sync this table incrementally"
 UNORDERED_TABLE_ERROR = "Hasura can't page through the table"
 NAMING_CONVENTION_ERROR = "Hasura uses the graphql-default naming convention"
+NAMESPACE_ERROR = "Hasura puts its root fields under a namespace"
+REQUEST_FAILED_ERROR = "Hasura request failed"
 URL_NOT_ALLOWED_ERROR = "PostHog can't connect to this Hasura URL"
 # Postgres stops a query that runs longer than its `statement_timeout`; Hasura passes the text on.
 STATEMENT_TIMEOUT_ERROR = "canceling statement due to statement timeout"
@@ -70,6 +72,14 @@ class HasuraAccessDeniedError(Exception):
 
 class HasuraGraphQLError(Exception):
     pass
+
+
+class HasuraRequestError(Exception):
+    """A failed connection, with a message that leaves out the endpoint's query string."""
+
+
+class HasuraTimeoutError(Exception):
+    """A read timeout. It is not resent at once: the database can still be running the slow query."""
 
 
 @frozen
@@ -204,6 +214,20 @@ def _check_naming_convention(root_fields: list[dict[str, Any]]) -> None:
         )
 
 
+def _check_namespaces(root_fields: list[dict[str, Any]], types: dict[str, dict[str, Any]]) -> None:
+    # A source with a root-field namespace nests its table fields in one object field (`mydb { orders }`).
+    for field in root_fields:
+        field_type = field.get("type")
+        nested = types.get(_named_type(field_type).get("name") or "") or {}
+        if field.get("args") or _is_list(field_type) or nested.get("kind") != "OBJECT":
+            continue
+        if any(_TABLE_ARGUMENTS <= {arg["name"] for arg in f.get("args") or []} for f in nested.get("fields") or []):
+            raise HasuraGraphQLError(
+                f"{NAMESPACE_ERROR} ({field.get('name')}), which PostHog can't read yet. Remove the "
+                "root field namespace from the source in Hasura to sync it."
+            )
+
+
 def parse_tables(schema: dict[str, Any]) -> dict[str, HasuraTable]:
     """Read the tables and views a Hasura introspection result exposes, keyed by root field name."""
     types = {t["name"]: t for t in schema.get("types") or [] if t and t.get("name")}
@@ -241,6 +265,7 @@ def parse_tables(schema: dict[str, Any]) -> dict[str, HasuraTable]:
         )
     if not tables:
         _check_naming_convention(root_fields)
+        _check_namespaces(root_fields, types)
     return tables
 
 
@@ -293,12 +318,24 @@ class HasuraClient:
         )
 
     def _send(self, query: str, variables: dict[str, Any] | None, timeout: tuple[float, float]) -> bytes:
-        response = self.session.post(self.url, json={"query": query, "variables": variables or {}}, timeout=timeout)
+        try:
+            response = self.session.post(self.url, json={"query": query, "variables": variables or {}}, timeout=timeout)
+        except requests.RequestException as error:
+            # The requests message repeats the full URL, query string included, so it is replaced.
+            # `from None` keeps that text out of the chained traceback in error tracking too.
+            if isinstance(error, requests.ReadTimeout):
+                raise HasuraTimeoutError(
+                    f"{REQUEST_FAILED_ERROR}: {safe_url(self.url)} did not answer in time"
+                ) from None
+            raise HasuraRequestError(
+                f"{REQUEST_FAILED_ERROR}: {type(error).__name__} for {safe_url(self.url)}"
+            ) from None
         raise_for_retryable_status(response, vendor="Hasura", url=self.url)
         raise_for_status_redacted(response, url=self.url)
         return response.content
 
-    @vendor_retry()
+    # A read timeout is left to the activity retry, which resumes from the saved cursor later.
+    @vendor_retry(retry_on=(HasuraRequestError,))
     def _send_with_retry(self, query: str, variables: dict[str, Any] | None) -> bytes:
         return self._send(query, variables, REQUEST_TIMEOUT)
 
@@ -329,7 +366,9 @@ class HasuraClient:
 
         Only an access-denied answer or a failed request fails it. Schema discovery reads the tables.
         """
-        _decode(self._send(VALIDATION_QUERY, None, VALIDATION_TIMEOUT), self.url, require_data=False)
+        with suspend_adapter_retries():
+            content = self._send(VALIDATION_QUERY, None, VALIDATION_TIMEOUT)
+        _decode(content, self.url, require_data=False)
 
     def get_tables(self) -> dict[str, HasuraTable]:
         schema = self.execute(INTROSPECTION_QUERY).get("__schema")
@@ -337,33 +376,39 @@ class HasuraClient:
             raise HasuraGraphQLError(f"{safe_url(self.url)} did not answer the introspection query")
         return parse_tables(schema)
 
-    def get_table(self, name: str) -> HasuraTable | None:
-        """Introspect one table: the root fields, then the table's object and order_by types."""
+    def get_named_tables(self, names: list[str]) -> dict[str, HasuraTable]:
+        """Introspect only the named tables: the root fields, then each table's object and order_by types."""
         query_type = (self.execute(ROOT_FIELDS_QUERY).get("__schema") or {}).get("queryType")
         if not isinstance(query_type, dict):
             raise HasuraGraphQLError(f"{safe_url(self.url)} did not answer the introspection query")
         root_fields: list[dict[str, Any]] = query_type.get("fields") or []
-        field = next((f for f in root_fields if f.get("name") == name), None)
-        args = {arg["name"]: arg for arg in (field or {}).get("args") or []}
-        if field is None or "order_by" not in args:
-            _check_naming_convention(root_fields)
-            return None
-        types = self.execute(
-            TABLE_TYPES_QUERY,
-            {
-                "object": _named_type(field.get("type")).get("name"),
-                "orderBy": _named_type(args["order_by"].get("type")).get("name"),
-            },
-        )
+        fields_by_name = {f.get("name"): f for f in root_fields}
         query_root = {"kind": "OBJECT", "name": query_type.get("name"), "fields": root_fields, "inputFields": None}
-        schema = {
-            "queryType": {"name": query_type.get("name")},
-            "types": [query_root, types.get("object"), types.get("orderBy")],
-        }
-        return parse_tables(schema).get(name)
+        tables: dict[str, HasuraTable] = {}
+        for name in names:
+            field = fields_by_name.get(name)
+            args = {arg["name"]: arg for arg in (field or {}).get("args") or []}
+            if field is None or "order_by" not in args:
+                continue
+            types = self.execute(
+                TABLE_TYPES_QUERY,
+                {
+                    "object": _named_type(field.get("type")).get("name"),
+                    "orderBy": _named_type(args["order_by"].get("type")).get("name"),
+                },
+            )
+            schema = {
+                "queryType": {"name": query_type.get("name")},
+                "types": [query_root, types.get("object"), types.get("orderBy")],
+            }
+            if (table := parse_tables(schema).get(name)) is not None:
+                tables[name] = table
+        if not tables:
+            _check_naming_convention(root_fields)
+        return tables
 
 
-def format_watermark(value: Any, field_type: IncrementalFieldType, scalar: str) -> Any:
+def format_watermark(value: Any, field_type: IncrementalFieldType) -> Any:
     if field_type == IncrementalFieldType.Integer:
         return int(value)
     if field_type == IncrementalFieldType.Date:
@@ -371,7 +416,7 @@ def format_watermark(value: Any, field_type: IncrementalFieldType, scalar: str) 
         if parsed is None:
             raise ValueError(f"Cannot read {value!r} as a date")
         return parsed.isoformat()
-    return format_datetime(value, "iso_z_millis" if scalar in MILLISECOND_SCALARS else "iso_z_micros")
+    return format_datetime(value, "iso_z_micros")
 
 
 def _after(keys: list[str], values: list[Any]) -> dict[str, Any]:
@@ -414,8 +459,7 @@ def iter_table_rows(
     base_where: list[dict[str, Any]] = []
     if incremental_field is not None:
         field_type = table.incremental_type(incremental_field)
-        column = table.column(incremental_field)
-        if field_type is None or column is None or not keyset:
+        if field_type is None or not keyset:
             raise HasuraGraphQLError(
                 f"{INCREMENTAL_FIELD_ERROR} on {incremental_field}: it needs a primary key and an orderable "
                 "timestamp, date or integer column"
@@ -428,7 +472,7 @@ def iter_table_rows(
             # Exclusive, as the shared SQL sources compare: an append sync would add the boundary
             # rows again otherwise. A date has no time part, so a later row can share the stored day.
             operator = "_gte" if field_type == IncrementalFieldType.Date else "_gt"
-            base_where.append({incremental_field: {operator: format_watermark(watermark, field_type, column.scalar)}})
+            base_where.append({incremental_field: {operator: format_watermark(watermark, field_type)}})
     else:
         keys = keyset
 
@@ -438,7 +482,8 @@ def iter_table_rows(
     else:
         if not table.orderable_columns:
             raise HasuraGraphQLError(
-                f"{UNORDERED_TABLE_ERROR} {table.name}: it has no primary key and no column to order by"
+                f"{UNORDERED_TABLE_ERROR} {table.name}: it has no primary key and no column to order by. Add a primary key "
+                "in your database, then sync again"
             )
         # Rows that tie on every orderable column can still swap places between pages.
         order_by = [{column: "asc"} for column in table.orderable_columns]
