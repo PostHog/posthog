@@ -11396,6 +11396,7 @@ export namespace Schemas {
          */
         checks: Array<ExperimentHealthCheckResult>;
         setup?: (ExperimentHealthSetup | null) | undefined;
+        stale_before?: (string | null) | undefined;
     };
     /**
      * Full experiment representation for the detail, create, and update endpoints.
