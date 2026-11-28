@@ -1,5 +1,6 @@
 pub mod custom_key_source;
 pub mod global_rate_limiter;
+pub mod observation;
 pub mod overflow;
 pub mod redis;
 pub mod token_dropper;

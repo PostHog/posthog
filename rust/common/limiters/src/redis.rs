@@ -81,6 +81,15 @@ impl ServiceName {
     }
 }
 
+pub(crate) fn limiter_key(
+    redis_key_prefix: Option<String>,
+    limiter_cache_key: &str,
+    resource: &QuotaResource,
+) -> String {
+    let key_prefix = redis_key_prefix.unwrap_or_default();
+    format!("{key_prefix}{limiter_cache_key}{}", resource.as_str())
+}
+
 #[derive(Clone)]
 pub struct RedisLimiter {
     limited: Arc<DashMap<String, bool>>,
@@ -108,12 +117,11 @@ impl RedisLimiter {
         service_name: ServiceName,
     ) -> anyhow::Result<RedisLimiter> {
         let limited = Arc::new(DashMap::new());
-        let key_prefix = redis_key_prefix.unwrap_or_default();
 
         let limiter = RedisLimiter {
             limited,
             redis: redis.clone(),
-            key: format!("{key_prefix}{limiter_cache_key}{}", resource.as_str()),
+            key: limiter_key(redis_key_prefix, &limiter_cache_key, &resource),
             interval,
             service_name,
         };
@@ -129,12 +137,19 @@ impl RedisLimiter {
         let redis = Arc::clone(&self.redis);
         let interval_duration = self.interval;
         let key = self.key.clone();
+        let cache_key: Arc<str> = Arc::from(key.as_str());
         let service_name = self.service_name.as_string();
 
         // Spawn a task to periodically update the cache from Redis
         task::spawn(async move {
             let mut interval = interval(interval_duration);
+            let mut last_success_at = 0.0;
             loop {
+                // Resolved per pass: feature-flags installs its recorder after it builds limiters.
+                let last_success = gauge!(
+                    format!("{service_name}_billing_limits_last_success_timestamp_seconds"),
+                    "cache_key" => cache_key.clone(),
+                );
                 match RedisLimiter::fetch_limited(&redis, &key).await {
                     Ok(set) => {
                         gauge!(
@@ -147,18 +162,21 @@ impl RedisLimiter {
                         for item in set {
                             limited.insert(item, true);
                         }
+
+                        last_success_at = Utc::now().timestamp() as f64;
                     }
                     Err(e) => {
                         tracing::warn!("Failed to update cache from Redis: {:?}", e);
                     }
                 }
+                last_success.set(last_success_at);
 
                 interval.tick().await;
             }
         });
     }
 
-    async fn fetch_limited(
+    pub(crate) async fn fetch_limited(
         client: &Arc<dyn Client + Send + Sync>,
         key: &String,
     ) -> anyhow::Result<Vec<String>, CustomRedisError> {
@@ -177,7 +195,9 @@ impl RedisLimiter {
 mod tests {
     use super::{OVERFLOW_LIMITER_CACHE_KEY, QUOTA_LIMITER_CACHE_KEY};
     use crate::redis::{QuotaResource, RedisLimiter, ServiceName};
-    use common_redis::MockRedisClient;
+    use chrono::Utc;
+    use common_redis::{CustomRedisError, MockRedisClient};
+    use metrics_util::debugging::{DebugValue, DebuggingRecorder};
     use std::{sync::Arc, time::Duration};
 
     #[tokio::test]
@@ -201,6 +221,50 @@ mod tests {
 
         assert!(!limiter.is_limited("not_limited").await);
         assert!(limiter.is_limited("banana").await);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_failed_refresh_keeps_the_last_set_and_success_time() {
+        let client = MockRedisClient::new()
+            .zrangebyscore_ret("@posthog/quota-limits/events", vec![String::from("banana")])
+            .zrangebyscore_error_from_call(1, CustomRedisError::Timeout);
+        let before = Utc::now().timestamp() as f64;
+        let limiter = RedisLimiter::new(
+            Duration::from_secs(1),
+            Arc::new(client.clone()),
+            QUOTA_LIMITER_CACHE_KEY.to_string(),
+            None,
+            QuotaResource::Events,
+            ServiceName::Capture,
+        )
+        .expect("Failed to create billing limiter");
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        let after = Utc::now().timestamp() as f64;
+        let reads_before_install = client.get_calls().len();
+        assert!(
+            reads_before_install > 0,
+            "the first refresh must run before the recorder exists"
+        );
+
+        let recorder = DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        let _guard = metrics::set_default_local_recorder(&recorder);
+        tokio::time::sleep(Duration::from_millis(2000)).await;
+
+        assert!(
+            client.get_calls().len() > reads_before_install,
+            "a refresh must fail after the install"
+        );
+        assert!(limiter.is_limited("banana").await);
+        let gauge_name = "capture_billing_limits_last_success_timestamp_seconds";
+        let last_success = snapshotter
+            .snapshot()
+            .into_vec()
+            .into_iter()
+            .find_map(|(key, _, _, value)| (key.key().name() == gauge_name).then_some(value));
+        assert!(
+            matches!(last_success, Some(DebugValue::Gauge(timestamp)) if (before..=after).contains(&timestamp.into_inner()))
+        );
     }
 
     #[tokio::test]
