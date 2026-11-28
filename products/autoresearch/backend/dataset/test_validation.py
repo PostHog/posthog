@@ -20,6 +20,7 @@ from posthog.schema import HogQLQuery
 
 from posthog.hogql.errors import QueryError
 
+from posthog.dataclasses import frozen
 from posthog.exceptions import (
     ClickHouseClusterMemoryLimitExceeded,
     ClickHouseQueryMemoryLimitExceeded,
@@ -39,6 +40,13 @@ from products.autoresearch.backend.dataset.validation import (
     validate_pipeline_definition,
 )
 from products.autoresearch.backend.query import run_hogql_rows
+
+
+@frozen
+class _ValidatedLabels:
+    result: ValidationResult
+    labeler_rows: int
+    labeler_positives: int
 
 
 def _mock_rows(
@@ -323,7 +331,7 @@ class TestValidationAgainstTheLabeler(ClickhouseTestMixin, APIBaseTest):
                 )
         flush_persons_and_events()
 
-    def _validate_and_label(self, population: dict[str, Any]) -> tuple[ValidationResult, int, int]:
+    def _validate_and_label(self, population: dict[str, Any]) -> _ValidatedLabels:
         result = validate_pipeline_definition(
             team=self.team,
             target_event="subscription started",
@@ -347,7 +355,7 @@ class TestValidationAgainstTheLabeler(ClickhouseTestMixin, APIBaseTest):
         assert result.error is None
         assert result.positive_count is not None and result.negative_count is not None
         assert result.positive_count + result.negative_count == result.estimated_training_rows
-        return result, int(rows), int(positives)
+        return _ValidatedLabels(result=result, labeler_rows=int(rows), labeler_positives=int(positives))
 
     @parameterized.expand(
         [
@@ -370,18 +378,20 @@ class TestValidationAgainstTheLabeler(ClickhouseTestMixin, APIBaseTest):
     ) -> None:
         self._create_trial_population()
 
-        result, rows, positives = self._validate_and_label(population)
+        labels = self._validate_and_label(population)
 
-        assert rows > 0
-        assert (result.estimated_training_rows, result.positive_count) == (rows, positives)
+        assert labels.labeler_rows > 0
+        assert labels.result.estimated_training_rows == labels.labeler_rows
+        assert labels.result.positive_count == labels.labeler_positives
 
     def test_a_sampled_estimate_scales_the_share_the_labeler_keeps(self) -> None:
         self._create_trial_population()
         population = {"kind": "performed_event_within_days", "days": 30, "event": "trial started"}
 
         with patch("products.autoresearch.backend.dataset.validation.LIVE_ESTIMATE_SAMPLE_LIMIT", 20):
-            result, rows, _positives = self._validate_and_label(population)
+            labels = self._validate_and_label(population)
 
-        assert result.estimated_training_rows is not None
-        assert rows > 0
-        assert abs(result.estimated_training_rows - rows) <= 0.35 * rows
+        estimated_rows = labels.result.estimated_training_rows
+        assert estimated_rows is not None
+        assert labels.labeler_rows > 0
+        assert abs(estimated_rows - labels.labeler_rows) <= 0.35 * labels.labeler_rows
