@@ -9116,11 +9116,11 @@ Today (4): `events`, `people`, `session_people`, `sessions`
 
 Diffed against: <https://developers.livestorm.co/llms.txt>
 
-- [ ] `Session chat messages (GET /sessions/{id}/chat_messages)` — chat content per session, for engagement analysis, fan-out under sessions (medium)
-- [ ] `Session questions (GET /sessions/{id}/questions)` — audience questions per session and their answers (medium)
+- [x] `Session chat messages (GET /sessions/{id}/chat_messages)` — chat content per session, for engagement analysis, fan-out under sessions (medium)
+- [x] `Session questions (GET /sessions/{id}/questions)` — audience questions per session and their answers (medium)
 - [ ] `Session recordings (GET /sessions/{id}/recordings)` — recording records per session (low)
-- [ ] `Team members (GET /users)` — workspace team members, resolves host and owner ids (medium)
-- [ ] `People attributes (GET /people_attributes)` — custom registration field definitions, a lookup for people and session_people (medium)
+- [x] `Team members (GET /users)` — workspace team members, resolves host and owner ids (medium)
+- [x] `People attributes (GET /people_attributes)` — custom registration field definitions, a lookup for people and session_people (medium)
 
 Note: Read the llms.txt index and the .md pages for the list endpoints. Events, sessions, people and session_people are synced. Webhooks, jobs and write endpoints were left out. The per-session routes need fan-out over sessions, and page size is capped at 50.
 
