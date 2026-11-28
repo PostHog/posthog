@@ -33,10 +33,12 @@ const fullCtx: InstructionsContext = {
     renderUiEnabled: true,
 }
 
-const fullNudge = (ref: string): string =>
-    `PostHog watches the data in this project for the user, including connected data warehouse sources, and files what it finds as researched reports in the Self-driving inbox. When the user wants to know what is going on in their product, such as what is new, what broke or what needs their attention, start with ${ref}, and query the data yourself only for what the reports do not cover.`
-const shortNudge = (ref: string): string =>
-    `When the user wants to know what is going on in their product, start with ${ref}. The Self-driving inbox holds what PostHog already found and researched in this project's data.`
+const waitingSentence = (reports: string): string =>
+    ` The user has ${reports} waiting there, personalized for them and their work.`
+const fullNudge = (ref: string, waiting = ''): string =>
+    `PostHog watches the data in this project for the user, including connected data warehouse sources, and files what it finds as researched reports in the Self-driving inbox.${waiting} When the user wants to know what is going on in their product, such as what is new, what broke or what needs their attention, start with ${ref}, and query the data yourself only for what the reports do not cover.`
+const shortNudge = (ref: string, waiting = ''): string =>
+    `When the user wants to know what is going on in their product, start with ${ref}. The Self-driving inbox holds what PostHog already found and researched in this project's data.${waiting}`
 
 describe('InstructionsFormatter', () => {
     describe('buildToolsInstructions', () => {
@@ -446,32 +448,31 @@ describe('InstructionsFormatter', () => {
             }
         })
 
-        it.each(
-            [
-                {
-                    surface: 'tools instructions',
-                    render: (f: InstructionsFormatter, ctx: InstructionsContext) => f.buildToolsInstructions(ctx),
-                    line: fullNudge('the `inbox-reports-list` tool'),
-                },
-                {
-                    surface: 'exec command reference',
-                    render: (f: InstructionsFormatter, ctx: InstructionsContext) => f.buildExecCommandReference(ctx),
-                    line: fullNudge('`call inbox-reports-list <json_input>`'),
-                },
-                {
-                    surface: 'compact exec command reference',
-                    render: (f: InstructionsFormatter, ctx: InstructionsContext) =>
-                        f.buildCompactExecCommandReference(ctx),
-                    line: fullNudge('`call inbox-reports-list <json_input>`'),
-                },
-                {
-                    surface: 'compact exec command reference for claude.ai',
-                    render: (f: InstructionsFormatter, ctx: InstructionsContext) =>
-                        f.buildCompactExecCommandReference(ctx, { claudeChat: true }),
-                    line: shortNudge('`call inbox-reports-list <json_input>`'),
-                },
-            ].flatMap((surface) => [true, false].map((enabled) => ({ ...surface, enabled })))
-        )(
+        const nudgeSurfaces = [
+            {
+                surface: 'tools instructions',
+                render: (f: InstructionsFormatter, ctx: InstructionsContext) => f.buildToolsInstructions(ctx),
+                line: (waiting?: string) => fullNudge('the `inbox-reports-list` tool', waiting),
+            },
+            {
+                surface: 'exec command reference',
+                render: (f: InstructionsFormatter, ctx: InstructionsContext) => f.buildExecCommandReference(ctx),
+                line: (waiting?: string) => fullNudge('`call inbox-reports-list <json_input>`', waiting),
+            },
+            {
+                surface: 'compact exec command reference',
+                render: (f: InstructionsFormatter, ctx: InstructionsContext) => f.buildCompactExecCommandReference(ctx),
+                line: (waiting?: string) => fullNudge('`call inbox-reports-list <json_input>`', waiting),
+            },
+            {
+                surface: 'compact exec command reference for claude.ai',
+                render: (f: InstructionsFormatter, ctx: InstructionsContext) =>
+                    f.buildCompactExecCommandReference(ctx, { claudeChat: true }),
+                line: (waiting?: string) => shortNudge('`call inbox-reports-list <json_input>`', waiting),
+            },
+        ]
+
+        it.each(nudgeSurfaces.flatMap((surface) => [true, false].map((enabled) => ({ ...surface, enabled }))))(
             '$surface points to the inbox list without the inbox-first section only when the nudge is on: $enabled',
             ({ render, line, enabled }) => {
                 const rendered = render(new InstructionsFormatter(), {
@@ -480,9 +481,44 @@ describe('InstructionsFormatter', () => {
                     inboxNudgeEnabled: enabled,
                 })
 
-                expect(rendered.includes(line)).toBe(enabled)
+                expect(rendered.includes(line())).toBe(enabled)
             }
         )
+
+        it.each(nudgeSurfaces)('$surface names the reports that wait for the user', ({ render, line }) => {
+            const rendered = render(new InstructionsFormatter(), {
+                ...fullCtx,
+                inboxNudgeEnabled: true,
+                inboxWaitingCount: 3,
+            })
+
+            expect(rendered).toContain(line(waitingSentence('3 reports')))
+        })
+
+        it.each([
+            { name: 'no count', count: undefined, waiting: '' },
+            { name: 'a count of zero', count: 0, waiting: '' },
+            { name: 'one report', count: 1, waiting: waitingSentence('1 report') },
+            { name: 'more reports than it shows', count: 100, waiting: waitingSentence('99+ reports') },
+        ])('the inbox line reads right for $name', ({ count, waiting }) => {
+            const rendered = new InstructionsFormatter().buildExecCommandReference({
+                ...fullCtx,
+                inboxNudgeEnabled: true,
+                inboxWaitingCount: count,
+            })
+
+            expect(rendered).toContain(fullNudge('`call inbox-reports-list <json_input>`', waiting))
+        })
+
+        it('leaves the count out when the inbox line is off', () => {
+            const rendered = new InstructionsFormatter().buildExecCommandReference({
+                ...fullCtx,
+                inboxNudgeEnabled: false,
+                inboxWaitingCount: 3,
+            })
+
+            expect(rendered).not.toContain('waiting there')
+        })
     })
 
     describe('buildExecCommandReference', () => {

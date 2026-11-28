@@ -37,6 +37,7 @@ import EXEC_TOOL_BLURB from '@/templates/sections/exec-tool-blurb.md'
 import EXPLAIN_CHART from '@/templates/sections/explain-chart.md'
 import INBOX_FIRST from '@/templates/sections/inbox-first.md'
 import INBOX_NUDGE_COMPACT from '@/templates/sections/inbox-nudge-compact.md'
+import INBOX_NUDGE_WAITING from '@/templates/sections/inbox-nudge-waiting.md'
 import INBOX_NUDGE from '@/templates/sections/inbox-nudge.md'
 import METRIC_DISCOVERY_COMPACT from '@/templates/sections/metric-discovery-compact.md'
 import METRIC_DISCOVERY_EMPTY_LEARN from '@/templates/sections/metric-discovery-empty-learn.md'
@@ -106,6 +107,7 @@ export interface InstructionsContext {
     inboxClaimEnabled?: boolean | undefined
     /** Set only when the nudge flag is on, `inbox-reports-list` is advertised, and a person works with the agent directly. Independent of `inboxFirstEnabled`. */
     inboxNudgeEnabled?: boolean | undefined
+    inboxWaitingCount?: number | undefined
     metricCatalog?: MetricCatalogContent | undefined
     learnToolEnabled?: boolean | undefined
     splitWrites?: boolean | undefined
@@ -124,6 +126,18 @@ const BUSINESS_KNOWLEDGE_REPO_SEARCH_TOOL = 'business-knowledge-repositories-sea
 
 function inboxToolRef(name: string, execSyntax: boolean): string {
     return execSyntax ? `\`call ${name} <json_input>\`` : `the \`${name}\` tool`
+}
+
+// A larger number tells the agent nothing more, and a bounded sentence keeps the exec text under the claude.ai cap.
+const INBOX_WAITING_DISPLAY_CAP = 99
+
+function inboxWaitingSentence(count: number | undefined): string {
+    if (!count || count < 1) {
+        return ''
+    }
+    const shown = count > INBOX_WAITING_DISPLAY_CAP ? `${INBOX_WAITING_DISPLAY_CAP}+` : String(count)
+    const reports = count === 1 ? '1 report' : `${shown} reports`
+    return ` ${formatPrompt(INBOX_NUDGE_WAITING, { reports })}`
 }
 
 function businessKnowledgeSearchLine(execSyntax: boolean): string {
@@ -328,6 +342,7 @@ export class InstructionsFormatter {
         return [
             formatPrompt(compact ? INBOX_NUDGE_COMPACT : INBOX_NUDGE, {
                 inbox_list: inboxToolRef('inbox-reports-list', execSyntax),
+                waiting: inboxWaitingSentence(ctx.inboxWaitingCount),
             }),
         ]
     }

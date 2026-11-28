@@ -3,7 +3,6 @@ import type { Tool as McpTool } from '@modelcontextprotocol/sdk/types.js'
 
 import { hasScope } from '@/lib/api'
 import { isPostHogCodeConsumer } from '@/lib/client-detection'
-import { isCustomerFacingSurface } from '@/lib/event-source'
 import { nameExecRead, type QueryToolInfo } from '@/lib/instructions'
 import {
     HOGQL_GUIDE_ID,
@@ -12,7 +11,6 @@ import {
     InstructionsFormatter,
 } from '@/lib/instructions-formatter'
 import { isChatGptAppConnection } from '@/lib/oauth-constants'
-import type { FlagValue } from '@/lib/posthog/flags'
 import { formatPrompt } from '@/lib/utils'
 import { RENDER_UI_RESOURCE_URI } from '@/resources/ui-apps.generated'
 import { ProjectSkillCatalog } from '@/skills/project-skill-catalog'
@@ -39,6 +37,7 @@ import { getToolDefinition } from '@/tools/toolDefinitions'
 
 import { trackSkillInvoked } from './analytics'
 import { MCP_EXEC_SKILLS_FEATURE_FLAG, MCP_INBOX_FIRST_FLAG, MCP_SELF_DRIVING_NUDGE_FLAG } from './constants'
+import { INBOX_LIST_TOOL, resolveInboxNudgeMode } from './inbox-nudge'
 import { getEffectiveMCPClientContext } from './mcp-context'
 import type { ResolvedState } from './request-state-resolver'
 import { toMcpInputSchema } from './tool-catalog'
@@ -53,7 +52,7 @@ export type ExecToolState = Pick<
     | 'sessionContext'
     | 'toolFeatureFlags'
 > &
-    Partial<Pick<ResolvedState, 'apiKeyScopes' | 'oauthClientId' | 'taskOriginProduct'>> & {
+    Partial<Pick<ResolvedState, 'apiKeyScopes' | 'oauthClientId' | 'taskOriginProduct' | 'inboxWaitingCount'>> & {
         allTools: readonly { name: string }[]
     }
 
@@ -63,11 +62,8 @@ const NOTEBOOK_RUN_TOOL = 'notebooks-run'
 const DOCS_SEARCH_TOOL = 'docs-search'
 const BUSINESS_KNOWLEDGE_SEARCH_TOOL = 'business-knowledge-documents-search'
 const BUSINESS_KNOWLEDGE_REPO_SEARCH_TOOL = 'business-knowledge-repositories-search'
-const INBOX_LIST_TOOL = 'inbox-reports-list'
 const INBOX_FIRST_TOOLS = [INBOX_LIST_TOOL, 'inbox-reports-retrieve']
 const INBOX_CLAIM_TOOL = 'inbox-reports-claim'
-// `true` is the flag without variants. With variants, `line` is the one that shows the line.
-const INBOX_NUDGE_FLAG_VALUES: ReadonlySet<FlagValue> = new Set([true, 'line'])
 
 // Human comment, not AI slop. Version 2.0.0 of the PostHog app for ChatGPT and Codex started
 // requesting `llm_skill:read`, but existing connections never got re-prompted for it, so their
@@ -141,15 +137,18 @@ export class InstructionsBuilder {
                 INBOX_FIRST_TOOLS.every((name) => state.allTools.some((tool) => tool.name === name)),
             inboxClaimEnabled: state.allTools.some((tool) => tool.name === INBOX_CLAIM_TOOL),
             inboxNudgeEnabled:
-                INBOX_NUDGE_FLAG_VALUES.has(state.toolFeatureFlags?.[MCP_SELF_DRIVING_NUDGE_FLAG]) &&
-                state.allTools.some((tool) => tool.name === INBOX_LIST_TOOL) &&
-                isCustomerFacingSurface({
-                    mcpConsumer: state.clientProfile.consumer,
-                    clientUserAgent: state.requestContext.clientUserAgent,
-                    apiKeyScopes: state.apiKeyScopes,
-                    oauthClientId: state.oauthClientId,
-                    taskOriginProduct: state.taskOriginProduct,
-                }),
+                resolveInboxNudgeMode({
+                    flag: state.toolFeatureFlags?.[MCP_SELF_DRIVING_NUDGE_FLAG],
+                    tools: state.allTools,
+                    surface: () => ({
+                        mcpConsumer: state.clientProfile.consumer,
+                        clientUserAgent: state.requestContext.clientUserAgent,
+                        apiKeyScopes: state.apiKeyScopes,
+                        oauthClientId: state.oauthClientId,
+                        taskOriginProduct: state.taskOriginProduct,
+                    }),
+                }) !== undefined,
+            inboxWaitingCount: state.inboxWaitingCount,
             metricCatalog: state.metricCatalog,
         }
     }

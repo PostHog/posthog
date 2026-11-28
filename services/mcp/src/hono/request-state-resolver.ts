@@ -46,6 +46,7 @@ import {
     MCP_TIME_SERIES_CHARTS_FLAG,
 } from './constants'
 import { GUIDANCE_RULE_FLAGS } from './guidance/rules'
+import { resolveInboxNudgeMode } from './inbox-nudge'
 import { MCP_INTENT_PROMPT_FLAG, resolveIntentPrompt } from './intent-prompt'
 import {
     type InterviewRecruitmentConfig,
@@ -101,6 +102,7 @@ export interface ResolvedState {
     /** Read only when a business knowledge search tool is advertised; undefined when unread. */
     businessKnowledgeContent?: BusinessKnowledgeContent | undefined
     metricCatalog?: MetricCatalogContent | undefined
+    inboxWaitingCount?: number | undefined
     oauthClientId: string | undefined
     clientProfile: MCPClientProfile
     requestContext: MCPRequestContext
@@ -149,6 +151,7 @@ type ResolveStep =
     | 'tool_filter'
     | 'business_knowledge'
     | 'metric_catalog'
+    | 'inbox_waiting_count'
 
 // ─── Pure helpers ───
 
@@ -427,12 +430,26 @@ export class RequestStateResolver {
                 )
             )
         ).filter(isHeld)
-        const [businessKnowledgeContent, metricCatalog] = await Promise.all([
+        const inboxNudgeMode = resolveInboxNudgeMode({
+            flag: toolFeatureFlags[MCP_SELF_DRIVING_NUDGE_FLAG],
+            tools: allTools,
+            surface: () => ({
+                mcpConsumer: clientProfile.consumer,
+                clientUserAgent: requestContext.clientUserAgent,
+                apiKeyScopes,
+                oauthClientId: oauthClientId || undefined,
+                taskOriginProduct: props.taskOriginProduct,
+            }),
+        })
+        const [businessKnowledgeContent, metricCatalog, inboxWaitingCount] = await Promise.all([
             allTools.some(({ name }) => BUSINESS_KNOWLEDGE_SEARCH_TOOLS.has(name))
                 ? timed('business_knowledge', () => this.resolveBusinessKnowledgeContent(context))
                 : undefined,
             allTools.some(({ name }) => name === METRIC_LIST_TOOL)
                 ? timed('metric_catalog', () => this.resolveMetricCatalog(context))
+                : undefined,
+            inboxNudgeMode === 'line-with-count'
+                ? timed('inbox_waiting_count', () => this.resolveInboxWaitingCount(context))
                 : undefined,
         ])
         // Scope-gated hints are only consumed by the exec `search` command, which
@@ -470,6 +487,7 @@ export class RequestStateResolver {
             aiConsentGiven: aiConsentGiven ?? undefined,
             businessKnowledgeContent,
             metricCatalog,
+            inboxWaitingCount,
             oauthClientId: oauthClientId || undefined,
             clientProfile,
             requestContext,
@@ -606,6 +624,15 @@ export class RequestStateResolver {
         try {
             const projectId = await context.stateManager.getProjectId()
             return await context.stateManager.getOrFetchMetricCatalog(projectId)
+        } catch {
+            return undefined
+        }
+    }
+
+    private async resolveInboxWaitingCount(context: Context): Promise<number | undefined> {
+        try {
+            const projectId = await context.stateManager.getProjectId()
+            return await context.stateManager.getOrFetchInboxForYouCount(projectId)
         } catch {
             return undefined
         }

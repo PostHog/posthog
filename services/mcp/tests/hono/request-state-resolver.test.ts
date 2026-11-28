@@ -9,6 +9,7 @@ const {
     mockRedisFailures,
     mockPinned,
     mockGetApiKey,
+    mockInboxForYouCount,
     mockAnalyticsContext,
     mockDistinctId,
     flagsBoundary,
@@ -19,6 +20,7 @@ const {
         events: [] as { event: string; properties: Record<string, unknown> }[],
     },
     mockGetApiKey: vi.fn(),
+    mockInboxForYouCount: vi.fn(),
     mockAnalyticsContext: { current: undefined as MCPAnalyticsContext | undefined },
     mockDistinctId: { current: 'distinct-id' },
     mockSessionStore: new Map<string, unknown>(),
@@ -167,6 +169,8 @@ vi.mock('@/hono/request-context', async () => {
                         stateManager: {
                             setDefaultOrganizationAndProject: vi.fn(async () => {}),
                             getApiKey: mockGetApiKey,
+                            getProjectId: vi.fn(async () => '1'),
+                            getOrFetchInboxForYouCount: mockInboxForYouCount,
                             getAiConsentGiven: vi.fn(async () => undefined),
                             getAvailableFeatures: vi.fn(async () => undefined),
                         },
@@ -184,7 +188,7 @@ vi.mock('@/hono/request-context', async () => {
 })
 
 import type { RedisLike } from '@/hono/cache/RedisCache'
-import { MCP_CURSOR_EXEC_MODE_FLAG, MCP_EXEC_SKILLS_FEATURE_FLAG } from '@/hono/constants'
+import { MCP_CURSOR_EXEC_MODE_FLAG, MCP_EXEC_SKILLS_FEATURE_FLAG, MCP_SELF_DRIVING_NUDGE_FLAG } from '@/hono/constants'
 import { GUIDANCE_RULE_FLAGS } from '@/hono/guidance/rules'
 import { MCP_INTENT_PROMPT_FLAG } from '@/hono/intent-prompt'
 import { MCP_INTERVIEW_RECRUITMENT_FLAG } from '@/hono/interview-recruitment'
@@ -1087,6 +1091,66 @@ describe('RequestStateResolver MCP client contexts', () => {
         // The inbox instructions line reads the origin from the state to leave out runs that PostHog started.
         expect(result.taskOriginProduct).toBe(overrides.taskOriginProduct)
     })
+
+    it.each([
+        {
+            name: 'the count variant',
+            flag: 'line-with-count',
+            props: {},
+            scopes: ['*'],
+            tools: ['inbox-reports-list'],
+            count: 3,
+        },
+        {
+            name: 'the line variant',
+            flag: 'line',
+            props: {},
+            scopes: ['*'],
+            tools: ['inbox-reports-list'],
+            count: undefined,
+        },
+        {
+            name: 'a flag without variants',
+            flag: true,
+            props: {},
+            scopes: ['*'],
+            tools: ['inbox-reports-list'],
+            count: undefined,
+        },
+        {
+            name: 'the count variant without the list tool',
+            flag: 'line-with-count',
+            props: {},
+            scopes: ['*'],
+            tools: [],
+            count: undefined,
+        },
+        {
+            name: 'the count variant in a run that PostHog started',
+            flag: 'line-with-count',
+            props: { mcpConsumer: 'posthog-code', taskOriginProduct: 'signal_report' },
+            // Only a server-minted token makes the declared consumer count.
+            scopes: ['internal_run:read'],
+            tools: ['inbox-reports-list'],
+            count: undefined,
+        },
+    ])(
+        'reads the inbox count only where the inbox line shows it: $name',
+        async ({ flag, props, scopes, tools, count }) => {
+            mockApiKey.scopes = scopes
+            vi.mocked(evaluateFeatureFlags).mockResolvedValueOnce({
+                flags: { [MCP_SELF_DRIVING_NUDGE_FLAG]: flag },
+                payloads: {},
+            })
+            mockInboxForYouCount.mockReset().mockResolvedValue(3)
+            const { resolver, getFilteredTools } = makeResolverWithCatalog()
+            getFilteredTools.mockReturnValue(tools.map((name) => ({ name, scopes: [] })))
+
+            const result = await resolver.resolve(makeProps(props))
+
+            expect(result.inboxWaitingCount).toBe(count)
+        }
+    )
 
     it('keeps Store connections on individual tools without nested connectors', async () => {
         vi.mocked(resolveFeatureFlagOverrides).mockReturnValueOnce({ 'mcp-gateway': true })
