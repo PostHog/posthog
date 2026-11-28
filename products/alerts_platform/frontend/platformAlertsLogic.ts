@@ -14,6 +14,7 @@ import { Breadcrumb } from '~/types'
 import type { TeamPublicType } from '~/types'
 
 import {
+    platformAlertsFacetsRetrieve,
     platformAlertsList,
     platformAlertsPartialUpdate,
     platformAlertsSnoozeCreate,
@@ -23,7 +24,16 @@ import {
     PaginatedPlatformAlertConfigurationListApi,
     PlatformAlertApi,
     PlatformAlertConfigurationApi,
+    PlatformAlertFacetsApi,
 } from './generated/api.schemas'
+import {
+    NO_PLATFORM_ALERT_FILTERS,
+    PlatformAlertFacet,
+    PlatformAlertFilterParam,
+    PlatformAlertFilters,
+    platformAlertFacets,
+    platformAlertsListFilterParams,
+} from './platformAlertFacets'
 import { PlatformAlertListRow, configurationListRows } from './platformAlertFormat'
 import type { GroupSnoozeDuration } from './platformAlertLogic'
 
@@ -49,8 +59,15 @@ export interface platformAlertsLogicValues {
     configurationsPage: PaginatedPlatformAlertConfigurationListApi | null
     configurationsPageLoading: boolean
     expandedIds: string[]
+    facetNameSearch: string
+    facets: PlatformAlertFacetsApi | null
+    facetsError: boolean
+    facetsLoading: boolean
+    filters: PlatformAlertFilters
     listRows: PlatformAlertListRow[]
     page: number
+    railCollapsed: boolean
+    railFacets: PlatformAlertFacet[]
     updatingAlertIds: Set<string>
 }
 
@@ -78,6 +95,21 @@ export interface platformAlertsLogicActions {
         configurationsPage: PaginatedPlatformAlertConfigurationListApi | null
         payload?: void
     }
+    loadFacets: (_: void) => void
+    loadFacetsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadFacetsSuccess: (
+        facets: PlatformAlertFacetsApi | null,
+        payload?: void
+    ) => {
+        facets: PlatformAlertFacetsApi | null
+        payload?: void
+    }
     setActiveTab: (activeTab: PlatformAlertsTab) => {
         activeTab: PlatformAlertsTab
     }
@@ -88,8 +120,14 @@ export interface platformAlertsLogicActions {
         configuration: PlatformAlertConfigurationApi
         enabled: boolean
     }
+    setFacetNameSearch: (search: string) => {
+        search: string
+    }
     setPage: (page: number) => {
         page: number
+    }
+    setRailCollapsed: (railCollapsed: boolean) => {
+        railCollapsed: boolean
     }
     setUpdatingAlertId: (
         id: string,
@@ -119,6 +157,13 @@ export interface platformAlertsLogicActions {
     toggleExpanded: (id: string) => {
         id: string
     }
+    toggleFilterValue: (
+        param: PlatformAlertFilterParam,
+        value: string
+    ) => {
+        param: PlatformAlertFilterParam
+        value: string
+    }
     unsnoozeAlert: (configuration: PlatformAlertConfigurationApi) => {
         configuration: PlatformAlertConfigurationApi
     }
@@ -138,6 +183,7 @@ export interface platformAlertsLogicMeta {
             configurationsPage: PaginatedPlatformAlertConfigurationListApi | null,
             expandedIds: string[]
         ) => PlatformAlertListRow[]
+        railFacets: (facets: any) => PlatformAlertFacet[]
     }
 }
 
@@ -200,6 +246,9 @@ export const platformAlertsLogic = kea<platformAlertsLogicType>([
             group,
         }),
         setUpdatingAlertId: (id: string, updating: boolean) => ({ id, updating }),
+        toggleFilterValue: (param: PlatformAlertFilterParam, value: string) => ({ param, value }),
+        setFacetNameSearch: (search: string) => ({ search }),
+        setRailCollapsed: (railCollapsed: boolean) => ({ railCollapsed }),
     }),
     reducers({
         activeTab: ['alerts' as PlatformAlertsTab, { setActiveTab: (_, { activeTab }) => activeTab }],
@@ -208,8 +257,23 @@ export const platformAlertsLogic = kea<platformAlertsLogicType>([
             {
                 setPage: (_, { page }) => page,
                 loadCurrentTeamSuccess: () => 1,
+                toggleFilterValue: () => 1,
             },
         ],
+        filters: [
+            NO_PLATFORM_ALERT_FILTERS as PlatformAlertFilters,
+            {
+                toggleFilterValue: (state, { param, value }) => ({
+                    ...state,
+                    [param]: state[param].includes(value)
+                        ? state[param].filter((chosen) => chosen !== value)
+                        : [...state[param], value],
+                }),
+                loadCurrentTeamSuccess: () => NO_PLATFORM_ALERT_FILTERS,
+            },
+        ],
+        facetNameSearch: ['', { setFacetNameSearch: (_, { search }) => search }],
+        railCollapsed: [false, { persist: true }, { setRailCollapsed: (_, { railCollapsed }) => railCollapsed }],
         updatingAlertIds: [
             new Set<string>(),
             {
@@ -237,9 +301,23 @@ export const platformAlertsLogic = kea<platformAlertsLogicType>([
                     const configurationsPage = await platformAlertsList(String(values.currentTeamId), {
                         limit: PLATFORM_ALERTS_PAGE_SIZE,
                         offset: (values.page - 1) * PLATFORM_ALERTS_PAGE_SIZE,
+                        ...platformAlertsListFilterParams(values.filters),
                     })
                     breakpoint()
                     return configurationsPage
+                },
+            },
+        ],
+        facets: [
+            null as PlatformAlertFacetsApi | null,
+            {
+                loadFacets: async (_: void, breakpoint) => {
+                    if (!values.currentTeamId) {
+                        return values.facets
+                    }
+                    const facets = await platformAlertsFacetsRetrieve(String(values.currentTeamId))
+                    breakpoint()
+                    return facets
                 },
             },
         ],
@@ -252,6 +330,13 @@ export const platformAlertsLogic = kea<platformAlertsLogicType>([
                 loadConfigurationsFailure: () => true,
             },
         ],
+        facetsError: [
+            false,
+            {
+                loadFacets: () => false,
+                loadFacetsFailure: () => true,
+            },
+        ],
     }),
     selectors({
         breadcrumbs: [() => [], (): Breadcrumb[] => [PLATFORM_ALERTS_BREADCRUMB]],
@@ -261,6 +346,10 @@ export const platformAlertsLogic = kea<platformAlertsLogicType>([
                 configurationsPage: platformAlertsLogicValues['configurationsPage'],
                 expandedIds: platformAlertsLogicValues['expandedIds']
             ): PlatformAlertListRow[] => configurationListRows(configurationsPage?.results ?? [], expandedIds),
+        ],
+        railFacets: [
+            (s) => [s.facets],
+            (facets: platformAlertsLogicValues['facets']): PlatformAlertFacet[] => platformAlertFacets(facets),
         ],
     }),
     listeners(({ actions, values, cache }) => {
@@ -287,6 +376,7 @@ export const platformAlertsLogic = kea<platformAlertsLogicType>([
                 })
                 lemonToast.success(done)
                 actions.loadConfigurations()
+                actions.loadFacets()
             } catch (error: any) {
                 lemonToast.error(error?.detail ?? "Couldn't update the alert. Try again.")
                 reloadIfRowGone(error)
@@ -356,8 +446,12 @@ export const platformAlertsLogic = kea<platformAlertsLogicType>([
             setPage: () => {
                 actions.loadConfigurations()
             },
+            toggleFilterValue: () => {
+                actions.loadConfigurations()
+            },
             loadCurrentTeamSuccess: () => {
                 actions.loadConfigurations()
+                actions.loadFacets()
             },
             loadConfigurationsSuccess: ({ configurationsPage }) => {
                 const snoozeUntil = earliestSnoozeEnd(configurationsPage?.results ?? [])
@@ -391,5 +485,6 @@ export const platformAlertsLogic = kea<platformAlertsLogicType>([
     })),
     afterMount(({ actions }) => {
         actions.loadConfigurations()
+        actions.loadFacets()
     }),
 ])
