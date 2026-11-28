@@ -1244,7 +1244,7 @@ class TestWebOverviewNoJoinFastPath(ClickhouseTestMixin, APIBaseTest):
             "conversion rate": 100,
         }
 
-    def _create_pageviews(self):
+    def _create_pageviews(self) -> tuple[str, str, str]:
         s1, s2, s3 = str(uuid7("2025-01-10")), str(uuid7("2025-01-11")), str(uuid7("2025-01-12"))
         for distinct_id, session_id, timestamps in [
             ("user_a", s1, ["2025-01-10T10:00:00Z", "2025-01-10T10:05:00Z", "2025-01-10T10:20:00Z"]),
@@ -1270,6 +1270,7 @@ class TestWebOverviewNoJoinFastPath(ClickhouseTestMixin, APIBaseTest):
             timestamp="2025-01-12T13:00:00Z",
             properties={"$current_url": "https://example.com/"},
         )
+        return s1, s2, s3
 
     def _make_runner(self, **query_kwargs) -> WebOverviewQueryRunner:
         query = WebOverviewQuery(
@@ -1329,6 +1330,55 @@ class TestWebOverviewNoJoinFastPath(ClickhouseTestMixin, APIBaseTest):
         with override_settings(WEB_ANALYTICS_NO_JOIN_TEAM_IDS=[self.team.pk]):
             runner = self._make_runner(**query_kwargs)
             assert runner.should_skip_session_join == expected
+
+    def _create_autocapture_in_single_pageview_session(self, session_id: str):
+        # The single-pageview session of user_a would be a bounce; an autocapture makes it not one,
+        # and that event is not a pageview, so the sessionless shape has to scan every event type.
+        _create_event(
+            team=self.team,
+            event="$autocapture",
+            distinct_id="user_a",
+            timestamp="2025-01-11T09:00:05Z",
+            properties={"$session_id": session_id, "$current_url": "https://example.com/"},
+        )
+
+    def _make_sessionless_runner(self, **query_kwargs) -> WebOverviewQueryRunner:
+        return self._make_runner(modifiers=HogQLQueryModifiers(webAnalyticsSessionlessShape=True), **query_kwargs)
+
+    @parameterized.expand([(True,), (False,)])
+    def test_sessionless_results_match_join_path(self, compare: bool):
+        _, single_pageview_session, _ = self._create_pageviews()
+        self._create_autocapture_in_single_pageview_session(single_pageview_session)
+
+        kwargs = {"compareFilter": CompareFilter(compare=True)} if compare else {}
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
+            fast_runner = self._make_sessionless_runner(**kwargs)
+            assert fast_runner.should_use_sessionless_shape
+            fast_results = fast_runner.calculate().results
+
+            join_runner = self._make_runner(**kwargs)
+            assert not join_runner.should_use_sessionless_shape
+            join_results = join_runner.calculate().results
+
+        assert [item.key for item in fast_results] == [item.key for item in join_results]
+        for fast, join in zip(fast_results, join_results):
+            assert fast.value == join.value, f"{fast.key}: {fast.value} != {join.value}"
+            assert fast.previous == join.previous, f"{fast.key} previous: {fast.previous} != {join.previous}"
+
+    @parameterized.expand(
+        [
+            ("clean_query", {}, True),
+            (
+                "event_property_filter",
+                {"properties": [EventPropertyFilter(key="$pathname", operator=PropertyOperator.EXACT, value="/")]},
+                False,
+            ),
+            ("conversion_goal", {"conversionGoal": CustomEventConversionGoal(customEventName="purchase")}, False),
+        ]
+    )
+    def test_sessionless_eligibility(self, _name: str, query_kwargs: dict, expected: bool):
+        assert self._make_sessionless_runner(**query_kwargs).should_use_sessionless_shape == expected
+        assert not self._make_runner(**query_kwargs).should_use_sessionless_shape
 
     def test_no_join_ineligible_when_team_not_allowlisted_or_test_filters_apply(self):
         runner = self._make_runner()

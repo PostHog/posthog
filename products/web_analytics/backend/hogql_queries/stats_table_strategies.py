@@ -6,6 +6,11 @@ from typing import TYPE_CHECKING
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 
+from products.web_analytics.backend.hogql_queries.query_constants.sessionless_queries import (
+    SESSIONLESS_ENTRY_EXIT_INNER_QUERY,
+    SESSIONLESS_PATH_BOUNCE_AND_AVG_TIME_QUERY,
+    SESSIONLESS_PATH_BOUNCE_QUERY,
+)
 from products.web_analytics.backend.hogql_queries.query_constants.stats_table_queries import (
     CHANNEL_TYPE_TWO_PHASE_INNER_QUERY,
     FIRST_PAGEVIEW_INNER_QUERY,
@@ -19,6 +24,7 @@ from products.web_analytics.backend.hogql_queries.query_constants.stats_table_qu
     PATH_BOUNCE_QUERY,
 )
 from products.web_analytics.backend.hogql_queries.web_analytics_query_runner import WEB_ANALYTICS_NO_JOIN_SERVED
+from products.web_analytics.backend.hogql_queries.web_sessionless import build_sessionless_sessions_query
 
 if TYPE_CHECKING:
     from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
@@ -522,6 +528,68 @@ class SessionIdSetPathBounceAvgTimeStrategy(SessionIdSetPathBounceStrategy):
             "time_on_page_breakdown_value": self.runner._scroll_prev_pathname_breakdown(),
             "time_on_page_filters": self.runner._event_properties_for_scroll(),
         }
+
+
+class SessionlessPathBounceStrategy(NoJoinPathBounceStrategy):
+    """PAGE breakdown with bounce rate, with bounce computed from events grouped by session.
+
+    Same two-scan shape as the no-join strategy, but the bounce side reads the per-session rows of
+    SESSIONLESS_SESSIONS_QUERY instead of the sessions table, so the whole query runs on the events
+    cluster. Opt-in through the `webAnalyticsSessionlessShape` modifier.
+    """
+
+    QUERY = SESSIONLESS_PATH_BOUNCE_QUERY
+    TIMING_KEY = "stats_table_sessionless_path_bounce"
+    COUNTER_FAMILY = "stats_table_paths_sessionless"
+
+    def _placeholders(self) -> dict[str, ast.Expr]:
+        return {
+            **super()._placeholders(),
+            "sessions": build_sessionless_sessions_query(self.runner),
+            "bounce_breakdown_value": self.runner._sessionless_entry_pathname_breakdown(),
+            "current_session_period": self.runner._current_period_expression("start_timestamp"),
+            "previous_session_period": self.runner._previous_period_expression("start_timestamp"),
+        }
+
+
+class SessionlessPathBounceAvgTimeStrategy(SessionlessPathBounceStrategy):
+    """PAGE breakdown with average time on page and bounce rate, bounce computed from events."""
+
+    QUERY = SESSIONLESS_PATH_BOUNCE_AND_AVG_TIME_QUERY
+    TIMING_KEY = "stats_table_sessionless_path_bounce_and_avg_time"
+
+    def _placeholders(self) -> dict[str, ast.Expr]:
+        return {
+            **super()._placeholders(),
+            "time_on_page_breakdown_value": self.runner._scroll_prev_pathname_breakdown(),
+            "time_on_page_filters": ast.Constant(value=True),
+        }
+
+
+class SessionlessEntryExitBreakdownStrategy(SimpleBreakdownStrategy):
+    """INITIAL_PAGE and EXIT_PAGE breakdowns from events grouped by session.
+
+    The entry and exit page of a session are the argMin and argMax pathname of its pageviews, so
+    the inner scan is the per-session query of SESSIONLESS_SESSIONS_QUERY laid out like
+    MAIN_INNER_QUERY, and the simple-breakdown outer query is inherited unchanged. Opt-in through
+    the `webAnalyticsSessionlessShape` modifier.
+    """
+
+    def build_query(self) -> ast.SelectQuery:
+        WEB_ANALYTICS_NO_JOIN_SERVED.labels(family="stats_table_entry_exit_sessionless").inc()
+        return super().build_query()
+
+    def _inner_query(self, breakdown: ast.Expr) -> ast.SelectQuery:
+        query = parse_select(
+            SESSIONLESS_ENTRY_EXIT_INNER_QUERY,
+            timings=self.runner.timings,
+            placeholders={
+                "breakdown_value": breakdown,
+                "sessions": build_sessionless_sessions_query(self.runner),
+            },
+        )
+        assert isinstance(query, ast.SelectQuery)
+        return query
 
 
 class FrustrationMetricsStrategy(StatsTableQueryStrategy):

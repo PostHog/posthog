@@ -11,6 +11,7 @@ from posthog.schema import (
     EventPropertyFilter,
     HogQLQueryModifiers,
     PersonPropertyFilter,
+    PersonsOnEventsMode,
     WebAnalyticsOrderByDirection,
     WebAnalyticsOrderByFields,
     WebAnalyticsPreComputeStrategy,
@@ -55,6 +56,9 @@ from products.web_analytics.backend.hogql_queries.stats_table_strategies import 
     PathBounceStrategy,
     SessionIdSetPathBounceAvgTimeStrategy,
     SessionIdSetPathBounceStrategy,
+    SessionlessEntryExitBreakdownStrategy,
+    SessionlessPathBounceAvgTimeStrategy,
+    SessionlessPathBounceStrategy,
     SimpleBreakdownStrategy,
     StatsTableQueryStrategy,
 )
@@ -194,7 +198,14 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
     def _strategy_name(self, strategy: StatsTableQueryStrategy) -> str:
         if isinstance(strategy, FrustrationMetricsStrategy):
             return "stats_table_frustration_metrics"
-        # Session-id-set variants first: they subclass the no-join strategies.
+        # Sessionless variants first: they subclass the no-join strategies.
+        if isinstance(strategy, SessionlessPathBounceAvgTimeStrategy):
+            return "stats_table_sessionless_path_bounce_and_avg_time"
+        if isinstance(strategy, SessionlessPathBounceStrategy):
+            return "stats_table_sessionless_path_bounce"
+        if isinstance(strategy, SessionlessEntryExitBreakdownStrategy):
+            return "stats_table_sessionless_entry_exit_breakdown"
+        # Session-id-set variants next: they subclass the no-join strategies.
         if isinstance(strategy, SessionIdSetPathBounceAvgTimeStrategy):
             return "stats_table_session_id_set_path_bounce_and_avg_time"
         if isinstance(strategy, SessionIdSetPathBounceStrategy):
@@ -253,6 +264,20 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
 
         if breakdown == WebStatsBreakdown.FRUSTRATION_METRICS:
             return FrustrationMetricsStrategy(self)
+
+        if self.should_use_sessionless_shape:
+            if breakdown == WebStatsBreakdown.PAGE and self.query.includeAvgTimeOnPage:
+                return SessionlessPathBounceAvgTimeStrategy(self)
+            if breakdown == WebStatsBreakdown.PAGE and self.query.includeBounceRate:
+                return SessionlessPathBounceStrategy(self)
+            if breakdown == WebStatsBreakdown.INITIAL_PAGE:
+                return SessionlessEntryExitBreakdownStrategy(
+                    self, breakdown_override=self._sessionless_entry_pathname_breakdown()
+                )
+            if breakdown == WebStatsBreakdown.EXIT_PAGE:
+                return SessionlessEntryExitBreakdownStrategy(
+                    self, breakdown_override=self._sessionless_exit_pathname_breakdown()
+                )
 
         if breakdown == WebStatsBreakdown.PAGE:
             if self.query.conversionGoal:
@@ -885,6 +910,11 @@ WHERE and(
         if self.used_preaggregated_tables:
             modifiers = self.modifiers.model_copy() if self.modifiers else HogQLQueryModifiers()
             modifiers.convertToProjectTimezone = False
+        elif self.query_strategy().startswith("stats_table_sessionless"):
+            # Visitors come from the event's own person_id, so the shape leaves out the person
+            # overrides join the way it leaves out the sessions join.
+            modifiers = self.modifiers.model_copy() if self.modifiers else HogQLQueryModifiers()
+            modifiers.personsOnEventsMode = PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
         elif self.query_strategy().startswith("stats_table_session_id_set"):
             # The id-set shape relies on `build_direct_session_id_in_pushdown`
             # rewriting the bounce side's id filter below the sessions GROUP BY;
@@ -1210,6 +1240,19 @@ WHERE and(
         path = self._apply_path_cleaning(ast.Field(chain=["$entry_pathname"]))
         if self.query.includeHost:
             return self._prepend_host(ast.Field(chain=["$entry_hostname"]), path)
+        return path
+
+    def _sessionless_entry_pathname_breakdown(self) -> ast.Expr:
+        """Entry page from the per-session rows of SESSIONLESS_SESSIONS_QUERY."""
+        path = self._apply_path_cleaning(ast.Field(chain=["s", "entry_pathname"]))
+        if self.query.includeHost:
+            return self._prepend_host(ast.Field(chain=["s", "entry_host"]), path)
+        return path
+
+    def _sessionless_exit_pathname_breakdown(self) -> ast.Expr:
+        path = self._apply_path_cleaning(ast.Field(chain=["s", "exit_pathname"]))
+        if self.query.includeHost:
+            return self._prepend_host(ast.Field(chain=["s", "exit_host"]), path)
         return path
 
     def _bounce_entry_pathname_breakdown(self):

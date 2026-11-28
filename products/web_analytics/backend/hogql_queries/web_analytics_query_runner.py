@@ -326,6 +326,25 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
             return False
         return True
 
+    @cached_property
+    def should_use_sessionless_shape(self) -> bool:
+        """Whether session metrics come from the events table alone, grouped by `$session_id`.
+
+        Opt-in through the `webAnalyticsSessionlessShape` modifier. Filters, conversion goals and
+        test-account filters keep their existing paths: the shape computes a session's bounce,
+        duration, entry and exit page from the events it scans, so filtering those events would
+        change what a session is rather than which sessions qualify.
+        """
+        if not (self.modifiers and self.modifiers.webAnalyticsSessionlessShape):
+            return False
+        if getattr(self.query, "conversionGoal", None):
+            return False
+        if getattr(self.query, "properties", None):
+            return False
+        if self._test_account_filters:
+            return False
+        return True
+
     def _team_in_no_join_rollout(self) -> bool:
         if self.team.pk in settings.WEB_ANALYTICS_NO_JOIN_TEAM_IDS:
             return True

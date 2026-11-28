@@ -1401,6 +1401,8 @@ export interface HogQLQueryModifiersApi {
     useWebAnalyticsPreAggregatedTables?: boolean | null
     /** Serve filters on the stored session-entry attribution properties (`$channel_type`, `$entry_utm_*`, `$entry_referring_domain`) by recomputing the value from the session's first pageview. Resolved server-side; not intended to be set by clients. */
     webAnalyticsFirstPageviewFilters?: boolean | null
+    /** Compute web analytics session metrics (sessions, bounce rate, duration, entry and exit page) from the events table grouped by `$session_id`, with no join to the sessions table and visitors from the event's own `person_id`. Experimental; off unless set. */
+    webAnalyticsSessionlessShape?: boolean | null
 }
 
 export interface PropertyGroupFilterValueApi {

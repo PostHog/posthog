@@ -2879,7 +2879,7 @@ class TestWebStatsTableQueryRunner(
 class TestWebStatsTableNoJoinFastPath(ClickhouseTestMixin, APIBaseTest):
     QUERY_TIMESTAMP = "2025-01-29"
 
-    def _create_pageviews(self):
+    def _create_pageviews(self) -> tuple[str, str, str]:
         s1, s2, s3 = str(uuid7("2025-01-10")), str(uuid7("2025-01-11")), str(uuid7("2025-01-12"))
         for distinct_id, session_id, path_timestamps in [
             ("user_a", s1, [("/", "2025-01-10T10:00:00Z"), ("/pricing", "2025-01-10T10:05:00Z")]),
@@ -2897,6 +2897,7 @@ class TestWebStatsTableNoJoinFastPath(ClickhouseTestMixin, APIBaseTest):
                     properties={
                         "$session_id": session_id,
                         "$pathname": pathname,
+                        "$host": "example.com",
                         "$current_url": f"https://example.com{pathname}",
                     },
                 )
@@ -2910,6 +2911,7 @@ class TestWebStatsTableNoJoinFastPath(ClickhouseTestMixin, APIBaseTest):
             properties={"$pathname": "/", "$current_url": "https://example.com/"},
         )
         flush_persons_and_events()
+        return s1, s2, s3
 
     def _make_runner(self, **query_kwargs) -> WebStatsTableQueryRunner:
         query = WebStatsTableQuery(
@@ -2964,6 +2966,84 @@ class TestWebStatsTableNoJoinFastPath(ClickhouseTestMixin, APIBaseTest):
     def test_no_join_paths_requires_team_allowlist(self):
         runner = self._make_runner()
         assert not runner.query_strategy().startswith("stats_table_no_join")
+
+    def _create_autocapture_in_single_pageview_session(self, session_id: str):
+        # The single-pageview session of user_a would be a bounce; an autocapture makes it not one,
+        # and that event is not a pageview, so the sessionless shape has to scan every event type.
+        _create_event(
+            team=self.team,
+            event="$autocapture",
+            distinct_id="user_a",
+            timestamp="2025-01-11T09:00:05Z",
+            properties={"$session_id": session_id, "$current_url": "https://example.com/pricing"},
+        )
+        flush_persons_and_events()
+
+    def _make_sessionless_runner(self, **query_kwargs) -> WebStatsTableQueryRunner:
+        return self._make_runner(modifiers=HogQLQueryModifiers(webAnalyticsSessionlessShape=True), **query_kwargs)
+
+    @parameterized.expand(
+        [
+            ("page_bounce", {}, "stats_table_sessionless_path_bounce"),
+            (
+                "page_bounce_avg_time",
+                {"includeAvgTimeOnPage": True},
+                "stats_table_sessionless_path_bounce_and_avg_time",
+            ),
+            (
+                "entry_page_bounce",
+                {"breakdownBy": WebStatsBreakdown.INITIAL_PAGE},
+                "stats_table_sessionless_entry_exit_breakdown",
+            ),
+            (
+                "entry_page_host",
+                {"breakdownBy": WebStatsBreakdown.INITIAL_PAGE, "includeBounceRate": False, "includeHost": True},
+                "stats_table_sessionless_entry_exit_breakdown",
+            ),
+            (
+                "exit_page_bounce",
+                {"breakdownBy": WebStatsBreakdown.EXIT_PAGE},
+                "stats_table_sessionless_entry_exit_breakdown",
+            ),
+            (
+                "exit_page_compare",
+                {"breakdownBy": WebStatsBreakdown.EXIT_PAGE, "compareFilter": CompareFilter(compare=True)},
+                "stats_table_sessionless_entry_exit_breakdown",
+            ),
+        ]
+    )
+    def test_sessionless_results_match_join_path(self, _name: str, query_kwargs: dict, strategy: str):
+        _, single_pageview_session, _ = self._create_pageviews()
+        self._create_autocapture_in_single_pageview_session(single_pageview_session)
+
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
+            fast_runner = self._make_sessionless_runner(**query_kwargs)
+            assert fast_runner.query_strategy() == strategy
+            fast_results = fast_runner.calculate().results
+
+            join_runner = self._make_runner(**query_kwargs)
+            assert not join_runner.query_strategy().startswith("stats_table_sessionless")
+            join_results = join_runner.calculate().results
+
+        assert sorted(r[0] for r in fast_results) == sorted(r[0] for r in join_results)
+        fast_by_path = {r[0]: r[1:] for r in fast_results}
+        join_by_path = {r[0]: r[1:] for r in join_results}
+        for path, join_row in join_by_path.items():
+            assert fast_by_path[path] == join_row, f"{path}: {fast_by_path[path]} != {join_row}"
+
+    @parameterized.expand(
+        [
+            ("page_without_bounce", {"includeBounceRate": False}),
+            (
+                "event_property_filter",
+                {"properties": [EventPropertyFilter(key="$host", operator=PropertyOperator.EXACT, value="a.com")]},
+            ),
+            ("conversion_goal", {"conversionGoal": CustomEventConversionGoal(customEventName="purchase")}),
+            ("non_path_breakdown", {"breakdownBy": WebStatsBreakdown.DEVICE_TYPE}),
+        ]
+    )
+    def test_sessionless_not_selected_outside_its_shapes(self, _name: str, query_kwargs: dict):
+        assert not self._make_sessionless_runner(**query_kwargs).query_strategy().startswith("stats_table_sessionless")
 
     def _create_channel_sessions(self):
         with time_machine.travel("2025-01-01T09:00:00Z", tick=False):

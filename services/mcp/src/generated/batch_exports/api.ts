@@ -757,6 +757,12 @@ export const BatchExportsCreateBody = () => zod
                         .describe(
                             "Serve filters on the stored session-entry attribution properties (`$channel_type`, `$entry_utm_\*`, `$entry_referring_domain`) by recomputing the value from the session's first pageview. Resolved server-side; not intended to be set by clients."
                         ),
+                    webAnalyticsSessionlessShape: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            "Compute web analytics session metrics (sessions, bounce rate, duration, entry and exit page) from the events table grouped by `$session_id`, with no join to the sessions table and visitors from the event's own `person_id`. Experimental; off unless set."
+                        ),
                 }),
                 zod.null(),
             ])
@@ -1554,6 +1560,12 @@ export const BatchExportsPartialUpdateBody = () => zod
                         .describe(
                             "Serve filters on the stored session-entry attribution properties (`$channel_type`, `$entry_utm_\*`, `$entry_referring_domain`) by recomputing the value from the session's first pageview. Resolved server-side; not intended to be set by clients."
                         ),
+                    webAnalyticsSessionlessShape: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            "Compute web analytics session metrics (sessions, bounce rate, duration, entry and exit page) from the events table grouped by `$session_id`, with no join to the sessions table and visitors from the event's own `person_id`. Experimental; off unless set."
+                        ),
                 }),
                 zod.null(),
             ])
@@ -2046,6 +2058,12 @@ export const FileDownloadBatchExportsCreateBody = () => zod.union([
                         .describe(
                             "Serve filters on the stored session-entry attribution properties (`$channel_type`, `$entry_utm_\*`, `$entry_referring_domain`) by recomputing the value from the session's first pageview. Resolved server-side; not intended to be set by clients."
                         ),
+                    webAnalyticsSessionlessShape: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            "Compute web analytics session metrics (sessions, bounce rate, duration, entry and exit page) from the events table grouped by `$session_id`, with no join to the sessions table and visitors from the event's own `person_id`. Experimental; off unless set."
+                        ),
                 })
                 .optional()
                 .describe(
@@ -2363,6 +2381,12 @@ export const FileDownloadBatchExportsCountRowsCreateBody = () => zod
                     .optional()
                     .describe(
                         "Serve filters on the stored session-entry attribution properties (`$channel_type`, `$entry_utm_\*`, `$entry_referring_domain`) by recomputing the value from the session's first pageview. Resolved server-side; not intended to be set by clients."
+                    ),
+                webAnalyticsSessionlessShape: zod
+                    .union([zod.boolean(), zod.null()])
+                    .optional()
+                    .describe(
+                        "Compute web analytics session metrics (sessions, bounce rate, duration, entry and exit page) from the events table grouped by `$session_id`, with no join to the sessions table and visitors from the event's own `person_id`. Experimental; off unless set."
                     ),
             })
             .optional()
