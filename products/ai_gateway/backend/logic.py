@@ -12,8 +12,8 @@ import base64
 import hashlib
 import secrets
 import dataclasses
-from datetime import datetime, timedelta
-from decimal import ROUND_CEILING, ROUND_DOWN, Decimal
+from datetime import UTC, date, datetime, time, timedelta
+from decimal import ROUND_CEILING, ROUND_DOWN, Decimal, InvalidOperation
 
 from django.conf import settings
 from django.db import transaction
@@ -48,6 +48,10 @@ from .facade.contracts import (
     DevTokenUsage,
     DevUserUsage,
     MintedDevToken,
+    OrganizationAccess,
+    OrganizationProductSpend,
+    OrganizationWallet,
+    OrganizationWalletUnavailable,
     TeamAccessChange,
     TeamCreditAdded,
     TeamCreditRefused,
@@ -917,3 +921,62 @@ def team_wallet(team_id: int) -> TeamWallet:
             for entry in wallet.recent
         ],
     )
+
+
+def organization_access(org_id: str) -> OrganizationAccess:
+    teams = Team.objects.filter(organization_id=org_id)
+    return OrganizationAccess(
+        teams=teams.count(),
+        enrolled=teams.filter(llm_gateway_enabled_at__isnull=False, llm_gateway_revoked_at__isnull=True).count(),
+    )
+
+
+# The spend route's name for spend that carries no product. The usage report gives null for the same group.
+UNATTRIBUTED_PRODUCT = "unattributed"
+
+
+def _gateway_usd(value: object, field: str) -> Decimal:
+    try:
+        return Decimal(str(value))
+    except InvalidOperation as exc:
+        raise gateway_internal_client.AIGatewayInternalError(f"{field} is not a decimal, got {value!r}") from exc
+
+
+def organization_wallet(org_id: str, start: date, end: date) -> OrganizationWallet:
+    try:
+        spend = gateway_internal_client.get_org_spend(org_id, start, end)
+        report = gateway_internal_client.get_usage_report_rows(
+            {
+                "group_by": "product",
+                "billed_org_id": org_id,
+                "from": datetime.combine(start, time.min, tzinfo=UTC).isoformat(),
+                "to": datetime.combine(end, time.min, tzinfo=UTC).isoformat(),
+                "limit": "1000",
+            },
+            actor=gateway_internal_client.ADMIN_ACTOR,
+        )
+        list_usd = {
+            (row.get("keys") or {}).get("product") or UNATTRIBUTED_PRODUCT: _gateway_usd(
+                row.get("list_usd"), "list_usd"
+            )
+            for row in report
+        }
+        return OrganizationWallet(
+            balance_usd=_gateway_usd(spend.balance_usd, "balance_usd"),
+            charged_usd=_gateway_usd(spend.spend_usd, "spend_usd"),
+            free_usd=_gateway_usd(spend.free_usd, "free_usd"),
+            products=[
+                OrganizationProductSpend(
+                    product=product.product,
+                    charged_usd=_gateway_usd(product.spend_usd, "spend_usd"),
+                    free_usd=_gateway_usd(product.free_usd, "free_usd"),
+                    list_usd=list_usd.get(product.product),
+                )
+                for product in spend.products
+            ],
+            truncated=spend.truncated,
+        )
+    except gateway_internal_client.AIGatewayNotConfigured as exc:
+        raise OrganizationWalletUnavailable("The AI gateway internal API is not configured in this region.") from exc
+    except gateway_internal_client.AIGatewayInternalError as exc:
+        raise OrganizationWalletUnavailable(f"The wallet is unavailable: {exc}") from exc

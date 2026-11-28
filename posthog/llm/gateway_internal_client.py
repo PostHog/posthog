@@ -1,4 +1,5 @@
 import dataclasses
+from datetime import date
 from typing import Any
 
 from django.conf import settings
@@ -169,18 +170,79 @@ def report_spend(wallet_team_id: int, body: dict[str, Any]) -> ReportedSpendResp
 
 
 @dataclasses.dataclass(frozen=True)
+class OrgProductSpend:
+    product: str
+    spend_usd: str
+    free_usd: str
+
+
+@dataclasses.dataclass(frozen=True)
+class OrgSpend:
+    balance_usd: str
+    spend_usd: str
+    free_usd: str
+    products: list[OrgProductSpend]
+    # True when the organization has more products than the gateway lists. The totals still cover every debit.
+    truncated: bool
+
+
+def get_org_spend(org_id: str, start: date, end: date) -> OrgSpend:
+    """An organization's balance now, and the spend billed to it on the UTC days in [start, end)."""
+    url, token = _config()
+    try:
+        response = httpx.get(
+            f"{url}/internal/accounts/{org_id}/spend",
+            headers=_auth_headers(token, {INTERNAL_ACTOR_HEADER: ADMIN_ACTOR}),
+            params={"start": start.isoformat(), "end": end.isoformat()},
+            timeout=USAGE_REPORT_TIMEOUT_SECONDS,
+            trust_env=False,
+        )
+    except httpx.HTTPError as exc:
+        raise AIGatewayInternalError(f"organization spend read failed: {exc}") from exc
+    if response.status_code >= 400:
+        raise AIGatewayInternalError(f"organization spend read failed: {_error_detail(response)}")
+    try:
+        data: Any = response.json()
+    except ValueError as exc:
+        raise AIGatewayInternalError(f"organization spend read failed: {exc}") from exc
+    if not isinstance(data, dict):
+        raise AIGatewayInternalError("organization spend response was not an object")
+    for field in ("balance_usd", "spend_usd", "free_usd"):
+        if not isinstance(data.get(field), str):
+            raise AIGatewayInternalError(f"organization spend response had no {field}")
+    products = data.get("products")
+    if not isinstance(products, list):
+        raise AIGatewayInternalError("organization spend response had no products")
+    return OrgSpend(
+        balance_usd=data["balance_usd"],
+        spend_usd=data["spend_usd"],
+        free_usd=data["free_usd"],
+        products=[
+            OrgProductSpend(
+                product=str(row.get("product", "")),
+                spend_usd=str(row.get("spend_usd", "0")),
+                free_usd=str(row.get("free_usd", "0")),
+            )
+            for row in products
+            if isinstance(row, dict)
+        ],
+        truncated=bool(data.get("truncated", False)),
+    )
+
+
+@dataclasses.dataclass(frozen=True)
 class UsageReportPage:
     rows: list[dict[str, Any]]
     truncated: bool
     next_cursor: str | None
 
 
-def get_usage_report(params: dict[str, str]) -> UsageReportPage:
+def get_usage_report(params: dict[str, str], actor: str = TASKS_COMPUTE_ACTOR) -> UsageReportPage:
     url, token = _config()
     try:
         response = httpx.get(
             f"{url}/internal/usage/report",
-            headers=_auth_headers(token, {INTERNAL_ACTOR_HEADER: TASKS_COMPUTE_ACTOR}),
+            headers=_auth_headers(token, {INTERNAL_ACTOR_HEADER: actor}),
             params=params,
             timeout=USAGE_REPORT_TIMEOUT_SECONDS,
             trust_env=False,
@@ -211,12 +273,12 @@ def get_usage_report(params: dict[str, str]) -> UsageReportPage:
     )
 
 
-def get_usage_report_rows(params: dict[str, str]) -> list[dict[str, Any]]:
+def get_usage_report_rows(params: dict[str, str], actor: str = TASKS_COMPUTE_ACTOR) -> list[dict[str, Any]]:
     page_params = {**params, "order_by": "key"}
     rows: list[dict[str, Any]] = []
     seen: set[str] = set()
     while True:
-        page = get_usage_report(page_params)
+        page = get_usage_report(page_params, actor)
         rows.extend(page.rows)
         if not page.truncated:
             return rows

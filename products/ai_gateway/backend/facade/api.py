@@ -8,6 +8,7 @@ dataclasses. Never return ORM instances or import DRF.
 
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
 
 from posthog.models.user import User
@@ -83,3 +84,15 @@ def recent_team_credits(team_id: int, limit: int) -> list[contracts.TeamCreditTo
 def team_wallet(team_id: int) -> contracts.TeamWallet:
     """Reads the balance and recent ledger from the gateway. Raises `contracts.TeamWalletUnavailable`."""
     return logic.team_wallet(team_id)
+
+
+def organization_access(org_id: str) -> contracts.OrganizationAccess:
+    return logic.organization_access(org_id)
+
+
+def organization_wallet(org_id: str, start: date, end: date) -> contracts.OrganizationWallet:
+    """Reads the balance and the spend billed on the UTC days in [start, end) from the gateway.
+
+    Raises `contracts.OrganizationWalletUnavailable`.
+    """
+    return logic.organization_wallet(org_id, start, end)
