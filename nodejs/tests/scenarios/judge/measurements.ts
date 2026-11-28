@@ -13,9 +13,8 @@ import type { QueueCounts, WriterBackends } from '../probe/cyclotron-probe'
 import type { WriterSample } from '../probe/writer-probe'
 import { ValveTimelineEntry, exitedByValve } from '../valves/valves'
 import { CounterReading, counterDrift } from './drift'
-import { acceptedDeliveriesOf, deliveryKey } from './invariants'
+import { deliveryKey } from './invariants'
 import type { JudgeEvidence } from './invariants'
-import type { JournalEntry } from './judge'
 import { SCRAPE_GAP_MS, WORKER_OF } from './pickups'
 
 export type MetricSample = {
@@ -224,33 +223,7 @@ export const attachmentDeferrals: MeasurementDefinition = {
     },
 }
 
-const sesSendsOf = (truth: MeasureEvidence['truth']): MeasureEvidence['truth'] =>
-    truth.filter(({ kind }) => kind === 'ses.send')
-
-export const sendsPerMessageMax: MeasurementDefinition = {
-    name: 'sends_per_message_max',
-    params: z.object({}).strict(),
-    unit: 'sends',
-    measure: ({ truth, unread, unsettled, converged }) => {
-        const accepted = acceptedDeliveriesOf(sesSendsOf(truth)).map(({ accepted }) => accepted)
-        const incomplete = unread !== undefined || unsettled !== undefined || converged === false
-        if (accepted.length === 0) {
-            return incomplete ? [unmeasured('no accepted SES send was read')] : []
-        }
-        return [{ value: maxOf(accepted), ...(incomplete ? { incomplete: true as const } : {}) }]
-    },
-}
-
 const nearestRank = (sorted: number[], share: number): number => sorted[Math.ceil(share * sorted.length) - 1]
-
-const latencySummary = (prefix: string, sorted: number[]): Measured[] =>
-    sorted.length === 0
-        ? []
-        : [
-              { key: `${prefix}p50`, value: nearestRank(sorted, 0.5) },
-              { key: `${prefix}p95`, value: nearestRank(sorted, 0.95) },
-              { key: `${prefix}max`, value: sorted.at(-1)! },
-          ]
 
 export const deliveryLatencyMs: MeasurementDefinition = {
     name: 'delivery_latency_ms',
@@ -258,45 +231,28 @@ export const deliveryLatencyMs: MeasurementDefinition = {
     unit: 'ms',
     measure: ({ journal, truth }) => {
         const firstAccepted = new Map<string, number>()
-        const emailed = new Set<string>()
-        for (const { kind, unitId, actionId, status, at } of [...truth].sort((a, b) => a.seq - b.seq)) {
+        for (const { unitId, actionId, status, at } of [...truth].sort((a, b) => a.seq - b.seq)) {
             const key = unitId !== undefined && actionId !== undefined ? deliveryKey(unitId, actionId) : undefined
             if (key !== undefined && status >= 200 && status < 300 && !firstAccepted.has(key)) {
                 firstAccepted.set(key, Date.parse(at))
-                if (kind === 'ses.send') {
-                    emailed.add(key)
-                }
             }
         }
-        const accepted = journal.filter(({ answer }) => answer.accepted)
-        const latenciesOf = (entries: readonly JournalEntry[], emailOnly = false): number[] =>
-            entries
-                .flatMap(({ unitId, offeredAt, expect }) =>
-                    expect.deliveries.flatMap((actionId) => {
-                        const key = deliveryKey(unitId, actionId)
-                        const deliveredAt = firstAccepted.get(key)
-                        return deliveredAt === undefined || (emailOnly && !emailed.has(key))
-                            ? []
-                            : [deliveredAt - offeredAt]
-                    })
-                )
-                .sort((a, b) => a - b)
-        const withFiles = ({ expect }: JournalEntry): boolean => (expect.attachments?.length ?? 0) > 0
-        return [
-            ...latencySummary('', latenciesOf(accepted)),
-            ...(accepted.some(({ expect }) => expect.attachments !== undefined)
-                ? [
-                      ...latencySummary(
-                          'plain_',
-                          latenciesOf(
-                              accepted.filter((entry) => !withFiles(entry)),
-                              true
-                          )
-                      ),
-                      ...latencySummary('files_', latenciesOf(accepted.filter(withFiles), true)),
-                  ]
-                : []),
-        ]
+        const latencies = journal
+            .filter(({ answer }) => answer.accepted)
+            .flatMap(({ unitId, offeredAt, expect }) =>
+                expect.deliveries.flatMap((actionId) => {
+                    const deliveredAt = firstAccepted.get(deliveryKey(unitId, actionId))
+                    return deliveredAt === undefined ? [] : [deliveredAt - offeredAt]
+                })
+            )
+            .sort((a, b) => a - b)
+        return latencies.length === 0
+            ? []
+            : [
+                  { key: 'p50', value: nearestRank(latencies, 0.5) },
+                  { key: 'p95', value: nearestRank(latencies, 0.95) },
+                  { key: 'max', value: latencies.at(-1)! },
+              ]
     },
 }
 
@@ -1122,7 +1078,6 @@ export const MEASUREMENTS: MeasurementDefinition[] = [
     roleHeapMaxBytes,
     roleRestarts,
     deliveryLatencyMs,
-    sendsPerMessageMax,
     attachmentDeferrals,
     attachmentSendsInFlightMax,
     attachmentReservedBytesMax,
