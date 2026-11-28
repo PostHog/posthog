@@ -12,7 +12,6 @@ import type { QueueCounts, WriterBackends } from '../probe/cyclotron-probe'
 import type { VacuumRead, VacuumSettingsRead } from '../probe/vacuum-probe'
 import type { WriterSample } from '../probe/writer-probe'
 import type { ValveTimelineEntry } from '../valves/valves'
-import type { WriterCpu } from './bars'
 import { CounterReading, counterDrift } from './drift'
 import { deliveryKey } from './invariants'
 import type { JudgeEvidence } from './invariants'
@@ -84,7 +83,6 @@ export type MeasureEvidence = Omit<JudgeEvidence, 'janitorResets' | 'boundary'> 
         horizonAt?: number
         converged?: boolean
         unsettled?: string
-        writerCpu?: WriterCpu
     }
 
 export type MeasurementDefinition = Definition & {

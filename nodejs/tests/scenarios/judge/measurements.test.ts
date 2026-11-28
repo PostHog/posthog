@@ -993,32 +993,6 @@ describe('measurements', () => {
         ])
     })
 
-    it('gives the valve pickup p99 and the soak pickup series each its own rows, so a card that asks for both gets both', () => {
-        expect(
-            measure(
-                [
-                    { name: 'pickup_p99_seconds', params: {} },
-                    { name: 'pickup_p99_window_seconds', params: {} },
-                ],
-                evidence({ samples: pickedEvery5s(between(705, 760)), drive: DRIVE, timeline: THREE_MINUTE_VALVE })
-            )
-        ).toEqual([
-            ...['baseline', 'bar', 't0', 't60', 't120'].map((key) => ({
-                name: 'pickup_p99_seconds',
-                unit: 's',
-                key: `hogflow_${key}`,
-                value: null,
-                censored: true,
-                unmeasured: UNBOUNDED_PICKUPS,
-            })),
-            ...[
-                ['t0', 0.5],
-                ['t600', 5],
-                ['t1200', 0.5],
-            ].map(([key, value]) => ({ name: 'pickup_p99_window_seconds', unit: 's', key: `hogflow_${key}`, value })),
-        ])
-    })
-
     it('never recovers writes in a minute that a failed probe overlaps, and keeps a probe that fails after T0 out of the baseline', () => {
         const names = ['write_latency_p99_ms', 'write_latency_recovery_seconds']
         for (const boundaryS of [700, 760, 820]) {

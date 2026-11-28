@@ -4,13 +4,12 @@ import { Duration, durationMs } from '../duration'
 import { VACUUM_PROBE_EVERY_MS } from '../probe/vacuum-cadence'
 import type { VacuumRead, VacuumSample } from '../probe/vacuum-probe'
 import type { MeasureEvidence, MeasurementDefinition } from './measurements'
-import { WORKER_OF, p99Of, pickupsBetween } from './pickups'
 
 type Read = VacuumSample & { at: number }
 
 type Window = { from: number; to: number }
 
-type Point = { value: number; censored?: true; incomplete?: true } | { value: null; censored: true; unmeasured: string }
+type Point = { value: number; censored?: true } | { value: null; censored: true; unmeasured: string }
 
 type Measured = ReturnType<MeasurementDefinition['measure']>[number]
 
@@ -23,8 +22,6 @@ const SeriesParams = z
     .strict()
 
 const NO_VACUUM_SAMPLE = 'no vacuum sample in the window'
-
-const MINUTE_MS = 60_000
 
 const ENDPOINT_WITHIN_MS = 2 * VACUUM_PROBE_EVERY_MS
 
@@ -45,17 +42,17 @@ function windowsOf({ drive }: MeasureEvidence, params: unknown): Window[] {
 
 const unmeasured = (reason: string): Point => ({ value: null, censored: true, unmeasured: reason })
 
-function series(evidence: MeasureEvidence, params: unknown, point: (window: Window) => Point, prefix = ''): Measured[] {
+function series(evidence: MeasureEvidence, params: unknown, point: (window: Window) => Point): Measured[] {
     return windowsOf(evidence, params).map((window) => ({
-        key: `${prefix}t${(window.from - evidence.drive.startedAt) / 1000}`,
+        key: `t${(window.from - evidence.drive.startedAt) / 1000}`,
         ...point(window),
     }))
 }
 
 const within = (reads: readonly Read[], { from, to }: Window): Read[] => reads.filter(({ at }) => at >= from && at < to)
 
-const maxPoint = (values: number[], reason = NO_VACUUM_SAMPLE): Point =>
-    values.length === 0 ? unmeasured(reason) : { value: Math.max(...values) }
+const maxPoint = (values: number[]): Point =>
+    values.length === 0 ? unmeasured(NO_VACUUM_SAMPLE) : { value: Math.max(...values) }
 
 const deadShareOf = ({ liveTuples, deadTuples }: Read): number =>
     liveTuples + deadTuples === 0 ? 0 : deadTuples / (liveTuples + deadTuples)
@@ -64,14 +61,6 @@ const perRow = (bytes: number, { liveTuples }: Read): number | undefined =>
     liveTuples > 0 ? bytes / liveTuples : undefined
 
 const heapPerRow = (read: Read): number | undefined => perRow(read.heapBytes, read)
-
-const toastPerRow = (read: Read): number | undefined => perRow(read.toastBytes, read)
-
-const indexesPerRow = (read: Read): number | undefined =>
-    perRow(
-        Object.values(read.indexBytes).reduce((sum, bytes) => sum + bytes, 0),
-        read
-    )
 
 const lastOf = (reads: readonly Read[], value: (read: Read) => number | undefined): number | undefined =>
     reads.map(value).findLast((candidate) => candidate !== undefined)
@@ -103,9 +92,6 @@ const atEndpoints = (evidence: MeasureEvidence, measure: (reads: Read[]) => Meas
         ...(endpoints.incomplete && { incomplete: true as const }),
     }))
 }
-
-const growthOf = (start: number | undefined, end: number | undefined): Measured[] =>
-    start === undefined || end === undefined || start === 0 ? [] : [{ value: end / start }]
 
 const soakMeasure = (
     name: string,
@@ -143,34 +129,6 @@ export const SOAK_MEASUREMENTS: MeasurementDefinition[] = [
             return value === undefined ? unmeasured(NO_VACUUM_SAMPLE) : { value }
         })
     }),
-    soakMeasure('index_bytes_per_row', 'bytes', (evidence) =>
-        atEndpoints(evidence, (reads) => {
-            const [start, end] = [indexesPerRow(reads[0]), indexesPerRow(reads.at(-1)!)]
-            return start === undefined || end === undefined
-                ? []
-                : [
-                      { key: 'start', value: start },
-                      { key: 'end', value: end },
-                  ]
-        })
-    ),
-    soakMeasure('bloat_growth', 'ratio', (evidence) =>
-        atEndpoints(evidence, (reads) => {
-            const indexes = [...new Set(reads.flatMap(({ indexBytes }) => Object.keys(indexBytes)))].sort()
-            const indexPerRow = (index: string) => (read: Read) =>
-                index in read.indexBytes ? perRow(read.indexBytes[index], read) : undefined
-            const keyed = (key: string, measured: Measured[]): Measured[] =>
-                measured.map((value) => ({ key, ...value }))
-            return [
-                ...keyed('heap', growthOf(heapPerRow(reads[0]), heapPerRow(reads.at(-1)!))),
-                ...keyed('toast', growthOf(toastPerRow(reads[0]), toastPerRow(reads.at(-1)!))),
-                ...keyed('indexes', growthOf(indexesPerRow(reads[0]), indexesPerRow(reads.at(-1)!))),
-                ...indexes.flatMap((index) =>
-                    keyed(`index_${index}`, growthOf(indexPerRow(index)(reads[0]), indexPerRow(index)(reads.at(-1)!)))
-                ),
-            ]
-        })
-    ),
     seriesMeasure('seconds_since_autovacuum', 's', (evidence, params) => {
         const reads = readsOf(evidence.vacuum)
         return series(evidence, params, (window) => {
@@ -181,61 +139,6 @@ export const SOAK_MEASUREMENTS: MeasurementDefinition[] = [
                       value: Math.max(...since.map(({ value }) => value)),
                       ...(since.some(({ censored }) => censored) ? { censored: true as const } : {}),
                   }
-        })
-    }),
-    seriesMeasure('pickup_p99_window_seconds', 's', (evidence, params) =>
-        Object.entries(WORKER_OF).flatMap(([queue, role]) =>
-            evidence.samples.some((sample) => sample.role === role)
-                ? series(
-                      evidence,
-                      params,
-                      (window) => {
-                          const pickups = pickupsBetween(evidence.samples, [role], window, { straddlesEnd: false })
-                          if (pickups.reset) {
-                              return unmeasured(
-                                  'a worker restarted in the window, so the pickups it had not yet reported are lost'
-                              )
-                          }
-                          if ('unread' in pickups) {
-                              return unmeasured(pickups.unread)
-                          }
-                          const buckets = pickups.picked[queue] ?? {}
-                          if ((buckets['+Inf'] ?? 0) === 0) {
-                              return unmeasured('no pickups in the window')
-                          }
-                          const { value, beyond } = p99Of(buckets)
-                          return beyond ? { value, censored: true } : { value }
-                      },
-                      `${queue}_`
-                  )
-                : []
-        )
-    ),
-    seriesMeasure('writer_cpu_percent', '%', (evidence, params) => {
-        const { writerCpu } = evidence
-        if (writerCpu === undefined || !Array.isArray(writerCpu)) {
-            const reason =
-                writerCpu === undefined
-                    ? 'no writer CPU was read'
-                    : 'unread' in writerCpu
-                      ? writerCpu.unread
-                      : writerCpu.unsourced
-            return [{ value: null, censored: true, unmeasured: reason }]
-        }
-        const read = new Map(
-            writerCpu.filter(({ percent }) => Number.isFinite(percent)).map(({ at, percent }) => [at, percent])
-        )
-        return series(evidence, params, ({ from, to }) => {
-            const minutes: number[] = []
-            for (let minute = Math.floor(from / MINUTE_MS) * MINUTE_MS; minute < to; minute += MINUTE_MS) {
-                minutes.push(minute)
-            }
-            const peaks = minutes.flatMap((minute) => (read.has(minute) ? [read.get(minute)!] : []))
-            if (peaks.length === 0) {
-                return unmeasured('no writer CPU minute in the window')
-            }
-            const missing = minutes.some((minute) => minute + MINUTE_MS <= evidence.drive.endedAt && !read.has(minute))
-            return { value: Math.max(...peaks), ...(missing && { incomplete: true as const }) }
         })
     }),
 ]

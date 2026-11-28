@@ -2157,23 +2157,6 @@ describe('runner through seed, drive and judge', () => {
         60_000
     )
 
-    it('reads the writer CPU for a card that measures it without judging a bar on it', async () => {
-        const result = await run('all', [], undefined, {
-            measures: [{ name: 'writer_cpu_percent', params: {} }],
-            driveFor: '2s',
-        })
-
-        expect(result.measurements).toEqual([
-            {
-                name: 'writer_cpu_percent',
-                unit: '%',
-                value: null,
-                censored: true,
-                unmeasured: 'the local stack has no Aurora writer to read CPU from',
-            },
-        ])
-    }, 30_000)
-
     const noWriter = {
         name: 'writer_cpu_under',
         unit: '%',
