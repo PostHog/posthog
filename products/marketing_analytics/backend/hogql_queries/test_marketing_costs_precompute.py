@@ -42,6 +42,7 @@ from products.marketing_analytics.backend.hogql_queries.marketing_analytics_tabl
     MarketingAnalyticsTableQueryRunner,
 )
 from products.marketing_analytics.backend.hogql_queries.marketing_lazy_precompute import REVALIDATION_TRIGGER
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 
 TEST_BUCKET = "test_marketing_costs"
@@ -118,6 +119,28 @@ class TestMarketingCostsPrecompute(ClickhouseTestMixin, BaseTest):
 
     def _col(self, columns: list[str], name: str) -> int:
         return columns.index(name)
+
+    def _read_table(
+        self, now: datetime, *, warmer: bool, compare: bool = False
+    ) -> MarketingAnalyticsTableQueryResponse:
+        with time_machine.travel(now, tick=False):
+            runner = MarketingAnalyticsTableQueryRunner(
+                query=MarketingAnalyticsTableQuery(
+                    dateRange=DateRange(date_from="2024-03-01"),
+                    compareFilter=CompareFilter(compare=compare),
+                    limit=100,
+                    offset=0,
+                    properties=[],
+                ),
+                team=self.team,
+            )
+            runner.config.costs_precomputation_enabled = True
+            with (
+                patch.object(MarketingSourceFactory, "create_adapters", lambda _self: [self._adapter()]),
+                patch.object(MarketingSourceFactory, "get_valid_adapters", lambda _self, adapters: adapters),
+                tags_context(feature=Feature.CACHE_WARMUP) if warmer else nullcontext(),
+            ):
+                return runner.calculate()
 
     def test_materialization_total_matches_direct_read(self):
         adapter = self._adapter()
@@ -346,38 +369,45 @@ class TestMarketingCostsPrecompute(ClickhouseTestMixin, BaseTest):
         read_at = warmed_at + timedelta(days=3)
         latest_day_window_start = datetime(2024, 3, 23, tzinfo=UTC)
 
-        def read(now: datetime, *, warmer: bool) -> MarketingAnalyticsTableQueryResponse:
-            with time_machine.travel(now, tick=False):
-                runner = MarketingAnalyticsTableQueryRunner(
-                    query=MarketingAnalyticsTableQuery(
-                        dateRange=DateRange(date_from="2024-03-01"),
-                        compareFilter=CompareFilter(compare=compare),
-                        limit=100,
-                        offset=0,
-                        properties=[],
-                    ),
-                    team=self.team,
-                )
-                runner.config.costs_precomputation_enabled = True
-                with (
-                    patch.object(MarketingSourceFactory, "create_adapters", lambda _self: [self._adapter()]),
-                    patch.object(MarketingSourceFactory, "get_valid_adapters", lambda _self, adapters: adapters),
-                    tags_context(feature=Feature.CACHE_WARMUP) if warmer else nullcontext(),
-                ):
-                    return runner.calculate()
-
-        read(warmed_at, warmer=True)
+        self._read_table(warmed_at, warmer=True, compare=compare)
         # Three days on, the warmer rebuilds only the windows past their TTL; older days keep their jobs.
-        read(read_at, warmer=True)
+        self._read_table(read_at, warmer=True, compare=compare)
         if unstamped_latest_day:
             PreaggregationJob.objects.filter(team=self.team, time_range_start=latest_day_window_start).update(
                 computed_at=None
             )
-        response = read(read_at, warmer=False)
+        response = self._read_table(read_at, warmer=False, compare=compare)
 
         assert response.latestDayComputedAt == (None if unstamped_latest_day else read_at.isoformat())
         if not unstamped_latest_day:
             assert response.dataComputedAt == warmed_at.isoformat()
+
+    @parameterized.expand(
+        [
+            ("synced_after_the_warm", timedelta(hours=1), True),
+            ("synced_before_the_warm", timedelta(hours=-1), False),
+            ("never_synced_by_posthog", None, False),
+        ]
+    )
+    def test_warmer_rebuilds_a_young_cost_window_once_its_source_synced(self, _name, synced_after_warm, rebuilt):
+        warmed_at = datetime(2024, 3, 20, 12, tzinfo=UTC)
+        rewarmed_at = warmed_at + timedelta(hours=2)
+        if synced_after_warm is not None:
+            source = ExternalDataSource.objects.create(
+                team=self.team, source_id="google_test", connection_id="google_test", source_type="GoogleAds"
+            )
+            ExternalDataSchema.objects.create(
+                team=self.team,
+                source=source,
+                name="campaign_stats",
+                table=self._stats_table,
+                sync_type_config={"last_full_run_at": (warmed_at + synced_after_warm).isoformat()},
+            )
+
+        self._read_table(warmed_at, warmer=True)
+        response = self._read_table(rewarmed_at, warmer=True)
+
+        assert response.latestDayComputedAt == (rewarmed_at if rebuilt else warmed_at).isoformat()
 
     @parameterized.expand([("user_read", None, True), ("on_demand_revalidation", REVALIDATION_TRIGGER, False)])
     def test_on_demand_revalidation_never_builds_costs(self, _name, trigger, expect_costs_build):

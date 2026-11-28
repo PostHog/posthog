@@ -120,6 +120,11 @@ COSTS_EMPTY_RESULT_TTL_SECONDS = 6 * 60 * 60  # 6 hours
 # turn the 7-day band into a 6-hourly rescan of history that will never change.
 COSTS_EMPTY_RESULT_MAX_AGE_SECONDS = 14 * 24 * 60 * 60  # 14 days
 
+# How far back a finished warehouse sync makes cost jobs stale, measured from the window's end. Ad
+# platforms keep revising a day's spend for a couple of days after it ends, while a sync re-reads
+# weeks of history that no longer changes. Older windows keep their band TTL.
+COSTS_SYNC_INVALIDATION_MAX_AGE_SECONDS = 3 * 24 * 60 * 60  # 3 days
+
 # One day per job. `split_ranges_by_ttl` otherwise merges every window sharing a TTL band into a
 # single job, so the whole `default` band (everything older than yesterday) becomes one job — and
 # emptiness is only observable per job. A 10-day sync gap inside a 30-day read would sit in a job
@@ -130,9 +135,14 @@ COSTS_EMPTY_RESULT_MAX_AGE_SECONDS = 14 * 24 * 60 * 60  # 14 days
 COSTS_PRECOMPUTE_MAX_WINDOW_DAYS = 1
 
 
-def costs_precompute_ttl_schedule(team: Team) -> TtlSchedule:
+def costs_precompute_ttl_schedule(team: Team, source_synced_at: datetime | None) -> TtlSchedule:
     """The freshness contract for native cost materialization. Both the read path and the Dagster
     warmer build their schedule here so the two can't drift.
+
+    `source_synced_at` is `MarketingSourceAdapter.cost_data_synced_at()` for the source being
+    materialized. A recent job built before that sync did not read its rows, so it is stale however
+    young it is. The bands still age every older window, every job built after the sync, and every
+    source that reports no sync time.
 
     Costs are materialized from data warehouse tables, which lag: a window computed while its source
     was mid-sync — or paused by a billing limit — writes no rows and looks like a successful compute.
@@ -146,6 +156,8 @@ def costs_precompute_ttl_schedule(team: Team) -> TtlSchedule:
         max_window_days=COSTS_PRECOMPUTE_MAX_WINDOW_DAYS,
         empty_result_ttl_seconds=COSTS_EMPTY_RESULT_TTL_SECONDS,
         empty_result_max_age_seconds=COSTS_EMPTY_RESULT_MAX_AGE_SECONDS,
+        source_changed_at=source_synced_at,
+        source_change_max_age_seconds=COSTS_SYNC_INVALIDATION_MAX_AGE_SECONDS,
     )
 
 
@@ -429,7 +441,9 @@ class MarketingAnalyticsBaseQueryRunner(
             )
             return None
 
-        ttl_seconds = costs_precompute_ttl_schedule(self.team)
+        # Only a refresher takes the sync time. A user read cannot rebuild costs, and the revalidation
+        # a stale read enqueues does not build them either, so there a sync would only spend that budget.
+        is_refresher = is_background_warming_request(BACKGROUND_WARMING_TRIGGERS)
         # Per source: read the native table when it materializes, otherwise keep that one source on the
         # live S3 union. A single unmaterializable/syncing source must not force every source back to S3.
         materialized_source_ids: list = []
@@ -453,7 +467,9 @@ class MarketingAnalyticsBaseQueryRunner(
                     insert_query=insert_query,
                     time_range_start=date_range.date_from(),
                     time_range_end=date_range.date_to(),
-                    ttl_seconds=ttl_seconds,
+                    ttl_seconds=costs_precompute_ttl_schedule(
+                        self.team, adapter.cost_data_synced_at() if is_refresher else None
+                    ),
                     table=LazyComputationTable.MARKETING_COSTS_PREAGGREGATED,
                 )
             if result.stale:

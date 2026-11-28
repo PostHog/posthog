@@ -365,6 +365,16 @@ class TtlSchedule:
     frozen, immutable data: jitter keeps data longer, which is safe only when the data cannot
     change. `None` disables it.
 
+    `source_changed_at` is when the data a job reads last changed, for a caller that knows it (a
+    warehouse table knows when its last sync finished). A job built before that moment did not see
+    the change, so it stops being fresh then, whatever its band TTL says. The clock is only a proxy
+    for this: a short TTL rebuilds windows whose source did not change, and a long one keeps a window
+    whose source did. Stale grace still applies, so a reader keeps its rows until a refresher rebuilds.
+
+    `source_change_max_age_seconds` bounds *which* windows a source change reaches, measured from
+    `time_range_end` to `source_changed_at`. A sync re-reads many more days than it changes, so
+    without the bound each sync would rebuild the whole history. `None` reaches every window.
+
     Use parse_ttl_schedule() to create from user-facing dict format.
     """
 
@@ -376,6 +386,8 @@ class TtlSchedule:
     empty_result_max_age_seconds: int | None = None
     default_ttl_jitter_seconds: int | None = None
     invalidate_at_window_start: bool = False
+    source_changed_at: datetime | None = None
+    source_change_max_age_seconds: int | None = None
 
     def get_ttl(self, window_start: datetime, *, jittered: bool = False) -> int:
         """TTL for a window. `jittered=True` adds the default-band jitter offset.
@@ -407,6 +419,17 @@ class TtlSchedule:
             return None
         return computed_at + timedelta(seconds=self.empty_result_ttl_seconds)
 
+    def source_change_expires_at(self, created_at: datetime, window_end: datetime) -> datetime | None:
+        """When a job built at `created_at` stops being fresh because its source changed, or None."""
+        if self.source_changed_at is None or created_at >= self.source_changed_at:
+            return None
+        if (
+            self.source_change_max_age_seconds is not None
+            and (self.source_changed_at - window_end).total_seconds() > self.source_change_max_age_seconds
+        ):
+            return None
+        return self.source_changed_at
+
     @classmethod
     def from_seconds(
         cls,
@@ -434,6 +457,8 @@ def parse_ttl_schedule(
     empty_result_max_age_seconds: int | None = None,
     default_ttl_jitter_seconds: int | None = None,
     invalidate_at_window_start: bool = False,
+    source_changed_at: datetime | None = None,
+    source_change_max_age_seconds: int | None = None,
 ) -> TtlSchedule:
     """Parse a TTL specification into a TtlSchedule.
 
@@ -459,6 +484,8 @@ def parse_ttl_schedule(
         raise ValueError(f"empty_result_max_age_seconds must be positive, got {empty_result_max_age_seconds}")
     if default_ttl_jitter_seconds is not None and default_ttl_jitter_seconds <= 0:
         raise ValueError(f"default_ttl_jitter_seconds must be positive, got {default_ttl_jitter_seconds}")
+    if source_change_max_age_seconds is not None and source_change_max_age_seconds <= 0:
+        raise ValueError(f"source_change_max_age_seconds must be positive, got {source_change_max_age_seconds}")
 
     if isinstance(ttl, int):
         if ttl <= 0:
@@ -472,6 +499,8 @@ def parse_ttl_schedule(
             empty_result_max_age_seconds=empty_result_max_age_seconds,
             default_ttl_jitter_seconds=default_ttl_jitter_seconds,
             invalidate_at_window_start=invalidate_at_window_start,
+            source_changed_at=source_changed_at,
+            source_change_max_age_seconds=source_change_max_age_seconds,
         )
 
     tz = ZoneInfo(team_timezone)
@@ -504,6 +533,8 @@ def parse_ttl_schedule(
         empty_result_max_age_seconds=empty_result_max_age_seconds,
         default_ttl_jitter_seconds=default_ttl_jitter_seconds,
         invalidate_at_window_start=invalidate_at_window_start,
+        source_changed_at=source_changed_at,
+        source_change_max_age_seconds=source_change_max_age_seconds,
     )
 
 
@@ -1814,8 +1845,9 @@ class LazyComputationExecutor:
         window settled (`created_at < time_range_end + settling_period`) captured
         in-motion data and is only fresh until the settling moment (plus grace): it
         recomputes once the data can no longer change instead of sitting on a long band
-        TTL. `grace_seconds` is only non-zero for the serve-stale path and relaxes both
-        caps uniformly.
+        TTL. When the schedule carries a `source_changed_at`, a recent job built before that
+        moment is only fresh until then (plus grace). `grace_seconds` is only non-zero for the
+        serve-stale path and relaxes every cap uniformly.
 
         `invalidate_at_window_start` is a hard boundary: stale grace cannot make a
         snapshot taken before the window began cover data arriving after it began.
@@ -1838,6 +1870,9 @@ class LazyComputationExecutor:
                 settled_at = job.time_range_end + timedelta(seconds=settling_period)
                 if job.created_at < settled_at:
                     fresh_until = min(fresh_until, settled_at + timedelta(seconds=grace_seconds))
+            source_changed_at = self.ttl_schedule.source_change_expires_at(job.created_at, job.time_range_end)
+            if source_changed_at is not None:
+                fresh_until = min(fresh_until, source_changed_at + timedelta(seconds=grace_seconds))
             if fresh_until >= now:
                 result.append(job)
         return result

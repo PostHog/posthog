@@ -666,16 +666,20 @@ class TestCostsWarming(APIBaseTest):
     def test_warms_costs_per_source_at_every_grain(self, _db, ensure_mock):
         # One source materializable at all 3 grains → one costs job per grain, independent of conversion goals.
         team = self._make_team("A")
+        adapter = self._fake_adapter()
+        synced_at = datetime(2026, 6, 15, 12, tzinfo=UTC)
+        adapter.cost_data_synced_at.return_value = synced_at
         with (
             patch(_FF, _flag_fn(costs=True)),
             patch(_DWT),  # team has warehouse tables → reach the factory (real emptiness tested separately)
-            patch(_FACTORY, return_value=self._fake_factory([self._fake_adapter()])),
+            patch(_FACTORY, return_value=self._fake_factory([adapter])),
             patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{team.pk}"}),
         ):
             result = warm_selected_teams(dagster.build_op_context())
         assert result["costs_teams"] == 1
         tables = _tables(ensure_mock)
         assert tables == [LazyComputationTable.MARKETING_COSTS_PREAGGREGATED] * len(COST_MATERIALIZATION_GRAINS)
+        assert {call.kwargs["ttl_seconds"].source_changed_at for call in ensure_mock.call_args_list} == {synced_at}
 
     @patch(_ENSURE, new_callable=_ready_mock)
     @patch(_SINGLE_CHUNK, _BIG_CHUNK)
