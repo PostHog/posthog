@@ -830,6 +830,9 @@ jobs:
                     working-directory: rust
                     env:
                         RUSTFLAGS: ${{ env.FEATURE_FLAGS_RUSTFLAGS }}
+                        # Integration tests do not need debugger support. Debuginfo is also
+                        # most of a dev-profile compile, and this leg sets the block's length.
+                        CARGO_PROFILE_DEV_DEBUG: '0'
                         BINARY_HIT: ${{ steps.flags-binary.outputs.hit }}
                     run: |
                         if [ "$BINARY_HIT" = "true" ]; then
