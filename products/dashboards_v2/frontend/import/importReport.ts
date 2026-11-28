@@ -1,17 +1,12 @@
-import type { PanelQuery } from '../dashboard/document/dashboardSchema'
-import type {
-    ContentPanel,
-    Dashboard,
-    SavedPanel,
-    TilePlace,
-    TimeRange,
-    Tile,
-} from '../dashboard/document/dashboardTypes'
+import type { Dashboard, TilePlace, Tile } from '../dashboard/document/dashboardTypes'
+import type { TimeRange } from '../filters/time/timeRangeSchema'
 import type { ChartConfig, ChartTarget } from '../panels/chart/chartSpec'
 import { barSpec } from '../panels/chart/viz/bar/barSpec'
 import { lineSpec } from '../panels/chart/viz/line/lineSpec'
-import { statSpec } from '../panels/chart/viz/stat/statSpec'
+import { metricSpec } from '../panels/chart/viz/metric/metricSpec'
+import type { ContentPanel, SavedPanel } from '../panels/core/panelSchema'
 import { markdownSpec } from '../panels/markdown/markdownSpec'
+import type { PanelQuery } from '../query/querySchema'
 
 export type ImportSource = 'grafana' | 'grafana-v2'
 
@@ -201,7 +196,7 @@ const MIN_SIZES: Record<string, { minW: number; minH: number }> = {
     markdown: markdownSpec.size,
     line: lineSpec.size,
     bar: barSpec.size,
-    stat: statSpec.size,
+    metric: metricSpec.size,
 }
 
 /**

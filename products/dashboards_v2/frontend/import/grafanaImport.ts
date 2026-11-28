@@ -1,7 +1,7 @@
-import { MAX_QUERY_TEXT, type PanelQuery, panelQuerySchema } from '../dashboard/document/dashboardSchema'
 import { type Dashboard, GRID, type GridTab, type Tile } from '../dashboard/document/dashboardTypes'
 import type { ChartConfig } from '../panels/chart/chartSpec'
-import type { StatOptions } from '../panels/chart/viz/stat/statSpec'
+import type { MetricOptions } from '../panels/chart/viz/metric/metricSpec'
+import { MAX_QUERY_TEXT, type PanelQuery, panelQuerySchema } from '../query/querySchema'
 import { fromV2 } from './grafanaV2'
 import {
     type ImportResult,
@@ -42,10 +42,10 @@ const VIZ: Record<string, { type: string; lossy?: string }> = {
     timeseries: { type: 'line' },
     graph: { type: 'line' },
     barchart: { type: 'bar' },
-    stat: { type: 'stat' },
-    singlestat: { type: 'stat' },
-    gauge: { type: 'stat', lossy: 'There is no gauge chart yet, so it shows as a number.' },
-    bargauge: { type: 'stat', lossy: 'There is no bar gauge yet, so it shows as a number.' },
+    stat: { type: 'metric' },
+    singlestat: { type: 'metric' },
+    gauge: { type: 'metric', lossy: 'There is no gauge chart yet, so it shows as a number.' },
+    bargauge: { type: 'metric', lossy: 'There is no bar gauge yet, so it shows as a number.' },
     table: { type: 'bar', lossy: 'There is no table chart yet, so it shows as bars.' },
     'table-old': { type: 'bar', lossy: 'There is no table chart yet, so it shows as bars.' },
     piechart: { type: 'bar', lossy: 'There is no pie chart yet, so it shows as bars.' },
@@ -81,7 +81,7 @@ const toRows = (grafanaRows: number): number => Math.round((grafanaRows * GRAFAN
 const int = (value: unknown, fallback: number): number =>
     Number.isFinite(Number(value)) ? Math.round(Number(value)) : fallback
 
-function statFormat(unit: unknown): StatOptions['format'] | undefined {
+function metricFormat(unit: unknown): MetricOptions['format'] | undefined {
     if (unit === 'percent' || unit === 'percentunit') {
         return 'percentage'
     }
@@ -312,16 +312,16 @@ function droppedSettings(panel: Json, vizType: string): string[] {
         reasons.push(`Grafana transformations (${ids.join(', ')}) aren't applied.`)
     }
     const calcs = panel.options?.reduceOptions?.calcs
-    if (vizType === 'stat' && Array.isArray(calcs) && calcs.length && !LATEST_REDUCERS.has(String(calcs[0]))) {
+    if (vizType === 'metric' && Array.isArray(calcs) && calcs.length && !LATEST_REDUCERS.has(String(calcs[0]))) {
         reasons.push(`It showed the ${calcs[0]} of each series in Grafana. Here it shows the latest value.`)
     }
     return reasons
 }
 
 function chartViz(panel: Json, vizType: string, unit: unknown): ChartConfig['viz'] {
-    const format = vizType === 'stat' ? statFormat(unit) : undefined
+    const format = vizType === 'metric' ? metricFormat(unit) : undefined
     if (format) {
-        return { type: 'stat', options: { format } }
+        return { type: 'metric', options: { format } }
     }
     return panel.fieldConfig?.defaults?.custom?.stacking?.mode === 'normal' && vizType === 'bar'
         ? { type: 'bar', options: { stack: true } }
@@ -350,8 +350,8 @@ function convertPanel(panel: Json, converter: Converter, top: number): Tile {
 
     const viz = VIZ[panel.type]
     const unit = panel.fieldConfig?.defaults?.unit ?? panel.format
-    // Grafana's `percent` is already 0 to 100, but the stat's percentage format multiplies by 100.
-    const scaleToFraction = viz?.type === 'stat' && unit === 'percent'
+    // Grafana's `percent` is already 0 to 100, but the metric's percentage format multiplies by 100.
+    const scaleToFraction = viz?.type === 'metric' && unit === 'percent'
     const { targets, skipped } = convertTargets(panel, scaleToFraction, converter, reasons)
 
     if (!viz) {

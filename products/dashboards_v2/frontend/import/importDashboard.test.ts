@@ -51,7 +51,7 @@ describe('importDashboard', () => {
         expect(result.dashboard.time).toEqual({ from: 'now-24h', to: 'now' })
         expect(tiles['Success rate'].panel.config).toEqual({
             query: { language: 'promql', query: 'sum(rate(checkout_ok_total)) / sum(rate(checkout_total))' },
-            viz: { type: 'stat', options: { format: 'percentage' } },
+            viz: { type: 'metric', options: { format: 'percentage' } },
         })
         expect(tiles['Requests by route'].panel.config.targets).toEqual([
             {
