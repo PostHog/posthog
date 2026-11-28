@@ -131711,6 +131711,22 @@ export namespace Schemas {
       link_tagging_enabled: boolean;
     }
 
+    export interface TransactionalEmailImpactSession {
+      /** The session ID, the same one session recordings use. */
+      session_id: string;
+      /** The send in the ph_workflow_run tag of the session's earliest pageview from the sends read. */
+      message_id: string;
+      /** The session's earliest pageview from a link in the sends read. */
+      first_pageview_at: string;
+    }
+
+    export interface TransactionalEmailImpactSessions {
+      /** Sessions with a pageview whose URL carries the ph_workflow_run tag of a clicked send read, up to 7 days after the period, newest first pageview first, 200 at most. Empty while link tagging is off, when `impact` returns no session count. */
+      sessions: TransactionalEmailImpactSession[];
+      /** True when sessions may be left out: there are more than 200, or only the newest clicked sends were read, because they reach 10,000 or more than one query holds. */
+      has_more: boolean;
+    }
+
     export interface TransactionalEmailLogEvent {
       /** What happened. The delivery statuses, plus `opened` and `clicked` for what the recipient did.
        *
@@ -156165,6 +156181,21 @@ export namespace Schemas {
     workflow_id: string;
     };
 
+    export type TransactionalEmailLogImpactSessionsRetrieveParams = {
+    /**
+     * Only sends queued at or after this time. Defaults to 7 days ago. The log keeps sends for 30 days.
+     */
+    date_from?: string;
+    /**
+     * Only sends queued before this time. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * The workflow behind the transactional email.
+     */
+    workflow_id: string;
+    };
+
     export type TransactionalEmailLogResultsRetrieveParams = {
     /**
      * Only sends queued at or after this time. Defaults to 7 days ago. The log keeps sends for 30 days.
@@ -156608,6 +156639,15 @@ export namespace Schemas {
      * Scope to a single scanner's observations. Defaults to every scanner you can read.
      */
     scanner_id?: string;
+    };
+
+    export type VisionRequestsListParams = {
+    /**
+     * Only requests made with this `reference`. Returns the newest 20 of the last 30 days at most.
+     * @minLength 1
+     * @maxLength 200
+     */
+    reference: string;
     };
 
     export type VisionScannersListParams = {
