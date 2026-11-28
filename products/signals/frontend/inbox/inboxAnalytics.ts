@@ -343,6 +343,7 @@ export type ScoutActionType =
     | 'filter_owner'
     | 'search_scouts'
     | 'expand_run_group'
+    | 'load_older'
     | 'sort_roster'
     | 'choose_create_path'
     | 'switch_create_path'

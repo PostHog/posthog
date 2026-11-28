@@ -4083,7 +4083,7 @@ export const SignalsScoutRubricsGenerateBody = () => zod.object({
 })
 
 /**
- * Return the most recent `SignalScoutRun` summaries for this project, newest first. Used by the headless scout to dedupe against work other runs already covered. ILIKE matches on `summary`. `date_from` / `date_to` are a half-open window on `created_at` (`>= date_from`, `< date_to`); pass `date_to` on subsequent calls to walk past the 100-row cap. Pass `emitted=true` to see only runs that surfaced at least one finding. Pass `skill_name` (optionally with `skill_version`) to scope to a single scout, or `exclude_skill_name` to leave one scout's runs out before `limit` applies. Results capped at 100.
+ * Return the most recent `SignalScoutRun` summaries for this project, newest first. Used by the headless scout to dedupe against work other runs already covered. ILIKE matches on `summary`. `date_from` / `date_to` are a half-open window on `created_at` (`>= date_from`, `< date_to`); pass `date_to` and `before_id` (the oldest run's `created_at` and `run_id`) on subsequent calls to walk past the 100-row cap. Pass `emitted=true` to see only runs that surfaced a finding or authored or edited a report, `touched_report=true` for only runs that authored or edited a report, and `status` for one run state. Pass `skill_name` (optionally with `skill_version`) to scope to a single scout, or `exclude_skill_name` to leave one scout's runs out before `limit` applies. Results capped at 100.
  * @summary Search recent agent runs
  */
 export const SignalsScoutRunsListParams = () => zod.object({
@@ -4097,6 +4097,12 @@ export const SignalsScoutRunsListParams = () => zod.object({
 export const signalsScoutRunsListQueryLimitMax = 100
 
 export const SignalsScoutRunsListQueryParams = () => zod.object({
+    before_id: zod
+        .string()
+        .optional()
+        .describe(
+            'The `run_id` of the oldest run from the prior page. Requires `date_to`. With it, runs created at exactly `date_to` are kept when their id sorts below this one, so runs that share a timestamp at a page boundary are not skipped.'
+        ),
     date_from: zod.iso
         .datetime({ offset: true })
         .optional()
@@ -4105,13 +4111,13 @@ export const SignalsScoutRunsListQueryParams = () => zod.object({
         .datetime({ offset: true })
         .optional()
         .describe(
-            'ISO-8601 exclusive upper bound on `created_at`. Pass to walk back past the result cap on subsequent calls (cursor-style: set to the `created_at` of the oldest run from the prior page).'
+            'ISO-8601 exclusive upper bound on `created_at`. Pass to walk back past the result cap on subsequent calls (cursor-style: set to the `created_at` of the oldest run from the prior page, and `before_id` to its `run_id`).'
         ),
     emitted: zod
         .boolean()
         .nullish()
         .describe(
-            'Filter by emit outcome. `true` returns only runs that emitted at least one finding (`emitted_count > 0`); `false` returns only runs that emitted nothing. Omit for both.'
+            'Filter by output. `true` returns only runs that emitted at least one finding, authored a report, or edited a report; `false` returns only runs that did none of those. Omit for both.'
         ),
     exclude_skill_name: zod
         .string()
@@ -4138,11 +4144,23 @@ export const SignalsScoutRunsListQueryParams = () => zod.object({
         .min(1)
         .optional()
         .describe('Exact-match filter on the skill version. Pair with `skill_name` to pin one version; omit for all.'),
+    status: zod
+        .enum(['completed', 'failed', 'running', 'queued'])
+        .optional()
+        .describe(
+            'Keep runs in one state: `completed`, `failed` (failed or cancelled), `running`, or `queued` (queued or not started). Omit for every state.\n\n\* `completed` - Completed\n\* `failed` - Failed or cancelled\n\* `running` - Running\n\* `queued` - Queued or not started'
+        ),
     text: zod
         .string()
         .min(1)
         .optional()
         .describe("Case-insensitive substring match on the scout's end-of-run `summary`. Omit to skip the filter."),
+    touched_report: zod
+        .boolean()
+        .nullish()
+        .describe(
+            '`true` returns only runs that authored or edited an inbox report; `false` returns only runs that did neither. Omit for both.'
+        ),
 })
 
 /**

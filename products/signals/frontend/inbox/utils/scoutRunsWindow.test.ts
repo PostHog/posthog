@@ -10,6 +10,7 @@ import {
     groupScoutRuns,
     liveLaneRun,
     mostRecentEmittedRuns,
+    oldestRun,
     runMatchesFilter,
     runResponseCoversFleet,
     runStripEmptyLabel,
@@ -128,6 +129,20 @@ describe('scoutRunsWindow report channel', () => {
             const run = makeRun()
             expect(runMatchesFilter(run, 'quiet')).toBe(true)
             expect(runMatchesFilter(run, 'emitted')).toBe(false)
+        })
+    })
+
+    describe('oldestRun', () => {
+        it.each([
+            ['the earliest created_at', [makeRun({ run_id: 'a', created_at: '2026-06-27T20:00:00Z' })], 'a'],
+            ['the smaller run_id on a shared created_at', [makeRun({ run_id: 'a' }), makeRun({ run_id: 'c' })], 'a'],
+        ])('picks %s', (_, extra, expected) => {
+            const runs = [makeRun({ run_id: 'b' }), ...extra]
+            expect(oldestRun(runs)?.run_id).toBe(expected)
+        })
+
+        it('returns null for no runs', () => {
+            expect(oldestRun([])).toBeNull()
         })
     })
 

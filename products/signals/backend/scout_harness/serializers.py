@@ -145,6 +145,7 @@ from products.signals.backend.scout_harness.tools.runs import (
     MAX_RUNS_PER_SCOUT_MAX_AGE_DAYS,
     RUN_SUMMARY_LEAD_CHARS,
     STALENESS_INTERVAL_MULTIPLE,
+    RunStatusFilter,
     run_summary_lead,
 )
 from products.signals.backend.scout_harness.tools.scratchpad import MAX_SCRATCHPAD_CONTENT_LENGTH
@@ -1081,7 +1082,15 @@ class SearchRecentRunsQuerySerializer(serializers.Serializer):
         help_text=(
             "ISO-8601 exclusive upper bound on `created_at`. Pass to walk back past the result "
             "cap on subsequent calls (cursor-style: set to the `created_at` of the oldest run "
-            "from the prior page)."
+            "from the prior page, and `before_id` to its `run_id`)."
+        ),
+    )
+    before_id = serializers.UUIDField(
+        required=False,
+        help_text=(
+            "The `run_id` of the oldest run from the prior page. Requires `date_to`. With it, runs created "
+            "at exactly `date_to` are kept when their id sorts below this one, so runs that share a "
+            "timestamp at a page boundary are not skipped."
         ),
     )
     text = serializers.CharField(
@@ -1092,8 +1101,24 @@ class SearchRecentRunsQuerySerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         help_text=(
-            "Filter by emit outcome. `true` returns only runs that emitted at least one finding "
-            "(`emitted_count > 0`); `false` returns only runs that emitted nothing. Omit for both."
+            "Filter by output. `true` returns only runs that emitted at least one finding, authored a report, "
+            "or edited a report; `false` returns only runs that did none of those. Omit for both."
+        ),
+    )
+    touched_report = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "`true` returns only runs that authored or edited an inbox report; `false` returns only runs that "
+            "did neither. Omit for both."
+        ),
+    )
+    status = serializers.ChoiceField(
+        required=False,
+        choices=RunStatusFilter.choices,
+        help_text=(
+            "Keep runs in one state: `completed`, `failed` (failed or cancelled), `running`, or `queued` "
+            "(queued or not started). Omit for every state."
         ),
     )
     skill_name = serializers.CharField(
@@ -1122,6 +1147,11 @@ class SearchRecentRunsQuerySerializer(serializers.Serializer):
         max_value=100,
         help_text="Max rows to return (default 20, hard cap 100).",
     )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if attrs.get("before_id") is not None and attrs.get("date_to") is None:
+            raise serializers.ValidationError({"before_id": "Pass `date_to` with `before_id`."})
+        return attrs
 
 
 # --- Memory ---------------------------------------------------------------

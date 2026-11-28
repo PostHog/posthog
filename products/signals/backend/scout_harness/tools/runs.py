@@ -24,7 +24,7 @@ from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
-from django.db import connection
+from django.db import connection, models
 from django.db.models import Q
 from django.utils import timezone
 
@@ -123,6 +123,24 @@ FLEET_FINDINGS_SUMMARY_REPORT_CAP = 50
 # The completion-time sort has no index, so it only ranks this many of the newest output runs by
 # `created_at`. The slack over the run cap keeps a run that completes after newer runs in the set.
 FLEET_FINDINGS_SUMMARY_CANDIDATE_RUNS = 2 * FLEET_FINDINGS_SUMMARY_RUN_CAP
+
+
+class RunStatusFilter(models.TextChoices):
+    """The run states `search_recent_runs` filters on, each covering the TaskRun statuses the inbox
+    shows under one label. A cancelled run reads as failed there, and a run that has not started as queued."""
+
+    COMPLETED = "completed", "Completed"
+    FAILED = "failed", "Failed or cancelled"
+    RUNNING = "running", "Running"
+    QUEUED = "queued", "Queued or not started"
+
+
+RUN_STATUS_FILTERS: dict[str, tuple[str, ...]] = {
+    RunStatusFilter.COMPLETED: (tasks_facade.TaskRunStatus.COMPLETED,),
+    RunStatusFilter.FAILED: (tasks_facade.TaskRunStatus.FAILED, tasks_facade.TaskRunStatus.CANCELLED),
+    RunStatusFilter.RUNNING: (tasks_facade.TaskRunStatus.IN_PROGRESS,),
+    RunStatusFilter.QUEUED: (tasks_facade.TaskRunStatus.QUEUED, tasks_facade.TaskRunStatus.NOT_STARTED),
+}
 
 # `failure_reason` is the concise, list-safe derived signal; `error` carries the full
 # `TaskRun.error_message`. Bound the derived reason so it stays cheap to scan in bulk.
@@ -230,8 +248,11 @@ def search_recent_runs(
     team_id: int,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
+    before_id: UUID | None = None,
     text: str | None = None,
     emitted: bool | None = None,
+    touched_report: bool | None = None,
+    status: str | None = None,
     skill_name: str | None = None,
     skill_version: int | None = None,
     limit: int = DEFAULT_RUN_SEARCH_LIMIT,
@@ -243,12 +264,15 @@ def search_recent_runs(
     bridge-row insert timestamp, which fires right after `MultiTurnSession.start`)
     — `created_at >= date_from` and `created_at < date_to`. Pass `date_to` to walk
     backwards past the result cap on subsequent calls (cursor-style iteration).
+    `before_id` turns that cursor into `(created_at, id)`: runs at exactly `date_to` with a
+    smaller id are kept too, so runs sharing a timestamp at a page boundary are not skipped.
     `text` is a case-insensitive substring match on the agent's end-of-run
     `summary` — the primary dedupe path for runs that didn't emit findings.
-    `emitted` filters on emit outcome: `True` keeps only runs that emitted at least
-    one finding *or* authored a report (`emitted_count > 0` or a non-empty
-    `emitted_report_ids`), `False` keeps only runs that emitted nothing on either
-    channel; omit it for both. `skill_name` is an exact-match filter that narrows the dump to
+    `emitted` filters on output: `True` keeps only runs that emitted at least one finding,
+    authored a report, or edited one, `False` keeps only runs that did none of those; omit it for
+    both. `touched_report` narrows to runs that authored or edited a report (`True`) or did
+    neither (`False`). `status` keeps one of the run states in `RUN_STATUS_FILTERS`.
+    `skill_name` is an exact-match filter that narrows the dump to
     a single scout — the primary scoping path for a specialist deduping against its
     own past work; pair it with `skill_version` to pin a specific version.
     `exclude_skill_names` drops those scouts' runs before the limit applies, so a caller's own
@@ -260,24 +284,30 @@ def search_recent_runs(
         .exclude(metadata__has_key="scout_trial")
         .select_related("task_run")
         .only(*RUN_SUMMARY_FIELDS)
-        .order_by("-created_at")
+        .order_by("-created_at", "-id")
     )
     if date_from is not None:
         qs = qs.filter(created_at__gte=date_from)
     if exclude_skill_names:
         qs = qs.exclude(skill_name__in=list(exclude_skill_names))
     if date_to is not None:
-        qs = qs.filter(created_at__lt=date_to)
+        if before_id is not None:
+            qs = qs.filter(Q(created_at__lt=date_to) | Q(created_at=date_to, id__lt=before_id))
+        else:
+            qs = qs.filter(created_at__lt=date_to)
     if text:
         qs = qs.filter(summary__icontains=text)
+    # Null and [] report lists both read as empty.
+    authored_a_report = ~Q(emitted_report_ids=[]) & ~Q(emitted_report_ids__isnull=True)
+    edited_a_report = ~Q(edited_report_ids=[]) & ~Q(edited_report_ids__isnull=True)
     if emitted is not None:
-        # A run "emitted" if it surfaced a weak finding (emitted_count) or authored a report
-        # (emitted_report_ids). Treat null/[] report lists as empty for the negative case.
-        emitted_a_report = ~Q(emitted_report_ids=[]) & ~Q(emitted_report_ids__isnull=True)
-        if emitted:
-            qs = qs.filter(Q(emitted_count__gt=0) | emitted_a_report)
-        else:
-            qs = qs.filter(emitted_count=0).filter(Q(emitted_report_ids=[]) | Q(emitted_report_ids__isnull=True))
+        produced_output = Q(emitted_count__gt=0) | authored_a_report | edited_a_report
+        qs = qs.filter(produced_output if emitted else ~produced_output)
+    if touched_report is not None:
+        touched = authored_a_report | edited_a_report
+        qs = qs.filter(touched if touched_report else ~touched)
+    if status is not None:
+        qs = qs.filter(task_run__status__in=RUN_STATUS_FILTERS[status])
     if skill_name:
         qs = qs.filter(skill_name=skill_name)
     if skill_version is not None:

@@ -807,10 +807,12 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "Return the most recent `SignalScoutRun` summaries for this project, newest first. "
             "Used by the headless scout to dedupe against work other runs already covered. ILIKE "
             "matches on `summary`. `date_from` / `date_to` are a half-open window on `created_at` "
-            "(`>= date_from`, `< date_to`); pass `date_to` on subsequent calls to walk past the "
-            "100-row cap. Pass `emitted=true` to see only runs that surfaced at least one finding. "
-            "Pass `skill_name` (optionally with `skill_version`) to scope to a single scout, or "
-            "`exclude_skill_name` to leave one scout's runs out before `limit` applies. "
+            "(`>= date_from`, `< date_to`); pass `date_to` and `before_id` (the oldest run's "
+            "`created_at` and `run_id`) on subsequent calls to walk past the 100-row cap. Pass "
+            "`emitted=true` to see only runs that surfaced a finding or authored or edited a report, "
+            "`touched_report=true` for only runs that authored or edited a report, and `status` for "
+            "one run state. Pass `skill_name` (optionally with `skill_version`) to scope to a single "
+            "scout, or `exclude_skill_name` to leave one scout's runs out before `limit` applies. "
             "Results capped at 100."
         ),
     )
@@ -818,8 +820,11 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         validated = getattr(request, "validated_query_data", {}) or {}
         date_from = validated.get("date_from")
         date_to = validated.get("date_to")
+        before_id = validated.get("before_id")
         text = validated.get("text") or None
         emitted = validated.get("emitted")
+        touched_report = validated.get("touched_report")
+        status = validated.get("status") or None
         skill_name = validated.get("skill_name") or None
         skill_version = validated.get("skill_version")
         exclude_skill_name = validated.get("exclude_skill_name") or None
@@ -829,8 +834,11 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             team_id=_canonical_team_id(self),
             date_from=date_from,
             date_to=date_to,
+            before_id=before_id,
             text=text,
             emitted=emitted,
+            touched_report=touched_report,
+            status=status,
             skill_name=skill_name,
             skill_version=skill_version,
             limit=limit,
@@ -843,8 +851,11 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 rows,
                 date_from=date_from,
                 date_to=date_to,
+                before_id=before_id,
                 text=text,
                 emitted=emitted,
+                touched_report=touched_report,
+                status=status,
                 skill_name=skill_name,
                 skill_version=skill_version,
                 limit=limit,

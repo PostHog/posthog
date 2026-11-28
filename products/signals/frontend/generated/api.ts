@@ -3022,7 +3022,7 @@ export const getSignalsScoutRunsListUrl = (projectId: string, params?: SignalsSc
 }
 
 /**
- * Return the most recent `SignalScoutRun` summaries for this project, newest first. Used by the headless scout to dedupe against work other runs already covered. ILIKE matches on `summary`. `date_from` / `date_to` are a half-open window on `created_at` (`>= date_from`, `< date_to`); pass `date_to` on subsequent calls to walk past the 100-row cap. Pass `emitted=true` to see only runs that surfaced at least one finding. Pass `skill_name` (optionally with `skill_version`) to scope to a single scout, or `exclude_skill_name` to leave one scout's runs out before `limit` applies. Results capped at 100.
+ * Return the most recent `SignalScoutRun` summaries for this project, newest first. Used by the headless scout to dedupe against work other runs already covered. ILIKE matches on `summary`. `date_from` / `date_to` are a half-open window on `created_at` (`>= date_from`, `< date_to`); pass `date_to` and `before_id` (the oldest run's `created_at` and `run_id`) on subsequent calls to walk past the 100-row cap. Pass `emitted=true` to see only runs that surfaced a finding or authored or edited a report, `touched_report=true` for only runs that authored or edited a report, and `status` for one run state. Pass `skill_name` (optionally with `skill_version`) to scope to a single scout, or `exclude_skill_name` to leave one scout's runs out before `limit` applies. Results capped at 100.
  * @summary Search recent agent runs
  */
 export const signalsScoutRunsList = async (

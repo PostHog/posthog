@@ -3011,6 +3011,7 @@ const scoutRunsList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/`,
             query: {
+                before_id: params.before_id,
                 date_from: params.date_from,
                 date_to: params.date_to,
                 emitted: params.emitted,
@@ -3018,7 +3019,9 @@ const scoutRunsList = (): ToolBase<
                 limit: params.limit,
                 skill_name: params.skill_name,
                 skill_version: params.skill_version,
+                status: params.status,
                 text: params.text,
+                touched_report: params.touched_report,
             },
         })
         const filtered = (
@@ -4212,6 +4215,7 @@ const signalsScoutRunsList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/`,
             query: {
+                before_id: params.before_id,
                 date_from: params.date_from,
                 date_to: params.date_to,
                 emitted: params.emitted,
@@ -4219,7 +4223,9 @@ const signalsScoutRunsList = (): ToolBase<
                 limit: params.limit,
                 skill_name: params.skill_name,
                 skill_version: params.skill_version,
+                status: params.status,
                 text: params.text,
+                touched_report: params.touched_report,
             },
         })
         return await withPostHogUrl(context, result, '/inbox')

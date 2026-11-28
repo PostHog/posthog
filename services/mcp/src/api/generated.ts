@@ -154670,15 +154670,19 @@ export namespace Schemas {
 
     export type SignalsScoutRunsListParams = {
     /**
+     * The `run_id` of the oldest run from the prior page. Requires `date_to`. With it, runs created at exactly `date_to` are kept when their id sorts below this one, so runs that share a timestamp at a page boundary are not skipped.
+     */
+    before_id?: string;
+    /**
      * ISO-8601 inclusive lower bound on `created_at`. Omit to skip the lower bound.
      */
     date_from?: string;
     /**
-     * ISO-8601 exclusive upper bound on `created_at`. Pass to walk back past the result cap on subsequent calls (cursor-style: set to the `created_at` of the oldest run from the prior page).
+     * ISO-8601 exclusive upper bound on `created_at`. Pass to walk back past the result cap on subsequent calls (cursor-style: set to the `created_at` of the oldest run from the prior page, and `before_id` to its `run_id`).
      */
     date_to?: string;
     /**
-     * Filter by emit outcome. `true` returns only runs that emitted at least one finding (`emitted_count > 0`); `false` returns only runs that emitted nothing. Omit for both.
+     * Filter by output. `true` returns only runs that emitted at least one finding, authored a report, or edited a report; `false` returns only runs that did none of those. Omit for both.
      * @nullable
      */
     emitted?: boolean | null;
@@ -154704,11 +154708,36 @@ export namespace Schemas {
      */
     skill_version?: number;
     /**
+     * Keep runs in one state: `completed`, `failed` (failed or cancelled), `running`, or `queued` (queued or not started). Omit for every state.
+     *
+     * * `completed` - Completed
+     * * `failed` - Failed or cancelled
+     * * `running` - Running
+     * * `queued` - Queued or not started
+     * @minLength 1
+     */
+    status?: SignalsScoutRunsListStatus;
+    /**
      * Case-insensitive substring match on the scout's end-of-run `summary`. Omit to skip the filter.
      * @minLength 1
      */
     text?: string;
+    /**
+     * `true` returns only runs that authored or edited an inbox report; `false` returns only runs that did neither. Omit for both.
+     * @nullable
+     */
+    touched_report?: boolean | null;
     };
+
+    export type SignalsScoutRunsListStatus = typeof SignalsScoutRunsListStatus[keyof typeof SignalsScoutRunsListStatus];
+
+
+    export const SignalsScoutRunsListStatus = {
+      Completed: 'completed',
+      Failed: 'failed',
+      Running: 'running',
+      Queued: 'queued',
+    } as const;
 
     export type SignalsScoutReportChecksListParams = {
     /**
