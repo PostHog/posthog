@@ -315,12 +315,14 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             {
                 loadConversationHistory: async (
                     // eslint-disable-next-line @typescript-eslint/no-unused-vars -- Used for conversation restoration
-                    _?: {
+                    _: {
                         /** If true, the current thread will not be updated with the retrieved conversation. */
                         doNotUpdateCurrentThread?: boolean
-                    }
+                    } = {},
+                    breakpoint
                 ) => {
                     const response = await api.conversations.list()
+                    breakpoint()
                     return response.results.map((conversation) =>
                         mergeConversations(
                             conversation,
@@ -329,8 +331,9 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                     )
                 },
 
-                loadConversation: async (conversationId: string) => {
+                loadConversation: async (conversationId: string, breakpoint) => {
                     const response = await api.conversations.get(conversationId)
+                    breakpoint()
                     if (!response) {
                         // The endpoint can return an empty body; a null in the history crashes consumers
                         return values.conversationHistory
