@@ -10,6 +10,7 @@ SELECT
   function_id,
   sending_domain,
   scheduled_at,
+  provider_message_id,
   _timestamp,
   _offset,
   _partition

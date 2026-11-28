@@ -229,6 +229,9 @@ database "posthog" {
     column "scheduled_at" {
       type = "Nullable(DateTime64(6, 'UTC'))"
     }
+    column "provider_message_id" {
+      type = "String"
+    }
     column "_timestamp" {
       type = "DateTime"
     }
@@ -286,6 +289,9 @@ database "posthog" {
     column "scheduled_at" {
       type = "Nullable(DateTime64(6, 'UTC'))"
     }
+    column "provider_message_id" {
+      type = "String"
+    }
     column "_timestamp" {
       type = "DateTime"
     }
@@ -294,6 +300,11 @@ database "posthog" {
     }
     column "_partition" {
       type = "UInt64"
+    }
+    index "provider_message_id_idx" {
+      expr        = "provider_message_id"
+      type        = "bloom_filter(0.01)"
+      granularity = 4
     }
     engine "replicated_merge_tree" {
       zoo_path     = "/clickhouse/tables/noshard/posthog.email_status_events_data"
@@ -1104,6 +1115,9 @@ database "posthog" {
     }
     column "scheduled_at" {
       type = "Nullable(DateTime64(6, 'UTC'))"
+    }
+    column "provider_message_id" {
+      type = "String"
     }
     engine "kafka" {
       collection           = "warpstream_cyclotron"
@@ -5282,6 +5296,7 @@ SELECT
   function_id,
   sending_domain,
   scheduled_at,
+  provider_message_id,
   _timestamp,
   _offset,
   _partition
@@ -5320,6 +5335,9 @@ SQL
     }
     column "scheduled_at" {
       type = "Nullable(DateTime64(6, 'UTC'))"
+    }
+    column "provider_message_id" {
+      type = "String"
     }
     column "_timestamp" {
       type = "Nullable(DateTime)"
