@@ -1,8 +1,18 @@
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
-import { logger } from '~/common/utils/logger'
+import { DateTime } from 'luxon'
 
-import { cdpTrackedFetch, fetchErrorDetail, recordRequestOrigins } from './cdp-fetch'
+import { logger } from '~/common/utils/logger'
+import { FetchResponse } from '~/common/utils/request'
+
+import {
+    MAX_RETRY_AFTER_MS,
+    cdpTrackedFetch,
+    fetchErrorDetail,
+    getNextRetryTime,
+    parseRetryAfterMs,
+    recordRequestOrigins,
+} from './cdp-fetch'
 
 describe('fetchErrorDetail', () => {
     // Guards the unpacking of AggregateError causes: undici throws it with an empty message when
@@ -104,5 +114,67 @@ describe('url scrubbing', () => {
             message: 'Timed out sending to https://discord.example.com:8443',
         })
         expect(fetchError?.stack).not.toContain('secret-token')
+    })
+})
+
+describe('Retry-After', () => {
+    const now = DateTime.fromISO('2025-01-01T00:00:00.000Z', { zone: 'UTC' })
+
+    const response = (status: number, headers: Record<string, string> = {}): FetchResponse =>
+        ({ status, headers }) as unknown as FetchResponse
+
+    beforeEach(() => {
+        jest.spyOn(Date, 'now').mockReturnValue(now.toMillis())
+        jest.spyOn(Math, 'random').mockReturnValue(0.5)
+    })
+
+    afterEach(() => {
+        jest.restoreAllMocks()
+    })
+
+    describe('parseRetryAfterMs', () => {
+        it.each([
+            ['delta-seconds', response(429, { 'retry-after': '60' }), 60_000],
+            ['fractional delta-seconds', response(429, { 'retry-after': '1.5' }), 1_500],
+            ['an HTTP-date', response(429, { 'retry-after': 'Wed, 01 Jan 2025 00:00:45 GMT' }), 45_000],
+            ['a 503 with delta-seconds', response(503, { 'retry-after': '30' }), 30_000],
+        ])('reads %s', (_name, res, expected) => {
+            expect(parseRetryAfterMs(res)).toBe(expected)
+        })
+
+        it.each([
+            ['delta-seconds', '86400'],
+            ['an HTTP-date', 'Thu, 02 Jan 2025 00:00:00 GMT'],
+        ])('caps a huge value given as %s', (_name, header) => {
+            expect(parseRetryAfterMs(response(429, { 'retry-after': header }))).toBe(MAX_RETRY_AFTER_MS)
+        })
+
+        it.each([
+            ['no response', null],
+            ['no header', response(429)],
+            ['an unparseable header', response(429, { 'retry-after': 'soon' })],
+            ['zero seconds', response(429, { 'retry-after': '0' })],
+            ['negative seconds', response(429, { 'retry-after': '-5' })],
+            ['a date in the past', response(429, { 'retry-after': 'Tue, 31 Dec 2024 23:59:00 GMT' })],
+            ['a status that is not rate limiting', response(500, { 'retry-after': '60' })],
+        ])('returns undefined for %s', (_name, res) => {
+            expect(parseRetryAfterMs(res)).toBeUndefined()
+        })
+    })
+
+    describe('getNextRetryTime', () => {
+        it.each([
+            ['no Retry-After keeps the linear backoff', 1, undefined, '2025-01-01T00:00:01.500Z'],
+            ['a Retry-After longer than the backoff wins', 1, 60_000, '2025-01-01T00:01:00.000Z'],
+            ['a backoff longer than the Retry-After wins', 3, 1_000, '2025-01-01T00:00:03.500Z'],
+            [
+                'a Retry-After is bounded by its own cap, not the backoff cap',
+                1,
+                MAX_RETRY_AFTER_MS,
+                '2025-01-01T00:05:00.000Z',
+            ],
+        ])('%s', (_name, tries, retryAfterMs, expected) => {
+            expect(getNextRetryTime(1000, 30000, tries, retryAfterMs).toISO()).toBe(expected)
+        })
     })
 })
