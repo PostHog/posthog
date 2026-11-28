@@ -49,7 +49,7 @@ from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.temporal.alerts.admission import hold_evaluation_slot, release_evaluation_slot
 
-from products.alerts_platform.backend.facade.api import due_checks, has_incident_destination, slot_of
+from products.alerts_platform.backend.facade.api import due_check_ids, due_checks, has_incident_destination, slot_of
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     GroupingMode,
@@ -98,6 +98,7 @@ from products.metrics.backend.alerts.read_floor import raise_read_floors, read_f
 from products.metrics.backend.alerts.source_config import MetricsPlatformAlertCondition, MetricsPlatformAlertConfig
 from products.metrics.backend.alerts.wording import alert_url
 from products.metrics.backend.promql import PromQLQueryError, snuffle_payload
+from products.metrics.backend.temporal.batch_slot import MetricsBatchAdmission, MetricsBatchSlot
 
 logger = structlog.get_logger(__name__)
 
@@ -113,9 +114,12 @@ MAX_QUERY_SECONDS: Final = 10
 MIN_QUERY_SECONDS: Final = 2
 FRESHNESS_QUERY_SECONDS: Final = 5
 INFLIGHT_KEY: Final = "alerts:platform:metrics:batches:inflight"
-# Outlasts the evaluation activity's run, so a slot frees before its batch ends only when a worker
-# died mid-batch.
+# A workflow takes the slot before its evaluation activity starts, and the activity holds it again
+# under a fresh lease when it starts. So the lease outlasts the rest of the take, the activity's
+# queue time and the activity's run, and a slot frees before its batch ends only when a worker died
+# mid-batch.
 BATCH_SLOT_LEASE_SECONDS: Final = 90
+_DEFERRED_COUNT_LIMIT: Final = 10_000
 # Ten times the most groups a configuration can hold. A query past it is refused before its series
 # are judged, so one high-cardinality expression cannot exhaust the worker.
 MAX_SERIES: Final = 1000
@@ -151,17 +155,27 @@ class _Sample:
     value: float | None
 
 
-def evaluate_metrics_alert_batch(team_id: int, slot: str, cutoff: datetime) -> SourceBatchEvaluation:
-    """Evaluates one batch key of metrics alerts against the tick's cutoff."""
-    started_at = time.monotonic()
-    checks = due_checks(team_id, SOURCE.value, slot, cutoff)
-    if not checks:
-        return SourceBatchEvaluation(outcomes=(), deliveries=())
+def _team_of(team_id: int, checks: Sequence[PlatformAlertCheckInput]) -> Team | None:
     team = Team.objects.filter(id=team_id).first()
     if team is None:
         # Counted, because these checks stay due and nothing else would say why they never ran.
         for _ in checks:
             safe_record(increment_checks_skipped, SOURCE.value, "team_missing")
+    return team
+
+
+def evaluate_metrics_alert_batch(team_id: int, slot: str, cutoff: datetime) -> SourceBatchEvaluation:
+    """Evaluates one batch key of metrics alerts against the tick's cutoff, with one try at a pool slot.
+
+    Only a workflow that started before the wait for a slot replays this. A new workflow takes the
+    slot with `take_metrics_batch_slot` and evaluates with `evaluate_held_metrics_batch`.
+    """
+    started_at = time.monotonic()
+    checks = due_checks(team_id, SOURCE.value, slot, cutoff)
+    if not checks:
+        return SourceBatchEvaluation(outcomes=(), deliveries=())
+    team = _team_of(team_id, checks)
+    if team is None:
         return SourceBatchEvaluation(outcomes=(), deliveries=())
 
     # One slot per batch, because a batch runs its queries one after another, so the batches in
@@ -183,6 +197,71 @@ def evaluate_metrics_alert_batch(team_id: int, slot: str, cutoff: datetime) -> S
         return _evaluate_admitted(team, slot, checks, cutoff=cutoff, started_at=started_at)
     finally:
         release_evaluation_slot(member, held_until=held_until, key=INFLIGHT_KEY)
+
+
+def take_metrics_batch_slot(
+    team_id: int, slot: str, cutoff: datetime, *, member: str, first: bool, final: bool
+) -> MetricsBatchAdmission:
+    """One try at a pool slot for a batch, without waiting. The workflow waits between tries.
+
+    `member` comes from the workflow, so a retried attempt finds the slot an earlier attempt took
+    instead of taking a second one. Only the first try asks whether the batch is due: nothing else
+    evaluates this batch key while its workflow waits, and the evaluation reads the checks again.
+    `final` marks the last try: a batch that still finds no room misses its tick, and only that try
+    counts its checks as deferred.
+    """
+    due: tuple[str, ...] = ()
+    if first or final:
+        # The last try counts every due check it defers, so only it reads more than one id.
+        due = due_check_ids(team_id, SOURCE.value, slot, cutoff, limit=_DEFERRED_COUNT_LIMIT if final else 1)
+        if not due:
+            return MetricsBatchAdmission(due=False)
+    held_until = hold_evaluation_slot(
+        member,
+        limit=settings.ALERTS_PLATFORM_METRICS_MAX_INFLIGHT_BATCHES,
+        lease_seconds=BATCH_SLOT_LEASE_SECONDS,
+        key=INFLIGHT_KEY,
+    )
+    if held_until is None:
+        if final:
+            logger.info("Deferred a platform metrics batch over the pool limit", team_id=team_id, slot=slot)
+            safe_record(increment_checks_deferred, SOURCE.value, len(due))
+        return MetricsBatchAdmission(due=True)
+    return MetricsBatchAdmission(due=True, slot=MetricsBatchSlot(member=member, held_until=held_until))
+
+
+def evaluate_held_metrics_batch(
+    team_id: int, slot: str, cutoff: datetime, held: MetricsBatchSlot
+) -> SourceBatchEvaluation:
+    """`evaluate_metrics_alert_batch` for a batch whose workflow already took its slot. Releases the slot."""
+    started_at = time.monotonic()
+    # Hold the slot again under a fresh lease. The take's lease can lapse while this activity waits in
+    # the queue, and a timed-out take attempt can rewrite the expiry after its retry returned. A batch
+    # whose slot lapsed while the pool filled finds no room here, and its checks stay due.
+    held_until = hold_evaluation_slot(
+        held.member,
+        limit=settings.ALERTS_PLATFORM_METRICS_MAX_INFLIGHT_BATCHES,
+        lease_seconds=BATCH_SLOT_LEASE_SECONDS,
+        key=INFLIGHT_KEY,
+    )
+    if held_until is None:
+        logger.info("Deferred a platform metrics batch whose slot lapsed", team_id=team_id, slot=slot)
+        return SourceBatchEvaluation(outcomes=(), deliveries=())
+    try:
+        checks = due_checks(team_id, SOURCE.value, slot, cutoff)
+        if not checks:
+            return SourceBatchEvaluation(outcomes=(), deliveries=())
+        team = _team_of(team_id, checks)
+        if team is None:
+            return SourceBatchEvaluation(outcomes=(), deliveries=())
+        return _evaluate_admitted(team, slot, checks, cutoff=cutoff, started_at=started_at)
+    finally:
+        release_evaluation_slot(held.member, held_until=held_until, key=INFLIGHT_KEY)
+
+
+def release_metrics_batch_slot(held: MetricsBatchSlot) -> None:
+    """Frees a slot whose evaluation never started. A no-op once that evaluation held the slot again."""
+    release_evaluation_slot(held.member, held_until=held.held_until, key=INFLIGHT_KEY)
 
 
 def _evaluate_admitted(
