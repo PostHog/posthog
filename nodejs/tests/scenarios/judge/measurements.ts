@@ -369,7 +369,7 @@ export const sesNotificationsLost: MeasurementDefinition = {
                           value: null,
                           censored: true,
                           unmeasured:
-                              'no replica counted an SES notification, but a scrape was missed, so the counters may hold some',
+                              'no replica counted an SES notification, but a replica restarted or missed a scrape, so the counters may hold some',
                           ...incomplete,
                       },
                   ]
