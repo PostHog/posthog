@@ -371,12 +371,14 @@ impl<T: Client + Clone> ClientPipelineExt for T {}
 
 // Module declarations
 mod client;
+mod cluster;
 mod mock;
 mod pipeline;
 mod read_write;
 
 // Re-export public APIs
 pub use client::{RedisClient, ScriptRunner};
+pub use cluster::RedisClusterClient;
 pub use mock::{MockRedisCall, MockRedisClient, MockRedisValue};
 pub use read_write::{ReadWriteClient, ReadWriteClientConfig};
 

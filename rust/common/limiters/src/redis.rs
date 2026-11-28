@@ -81,6 +81,15 @@ impl ServiceName {
     }
 }
 
+pub(crate) fn limiter_key(
+    redis_key_prefix: Option<String>,
+    limiter_cache_key: &str,
+    resource: &QuotaResource,
+) -> String {
+    let key_prefix = redis_key_prefix.unwrap_or_default();
+    format!("{key_prefix}{limiter_cache_key}{}", resource.as_str())
+}
+
 #[derive(Clone)]
 pub struct RedisLimiter {
     limited: Arc<DashMap<String, bool>>,
@@ -108,12 +117,11 @@ impl RedisLimiter {
         service_name: ServiceName,
     ) -> anyhow::Result<RedisLimiter> {
         let limited = Arc::new(DashMap::new());
-        let key_prefix = redis_key_prefix.unwrap_or_default();
 
         let limiter = RedisLimiter {
             limited,
             redis: redis.clone(),
-            key: format!("{key_prefix}{limiter_cache_key}{}", resource.as_str()),
+            key: limiter_key(redis_key_prefix, &limiter_cache_key, &resource),
             interval,
             service_name,
         };
@@ -129,6 +137,7 @@ impl RedisLimiter {
         let redis = Arc::clone(&self.redis);
         let interval_duration = self.interval;
         let key = self.key.clone();
+        let cache_key: Arc<str> = Arc::from(key.as_str());
         let service_name = self.service_name.as_string();
 
         // Spawn a task to periodically update the cache from Redis
@@ -147,6 +156,15 @@ impl RedisLimiter {
                         for item in set {
                             limited.insert(item, true);
                         }
+
+                        gauge!(
+                            format!(
+                                "{}_billing_limits_last_success_timestamp_seconds",
+                                service_name
+                            ),
+                            "cache_key" => cache_key.clone(),
+                        )
+                        .set(Utc::now().timestamp() as f64);
                     }
                     Err(e) => {
                         tracing::warn!("Failed to update cache from Redis: {:?}", e);
@@ -158,7 +176,7 @@ impl RedisLimiter {
         });
     }
 
-    async fn fetch_limited(
+    pub(crate) async fn fetch_limited(
         client: &Arc<dyn Client + Send + Sync>,
         key: &String,
     ) -> anyhow::Result<Vec<String>, CustomRedisError> {
