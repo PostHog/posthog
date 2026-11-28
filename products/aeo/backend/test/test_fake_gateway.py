@@ -136,7 +136,7 @@ def test_engine_answers_cover_every_check_state_and_read_through_the_engines(eng
 
 def test_answers_are_the_same_for_the_same_request_and_differ_between_prompts() -> None:
     gateway = FakeGateway()
-    body = {"model": "gpt-5", "input": "best replay tool for 1", "tools": [{"type": "web_search"}]}
+    body = {"model": "gpt-6-luna", "input": "best replay tool for 1", "tools": [{"type": "web_search"}]}
     # The two calls straddle a second, so an answer that stamps the wall clock would differ.
     with patch("products.aeo.backend.dev.fake_gateway.time.time", side_effect=[1000.0, 2000.0, 3000.0]):
         first = gateway.handle("/v1/responses", body)
@@ -146,8 +146,10 @@ def test_answers_are_the_same_for_the_same_request_and_differ_between_prompts() 
     assert first.body == second.body
     assert first.body["output"] != other.body["output"]
     # Every outcome is reachable from a prompt, and the same prompt lands on the same one each time.
-    assert {engine_outcome(prompt, "gpt-5") for prompt in PROMPTS} == set(OUTCOME_WEIGHTS)
-    assert engine_outcome("best replay tool for 1", "gpt-5") == engine_outcome("best replay tool for 1", "gpt-5")
+    assert {engine_outcome(prompt, "gpt-6-luna") for prompt in PROMPTS} == set(OUTCOME_WEIGHTS)
+    assert engine_outcome("best replay tool for 1", "gpt-6-luna") == engine_outcome(
+        "best replay tool for 1", "gpt-6-luna"
+    )
 
 
 def test_the_server_answers_over_http() -> None:

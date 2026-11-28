@@ -276,6 +276,26 @@ def test_openai_engine_run_wires_response_error(_name: str, body: dict, expected
         assert check.cited_urls  # completed body carries citations
 
 
+# OpenAI's deprecations page lists these as shut down or shutting down: https://developers.openai.com/api/docs/deprecations
+RETIRED_OPENAI_MODELS = {
+    "gpt-4o-search-preview",
+    "gpt-4o-mini-search-preview",
+    "o4-mini",
+    "o3",
+    "o3-pro",
+    "gpt-5",
+    "gpt-5-2025-08-07",
+    "gpt-5-mini",
+    "gpt-5-nano",
+    "gpt-5-pro",
+}
+
+
+def test_openai_engine_does_not_default_to_a_retired_model() -> None:
+    with patch("products.aeo.backend.engines.resolve_ai_gateway_config", return_value=GATEWAY_CONFIG):
+        assert OpenAIWebSearchEngine().model not in RETIRED_OPENAI_MODELS
+
+
 CLAUDE_SEARCH_TOOLS = [
     {
         "type": ANTHROPIC_WEB_SEARCH_TOOL_TYPE,
