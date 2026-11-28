@@ -157,6 +157,8 @@ class AwsOrganizationsSource(ResumableSource[AwsOrganizationsSourceConfig, AwsOr
 
 Create an IAM user or role with the `organizations:DescribeOrganization`, `organizations:ListAccounts`, `organizations:ListParents`, `organizations:ListRoots`, `organizations:ListOrganizationalUnitsForParent`, `organizations:ListPolicies`, `organizations:ListTargetsForPolicy`, `organizations:ListTagsForResource`, `organizations:ListDelegatedAdministrators` and `organizations:ListDelegatedServicesForAccount` permissions. Connect with the IAM role, or paste an access key ID and secret access key. Add a session token too if you are using temporary credentials.
 
+For the optional service access, handshake, account creation, and billing transfer tables, grant `organizations:ListAWSServiceAccessForOrganization`, `organizations:ListHandshakesForOrganization`, `organizations:ListCreateAccountStatus`, or `organizations:ListInboundResponsibilityTransfers`, respectively.
+
 Connect the management account, or a member account that is a delegated administrator. Other member accounts can only read the organization table.
 
 AWS Organizations is a global service, so there is nothing to pick a region for. This source syncs the accounts, organizational units, and policies in the standard AWS partition.""",

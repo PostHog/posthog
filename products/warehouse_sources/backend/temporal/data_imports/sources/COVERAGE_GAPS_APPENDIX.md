@@ -204,7 +204,7 @@ Diffed against: <https://raw.githubusercontent.com/AdobeDocs/analytics-2.0-apis/
 
 - [x] `Users (GET /api/{globalCompanyId}/users)` — resolve owner login IDs in segments and calculated metrics to identifiable users (high)
 - [x] `Annotations (GET /api/{globalCompanyId}/annotations)` — explain traffic and conversion changes with recorded launches, incidents, and campaign dates (medium)
-- [ ] `Usage logs (GET /api/{globalCompanyId}/auditlogs/usage)` — analyze report adoption, user activity, and access across report suites (medium)
+- [ ] `Usage logs (GET /api/{globalCompanyId}/auditlogs/usage)` — analyze report adoption, user activity, and access across report suites (medium). Skipped: Requires an IMS user token; the source uses OAuth Server-to-Server credentials.
 
 Note: Parsed all collection GET operations in the official Adobe Swagger reference. The configurable report table already accepts a dimension and metrics, so equivalent report variants were excluded. Users resolve component owner IDs; annotations and usage logs need separate tables. The usage endpoint requires an IMS user token, unlike the source server credential.
 
@@ -1632,10 +1632,10 @@ Note: Compared the official botocore operation model with the static endpoint ma
 
 Re-audited 2026-11-19 against: <https://raw.githubusercontent.com/boto/botocore/develop/botocore/data/organizations/2016-11-28/service-2.json>
 
-- [ ] `Enabled service access (ListAWSServiceAccessForOrganization, POST /)` — see which AWS services are trusted for organization-wide use and when each was enabled (medium)
-- [ ] `Handshakes (ListHandshakesForOrganization, POST /)` — track invitations to join the organization and their state, to explain account membership changes (low)
-- [ ] `Create account status (ListCreateAccountStatus, POST /)` — audit account creation requests and failure reasons (low)
-- [ ] `Inbound responsibility transfers (ListInboundResponsibilityTransfers, POST /)` — see billing or management responsibility transferred to this organization (low)
+- [x] `Enabled service access (ListAWSServiceAccessForOrganization, POST /)` — see which AWS services are trusted for organization-wide use and when each was enabled (medium)
+- [x] `Handshakes (ListHandshakesForOrganization, POST /)` — track invitations to join the organization and their state, to explain account membership changes (low)
+- [x] `Create account status (ListCreateAccountStatus, POST /)` — audit account creation requests and failure reasons (low)
+- [x] `Inbound responsibility transfers (ListInboundResponsibilityTransfers, POST /)` — see billing responsibility transferred to this organization (low)
 - [ ] `Outbound responsibility transfers (ListOutboundResponsibilityTransfers, POST /)` — see responsibility this organization handed to others (low)
 
 Note (2026-11-19): Parsed the botocore operation model and diffed List and Describe operations against the 10 synced tables and the existing appendix. ListChildren, ListAccountsForParent, ListOrganizationalUnitsForParent and ListPoliciesForTarget repeat data already in accounts, account_parents, organizational_units and policy_targets. Effective policy operations, DescribeResourcePolicy and single-record Describe calls were excluded. All operations are JSON RPC over POST / with NextToken paging. The responsibility transfer operations are new in the model and need the correct IAM permissions.
@@ -7317,10 +7317,10 @@ Today (5): `destinations`, `models`, `sources`, `sync_runs`, `syncs`
 
 Diffed against: <https://api.hightouch.io/api/swagger.json>
 
-- [ ] `GET /decision-engine/flows` — AI Decisioning flows, Hightouch's headline product and completely absent today (medium)
-- [ ] `GET /decision-engine/flow/{flowId}/messages` — the messages inside each decisioning flow — the analytical rows behind flow performance (medium)
-- [ ] `GET /idr/{graphId}/runs` — identity resolution run history, the equivalent of sync_runs for identity graphs (medium)
-- [ ] `GET /events/contracts` — event schema contracts, a lookup for the event streams flowing through Hightouch (low)
+- [x] `GET /decision-engine/flows` — AI Decisioning flows, Hightouch's headline product and completely absent today (medium)
+- [x] `GET /decision-engine/flow/{flowId}/messages` — the messages inside each decisioning flow — the analytical rows behind flow performance (medium)
+- [ ] `GET /idr/{graphId}/runs` — identity resolution run history, the equivalent of sync_runs for identity graphs (medium). Skipped: The public API does not list identity graphs.
+- [x] `GET /events/contracts` — event schema contracts, a lookup for the event streams flowing through Hightouch (low)
 
 Note: The Redoc page at hightouch.com/docs/api-reference loads its spec from https://api.hightouch.io/api/swagger.json (found in the page's Next.js chunk). The public API is small — syncs, sync runs, models, sources and destinations are already covered, and the remaining paths are mostly single-object GETs or trigger POSTs (campaign sends, sync-sequence runs, trigger endpoints) that are not listable.
 
@@ -9116,11 +9116,11 @@ Today (4): `events`, `people`, `session_people`, `sessions`
 
 Diffed against: <https://developers.livestorm.co/llms.txt>
 
-- [ ] `Session chat messages (GET /sessions/{id}/chat_messages)` — chat content per session, for engagement analysis, fan-out under sessions (medium)
-- [ ] `Session questions (GET /sessions/{id}/questions)` — audience questions per session and their answers (medium)
+- [x] `Session chat messages (GET /sessions/{id}/chat_messages)` — chat content per session, for engagement analysis, fan-out under sessions (medium)
+- [x] `Session questions (GET /sessions/{id}/questions)` — audience questions per session and their answers (medium)
 - [ ] `Session recordings (GET /sessions/{id}/recordings)` — recording records per session (low)
-- [ ] `Team members (GET /users)` — workspace team members, resolves host and owner ids (medium)
-- [ ] `People attributes (GET /people_attributes)` — custom registration field definitions, a lookup for people and session_people (medium)
+- [x] `Team members (GET /users)` — workspace team members, resolves host and owner ids (medium)
+- [x] `People attributes (GET /people_attributes)` — custom registration field definitions, a lookup for people and session_people (medium)
 
 Note: Read the llms.txt index and the .md pages for the list endpoints. Events, sessions, people and session_people are synced. Webhooks, jobs and write endpoints were left out. The per-session routes need fan-out over sessions, and page size is capped at 50.
 
@@ -12116,17 +12116,17 @@ Note: Pulumi publishes a machine-readable spec at https://api.pulumi.com/api/ope
 
 ## Pylon — gaps
 
-Today (17): `accounts`, `activity_types`, `contacts`, `custom_fields`, `issue_messages`, `issue_statuses`, `issues`, `knowledge_base_articles`, `knowledge_bases`, `macros`, `survey_responses`, `tags`, `tasks`, `teams`, `ticket_forms`, `user_roles`, `users`
+Today (20): `account_relationships`, `accounts`, `activity_types`, `contacts`, `custom_fields`, `issue_messages`, `issue_statuses`, `issue_threads`, `issues`, `knowledge_base_articles`, `knowledge_bases`, `macros`, `survey_responses`, `surveys`, `tags`, `tasks`, `teams`, `ticket_forms`, `user_roles`, `users`
 
 Diffed against: <https://api.usepylon.com/openapi.json>
 
 - [x] `GET /issues/{id}/messages` — the actual conversation messages behind each issue - response times, volume, and content analysis all need this (high)
 - [x] `GET /surveys/{id}/responses` — CSAT survey responses, the headline support-quality metric (high)
 - [x] `GET /knowledge-bases/{id}/articles` — article inventory per knowledge base; the knowledge_bases table alone has no content rows (high)
-- [ ] `GET /surveys` — survey definitions that give the responses their questions and scales (medium)
-- [ ] `GET /accounts/{account_id}/relationships` — account hierarchy (parent/child orgs), needed to roll ticket volume up to a customer group (medium)
-- [ ] `GET /issues/{id}/threads` — per-issue thread breakdown across Slack/email channels (medium)
-- [ ] `GET /custom-objects/{type}` — customer-defined object records already referenced from issues and accounts (medium)
+- [x] `GET /surveys` — survey IDs, names, and types for joining to survey responses (medium)
+- [x] `GET /accounts/{account_id}/relationships` — account hierarchy (parent/child orgs), needed to roll ticket volume up to a customer group (medium)
+- [x] `GET /issues/{id}/threads` — per-issue thread breakdown across Slack/email channels (medium)
+- [ ] `GET /custom-objects/{type}` — customer-defined object records already referenced from issues and accounts (medium). Skipped: Requires a type slug; the public API has no endpoint to list type slugs.
 - [x] `GET /activity-types` — lookup resolving activity type IDs used across issues and accounts (medium)
 - [ ] `GET /knowledge-bases/{id}/collections` — collection grouping for knowledge base articles (medium)
 - [ ] `GET /issues/{id}/followers` — who is watching each ticket - useful for internal-involvement analysis (medium)
@@ -12892,16 +12892,16 @@ Note: The published Apiary host (sagehr.docs.apiary.io) 502s; the raw Swagger 2.
 
 ## Salesflare — gaps
 
-Today (9): `accounts`, `contacts`, `opportunities`, `pipelines`, `stages`, `tags`, `tasks`, `users`, `workflows`
+Today (11): `accounts`, `contacts`, `custom_fields`, `opportunities`, `persons`, `pipelines`, `stages`, `tags`, `tasks`, `users`, `workflows`
 
 Diffed against: <https://api.salesflare.com/openapi.json>
 
 - [x] `stages (GET /stages)` — lookup resolving the stage id on every opportunity already synced (high)
 - [x] `users (GET /users)` — lookup resolving owner/assignee ids on accounts, contacts, opportunities and tasks (high)
-- [ ] `persons (GET /persons)` — the full people directory, broader than the contacts table (medium)
-- [ ] `accounts/{id}/feed` — per-account activity timeline (the interaction history behind the CRM) (medium)
-- [ ] `accounts/{id}/messages` — email/message log per account for engagement analysis (medium)
-- [ ] `customfields/{itemClass}` — custom field definitions that resolve the custom keys stored on accounts, contacts and opportunities (medium)
+- [x] `persons (GET /persons)` — the full people directory, broader than the contacts table (medium)
+- [ ] `accounts/{id}/feed` — per-account activity timeline (the interaction history behind the CRM) (medium). Skipped: The API does not document how to page through entries with the same timestamp without losing rows.
+- [ ] `accounts/{id}/messages` — email/message log per account for engagement analysis (medium). Skipped: The API does not document how to page through messages with the same timestamp without losing rows.
+- [x] `customfields/{itemClass}` — custom field definitions that resolve the custom keys stored on accounts, contacts and opportunities (medium)
 - [ ] `groups (GET /groups)` — lookup for team/group membership on users (medium)
 - [ ] `tags/{id}/usage` — tag-to-record counts, cheap breakdown dimension (low)
 - [ ] `currencies (GET /currencies)` — lookup for currency codes on opportunity values (low)
@@ -13065,7 +13065,7 @@ Note: The official OpenAPI JSON was fetched with curl and all GET paths, paramet
 
 ## Secoda — gaps
 
-Today (17): `charts`, `collections`, `columns`, `databases`, `event_categories`, `event_properties`, `events`, `groups`, `incidents`, `integrations`, `lineage`, `monitor_measurements`, `monitors`, `schemas`, `tables`, `tags`, `users`
+Today (21): `audit_logs`, `charts`, `collections`, `columns`, `custom_properties`, `dashboards`, `databases`, `event_categories`, `event_properties`, `events`, `groups`, `incidents`, `integrations`, `lineage`, `monitor_measurements`, `monitors`, `queries`, `schemas`, `tables`, `tags`, `users`
 
 Diffed against: <https://docs.secoda.co/llms.txt>
 
@@ -13075,12 +13075,13 @@ Diffed against: <https://docs.secoda.co/llms.txt>
 - [x] `lineage (GET /api/v1/lineage/manual/)` — the dependency graph between resources — the core analytical object of a catalog (high)
 - [x] `monitors and incidents (/api/v1/monitor/monitors, /monitor/incidents)` — data-quality monitors and the incidents they raise, Secoda's headline reliability metric (high)
 - [x] `monitor measurements (GET /api/v1/monitor/measurements)` — the time series behind each monitor; required for any quality trend analysis (high)
-- [ ] `queries (GET /api/v1/query/queries)` — query history driving table popularity and usage rankings (medium)
-- [ ] `dashboards (GET /api/v1/dashboard/dashboards)` — BI assets, the downstream consumers in lineage (medium)
+- [x] `queries (GET /api/v1/query/queries)` — query history driving table popularity and usage rankings (medium)
+- [x] `dashboards (GET /api/v1/dashboard/dashboards)` — BI assets, the downstream consumers in lineage (medium)
 - [x] `charts (GET /api/v1/dashboard/charts)` — chart-level assets under dashboards, needed for column-to-chart impact analysis (medium)
 - [x] `events and event properties (/api/v1/event/events, /event/event_properties, /event/category)` — the event taxonomy tracked in the catalog plus its lookup categories (medium)
-- [ ] `audit logs and resource logs (/api/v1/activity_log/audit_logs/, /resource_logs/)` — who touched which asset when — governance and adoption reporting (medium)
-- [ ] `custom properties (GET /api/v1/resource/all_v2/custom_properties/)` — lookup resolving customer-defined property values attached to tables and columns (medium)
+- [x] `audit logs (GET /api/v1/activity_log/audit_logs/)` — who touched which asset when — governance and adoption reporting (medium)
+- [ ] `resource logs (GET /api/v1/activity_log/resource_logs/)` — activity for a single resource (medium). Skipped: The route requires a resource ID, and the catalog list caps results at 10,000 per filter.
+- [x] `custom properties (GET /api/v1/resource/all_v2/custom_properties/)` — workspace property definitions, not values attached to resources (medium)
 
 Note: Each docs page embeds its own OpenAPI fragment (fetch the .md variant, e.g. /api/reference/monitors.md, to read paths). Also available but lower value: teams (/auth/teams/), documents, questions and replies, and the generic /resource/all_v2 super-list.
 
@@ -15246,7 +15247,7 @@ Note: developers.tremendous.com is a JS-rendered ReadMe site and the documented 
 
 ## TriggerDev — gaps
 
-Today (7): `deployments`, `errors`, `queues`, `run_events`, `runs`, `schedules`, `waitpoint_tokens`
+Today (9): `bulk_actions`, `deployments`, `errors`, `queues`, `run_events`, `runs`, `schedules`, `sessions`, `waitpoint_tokens`
 
 Diffed against: <https://trigger.dev/docs/llms.txt>
 
@@ -15254,8 +15255,8 @@ Diffed against: <https://trigger.dev/docs/llms.txt>
 - [x] `deployments (list)` — deploy history and worker versions, the dimension that explains run behavior changes (high)
 - [x] `runs/{id}/events` — OTel span events per run; the step-level detail behind a run's duration and failure (medium)
 - [x] `waitpoints/tokens (list)` — waitpoint tokens and their completion state, showing where runs block on external systems (medium)
-- [ ] `sessions (list)` — durable session records tying multiple runs to one external identity (medium)
-- [ ] `bulk-actions (list)` — bulk cancel/replay operations and their processing counts (low)
+- [x] `sessions (list)` — durable session records tying multiple runs to one external identity (medium)
+- [x] `bulk-actions (list)` — bulk cancel/replay operations and their processing counts (low)
 
 Note: Trigger.dev also ships a TRQL query endpoint (management/query/execute) that exposes run data as a SQL-like surface; its schema endpoint (management/query/schema) lists every queryable table and would be the cheapest way to widen coverage. Env vars and queue concurrency controls were excluded as config.
 
@@ -15751,10 +15752,10 @@ Diffed against: <https://api.vantage.sh/v2/swagger.json>
 - [x] `GET /unit_costs` — unit economics per cost report (cost per business unit), a headline FinOps metric (medium)
 - [x] `GET /business_metrics and GET /business_metrics/{token}/values` — the metric series that unit costs divide by; needed to reproduce unit-cost math (medium)
 - [x] `GET /network_flow_logs` — the aggregated flow data behind network_flow_reports, which we sync definitions of only (medium)
-- [ ] `GET /cost_alerts/{cost_alert_token}/events` — firing history for the cost alerts we already sync — the state-transition table (medium)
-- [ ] `GET /cost_reports/{cost_report_token}/forecasted_costs` — forecast series per report, used for budget-vs-forecast analysis (medium)
-- [ ] `GET /recommendations/{recommendation_token}/resources` — the specific resources each savings recommendation targets (medium)
-- [ ] `GET /virtual_tag_configs` — lookup defining the virtual tags used to group costs in reports (medium)
+- [x] `GET /cost_alerts/{cost_alert_token}/events` — firing history for the cost alerts we already sync — the state-transition table (medium)
+- [x] `GET /cost_reports/{cost_report_token}/forecasted_costs` — forecast series per report, used for budget-vs-forecast analysis (medium)
+- [x] `GET /recommendations/{recommendation_token}/resources` — the specific resources each savings recommendation targets (medium)
+- [x] `GET /virtual_tag_configs` — lookup defining the virtual tags used to group costs in reports (medium)
 
 Note: Spec is Vantage's own OpenAPI at api.vantage.sh/v2/swagger.json (v2.0.0); vantage.readme.io/openapi.json redirects. The pattern across this source is that report \*definitions\* are synced (cost_reports, resource_reports, network_flow_reports, financial_commitment_reports) but none of the data those reports return. Below the cut: /audit_logs, /invoices (MSP only), /teams/{token}/members, /products and /products/{id}/prices, /billing_profiles, /managed_accounts, /canvases. Excluded /anomaly_notifications, /budget_alerts, /recommendation_views, /me and /ping as config/plumbing.
 

@@ -57,11 +57,11 @@ const dashboardHeadSchema = dashboardDocumentSchema.extend({
         .refine((tabs) => tabs.some((tab) => 'tiles' in tab), ONE_GRID_TAB),
 })
 
-// Loading walks every section's tiles, so a section without them is not a dashboard's shape.
+// Loading walks the tiles of any panel that has them, so only a section may, and it must.
 function sectionsHaveTiles(tiles: TileHead[], depth: number): boolean {
     return tiles.every((tile) => {
         if (!('type' in tile.panel) || tile.panel.type !== 'section') {
-            return true
+            return !('tiles' in tile.panel)
         }
         const section = sectionHeadSchema.safeParse(tile.panel)
         return depth < MAX_SECTION_DEPTH && section.success && sectionsHaveTiles(section.data.tiles, depth + 1)

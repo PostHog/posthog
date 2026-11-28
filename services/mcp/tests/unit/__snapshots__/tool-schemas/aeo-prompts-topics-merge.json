@@ -1,0 +1,17 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "into_topic": {
+            "description": "The topic to keep, as listed by GET aeo_prompts/topics/. It keeps its current spelling. Letter case is ignored.",
+            "maxLength": 200,
+            "type": "string"
+        },
+        "topic": {
+            "description": "The topic to merge away. Its prompts move to 'into_topic'. Letter case is ignored.",
+            "maxLength": 200,
+            "type": "string"
+        }
+    },
+    "required": ["topic", "into_topic"],
+    "type": "object"
+}

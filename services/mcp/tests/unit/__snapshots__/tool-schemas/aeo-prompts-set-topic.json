@@ -1,0 +1,21 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "prompt_ids": {
+            "description": "Ids of the prompts to change, from GET aeo_prompts/. At most 500. Archived prompts are refused.",
+            "items": {
+                "type": "string"
+            },
+            "maxItems": 500,
+            "minItems": 1,
+            "type": "array"
+        },
+        "topic": {
+            "description": "The topic to set. A name that matches an existing topic in another letter case takes that topic's spelling. An empty string removes the topic.",
+            "maxLength": 200,
+            "type": "string"
+        }
+    },
+    "required": ["prompt_ids", "topic"],
+    "type": "object"
+}
