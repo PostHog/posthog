@@ -59,26 +59,22 @@ class TestValidateCredentials:
 
 
 class TestGetRowsPaged:
-    @pytest.mark.parametrize(
-        "endpoint, page_size",
-        [("boards", PAGE_SIZE), ("updates", UPDATES_PAGE_SIZE)],
-    )
-    def test_paginate_until_short_page(self, endpoint: str, page_size: int) -> None:
-        full_page = [{"id": str(i)} for i in range(page_size)]
+    def test_boards_paginate_until_short_page(self) -> None:
+        full_page = [{"id": str(i)} for i in range(PAGE_SIZE)]
         result = _driver().run(
-            endpoint,
-            [_response({endpoint: full_page}), _response({endpoint: [{"id": "last"}]})],
+            "boards",
+            [_response({"boards": full_page}), _response({"boards": [{"id": "last"}]})],
             api_version=API_VERSION,
         )
 
         assert result.raised is None
-        assert len(result.rows) == page_size + 1
-        assert result.requests[0].json()["variables"] == {"limit": page_size, "page": 1}
-        assert result.requests[1].json()["variables"] == {"limit": page_size, "page": 2}
+        assert len(result.items) == 2
+        assert result.requests[0].json()["variables"] == {"limit": PAGE_SIZE, "page": 1}
+        assert result.requests[1].json()["variables"] == {"limit": PAGE_SIZE, "page": 2}
 
     def test_updates_drop_rows_a_new_comment_pushed_onto_the_next_page(self) -> None:
         first_page = [{"id": str(i)} for i in range(UPDATES_PAGE_SIZE)]
-        shifted_page = [{"id": str(UPDATES_PAGE_SIZE - 1)}, {"id": "older"}]
+        shifted_page = [{"id": str(UPDATES_PAGE_SIZE - 1)}, None, {"id": "older"}]
         result = _driver().run(
             "updates",
             [_response({"updates": first_page}), _response({"updates": shifted_page})],

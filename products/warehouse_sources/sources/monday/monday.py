@@ -528,7 +528,8 @@ def get_rows(
         # Updates come newest first, so a comment posted mid-walk pushes the previous page's last rows onto
         # the next page. Deletions mid-walk can still skip a row until the next refresh.
         previous_page_ids: set[str] = set()
-        for updates in iterate_paged(_UPDATES_QUERY, "updates", page_size=UPDATES_PAGE_SIZE):
+        for page in iterate_paged(_UPDATES_QUERY, "updates", page_size=UPDATES_PAGE_SIZE):
+            updates = [update for update in page if update is not None]
             page_ids = {update["id"] for update in updates}
             fresh_updates = [update for update in updates if update["id"] not in previous_page_ids]
             previous_page_ids = page_ids

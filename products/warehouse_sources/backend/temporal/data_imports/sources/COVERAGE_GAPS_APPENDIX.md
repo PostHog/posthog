@@ -10096,7 +10096,7 @@ Note: Spec is the vendor's single-file OpenAPI (mollie/openapi repo, ~1.9 MB). C
 
 ## Monday — gaps
 
-Today (8): `board_activity_logs`, `board_columns`, `board_groups`, `boards`, `folders`, `items`, `users`, `workspaces`
+Today (12): `board_activity_logs`, `board_columns`, `board_groups`, `board_subscribers`, `boards`, `folders`, `items`, `tags`, `teams`, `updates`, `users`, `workspaces`
 
 Diffed against: <https://raw.githubusercontent.com/mondaycom/monday-graphql-api/main/packages/api-types/generated/api-types.d.ts>
 
