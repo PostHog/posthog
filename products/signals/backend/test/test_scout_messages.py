@@ -513,7 +513,7 @@ class TestSendQueuedScoutMessages(_MessagesFixture, BaseTest):
         [
             ("flag_off", "flag_off"),
             ("emit_turned_off_during_the_run", "emit_off"),
-            ("cap_set_to_zero_during_the_run", "cap_off"),
+            ("cap_spent_by_an_overlapping_run", "over_cap"),
             ("route_removed_during_the_run", "route_removed"),
             ("report_deleted_during_the_run", "report_hidden"),
             ("sent_by_an_overlapping_run", "duplicate"),
@@ -528,8 +528,9 @@ class TestSendQueuedScoutMessages(_MessagesFixture, BaseTest):
             self._set_routes(run.scout_config, _route("another-route", _DM))
         elif reason == "emit_off":
             SignalScoutConfig.all_teams.filter(pk=run.scout_config.pk).update(emit=False)
-        elif reason == "cap_off":
-            SignalScoutConfig.all_teams.filter(pk=run.scout_config.pk).update(max_messages_per_day=0)
+        elif reason == "over_cap":
+            SignalScoutConfig.all_teams.filter(pk=run.scout_config.pk).update(max_messages_per_day=1)
+            self._message(self._run(), key="pr-2", status=SignalScoutMessage.Status.SENT)
         elif reason == "report_hidden":
             SignalReport.objects.filter(pk=report.pk).update(status=SignalReport.Status.DELETED)
         elif reason == "duplicate":
