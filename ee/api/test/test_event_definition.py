@@ -1,10 +1,12 @@
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional, cast
+from uuid import uuid4
 
 import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.core.cache.backends.locmem import LocMemCache
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
@@ -13,6 +15,7 @@ import dateutil.parser
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.api.event_definition import BulkHideBurstRateThrottle, BulkHideSustainedRateThrottle
 from posthog.api.test.test_event_definition import EventFixture, capture_event
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
@@ -21,6 +24,7 @@ from posthog.models import ActivityLog, ObjectMediaPreview, Tag, Team, UploadedM
 from posthog.models.event_filter_config import EventFilterConfig, EventFilterMode
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.rate_limit import PersonalApiKeyOrUserRateThrottle
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.event_definitions.backend.logic.definition_metadata import copy_definition_metadata
@@ -589,6 +593,27 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         assert ActivityLog.objects.filter(
             team_id=self.demo_team.pk, scope="EventDefinition", item_id__in=[str(e.id) for e in events]
         ).count() == len(events)
+
+    @parameterized.expand([(BulkHideBurstRateThrottle,), (BulkHideSustainedRateThrottle,)])
+    def test_bulk_update_hidden_throttles_session_callers(self, throttle_class: type[BulkHideBurstRateThrottle]):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
+        )
+        event = EnterpriseEventDefinition.objects.create(team=self.demo_team, name="bulk_hide_throttled")
+        url = f"/api/projects/{self.demo_team.pk}/event_definitions/"
+
+        with (
+            patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True),
+            patch.object(PersonalApiKeyOrUserRateThrottle, "cache", LocMemCache(f"bulk-hide-{uuid4()}", {})),
+            patch.object(throttle_class, "rate", "1/minute"),
+        ):
+            first = self.client.post(f"{url}bulk_update_hidden/", {"ids": [str(event.id)], "hidden": True})
+            second = self.client.post(f"{url}bulk_update_hidden/", {"ids": [str(event.id)], "hidden": False})
+            listed = self.client.get(url)
+
+        assert first.status_code == status.HTTP_200_OK, first.json()
+        assert second.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert listed.status_code == status.HTTP_200_OK
 
     def test_bulk_update_hidden_ignores_event_definitions_in_other_project(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(

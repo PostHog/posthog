@@ -22,6 +22,8 @@ from prometheus_client import Counter
 from rest_framework import exceptions, mixins, request, response, serializers, status, viewsets
 from rest_framework.permissions import SAFE_METHODS
 from rest_framework.settings import api_settings
+from rest_framework.throttling import BaseThrottle
+from rest_framework.views import APIView
 
 from posthog.accessible_teams import AccessibleTeams, CredentialScopeDenied
 from posthog.api.event_definition_generators.base import EventDefinitionGenerator
@@ -66,6 +68,7 @@ from posthog.models.tagged_item_registry import content_type_for
 from posthog.models.user import User
 from posthog.models.utils import UUIDT
 from posthog.permissions import is_scout_sandbox_request, is_service_auth
+from posthog.rate_limit import PersonalApiKeyOrUserRateThrottle
 from posthog.settings import EE_AVAILABLE
 from posthog.taxonomy.definition_listing import (
     DEFINITION_LIST_STATEMENT_TIMEOUT_MS,
@@ -501,6 +504,24 @@ class GeneratedGolangDefinitionsSerializer(GeneratedDefinitionsSerializer):
         required=False,
         help_text="The posthog-go major the package imports. Clients check it to detect a PostHog that ignores `sdk`.",
     )
+
+
+class BulkHideBurstRateThrottle(PersonalApiKeyOrUserRateThrottle):
+    """Each bulk hide writes up to 500 rows and as many activity logs, so session callers get a budget too."""
+
+    scope = "event_definition_bulk_hide_burst"
+    rate = "30/minute"
+
+    def get_cache_key(self, request: request.Request, view: APIView) -> str:
+        return self.cache_format % {
+            "scope": self.scope,
+            "ident": f"{self.safely_get_team_id_from_view(view)}:{request.user.pk}",
+        }
+
+
+class BulkHideSustainedRateThrottle(BulkHideBurstRateThrottle):
+    scope = "event_definition_bulk_hide_sustained"
+    rate = "300/hour"
 
 
 class EventDefinitionViewSet(
@@ -945,6 +966,12 @@ class EventDefinitionViewSet(
                 raise
             return existing
         return new_enterprise_event
+
+    def get_throttles(self) -> list[BaseThrottle]:
+        throttles = super().get_throttles()
+        if self.action == "bulk_update_hidden":
+            return [BulkHideBurstRateThrottle(), BulkHideSustainedRateThrottle(), *throttles]
+        return throttles
 
     def check_permissions(self, request: request.Request) -> None:
         super().check_permissions(request)
