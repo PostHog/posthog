@@ -15,7 +15,7 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.transforms.order_by_pushdown import push_down_order_by, resolve_alias, unwrap_alias
 
-from products.error_tracking.backend.indexed_embedding import EMBEDDING_TABLES
+from products.error_tracking.backend.indexed_embedding import EMBEDDING_TABLES, EMBEDDING_TABLES_1
 
 VECTOR_DISTANCE_FUNCTIONS = {"cosineDistance", "L2Distance"}
 DOCUMENT_EMBEDDINGS_VIEW = "posthog_document_embeddings_union_view"
@@ -137,7 +137,18 @@ HOGQL_EMBEDDING_TABLES = {
     for table in EMBEDDING_TABLES
 }
 
-HOGQL_MODEL_TABLES = {table.to_printed_hogql(): table for table in HOGQL_EMBEDDING_TABLES.values()}
+# Only the first-generation model tables sit at the HogQL root; later ones live under the `posthog` namespace.
+_ROOT_MODEL_NAMES = {table.model_name for table in EMBEDDING_TABLES_1}
+HOGQL_MODEL_TABLES = {
+    table.to_printed_hogql(): table
+    for table in HOGQL_EMBEDDING_TABLES.values()
+    if table.model_name in _ROOT_MODEL_NAMES
+}
+HOGQL_POSTHOG_MODEL_TABLES = {
+    table.to_printed_hogql(): table
+    for table in HOGQL_EMBEDDING_TABLES.values()
+    if table.model_name not in _ROOT_MODEL_NAMES
+}
 
 
 class DocumentEmbeddingsTable(LazyTable):
@@ -167,11 +178,12 @@ class DocumentEmbeddingsTable(LazyTable):
                 else:
                     exprs.append(ast.Alias(alias=name, expr=ast.Field(chain=[table_name, *chain])))
 
+            table_chain: list[str | int] = (
+                [table_name] if model_table.model_name in _ROOT_MODEL_NAMES else ["posthog", table_name]
+            )
             inner_query = ast.SelectQuery(
                 select=exprs,
-                select_from=ast.JoinExpr(
-                    table=ast.Field(chain=[table_name]),
-                ),
+                select_from=ast.JoinExpr(table=ast.Field(chain=table_chain), alias=table_name),
             )
 
             push_down_order_by(
