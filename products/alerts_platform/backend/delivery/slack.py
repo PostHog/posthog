@@ -66,15 +66,18 @@ SLACK_EDIT_TIMEOUT_SECONDS: Final = 3
 IMAGE_REFUSAL: Final = "invalid_blocks"
 
 
-# Slack leaves a URL in a verbatim section as plain text, so a URL detail gets a section of its own
-# that is not verbatim. The URL is the visible text of its link, so it cannot disguise another
-# destination.
+# Slack leaves a bare URL in a verbatim section as plain text, so a URL detail is written as a
+# `<url>` link. The URL is the visible text of its link, so it cannot disguise another destination.
+# Only under a label that ends `_url`, the name `validate_annotations` checks links by: any other
+# value can come whole from ingested data, which must not choose the site a link opens.
 _LINK_VALUE: Final = re.compile(r"https?://[^\s<>|]{1,300}")
 _LINK_LABEL: Final = re.compile(r"[\w .-]{1,40}")
 MAX_LINK_LINES: Final = 8
 
 
 def _is_link(detail: MessageDetail) -> bool:
+    if not detail.label.endswith("_url"):
+        return False
     return bool(_LINK_VALUE.fullmatch(detail.value) and _LINK_LABEL.fullmatch(detail.label))
 
 
@@ -99,27 +102,31 @@ def _link_line(detail: MessageDetail) -> str:
     return f"*{detail.label}:* <{escape_slack_mrkdwn(detail.value)}>"
 
 
+def _verbatim_section(text: str) -> dict[str, Any]:
+    block = section_block(text)
+    # Escaping stops `<!here>`, but Slack also parses a bare `@here` into a broadcast unless the
+    # text is verbatim. A rule annotation can carry query results into this text.
+    block["text"]["verbatim"] = True
+    return block
+
+
 def _details_blocks(details: tuple[MessageDetail, ...]) -> list[dict[str, Any]]:
     # Escaping grows each `&` fivefold, and a link cut in half is broken, so only whole links that
     # fit go in. The rest stay in the text section, which clips.
-    links: list[MessageDetail] = []
-    size = -1
+    links: list[str] = []
+    text: list[MessageDetail] = []
+    room = MAX_SECTION_CHARS
     for detail in details:
-        if len(links) == MAX_LINK_LINES:
-            break
-        if _is_link(detail) and size + 1 + len(_link_line(detail)) <= MAX_SECTION_CHARS:
-            links.append(detail)
-            size += 1 + len(_link_line(detail))
-    text = tuple(detail for detail in details if detail not in links)
+        if len(links) < MAX_LINK_LINES and _is_link(detail) and len(line := _link_line(detail)) <= room:
+            links.append(line)
+            room -= len(line) + 1
+        else:
+            text.append(detail)
     blocks: list[dict[str, Any]] = []
     if text:
-        block = section_block(_body(text))
-        # Escaping stops `<!here>`, but Slack also parses a bare `@here` into a broadcast unless the
-        # text is verbatim. A rule annotation can carry query results into this text.
-        block["text"]["verbatim"] = True
-        blocks.append(block)
+        blocks.append(_verbatim_section(_body(tuple(text))))
     if links:
-        blocks.append(section_block("\n".join(_link_line(detail) for detail in links)))
+        blocks.append(_verbatim_section("\n".join(links)))
     return blocks
 
 
