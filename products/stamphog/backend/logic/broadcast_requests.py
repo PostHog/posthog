@@ -823,14 +823,22 @@ def _set_reactions(card: BroadcastRequestCard, delivery: BroadcastRequestDeliver
 
 def _set_link_post_reactions(card: BroadcastRequestCard, delivery: BroadcastRequestDelivery, *, using: str) -> None:
     """👀 while anybody looks at one of the post's pull requests, and ✅ only when every one is approved or merged."""
-    # Every project's cards, because a post can link repositories of several projects and the thread shows all of them.
-    requests = (
-        BroadcastRequest.objects.unscoped()
+    thread_cards = (
+        BroadcastRequestDelivery.objects.unscoped()
         .using(using)
         .filter(
-            deliveries__kind=BroadcastRequestDeliveryKind.SLACK_MESSAGE,
-            deliveries__channel_id=delivery.channel_id,
-            deliveries__thread_ts=delivery.thread_ts,
+            kind=BroadcastRequestDeliveryKind.SLACK_MESSAGE,
+            channel_id=delivery.channel_id,
+            thread_ts=delivery.thread_ts,
+        )
+    )
+    # Another project's state never reaches this post, so a card of another project only holds the ✅ back.
+    other_projects = thread_cards.exclude(team_id=card.team_id).exists()
+    requests = (
+        BroadcastRequest.objects.for_team(card.team_id)
+        .using(using)
+        .filter(
+            deliveries__in=thread_cards,
             # A repository that turned Broadcast off or moved it to another channel shares nothing more here.
             pull_request__repo_config__broadcast_enabled=True,
             pull_request__repo_config__broadcast_slack_channel_id=delivery.channel_id,
@@ -838,12 +846,12 @@ def _set_link_post_reactions(card: BroadcastRequestCard, delivery: BroadcastRequ
     )
     statuses = set(requests.values_list("status", flat=True))
     looking = (
-        BroadcastRequestParticipant.objects.unscoped()
+        BroadcastRequestParticipant.objects.for_team(card.team_id)
         .using(using)
         .filter(broadcast_request__in=requests, looking=True)
         .exists()
     )
-    approved = bool(statuses) and statuses <= _LINK_POST_DONE_STATUSES
+    approved = not other_projects and bool(statuses) and statuses <= _LINK_POST_DONE_STATUSES
     set_reactions(card, delivery.channel_id, delivery.thread_ts, looking=looking, approved=approved)
 
 
