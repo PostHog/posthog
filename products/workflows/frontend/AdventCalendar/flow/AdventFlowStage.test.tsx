@@ -394,27 +394,6 @@ describe('AdventFlowStage', () => {
         }
     )
 
-    it('leaves focus where a keyboard user tabbed during the opening once the card pins', async () => {
-        jest.spyOn(window, 'matchMedia').mockReturnValue({ matches: false } as MediaQueryList)
-        const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime })
-        seed([1, 2], { 2: 'tim' })
-        renderStage({ width: 1200, height: 830 })
-
-        act(() => (door(3) as HTMLElement).focus())
-        await user.keyboard('{Enter}')
-        await user.tab()
-        const tabbedTo = document.activeElement
-        await act(async () => {
-            await jest.advanceTimersByTimeAsync(2600)
-        })
-
-        expect([card()?.getAttribute('role'), tabbedTo === door(3), document.activeElement === tabbedTo]).toEqual([
-            'dialog',
-            false,
-            true,
-        ])
-    })
-
     it.each([
         ['row', 'a desktop stage', { width: 1200, height: 830 }],
         ['column', 'a phone', { width: 375, height: 700 }],

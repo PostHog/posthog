@@ -12,9 +12,6 @@ function focusIsLost(root: HTMLElement): boolean {
 
 const doorOfNode = (nodeId: string): string => `button[aria-describedby="advent-flow-caption-${nodeId}"]`
 
-const focusStaysWith = (root: HTMLElement, nodeId: string): boolean =>
-    focusIsLost(root) || !!document.activeElement?.matches(doorOfNode(nodeId))
-
 const isScrollStop = (body: HTMLElement): boolean =>
     body.scrollHeight > body.clientHeight && !body.querySelector('button, a[href]')
 
@@ -66,8 +63,7 @@ export function useAdventCardFocus(
         }
         if (pinnedNodeId) {
             markScrollStop(root.querySelector(CARD))
-            const isNewPin = lastPinned.current !== pinnedNodeId
-            if ((isNewPin && focusStaysWith(root, pinnedNodeId)) || document.activeElement === document.body) {
+            if (lastPinned.current !== pinnedNodeId || document.activeElement === document.body) {
                 root.querySelector<HTMLElement>('[data-attr="advent-door-card-close"]')?.focus({ preventScroll: true })
             }
             lastPinned.current = pinnedNodeId
