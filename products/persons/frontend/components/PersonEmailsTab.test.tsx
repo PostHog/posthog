@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { Provider } from 'kea'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -54,13 +54,16 @@ describe('PersonEmailsTab', () => {
         initKeaTests()
         featureFlagLogic.mount()
         featureFlagLogic.actions.setFeatureFlags(SEND_FLAGS, Object.fromEntries(SEND_FLAGS.map((flag) => [flag, true])))
-        render(
+        const { container } = render(
             <Provider>
                 <PersonEmailsTab teamId={997} personId="person-1" />
             </Provider>
         )
 
         fireEvent.click(await screen.findByText('Your receipt'))
+        await waitFor(() => expect(container.querySelector('.LemonTableLoader--active')).not.toBeNull())
+        // A click event reaches the row even under the loading overlay, so only the table's class shows it stays usable.
+        expect(container.querySelector('.LemonTable--loading')).toBeNull()
         fireEvent.click(screen.getByText('Welcome to the team'))
 
         expect(await screen.findByText('Sent to grace@example.com')).toBeTruthy()
