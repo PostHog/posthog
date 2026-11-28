@@ -59,7 +59,7 @@ export function AdventFlowCard({
     const cardNode = nodeOfDoor(layout, card.doorId)
     const guards = useAdventCardFocus(stageRef, card.isPinned, cardNode, pinDoor)
 
-    if (!cardNode) {
+    if (!cardNode || revealingDoor) {
         return null
     }
     const face = faceOf(cardNode, zoom, rectOnStage)

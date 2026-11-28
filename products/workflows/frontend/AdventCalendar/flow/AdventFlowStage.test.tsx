@@ -144,24 +144,28 @@ describe('AdventFlowStage', () => {
         expect(names).toEqual(Array.from({ length: 24 }, () => ['dialog', expect.stringMatching(/\S/)]))
     })
 
-    it('opens the ready door on a click, plays its opening, then pins its card on the hoggy behind it', async () => {
+    it('opens the hovered ready door on a click, hides its card and ignores the next door during the opening, then pins its card on the hoggy behind it', async () => {
         jest.spyOn(window, 'matchMedia').mockReturnValue({ matches: false } as MediaQueryList)
         seed([1, 2], { 2: 'tim' })
         renderStage({ width: 1200, height: 830 })
 
+        act(() => fireEvent.mouseEnter(door(3) as HTMLElement))
         act(() => fireEvent.click(door(3) as HTMLElement))
+        const atClick = card()
+        act(() => fireEvent.click(door(4) as HTMLElement))
         await act(async () => {
             await jest.advanceTimersByTimeAsync(2300)
         })
-        const whileOpening = [door(3)?.getAttribute('data-attr'), card()]
+        const whileOpening = [atClick, door(3)?.getAttribute('data-attr'), card()]
         for (const step of [200, 100]) {
             await act(async () => {
                 await jest.advanceTimersByTimeAsync(step)
             })
         }
 
-        expect(whileOpening).toEqual(['advent-hog-3', null])
-        expect(card()?.getAttribute('data-open')).toBe('true')
+        expect(whileOpening).toEqual([null, 'advent-hog-3', null])
+        const name = document.getElementById(card()?.getAttribute('aria-labelledby') ?? '')?.textContent
+        expect([card()?.getAttribute('data-open'), name]).toEqual(['true', 'Reading'])
         act(() => fireEvent.click(card()?.querySelector('[data-attr="advent-door-card-close"]') as HTMLElement))
         waitForTheCardToClose()
         expect(card()).toBeNull()
@@ -326,16 +330,22 @@ describe('AdventFlowStage', () => {
         }
     )
 
-    it('closes a pinned card when the phone column scrolls under it', () => {
+    it.each([
+        ['a pinned card', 2, true],
+        ['the card of a door still opening', 3, false],
+    ])('closes %s when the phone column scrolls under it', async (_, day, isPinnedBeforeScroll) => {
+        jest.spyOn(window, 'matchMedia').mockReturnValue({ matches: false } as MediaQueryList)
         seed([1, 2], { 2: 'tim' })
         renderStage({ width: 375, height: 700 })
 
-        act(() => fireEvent.click(door(2) as HTMLElement))
+        act(() => fireEvent.click(door(day) as HTMLElement))
         const isPinned = !!card()
         act(() => fireEvent.scroll(document.querySelector('.AdventFlowStage__track') as HTMLElement))
-        waitForTheCardToClose()
+        await act(async () => {
+            await jest.advanceTimersByTimeAsync(2600)
+        })
 
-        expect([isPinned, card()]).toEqual([true, null])
+        expect([isPinned, card()]).toEqual([isPinnedBeforeScroll, null])
     })
 
     it.each([

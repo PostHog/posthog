@@ -215,15 +215,15 @@
         .AdventFlowPeek__stitch,
         .AdventFlowPeek__window,
         .AdventFlowPeek__frame {
-            animation: AdventFlowPeek__grow 2400ms cubic-bezier(0.3, 0.8, 0.3, 1) both;
+            animation: AdventFlowPeek__grow var(--advent-flow-opening) cubic-bezier(0.3, 0.8, 0.3, 1) both;
         }
 
         .AdventFlowPeek__leaf {
-            animation: AdventFlowPeek__swing 2400ms cubic-bezier(0.35, 0.6, 0.3, 1) both;
+            animation: AdventFlowPeek__swing var(--advent-flow-opening) cubic-bezier(0.35, 0.6, 0.3, 1) both;
         }
 
         .AdventFlowPeek__hoggy {
-            animation: AdventFlowPeek__rise 2400ms cubic-bezier(0.25, 0.8, 0.3, 1.15) both;
+            animation: AdventFlowPeek__rise var(--advent-flow-opening) cubic-bezier(0.25, 0.8, 0.3, 1.15) both;
         }
     }
 }

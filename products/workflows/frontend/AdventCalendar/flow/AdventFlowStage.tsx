@@ -22,6 +22,7 @@ import { useAdventFlowWake } from './useAdventFlowWake'
 
 const DOT_GAP = 36
 const OPENING_MS = 2400
+const OPENING_STYLE = { '--advent-flow-opening': `${OPENING_MS}ms` } as CSSProperties
 
 export interface AdventFlowStageProps {
     // Draws the last door in place of the peek door. While it opens, the stage holds the card back until the
@@ -31,6 +32,7 @@ export interface AdventFlowStageProps {
 }
 
 const noEmphasis = (): boolean => false
+const ignoreClick = (): void => undefined
 
 function gridOf({ zoom, box }: AdventFlowFit): CSSProperties {
     return {
@@ -79,7 +81,7 @@ export function AdventFlowStage({ renderLastDoor, isEdgeEmphasized = noEmphasis 
     }
     // Scrolling the column moves the doors under a card placed for the old scroll, so the card closes.
     const onColumnScroll = (): void => {
-        if (hover.card.current?.doorId) {
+        if (revealingDoor || hover.card.current?.doorId) {
             dismiss()
         }
     }
@@ -90,7 +92,7 @@ export function AdventFlowStage({ renderLastDoor, isEdgeEmphasized = noEmphasis 
         isSelected: node.door?.id === selectedDoorId,
         isOpening: !!revealingDoor && node.door?.id === revealingDoor.id,
         onOpened: finishReveal,
-        onActivate: activateDoor,
+        onActivate: revealingDoor ? ignoreClick : activateDoor,
         onEnter: hover.onEnter,
         onLeave: hover.onLeave,
     })
@@ -99,7 +101,7 @@ export function AdventFlowStage({ renderLastDoor, isEdgeEmphasized = noEmphasis 
         <div
             ref={ref}
             className="AdventFlowStage"
-            style={{ ...adventPaletteStyle(), ...gridOf(fit) }}
+            style={{ ...adventPaletteStyle(), ...gridOf(fit), ...OPENING_STYLE }}
             data-attr="advent-stage"
         >
             {zoom > 0 && (
