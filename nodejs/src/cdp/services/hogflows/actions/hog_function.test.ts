@@ -1539,7 +1539,7 @@ describe('HogFunctionHandler', () => {
                     (reported.metrics ?? [])
                         .filter(({ metricName }) => metricName === 'email_link_clicked')
                         .map(({ properties }) => properties?.$link_url)
-                ).toEqual([`${hub.SITE_URL}/messaging-preferences/*/`])
+                ).toEqual([`${hub.SITE_URL}/messaging-preferences`])
             })
 
             it('does not send a marketing email that its unsubscribe links make too large to send', async () => {

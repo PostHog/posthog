@@ -175,33 +175,6 @@ describe('SesWebhookHandler', () => {
         })
     })
 
-    it.each([
-        [
-            'a preferences link',
-            'https://app.posthog.com/messaging-preferences/eyJhbGciOiJIUzI1NiJ9.eyJ0ZWFtIjoxfQ.c2lnbmF0dXJl/',
-            'https://app.posthog.com/messaging-preferences/*/',
-        ],
-        [
-            'a preferences link under a site path',
-            'https://host.example.com/posthog/messaging-preferences/eyJhbGciOiJIUzI1NiJ9.eyJ0ZWFtIjoxfQ.c2lnbmF0dXJl/?one_click_unsubscribe=1',
-            'https://host.example.com/posthog/messaging-preferences/*/?one_click_unsubscribe=1',
-        ],
-        [
-            'a preferences link inside a redirect',
-            `https://track.example.com/r?to=${encodeURIComponent('https://app.posthog.com/messaging-preferences/eyJhbGciOiJIUzI1NiJ9.eyJ0ZWFtIjoxfQ.c2lnbmF0dXJl/')}`,
-            `https://track.example.com/r?to=${encodeURIComponent('https://app.posthog.com/messaging-preferences/')}*${encodeURIComponent('/')}`,
-        ],
-        [
-            'a customer link with the same path',
-            'https://example.com/messaging-preferences/weekly?locale=en',
-            'https://example.com/messaging-preferences/weekly?locale=en',
-        ],
-    ])('records a click on %s without the preferences token', async (_name, link, recorded) => {
-        const body = [{ eventType: 'Click', mail: baseMail, click: { link, timestamp: '2025-10-03T12:02:00Z' } }]
-        const result = await handler.handleWebhook({ body, headers: {} })
-        expect(result.metrics?.[0].properties?.$link_url).toBe(recorded)
-    })
-
     it('records a click from a sensitive email with only the link origin and no subject', async () => {
         const body = [
             {

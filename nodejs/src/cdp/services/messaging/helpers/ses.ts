@@ -264,9 +264,18 @@ const isSensitiveMail = (mail: { tags?: Record<string, unknown> } | undefined): 
 // Applied to its own output, it returns that output, so a link redacted before queueing records the same value.
 const sensitiveClickLink = (link: string): string => sensitiveLinkOrigin(resolveClickDestination(link))
 
-const PREFERENCES_TOKEN = /((?:\/|%2F)messaging-preferences(?:\/|%2F))[\w-]+\.[\w-]+\.[\w-]+/gi
+const PREFERENCES_PAGE_PATH = '/messaging-preferences'
 
-const withoutPreferencesToken = (link: string): string => link.replace(PREFERENCES_TOKEN, '$1*')
+const withoutPreferencesToken = (link: string): string => {
+    try {
+        const url = new URL(link)
+        return url.pathname.startsWith(`${PREFERENCES_PAGE_PATH}/`)
+            ? `${url.protocol}//${url.host}${PREFERENCES_PAGE_PATH}`
+            : link
+    } catch {
+        return link
+    }
+}
 
 const clickedLink = (link: string, isSensitive: boolean): string =>
     isSensitive ? sensitiveClickLink(link) : withoutPreferencesToken(resolveClickDestination(link))
