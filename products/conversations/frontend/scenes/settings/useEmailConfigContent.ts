@@ -17,6 +17,8 @@ export interface EmailConfigContent {
     trustedRelaySavingConfigId: string | null
     displayName: string
     emailDisplayNameSavingConfigId: string | null
+    senderNameTemplate: string
+    emailSenderNameTemplateSavingConfigId: string | null
     verifyEmail: () => void
     sendTestEmail: () => void
     setDefaultEmail: () => void
@@ -25,6 +27,8 @@ export interface EmailConfigContent {
     saveTrustedRelaySender: () => void
     setDisplayNameDraft: (value: string) => void
     saveDisplayName: () => void
+    setSenderNameTemplateDraft: (value: string) => void
+    saveSenderNameTemplate: () => void
 }
 
 export function useEmailConfigContent(config: EmailConfigStatus): EmailConfigContent {
@@ -36,6 +40,8 @@ export function useEmailConfigContent(config: EmailConfigStatus): EmailConfigCon
         trustedRelaySavingConfigId,
         emailDisplayNameDrafts,
         emailDisplayNameSavingConfigId,
+        emailSenderNameTemplateDrafts,
+        emailSenderNameTemplateSavingConfigId,
     } = useValues(supportSettingsLogic)
     const actions = useActions(supportSettingsLogic)
     const adminRestrictionReason = useRestrictedArea({
@@ -54,6 +60,8 @@ export function useEmailConfigContent(config: EmailConfigStatus): EmailConfigCon
         trustedRelaySavingConfigId,
         displayName: emailDisplayNameDrafts[config.id] ?? config.from_name,
         emailDisplayNameSavingConfigId,
+        senderNameTemplate: emailSenderNameTemplateDrafts[config.id] ?? config.sender_name_template ?? '',
+        emailSenderNameTemplateSavingConfigId,
         verifyEmail: () => actions.verifyEmailDomain(config.id),
         sendTestEmail: () => actions.sendTestEmail(config.id),
         setDefaultEmail: () => actions.setDefaultEmail(config.id),
@@ -62,5 +70,7 @@ export function useEmailConfigContent(config: EmailConfigStatus): EmailConfigCon
         saveTrustedRelaySender: () => actions.saveTrustedRelaySender(config.id),
         setDisplayNameDraft: (value: string) => actions.setEmailDisplayNameDraft(config.id, value),
         saveDisplayName: () => actions.saveEmailDisplayName(config.id),
+        setSenderNameTemplateDraft: (value: string) => actions.setEmailSenderNameTemplateDraft(config.id, value),
+        saveSenderNameTemplate: () => actions.saveEmailSenderNameTemplate(config.id),
     }
 }

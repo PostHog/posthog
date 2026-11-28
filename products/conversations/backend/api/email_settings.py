@@ -22,7 +22,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from posthog.api.mixins import ValidatedRequest, validated_request
+from posthog.api.mixins import ResponseDeclaration, ValidatedRequest, validated_request
 from posthog.dataclasses import frozen
 from posthog.email import EmailMessage, is_smtp_email_service_available
 from posthog.helpers.email_utils import email_domain
@@ -46,6 +46,7 @@ from products.conversations.backend.mailgun import (
     verify_domain as mailgun_verify_domain,
 )
 from products.conversations.backend.models import (
+    SENDER_NAME_AUTHOR_PLACEHOLDER,
     EmailChannel,
     EmailChannelConnectionStatus,
     EmailChannelKind,
@@ -231,6 +232,7 @@ def _config_to_dict(config: EmailChannel, inbound_domain: str | None = None) -> 
         "owner_id": config.owner_id,
         "from_email": config.from_email,
         "from_name": config.from_name,
+        "sender_name_template": config.sender_name_template,
         "forwarding_address": forwarding_address,
         "domain": config.domain,
         "domain_verified": config.domain_verified,
@@ -453,6 +455,31 @@ class EmailSetDisplayNameSerializer(ConfigIdSerializer):
         return _clean_from_name(value)
 
 
+class EmailSetSenderNameTemplateSerializer(ConfigIdSerializer):
+    sender_name_template = serializers.CharField(
+        max_length=255,
+        allow_blank=True,
+        help_text=(
+            "Sender name for replies a person writes. Must contain `{author_first_name}`, "
+            "which becomes the first name of the person who replied, for example "
+            "`{author_first_name} at Acme`. Replies no person wrote use the channel display name. "
+            "Leave blank to use the channel display name for every reply."
+        ),
+    )
+
+    def validate_sender_name_template(self, value: str) -> str:
+        value = value.strip()
+        if not value:
+            return value
+        if SENDER_NAME_AUTHOR_PLACEHOLDER not in value:
+            raise serializers.ValidationError(f"Include {SENDER_NAME_AUTHOR_PLACEHOLDER} in the sender name.")
+        if {"{", "}"} & set(value.replace(SENDER_NAME_AUTHOR_PLACEHOLDER, "")):
+            raise serializers.ValidationError(f"{SENDER_NAME_AUTHOR_PLACEHOLDER} is the only supported placeholder.")
+        if len(value.splitlines()) > 1 or any(unicodedata.category(c) == "Cc" for c in value):
+            raise serializers.ValidationError("Sender name cannot contain line breaks or control characters.")
+        return value
+
+
 class EmailDnsRecordSerializer(serializers.Serializer):
     record_type = serializers.CharField(required=False, allow_blank=True, help_text="DNS record type.")
     name = serializers.CharField(required=False, allow_blank=True, help_text="DNS record hostname.")
@@ -482,6 +509,11 @@ class EmailChannelConfigSerializer(serializers.Serializer):
     )
     from_email = serializers.EmailField(read_only=True, help_text="Sender and forwarding source email address.")
     from_name = serializers.CharField(read_only=True, help_text="Outbound sender display name.")
+    sender_name_template = serializers.CharField(
+        read_only=True,
+        allow_blank=True,
+        help_text="Sender name for replies a person writes, with `{author_first_name}`. Blank uses the display name.",
+    )
     forwarding_address = serializers.EmailField(
         read_only=True,
         allow_null=True,
@@ -976,25 +1008,33 @@ class EmailSetDefaultView(APIView):
         return Response({"ok": True})
 
 
+_SUPPORT_CHANNEL_SETTING_RESPONSES: dict[int, ResponseDeclaration] = {
+    200: EmailChannelOperationResponseSerializer,
+    400: OpenApiResponse(response=EmailChannelErrorSerializer),
+    404: OpenApiResponse(response=EmailChannelErrorSerializer),
+}
+
+
+def _resolve_support_config(request: ValidatedRequest, not_support_error: str) -> ResolvedEmailConfig | Response:
+    result = _resolve_config(request, request.validated_data["config_id"])
+    if isinstance(result, ResolvedEmailConfig) and result.config.kind != EmailChannelKind.SUPPORT:
+        return Response({"error": not_support_error}, status=400)
+    return result
+
+
 class EmailSetTrustedRelayView(APIView):
     permission_classes = [IsAuthenticated, IsConversationsAdmin]
 
     @validated_request(
         tags=["conversations"],
         request_serializer=EmailSetTrustedRelaySerializer,
-        responses={
-            200: EmailChannelOperationResponseSerializer,
-            400: OpenApiResponse(response=EmailChannelErrorSerializer),
-            404: OpenApiResponse(response=EmailChannelErrorSerializer),
-        },
+        responses=_SUPPORT_CHANNEL_SETTING_RESPONSES,
     )
     def post(self, request: ValidatedRequest, *args, **kwargs) -> Response:
-        result = _resolve_config(request, request.validated_data["config_id"])
+        result = _resolve_support_config(request, "Only support email channels can use a trusted relay.")
         if isinstance(result, Response):
             return result
         user, team, config = result.user, result.team, result.config
-        if config.kind != EmailChannelKind.SUPPORT:
-            return Response({"error": "Only support email channels can use a trusted relay."}, status=400)
 
         trusted_relay_sender: str = request.validated_data["trusted_relay_sender"]
         config.trusted_relay_sender = trusted_relay_sender
@@ -1041,6 +1081,33 @@ class EmailSetDisplayNameView(APIView):
         config.save(update_fields=["from_name"])
 
         logger.info("email_channel_display_name_updated", team_id=team.id, config_id=config.id, user_id=user.id)
+        return Response({"ok": True})
+
+
+class EmailSetSenderNameTemplateView(APIView):
+    permission_classes = [IsAuthenticated, IsConversationsAdmin]
+
+    @validated_request(
+        tags=["conversations"],
+        request_serializer=EmailSetSenderNameTemplateSerializer,
+        responses=_SUPPORT_CHANNEL_SETTING_RESPONSES,
+    )
+    def post(self, request: ValidatedRequest, *args, **kwargs) -> Response:
+        result = _resolve_support_config(request, "Only support email channels can show the agent's name.")
+        if isinstance(result, Response):
+            return result
+        user, team, config = result.user, result.team, result.config
+
+        config.sender_name_template = request.validated_data["sender_name_template"]
+        config.save(update_fields=["sender_name_template"])
+
+        logger.info(
+            "email_channel_sender_name_template_updated",
+            team_id=team.id,
+            config_id=config.id,
+            enabled=bool(config.sender_name_template),
+            user_id=user.id,
+        )
         return Response({"ok": True})
 
 

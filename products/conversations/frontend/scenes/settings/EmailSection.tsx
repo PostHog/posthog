@@ -13,6 +13,7 @@ import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { EmailDisplayNameSettings } from '../../components/EmailDisplayNameSettings/EmailDisplayNameSettings'
 import { EmailForwardingAddress } from '../../components/EmailForwardingAddress/EmailForwardingAddress'
 import { QuillEmailSection } from '../../components/QuillEmailSection/QuillEmailSection'
+import { SenderNameTemplateSettings } from '../../components/SenderNameTemplateSettings/SenderNameTemplateSettings'
 import { TrustedRelaySenderSettings } from '../../components/TrustedRelaySenderSettings/TrustedRelaySenderSettings'
 import { confirmDisconnectEmail, defaultEmailDisabledReason, DnsRecord } from './emailSettingsHelpers'
 import { EmailConfigStatus, supportSettingsLogic } from './supportSettingsLogic'
@@ -74,6 +75,19 @@ function EmailConfigContent({ config }: { config: EmailConfigStatus }): JSX.Elem
                 onChange={email.setDisplayNameDraft}
                 onSave={email.saveDisplayName}
             />
+
+            {config.sender_name_template !== undefined && (
+                <SenderNameTemplateSettings
+                    configId={config.id}
+                    value={email.senderNameTemplate}
+                    savedValue={config.sender_name_template}
+                    displayName={config.from_name}
+                    restrictionReason={email.adminRestrictionReason}
+                    savingConfigId={email.emailSenderNameTemplateSavingConfigId}
+                    onChange={email.setSenderNameTemplateDraft}
+                    onSave={email.saveSenderNameTemplate}
+                />
+            )}
 
             {/* Domain verification */}
             <div>

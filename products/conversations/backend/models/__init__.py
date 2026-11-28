@@ -27,7 +27,12 @@ from .purged_ticket_thread import PurgedTicketThread
 from .pylon_import_job import PylonImportJob
 from .restore_token import ConversationRestoreToken
 from .signing_secret import SigningSecret
-from .team_conversations_email_config import EmailChannel, EmailChannelConnectionStatus, EmailChannelKind
+from .team_conversations_email_config import (
+    SENDER_NAME_AUTHOR_PLACEHOLDER,
+    EmailChannel,
+    EmailChannelConnectionStatus,
+    EmailChannelKind,
+)
 from .team_conversations_slack_config import TeamConversationsSlackConfig
 from .team_conversations_teams_channel_sync import TeamConversationsTeamsChannelSync
 from .team_conversations_teams_config import TeamConversationsTeamsConfig
@@ -51,6 +56,7 @@ __all__ = [
     "EmailChannel",
     "EmailChannelConnectionStatus",
     "EmailChannelKind",
+    "SENDER_NAME_AUTHOR_PLACEHOLDER",
     "EmailChannelSetup",
     "EmailChannelSetupProvider",
     "EmailMessageMapping",

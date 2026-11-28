@@ -1,3 +1,5 @@
+import unicodedata
+
 from django.db import models
 
 from posthog.models.team import Team
@@ -17,6 +19,9 @@ class EmailChannelConnectionStatus(models.TextChoices):
     PENDING_CONFIRMATION = "pending_confirmation", "Pending confirmation"
     ACTIVE = "active", "Active"
     CONFIRMATION_EXPIRED = "confirmation_expired", "Confirmation expired"
+
+
+SENDER_NAME_AUTHOR_PLACEHOLDER = "{author_first_name}"
 
 
 class EmailChannel(UUIDModel):
@@ -49,6 +54,22 @@ class EmailChannel(UUIDModel):
 
     from_email = models.EmailField()
     from_name = models.CharField(max_length=255)
+    # Blank means every reply uses from_name.
+    sender_name_template = models.CharField(max_length=255, blank=True, default="", db_default="")
+
+    def sender_name_for(self, author_first_name: str) -> str:
+        """Return the From display name for a reply written by a person with this first name."""
+        # SSO and SCIM store unvalidated names, often the full name, in User.first_name.
+        # Keep the first word only. Drop a name the email header policy would refuse (Cc), or one that
+        # can change how the customer's mail client displays the sender (Cf, Co, Cs).
+        words = author_first_name.split()
+        author_first_name = words[0] if words else ""
+        if any(unicodedata.category(c) in {"Cc", "Cf", "Co", "Cs"} for c in author_first_name):
+            author_first_name = ""
+        if self.sender_name_template and author_first_name:
+            # str.replace, not str.format: the template is admin input and must not reach attribute lookups.
+            return self.sender_name_template.replace(SENDER_NAME_AUTHOR_PLACEHOLDER, author_first_name)
+        return self.from_name
 
     domain = models.CharField(max_length=255)
     domain_verified = models.BooleanField(default=False)
