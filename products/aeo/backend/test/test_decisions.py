@@ -47,7 +47,7 @@ def test_a_throttled_request_pauses_every_worker_and_is_retried() -> None:
 
     answers, usage, backoff = _ask(model)
 
-    assert [answers["i0"].probability, answers["i1"].probability] == [0.9, 0.1]  # type: ignore[union-attr]
+    assert [answers["i0"].probability, answers["i1"].probability] == [0.9, 0.1]
     assert backoff.pauses == [decisions.RETRY_BASE_SECONDS]
     assert (usage[0].requests, usage[0].throttled, usage[0].failed, usage[0].input_tokens) == (2, 1, 1, 20)
 
