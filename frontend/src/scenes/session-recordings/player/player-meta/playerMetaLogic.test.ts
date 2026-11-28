@@ -97,13 +97,26 @@ describe('playerMetaLogic', () => {
             ['another entry medium', { $entry_utm_medium: 'cpc' }, false],
             ['a medium that only contains email', { $entry_utm_medium: 'newsletter-email' }, false],
             ['no entry medium', { $entry_utm_medium: null }, false],
-        ])('reads %s as %p', async (_, sessionProperties, expected) => {
+        ])('reads %s', async (_, sessionProperties: Record<string, unknown>, expected) => {
+            useMocks({
+                post: {
+                    '/api/environments/:team_id/query/:kind': async ({ request }) => {
+                        const { query } = (await request.json()) as { query: { query?: string } }
+                        if (!query.query?.includes('$session_id as session_id')) {
+                            return [200, recordingEventsJson]
+                        }
+                        const columns = [...query.query.matchAll(/ as (\$?\w+)/g)].map(([, column]) => column)
+                        const row = columns.map((column) =>
+                            column === 'session_id' ? recordingMetaJson.id : (sessionProperties[column] ?? null)
+                        )
+                        return [200, { results: [row] }]
+                    },
+                },
+            })
+
             await expectLogic(logic, () => {
                 sessionRecordingDataCoordinatorLogic(playerProps).actions.loadRecordingMeta()
-            }).toDispatchActions(['loadRecordingMetaSuccess'])
-            logic.actions.loadPropertiesForSessionsSuccess([
-                { id: recordingMetaJson.id, properties: sessionProperties },
-            ])
+            }).toDispatchActions(['loadRecordingMetaSuccess', 'loadPropertiesForSessionsSuccess'])
 
             expect(logic.values.startedFromEmail).toBe(expected)
         })
