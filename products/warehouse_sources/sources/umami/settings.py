@@ -1,4 +1,4 @@
-from products.warehouse_sources.sources.sdk import frozen, incremental_field
+from products.warehouse_sources.sources.sdk import frozen
 
 DEFAULT_BASE_URL = "https://api.umami.is/v1"
 PAGE_SIZE = 100
@@ -54,6 +54,7 @@ ENDPOINTS: dict[str, UmamiEndpoint] = {
         path="websites/{website_id}/sessions/{session_id}/properties",
         primary_keys=("websiteId", "sessionId"),
         uses_date_range=True,
+        window_size_ms=DAY_MS,
         should_sync_default=False,
         description="Custom properties grouped by session.",
     ),
@@ -64,5 +65,3 @@ ENDPOINTS: dict[str, UmamiEndpoint] = {
         description="Saved funnels for each website.",
     ),
 }
-
-INCREMENTAL_FIELDS = {"event_properties": [incremental_field("createdAt")]}

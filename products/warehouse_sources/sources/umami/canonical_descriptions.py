@@ -67,7 +67,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "columns": {
             "websiteId": "Website associated with the session.",
             "sessionId": "Identifier of the session in the sessions table.",
-            "createdAt": "Time when the session began.",
+            "createdAt": "Time of the latest session activity in the date window used to find the session.",
             "sessionProperties": "Property keys, types, and values recorded during the session.",
         },
     },

@@ -4,7 +4,6 @@ from requests.exceptions import HTTPError
 
 from products.warehouse_sources.sources.sdk import (
     CanonicalDescriptions,
-    CursorSource,
     DataWarehouseSourceCategory,
     ExternalDataSourceType,
     ProductKey,
@@ -23,12 +22,11 @@ from products.warehouse_sources.sources.sdk import (
 )
 from products.warehouse_sources.sources.umami._config import UmamiSourceConfig
 from products.warehouse_sources.sources.umami.canonical_descriptions import CANONICAL_DESCRIPTIONS
-from products.warehouse_sources.sources.umami.settings import DEFAULT_BASE_URL, ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.sources.umami.settings import DEFAULT_BASE_URL, ENDPOINTS
 from products.warehouse_sources.sources.umami.umami import (
     TRANSIENT_SERVER_STATUSES,
     UmamiClient,
     UmamiError,
-    UmamiEventCursor,
     UmamiResumeState,
     normalize_host,
     umami_source,
@@ -36,9 +34,7 @@ from products.warehouse_sources.sources.umami.umami import (
 
 
 @SourceRegistry.register
-class UmamiSource(
-    ResumableSource[UmamiSourceConfig, UmamiResumeState], CursorSource[UmamiEventCursor], ValidateDatabaseHostMixin
-):
+class UmamiSource(ResumableSource[UmamiSourceConfig, UmamiResumeState], ValidateDatabaseHostMixin):
     codebase_detection = detect(
         env=("^UMAMI_", "^(NEXT_PUBLIC|VITE|PUBLIC|NUXT_PUBLIC|NUXT|GATSBY|REACT_APP)_UMAMI_"),
         script_hosts=("cloud.umami.is",),
@@ -153,9 +149,8 @@ class UmamiSource(
         return [
             SourceSchema(
                 name=name,
-                supports_incremental=name in INCREMENTAL_FIELDS,
+                supports_incremental=False,
                 supports_append=False,
-                incremental_fields=INCREMENTAL_FIELDS.get(name, []),
                 should_sync_default=endpoint.should_sync_default,
                 description=endpoint.description,
                 detected_primary_keys=list(endpoint.primary_keys),
@@ -170,9 +165,6 @@ class UmamiSource(
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[UmamiResumeState]:
         return ResumableSourceManager(inputs, UmamiResumeState)
 
-    def cursor_class(self) -> type[UmamiEventCursor]:
-        return UmamiEventCursor
-
     def source_for_pipeline(
         self,
         config: UmamiSourceConfig,
@@ -181,13 +173,12 @@ class UmamiSource(
     ) -> SourceResponse:
         if inputs.schema_name not in ENDPOINTS:
             raise ValueError(f"Unknown Umami table: {inputs.schema_name}")
-        if inputs.should_use_incremental_field and inputs.schema_name not in INCREMENTAL_FIELDS:
+        if inputs.should_use_incremental_field:
             raise UmamiError("Umami supports full refresh. Change the table sync mode to full refresh.")
         valid, error = self.is_database_host_valid(urlsplit(normalize_host(config.host)).hostname or "", inputs.team_id)
         if not valid:
             raise UmamiError(error or "The API host is not allowed.")
-        cursor_manager = self.get_cursor_manager(inputs) if inputs.schema_name == "event_properties" else None
-        return umami_source(config, inputs, resumable_source_manager, cursor_manager)
+        return umami_source(config, inputs, resumable_source_manager)
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
