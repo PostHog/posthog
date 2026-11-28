@@ -75,7 +75,9 @@ from products.messaging.backend.services.resend_client import (
     ResendClient,
     ResendKeyCannotRead,
     ResendKeyRejected,
+    ResendPage,
     ResendRateLimited,
+    read_ahead,
 )
 from products.workflows.backend.facade.contracts import ImportedEmail, ImportedStepEmail
 from products.workflows.backend.facade.people_import import MAX_SOURCE_NAME_LENGTH, resend_segment_description
@@ -218,6 +220,7 @@ class ResendImportProvider(ImportProvider):
                 "time, so PostHog reads up to about 25,000 contacts an hour."
             ),
             count_labels=(("opted_out", "People with a new topic opt-out"), ("contacts", "Contacts checked")),
+            total_from=("opt_outs",),
         ),
         # Needs the opt-out steps in the same run and after them, so no imported contact can be sent marketing email
         # they left in Resend.
@@ -246,6 +249,7 @@ class ResendImportProvider(ImportProvider):
                 "PostHog reads up to about 25,000 contacts an hour."
             ),
             count_labels=(("people", "People with properties sent"), ("contacts", "Contacts checked")),
+            total_from=("contacts", "opt_outs"),
             requires=("contacts",),
             needs=("contacts",),
             counts_as_events=True,
@@ -520,18 +524,31 @@ def _fetch_contact_properties(
     if "contacts" not in context.steps or not any(page.data for page in client.pages("/contact-properties")):
         yield ImportPage(processed=0, save=lambda: SavedPage(imported=0))
         return
-    for page in client.pages("/contacts", _after(checkpoint)):
-        listed = [contact for contact in page.data if contact.get("id")]
+    # Saving looks up each contact's person, which can take longer than reading the next page, so the reads go on
+    # meanwhile and the next save takes every page read since.
+    for batch in read_ahead(
+        client, client.pages("/contacts", _after(checkpoint)), partial(_read_page_properties, client)
+    ):
         contacts = ContactCollector()
-        for contact, properties in zip(listed, client.each(partial(_read_properties, client), listed)):
-            if properties:
-                contacts.add(contact.get("email"), {name: _property_value(value) for name, value in properties.items()})
+        for _, page_properties in batch:
+            for email, properties in page_properties:
+                contacts.add(email, properties)
         rows = tuple(row for row in contacts.everyone if len(row) > 1)
+        read = sum(len(page.data) for page, _ in batch)
         yield ImportPage(
-            processed=len(page.data),
-            save=partial(save_contact_properties, context, _everyone(rows), len(page.data)),
-            checkpoint=_next_checkpoint(page.next_after),
+            processed=read,
+            save=partial(save_contact_properties, context, _everyone(rows), read),
+            checkpoint=_next_checkpoint(batch[-1][0].next_after),
         )
+
+
+def _read_page_properties(client: ResendClient, page: ResendPage) -> list[tuple[Any, dict[str, Any]]]:
+    listed = [contact for contact in page.data if contact.get("id")]
+    return [
+        (contact.get("email"), {name: _property_value(value) for name, value in properties.items()})
+        for contact, properties in zip(listed, client.each(partial(_read_properties, client), listed))
+        if properties
+    ]
 
 
 def _read_properties(client: ResendClient, contact: dict[str, Any]) -> dict[str, Any] | None:

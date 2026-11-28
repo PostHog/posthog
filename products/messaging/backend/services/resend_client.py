@@ -7,8 +7,9 @@ the rate limit headers on each response and leaves part of the limit for the cus
 
 import re
 import time
+import queue
 import threading
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Generator, Iterable, Iterator
 from concurrent.futures import FIRST_EXCEPTION, ThreadPoolExecutor, wait
 from typing import Any, TypeVar
 
@@ -28,6 +29,10 @@ MIN_SHARE_OF_LIMIT = 0.1
 SHARE_REGAINED_PER_REQUEST = 0.002
 # A request takes longer than the limit allows between requests, so the one-per-contact reads overlap.
 MAX_PARALLEL_REQUESTS = 4
+# How many pages `read_ahead` reads while the caller saves, and the most it hands over at once.
+MAX_PAGES_AHEAD = 10
+# The caller checks the import may go on each time it takes a batch, so reading never runs further past that than this.
+MAX_SECONDS_AHEAD = 15.0
 MAX_RATE_LIMIT_WAITS = 5
 MAX_RETRY_AFTER_SECONDS = 60
 # A long contact scan sees the odd timeout or 5xx. Retrying here keeps them from using up the whole step's retries.
@@ -54,6 +59,10 @@ class ResendKeyCannotRead(ResendKeyRejected):
 
 class ResendRateLimited(ResendAPIError):
     """Resend kept answering 429 after the client waited as long as it told it to."""
+
+
+class ResendClientStopped(Exception):
+    """The client was stopped, so it sends no more requests."""
 
 
 T = TypeVar("T")
@@ -86,6 +95,7 @@ class ResendClient:
         self._share_cut_at = float("-inf")
         self._longest_reset = 0
         self._lock = threading.Lock()
+        self._stopped = threading.Event()
 
     def __repr__(self) -> str:
         return "ResendClient()"
@@ -130,11 +140,17 @@ class ResendClient:
                 raise errors[0]
             return [future.result() for future in futures]
 
+    def stop(self) -> None:
+        """Ends the waits of requests in flight and refuses new ones, from any thread."""
+        self._stopped.set()
+
     def _get(self, path: str, params: dict[str, Any] | None) -> dict[str, Any]:
         waits = 0
         retries = 0
         while True:
             self._pace()
+            if self._stopped.is_set():
+                raise ResendClientStopped()
             try:
                 response = requests.get(
                     f"{settings.MESSAGING_RESEND_API_URL}{path}",
@@ -146,7 +162,7 @@ class ResendClient:
             except requests.RequestException as e:
                 if retries < self._max_transient_retries:
                     retries += 1
-                    time.sleep(TRANSIENT_RETRY_BASE_SECONDS**retries)
+                    self._sleep(TRANSIENT_RETRY_BASE_SECONDS**retries)
                     continue
                 # The exception text can hold the request's details, so only its type leaves this function.
                 raise ResendAPIError(f"Couldn't reach Resend ({type(e).__name__}).") from None
@@ -159,7 +175,7 @@ class ResendClient:
                 continue
             if response.status_code >= 500 and retries < self._max_transient_retries:
                 retries += 1
-                time.sleep(TRANSIENT_RETRY_BASE_SECONDS**retries)
+                self._sleep(TRANSIENT_RETRY_BASE_SECONDS**retries)
                 continue
             return _parse(response)
 
@@ -170,19 +186,23 @@ class ResendClient:
                 start_at = max(now, self._next_request_at)
                 self._next_request_at = start_at + self._interval
             if start_at > now:
-                time.sleep(start_at - now)
+                self._sleep(start_at - now)
             # Another request can hit a full window while this one waits for its time, and then this one waits too.
             with self._lock:
                 paused_for = self._paused_until - time.monotonic()
             if paused_for <= 0:
                 return
-            time.sleep(paused_for)
+            self._sleep(paused_for)
 
     def _pause(self, seconds: float) -> None:
         """Holds every request, including those already waiting for their time, for `seconds`."""
         with self._lock:
             self._hold_until(time.monotonic() + seconds)
-        time.sleep(seconds)
+        self._sleep(seconds)
+
+    def _sleep(self, seconds: float) -> None:
+        if self._stopped.wait(seconds):
+            raise ResendClientStopped()
 
     def _hold_until(self, moment: float) -> None:
         self._paused_until = max(self._paused_until, moment)
@@ -214,6 +234,80 @@ class ResendClient:
             self._interval = window / (limit * self._share)
             if remaining == 0:
                 self._hold_until(now + min(float(reset or window), MAX_RETRY_AFTER_SECONDS))
+
+
+def read_ahead(
+    client: ResendClient, pages: Iterator[ResendPage], read: Callable[[ResendPage], R]
+) -> Generator[list[tuple[ResendPage, R]]]:
+    """`read` for each page in a thread of its own, so the requests go on while the caller saves what it was handed.
+
+    Each batch holds the pages read since the last one, at least one and at most MAX_PAGES_AHEAD, in page order. The
+    thread starts no page more than MAX_SECONDS_AHEAD after the caller last took a batch or asked for one. An error in
+    the thread is raised once the pages read before it are handed over. When the caller stops iterating,
+    `client` is stopped, so the thread sends nothing more and ends. `pages` and `read` must use `client` and not the
+    database, whose connection belongs to the caller's transaction.
+    """
+    ready: queue.Queue[tuple[ResendPage, R] | BaseException | None] = queue.Queue(maxsize=MAX_PAGES_AHEAD)
+    stop = threading.Event()
+    reading_until = [time.monotonic() + MAX_SECONDS_AHEAD]
+
+    def keep_reading() -> None:
+        reading_until[0] = time.monotonic() + MAX_SECONDS_AHEAD
+
+    def may_read() -> bool:
+        while not stop.is_set():
+            if time.monotonic() < reading_until[0]:
+                return True
+            stop.wait(0.2)
+        return False
+
+    def hand_over(item: tuple[ResendPage, R] | BaseException | None) -> bool:
+        while not stop.is_set():
+            try:
+                ready.put(item, timeout=0.5)
+                return True
+            except queue.Full:
+                continue
+        return False
+
+    def produce() -> None:
+        try:
+            while may_read():
+                page = next(pages, None)
+                if page is None:
+                    hand_over(None)
+                    return
+                if not hand_over((page, read(page))):
+                    return
+        except BaseException as e:
+            hand_over(e)
+
+    reader = threading.Thread(target=produce, name="resend-read-ahead", daemon=True)
+    reader.start()
+    try:
+        ending: BaseException | None = None
+        ended = False
+        while not ended:
+            batch: list[tuple[ResendPage, R]] = []
+            item = ready.get()
+            while True:
+                if not isinstance(item, tuple):
+                    ending, ended = item, True
+                    break
+                batch.append(item)
+                if len(batch) >= MAX_PAGES_AHEAD or ready.empty():
+                    break
+                item = ready.get()
+            if batch:
+                keep_reading()
+                yield batch
+            keep_reading()
+        if ending is not None:
+            raise ending
+    finally:
+        stop.set()
+        client.stop()
+        reader.join()
 
 
 def _int_header(response: requests.Response, name: str) -> int | None:

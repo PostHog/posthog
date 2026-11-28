@@ -66,6 +66,8 @@ class ImportStepSpec:
     requires_fresh: bool = False
     # Steps the run must include for this one to do anything, such as contacts for new people.
     needs: tuple[str, ...] = ()
+    # Earlier steps that read the same records, so the number they read tells how long this one has left.
+    total_from: tuple[str, ...] = ()
     # Creates or updates people, and each of those counts as an event on the bill.
     counts_as_events: bool = False
     # Hides the step, and refuses to start it, unless this flag is on for the team.

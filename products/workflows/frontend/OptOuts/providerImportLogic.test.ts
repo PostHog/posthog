@@ -65,6 +65,8 @@ const importRun = (status: ProviderImportRunApi['status']): ProviderImportRunApi
             items: [],
             warnings_omitted: 0,
             items_omitted: 0,
+            total: null,
+            seconds_left: null,
             skipped: false,
         },
     ],
