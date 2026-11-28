@@ -551,13 +551,20 @@ export class HogFunctionHandler implements ActionHandler {
             frequencyCapHold?: FrequencyCapHold
         }
     > {
+        // The same ids the workflow run logs carry, so a run's logs and spans can be joined.
+        const attributes = {
+            team_id: invocation.teamId,
+            log_source_id: invocation.hogFlow.id,
+            instance_id: invocation.id,
+            'hog_flow.action.type': action.type,
+        }
         const hogFunction = await instrumentFn(
-            { key: 'hogFlow.action.hogFunction.buildHogFunction', sendException: false },
+            { key: 'hogFlow.action.hogFunction.buildHogFunction', sendException: false, attributes },
             () => this.hogFlowFunctionsService.buildHogFunction(invocation.hogFlow, action.config, action.name)
         )
         restoreSavedEmailGuards(hogFunction, invocation.state.currentAction?.hogFunctionState, invocation.state.send)
         const hogFunctionInvocation = await instrumentFn(
-            { key: 'hogFlow.action.hogFunction.buildInvocation', sendException: false },
+            { key: 'hogFlow.action.hogFunction.buildInvocation', sendException: false, attributes },
             () =>
                 this.hogFlowFunctionsService.buildHogFunctionInvocation(invocation, hogFunction, {
                     event: invocation.state.event,
@@ -568,7 +575,7 @@ export class HogFunctionHandler implements ActionHandler {
         )
 
         const skipReason = await instrumentFn(
-            { key: 'hogFlow.action.hogFunction.recipientPreferences', sendException: false },
+            { key: 'hogFlow.action.hogFunction.recipientPreferences', sendException: false, attributes },
             () =>
                 this.recipientPreferencesService.shouldSkipAction(
                     hogFunctionInvocation,
@@ -620,7 +627,7 @@ export class HogFunctionHandler implements ActionHandler {
         // SES so it never counts against our bounce rate. Runs after the opt-out check so
         // an opted-out recipient never triggers a DNS lookup.
         const emailSkipReason = await instrumentFn(
-            { key: 'hogFlow.action.hogFunction.emailValidation', sendException: false },
+            { key: 'hogFlow.action.hogFunction.emailValidation', sendException: false, attributes },
             () => this.emailValidationService.getSkipReason(hogFunctionInvocation, action)
         )
         if (emailSkipReason) {
@@ -721,8 +728,9 @@ export class HogFunctionHandler implements ActionHandler {
             }
         }
 
-        return instrumentFn({ key: 'hogFlow.action.hogFunction.executeWithAsyncFunctions', sendException: false }, () =>
-            this.hogFlowFunctionsService.executeWithAsyncFunctions(hogFunctionInvocation, hogExecutorOptions)
+        return instrumentFn(
+            { key: 'hogFlow.action.hogFunction.executeWithAsyncFunctions', sendException: false, attributes },
+            () => this.hogFlowFunctionsService.executeWithAsyncFunctions(hogFunctionInvocation, hogExecutorOptions)
         )
     }
 }
