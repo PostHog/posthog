@@ -7,6 +7,7 @@ from typing import Any, Optional
 from urllib.parse import SplitResult, quote, urlsplit
 
 import requests
+import structlog
 from requests import Request, Response
 
 from products.warehouse_sources.sources.grafana_irm.settings import (
@@ -41,6 +42,9 @@ GRAFANA_CLOUD_DOMAIN = "grafana.net"
 _GRAFANA_CLOUD_HOSTNAME = re.compile(r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+" + re.escape(GRAFANA_CLOUD_DOMAIN))
 INCIDENT_API_PATH = "/api/plugins/grafana-irm-app/resources/api/v1"
 REQUEST_TIMEOUT_SECONDS = 60
+_KEY_UPDATES_MAX_PAGES_PER_INCIDENT = 1000
+
+logger = structlog.get_logger(__name__)
 
 
 class GrafanaIRMConfigError(ValueError):
@@ -124,6 +128,28 @@ class IncidentCursorPaginator(BasePaginator):
         if cursor:
             self._next_value = str(cursor)
             self._has_next_page = True
+
+
+class KeyUpdatesCursorPaginator(IncidentCursorPaginator):
+    def __init__(self, incident_id: str) -> None:
+        super().__init__()
+        self._incident_id = incident_id
+        self._pages = 0
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        super().update_state(response, data)
+        self._pages += 1
+        if self._pages >= _KEY_UPDATES_MAX_PAGES_PER_INCIDENT and self.has_next_page:
+            logger.warning(
+                "grafana_irm.page_cap_reached",
+                resource="incident_key_updates",
+                incident_id=self._incident_id,
+                pages=self._pages,
+            )
+            raise RuntimeError(
+                f"Grafana IRM key updates have more pages after the per-incident limit of "
+                f"{_KEY_UPDATES_MAX_PAGES_PER_INCIDENT}."
+            )
 
 
 def _oncall_paginator() -> PageNumberPaginator:
@@ -325,7 +351,9 @@ def _incident_child_pages(client: RESTClient, child: GrafanaIRMEndpointConfig) -
                 child.path,
                 method="post",
                 json=body,
-                paginator=IncidentCursorPaginator(),
+                paginator=KeyUpdatesCursorPaginator(incident_id)
+                if child.name == "incident_key_updates"
+                else IncidentCursorPaginator(),
                 data_selector=child.data_selector,
                 data_selector_required=True,
                 data_selector_empty_ok=True,

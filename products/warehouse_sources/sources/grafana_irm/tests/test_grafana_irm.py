@@ -4,6 +4,8 @@ from typing import Any, Optional
 import pytest
 import time_machine
 
+from structlog.testing import capture_logs
+
 from products.warehouse_sources.sources.grafana_irm._config import GrafanaIRMSourceConfig
 from products.warehouse_sources.sources.grafana_irm.grafana_irm import (
     GrafanaIRMConfigError,
@@ -213,6 +215,45 @@ def test_incident_child_fans_out_over_every_incident(
     if endpoint == "incident_key_updates":
         assert result.response is not None
         assert not result.response.supports_resume
+
+
+@pytest.mark.parametrize("has_more_at_limit", [False, True])
+def test_key_updates_page_cap_applies_per_incident(monkeypatch: pytest.MonkeyPatch, has_more_at_limit: bool) -> None:
+    monkeypatch.setattr(
+        "products.warehouse_sources.sources.grafana_irm.grafana_irm._KEY_UPDATES_MAX_PAGES_PER_INCIDENT", 2
+    )
+    rows = [{"incidentID": incident_id, "id": update_id} for incident_id in ("1", "2") for update_id in ("a", "b")]
+    next_cursor = {"nextValue": "next", "hasMore": True}
+    last_cursor = {"hasMore": False}
+    with capture_logs() as logs:
+        result = _driver().run(
+            "incident_key_updates",
+            [
+                ScriptedResponse(
+                    json={"incidentPreviews": [{"incidentID": "1"}, {"incidentID": "2"}], "cursor": last_cursor}
+                ),
+                ScriptedResponse(json={"keyUpdates": [rows[0]], "cursor": next_cursor}),
+                ScriptedResponse(json={"keyUpdates": [rows[1]], "cursor": last_cursor}),
+                ScriptedResponse(json={"keyUpdates": [rows[2]], "cursor": next_cursor}),
+                ScriptedResponse(
+                    json={"keyUpdates": [rows[3]], "cursor": next_cursor if has_more_at_limit else last_cursor}
+                ),
+            ],
+        )
+
+    assert result.paths == [INCIDENT_PATH, *([KEY_UPDATES_PATH] * 4)]
+    assert [request.json()["query"]["incidentID"] for request in result.requests[1:]] == ["1", "1", "2", "2"]
+    cap_logs = [entry for entry in logs if entry["event"] == "grafana_irm.page_cap_reached"]
+    if has_more_at_limit:
+        assert isinstance(result.raised, RuntimeError)
+        assert "per-incident limit of 2" in str(result.raised)
+        assert [(entry["resource"], entry["incident_id"], entry["pages"]) for entry in cap_logs] == [
+            ("incident_key_updates", "2", 2)
+        ]
+    else:
+        assert result.raised is None
+        assert result.rows == rows
+        assert not cap_logs
 
 
 @time_machine.travel("2026-01-08T15:30:00Z", tick=False)
