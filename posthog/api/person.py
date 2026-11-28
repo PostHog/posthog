@@ -1924,10 +1924,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # The log's own endpoints need hog_flow:read, so a token without it learns nothing of what the log keeps.
         if not sends or scopes_caller_lacks(self.request, ["hog_flow:read"]):
             return rows
-        if not self._reads_workflows():
-            return rows
         try:
-            if not transactional_email_log_enabled(self.team):
+            if not transactional_email_log_enabled(self.team) or not self._reads_workflows():
                 return rows
             access = get_workflow_view_access(
                 team_id=self.team_id, user_access_control=self.user_access_control, workflow_ids=set(sends.values())

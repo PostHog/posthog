@@ -7,6 +7,7 @@ import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
 
+from django.db import DatabaseError
 from django.test import SimpleTestCase, override_settings
 
 from clickhouse_driver.errors import ServerException
@@ -461,6 +462,19 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert [row["in_transactional_email_log"] for row in response.json()] == [expected]
         assert (detail.status_code == status.HTTP_200_OK) == (expected is True), detail.json()
+
+    def test_a_persons_emails_load_without_the_field_when_the_access_lookup_fails(self, _flag):
+        message_id = self._send(10, "jane@example.com", [("sent", 1, "")])
+        url = self._record_person_emails({"a send": (10, message_id, self.workflow_id)})
+        self._deny_member("hog_flow")
+
+        with patch(
+            "products.authorization.backend.facade.api.list_objects", side_effect=DatabaseError("lookup failed")
+        ):
+            response = self.client.get(url)
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [row["in_transactional_email_log"] for row in response.json()] == [None]
 
     def test_shows_the_latest_attempt_of_a_key_refused_the_day_before(self, _flag):
         message_id = self._send(60 * 24, "jane@example.com", [("failed", 1, "recipient_suppressed")], keyed=True)
