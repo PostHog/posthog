@@ -1,0 +1,34 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "daily_refresh": {
+            "default": true,
+            "description": "Request a daily refresh. Set false to run manually or when a downstream model needs fresh data.",
+            "type": "boolean"
+        },
+        "output_cell": {
+            "description": "Stable node ID of the SQL or Python cell that produces the table.",
+            "maxLength": 128,
+            "type": "string"
+        },
+        "short_id": {
+            "type": "string"
+        },
+        "table_name": {
+            "description": "Name for the published warehouse table.",
+            "maxLength": 128,
+            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+            "type": "string"
+        },
+        "upstream_node_ids": {
+            "description": "Modeling DAG node IDs which must succeed before the notebook runs.",
+            "items": {
+                "type": "string"
+            },
+            "maxItems": 100,
+            "type": "array"
+        }
+    },
+    "required": ["short_id", "table_name", "output_cell", "upstream_node_ids"],
+    "type": "object"
+}

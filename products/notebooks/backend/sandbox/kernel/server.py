@@ -14,10 +14,13 @@ Launched inside the sandbox as `python -m nb_kernel.server --port … --secret-f
   completions or a name's signature and docstring, and answers synchronously.
 """
 
+import os
 import json
+import shutil
 import logging
 import argparse
 import threading
+from contextlib import ExitStack
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
@@ -37,7 +40,7 @@ class KernelServerHandler(BaseHTTPRequestHandler):
             self._respond(404, {"error": "Not found"})
 
     def do_POST(self) -> None:
-        if self.path not in ("/run", "/page", "/interrupt", "/complete", "/inspect"):
+        if self.path not in ("/run", "/page", "/result-parquet", "/interrupt", "/complete", "/inspect"):
             self._respond(404, {"error": "Not found"})
             return
         try:
@@ -59,7 +62,42 @@ class KernelServerHandler(BaseHTTPRequestHandler):
         if self.path in ("/complete", "/inspect"):
             self._handle_introspection(payload)
             return
+        if self.path == "/result-parquet":
+            self._handle_parquet(payload)
+            return
         self._handle_page(payload)
+
+    def _handle_parquet(self, payload: dict[str, Any]) -> None:
+        from .result_store import (  # noqa: PLC0415 - pyarrow is only needed for frame reads
+            ModelOutputTooLarge,
+            model_directory,
+            parquet_result,
+        )
+
+        with ExitStack() as stack:
+            try:
+                directory = os.path.join(model_directory(payload.get("model_session", "")), "results")
+                result = stack.enter_context(
+                    parquet_result(
+                        payload.get("result_id", ""),
+                        directory,
+                        max_rows=payload["max_rows"],
+                        max_bytes=payload["max_bytes"],
+                    )
+                )
+            except ModelOutputTooLarge as exc:
+                self._respond(413, {"error": str(exc)})
+                return
+            except (KeyError, TypeError, ValueError, OSError) as exc:
+                self._respond(400, {"error": str(exc)})
+                return
+            length = result.tell()
+            result.seek(0)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/vnd.apache.parquet")
+            self.send_header("Content-Length", str(length))
+            self.end_headers()
+            shutil.copyfileobj(result, self.wfile, length=1024 * 1024)
 
     def _handle_introspection(self, payload: dict[str, Any]) -> None:
         try:

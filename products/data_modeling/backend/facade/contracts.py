@@ -24,6 +24,14 @@ from products.data_modeling.backend.facade.enums import ViewColumnSource, ViewEn
 from products.warehouse_sources.backend.facade.types import WarehouseColumnAnnotationDescriptionSource
 
 
+@frozen
+class NotebookModelBinding:
+    node_id: UUID
+    table_id: UUID | None
+    latest_run_id: UUID | None
+    published_run_id: UUID | None
+
+
 @dataclass(frozen=True)
 class DataModelingJob:
     """A materialization run for a saved query."""

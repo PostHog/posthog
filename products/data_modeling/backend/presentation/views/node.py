@@ -18,6 +18,7 @@ from posthog.exceptions import Conflict
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
+from posthog.rate_limit import RunNotebookModelRateThrottle
 
 from products.data_modeling.backend.facade.api import (
     SCHEDULABLE_BUCKETS,
@@ -44,6 +45,7 @@ from products.data_modeling.backend.facade.api import (
     node_lineage,
     node_lineage_counts,
     parse_warehouse_table_id,
+    require_notebook_node_edit_access,
     run_related_node_materializations,
     saved_query_pin_preview,
     saved_query_target_bounds,
@@ -468,6 +470,12 @@ class NodeSerializer(serializers.ModelSerializer):
             and not can_describe_node(self.instance.team_id, _description_target(self.instance))
         ):
             raise serializers.ValidationError("Only views, endpoints, and warehouse tables have a description to set.")
+        if (
+            self.instance is not None
+            and ("name" in attrs or "type" in attrs)
+            and hasattr(self.instance, "notebookmodel")
+        ):
+            raise serializers.ValidationError("A notebook model owns this node's name and type.")
         node_type = attrs.get("type")
         if node_type is not None and self.instance is not None:
             # A full PUT round-trips the node's own type, so a type equal to the current one is
@@ -703,6 +711,7 @@ class NodeViewSet(
         self._require_warehouse_access(level="editor", message=EDIT_DENIED)
         node = cast(Node, serializer.instance)
         self._require_view_edit_access(node.saved_query)
+        require_notebook_node_edit_access(self.team_id, self.user_access_control, [node.pk])
         if "description" in serializer.validated_data:
             table_id = _description_target(node).warehouse_table_id
             if table_id is not None and not allowed_table_ids(
@@ -768,6 +777,7 @@ class NodeViewSet(
     def perform_destroy(self, instance: Node) -> None:
         self._require_warehouse_access(level="editor", message=DELETE_DENIED)
         self._require_view_edit_access(instance.saved_query)
+        require_notebook_node_edit_access(self.team_id, self.user_access_control, [instance.pk], deleting_nodes=True)
         if instance.belongs_to_managed_viewset:
             raise serializers.ValidationError("Nodes of views PostHog manages cannot be deleted.")
         if _feeds_a_managed_view(instance):
@@ -876,12 +886,14 @@ class NodeViewSet(
 
         node = self.get_object()
 
-        if node.type not in SAVED_QUERY_NODE_TYPES:
+        if node.type not in SAVED_QUERY_NODE_TYPES and not hasattr(node, "notebookmodel"):
             return response.Response(
                 {"error": f"Cannot run a {node.type} node"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        if hasattr(node, "notebookmodel"):
+            RunNotebookModelRateThrottle().check(req, self)
         try:
             run = run_related_node_materializations(
                 node.team_id,
@@ -1043,6 +1055,7 @@ class NodeViewSet(
         node = self.get_object()
         self._require_view_edit_access(node.saved_query)
 
+        require_notebook_node_edit_access(self.team_id, self.user_access_control, [node.pk])
         resumed = unsuspend_nodes([node], by="api")
 
         return response.Response({"resumed": bool(resumed)}, status=status.HTTP_200_OK)

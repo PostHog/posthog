@@ -820,9 +820,6 @@ jobs:
                   DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
                     sqlx migrate run --source rust/persons_migrations/
 
-            # Three independent setups run together: the Rust build only produces the binary
-            # that "Start Rust flags service" execs further down, and the migrations only need
-            # the Docker services started above them.
             # Every entry is a `run:` step, which a `parallel:` block handles safely. Nothing
             # here writes $GITHUB_PATH or $GITHUB_ENV (docs/internal/ci-things-already-tried.md).
             - parallel:
@@ -838,16 +835,13 @@ jobs:
                             cargo build -p feature-flags
                         fi
 
-                  # Postgres and ClickHouse are separate stores and `migrate_clickhouse`
-                  # never reads Postgres (see the note in ci-clickhouse-multinode-migrations.yml),
-                  # so neither migration depends on the other.
+                  # ClickHouse migration 0026 reads materialized column settings from Postgres.
                   # --skip-checks: Django system checks are not needed to apply migrations;
                   # ci-backend runs them in its dedicated jobs.
-                  - name: Run Django migrations
-                    run: python manage.py migrate --noinput --skip-checks
-
-                  - name: Run ClickHouse migrations
-                    run: python manage.py migrate_clickhouse --skip-checks
+                  - name: Run Django and ClickHouse migrations
+                    run: |
+                        python manage.py migrate --noinput --skip-checks
+                        python manage.py migrate_clickhouse --skip-checks
 
             - name: Start Rust flags service
               working-directory: rust

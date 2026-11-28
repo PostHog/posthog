@@ -364,6 +364,7 @@ rules:
                               |Notebook
                               |NotebookAppRelease
                               |NotebookNodeRun
+                              |NotebookModel
                               |NotebookRun
                               |ObjectMediaPreview
                               |OfflineEvaluationResult
@@ -919,6 +920,7 @@ rules:
                         |Notebook
                         |NotebookAppRelease
                         |NotebookNodeRun
+                        |NotebookModel
                         |NotebookRun
                         |ObjectMediaPreview
                         |OfflineEvaluationResult

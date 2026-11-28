@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 16 enabled ops
+ * PostHog API - MCP 19 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -575,6 +575,67 @@ export const NotebooksSqlV2RunsInterruptCreateParams = () => zod.object({
  * The full notebook view for agents: title, document source (markdown, or raw content for legacy rich-text notebooks), the notebook's declared variables, every cell with its dependency edges and derived run status (including staleness), and the kernel's runtime state and compute config.
  */
 export const NotebooksSqlV2StateRetrieveParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+    short_id: zod.string(),
+})
+
+export const NotebooksDeclareWarehouseModelParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+    short_id: zod.string(),
+})
+
+export const notebooksDeclareWarehouseModelBodyDailyRefreshDefault = true
+export const notebooksDeclareWarehouseModelBodyTableNameMax = 128
+
+export const notebooksDeclareWarehouseModelBodyTableNameRegExp = new RegExp('^[A-Za-z_][A-Za-z0-9_]\*$')
+export const notebooksDeclareWarehouseModelBodyOutputCellMax = 128
+
+export const notebooksDeclareWarehouseModelBodyUpstreamNodeIdsMax = 100
+
+export const NotebooksDeclareWarehouseModelBody = () => zod.object({
+    daily_refresh: zod
+        .boolean()
+        .default(notebooksDeclareWarehouseModelBodyDailyRefreshDefault)
+        .describe('Request a daily refresh. Set false to run manually or when a downstream model needs fresh data.'),
+    table_name: zod
+        .string()
+        .max(notebooksDeclareWarehouseModelBodyTableNameMax)
+        .regex(notebooksDeclareWarehouseModelBodyTableNameRegExp)
+        .describe('Name for the published warehouse table.'),
+    output_cell: zod
+        .string()
+        .max(notebooksDeclareWarehouseModelBodyOutputCellMax)
+        .describe('Stable node ID of the SQL or Python cell that produces the table.'),
+    upstream_node_ids: zod
+        .array(zod.string())
+        .max(notebooksDeclareWarehouseModelBodyUpstreamNodeIdsMax)
+        .describe('Modeling DAG node IDs which must succeed before the notebook runs.'),
+})
+
+export const NotebooksWarehouseModelStatusParams = () => zod.object({
+    node_id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+    short_id: zod.string(),
+})
+
+export const NotebooksWarehouseModelStatusQueryParams = () => zod.object({
+    dag_run_id: zod.string().optional().describe('DAG run ID returned when you started this model.'),
+})
+
+export const NotebooksRunWarehouseModelParams = () => zod.object({
+    node_id: zod.string(),
     project_id: zod
         .string()
         .describe(

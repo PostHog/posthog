@@ -14,6 +14,7 @@ import asyncio
 from datetime import timedelta
 from typing import Any
 
+from rest_framework.exceptions import PermissionDenied
 from temporalio import activity, common, workflow
 from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 
@@ -36,6 +37,7 @@ from products.notebooks.backend.sql_v2_dispatch import (
 from products.notebooks.backend.sql_v2_metrics import OUTCOME_TIMED_OUT
 from products.notebooks.backend.sql_v2_runs import expire_stale_kernel_run
 from products.notebooks.backend.temporal.client import _start_workflow
+from products.notebooks.backend.warehouse_model import check_model_author
 
 # How long the workflow waits between two polls of the cell it is running. Short enough that
 # a fast SQL cell adds no visible latency to a ten-cell run, long enough that a slow Python
@@ -134,6 +136,12 @@ def dispatch_notebook_cell_activity(input: NotebookRunCellInput) -> str:
         raise ApplicationError("The run record is gone.", type=_UNRECOVERABLE, non_retryable=True)
     if _stop_deleted_notebook_run(notebook_run):
         raise ApplicationError("The notebook was deleted.", type=_UNRECOVERABLE, non_retryable=True)
+    if notebook_run.trigger == NotebookRun.Trigger.WAREHOUSE:
+        try:
+            with team_scope(input.team_id, canonical=True):
+                check_model_author(notebook_run.notebook, notebook_run.user)
+        except PermissionDenied as exc:
+            raise ApplicationError(str(exc.detail), type=_UNRECOVERABLE, non_retryable=True) from exc
     # The workflow checked this before scheduling the activity, but an interrupt can land in
     # between. Without this re-check the endpoint would find no cell to stop, report success,
     # and then this dispatch would start one anyway — burning compute and holding the

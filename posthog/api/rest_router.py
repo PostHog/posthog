@@ -14,6 +14,7 @@ from posthog.api import (
 )
 from posthog.api.csp_reporting import CSPReportingViewSet
 from posthog.api.js_snippet import JsSnippetViewSet
+from posthog.api.notebook_warehouse_model import NotebookWarehouseModelViewSet
 from posthog.api.product_enablement import ProductEnablementViewSet
 from posthog.api.query_performance_proxy import QueryPerformanceProxyViewSet
 from posthog.api.routing import DefaultRouterPlusPlus, RouterRegistry
@@ -543,6 +544,9 @@ projects_router.register(
 )
 
 projects_router.register(r"search", search.SearchViewSet, "project_search", ["project_id"])
+projects_router.register(
+    r"notebooks", NotebookWarehouseModelViewSet, "project_notebook_warehouse_models", ["project_id"]
+)
 
 projects_router.register(
     r"project_secret_api_keys",

@@ -5,7 +5,7 @@ from rest_framework import mixins, serializers, viewsets
 from posthog.api.pagination import BoundedPageNumberPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
-from products.data_modeling.backend.facade.api import delete_orphaned_table_nodes
+from products.data_modeling.backend.facade.api import delete_orphaned_table_nodes, require_notebook_node_edit_access
 from products.data_modeling.backend.facade.models import Edge, NodeType
 from products.data_modeling.backend.presentation.views.metric_visibility import (
     DELETE_DENIED,
@@ -90,11 +90,15 @@ class EdgeViewSet(
         self._require_warehouse_access(level="editor", message=EDIT_DENIED)
         edge = cast(Edge, serializer.instance)
         self._require_view_edit_access(edge.source.saved_query, edge.target.saved_query)
+        require_notebook_node_edit_access(self.team_id, self.user_access_control, [edge.source.pk, edge.target.pk])
         serializer.save()
 
     def perform_destroy(self, instance: Edge) -> None:
         self._require_warehouse_access(level="editor", message=DELETE_DENIED)
         self._require_view_edit_access(instance.source.saved_query, instance.target.saved_query)
+        require_notebook_node_edit_access(
+            self.team_id, self.user_access_control, [instance.source.pk, instance.target.pk]
+        )
         if instance.target.belongs_to_managed_viewset:
             raise serializers.ValidationError("Edges into views PostHog manages cannot be deleted.")
         if _connects_a_metric(instance):

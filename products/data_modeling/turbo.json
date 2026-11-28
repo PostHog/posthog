@@ -11,6 +11,8 @@
                 "backend/tasks/**",
                 "backend/temporal/**",
                 "backend/activity_log_config.py",
+                "backend/graph.py",
+                "backend/logic/notebook_model.py",
                 "backend/apps.py",
                 "backend/console.py",
                 "backend/integration_hooks.py",

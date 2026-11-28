@@ -247,6 +247,7 @@ class NotebookRun(TeamScopedRootMixin, UUIDModel):
     class Trigger(models.TextChoices):
         UI = "ui", "ui"
         MCP = "mcp", "mcp"
+        WAREHOUSE = "warehouse", "warehouse"
 
     # db_constraint=False on both FKs to hot tables, for the reasons NotebookNodeRun states below.
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")

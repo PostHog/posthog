@@ -185,6 +185,13 @@ class KernelExecutor:
             return True
         return False
 
+    def close(self) -> None:
+        with self._lock:
+            if self._kc is not None:
+                self._kc.stop_channels()
+            if self._km is not None:
+                self._km.shutdown_kernel(now=True)
+
     def restart(self) -> None:
         with self._lock:
             if self._km is not None:
@@ -260,6 +267,12 @@ class KernelExecutor:
                         limit=_MATERIALIZE_ROW_CAP,
                         cancel_event=cancel_event,
                     )
+                    limits = payload.get("input_limits")
+                    if limits and materialized.row_count >= limits["object" if materialized.source else "inline"]:
+                        os.remove(frame_path)
+                        raise data_plane.DataPlaneError(
+                            f"Input {name} reached the notebook row limit. Narrow the upstream query before publishing."
+                        )
                     fetched_from = materialized.source
                     download_s = materialized.download_s
                     if deliveries is not None and materialized.delivery:
@@ -380,6 +393,26 @@ class KernelExecutor:
 
 _executor: KernelExecutor | None = None
 _executor_lock = threading.Lock()
+_model_executor: tuple[str, KernelExecutor] | None = None
+
+
+def model_executor(session: str) -> KernelExecutor:
+    from .result_store import model_directory, retire_model_session
+
+    global _model_executor
+    with _executor_lock:
+        if _model_executor is None or _model_executor[0] != session:
+            if _model_executor is not None:
+                _model_executor[1].close()
+                retire_model_session(model_directory(_model_executor[0]))
+            _model_executor = (session, KernelExecutor(model_directory(session)))
+        return _model_executor[1]
+
+
+def interrupt_model_run(session: str, run_id: str) -> None:
+    with _executor_lock:
+        if _model_executor and _model_executor[0] == session:
+            _model_executor[1].interrupt_for_run(run_id)
 
 
 def get_executor() -> KernelExecutor:

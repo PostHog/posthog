@@ -197,6 +197,7 @@ def orphaned_table_nodes() -> QuerySet[Node]:
         saved_query__isnull=True,
         metric_id__isnull=True,
         outgoing_edges__isnull=True,
+        notebookmodel__isnull=True,
     )
 
 

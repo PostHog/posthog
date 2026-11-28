@@ -12941,6 +12941,23 @@
             "readOnlyHint": false
         }
     },
+    "notebooks-declare-warehouse-model": {
+        "description": "Publish the cells through the selected output cell as a warehouse model with an optional daily refresh. Declare the upstream modeling node IDs. The table is available after the first successful run. Redeclare after changing code or variables. The table can expose the returned rows to project members with access to it.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "Declare a notebook warehouse model",
+        "title": "Declare a notebook warehouse model",
+        "required_scopes": ["notebook:write", "query:read", "warehouse_table:write", "warehouse_view:write"],
+        "api_operations": ["POST /api/projects/{project_id}/notebooks/{short_id}/warehouse_model/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "notebook-warehouse-models",
+        "feature_flag_behavior": "enable"
+    },
     "notebooks-destroy": {
         "description": "Delete a notebook by short_id. The notebook will be soft-deleted and no longer appear in lists.",
         "category": "Notebooks",
@@ -13048,6 +13065,40 @@
             "openWorldHint": true,
             "readOnlyHint": true
         }
+    },
+    "notebooks-run-warehouse-model": {
+        "description": "Start a warehouse DAG run for the notebook model and its upstream dependencies.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "Run a notebook warehouse model",
+        "title": "Run a notebook warehouse model",
+        "required_scopes": ["notebook:write", "query:read", "warehouse_table:write", "warehouse_view:write"],
+        "api_operations": ["POST /api/projects/{project_id}/notebooks/{short_id}/warehouse_model/{node_id}/run/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "notebook-warehouse-models",
+        "feature_flag_behavior": "enable"
+    },
+    "notebooks-warehouse-model-status": {
+        "description": "Inspect the latest job and the last notebook run successfully published to the warehouse.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "Get notebook warehouse model status",
+        "title": "Get notebook warehouse model status",
+        "required_scopes": ["notebook:read", "query:read", "warehouse_table:read"],
+        "api_operations": ["GET /api/projects/{project_id}/notebooks/{short_id}/warehouse_model/{node_id}/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "notebook-warehouse-models",
+        "feature_flag_behavior": "enable"
     },
     "notebooks-widget-attach": {
         "description": "Attach a reusable widget to an existing Widget node in a notebook. First save a `<Widget nodeId=\"...\" />` element in the notebook markdown, then pass that node_id here. Map every logical input slot from the widget contract to a dataframe in this notebook with `{source: \"dataframe_name\"}`. When source columns do not match the contract, add a pure Hog expression in `hog` that receives `rows`, `columns`, and `frame` and returns a list of objects with the contract's columns. Omit version_id or pass null to follow the latest shared version; pass a version UUID to pin this placement. After substantial visual changes, check the final saved notebook once if browser access is already available. Skip browser checks for small edits.",

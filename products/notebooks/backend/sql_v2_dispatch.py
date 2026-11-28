@@ -25,7 +25,7 @@ from posthog.models.utils import uuid7
 from products.notebooks.backend.compute_pricing import get_compute_rates
 from products.notebooks.backend.facade.contracts import NotebookRunBusy, TeamRunCapacityFull
 from products.notebooks.backend.kernel_runtime import build_notebook_sandbox_config, get_kernel_runtime
-from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun
+from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun, NotebookRun
 from products.notebooks.backend.sql_v2_concurrency import acquire_run_slots, release_run_slots
 from products.notebooks.backend.sql_v2_direct import direct_run_was_enqueued, enqueue_direct_run
 from products.notebooks.backend.sql_v2_references import (
@@ -158,12 +158,18 @@ def sandbox_disclosure(notebook: Notebook, user: User | None, *, uses_sandbox: b
     return True, get_compute_rates().hourly_price(cpu_cores=config.cpu_cores, memory_gb=config.memory_gb)
 
 
-def _latest_runs_for(team_id: int, notebook: Notebook, node_ids: set[str]) -> QuerySet:
-    # One DISTINCT ON query fetches the latest DONE run (id + code) for every referenced node.
+def _latest_runs_for(
+    team_id: int, notebook: Notebook, node_ids: set[str], notebook_run_id: UUID | None = None
+) -> QuerySet:
+    runs = NotebookNodeRun.objects.for_team(team_id).filter(
+        notebook=notebook, node_id__in=node_ids, status=NotebookNodeRun.Status.DONE
+    )
+    if notebook_run_id is not None:
+        runs = runs.filter(notebook_run_id=notebook_run_id)
+    else:
+        runs = runs.exclude(notebook_run__trigger=NotebookRun.Trigger.WAREHOUSE)
     return (
-        NotebookNodeRun.objects.for_team(team_id)
-        .filter(notebook=notebook, node_id__in=node_ids, status=NotebookNodeRun.Status.DONE)
-        .order_by("node_id", "-created_at")
+        runs.order_by("node_id", "-created_at")
         .distinct("node_id")
         .values_list("node_id", "id", "code", "node_type", "connection_id", "send_raw_query")
     )
@@ -195,7 +201,7 @@ def resolve_refs(
     # but the frame is there to read. So it becomes a local ref rather than an absent one.
     kernel_frame_nodes: set[str] = set()
     for other_node_id, run_id, run_code, run_type, run_connection_id, run_send_raw in _latest_runs_for(
-        team_id, notebook, hogql_node_ids
+        team_id, notebook, hogql_node_ids, request.notebook_run_id
     ):
         if run_type == NotebookNodeRun.NodeType.DUCKDB:
             kernel_frame_nodes.add(other_node_id)
@@ -277,6 +283,7 @@ def _reusable_runs(
             status__in=[NotebookNodeRun.Status.RUNNING, NotebookNodeRun.Status.DONE],
             created_at__gte=now() - timedelta(hours=1),
         )
+        .exclude(notebook_run__trigger=NotebookRun.Trigger.WAREHOUSE)
         .order_by("-created_at")
     )
 

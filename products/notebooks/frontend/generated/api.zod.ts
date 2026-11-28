@@ -3413,6 +3413,34 @@ export const NotebooksSqlV2RunCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const notebooksDeclareWarehouseModelBodyDailyRefreshDefault = true
+export const notebooksDeclareWarehouseModelBodyTableNameMax = 128
+
+export const notebooksDeclareWarehouseModelBodyTableNameRegExp = new RegExp('^[A-Za-z_][A-Za-z0-9_]\*$')
+export const notebooksDeclareWarehouseModelBodyOutputCellMax = 128
+
+export const notebooksDeclareWarehouseModelBodyUpstreamNodeIdsMax = 100
+
+export const NotebooksDeclareWarehouseModelBody = /* @__PURE__ */ zod.object({
+    daily_refresh: zod
+        .boolean()
+        .default(notebooksDeclareWarehouseModelBodyDailyRefreshDefault)
+        .describe('Request a daily refresh. Set false to run manually or when a downstream model needs fresh data.'),
+    table_name: zod
+        .string()
+        .max(notebooksDeclareWarehouseModelBodyTableNameMax)
+        .regex(notebooksDeclareWarehouseModelBodyTableNameRegExp)
+        .describe('Name for the published warehouse table.'),
+    output_cell: zod
+        .string()
+        .max(notebooksDeclareWarehouseModelBodyOutputCellMax)
+        .describe('Stable node ID of the SQL or Python cell that produces the table.'),
+    upstream_node_ids: zod
+        .array(zod.uuid())
+        .max(notebooksDeclareWarehouseModelBodyUpstreamNodeIdsMax)
+        .describe('Modeling DAG node IDs which must succeed before the notebook runs.'),
+})
+
 /**
  * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
  */

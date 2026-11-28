@@ -46,6 +46,7 @@ from products.data_modeling.backend.models import (
     DataModelingJobStatus,
     Node,
     NodeType,
+    NotebookModel,
 )
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.node import SAVED_QUERY_NODE_TYPES
@@ -231,6 +232,12 @@ def _assert_user_can_run_nodes(node: Node, node_ids: set[str], user: User) -> di
     nodes = Node.objects.filter(team_id=node.team_id, id__in=node_ids, saved_query__isnull=False).select_related(
         "saved_query"
     )
+    if (
+        Node.objects.filter(team_id=node.team_id, id__in=node_ids, notebookmodel__isnull=False)
+        .exclude(notebookmodel__owner_id=user.pk)
+        .exists()
+    ):
+        raise MaterializationForbiddenError(RELATED_RUN_EDIT_ACCESS_REFUSAL)
     unresolved: dict[str, str] = {}
     for run_node in nodes:
         saved_query = run_node.saved_query
@@ -327,6 +334,7 @@ def run_related_node_materializations(
     user: User,
     from_browser_session: bool,
     hidden_types: frozenset[str] = frozenset(),
+    workflow_id: str | None = None,
 ) -> StartedNodeRun:
     requested_at = timezone.now()
     node = _get_node(team_id, node_id)
@@ -336,6 +344,24 @@ def run_related_node_materializations(
         .exclude(saved_query__deleted=True)
         .values_list("saved_query_id", flat=True)
     )
+    notebook_jobs = DataModelingJob.objects.filter(
+        team_id=team_id,
+        id__in=NotebookModel.objects.for_team(team_id).filter(node_id__in=node_ids).values("latest_run_id"),
+    )
+    if notebook_jobs.filter(status=DataModelingJobStatus.RUNNING).exists():
+        raise MaterializationAlreadyRunningError("A notebook model in this run is already running.")
+    if not from_browser_session:
+        last_start = (
+            notebook_jobs.filter(created_at__gt=requested_at - MANUAL_RUN_MIN_INTERVAL)
+            .order_by("-created_at")
+            .values_list("created_at", flat=True)
+            .first()
+        )
+        if last_start is not None:
+            raise MaterializationRanRecentlyError(
+                "A notebook model in this run ran recently.",
+                retry_after_seconds=_seconds_until_limit_ends(last_start, requested_at),
+            )
     if from_browser_session:
         if _any_view_is_running(team_id, built_saved_query_ids):
             raise MaterializationAlreadyRunningError(RELATED_RUN_IN_PROGRESS_REFUSAL)
@@ -358,7 +384,7 @@ def run_related_node_materializations(
         temporal.start_workflow(
             "data-modeling-execute-dag",
             asdict(inputs),
-            id=f"execute-dag-{uuid4()}",
+            id=workflow_id or f"execute-dag-{uuid4()}",
             task_queue=str(settings.DATA_MODELING_TASK_QUEUE),
             retry_policy=RetryPolicy(
                 initial_interval=timedelta(seconds=10),

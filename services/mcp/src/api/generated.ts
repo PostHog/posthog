@@ -40555,6 +40555,27 @@ export namespace Schemas {
       Default: 'default',
     } as const;
 
+    export interface DeclareNotebookModel {
+      /** Request a daily refresh. Set false to run manually or when a downstream model needs fresh data. */
+      daily_refresh?: boolean;
+      /**
+         * Name for the published warehouse table.
+         * @maxLength 128
+         * @pattern ^[A-Za-z_][A-Za-z0-9_]*$
+         */
+      table_name: string;
+      /**
+         * Stable node ID of the SQL or Python cell that produces the table.
+         * @maxLength 128
+         */
+      output_cell: string;
+      /**
+         * Modeling DAG node IDs which must succeed before the notebook runs.
+         * @maxItems 100
+         */
+      upstream_node_ids: string[];
+    }
+
     /**
      * * `web` - Visual Review page
      * * `api` - API key
@@ -79556,6 +79577,16 @@ export namespace Schemas {
       allowed_idle_timeout_seconds: number[];
     }
 
+    export interface NotebookDagStatus {
+      /** DAG execution state, including whether upstream failures skipped this model. */
+      status: string;
+      /**
+         * Reason the model failed or was skipped.
+         * @nullable
+         */
+      reason: string | null;
+    }
+
     export interface NotebookKernelCompleteRequest {
       /**
          * The full source of the cell being edited.
@@ -79787,6 +79818,48 @@ export namespace Schemas {
       _create_in_folder?: string;
     }
 
+    export interface NotebookModel {
+      /** Modeling DAG node ID for running or inspecting the model. */
+      node_id: string;
+      /**
+         * Warehouse table ID after the first successful publication.
+         * @nullable
+         */
+      table_id: string | null;
+      /**
+         * Most recent notebook run. Use notebook run status to inspect cell failures.
+         * @nullable
+         */
+      latest_run_id: string | null;
+      /**
+         * Notebook run that produced the currently published rows.
+         * @nullable
+         */
+      published_run_id: string | null;
+    }
+
+    export interface NotebookModelRun {
+      /** Modeling DAG node ID for running or inspecting the model. */
+      node_id: string;
+      /**
+         * Warehouse table ID after the first successful publication.
+         * @nullable
+         */
+      table_id: string | null;
+      /**
+         * Most recent notebook run. Use notebook run status to inspect cell failures.
+         * @nullable
+         */
+      latest_run_id: string | null;
+      /**
+         * Notebook run that produced the currently published rows.
+         * @nullable
+         */
+      published_run_id: string | null;
+      /** Pass this ID to the status tool to follow this specific DAG run. */
+      dag_run_id: string;
+    }
+
     export interface NotebookRunCell {
       /** Durable cell identity, the same id the cell run endpoints take. */
       node_id: string;
@@ -79809,6 +79882,40 @@ export namespace Schemas {
          * @nullable
          */
       error?: string | null;
+    }
+
+    export interface NotebookModelStatus {
+      /** Modeling DAG node ID for running or inspecting the model. */
+      node_id: string;
+      /**
+         * Warehouse table ID after the first successful publication.
+         * @nullable
+         */
+      table_id: string | null;
+      /**
+         * Most recent notebook run. Use notebook run status to inspect cell failures.
+         * @nullable
+         */
+      latest_run_id: string | null;
+      /**
+         * Notebook run that produced the currently published rows.
+         * @nullable
+         */
+      published_run_id: string | null;
+      /** State of the requested DAG run. */
+      dag: NotebookDagStatus | null;
+      /**
+         * Latest modeling job status, including publication.
+         * @nullable
+         */
+      status: string | null;
+      /**
+         * Latest modeling job failure, if any.
+         * @nullable
+         */
+      error: string | null;
+      /** Cells in execution order, including any failure. */
+      cells: NotebookRunCell[];
     }
 
     export interface NotebookRunInterruptResponse {
@@ -79844,7 +79951,7 @@ export namespace Schemas {
       run_id: string;
       /** Run state: 'running' (keep polling), or terminal — 'done', 'failed', or 'interrupted'. */
       status: string;
-      /** Which surface started the run: 'ui' or 'mcp'. */
+      /** The surface that started the run, such as ui, mcp, or warehouse. */
       trigger: string;
       /** The variable values this run bound, snapshotted when it started. */
       variables: NotebookVariable[];
@@ -152461,6 +152568,13 @@ export namespace Schemas {
      * @minimum 0
      */
     offset?: number;
+    };
+
+    export type NotebooksWarehouseModelStatusParams = {
+    /**
+     * DAG run ID returned when you started this model.
+     */
+    dag_run_id?: string;
     };
 
     export type NotebooksWidgetSnapshotFrameParams = {

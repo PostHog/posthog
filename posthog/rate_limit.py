@@ -2011,6 +2011,22 @@ class RunSavedQueryRateThrottle(PersonalApiKeyRateThrottle):
         return super().get_cache_key(request, view)
 
 
+class RunNotebookModelRateThrottle(PersonalApiKeyOrUserRateThrottle):
+    scope = "notebook_model_run"
+    rate = "10/minute"
+
+    def get_cache_key(self, request, view):
+        team_id = self.safely_get_team_id_from_view(view)
+        node_id = view.kwargs.get("node_id") or view.kwargs.get("pk")
+        if team_id and node_id:
+            return self.cache_format % {"scope": self.scope, "ident": f"{team_id}_{node_id}"}
+        return super().get_cache_key(request, view)
+
+    def check(self, request, view):
+        if not self.allow_request(request, view):
+            view.throttled(request, self.wait())
+
+
 class MaterializationRateThrottle(PersonalApiKeyRateThrottle):
     # Rate limit materialization toggle actions (materialize / revert) per saved query per team.
     # Prevents agents from thrashing materialization state on the same query.

@@ -1,7 +1,10 @@
 import dataclasses
 
+from django.db.models import Q
+
 from temporalio import activity
 
+from posthog.dataclasses import frozen
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.logger import get_logger
 
@@ -29,7 +32,7 @@ class GetDAGStructureInputs:
 
 # TODO(andrew): make this a property / function on the actual DAG record
 # maybe DAG().orchestration_plan() or similar
-@dataclasses.dataclass
+@frozen
 class DAG:
     """Structure of a DAG for orchestration.
 
@@ -45,6 +48,7 @@ class DAG:
     edges: list[tuple[str, str]]
     ephemeral_nodes: list[str] = dataclasses.field(default_factory=list)
     suspended_nodes: dict[str, list[str]] = dataclasses.field(default_factory=dict)
+    notebook_nodes: list[str] = dataclasses.field(default_factory=list)
 
 
 @database_sync_to_async_pool
@@ -53,12 +57,14 @@ def _get_dag_structure_async(team_id: int, dag_id: str) -> DAG:
     nodes = Node.objects.filter(team_id=team_id, dag_id=dag_id)
     # a node outlives the query it points at, because deleting one is best-effort while soft-deleting
     # the query is not. running it can only fail, so it must not reach the materialization activity.
-    executable_nodes = nodes.filter(type__in=SAVED_QUERY_NODE_TYPES).exclude(saved_query__deleted=True)
+    executable_nodes = nodes.filter(Q(type__in=SAVED_QUERY_NODE_TYPES) | Q(notebookmodel__isnull=False)).exclude(
+        saved_query__deleted=True
+    )
     ephemeral_nodes = executable_nodes.filter(type=NodeType.VIEW)
     edges = (
         Edge.objects.prefetch_related("source", "target")
         .filter(team_id=team_id, dag_id=dag_id)
-        .exclude(source__type=NodeType.TABLE)
+        .exclude(source__type=NodeType.TABLE, source__notebookmodel__isnull=True)
         .exclude(NON_SCHEDULING_EDGES)
     )
     suspended_nodes = {
@@ -72,6 +78,9 @@ def _get_dag_structure_async(team_id: int, dag_id: str) -> DAG:
         ephemeral_nodes=[str(n.id) for n in ephemeral_nodes],
         edges=[(str(e.source.id), str(e.target.id)) for e in edges],
         suspended_nodes=suspended_nodes,
+        notebook_nodes=[
+            str(node_id) for node_id in nodes.filter(notebookmodel__isnull=False).values_list("id", flat=True)
+        ],
     )
 
 
