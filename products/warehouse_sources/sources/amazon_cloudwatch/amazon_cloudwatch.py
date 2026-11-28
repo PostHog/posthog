@@ -636,8 +636,8 @@ def dashboard_rows(body: dict[str, Any]) -> list[dict[str, Any]]:
     return [_snake_keys(entry) for entry in body.get("DashboardEntries") or []]
 
 
-def _sorted_dimensions(dimensions: Any) -> list[tuple[Any, Any]]:
-    return sorted((d.get("Name"), d.get("Value")) for d in dimensions or [])
+def _sorted_dimensions(dimensions: Any) -> list[dict[str, Any]]:
+    return sorted(dimensions or [], key=lambda d: (str(d.get("Name")), str(d.get("Value"))))
 
 
 def anomaly_detector_rows(body: dict[str, Any]) -> list[dict[str, Any]]:
@@ -667,7 +667,8 @@ def metric_rows(body: dict[str, Any]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for metric in body.get("Metrics") or []:
         row = _snake_keys(metric)
-        identity = [row.get("namespace"), row.get("metric_name"), _sorted_dimensions(row.get("dimensions"))]
+        dimensions = sorted((d.get("Name"), d.get("Value")) for d in row.get("dimensions") or [])
+        identity = [row.get("namespace"), row.get("metric_name"), dimensions]
         row["metric_id"] = hashlib.sha256(json.dumps(identity, default=str).encode()).hexdigest()
         rows.append(row)
     return rows
