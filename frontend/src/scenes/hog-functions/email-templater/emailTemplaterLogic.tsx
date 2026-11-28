@@ -1446,7 +1446,8 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 if (isClosed()) {
                     if (read > session.lastReadHandedOver && !objectsEqual(htmlData.design, designBeforeExport)) {
                         session.lastReadHandedOver = read
-                        openEmail.onChange(emailWithEdit(openEmail, templateBeforeExport, htmlData, textData))
+                        cache.flushedTemplate = emailWithEdit(openEmail, templateBeforeExport, htmlData, textData)
+                        openEmail.onChange(cache.flushedTemplate)
                     }
                     return
                 }
@@ -1460,13 +1461,16 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 if (!objectsEqual(htmlData.design, cache.lastEditorDesign)) {
                     cache.lastEditorDesign = htmlData.design
                     cache.lastLoadedExternalDesign = null
-                    props.onChange(emailWithEdit(props, values.emailTemplate, htmlData, textData))
+                    // The form hands it back only on the next render, which is too late for a copy made right now.
+                    cache.flushedTemplate = emailWithEdit(props, values.emailTemplate, htmlData, textData)
+                    props.onChange(cache.flushedTemplate)
                 }
             }
         },
 
         saveAsTemplate: async ({ name, description }) => {
             const currentValues = values.emailTemplate
+            const { emailKey } = props
 
             try {
                 let emailContent: EmailTemplate
@@ -1479,6 +1483,19 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                         ...currentValues,
                         html: '',
                     }
+                } else if (props.layout === 'inline' || props.liveChanges) {
+                    // Edits reach the form as they happen, so the copy is the email a save would store. Reading the
+                    // editor instead would write the text again and drop what was written by hand.
+                    cache.flushFailed = false
+                    cache.flushedTemplate = null
+                    await asyncActions.flushPendingDesignEdit()
+                    if (cache.flushFailed || cache.editLost) {
+                        showEmailSaveFailed()
+                        return
+                    }
+                    // Another email can open while this one is read.
+                    emailContent =
+                        cache.flushedTemplate ?? (props.emailKey === emailKey ? values.emailTemplate : currentValues)
                 } else {
                     const editor = values.emailEditorRef?.editor
                     if (!editor || !values.isEmailEditorReady) {
@@ -1486,18 +1503,16 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                         return
                     }
 
+                    const uneditedDesign = cache.baselineConfirmedBy === editor ? cache.lastEditorDesign : undefined
                     const [htmlData, textData]: [{ html: string; design: JSONTemplate }, { text: string }] =
                         await Promise.all([
                             exportEditorHtml(editor),
                             new Promise<any>((res) => editor.exportPlainText(res)),
                         ])
 
-                    emailContent = {
-                        ...currentValues,
-                        html: props.type !== 'email' ? htmlData.html : escapeHTMLStringCurlies(htmlData.html),
-                        text: plainTextForEdit(textData, htmlData.design, currentValues),
-                        design: htmlData.design,
-                    }
+                    emailContent = objectsEqual(htmlData.design, uneditedDesign)
+                        ? currentValues
+                        : emailWithEdit(props, currentValues, htmlData, textData)
                 }
 
                 const templateData: Partial<MessageTemplate> = {
