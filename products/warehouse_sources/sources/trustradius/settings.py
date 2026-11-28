@@ -12,13 +12,13 @@ class EndpointConfig(TypedDict):
     data_selector: str
     primary_keys: list[str]
     partition_key: str | None
-    # Report endpoints take a date range and page with `skip` and `limit`.
+    # Report endpoints take a date range. Unless `date_windows` is set, they page with `skip` and `limit`.
     report: NotRequired[bool]
     # Fields the request sorts by, so that `skip` paging is stable.
     sort: NotRequired[str]
     requires_products: NotRequired[bool]
     # The TrustQuotes for Web report documents no `skip` or `limit` and groups days with `date-group`,
-    # so the source sends one request per date window.
+    # so the source sends one request per day to bound each response.
     date_windows: NotRequired[bool]
 
 
@@ -112,7 +112,7 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
 INCREMENTAL_LOOKBACK_SECONDS = dict.fromkeys(INCREMENTAL_FIELDS, 2 * 24 * 60 * 60)
 
 REPORT_PAGE_SIZE = 1000
-DATE_WINDOW_DAYS = 30
+DATE_WINDOW_DAYS = 1
 # The reports document no retention, so a first sync reads one year of daily rows.
 REPORT_HISTORY_DAYS = 365
 # The intent API serves at most the 45 days before today.

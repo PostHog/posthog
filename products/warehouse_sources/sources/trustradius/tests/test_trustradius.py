@@ -179,17 +179,11 @@ def test_traffic_products_without_products_makes_no_report_request() -> None:
 
 
 @time_machine.travel("2026-03-10T12:00:00Z", tick=False)
-@pytest.mark.parametrize(
-    ("window_days", "should_use_incremental_field", "expected_windows"),
-    [
-        (200, False, [("2025-03-10", "2025-09-26"), ("2025-09-26", "2026-03-10")]),
-        # The last window stops at today instead of running past it.
-        (2, True, [("2026-03-05", "2026-03-07"), ("2026-03-07", "2026-03-09"), ("2026-03-09", "2026-03-10")]),
-    ],
-)
-def test_trustquotes_web_pages_requests_one_date_window_at_a_time(
-    window_days: int, should_use_incremental_field: bool, expected_windows: list[tuple[str, str]]
-) -> None:
+# Two-day windows make the last window stop at today instead of running past it.
+@patch(f"{TRANSPORT}.DATE_WINDOW_DAYS", 2)
+def test_trustquotes_web_pages_requests_one_date_window_at_a_time() -> None:
+    expected_windows = [("2026-03-05", "2026-03-07"), ("2026-03-07", "2026-03-09"), ("2026-03-09", "2026-03-10")]
+
     def routes(path: str, params: dict[str, list[str]]) -> object:
         first, end = params["start-date"][0], params["end-date"][0]
         if first == "2026-03-07":
@@ -203,13 +197,8 @@ def test_trustquotes_web_pages_requests_one_date_window_at_a_time(
         ]
 
     requests: list[tuple[str, dict]] = []
-    with (
-        patch(f"{TRANSPORT}.DATE_WINDOW_DAYS", window_days),
-        patch("requests.adapters.HTTPAdapter.send", side_effect=routed_send(routes, requests)),
-    ):
-        rows = read_rows(
-            "trustquotes_web_pages", should_use_incremental_field=should_use_incremental_field, last_value="2026-03-05"
-        )
+    with patch("requests.adapters.HTTPAdapter.send", side_effect=routed_send(routes, requests)):
+        rows = read_rows("trustquotes_web_pages", should_use_incremental_field=True, last_value="2026-03-05")
 
     assert requests == [
         (

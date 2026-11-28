@@ -43,9 +43,9 @@ A page shorter than the limit ends the walk.
 The traffic reports require product identifiers, so the source reads `/product-ids` first and sends them in groups of 50.
 
 The TrustQuotes for Web report documents no `skip` or `limit`, and it groups days with `date-group`.
-The source therefore sends `date-group=day` and reads the range in windows of 30 days, one request per window.
+The source therefore sends `date-group=day` and reads the range one day per request, so each response stays small.
 The specification calls `end-date` inclusive, but the intent API treats it as exclusive.
-Each window ends on the day the next one starts, and the source drops rows dated outside the window, so neither reading loses or repeats a day.
+Each request ends on the day the next one starts, and the source drops rows dated outside the requested day, so neither reading loses or repeats a day.
 The specification requires `date`, so a row without a readable date is dropped too.
 Its `domain`, `page` and `link` fields are optional in the specification.
 All three fields are in the key, and the source writes an empty string for a missing one, so every destination can match the key.
