@@ -36,6 +36,11 @@ const describedText = (item: ActivityLogItem): string => {
 }
 
 describe('error tracking ActivityDescriber', () => {
+    it('attributes an auto-resolution to PostHog and explains why it happened', () => {
+        const item = makeLogItem('auto_resolved', { field: 'status', before: 'active', after: 'resolved' })
+        expect(describedText(item)).toBe('PostHog automatically resolved TypeError after a period without exceptions.')
+    })
+
     it('describes merged rows instead of dropping them', () => {
         const text = describedText(
             makeLogItem('merged', {
