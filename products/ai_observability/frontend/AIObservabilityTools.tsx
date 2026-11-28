@@ -4,6 +4,7 @@ import { combineUrl, router } from 'kea-router'
 import { IconGraph, IconRetentionHeatmap, IconTrends, IconUserPaths } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { escapeRegex } from 'lib/utils/actions'
@@ -179,6 +180,48 @@ export function AIObservabilityTools(): JSX.Element {
                             </Tooltip>
                         ),
                     },
+                    results: {
+                        renderTitle: () => (
+                            <Tooltip title="Tool results sent back to the model in the next generation. Results are missing when that generation's input isn't captured.">
+                                {renderSortableColumnTitle('results', 'Results')}
+                            </Tooltip>
+                        ),
+                    },
+                    failures: {
+                        renderTitle: () => (
+                            <Tooltip title="Results with an SDK error flag or text starting with Error, Exception or Traceback. Failures that end the run without another generation aren't counted.">
+                                {renderSortableColumnTitle('failures', 'Failures')}
+                            </Tooltip>
+                        ),
+                    },
+                    failure_pct: {
+                        renderTitle: () => (
+                            <Tooltip title="Failures as a share of captured results, detected by an SDK error flag or text starting with Error, Exception or Traceback. Failures that end the run aren't counted. Empty when no results were captured.">
+                                {renderSortableColumnTitle('failure_pct', 'Failure rate')}
+                            </Tooltip>
+                        ),
+                        render: function RenderFailurePct(x) {
+                            if (x.value === null || x.value === undefined) {
+                                return <span className="text-muted">–</span>
+                            }
+                            const pct = Number(x.value)
+                            return <span>{`${pct}%`}</span>
+                        },
+                    },
+                    undefined_calls: {
+                        renderTitle: () => (
+                            <Tooltip title="Calls to this tool when its name wasn't in the tools the agent defined.">
+                                {renderSortableColumnTitle('undefined_calls', 'Unknown tools called')}
+                            </Tooltip>
+                        ),
+                        render: function RenderUndefinedCalls(x) {
+                            const count = Number(x.value)
+                            if (!count) {
+                                return <span className="text-muted">–</span>
+                            }
+                            return <LemonTag type="warning">{count}</LemonTag>
+                        },
+                    },
                     traces: {
                         renderTitle: () => (
                             <Tooltip title="Number of unique traces where this tool was called">
@@ -207,7 +250,10 @@ export function AIObservabilityTools(): JSX.Element {
                             </Tooltip>
                         ),
                         render: function RenderSinglePct(x) {
-                            return <span>{String(x.value)}%</span>
+                            if (x.value === null || x.value === undefined) {
+                                return <span className="text-muted">–</span>
+                            }
+                            return <span>{`${x.value}%`}</span>
                         },
                     },
                     days_seen: {

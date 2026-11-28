@@ -26,6 +26,10 @@ def get_errors_query(order_by: str = "last_seen", order_direction: str = "DESC")
     return _load_sql_query("errors.sql", order_by, order_direction)
 
 
+def get_tools_query(order_by: str = "total_calls", order_direction: str = "DESC") -> str:
+    return _load_sql_query("tools.sql", order_by, order_direction)
+
+
 def get_sessions_query(
     order_by: str = "last_seen",
     order_direction: str = "DESC",
