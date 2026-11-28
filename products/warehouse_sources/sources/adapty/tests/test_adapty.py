@@ -198,3 +198,49 @@ def test_paywall_walk_uses_jsonapi_pages_and_preserves_records(resume_page: int 
     assert result.rows == ([first, last] if resume_page is None else [last])
     if resume_page is None:
         assert result.committed_states == [AdaptyResumeConfig(page=2)]
+
+
+@pytest.mark.parametrize(
+    "onboarding_rows", [[], [{"developer_id": "intro", "audience_name": "Default", "onboarding_name": "Intro"}]]
+)
+def test_placement_snapshot_keeps_each_type_and_variant(onboarding_rows: list[dict[str, str]]) -> None:
+    paywall = {"developer_id": "welcome", "audience_name": "Default", "paywall_name": "Standard"}
+    variant = {**paywall, "ab_test_name": "Welcome test", "paywall_name": "Variant"}
+    flow = {"developer_id": "setup", "audience_name": "Default", "flow_name": "Setup"}
+    result = driver().run(
+        "Placements",
+        [
+            ScriptedResponse(json={"paywall_placements": [paywall, variant]}),
+            ScriptedResponse(json={"onboarding_placements": onboarding_rows}),
+            ScriptedResponse(json={"flow_placements": [flow]}),
+        ],
+    )
+
+    assert result.raised is None
+    assert [request.json() for request in result.requests] == [
+        {"filters": {"placement_type": "paywall"}},
+        {"filters": {"placement_type": "onboarding"}},
+        {"filters": {"placement_type": "flow"}},
+    ]
+    assert all(
+        request.method == "POST"
+        and request.origin == "https://api-admin.adapty.io"
+        and request.path == "/api/v1/client-api/exports/placements/"
+        for request in result.requests
+    )
+    assert result.rows == [
+        {**paywall, "placement_type": "paywall"},
+        {**variant, "placement_type": "paywall"},
+        *[{**row, "placement_type": "onboarding"} for row in onboarding_rows],
+        {**flow, "placement_type": "flow"},
+    ]
+
+
+@pytest.mark.parametrize(
+    "payload", [{"flow_placements": []}, {"paywall_placements": {}}, {"paywall_placements": [None]}]
+)
+def test_malformed_placement_export_fails_instead_of_returning_an_empty_snapshot(payload: object) -> None:
+    result = driver().run("Placements", [ScriptedResponse(json=payload)])
+
+    assert isinstance(result.raised, ValueError)
+    assert result.rows == []

@@ -61,4 +61,20 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "products": "Products and offers attached to the paywall.",
         },
     },
+    "Placements": {
+        "description": "Placement settings for paywalls, onboardings, and flows, including audiences, segments, and A/B tests.",
+        "docs_url": "https://adapty.io/docs/api-export-analytics/operations/retrievePlacementInfo",
+        "columns": {
+            "developer_id": "Placement identifier in Adapty.",
+            "placement_name": "Placement name.",
+            "placement_type": "Type of placement: paywall, onboarding, or flow.",
+            "audience_name": "Audience that receives the placement content.",
+            "segment_name": "Segment that defines the audience.",
+            "cross_placement_ab_test_name": "Cross-placement A/B test name, if present.",
+            "ab_test_name": "A/B test name, if present.",
+            "paywall_name": "Paywall shown to the audience in a paywall placement.",
+            "onboarding_name": "Onboarding shown to the audience in an onboarding placement.",
+            "flow_name": "Flow shown to the audience in a flow placement.",
+        },
+    },
 }

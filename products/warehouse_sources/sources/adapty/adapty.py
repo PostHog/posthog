@@ -9,6 +9,7 @@ from products.warehouse_sources.sources.adapty.settings import (
     ANALYTICS_BASE_URL,
     CHART_IDS,
     ENDPOINTS,
+    PLACEMENT_TYPES,
     SERVER_BASE_URL,
     AdaptyEndpoint,
 )
@@ -86,6 +87,23 @@ def normalize_report(
     return [{**payload, "date": day.isoformat()}]
 
 
+def fetch_placements(client: RESTClient, endpoint: AdaptyEndpoint, placement_type: str) -> list[dict[str, Any]]:
+    pages = list(
+        client.paginate(
+            path=endpoint.path,
+            method="POST",
+            json={"filters": {"placement_type": placement_type}},
+            data_selector="$",
+        )
+    )
+    payload = pages[0][0] if len(pages) == 1 and len(pages[0]) == 1 else None
+    response_key = f"{placement_type}_placements"
+    rows = payload.get(response_key) if isinstance(payload, dict) else None
+    if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
+        raise ValueError(f"Adapty returned an invalid placement export. Expected an array of {response_key} objects.")
+    return [{**row, "placement_type": placement_type} for row in rows]
+
+
 def validate_credentials(api_key: str, schema_name: str | None) -> tuple[bool, str | None]:
     endpoint = schema_for_resource(ENDPOINTS, schema_name or "Analytics")
     client = api_client(api_key, paywalls=endpoint.shape == "paywalls")
@@ -99,6 +117,8 @@ def validate_credentials(api_key: str, schema_name: str | None) -> tuple[bool, s
                     data_selector_required=True,
                 )
             )
+        elif endpoint.shape == "placements":
+            fetch_placements(client, endpoint, "paywall")
         else:
             day = datetime.now(UTC).date() - timedelta(days=1)
             chart_id = "revenue" if schema_name in (None, "Analytics") else None
@@ -167,6 +187,18 @@ def iter_reports(
         client.session.close()
 
 
+def iter_placements(api_key: str, endpoint: AdaptyEndpoint) -> Iterator[list[dict[str, Any]]]:
+    client = api_client(api_key)
+    try:
+        for placement_type in PLACEMENT_TYPES:
+            interruptible_wait(0.5)
+            rows = fetch_placements(client, endpoint, placement_type)
+            if rows:
+                yield rows
+    finally:
+        client.session.close()
+
+
 def adapty_source(
     config: AdaptySourceConfig, manager: ResumableSourceManager[AdaptyResumeConfig], inputs: SourceInputs
 ) -> SourceResponse:
@@ -220,18 +252,22 @@ def adapty_source(
             initial_paginator_state={"page": resume.page} if resume else None,
         )
         items = lambda: resource
+    elif endpoint.shape == "placements":
+        items = lambda: iter_placements(config.api_key, endpoint)
     else:
         items = lambda: iter_reports(config, endpoint, manager)
 
+    partition_key = endpoint.partition_key
     return SourceResponse(
         name=inputs.schema_name,
         items=items,
         on_complete=manager.clear_state,
         primary_keys=list(endpoint.primary_keys),
-        partition_keys=[endpoint.partition_key],
-        partition_mode="datetime",
-        partition_format="month",
-        partition_count=1,
-        partition_size=1,
-        sort_mode=None if endpoint.shape == "paywalls" else "asc",
+        partition_keys=[partition_key] if partition_key is not None else None,
+        partition_mode="datetime" if partition_key is not None else None,
+        partition_format="month" if partition_key is not None else None,
+        partition_count=1 if partition_key is not None else None,
+        partition_size=1 if partition_key is not None else None,
+        sort_mode="asc" if endpoint.shape in ("metrics", "report") else None,
+        supports_resume=endpoint.shape != "placements",
     )

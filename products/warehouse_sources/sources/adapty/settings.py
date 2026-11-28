@@ -26,14 +26,15 @@ CHART_IDS = (
     "arpu",
     "installs",
 )
+PLACEMENT_TYPES = ("paywall", "onboarding", "flow")
 
 
 @frozen
 class AdaptyEndpoint:
     path: str
     primary_keys: tuple[str, ...]
-    partition_key: str = "date"
-    shape: Literal["metrics", "report", "paywalls"] = "report"
+    partition_key: str | None = "date"
+    shape: Literal["metrics", "report", "paywalls", "placements"] = "report"
     body: dict[str, Any] = field(default_factory=dict)
 
 
@@ -71,6 +72,12 @@ ENDPOINTS: dict[str, AdaptyEndpoint] = {
         primary_keys=("paywall_id",),
         partition_key="created_at",
         shape="paywalls",
+    ),
+    "Placements": AdaptyEndpoint(
+        path="/api/v1/client-api/exports/placements/",
+        primary_keys=(),
+        partition_key=None,
+        shape="placements",
     ),
 }
 
