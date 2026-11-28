@@ -810,7 +810,8 @@ def transactional_email_impact_sessions(
     if not is_email_workflow_run_link_tag_enabled(team_id=team.id):
         return TransactionalEmailImpactSessions(sessions=(), has_more=False)
     period = _window(date_from, date_to)
-    clicked = _clicked_message_ids(team, workflow_id, period, limit=MAX_RESULTS_RECIPIENTS)
+    sent_before = _Period(start=period.start, end=min(period.end, landed_before)) if landed_before else period
+    clicked = _clicked_message_ids(team, workflow_id, sent_before, limit=MAX_RESULTS_RECIPIENTS)
     batches = list(_batches_by_query_size(team.id, clicked, _escaped_literal_bytes))
     if not batches:
         return TransactionalEmailImpactSessions(sessions=(), has_more=False)
