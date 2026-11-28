@@ -320,7 +320,8 @@ def _slack_report_blocks(markdown: str, env: EnvType) -> list[dict[str, Any]]:
         if token.type != "heading_open" or token.level != 0 or token.tag != "h2":
             continue
         heading = tokens[index + 1].content
-        if len(heading) > 150:
+        # Slack rejects a container whose title is empty or longer than 150 characters (invalid_blocks).
+        if not heading or len(heading) > 150:
             break
         following = tokens[index + 3 :]
         if not following or following[0].type != "bullet_list_open":
