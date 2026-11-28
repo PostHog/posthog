@@ -42,6 +42,11 @@ The pacer keeps the latest frontier per partition and hands them out at most onc
 The consumer asks the pacer on each completion wake, at the top of each loop turn, and on the completion wait's one-second heartbeat, and commits everything pending on exit.
 The settlement publishes the uncommitted gauges, because it holds both places a partition's charge can be: the ledger's window and the pacer.
 `kafka_consumer_ledger_uncommitted_offsets{topic,partition}` gauges the offsets each partition has polled and no commit has covered yet, including those taken for a commit the pacer still holds; `kafka_consumer_ledger_uncommitted_events` and `kafka_consumer_ledger_uncommitted_bytes` gauge the charge those offsets carry, where bytes is the payload plus key plus headers of each message.
+`ingestion_consumer_partition_commit_age_seconds{topic,partition}` gauges how long the oldest poll slice of each partition has waited for a commit past its last offset, and `ingestion_consumer_partition_commit_age_max_seconds` gauges the largest of them in the pod.
+A partition with nothing uncommitted, or one this pod no longer owns, reports 0.
+Both refresh on every commit tick and every completion, also when nothing commits.
+An age that climbs on one partition while the others commit is a key that holds that partition's frontier.
+A slice whose charge the ledger rejected does not count, because no commit passes it.
 The ledger emits its own counters, so any consumer built on the crate reports the same series.
 `kafka_consumer_ledger_stale_slices_total{stage}` counts charges and settlements dropped because their partition was reassigned while they were in flight; a few around a rebalance are expected.
 `kafka_consumer_ledger_errors_total{stage,kind}` counts contract violations in the ledger's accounting; it must stay 0. A violation stops the consumer, and the restart replays from the last commit: the ledger resets the partition's window, so offsets in flight below its next delivery would never complete and a later commit would move past them. The consumer logs the rejected slice with the batch and ledger generations and the window depth before it stops.
@@ -56,6 +61,8 @@ A pause stops only the partition's fetch: the consumer keeps polling, so rebalan
 A revoked partition is forgotten. librdkafka keeps a partition's pause across a revoke and a reassignment, so the consumer resumes every partition it is assigned, and the partition starts with a fresh ledger.
 The budget is a fixed amount per partition, not a share of a pod-wide amount, so a rebalance changes how many partitions a pod holds, not how much each may expose.
 `ingestion_consumer_budget_paused_partitions` gauges how many partitions are paused and `ingestion_consumer_budget_pauses_total{topic,partition}` counts pauses; read them against `ingestion_lag_ms`.
+`ingestion_consumer_budget_pause_seconds` records how long each pause lasted, when it ends at a resume or at the revoke of its partition.
+A pause that has not ended shows in `ingestion_consumer_budget_paused_partitions` and in the commit age.
 
 ## Polling
 
@@ -142,7 +149,7 @@ The batcher state machine in `src/batcher/` orders runs and places them on worke
 Metrics:
 
 - `ingestion_consumer_batcher_requests_sent_total{worker}` and `ingestion_consumer_batcher_messages_sent_total{worker}` count what each worker was sent, replays included.
-- `ingestion_consumer_request_events` and `ingestion_consumer_request_bytes` record each request as sent. They show whether requests reach the pack target.
+- `ingestion_consumer_request_events` and `ingestion_consumer_request_bytes` record each request as sent. They show whether requests reach the pack target. `ingestion_consumer_request_keys` records how many keys each request carries; an unkeyed group counts as one key.
 - `ingestion_consumer_request_queue_wait_seconds{kind=fresh|replay}` records how long a request's oldest message waited, including the pack budget.
 - `ingestion_consumer_batcher_packed_requests_total{reason=target|deadline|replay|shutdown}` counts why the packer built each request: at the target, at the budget deadline, as a replay, or at shutdown.
 - `ingestion_consumer_request_budget_partials_total` counts partial acks, and `ingestion_consumer_request_budget_unfinished_messages_total` counts the messages they left unfinished. `ingestion_consumer_request_budget_bounces_total` counts the partial acks that finished nothing, one per request.
@@ -196,13 +203,14 @@ A message a worker permanently rejects (a nack on every delivery) has no dead-le
 Needs a design pass: DLQ topic, retry budget before giving up, the per-key ordering caveat (DLQ-ing one message then delivering later ones for the same person), and replay ownership.
 Non-UTF-8 payloads — currently nulled when a poll adds the message, with no metric — should route to the same DLQ as malformed input; a bytes-preserving wire format is not worth it while the producer (capture) guarantees UTF-8 JSON.
 
-### 4. Stall deadline per partition
+### 4. Stall alert per partition
 
 The batcher's no-progress bound covers the pod, not a partition: it resets whenever a worker accepts a request.
 A partition whose frontier stops moving while other partitions make progress pauses at its budget and stays paused, and nothing fails.
-The signals are the partition's kminion lag and a paused-partitions gauge that stays above zero.
-A deadline per partition, reset when its frontier moves, would fail the process for such a partition.
-It needs a decision together with item 3, because a poison message would then restart the pod again and again instead of holding one partition.
+`ingestion_consumer_partition_commit_age_seconds{topic,partition}` names such a partition, and the max gauge shows that one exists.
+The pause histogram records its pause only when the pause ends.
+The remaining work is an alert on the commit age per lane.
+A deadline per partition that fails the process is the wrong answer: a poison message would then restart the pod again and again instead of holding one partition (item 3).
 
 ### Smaller items
 

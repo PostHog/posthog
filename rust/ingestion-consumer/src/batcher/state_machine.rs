@@ -766,6 +766,7 @@ impl ActiveState {
             "fresh"
         };
         histogram!("ingestion_consumer_request_events").record(request.message_count as f64);
+        histogram!("ingestion_consumer_request_keys").record(request.runs.len() as f64);
         histogram!("ingestion_consumer_request_bytes").record(request.bytes as f64);
         histogram!("ingestion_consumer_request_queue_wait_seconds", "kind" => kind).record(
             now.saturating_duration_since(request.oldest_arrival)
