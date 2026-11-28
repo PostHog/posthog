@@ -8,8 +8,11 @@ This file records how it maps to React Native.
 On iOS, the Icon Composer bundles in `assets/` keep the background and hedgehog on separate layers.
 Default uses the color mark on white. Dark uses the white square logomark on a dark fill.
 Clear and Tinted use the monochrome mark with the system's glass and tint effects. Dev and Preview add
-their labels on a separate layer. Preview all four appearances on the iOS Home Screen when
-changing the icon. [Apple's Icon Composer guide](https://developer.apple.com/documentation/xcode/creating-your-app-icon-using-icon-composer)
+their labels on a separate layer.
+Explicitly disable group translucency, specular highlights, and shadows in Light and Dark appearances so the marks stay solid.
+Omitting these settings restores Icon Composer defaults even when a layer has `glass: false`.
+Preview Default, Dark, Clear Light, Clear Dark, Tinted Light, and Tinted Dark on the iOS Home Screen when changing the icon.
+[Apple's Icon Composer guide](https://developer.apple.com/documentation/xcode/creating-your-app-icon-using-icon-composer)
 
 Android adaptive icon layers use a 108dp canvas, with a central 72dp viewport and a 66dp safe circle.
 `plugins/withAndroidAdaptiveIconInsets.js` adds a proportional 18dp inset on every side during
