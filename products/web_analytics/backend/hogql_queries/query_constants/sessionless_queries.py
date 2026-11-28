@@ -1,13 +1,9 @@
-# Session metrics computed from the events table alone, grouped by `$session_id`: no join to the
-# sessions table, no person-overrides join. The sessions-table join can never be shard-local (events
-# and sessions are sharded by different keys on different clusters), and the sessions side has its
-# own memory limit; this shape trades exactness at the range edges and after identify for one
-# aggregation on the events cluster. Only events that carry a UUIDv7 `$session_id` take part, as
-# in the sessions table. Bounce mirrors sessions v3: one pageview or screen, no autocapture, and a
-# duration under the bounce threshold, over every event of the session, not only pageviews.
-# `start_timestamp` is the millisecond timestamp embedded in the UUIDv7 id, which is what the
-# sessions table keys on too, so the period attribution agrees with the join path; the duration,
-# entry and exit page see only the events inside the scanned range.
+# Session metrics from the events table alone, grouped by `$session_id`, with no sessions-table or
+# person-overrides join: the sessions join cannot be shard-local, because the two tables are sharded
+# by different keys on different clusters. Bounce mirrors sessions v3 over every event of the
+# session, and `start_timestamp` is the UUIDv7 millisecond timestamp the sessions table keys on, so
+# period attribution agrees with the join path while duration, entry and exit page only see events
+# inside the scanned range.
 SESSIONLESS_SESSIONS_QUERY = """
 SELECT
     events.$session_id AS session_id,
@@ -35,10 +31,8 @@ GROUP BY session_id
 HAVING page_screen_count > 0
 """
 
-# Overview from the per-session rows. Column order matches the join and two-scan shapes, which
-# `WebOverviewQueryRunner._calculate` indexes positionally. Views are the pageviews of the sessions
-# that start in the period, not the events whose timestamp falls in it, so the two drift apart only
-# for sessions straddling a period boundary.
+# Column order matches the join and two-scan shapes, which `WebOverviewQueryRunner._calculate`
+# indexes positionally. Views count the pageviews of sessions that start in the period.
 SESSIONLESS_OVERVIEW_QUERY = """
 SELECT
     uniqIf(s.person_id, {current_period}) AS unique_users,

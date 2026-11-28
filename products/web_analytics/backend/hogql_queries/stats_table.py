@@ -1242,14 +1242,14 @@ WHERE and(
             return self._prepend_host(ast.Field(chain=["$entry_hostname"]), path)
         return path
 
-    def _sessionless_entry_pathname_breakdown(self):
+    def _sessionless_entry_pathname_breakdown(self) -> ast.Expr:
         """Entry page from the per-session rows of SESSIONLESS_SESSIONS_QUERY."""
         path = self._apply_path_cleaning(ast.Field(chain=["s", "entry_pathname"]))
         if self.query.includeHost:
             return self._prepend_host(ast.Field(chain=["s", "entry_host"]), path)
         return path
 
-    def _sessionless_exit_pathname_breakdown(self):
+    def _sessionless_exit_pathname_breakdown(self) -> ast.Expr:
         path = self._apply_path_cleaning(ast.Field(chain=["s", "exit_pathname"]))
         if self.query.includeHost:
             return self._prepend_host(ast.Field(chain=["s", "exit_host"]), path)
