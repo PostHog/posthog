@@ -1,6 +1,4 @@
-import { IconCheckCircle, IconClock, IconXCircle } from '@posthog/icons'
-import { Spinner } from '@posthog/lemon-ui'
-
+import { WizardRunProgressStateIcon } from '../../../components/run-tags/WizardRunProgressStateIcon'
 import type { WizardRunApi, WizardRunTaskApi } from '../../../generated/api.schemas'
 import {
     WIZARD_RUN_PROGRESS_STEPS,
@@ -23,16 +21,6 @@ const TASK_STATES: Record<WizardRunTaskApi['status'], WizardRunProgressState> = 
     failed: 'failed',
 }
 
-function StepIcon({ state }: { state: WizardRunProgressState }): JSX.Element {
-    if (state === 'active') {
-        return <Spinner />
-    }
-    if (state === 'complete') {
-        return <IconCheckCircle className="text-success" />
-    }
-    return state === 'failed' ? <IconXCircle className="text-danger" /> : <IconClock className="text-muted" />
-}
-
 export function WizardInstallRunProgress({
     run,
     tasks,
@@ -49,7 +37,7 @@ export function WizardInstallRunProgress({
             <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1.5">
                 {WIZARD_RUN_PROGRESS_STEPS.map((step) => (
                     <span key={step} className="flex items-center gap-1 text-2xs text-muted">
-                        <StepIcon state={stepStates[step]} />
+                        <WizardRunProgressStateIcon state={stepStates[step]} />
                         <span>{STEP_LABELS[step]}</span>
                     </span>
                 ))}
@@ -58,7 +46,7 @@ export function WizardInstallRunProgress({
                 <ul className="mt-3 mb-0 list-none space-y-1 p-0">
                     {visibleTasks.map((task) => (
                         <li key={task.name} className="flex items-center gap-2 text-xs">
-                            <StepIcon state={TASK_STATES[task.status]} />
+                            <WizardRunProgressStateIcon state={TASK_STATES[task.status]} />
                             <span className="truncate ph-no-capture">{task.name}</span>
                         </li>
                     ))}
