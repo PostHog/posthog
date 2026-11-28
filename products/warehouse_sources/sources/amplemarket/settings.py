@@ -22,7 +22,7 @@ class AmplemarketEndpointConfig:
     # Stable creation-time field used for datetime partitioning. Never an updated_at-style
     # field, which would rewrite partitions on every sync.
     partition_key: Optional[str] = None
-    sort_mode: SortMode = "asc"
+    sort_mode: Optional[SortMode] = "asc"
     fanout: Optional[DependentEndpointConfig] = None
     # The remaining fields exist to satisfy the shared FanoutEndpointLike protocol; Amplemarket
     # page sizes come from the server defaults (see the module comment below), and no endpoint
@@ -147,6 +147,12 @@ AMPLEMARKET_ENDPOINTS: dict[str, AmplemarketEndpointConfig] = {
         data_key="mailboxes",
         partition_key="created_at",
     ),
+    "personas": AmplemarketEndpointConfig(
+        name="personas",
+        path="/personas",
+        data_key="personas",
+        sort_mode=None,
+    ),
     "sequences": AmplemarketEndpointConfig(
         name="sequences",
         path="/sequences",
@@ -160,6 +166,12 @@ AMPLEMARKET_ENDPOINTS: dict[str, AmplemarketEndpointConfig] = {
         path="/tasks?user_id={user_id}",
         data_key="tasks",
         fanout=_TASKS_FANOUT,
+    ),
+    "territories": AmplemarketEndpointConfig(
+        name="territories",
+        path="/territories",
+        data_key="territories",
+        sort_mode=None,
     ),
     "users": AmplemarketEndpointConfig(
         name="users",

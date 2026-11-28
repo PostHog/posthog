@@ -650,7 +650,7 @@ Note (2026-11-19): Diffed the vendor spec index toc2.json and per-entity index a
 
 ## Amplemarket — gaps
 
-Today (12): `accounts`, `call_dispositions`, `calls`, `contacts`, `excluded_domains`, `excluded_emails`, `lead_list_entries`, `lead_lists`, `mailboxes`, `sequences`, `tasks`, `users`
+Today (14): `accounts`, `call_dispositions`, `calls`, `contacts`, `excluded_domains`, `excluded_emails`, `lead_list_entries`, `lead_lists`, `mailboxes`, `personas`, `sequences`, `tasks`, `territories`, `users`
 
 Diffed against: <https://api.amplemarket.com/api-docs/v1/swagger.yaml>
 
@@ -662,9 +662,9 @@ Note: Parsed every GET operation in the vendor's published OpenAPI spec, includi
 
 Re-audited 2026-11-19 against: <https://api.amplemarket.com/api-docs/v1/swagger.yaml>
 
-- [ ] `Personas (GET /personas)` — named buyer personas defined in the workspace, for segmenting leads and sequences (medium)
-- [ ] `Territories (GET /territories)` — territory definitions used to assign accounts and contacts (medium)
-- [ ] `Contact sequences (GET /contacts/{id}/sequences)` — which sequences each synced contact is in, one entry per lead; the contact to sequence join (medium)
+- [x] `Personas (GET /personas)` — added as `personas` (full refresh).
+- [x] `Territories (GET /territories)` — added as `territories` (full refresh).
+- ~~`Contact sequences (GET /contacts/{id}/sequences)`~~ — skipped. The response has one row per lead but returns the sequence ID without a lead ID. The API does not document a unique key for each row. The route also requires fetching sequences for each contact and contacts for each account.
 
 Note (2026-11-19): Re-parsed the swagger.yaml path list and diffed it against the 12 tables. Everything else not synced is a search, find, enrichment or action route, or a single-record read, and was excluded. Task statuses and types are enum lists and were left out as before. Contact sequences need a fan-out over contacts, which is already a fan-out over accounts, so it is a heavy call count.
 
