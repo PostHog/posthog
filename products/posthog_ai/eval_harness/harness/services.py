@@ -302,6 +302,27 @@ def provision_ai_gateway_mint_key(team_id: int, *, agent_model: str) -> str:
     return mint_key
 
 
+MCP_FLAG_OVERRIDES_ENV = "EVAL_MCP_FLAG_OVERRIDES"
+
+
+def run_mcp_flag_overrides() -> dict[str, bool | str]:
+    """MCP feature flags this run forces on top of the harness defaults, from ``EVAL_MCP_FLAG_OVERRIDES``.
+
+    A JSON object of flag key to ``true``, ``false`` or a variant key. It lets one suite run with a
+    flagged MCP behavior on and off, without that flag changing the instructions of every other run.
+    """
+    raw = os.environ.get(MCP_FLAG_OVERRIDES_ENV, "").strip()
+    if not raw:
+        return {}
+    try:
+        overrides = json.loads(raw)
+    except json.JSONDecodeError as error:
+        raise ValueError(f"{MCP_FLAG_OVERRIDES_ENV} is not valid JSON: {error}") from error
+    if not isinstance(overrides, dict) or not all(isinstance(value, bool | str) for value in overrides.values()):
+        raise ValueError(f"{MCP_FLAG_OVERRIDES_ENV} must be a JSON object of flag key to a boolean or a variant key")
+    return overrides
+
+
 def start_mcp_server(
     live_server_url: str,
     skill_archive_url: str | None,
@@ -351,6 +372,7 @@ def start_mcp_server(
             {
                 "dashboard-widgets": True,
                 "notebook-app-builder": True,
+                **run_mcp_flag_overrides(),
                 MCP_EXEC_SKILLS_FEATURE_FLAG: exec_skills_enabled,
             }
         ),
@@ -366,10 +388,11 @@ def start_mcp_server(
         env["POSTHOG_MCP_SKILLS_SHA256"] = skill_archive_sha256
 
     logger.info(
-        "Starting MCP server (Hono runtime) on port %d (API: %s, exec skills: %s)",
+        "Starting MCP server (Hono runtime) on port %d (API: %s, exec skills: %s, flag overrides: %s)",
         MCP_PORT,
         api_url,
         exec_skills_enabled,
+        run_mcp_flag_overrides() or "none",
     )
     _, stop = LONG_LIVED_SUBPROCESSES.start(
         name="MCP server",

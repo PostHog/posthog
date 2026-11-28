@@ -22,6 +22,7 @@ from posthoganalytics import Posthog
 
 from ..trace_events import DISTINCT_ID, RunMetadata
 from .contract import AsyncOnlyScorerMixin, Scorer
+from .judged import needs_responses_api, responses_completion
 
 # Context var for injecting per-scorer-invocation trace properties
 # into the traced OpenAI client's ``create()`` calls.
@@ -77,10 +78,14 @@ def create_traced_scorer_clients(posthog_client: Posthog) -> TracedClients:
     # Traced OpenAI client (for autoevals LLMClassifier scorers)
     openai_client = AsyncOpenAI(posthog_client=posthog_client)
     original_openai_create = openai_client.chat.completions.create
+    responses_create = responses_completion(openai_client)
 
     async def patched_openai_create(*args, **kwargs):
         for k, v in _build_posthog_kwargs().items():
             kwargs.setdefault(k, v)
+        # This client skips the Autoevals router, so it picks the API by model as `LocalLLMClassifier` does.
+        if needs_responses_api(kwargs["model"]):
+            return await responses_create(**kwargs)
         return await original_openai_create(*args, **kwargs)
 
     openai_client.chat.completions.create = patched_openai_create

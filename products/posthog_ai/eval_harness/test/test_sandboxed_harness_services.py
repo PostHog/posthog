@@ -29,6 +29,7 @@ from products.posthog_ai.eval_harness.harness.services import (
     maintain_ai_gateway_mint_key,
     package_local_skills_archive,
     provision_ai_gateway_mint_key,
+    run_mcp_flag_overrides,
     start_mcp_server,
 )
 from products.posthog_ai.eval_harness.harness.skill_snapshot import SkillSnapshot
@@ -213,6 +214,9 @@ def test_start_mcp_server_isolates_the_selected_skill_delivery(
                 "POSTHOG_MCP_SKILLS_URL": "https://stale.example/skills.zip",
                 "POSTHOG_MCP_LOCAL_SKILLS_URL": "https://local.example/skills.zip",
                 "POSTHOG_MCP_SKILLS_SHA256": "stale",
+                "EVAL_MCP_FLAG_OVERRIDES": json.dumps(
+                    {"a-run-flag": "its-variant", "mcp-exec-skills": not expected_flag_value}
+                ),
             },
         ),
         patch("products.posthog_ai.eval_harness.harness.services.settings.BASE_DIR", tmp_path),
@@ -230,6 +234,8 @@ def test_start_mcp_server_isolates_the_selected_skill_delivery(
 
     env = start.call_args.kwargs["env"]
     overrides = json.loads(env["FEATURE_FLAG_OVERRIDES"])
+    assert overrides["a-run-flag"] == "its-variant"
+    # A run's own overrides must not undo the skill delivery the run was started with.
     assert overrides["mcp-exec-skills"] is expected_flag_value
     assert start.call_args.kwargs.get("readiness_timeout", 30) == (120 if exec_skills_enabled else 30)
     # The skill delivery switch must not displace the overrides every eval run relies on.
@@ -243,6 +249,14 @@ def test_start_mcp_server_isolates_the_selected_skill_delivery(
         assert env["POSTHOG_MCP_SKILLS_SHA256"] == "a" * 64
     assert "POSTHOG_MCP_LOCAL_SKILLS_URL" not in env
     assert result is stop
+
+
+@pytest.mark.parametrize("raw", ["{not json", '["a-flag"]', '{"a-flag": 1}'])
+def test_run_mcp_flag_overrides_rejects_a_malformed_value(monkeypatch: pytest.MonkeyPatch, raw: str) -> None:
+    monkeypatch.setenv("EVAL_MCP_FLAG_OVERRIDES", raw)
+
+    with pytest.raises(ValueError, match="EVAL_MCP_FLAG_OVERRIDES"):
+        run_mcp_flag_overrides()
 
 
 @pytest.mark.parametrize("failures,retries,recovers", [(1, 2, True), (3, 2, False), (1, 0, False)])

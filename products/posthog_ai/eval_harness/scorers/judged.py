@@ -8,6 +8,7 @@ instead of a silently divergent code path.
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from copy import copy
 from typing import Any
 
@@ -42,6 +43,47 @@ GRADED_ALIGNMENT_CHOICE_SCORES = {
 JUDGE_MODEL = "gpt-5.4"
 
 
+def needs_responses_api(model: str) -> bool:
+    """Whether a judge model must go through the Responses API, which Autoevals uses only for `gpt-5` models.
+
+    A judge answers with a function tool call. `gpt-6` models refuse function tools on chat completions unless
+    `reasoning_effort` is `none`, and they do not accept `none`.
+    """
+    return model.startswith("gpt-6")
+
+
+def responses_completion(client: AsyncOpenAI) -> Callable[..., Awaitable[dict[str, Any]]]:
+    """A chat completions request sent to the Responses API, answered in the chat completions shape.
+
+    It maps the request as Autoevals does for `gpt-5` models, so both paths send the same judge request.
+    """
+
+    async def complete(**kwargs: Any) -> dict[str, Any]:
+        # A traced client's tracing arguments pass through, so the call is still traced.
+        request: dict[str, Any] = {
+            "model": kwargs["model"],
+            "input": kwargs["messages"],
+            **{key: value for key, value in kwargs.items() if key.startswith("posthog_")},
+        }
+        if tools := kwargs.get("tools"):
+            request["tools"] = [{"type": "function", **tool["function"]} for tool in tools]
+            request["tool_choice"] = "required"
+        if effort := kwargs.get("reasoning_effort"):
+            request["reasoning"] = {"effort": effort}
+        response = await client.responses.create(**request)
+        tool_calls = [
+            {"id": item.call_id, "type": "function", "function": {"name": item.name, "arguments": item.arguments}}
+            for item in response.output
+            if item.type == "function_call"
+        ]
+        message: dict[str, Any] = {"role": "assistant", "content": response.output_text or None}
+        if tool_calls:
+            message["tool_calls"] = tool_calls
+        return {"choices": [{"index": 0, "message": message, "finish_reason": "stop"}]}
+
+    return complete
+
+
 class LocalLLMClassifier(AsyncOnlyScorerMixin, LLMClassifier):
     """Use the configured OpenAI provider without Autoevals' Braintrust proxy fallback."""
 
@@ -58,6 +100,9 @@ class LocalLLMClassifier(AsyncOnlyScorerMixin, LLMClassifier):
                 is_async=True,
                 RateLimitError=RateLimitError,
             )
+            if needs_responses_api(scorer.model):
+                # LLMClient replaces the `complete` it is given with its own router, so set it after construction.
+                scorer.client.complete = responses_completion(client)
             return await LLMClassifier._run_eval_async(scorer, output, expected, **kwargs)
 
 

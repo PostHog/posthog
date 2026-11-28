@@ -58,6 +58,25 @@ The eval gateway posts every `$ai_generation` event to a local capture endpoint,
 
 Repository-selection runs attribute their model calls to their production products: `signals_repo_selection` for the selector suite and `slack_app` for the routing suite. The gateway applies each product's model restrictions, so a model reserved for other products fails at agent startup and the trial counts as an error. The `slack_app` model pin covers only models in `products/tasks/backend/model_catalog.py`, so run the routing suite on a catalog model such as `claude-sonnet-5-5`.
 
+## Inbox consumer evals
+
+`hogli evals signals/eval_inbox_consumer` runs three suites against a project whose Self-driving inbox already holds researched reports.
+They score whether an agent goes to the inbox for an open question about the product, how cheaply it reads or finds a report, and what it does when asked to implement one.
+Each case seeds the same invented reports from [`products/signals/evals/inbox_consumer_fixture.py`](../../signals/evals/inbox_consumer_fixture.py), two of them about the seeded error tracking issues and one about code in the sandbox's Hedgebox repository.
+Eval runs cannot publish, so the implementation case asks for the pull request's title and description in the answer.
+
+The inbox line in the MCP instructions is behind the `self-driving-mcp-instructions-nudge` flag.
+`EVAL_MCP_FLAG_OVERRIDES` sets MCP feature flags for one run, as a JSON object of flag key to `true`, `false` or a variant key, so the same suites can run with the line and without it.
+The MCP server in an eval run resolves every other flag to `false`, so also set the inbox tool flags the run should see, such as `inbox-reports-search`:
+
+```bash
+EVAL_MCP_FLAG_OVERRIDES='{"inbox-reports-search": true}' hogli evals signals/eval_inbox_consumer
+EVAL_MCP_FLAG_OVERRIDES='{"inbox-reports-search": true, "self-driving-mcp-instructions-nudge": "line-with-count"}' hogli evals signals/eval_inbox_consumer
+```
+
+Each case records the overrides in its metadata as `mcp_flag_overrides`.
+The harness's own overrides for skill delivery win over this variable.
+
 ## Running
 
 ```bash
