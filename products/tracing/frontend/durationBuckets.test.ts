@@ -20,6 +20,7 @@ describe('durationBuckets', () => {
         [2 * MS, 2 * MS], // exact bucket value stays put
         [999, 500], // 999ns → 500ns
         [0, 1], // zero durations park in the 1ns bucket
+        [2 ** 64 - 2 * MS, 1], // UInt64-wrapped negative duration parks in the 1ns bucket, like the backend
         [5_000_000_000, 5_000_000_000], // exact 5s
     ])('snapDurationToBucket(%i) → %i', (ns, expected) => {
         expect(snapDurationToBucket(ns)).toBe(expected)
