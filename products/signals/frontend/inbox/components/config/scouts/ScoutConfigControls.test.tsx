@@ -219,7 +219,7 @@ describe('ScoutConfigForm', () => {
     })
 
     // Guards the pin's wire values: a model option must patch the raw model id (not its display
-    // label), and Default must patch null (not '') — the backend treats null as "clear the pin".
+    // label), and Auto must patch null (not '') — the backend treats null as "clear the pin".
     it.each([
         ['Claude Sonnet 5.5', 'claude-sonnet-5-5'],
         ['Claude Opus 5.5', 'claude-opus-5-5'],
@@ -228,7 +228,7 @@ describe('ScoutConfigForm', () => {
         ['GPT-6.1 Sol', 'gpt-6.1-sol'],
         ['GPT-6 Sol', 'gpt-6-sol'],
         ['GPT-6 Astra', 'gpt-6-astra'],
-    ])('pins %s from the dropdown and clears the pin via Default', (label, modelId) => {
+    ])('pins %s from the dropdown and clears the pin via Auto', (label, modelId) => {
         featureFlagLogic.mount()
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SCOUTS_MODEL_CONFIG], {
             [FEATURE_FLAGS.SCOUTS_MODEL_CONFIG]: true,
@@ -245,7 +245,7 @@ describe('ScoutConfigForm', () => {
 
         rerender(<ScoutConfigForm config={{ ...config, model: modelId }} onUpdate={onUpdate} />)
         fireEvent.click(getByLabelText(modelSelectLabel))
-        fireEvent.click(getByText('Default'))
+        fireEvent.click(getByText('Auto'))
         expect(onUpdate).toHaveBeenLastCalledWith('config-1', { model: null })
         unmount()
     })
@@ -261,7 +261,7 @@ describe('ScoutConfigForm', () => {
 
         const select = getByLabelText('General model')
         expect(select).toHaveTextContent('claude-opus-5')
-        expect(select).not.toHaveTextContent('Default')
+        expect(select).not.toHaveTextContent('Auto')
         unmount()
     })
 
