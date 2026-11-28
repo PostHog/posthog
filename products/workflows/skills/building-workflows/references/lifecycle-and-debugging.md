@@ -25,7 +25,7 @@ The MCP tools for the workflows product, grouped by job. The lifecycle that stri
 
 **Batch & schedules**
 
-- `workflows-run-batch` — one-off broadcast to the batch audience (one run per matching person).
+- `workflows-run-batch` — one-off run of a batch workflow to its audience (one run per matching person). Not for broadcasts: the user launches those from the broadcast wizard (see [SKILL.md](../SKILL.md#broadcasts-are-not-workflows)).
 - `workflows-schedule-create` — attach a recurring schedule (RRULE) to a batch/schedule workflow.
 - `workflows-update-schedule` — change a schedule's RRULE, start time, timezone, or variable overrides.
 - `workflows-list-batch-jobs` — past batch runs (one-off + schedule-triggered), with the audience filters and variable overrides each used. No per-run status here. A run's sends, steps, outcomes and logs are keyed on the run's id, so `workflows-stats` and `workflows-logs` never show them: read a run's counts from `app_metrics` with `execute-sql` (`app_source = 'hog_flow' AND app_source_id = '<run id>'`), and who it reached from `posthog.hog_invocation_results` (`function_id = '<workflow id>' AND parent_run_id = '<run id>' AND scheduled_at >= '<run created_at>'`, `argMax(status, version)` per `invocation_id`; rows last 30 days). Bookkeeping counters such as `masked`, `quota_limited` and `billable_invocation` stay keyed on the workflow. `workflows-list-invocations` has no run filter, so it mixes every run.

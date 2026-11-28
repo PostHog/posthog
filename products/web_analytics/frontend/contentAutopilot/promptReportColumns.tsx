@@ -2,7 +2,6 @@ import { IconExternal } from '@posthog/icons'
 import { Button, Progress, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
-import { percentage } from 'lib/utils/numbers'
 
 import type { QueryContext, QueryContextColumnComponent } from '~/queries/types'
 
@@ -10,6 +9,7 @@ import { AiVisibilityTag } from './AiVisibilityTag'
 import { ContentAutopilotCitationsLink } from './ContentAutopilotCitationsLink'
 import { CITATIONS_MAX_DATE_FROM, type CitationsLookup } from './contentAutopilotCitationsModalLogic'
 import { PROMPT_CITATION_COLUMNS, PROMPT_SOURCE_COLUMNS } from './promptReportQueries'
+import { formatShare } from './shares'
 
 // Engine output is third-party text: only plain http(s) URLs become links.
 const isWebUrl = (url: string): boolean => /^https?:\/\//i.test(url)
@@ -88,7 +88,7 @@ const ShareCell: QueryContextColumnComponent = ({ value }) => {
     return (
         <span className="flex items-center gap-2 min-w-32">
             <Progress value={share * 100} aria-label="Share of all answers" className="flex-1" />
-            <span className="w-10 text-right tabular-nums">{percentage(share, 0)}</span>
+            <span className="w-10 text-right tabular-nums">{formatShare(share)}</span>
         </span>
     )
 }

@@ -32,6 +32,7 @@ class HightouchEndpointConfig:
     sort_mode: Literal["asc", "desc"] = "asc"
     primary_key: str | list[str] = "id"
     fanout: DependentEndpointConfig | None = None
+    resume_parent_pagination: bool = False
     # Response fields dropped from every row before it is yielded. Hightouch `configuration`
     # objects carry connection details (database credentials on sources, hostnames/usernames
     # and API secrets on destinations, custom auth headers on HTTP-destination syncs), which
@@ -76,6 +77,7 @@ HIGHTOUCH_ENDPOINTS: dict[str, HightouchEndpointConfig] = {
             # or duplicate rows if the API's implicit ordering shifts while rows are inserted
             # mid-walk (Hightouch documents orderBy fields but not the direction).
             parent_params={"orderBy": "id"},
+            child_params={"orderBy": "id"},
         ),
     ),
     "models": HightouchEndpointConfig(
@@ -91,6 +93,30 @@ HIGHTOUCH_ENDPOINTS: dict[str, HightouchEndpointConfig] = {
         name="destinations",
         path="/destinations",
         strip_fields=("configuration",),
+    ),
+    "decision_engine_flows": HightouchEndpointConfig(
+        name="decision_engine_flows",
+        path="/decision-engine/flows",
+        strip_fields=("config",),
+    ),
+    "decision_engine_messages": HightouchEndpointConfig(
+        name="decision_engine_messages",
+        path="/decision-engine/flow/{flow_id}/messages",
+        primary_key=["flow_id", "id"],
+        resume_parent_pagination=True,
+        fanout=DependentEndpointConfig(
+            parent_name="decision_engine_flows",
+            resolve_param="flow_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "flow_id"},
+            parent_params={"orderBy": "id"},
+        ),
+        strip_fields=("config",),
+    ),
+    "event_contracts": HightouchEndpointConfig(
+        name="event_contracts",
+        path="/events/contracts",
     ),
 }
 

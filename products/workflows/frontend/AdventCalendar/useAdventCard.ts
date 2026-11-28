@@ -1,12 +1,12 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
-const OPEN_DELAY_MS = 260
 export const ADVENT_CARD_CLOSE_MS = 220
 
 export interface AdventCardState {
     doorId: string | null
     isOpen: boolean
     isPinned: boolean
+    isClosing: boolean
     onEnterDoor: (doorId: string) => void
     onLeaveDoor: () => void
     onEnterCard: () => void
@@ -19,14 +19,17 @@ export function useAdventCard(pinnedDoorId: string | null, isEnabled: boolean): 
     const hoverTimer = useRef<number>()
     const targetId = isEnabled ? (pinnedDoorId ?? hoveredId) : null
     const quiet = useRef<{ doorId: string | null } | null>(null)
+    const hover = useCallback((doorId: string): void => {
+        window.clearTimeout(hoverTimer.current)
+        setHoveredId(doorId)
+    }, [])
 
     useEffect(() => {
         const wake = (): void => {
             const waiting = quiet.current?.doorId
             quiet.current = null
             if (waiting) {
-                window.clearTimeout(hoverTimer.current)
-                hoverTimer.current = window.setTimeout(() => setHoveredId(waiting), OPEN_DELAY_MS)
+                hover(waiting)
             }
         }
         window.addEventListener('pointermove', wake)
@@ -34,7 +37,7 @@ export function useAdventCard(pinnedDoorId: string | null, isEnabled: boolean): 
             window.removeEventListener('pointermove', wake)
             window.clearTimeout(hoverTimer.current)
         }
-    }, [])
+    }, [hover])
 
     useEffect(() => {
         if (targetId) {
@@ -53,27 +56,24 @@ export function useAdventCard(pinnedDoorId: string | null, isEnabled: boolean): 
         return () => window.clearTimeout(timer)
     }, [targetId])
 
-    const later = (doorId: string | null, delay: number): void => {
-        window.clearTimeout(hoverTimer.current)
-        hoverTimer.current = window.setTimeout(() => setHoveredId(doorId), delay)
-    }
-
     return {
         doorId: shown.doorId,
         isOpen: shown.isOpen && shown.doorId === targetId,
         isPinned: !!pinnedDoorId && shown.doorId === pinnedDoorId,
+        isClosing: !!shown.doorId && shown.doorId !== targetId && shown.doorId !== pinnedDoorId,
         onEnterDoor: (doorId) => {
             if (quiet.current) {
                 quiet.current.doorId = doorId
             } else {
-                later(doorId, hoveredId ? 0 : OPEN_DELAY_MS)
+                hover(doorId)
             }
         },
         onLeaveDoor: () => {
             if (quiet.current) {
                 quiet.current.doorId = null
             }
-            later(null, ADVENT_CARD_CLOSE_MS)
+            window.clearTimeout(hoverTimer.current)
+            hoverTimer.current = window.setTimeout(() => setHoveredId(null), ADVENT_CARD_CLOSE_MS)
         },
         onEnterCard: () => window.clearTimeout(hoverTimer.current),
         clearHover: () => {

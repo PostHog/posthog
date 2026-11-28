@@ -3,7 +3,7 @@ import './TodayShell.scss'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { ComponentType, Suspense, useEffect, useRef } from 'react'
 
-import { Skeleton, ToastProvider } from '@posthog/quill'
+import { Skeleton } from '@posthog/quill'
 
 import 'scenes/project-homepage/today/Today.scss'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
@@ -205,76 +205,72 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
 
     if (phoneLayout) {
         return (
-            <ToastProvider>
-                <div data-quill className={cn('Today TodayShell TodayShell--phone', className)}>
-                    {!sidebarVisible && !phoneHeaderHidden && <TodayPhoneHeader />}
-                    <aside
-                        ref={drawerRef}
-                        tabIndex={-1}
-                        className="group/sidebar TodayShell__sidebar TodayShell__page outline-none"
-                        data-open={sidebarVisible}
-                        aria-label={paneTitle}
-                        aria-hidden={!sidebarVisible}
-                        {...(sidebarVisible ? {} : { inert: '' })}
-                    >
-                        {pane}
-                        <TodaySidebarFooter />
-                    </aside>
-                    <TodayTabBar />
-                    {overlays}
-                </div>
-            </ToastProvider>
+            <div data-quill className={cn('Today TodayShell TodayShell--phone', className)}>
+                {!sidebarVisible && !phoneHeaderHidden && <TodayPhoneHeader />}
+                <aside
+                    ref={drawerRef}
+                    tabIndex={-1}
+                    className="group/sidebar TodayShell__sidebar TodayShell__page outline-none"
+                    data-open={sidebarVisible}
+                    aria-label={paneTitle}
+                    aria-hidden={!sidebarVisible}
+                    {...(sidebarVisible ? {} : { inert: '' })}
+                >
+                    {pane}
+                    <TodaySidebarFooter />
+                </aside>
+                <TodayTabBar />
+                {overlays}
+            </div>
         )
     }
 
     return (
-        <ToastProvider>
-            <div
-                data-quill
-                className={cn('Today TodayShell bg-[var(--chrome)]', className)}
-                // eslint-disable-next-line react/forbid-dom-props
-                style={{ '--today-rail-width': `${TODAY_RAIL_WIDTH}px` } as React.CSSProperties}
-            >
-                <TodayRail />
-                {mobileLayout ? (
-                    <>
-                        <div
-                            className="TodayShell__scrim"
-                            data-open={sidebarVisible}
-                            aria-hidden
-                            onClick={() => setMobileSidebarOpen(false)}
-                        />
-                        <aside
-                            ref={drawerRef}
-                            tabIndex={-1}
-                            className="group/sidebar TodayShell__sidebar TodayShell__drawer outline-none"
-                            data-open={sidebarVisible}
-                            aria-label={paneTitle}
-                            aria-hidden={!sidebarVisible}
-                            {...(sidebarVisible ? {} : { inert: '' })}
-                            // eslint-disable-next-line react/forbid-dom-props
-                            style={{ width: sidebarWidth }}
-                        >
-                            {pane}
-                        </aside>
-                    </>
-                ) : (
-                    sidebarVisible && (
-                        <aside
-                            ref={sidebarRef}
-                            className="group/sidebar TodayShell__sidebar TodayShell__sidebar--framed relative bg-surface-primary"
-                            aria-label={paneTitle}
-                            // eslint-disable-next-line react/forbid-dom-props
-                            style={{ width: sidebarWidth }}
-                        >
-                            {pane}
-                            {/* The frame already draws the seam, so the handle's own line shows only on hover. */}
-                            <Resizer {...resizerLogicProps} visible={false} className="z-2" offset={0} />
-                        </aside>
-                    )
-                )}
-                {overlays}
-            </div>
-        </ToastProvider>
+        <div
+            data-quill
+            className={cn('Today TodayShell bg-[var(--chrome)]', className)}
+            // eslint-disable-next-line react/forbid-dom-props
+            style={{ '--today-rail-width': `${TODAY_RAIL_WIDTH}px` } as React.CSSProperties}
+        >
+            <TodayRail />
+            {mobileLayout ? (
+                <>
+                    <div
+                        className="TodayShell__scrim"
+                        data-open={sidebarVisible}
+                        aria-hidden
+                        onClick={() => setMobileSidebarOpen(false)}
+                    />
+                    <aside
+                        ref={drawerRef}
+                        tabIndex={-1}
+                        className="group/sidebar TodayShell__sidebar TodayShell__drawer outline-none"
+                        data-open={sidebarVisible}
+                        aria-label={paneTitle}
+                        aria-hidden={!sidebarVisible}
+                        {...(sidebarVisible ? {} : { inert: '' })}
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{ width: sidebarWidth }}
+                    >
+                        {pane}
+                    </aside>
+                </>
+            ) : (
+                sidebarVisible && (
+                    <aside
+                        ref={sidebarRef}
+                        className="group/sidebar TodayShell__sidebar TodayShell__sidebar--framed relative bg-surface-primary"
+                        aria-label={paneTitle}
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{ width: sidebarWidth }}
+                    >
+                        {pane}
+                        {/* The frame already draws the seam, so the handle's own line shows only on hover. */}
+                        <Resizer {...resizerLogicProps} visible={false} className="z-2" offset={0} />
+                    </aside>
+                )
+            )}
+            {overlays}
+        </div>
     )
 }

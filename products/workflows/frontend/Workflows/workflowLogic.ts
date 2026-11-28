@@ -144,6 +144,7 @@ export interface WorkflowLogicProps {
     messageTemplateId?: string
     draftSource?: string
     entrySource?: string
+    entryAttemptId?: string
 }
 
 /** Gives the workflow's name to the scene logic, which reports it as a recent and cannot import this logic back. */
@@ -4049,6 +4050,7 @@ export const workflowLogic = kea<workflowLogicType>([
                             const result = (await hogFlowsCreate(teamId, {
                                 ...updates,
                                 ...(createsBroadcast ? { origin_product: 'broadcasts' } : {}),
+                                ...(props.entryAttemptId ? { entry_attempt_id: props.entryAttemptId } : {}),
                             } as unknown as Parameters<typeof hogFlowsCreate>[1])) as unknown as HogFlow
                             actions.workflowCreated(result.id)
 

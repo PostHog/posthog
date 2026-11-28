@@ -1,10 +1,12 @@
 import '@testing-library/jest-dom'
 
-import { act, fireEvent, render, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import posthog from 'posthog-js'
+import { ToastContainer } from 'react-toastify'
 
 import { resetGetHelpAction, setGetHelpAction } from './getHelp'
-import { GET_HELP_BUTTON, ToastContent, lemonToast, withClickableUrls } from './LemonToast'
+import { GET_HELP_BUTTON, ToastContent, lemonToast } from './LemonToast'
+import { withClickableUrls } from './toastMessage'
 
 const mockPosthog = posthog as unknown as { __loaded: boolean; capture: jest.Mock }
 
@@ -130,5 +132,26 @@ describe('LemonToast', () => {
         lemonToast.error('Step "Send": bad {secret}', options)
 
         expect(mockPosthog.capture.mock.calls.map(([, properties]) => properties.message)).toEqual([captured])
+    })
+
+    // Dismissing must only cancel a toast that has not rendered yet. Cancelling a shown one left its id
+    // reserved, so the next toast with the same message never appeared.
+    it('shows a toast again after the same toast was dismissed', async () => {
+        render(<ToastContainer />)
+        let id: string | number = ''
+        act(() => {
+            id = lemonToast.success('Copied link')
+        })
+        expect(await screen.findByText('Copied link')).toBeInTheDocument()
+
+        act(() => lemonToast.dismiss(id))
+        // jsdom runs no CSS animations, so the exit animation has to be ended by hand.
+        fireEvent.animationEnd(document.getElementById(String(id))!)
+        await waitFor(() => expect(screen.queryByText('Copied link')).not.toBeInTheDocument())
+        act(() => {
+            lemonToast.success('Copied link')
+        })
+
+        expect(await screen.findByText('Copied link')).toBeInTheDocument()
     })
 })

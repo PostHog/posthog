@@ -15,7 +15,13 @@ const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
 
-const { DJANGO_SEGMENTS, getIsolatedProducts, loadJsonTargets, testlessProducts } = require('./turbo-discover')
+const {
+    DJANGO_SEGMENTS,
+    getIsolatedProducts,
+    loadJsonTargets,
+    runContext,
+    testlessProducts,
+} = require('./turbo-discover')
 
 const REPO_ROOT = path.join(__dirname, '..', '..')
 const WORKFLOW = '.depot/workflows/ci-backend.yml'
@@ -183,9 +189,56 @@ test('only a product whose backend:test is a bare echo leaves the matrix', () =>
         task('@posthog/products-replay', "echo 'No backend tests'"),
         task('@posthog/products-surveys', 'pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short'),
         task('@posthog/products-canvas', "echo 'building' && pytest backend/"),
-        task('@posthog/products-alerts', "echo $(pytest backend/)"),
+        task('@posthog/products-alerts', 'echo $(pytest backend/)'),
         task('@posthog/products-logs', 'echo hi\npytest backend/'),
         task('@posthog/personhog-proto', "echo 'personhog-proto has no tests'"),
     ]
     assert.deepEqual([...testlessProducts(tasks)], ['replay'])
+})
+
+test('the selection event tells draft, ready, and merge-queue runs apart', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'turbo-discover-run-context-'))
+    const saved = { GITHUB_EVENT_PATH: process.env.GITHUB_EVENT_PATH, GITHUB_HEAD_REF: process.env.GITHUB_HEAD_REF }
+    const cases = [
+        {
+            event: { pull_request: { number: 7, draft: true } },
+            headRef: 'feature',
+            expected: { pr_number: 7, pr_draft: true, merge_queue: false },
+        },
+        {
+            event: { pull_request: { number: 8, draft: false } },
+            headRef: 'feature',
+            expected: { pr_number: 8, pr_draft: false, merge_queue: false },
+        },
+        {
+            event: { pull_request: { number: 9, draft: true } },
+            headRef: 'trunk-merge/pr-9/abc',
+            expected: { pr_number: 9, pr_draft: true, merge_queue: true },
+        },
+        { event: {}, headRef: '', expected: { pr_number: null, pr_draft: null, merge_queue: false } },
+        { event: {}, headRef: undefined, expected: { pr_number: null, pr_draft: null, merge_queue: false } },
+    ]
+    try {
+        cases.forEach(({ event, headRef, expected }, index) => {
+            const eventPath = path.join(dir, `event-${index}.json`)
+            fs.writeFileSync(eventPath, JSON.stringify(event))
+            process.env.GITHUB_EVENT_PATH = eventPath
+            if (headRef === undefined) {
+                delete process.env.GITHUB_HEAD_REF
+            } else {
+                process.env.GITHUB_HEAD_REF = headRef
+            }
+            const { pr_number, pr_draft, merge_queue } = runContext()
+            assert.deepEqual({ pr_number, pr_draft, merge_queue }, expected, JSON.stringify({ event, headRef }))
+        })
+    } finally {
+        for (const [key, value] of Object.entries(saved)) {
+            if (value === undefined) {
+                delete process.env[key]
+            } else {
+                process.env[key] = value
+            }
+        }
+        fs.rmSync(dir, { recursive: true, force: true })
+    }
 })

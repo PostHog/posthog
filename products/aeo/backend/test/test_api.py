@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 from django.core.management import call_command
-from django.db import connection
+from django.db import connection, transaction
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
@@ -23,7 +23,11 @@ from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal
-from posthog.rate_limit import AEOKeywordReportBurstRateThrottle
+from posthog.rate_limit import (
+    AEOKeywordReportBurstRateThrottle,
+    AEOSearchDetailBurstRateThrottle,
+    AEOTopicRelabelBurstRateThrottle,
+)
 
 from products.aeo.backend import brand, catalog
 from products.aeo.backend.check_brands import enrich_check_brands
@@ -35,7 +39,15 @@ from products.aeo.backend.facade.api import (
     get_prompt_set_overview,
     refresh_stored_results,
 )
-from products.aeo.backend.models import AEOBrand, AEOCitationCheck, AEOKeyword, AEOPrompt, AEOPromptVersion
+from products.aeo.backend.models import (
+    AEOBrand,
+    AEOCheckBrand,
+    AEOCitationCheck,
+    AEOKeyword,
+    AEOPrompt,
+    AEOPromptVersion,
+)
+from products.aeo.backend.stored_results import bump_data_version_on_commit
 from products.aeo.backend.test.factories import create_citation_check, create_own_brand, store_what_the_runner_stores
 
 
@@ -383,6 +395,136 @@ class TestAEOPromptAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json() == [{"topic": "", "prompts": 1}, {"topic": "Replay", "prompts": 2}]
+
+    def _topic_fixture(self) -> dict[str, str]:
+        ids = self._import_prompts(
+            [
+                {"prompt": "a?", "topic": "Pricing"},
+                {"prompt": "b?", "topic": "pricing"},
+                {"prompt": "c?", "topic": "Plans"},
+                {"prompt": "d?"},
+            ]
+        )
+        self._record_check(ids["a?"], "exa-answer", minutes_ago=10)
+        self._record_check(ids["c?"], "exa-answer", minutes_ago=10)
+        self.client.delete(f"{self.url}{ids['b?']}/")
+        return ids
+
+    def _topics_now(self) -> tuple[dict[str, str], list[str]]:
+        prompts = dict(AEOPrompt.objects.for_team(self.team.id).values_list("prompt", "topic"))
+        checks = sorted(AEOCitationCheck.objects.for_team(self.team.id).values_list("prompt_topic", flat=True))
+        return prompts, checks
+
+    @parameterized.expand(
+        [
+            ("rename", "topics/rename/", {"topic": "PRICING", "new_topic": " Cost "}, "Cost"),
+            ("rename_letter_case", "topics/rename/", {"topic": "pricing", "new_topic": "PRICING"}, "PRICING"),
+            ("merge_keeps_the_target_spelling", "topics/merge/", {"topic": "pricing", "into_topic": "plans"}, "Plans"),
+            ("remove", "topics/remove/", {"topic": "Pricing"}, ""),
+        ]
+    )
+    def test_topic_edits_relabel_every_prompt_and_past_check_of_the_topic(
+        self, _name: str, path: str, body: dict, expected: str
+    ) -> None:
+        create_own_brand(self.team, "example.com")
+        self._topic_fixture()
+        assert {row["topic"] for row in self.client.get(f"{self.url}overview/").json()["topics"]} == {
+            "",
+            "Plans",
+            "Pricing",
+        }
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(f"{self.url}{path}", body, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json() == {"prompts": 2, "checks": 1}
+        prompts, checks = self._topics_now()
+        assert prompts == {"a?": expected, "b?": expected, "c?": "Plans", "d?": ""}
+        assert checks == sorted([expected, "Plans"])
+        # The topic is not part of a version, so the edit leaves every prompt on its first and only version.
+        assert set(AEOPrompt.objects.for_team(self.team.id).values_list("current_version", flat=True)) == {1}
+        assert AEOPromptVersion.objects.for_team(self.team.id).count() == 4
+        # The overview reads a stored result, so a missing bump would still show the old topic here.
+        assert {row["topic"] for row in self.client.get(f"{self.url}overview/").json()["topics"]} == {
+            "",
+            "Plans",
+            expected,
+        }
+
+    @parameterized.expand(
+        [
+            ("rename_onto_another_topic", "topics/rename/", {"topic": "Pricing", "new_topic": "plans"}, 409),
+            ("rename_a_missing_topic", "topics/rename/", {"topic": "Support", "new_topic": "Help"}, 404),
+            ("rename_to_blank", "topics/rename/", {"topic": "Pricing", "new_topic": "   "}, 400),
+            ("merge_into_itself", "topics/merge/", {"topic": "Pricing", "into_topic": "PRICING"}, 400),
+            ("merge_into_a_missing_topic", "topics/merge/", {"topic": "Pricing", "into_topic": "Support"}, 404),
+            ("remove_a_missing_topic", "topics/remove/", {"topic": "Support"}, 404),
+            ("remove_no_topic", "topics/remove/", {"topic": ""}, 400),
+            # Renaming a topic to its own name would rewrite every past check and change nothing.
+            ("rename_to_the_same_name", "topics/rename/", {"topic": "Plans", "new_topic": "Plans"}, 400),
+            # A rename relabels archived prompts too, so a name only archived prompts hold is taken.
+            ("rename_onto_an_archived_topic", "topics/rename/", {"topic": "Plans", "new_topic": "BILLING"}, 409),
+        ]
+    )
+    def test_refused_topic_edits_change_nothing(self, _name: str, path: str, body: dict, expected: int) -> None:
+        self._topic_fixture()
+        archived = self._import_prompts([{"prompt": "e?", "topic": "Billing"}])["e?"]
+        self.client.delete(f"{self.url}{archived}/")
+        before = self._topics_now()
+
+        response = self.client.post(f"{self.url}{path}", body, format="json")
+
+        assert response.status_code == expected, response.json()
+        assert self._topics_now() == before
+
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_topic_relabels_are_throttled_for_the_whole_project(self, _rate_limit_enabled: MagicMock) -> None:
+        self._topic_fixture()
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+        # Each relabel rewrites the topic's past checks, so even a session in the browser has a budget.
+        with patch.object(AEOTopicRelabelBurstRateThrottle, "rate", "2/minute"):
+            statuses = [
+                self.client.post(
+                    f"{self.url}topics/rename/", {"topic": old, "new_topic": new}, format="json"
+                ).status_code
+                for old, new in [("Plans", "Cost"), ("Cost", "Plans"), ("Plans", "Cost")]
+            ]
+
+        assert statuses == [status.HTTP_200_OK, status.HTTP_200_OK, status.HTTP_429_TOO_MANY_REQUESTS]
+
+    def test_bulk_set_topic_changes_only_the_chosen_prompts(self) -> None:
+        ids = self._topic_fixture()
+
+        response = self.client.post(
+            f"{self.url}bulk_set_topic/", {"prompt_ids": [ids["a?"], ids["d?"]], "topic": " PLANS "}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json() == {"prompts": 2, "checks": 0}
+        prompts, checks = self._topics_now()
+        # A new spelling of an existing topic joins it, and the past checks keep the topic they ran with.
+        assert prompts == {"a?": "Plans", "b?": "pricing", "c?": "Plans", "d?": "Plans"}
+        assert checks == ["Plans", "Pricing"]
+        assert AEOPromptVersion.objects.for_team(self.team.id).count() == 4
+
+        self.client.post(f"{self.url}bulk_set_topic/", {"prompt_ids": [ids["a?"]], "topic": ""}, format="json")
+        assert self._topics_now()[0]["a?"] == ""
+
+    @parameterized.expand([("archived_prompt", "b?", 400), ("prompt_of_another_project", None, 404)])
+    def test_bulk_set_topic_refuses_the_whole_request(self, _name: str, other: str | None, expected: int) -> None:
+        ids = self._topic_fixture()
+        before = self._topics_now()
+        other_id = ids[other] if other else str(uuid.uuid4())
+
+        response = self.client.post(
+            f"{self.url}bulk_set_topic/", {"prompt_ids": [ids["a?"], other_id], "topic": "Support"}, format="json"
+        )
+
+        assert response.status_code == expected, response.json()
+        assert self._topics_now() == before
 
     def test_list_returns_the_latest_check_per_engine(self) -> None:
         create_own_brand(self.team, "example.com")
@@ -1069,6 +1211,106 @@ class TestAEOPromptAPI(APIBaseTest):
         ]
 
     @time_machine.travel("2026-10-20T12:00:00Z", tick=False)
+    def test_search_detail_ranks_the_sites_and_searches_of_the_answers_that_ran_it(self) -> None:
+        create_own_brand(self.team, "example.com")
+        create_keywords(self.team.pk, ["pricing", "session replay"])
+        ids = self._import_prompts([{"prompt": "pricing?"}, {"prompt": "cheapest?"}])
+        rivals = [f"https://rival{index}.dev/" for index in range(11)]
+        # Every rival is cited twice and the own site once, so it ranks below the top ten and still gets a row.
+        self._record_check(
+            ids["pricing?"],
+            "openai-web-search",
+            minutes_ago=60,
+            cited_urls=rivals,
+            search_queries=["acme pricing", "acme free tier"],
+        )
+        self._record_check(
+            ids["cheapest?"],
+            "openai-web-search",
+            minutes_ago=120,
+            cited=True,
+            position=12,
+            cited_urls=[*rivals, "https://docs.example.com/pricing"],
+            search_queries=["Acme  Pricing", "acme free tier", "acme vs rival"],
+        )
+        # Left out: another engine when the request names one, a failed answer, and an answer that ran other searches.
+        self._record_check(
+            ids["pricing?"], "claude-web-search", minutes_ago=60, cited_urls=rivals, search_queries=["acme pricing"]
+        )
+        self._record_check(
+            ids["pricing?"], "openai-web-search", minutes_ago=30, check_failed=True, search_queries=["acme pricing"]
+        )
+        self._record_check(
+            ids["cheapest?"], "openai-web-search", minutes_ago=30, cited_urls=rivals, search_queries=["acme free tier"]
+        )
+
+        response = self.client.get(
+            f"{self.url}search_detail/",
+            {"search": "  ACME pricing ", "engine": "openai-web-search", "date_from": "-7d"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        detail = response.json()
+        assert (detail["query"], detail["answers"], detail["prompts"], detail["cited"], detail["engines"]) == (
+            "acme pricing",
+            2,
+            2,
+            1,
+            ["openai-web-search"],
+        )
+        assert (detail["domains_cited"], detail["target_rank"]) == (12, 12)
+        assert [(row["domain"], row["share_of_answers"], row["is_target"]) for row in detail["domains"]] == [
+            *[(f"rival{index}.dev", 1.0, False) for index in sorted(range(11), key=str)[:10]],
+            ("example.com", 0.5, True),
+        ]
+        assert [(row["query"], row["answers"], row["share_of_answers"]) for row in detail["related_searches"]] == [
+            ("acme free tier", 2, 1.0),
+            ("acme vs rival", 1, 0.5),
+        ]
+        assert detail["keywords"] == ["pricing"]
+        assert sorted(prompt["text"] for prompt in detail["top_prompts"]) == ["cheapest?", "pricing?"]
+
+        # The generated client sends an unset filter as the text 'null', which counts every engine and topic.
+        unfiltered = self.client.get(
+            f"{self.url}search_detail/",
+            {"search": "acme pricing", "engine": "null", "topic": "null", "date_from": "-7d"},
+        ).json()
+        assert (unfiltered["answers"], unfiltered["engines"]) == (3, ["claude-web-search", "openai-web-search"])
+
+    @parameterized.expand(
+        [
+            ("read_scope", ["web_analytics:read"], status.HTTP_200_OK),
+            ("other_scope", ["insight:read"], status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_search_detail_reads_with_a_personal_api_key(self, _name: str, scopes: list[str], expected: int) -> None:
+        # Session auth skips scope checks, so only a scoped key catches an action left out of the read actions.
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user, label="aeo read", secure_value=hash_key_value(value), scopes=scopes
+        )
+        self.client.logout()
+
+        response = self.client.get(
+            f"{self.url}search_detail/", {"search": "acme pricing"}, headers={"authorization": f"Bearer {value}"}
+        )
+
+        assert response.status_code == expected, response.json()
+
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_search_detail_is_throttled_for_the_session_authenticated_ui(self, _rate_limit_enabled: MagicMock) -> None:
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+        with patch.object(AEOSearchDetailBurstRateThrottle, "rate", "2/minute"):
+            statuses = [
+                self.client.get(f"{self.url}search_detail/", {"search": f"nonce {index}"}).status_code
+                for index in range(3)
+            ]
+
+        assert statuses == [status.HTTP_200_OK, status.HTTP_200_OK, status.HTTP_429_TOO_MANY_REQUESTS]
+
+    @time_machine.travel("2026-10-20T12:00:00Z", tick=False)
     def test_rankings_use_the_competitors_confirmed_in_the_catalog(self) -> None:
         ids = self._import_prompts([{"prompt": "funnels?"}])
         with team_scope(self.team.pk):
@@ -1107,6 +1349,21 @@ class TestAEOPromptAPI(APIBaseTest):
             ("acme.co.uk", "Acme", 1),
             ("example.com", "example", 1),
         ]
+        assert {row["domain"]: row["positive_share"] for row in rankings["brands"]} == {
+            "acme.co.uk": None,
+            "example.com": None,
+        }
+
+        with team_scope(self.team.pk), self.captureOnCommitCallbacks(execute=True), transaction.atomic():
+            AEOCheckBrand.objects.filter(team=self.team, brand__domain="acme.co.uk").update(sentiment="positive")
+            bump_data_version_on_commit(self.team.id)
+        rankings = self.client.get(f"{self.url}rankings/").json()
+
+        # A competitor's share comes from its own brand rows, not from the own brand's sentiment on the check.
+        assert {row["domain"]: row["positive_share"] for row in rankings["brands"]} == {
+            "acme.co.uk": 1.0,
+            "example.com": None,
+        }
 
         with team_scope(self.team.pk):
             acme_id = AEOBrand.objects.get(team=self.team, domain="acme.co.uk").id
@@ -1574,6 +1831,31 @@ class TestAEOPromptAPI(APIBaseTest):
                 "change": 3 / 16,
             }
 
+    @time_machine.travel("2026-10-20T12:00:00Z", tick=False)
+    def test_pages_count_once_whatever_tracking_parameters_the_engines_added(self) -> None:
+        create_own_brand(self.team, "example.com")
+        prompt_id = self._import_one_prompt()
+        page = "https://example.com/docs/feature-flags"
+        for minutes_ago, cited_urls in [
+            (35 * 24 * 60, ["https://rival.io/x"]),
+            (35 * 24 * 60, ["https://rival.io/x"]),
+            (35 * 24 * 60, ["https://rival.io/x"]),
+            (10, [f"{page}?utm_source=openai"]),
+            (10, [page]),
+            # Both variants in one answer still make one answer that cites the page.
+            (10, [f"{page}?utm_source=chatgpt.com&utm_medium=referral", page]),
+        ]:
+            self._record_check(prompt_id, "exa-answer", minutes_ago=minutes_ago, cited_urls=cited_urls, cited=True)
+
+        movers = self.client.get(f"{self.url}movers/").json()
+        rankings = self.client.get(f"{self.url}rankings/").json()
+        citations = self.client.get(f"{self.url}citations/", {"url": f"{page}?utm_source=openai"}).json()
+
+        assert [(row["url"], row["answers_citing"]) for row in movers["page_gainers"]] == [(page, 3)]
+        assert [(row["url"], row["answers"]) for row in rankings["top_pages"] if row["is_target"]] == [(page, 3)]
+        assert {row["domain"]: row["urls"] for row in rankings["top_domains"]}["example.com"] == 1
+        assert citations["count"] == 3
+
     @parameterized.expand(
         [
             ("unknown_branded", "overview", "branded=yes"),
@@ -1601,6 +1883,9 @@ class TestAEOPromptAPI(APIBaseTest):
             ("longer_window", "domain=example.com&date_from=-60d", ["best funnel tools?", "best funnel tools?"]),
             ("past_range", "domain=example.com&date_from=-60d&date_to=-30d", ["best funnel tools?"]),
             ("engine", "domain=example.com&engine=claude-web-search", []),
+            ("topic", "domain=example.com&topic=Flags", []),
+            ("no_topic", "domain=example.com&topic=", ["best funnel tools?"]),
+            ("unset_filters_sent_as_null", "domain=example.com&engine=null&topic=null", ["best funnel tools?"]),
             ("search_normalized", "search=%20FUNNEL%20%20tools%20", ["best funnel tools?"]),
             ("search_branded", "search=funnel%20tools%20pricing&branded=branded", ["is example good?"]),
             ("search_non_branded", "search=funnel%20tools%20pricing&branded=non_branded", []),
@@ -1697,11 +1982,15 @@ class TestAEOPromptAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("write_scope", ["web_analytics:write"], status.HTTP_200_OK),
-            ("read_scope_only", ["web_analytics:read"], status.HTTP_403_FORBIDDEN),
+            ("write_scope", "bulk_import/", ["web_analytics:write"], status.HTTP_200_OK),
+            ("read_scope_only", "bulk_import/", ["web_analytics:read"], status.HTTP_403_FORBIDDEN),
+            ("topic_rename_read_scope_only", "topics/rename/", ["web_analytics:read"], status.HTTP_403_FORBIDDEN),
+            ("topic_merge_read_scope_only", "topics/merge/", ["web_analytics:read"], status.HTTP_403_FORBIDDEN),
+            ("topic_remove_read_scope_only", "topics/remove/", ["web_analytics:read"], status.HTTP_403_FORBIDDEN),
+            ("set_topic_read_scope_only", "bulk_set_topic/", ["web_analytics:read"], status.HTTP_403_FORBIDDEN),
         ]
     )
-    def test_bulk_import_with_a_personal_api_key(self, _name: str, scopes: list[str], expected: int) -> None:
+    def test_writes_with_a_personal_api_key(self, _name: str, path: str, scopes: list[str], expected: int) -> None:
         # Session auth skips scope checks, so only a scoped key catches a custom action left out of the write actions.
         value = generate_random_token_personal()
         PersonalAPIKey.objects.create(
@@ -1710,7 +1999,7 @@ class TestAEOPromptAPI(APIBaseTest):
         self.client.logout()
 
         response = self.client.post(
-            f"{self.url}bulk_import/",
+            f"{self.url}{path}",
             {"prompts": [{"prompt": "Best session replay tool?"}]},
             format="json",
             headers={"authorization": f"Bearer {value}"},

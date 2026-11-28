@@ -2,7 +2,7 @@ import { useContext, useEffect, useRef, useState } from 'react'
 
 import { PanelHostContext } from '../panels/core/panelHostContext'
 import { cachedResult, runCachedQuery } from './queryCache'
-import type { QueryRequest, QueryResult, RunQuery } from './queryTypes'
+import type { DataFrame, QueryRequest, QueryResult, RunQuery } from './queryTypes'
 
 export type QueryFrames =
     | { status: 'loading' }
@@ -21,6 +21,21 @@ function unchanged(previous: QueryFrames, next: QueryFrames): boolean {
         return previous.frames === next.frames && previous.refreshing === next.refreshing
     }
     return previous.status === 'loading' && next.status === 'loading'
+}
+
+function sameFrames(previous: DataFrame[], next: DataFrame[]): boolean {
+    return (
+        previous.length === next.length &&
+        previous.every((frame, index) => frame.hash !== undefined && frame.hash === next[index].hash)
+    )
+}
+
+/** A refresh that returns the frames already shown keeps their array, so the chart skips its rebuild. */
+export function withShownFrames(previous: QueryFrames | undefined, next: QueryFrames): QueryFrames {
+    if (previous?.status === 'ready' && next.status === 'ready' && sameFrames(previous.frames, next.frames)) {
+        return { ...next, frames: previous.frames }
+    }
+    return next
 }
 
 // Keeping the last result while a new request runs stops a time range change from blanking every tile.
@@ -58,17 +73,18 @@ export function useQueryFrames(requests: QueryRequest[], runQuery: RunQuery): Qu
     const [results, setResults] = useState<QueryFrames[]>(() => queryKeys.map((key) => initial(runQuery, key, refresh)))
     const resultKeys = useRef(queryKeys)
     useEffect(() => {
-        let cancelled = false
+        const controller = new AbortController()
         const keys = JSON.parse(keysKey) as string[]
         const previousKeys = resultKeys.current
         resultKeys.current = keys
         const show = (index: number, next: QueryFrames): void =>
             setResults((previous) => {
-                if (previous[index] && unchanged(previous[index], next)) {
+                const shown = withShownFrames(previous[index], next)
+                if (previous[index] && unchanged(previous[index], shown)) {
                     return previous
                 }
                 const updated = [...previous]
-                updated[index] = next
+                updated[index] = shown
                 return updated
             })
         setResults((previous) => {
@@ -80,16 +96,16 @@ export function useQueryFrames(requests: QueryRequest[], runQuery: RunQuery): Qu
         keys.forEach((key, index) => {
             const cached = cachedResult(runQuery, key, refresh)
             const ended = timing?.started(!!cached && !cached.stale)
-            runCachedQuery(runQuery, key, refresh).then(
+            runCachedQuery(runQuery, key, refresh, controller.signal).then(
                 (result) => {
                     ended?.('success')
-                    if (!cancelled) {
+                    if (!controller.signal.aborted) {
                         show(index, { status: 'ready', refreshing: false, ...result })
                     }
                 },
                 (error: unknown) => {
-                    ended?.('error')
-                    if (!cancelled) {
+                    ended?.(controller.signal.aborted ? 'aborted' : 'error')
+                    if (!controller.signal.aborted) {
                         show(index, {
                             status: 'error',
                             message: error instanceof Error ? error.message : String(error),
@@ -98,9 +114,7 @@ export function useQueryFrames(requests: QueryRequest[], runQuery: RunQuery): Qu
                 }
             )
         })
-        return () => {
-            cancelled = true
-        }
+        return () => controller.abort()
     }, [keysKey, runQuery, refresh, timing])
     return results
 }

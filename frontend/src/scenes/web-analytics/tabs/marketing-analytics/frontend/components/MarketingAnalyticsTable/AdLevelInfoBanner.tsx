@@ -1,5 +1,6 @@
 import { LemonBanner } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
@@ -7,6 +8,7 @@ import { MarketingAnalyticsDrillDownLevel } from '~/queries/schema/schema-genera
 
 import { NativeSourceHierarchyStatus } from '../../logic/marketingAnalyticsLogic'
 import { nativeSourceDisplayLabel } from '../../logic/utils'
+import { QuillAdLevelInfoBanner } from './QuillAdLevelInfoBanner'
 
 type AdLevelInfoBannerProps = {
     drillDownLevel: MarketingAnalyticsDrillDownLevel
@@ -18,6 +20,7 @@ type AdLevelInfoBannerProps = {
  * link to the sync settings; platform-unsupported ones get a no-link heads-up.
  */
 export const AdLevelInfoBanner = ({ drillDownLevel, sourcesHierarchyStatus }: AdLevelInfoBannerProps): JSX.Element => {
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const isAdGroup = drillDownLevel === MarketingAnalyticsDrillDownLevel.AdGroup
     const fixableSources = sourcesHierarchyStatus.filter((s) =>
         isAdGroup ? !s.supportsAdGroup && !s.adGroupUnsupported : !s.supportsAd && !s.adUnsupported
@@ -26,6 +29,17 @@ export const AdLevelInfoBanner = ({ drillDownLevel, sourcesHierarchyStatus }: Ad
         isAdGroup ? s.adGroupUnsupported : s.adUnsupported
     )
     const dismissKey = isAdGroup ? 'marketing-analytics-ad-group-level-info' : 'marketing-analytics-ad-level-info'
+
+    if (todayRailNav) {
+        return (
+            <QuillAdLevelInfoBanner
+                isAdGroup={isAdGroup}
+                fixableSources={fixableSources}
+                platformUnsupportedSources={platformUnsupportedSources}
+                dismissKey={dismissKey}
+            />
+        )
+    }
 
     return (
         <LemonBanner type={fixableSources.length > 0 ? 'warning' : 'info'} dismissKey={dismissKey}>

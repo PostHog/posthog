@@ -439,7 +439,7 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
 
     def test_direct_member_grant_is_not_overridden_by_role_admin_grant(self):
         """A direct member rule decides on its own under most-specific resolution — a role
-        grant on the same project does not override it. Mirrors `_most_specific_rows_decision`
+        grant on the same project does not override it. Mirrors `_rows_decision`
         in `products/access_control/backend/facade/user_access_control.py`, so the enforced
         API gate and this resolver cannot disagree."""
         from products.access_control.backend.models.access_control import AccessControl
