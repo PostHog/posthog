@@ -19,6 +19,7 @@ The sections between "Understand the cost" and "Measuring" go from the biggest e
 - A tile mounts its panel only once it scrolls into view (`grid/tileMounting.ts`). Do not add work that runs for every tile on load, such as a query, a measurement or a subscription, outside that gate.
 - An unmounted tile keeps its place and shows a cheap placeholder, so a fast scroll never shows an empty cell.
 - When many tiles come into view together, spread their mounts across frames, and cancel a pending mount when its tile leaves view first.
+- A panel type's `keepMounted` keeps a panel mounted once it has been in view, for content that holds its own state. Each one stays in memory and keeps its subscriptions, so never set it on a chart.
 - Work that a tile does when it mounts must also be correct when it mounts late, such as after a filter changed while it was off screen.
 
 ## Charts and queries

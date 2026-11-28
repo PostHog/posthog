@@ -3,7 +3,6 @@ import { useState } from 'react'
 import { IconCalendar } from '@posthog/icons'
 import { Button, DateTimePicker, Popover, PopoverContent, PopoverTrigger } from '@posthog/quill'
 
-import type { TimeRange } from '../../dashboard/document/dashboardTypes'
 import {
     DEFAULT_QUICK_RANGES,
     type QuickRange,
@@ -12,6 +11,7 @@ import {
     pickerRanges,
     toPickerValue,
 } from './timeRanges'
+import { type TimeRange } from './timeRangeSchema'
 
 export type TimeRangePickerProps = {
     /** Left out, the picker shows that no range overrides the panels' own. */

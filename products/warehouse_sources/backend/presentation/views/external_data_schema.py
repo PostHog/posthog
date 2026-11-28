@@ -27,6 +27,8 @@ from posthog.utils import str_to_bool
 from products.access_control.backend.facade.api import InvalidObjectAccessControlError
 from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
+from products.data_modeling.backend.facade import api as data_modeling_api
+from products.data_modeling.backend.facade.contracts import ViewCadenceSnapshot
 from products.data_warehouse.backend.facade.api import (
     cancel_external_data_workflow,
     create_and_register_webhook,
@@ -197,6 +199,7 @@ def source_syncs_on_demand(source_type: str) -> bool:
 PINNED_TABLE_IDS_CONTEXT_KEY = "pinned_table_ids"
 WEBHOOK_ISSUES_CONTEXT_KEY = "webhook_issues"
 WEBHOOK_EVENT_RECONCILES_CONTEXT_KEY = "webhook_event_reconciles"
+VIEW_CADENCE_SNAPSHOTS_CONTEXT_KEY = "view_cadence_snapshots"
 
 
 def pinned_table_ids(schemas: Iterable[ExternalDataSchema], team_id: int) -> dict[uuid.UUID, uuid.UUID]:
@@ -2438,6 +2441,20 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             # Cleared whatever this request loaded, because a stop can commit after the load.
             validated_data["auto_disabled_at"] = None
 
+        source_floor_may_change = was_sync_frequency_updated or (
+            should_sync is not None and should_sync != instance.should_sync
+        )
+        batch_view_cadences: list[ViewCadenceSnapshot] | None = self.context.get(VIEW_CADENCE_SNAPSHOTS_CONTEXT_KEY)
+        view_cadences_before = (
+            data_modeling_api.snapshot_view_cadences_for_table(
+                instance.team_id,
+                instance.table_id,
+                skip_dag_ids=[dag_id for snapshot in batch_view_cadences or [] for dag_id in snapshot.cadences_by_dag],
+            )
+            if source_floor_may_change
+            else None
+        )
+
         # Persist under a row lock, replaying only the sync_type_config keys this request changed
         # so a concurrent CDC extract activity's writes aren't reverted by the full-instance save.
         updated_instance = self._save_merging_sync_type_config(
@@ -2561,6 +2578,11 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                             _sync_now_for_shorter_cadence(updated_instance)
 
             self._run_temporal_side_effect(update_schedule)
+
+        if view_cadences_before is not None and batch_view_cadences is not None:
+            batch_view_cadences.append(view_cadences_before)
+        elif view_cadences_before is not None:
+            data_modeling_api.reschedule_views_if_cadence_changed(updated_instance.team_id, [view_cadences_before])
 
         if trigger_refresh:
             request_manual_runs([updated_instance.id], updated_instance.team_id)

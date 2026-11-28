@@ -25,6 +25,7 @@ from posthog.admin.console.confirm import ConfirmationToken
 from posthog.admin.console.panels import Fact, Gate, Operation, Owner, Panel, Tone
 from posthog.admin.console.records import RECORD_TYPES, SUPPORT_TICKET_PARAM, RecordLink, RecordType
 from posthog.admin.console.registry import console
+from posthog.admin.console.related import RelatedRecords
 from posthog.admin.console.results import OperationResult, OperationResults, ResultState
 from posthog.admin.console.tools import ConsoleTool, Page, ToolOperation
 from posthog.dataclasses import frozen
@@ -291,6 +292,9 @@ def tools_index(request: HttpRequest) -> HttpResponse:
     return render(request, "admin_console/tools.html", ConsoleEnvironment.context())
 
 
+HANDOFF_OPENER_POLICY = "same-origin-allow-popups"
+
+
 def _record_type(record: str) -> RecordType:
     record_type = RECORD_TYPES.get(record)
     if record_type is None:
@@ -348,12 +352,13 @@ def record_detail(request: HttpRequest, record: str, pk: object) -> HttpResponse
         )
         for panel in console.panels_for(record_type.key)
     ]
-    return render(
+    response = render(
         request,
         "admin_console/record.html",
         {
             **_record_context(record_type, obj),
             "record_links": [_with_kept_ticket(link, request) for link in record_type.links(obj)],
+            "related": RelatedRecords(record_type, obj).previews(),
             "attention": [
                 AttentionItem(panel=rendered.panel, fact=fact)
                 for rendered in panels
@@ -362,6 +367,33 @@ def record_detail(request: HttpRequest, record: str, pk: object) -> HttpResponse
             ],
             "regular_panels": [rendered for rendered in panels if not rendered.panel.danger],
             "danger_panels": [rendered for rendered in panels if rendered.panel.danger],
+        },
+    )
+    if any(
+        rendered.allowed and isinstance(rendered.operation, Operation) and rendered.operation.handoff is not None
+        for panel in panels
+        for rendered in panel.operations
+    ):
+        # Django's default "same-origin" cuts this page off from a tab it opens on another origin, so the
+        # tool's ready message could never reach it. The looser policy applies only where a handoff is offered.
+        response["Cross-Origin-Opener-Policy"] = HANDOFF_OPENER_POLICY
+    return response
+
+
+@require_safe
+def related_list(request: HttpRequest, record: str, pk: object, relation_key: str) -> HttpResponse:
+    record_type = _record_type(record)
+    obj = get_object_or_404(record_type.queryset(), pk=pk)
+    relation = record_type.relation(relation_key)
+    if relation is None:
+        raise Http404("This record has no such related list")
+    return render(
+        request,
+        "admin_console/related.html",
+        {
+            **_record_context(record_type, obj),
+            "relation": relation,
+            "page": RelatedRecords(record_type, obj).page(request, relation),
         },
     )
 
@@ -651,6 +683,15 @@ def _with_query(url: str, request: HttpRequest) -> str:
     return url + _query_suffix(request)
 
 
+def _subject_crumbs(tool: ConsoleTool, request: HttpRequest) -> tuple[RecordLink, ...]:
+    """The breadcrumb through the record a tool page is about. Empty for a tool that is not about one record."""
+    obj = tool.subject_of(request)
+    if obj is None or tool.subject is None:
+        return ()
+    record_type = RECORD_TYPES[tool.subject]
+    return (*record_type.parents(obj), RecordLink(label=record_type.title(obj), href=record_type.url(obj)))
+
+
 @require_safe
 def tool_page(request: HttpRequest, tool_key: str) -> HttpResponse:
     tool = _get_tool(tool_key)
@@ -678,6 +719,7 @@ def tool_page(request: HttpRequest, tool_key: str) -> HttpResponse:
         {
             **ConsoleEnvironment.context(),
             "tool": tool,
+            "subject_crumbs": _subject_crumbs(tool, request),
             "page": tool.page(request).refuse_secrets("tool page").check_operations(offered),
             "operations": operations,
             "query_suffix": _query_suffix(request),
@@ -739,7 +781,7 @@ def run_tool_operation(request: HttpRequest, tool_key: str, operation_key: str) 
         badge=tool.group,
         subtitle=tool.description,
         back_url=tool_url,
-        breadcrumbs=(RecordLink(label=tool.title, href=tool_url),),
+        breadcrumbs=(*_subject_crumbs(tool, request), RecordLink(label=tool.title, href=tool_url)),
         is_record=False,
     )
     step = ConfirmStep(request, ConfirmationToken(request, f"tool:{tool.key}", operation.key))

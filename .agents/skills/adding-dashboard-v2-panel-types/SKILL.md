@@ -2,7 +2,7 @@
 name: adding-dashboard-v2-panel-types
 description: >
   Guides adding or changing a panel type in dashboards v2 (`products/dashboards_v2/frontend/panels/`):
-  the PanelSpec, definePanel, config schema, tile slots (Component, Loading, SampleData, HeaderExtra, Footer),
+  the PanelSpec, definePanel, config schema, tile slots (Component, Loading, HeaderExtra, Footer),
   menuActions, allowedCustomizations and lazy loading, with the markdown type as the worked example.
   Use when creating a new kind of tile content for a dashboards v2 host, changing a panel type's config,
   or reviewing a diff under `frontend/panels/`. Not for v1 dashboard widgets (`manage-dashboard-widgets`).
@@ -30,10 +30,14 @@ So the spec file loads its components with `React.lazy` and never imports one di
 - Define `config` as a `z.strictObject`, and take its TypeScript type from the schema with `z.infer`. `definePanel` checks every saved config against the schema before any part of the type gets it, so the parts never cast `config` and never type it as `unknown`.
 - Give the spec its config type and its literal type name: `PanelSpec<MarkdownConfig, 'markdown'>`.
 - The `type` and every config field are saved in dashboard documents. Renaming one breaks saved dashboards, so it needs a migration, not a rename.
-- A panel type fills only its slots: `Component`, `Loading`, `SampleData`, `HeaderExtra`, `Footer` and `menuActions`. Do not draw a title or add an error boundary in a panel.
+- A panel type fills only its slots: `Component`, `Loading`, `HeaderExtra`, `Footer` and `menuActions`. Do not draw a title or add an error boundary in a panel.
 - Give the type a `Loading` shaped like its content when it has one. Off-screen tiles and suspended tiles show it, so a tile looks like itself before it mounts.
-- Give the type a `SampleData` when it shows data. A host passes `sampleData` to `DashboardView` while it has no real data, and the tile then shows this part instead of `Component` and runs no queries. Mark it as sample data and keep its made-up numbers out of tooltips.
-- Components read only the small contexts they need, such as `FiltersContext` and `PanelHostContext`, and never the dashboard state.
+- A type that shows data takes a `sampleData` option in its factory, as `createChartPanel` does. The host sets it while it has no real data, and the type then draws made-up data in `Component` and runs no queries. Mark it as sample data and keep its made-up numbers out of tooltips.
+- Components read only the small contexts they need, such as `FiltersContext` and `PanelHostContext`, and never the dashboard state. A component that changes the dashboard's filters or time range reads `FilterControlsContext`.
+- `showOnInteractiveOnly(panel)` returning true leaves the tile out of snapshots, such as images and printed pages.
+- `movable(panel)` returning false stops a person dragging, resizing, moving or removing the tile. Left out, every tile is movable.
+- `keepMounted(panel)` returning true keeps the panel mounted after it scrolls out of view. Use it only for a panel that holds state a person would lose, because the panel then stays in memory.
+- To show a product's own component rather than add a type, use `/adding-dashboard-v2-custom-content`.
 - `allowedCustomizations` lists the tile customizations the type allows, such as `['backgroundColor']`. The values a person picks are saved on the tile's `panel.appearance`.
 - `menuActions(actions, context)` returns the tile's menu. Append entries to `actions` with a stable `key`, and change the config with `context.setConfig`, which saves one undo step.
 - Add the type to `DEFAULT_PANELS` only when every host should get it. Otherwise a host passes the type in its own list.

@@ -5,7 +5,7 @@ from parameterized import parameterized
 from products.warehouse_sources.sources.livestorm._config import LivestormSourceConfig
 from products.warehouse_sources.sources.livestorm.livestorm import LivestormResumeConfig
 from products.warehouse_sources.sources.livestorm.source import LivestormSource
-from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, route
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, route, scripted_network
 
 API_TOKEN = "test-livestorm-token"
 
@@ -28,6 +28,18 @@ def _page(items: list[dict[str, Any]], page_count: int) -> ScriptedResponse:
 
 
 class TestLivestormLists:
+    @parameterized.expand(
+        [
+            ("team_members", "/v1/users", {"email": "host@example.com", "workspace_role": "admin"}),
+            ("people_attributes", "/v1/people_attributes", {"slug": "meal_preference", "type": "text"}),
+        ]
+    )
+    def test_reads_workspace_rows(self, endpoint: str, path: str, attributes: dict[str, Any]) -> None:
+        result = _driver().run(endpoint, route({path: [_page([_item("row-1", **attributes)], page_count=1)]}))
+
+        assert result.raised is None
+        assert result.rows == [{"id": "row-1", "updated_at": 1760000000, **attributes}]
+
     def test_walks_pages_until_the_last_page_count(self) -> None:
         result = _driver().run(
             "events",
@@ -72,7 +84,28 @@ class TestLivestormLists:
         assert result.response.sort_mode == expected_sort
 
 
-class TestLivestormSessionPeople:
+class TestLivestormSessionTables:
+    @parameterized.expand(
+        [
+            ("session_chat_messages", "chat_messages", {"text_content": "Thanks for the demo."}),
+            ("session_questions", "questions", {"question": "Where is the guide?", "response": None}),
+        ]
+    )
+    def test_reads_engagement_rows_by_session(self, endpoint: str, resource: str, attributes: dict[str, Any]) -> None:
+        result = _driver().run(
+            endpoint,
+            route(
+                {
+                    "/v1/sessions": [_page([_item("s1"), _item("s2")], page_count=1)],
+                    f"/v1/sessions/s1/{resource}": [_page([], page_count=0)],
+                    f"/v1/sessions/s2/{resource}": [_page([_item("row-1", **attributes)], page_count=1)],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert result.rows == [{"id": "row-1", "session_id": "s2", "updated_at": 1760000000, **attributes}]
+
     def test_fans_out_per_session_and_keys_rows_by_session(self) -> None:
         result = _driver().run(
             "session_people",
@@ -121,3 +154,45 @@ class TestLivestormSessionPeople:
 
         assert result.raised is None
         assert result.paths == ["/v1/sessions", "/v1/sessions/s2/people"]
+
+
+class TestLivestormCredentials:
+    @parameterized.expand(
+        [
+            (
+                "team_members",
+                "/v1/users",
+                403,
+                (False, "The API token has no read access to this table. Give it read access to the Admin scope."),
+            ),
+            ("people_attributes", "/v1/people_attributes", 200, (True, None)),
+            (None, "/v1/ping", 200, (True, None)),
+            (
+                None,
+                "/v1/ping",
+                403,
+                (False, "Livestorm blocked access to this workspace. Contact Livestorm support."),
+            ),
+            (
+                None,
+                "/v1/ping",
+                401,
+                (False, "Livestorm rejected the API token. Check that you pasted the whole token."),
+            ),
+            (
+                "session_questions",
+                "/v1/events",
+                403,
+                (False, "The API token has no read access to events. Give it read access to the Events scope."),
+            ),
+        ]
+    )
+    def test_checks_the_scope_needed_for_sync(
+        self, schema_name: str | None, path: str, status: int, expected: tuple[bool, str | None]
+    ) -> None:
+        config = LivestormSourceConfig(api_token=API_TOKEN)
+        with scripted_network(route({path: [ScriptedResponse(status=status)]})) as network:
+            result = LivestormSource().validate_credentials(config, team_id=1, schema_name=schema_name)
+
+        assert len(network.requests_log) == 1
+        assert result == expected

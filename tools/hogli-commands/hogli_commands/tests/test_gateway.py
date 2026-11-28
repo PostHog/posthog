@@ -18,7 +18,7 @@ _MINTED = {
     "token": "phe_minted",
     "expires_at": "2026-10-22T08:00:00Z",
     "cap_usd": "25.00",
-    "gateway_url": "https://gateway.us.posthog.com",
+    "gateway_url": "https://ai-gateway.us.posthog.com",
     "product": "dev",
 }
 

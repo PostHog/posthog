@@ -4,14 +4,14 @@ import posthog from 'posthog-js'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 
-import { BUSY_ERROR, MAX_STREAMS, createQueryBatchRunner } from './queryBatchRunner'
+import { BUSY_ERROR, MAX_STREAMS, PROJECT_NOT_ALLOWED_ERROR, createQueryBatchRunner } from './queryBatchRunner'
 import { QUERY_BATCH_TIMING_EVENT } from './queryBatchTiming'
 import type { QueryRequest } from './queryTypes'
 
 const TIME = { from: 'now-7d', to: 'now' }
 const SQL: QueryRequest = { query: { language: 'hogql', query: 'select 1 as total' }, time: TIME }
 const TRENDS: QueryRequest = {
-    query: { language: 'insight', query: { kind: NodeKind.TrendsQuery, series: [] } },
+    query: { language: 'query', query: { kind: NodeKind.TrendsQuery, series: [] } },
     time: TIME,
 }
 const LATENCY: QueryRequest = {
@@ -22,6 +22,7 @@ const LATENCY: QueryRequest = {
 const DAY_1 = Date.UTC(2026, 10, 1)
 
 type OpenStream = {
+    url: string
     body: any
     signal: AbortSignal
     push: (text: string) => void
@@ -39,10 +40,11 @@ describe('createQueryBatchRunner', () => {
         streams = []
         status = 200
         traceresponse = null
-        globalThis.fetch = jest.fn(async (_url: string, init: RequestInit) => {
+        globalThis.fetch = jest.fn(async (url: string, init: RequestInit) => {
             let controller!: ReadableStreamDefaultController<Uint8Array>
             const stream = new ReadableStream<Uint8Array>({ start: (c) => void (controller = c) })
             streams.push({
+                url,
                 body: JSON.parse(String(init.body)),
                 signal: init.signal as AbortSignal,
                 push: (text) => controller.enqueue(new TextEncoder().encode(text)),
@@ -124,6 +126,36 @@ describe('createQueryBatchRunner', () => {
 
         streams[0].push(`${JSON.stringify({ i: 0, error: 'Query timed out' })}\n`)
         await expect(first).rejects.toThrow('Query timed out')
+    })
+
+    it("sends a query that names another project to that project's endpoint, in its own stream", async () => {
+        const runQuery = createQueryBatchRunner(7, { allowsProject: (project) => project === 9 })
+        const own = runQuery(SQL)
+        const other = runQuery({ ...SQL, project: 9 })
+        const ownAgain = runQuery(TRENDS)
+        await flush()
+
+        expect(streams.map((stream) => [stream.url, stream.body.queries.length])).toEqual([
+            ['/api/projects/7/dashboard_v2/query_batch/', 2],
+            ['/api/projects/9/dashboard_v2/query_batch/', 1],
+        ])
+        answer(streams[1], 0, 9)
+        answer(streams[0], 1, 2)
+        answer(streams[0], 0, 1)
+        await expect(other).resolves.toEqual(totalOf(9))
+        await expect(own).resolves.toEqual(totalOf(1))
+        await expect(ownAgain).resolves.toEqual(totalOf(2))
+    })
+
+    it.each([
+        ['no check', undefined],
+        ['a check that refuses it', (project: number): boolean => project === 9],
+    ])('sends nothing for a query that names a project outside the organization, with %s', async (_, allowsProject) => {
+        const runQuery = createQueryBatchRunner(7, { allowsProject })
+        await expect(runQuery({ ...SQL, project: 8 })).rejects.toThrow(PROJECT_NOT_ALLOWED_ERROR)
+        await flush()
+
+        expect(globalThis.fetch).not.toHaveBeenCalled()
     })
 
     it('rejects the queries a stream ended without answering', async () => {
@@ -232,6 +264,25 @@ describe('createQueryBatchRunner', () => {
         expect(globalThis.fetch).toHaveBeenCalledTimes(1)
     })
 
+    it('stops a stream once the query it still waits on aborts, after another was answered busy', async () => {
+        const runQuery = createQueryBatchRunner(7)
+        const retried = runQuery(SQL)
+        const gone = new AbortController()
+        void runQuery(TRENDS, gone.signal).catch(() => {})
+        await flush()
+
+        streams[0].push(`${JSON.stringify({ i: 0, error: BUSY_ERROR })}\n`)
+        await flush()
+        gone.abort()
+
+        expect(streams[0].signal.aborted).toBe(true)
+        streams[0].close()
+        await jest.advanceTimersByTimeAsync(1000)
+        expect(globalThis.fetch).toHaveBeenCalledTimes(2)
+        answer(streams[1], 0, 1)
+        await expect(retried).resolves.toEqual(totalOf(1))
+    })
+
     it('asks once more for a query answered busy, a second after the stream ends, even when another stream is free', async () => {
         const runQuery = createQueryBatchRunner(7)
         const result = runQuery(SQL)
@@ -315,7 +366,9 @@ describe('createQueryBatchRunner', () => {
             streams[0].push(`${JSON.stringify({ i: 0, error: 'Query timed out' })}\n`)
             await expect(sql).rejects.toThrow('Query timed out')
             clock = 1400
-            streams[0].push(`${JSON.stringify({ i: 1, result: { frames: [], cache: { hit: true, stale: true } } })}\n`)
+            streams[0].push(
+                `${JSON.stringify({ i: 1, result: { frames: [], cache: { hit: true, stale: true }, provenance: { mode: 'derived', timeline: [{ source: 'engine', ms: 250.4 }] } } })}\n`
+            )
             await expect(latency).resolves.toEqual({ frames: [], stale: true })
             clock = 1500
             streams[0].close()
@@ -329,8 +382,8 @@ describe('createQueryBatchRunner', () => {
                         trace_id: '4bf92f3577b34da6a3ce929d0e0e4736',
                         batch_index: 0,
                         query_count: 3,
-                        query_languages: { hogql: 1, promql: 1, insight: 1 },
-                        language_mix: 'hogql+insight+promql',
+                        query_languages: { hogql: 1, promql: 1, query: 1 },
+                        language_mix: 'hogql+promql+query',
                         status: 200,
                         failed: true,
                         error: 'No answer came back for this query',
@@ -345,6 +398,8 @@ describe('createQueryBatchRunner', () => {
                         error_lines: 1,
                         cache_hits: 1,
                         stale_lines: 1,
+                        derived_lines: 1,
+                        engine_ms: 250,
                         since_mount_request_ms: 40,
                         since_mount_first_result_ms: 400,
                         since_mount_last_result_ms: 400,

@@ -49,8 +49,8 @@ See [Regional forwarding](../README.md#regional-forwarding) for the lane the pro
 ## Consumers
 
 - `posthog/ingress/github/provider.py` registers `installation_lifecycle` and `installation_repositories` on the `posthog` app.
-- `products/{commands,conversations,error_tracking,knowledge_writer,review_hog,tasks,visual_review,workflows}/backend/webhook_consumers.py` register the product consumers on the `posthog` app.
-- `products/stamphog/backend/webhook_consumers.py` registers `stamphog_review` on the `stamphog` app.
+- `products/{commands,conversations,error_tracking,knowledge_writer,review_hog,stamphog,tasks,visual_review,workflows}/backend/webhook_consumers.py` register the product consumers on the `posthog` app.
+- `products/stamphog/backend/webhook_consumers.py` registers `stamphog_review`, `stamphog_reviewer_routing` and `stamphog_broadcast_request_pull_requests` on the `stamphog` app.
 
 The Error Tracking consumer handles opened and edited issues and pull requests from repository owners, members, and collaborators.
 It scans descriptions for direct issue links and fingerprint permalinks on the configured PostHog site, then queues team-scoped tasks.
@@ -60,6 +60,13 @@ Removing a link from a later description does not remove the reference.
 The commands consumer reads `@posthog <command>` lines in new pull request comments from repository owners, members and collaborators, and queues one task per command.
 The task checks the commenter's write access with GitHub and their linked PostHog account before any command runs.
 See `products/commands/README.md`.
+
+The two `stamphog_broadcast_request_*` consumers keep a request for a person to review in step with its pull request.
+The `stamphog` app's closes and review requests, and the `posthog` app's submitted and dismissed reviews, each queue one task.
+A push, a reopen or a base retarget is refreshed by `stamphog_review`'s task once it decided whether Stamphog reviews the new head, because a request reads a head with no run as one that no review is coming for.
+The `stamphog` app gets no review events, so a person's approval arrives through the `posthog` app.
+The task refreshes every active request for that repository and pull request number, in each project that has one, and reads the state from GitHub with the stamphog token.
+A delivery from the `posthog` app carries the wrong installation for stamphog, so that task matches on the repository alone.
 
 The Visual Review consumer reads pushes to a repository's default branch and queues one task per project whose Visual Review repo follows that repository with its baseline ledger on.
 The push is only a signal: the task reads the new commits from GitHub, and a periodic task moves the same ledgers when a push is lost.

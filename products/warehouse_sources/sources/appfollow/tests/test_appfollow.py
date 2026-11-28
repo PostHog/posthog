@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
@@ -13,6 +13,7 @@ from products.warehouse_sources.sources.appfollow._config import AppfollowSource
 from products.warehouse_sources.sources.appfollow.appfollow import (
     APPFOLLOW_BASE_URL,
     AppfollowResumeConfig,
+    AppfollowScanCursor,
     _extract_rows,
     _to_date_str,
     _to_datetime_str,
@@ -25,12 +26,16 @@ from products.warehouse_sources.sources.appfollow.settings import (
     endpoints_for_version,
 )
 from products.warehouse_sources.sources.appfollow.source import AppfollowSource
+from products.warehouse_sources.sources.sdk import SourceCursorManager
 from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     RecordedRequest,
     Script,
     ScriptedResponse,
     SourceDriver,
+    activate_safe_point,
+    scripted_network,
+    source_inputs,
 )
 
 
@@ -42,6 +47,8 @@ def _run(
     resume_state: AppfollowResumeConfig | None = None,
     **inputs: Any,
 ) -> DriveResult:
+    if endpoint == "console_ratings":
+        inputs.setdefault("source_cursor", SourceCursorManager(AppfollowScanCursor, None, AppfollowSource()))
     return SourceDriver(AppfollowSource(), AppfollowSourceConfig(api_key="tok")).run(
         endpoint, script, api_version=api_version, resume_state=resume_state, **inputs
     )
@@ -295,7 +302,7 @@ class TestSourceResponse:
         assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == config.primary_keys
-        assert response.sort_mode == (None if config.kind == "dated_fanout" else "asc")
+        assert response.sort_mode == (None if config.kind in ("dated_fanout", "console_ratings") else "asc")
         if config.partition_key:
             assert response.partition_mode == "datetime"
             assert response.partition_keys == [config.partition_key]
@@ -380,20 +387,73 @@ def _dated_api(
 
 
 class TestDatedFanOut:
+    @pytest.mark.parametrize(
+        "endpoint,path,body",
+        [
+            (
+                "reviews_replies_speed",
+                "/reviews/stats/replies/speed",
+                {"replies_time_stat": [{"answer_user_id": "10"}]},
+            ),
+            ("reviews_version_stats", "/reviews/stats/version", {"tags_stat": {"versions": ["0.1"], "tags": []}}),
+        ],
+    )
     @time_machine.travel("2026-06-15T09:00:00Z", tick=False)
-    def test_daily_walk_requests_each_day_from_the_lookback_and_stamps_the_day(self) -> None:
-        api = _dated_api(lambda request: {"replies_time_stat": [{"answer_user_id": "10", "replies_time": []}]})
+    def test_daily_walk_requests_each_day_from_the_lookback_and_stamps_the_day(
+        self, endpoint: str, path: str, body: dict[str, Any]
+    ) -> None:
+        api = _dated_api(lambda request: body)
         result = _run(
-            "reviews_replies_speed",
+            endpoint,
             api,
             should_use_incremental_field=True,
             db_incremental_field_last_value=date(2026, 6, 13),
         )
         assert result.raised is None
-        days = [request.param("date") for request in _requests_to(result, "/reviews/stats/replies/speed")]
+        days = [request.param("date") for request in _requests_to(result, path)]
         assert days == [(date(2026, 6, 6) + timedelta(days=n)).isoformat() for n in range(10)]
         assert [row["date"] for row in result.rows] == days
         assert all(row["ext_id"] == "111" for row in result.rows)
+
+    @pytest.mark.parametrize(
+        "endpoint,path,window_days",
+        [
+            ("reviews_version_stats", "/reviews/stats/version", 1),
+            ("console_ratings", "/meta/ratings/console/gp", 14),
+        ],
+    )
+    @pytest.mark.parametrize("watermark", [None, date(2026, 4, 15)])
+    @time_machine.travel("2026-06-15T09:00:00Z", tick=False)
+    def test_initial_backfill_does_not_cut_off_dates_after_an_interruption(
+        self, endpoint: str, path: str, window_days: int, watermark: date | None
+    ) -> None:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            return ScriptedResponse(
+                json={
+                    "tags_stat": {"tags": []},
+                    "fields": {request.param("fields"): [{"date": request.param("from"), "value": 1}]},
+                }
+            )
+
+        script = _console_api(respond) if endpoint == "console_ratings" else _dated_api(respond)
+        result = _run(endpoint, script, should_use_incremental_field=True, db_incremental_field_last_value=watermark)
+        assert result.raised is None
+        requests_ = _requests_to(result, path)
+        if endpoint == "console_ratings":
+            requests_ = [
+                r for r in requests_ if r.param("collection_name") == "first" and r.param("fields") == "ratings"
+            ]
+        windows = [
+            (
+                date.fromisoformat(r.param("from") or r.param("date") or ""),
+                date.fromisoformat(r.param("to") or r.param("date") or ""),
+            )
+            for r in requests_
+        ]
+        assert windows[0][0] == (date(2026, 4, 8) if watermark else date(2026, 5, 16))
+        assert windows[-1][1] == date(2026, 6, 15)
+        assert all((end - start).days < window_days for start, end in windows)
+        assert all(nxt[0] == prev[1] + timedelta(days=1) for prev, nxt in zip(windows, windows[1:]))
 
     @time_machine.travel("2026-06-15T09:00:00Z", tick=False)
     def test_window_backfill_is_split_into_requests_of_one_month_at_most(self) -> None:
@@ -484,6 +544,19 @@ class TestDatedFanOut:
                 {"reviews": [{"review_id": 5, "sentiment": "Negative", "tags": ["Bugs"]}]},
                 [{"review_id": 5, "sentiment": "Negative", "tags": ["Bugs"], "ext_id": "111"}],
             ),
+            (
+                "reviews_version_stats",
+                {"tags_stat": {"tags": [{"version": "0.1", "count": 2}], "bt_tags": [], "versions": ["0.1"]}},
+                [
+                    {
+                        "tags": [{"version": "0.1", "count": 2}],
+                        "bt_tags": [],
+                        "versions": ["0.1"],
+                        "ext_id": "111",
+                        "date": "2026-06-15",
+                    }
+                ],
+            ),
         ],
     )
     @time_machine.travel("2026-06-15T09:00:00Z", tick=False)
@@ -499,6 +572,315 @@ class TestDatedFanOut:
         )
         assert result.raised is None
         assert result.rows == expected
+
+
+class TestFeaturedApps:
+    @pytest.mark.parametrize("resume_country", [None, "gb"])
+    @time_machine.travel("2026-06-15T09:00:00Z", tick=False)
+    def test_features_keep_the_app_and_country_scope_when_resuming(self, resume_country: str | None) -> None:
+        discovery = _V2Api(
+            collections=[{"id": 10, "countries": ["us"]}, {"id": 20, "countries": ["gb"]}],
+            apps_by_collection={
+                10: [{"ext_id": "111", "store": "as"}, {"ext_id": "example.app", "store": "gp"}],
+                20: [{"ext_id": "111", "store": "as"}, {"ext_id": "111", "store": "as"}],
+            },
+        )
+
+        def script(request: RecordedRequest) -> ScriptedResponse:
+            if not request.path.endswith("/aso/featured"):
+                return discovery(request)
+            return ScriptedResponse(
+                json={
+                    "data": {
+                        "111": {"data": [{"title": "Example collection", "date": "2026-06-10", "pos": 2}, None]},
+                        "other.app": {"data": [{"title": "Unrelated app"}]},
+                    }
+                }
+            )
+
+        resume = AppfollowResumeConfig(ext_id="111", country=resume_country) if resume_country else None
+        result = _run("featured_apps", script, resume_state=resume)
+        assert result.raised is None
+        expected_countries = ["gb"] if resume_country else ["us", "gb"]
+        requests_ = _requests_to(result, "/aso/featured")
+        assert [r.param("country") for r in requests_] == expected_countries
+        assert all(r.param("ext_id") == "111" for r in requests_)
+        assert all((r.param("from"), r.param("to")) == ("2025-06-15", "2026-06-15") for r in requests_)
+        assert result.rows == [
+            {"title": "Example collection", "date": "2026-06-10", "pos": 2, "ext_id": "111", "country": country}
+            for country in expected_countries
+        ]
+        assert result.saved_states == ([] if resume_country else [AppfollowResumeConfig(ext_id="111", country="gb")])
+        assert result.committed_states == ([resume] if resume else result.saved_states)
+
+    @pytest.mark.parametrize("body", [{"data": {}}, {"data": {"111": {"data": []}}}, {"data": None}])
+    def test_empty_feature_history_yields_no_rows(self, body: dict[str, Any]) -> None:
+        result = _run("featured_apps", _dated_api(lambda _: body))
+        assert result.raised is None
+        assert result.rows == []
+
+
+def _console_api(respond: Callable[[RecordedRequest], ScriptedResponse]) -> Script:
+    discovery = _V2Api(
+        collections=[{"id": 10, "title_normalized": "first"}, {"id": 20, "title_normalized": "second"}],
+        apps_by_collection={
+            10: [{"ext_id": "example.app", "store": "gp"}, {"ext_id": "111", "store": "as"}],
+            20: [{"ext_id": "example.app", "store": "gp"}, {"ext_id": "example.app", "store": "gp"}],
+        },
+    )
+
+    def script(request: RecordedRequest) -> ScriptedResponse:
+        return respond(request) if request.path.endswith("/meta/ratings/console/gp") else discovery(request)
+
+    return script
+
+
+class TestConsoleRatings:
+    @pytest.mark.parametrize(
+        "watermark,next_day,next_watermark",
+        [
+            (None, date(2026, 6, 16), None),
+            (date(2026, 4, 15), date(2026, 6, 16), date(2026, 4, 15)),
+            (None, date(2026, 7, 31), None),
+            (date(2026, 4, 15), date(2026, 7, 31), date(2026, 7, 30)),
+        ],
+    )
+    @time_machine.travel("2026-06-15T09:00:00Z", tick=False)
+    def test_empty_scans_persist_coverage_across_jobs(
+        self, watermark: date | None, next_day: date, next_watermark: date | None
+    ) -> None:
+        source = AppfollowSource()
+        cursor = SourceCursorManager(AppfollowScanCursor, None, source)
+        script = _console_api(lambda _: ScriptedResponse(json={"fields": {"ratings": None, "users": None}}))
+        first = _run(
+            "console_ratings",
+            script,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=watermark,
+            source_cursor=cursor,
+        )
+        assert first.raised is None
+        assert first.rows == []
+        assert _requests_to(first, "/meta/ratings/console/gp")[0].param("from") == (
+            "2026-04-08" if watermark else "2026-05-16"
+        )
+        payload = cursor.staged_payload()
+        assert payload is not None
+        next_cursor = SourceCursorManager.from_sync_type_config(
+            source, {"source_cursor": payload}, source_inputs("console_ratings").logger
+        )
+        with time_machine.travel(next_day, tick=False):
+            second = _run(
+                "console_ratings",
+                script,
+                job_id="00000000-0000-4000-8000-000000000004",
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=next_watermark,
+                source_cursor=next_cursor,
+            )
+        assert second.raised is None
+        assert second.rows == []
+        requests_ = _requests_to(second, "/meta/ratings/console/gp")
+        windows = [
+            (start.isoformat(), min(start + timedelta(days=13), next_day).isoformat())
+            for start in (
+                date(2026, 6, 8) + timedelta(days=offset)
+                for offset in range(0, (next_day - date(2026, 6, 8)).days + 1, 14)
+            )
+        ]
+        assert [(r.param("from"), r.param("to")) for r in requests_] == [
+            window for _ in range(2) for window in windows for _ in range(2)
+        ]
+
+    @time_machine.travel("2026-06-15T09:00:00Z", tick=False)
+    def test_failed_scan_does_not_advance_coverage(self) -> None:
+        source = AppfollowSource()
+        cursor = SourceCursorManager(AppfollowScanCursor, None, source)
+
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.param("collection_name") == "second":
+                return ScriptedResponse(status=403, json={"detail": "Forbidden"})
+            return ScriptedResponse(json={"fields": {"ratings": None, "users": None}})
+
+        failed = _run(
+            "console_ratings",
+            _console_api(respond),
+            source_cursor=cursor,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=date(2026, 4, 15),
+        )
+        assert isinstance(failed.raised, requests.HTTPError)
+        assert cursor.staged_payload() is None
+        retry = _run(
+            "console_ratings",
+            _console_api(lambda _: ScriptedResponse(json={"fields": {}})),
+            source_cursor=SourceCursorManager(AppfollowScanCursor, cursor.load(), source),
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=date(2026, 4, 15),
+        )
+        assert retry.raised is None
+        assert _requests_to(retry, "/meta/ratings/console/gp")[0].param("from") == "2026-04-08"
+
+    @pytest.mark.parametrize("incremental", [False, True])
+    @time_machine.travel("2026-06-16T09:00:00Z", tick=False)
+    def test_scan_coverage_is_specific_to_each_app_and_ignored_for_full_refresh(self, incremental: bool) -> None:
+        source = AppfollowSource()
+        stored = AppfollowScanCursor(completed_through={"10:example.app": "2026-06-15"})
+        discovery = _V2Api(
+            collections=[{"id": 10, "title_normalized": "first"}],
+            apps_by_collection={10: [{"ext_id": ext_id, "store": "gp"} for ext_id in ("example.app", "new.app")]},
+        )
+
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path.endswith("/meta/ratings/console/gp"):
+                return ScriptedResponse(json={"fields": {}})
+            return discovery(request)
+
+        result = _run(
+            "console_ratings",
+            respond,
+            source_cursor=SourceCursorManager(AppfollowScanCursor, stored, source),
+            should_use_incremental_field=incremental,
+            db_incremental_field_last_value=date(2026, 4, 15),
+        )
+        assert result.raised is None
+        first_dates: dict[str, str | None] = {}
+        for request in _requests_to(result, "/meta/ratings/console/gp"):
+            first_dates.setdefault(request.param("ext_id") or "", request.param("from"))
+        assert first_dates == {
+            "example.app": "2026-06-08" if incremental else "2026-05-17",
+            "new.app": "2026-04-08" if incremental else "2026-05-17",
+        }
+
+    @pytest.mark.parametrize("failed_metric", ["ratings", "users"])
+    @time_machine.travel("2026-06-15T09:00:00Z", tick=False)
+    def test_missing_integration_skips_to_the_next_collection(self, failed_metric: str) -> None:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.param("collection_name") == "first" and request.param("fields") == failed_metric:
+                return ScriptedResponse(status=424, json={"detail": "Failed Dependency"})
+            return ScriptedResponse(json={"fields": {request.param("fields"): [{"date": "2026-06-15", "value": 1}]}})
+
+        cursor = SourceCursorManager(AppfollowScanCursor, None, AppfollowSource())
+        result = _run(
+            "console_ratings",
+            _console_api(respond),
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=date(2026, 6, 14),
+            source_cursor=cursor,
+        )
+        assert result.raised is None
+        assert [(row["collection_name"], row["metric"]) for row in result.rows] == [
+            ("second", "ratings"),
+            ("second", "users"),
+        ]
+        assert result.committed_states == [AppfollowResumeConfig(ext_id="example.app", collection_id=20)]
+        assert cursor.staged == AppfollowScanCursor(completed_through={"20:example.app": "2026-06-15"})
+
+    @pytest.mark.parametrize("has_google_play_app", [False, True])
+    @time_machine.travel("2026-06-15T09:00:00Z", tick=False)
+    def test_discovery_reaches_safe_points_between_empty_collections(self, has_google_play_app: bool) -> None:
+        discovery = _V2Api(
+            collections=[{"id": n, "title_normalized": f"collection-{n}"} for n in range(8)],
+            apps_by_collection={7: [{"ext_id": "example.app", "store": "gp"}]} if has_google_play_app else {},
+        )
+
+        def script(request: RecordedRequest) -> ScriptedResponse:
+            if request.path.endswith("/meta/ratings/console/gp"):
+                return ScriptedResponse(
+                    json={"fields": {request.param("fields"): [{"date": "2026-06-15", "value": 1}]}}
+                )
+            return discovery(request)
+
+        source = AppfollowSource()
+        inputs = source_inputs("console_ratings", source_cursor=SourceCursorManager(AppfollowScanCursor, None, source))
+        manager = source.get_resumable_source_manager(inputs)
+        with (
+            scripted_network(script) as network,
+            activate_safe_point(network.note_progress, covers_framework_checkpoints=False),
+        ):
+            response = source.source_for_pipeline(AppfollowSourceConfig(api_key="tok"), manager, inputs)
+            rows = []
+            batches = response.items()
+            assert isinstance(batches, Iterable)
+            for batch in batches:
+                rows.extend(batch)
+                network.note_progress()
+            assert network.longest_run_without_progress <= 3
+            assert len(network.requests_log) >= 9
+        assert bool(rows) == has_google_play_app
+
+    @pytest.mark.parametrize("incremental", [False, True])
+    @time_machine.travel("2026-06-15T09:00:00Z", tick=False)
+    def test_both_metrics_keep_the_collection_and_walk_the_date_windows(self, incremental: bool) -> None:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            metric = request.param("fields")
+            return ScriptedResponse(
+                json={
+                    "fields": {metric: [{"date": request.param("from"), "value": 4.25 if metric == "ratings" else 7}]}
+                }
+            )
+
+        result = _run(
+            "console_ratings",
+            _console_api(respond),
+            should_use_incremental_field=incremental,
+            db_incremental_field_last_value=date(2026, 6, 14),
+        )
+        assert result.raised is None
+        windows = (
+            [("2026-06-07", "2026-06-15")]
+            if incremental
+            else [("2026-05-16", "2026-05-29"), ("2026-05-30", "2026-06-12"), ("2026-06-13", "2026-06-15")]
+        )
+        requests_ = _requests_to(result, "/meta/ratings/console/gp")
+        assert [(r.param("collection_name"), r.param("from"), r.param("to"), r.param("fields")) for r in requests_] == [
+            (collection, start, end, metric)
+            for collection in ("first", "second")
+            for start, end in windows
+            for metric in ("ratings", "users")
+        ]
+        assert all(r.param("ext_id") == "example.app" and r.param("period") == "daily" for r in requests_)
+        assert result.rows == [
+            {"collection_name": collection, "ext_id": "example.app", "date": start, "metric": metric, "value": value}
+            for collection in ("first", "second")
+            for start, _ in windows
+            for metric, value in (("ratings", 4.25), ("users", 7))
+        ]
+        assert result.saved_states == [
+            *[
+                AppfollowResumeConfig(ext_id="example.app", collection_id=10, slice_start=start)
+                for start, _ in windows[1:]
+            ],
+            AppfollowResumeConfig(ext_id="example.app", collection_id=20),
+            *[
+                AppfollowResumeConfig(ext_id="example.app", collection_id=20, slice_start=start)
+                for start, _ in windows[1:]
+            ],
+        ]
+        assert result.committed_states == result.saved_states
+
+    @pytest.mark.parametrize("completed_through", [{}, {"20:example.app": "2026-05-01"}])
+    @time_machine.travel("2026-06-15T09:00:00Z", tick=False)
+    def test_resume_keeps_the_saved_collection_and_day_with_nullable_metrics(
+        self, completed_through: dict[str, str]
+    ) -> None:
+        result = _run(
+            "console_ratings",
+            _console_api(lambda _: ScriptedResponse(json={"fields": {"ratings": None}})),
+            resume_state=AppfollowResumeConfig(ext_id="example.app", collection_id=20, slice_start="2026-06-14"),
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=date(2026, 6, 14),
+            source_cursor=SourceCursorManager(
+                AppfollowScanCursor, AppfollowScanCursor(completed_through=completed_through), AppfollowSource()
+            ),
+        )
+        assert result.raised is None
+        requests_ = _requests_to(result, "/meta/ratings/console/gp")
+        assert [(r.param("collection_name"), r.param("from"), r.param("fields")) for r in requests_] == [
+            ("second", "2026-06-14", "ratings"),
+            ("second", "2026-06-14", "users"),
+        ]
+        assert result.rows == []
 
 
 class _V3Api:

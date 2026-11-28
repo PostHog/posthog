@@ -1,8 +1,8 @@
 import type { z } from 'zod'
 
+import type { SavedPanel } from '../../panels/core/panelSchema'
+import type { PanelSize, SizeOf } from '../../panels/core/panelSpec'
 import type {
-    contentPanelPartsSchema,
-    contentPanelSchema,
     dashboardFilterSchema,
     dashboardDocumentSchema,
     dashboardSchema,
@@ -10,10 +10,8 @@ import type {
     gridTabSchema,
     linkTabSchema,
     sectionPanelSchema,
-    tileAppearanceSchema,
     tilePlaceSchema,
     tileSchema,
-    timeRangeSchema,
 } from './dashboardSchema'
 
 export const GRID = {
@@ -46,30 +44,10 @@ export function spanPx(cells: number, cellPx: number): number {
 
 export type TilePlace = z.infer<typeof tilePlaceSchema>
 
-export type TimeRange = z.infer<typeof timeRangeSchema>
-
 export type DashboardFilter<Config> = Omit<z.infer<typeof dashboardFilterSchema>, 'config'> & { config: Config }
 
 /** A filter as saved. Its `config` is checked against its kind's `configSchema` before the kind's own code uses it. */
 export type SavedFilter = DashboardFilter<z.infer<typeof dashboardFilterSchema>['config']>
-
-export type ContentPanelParts = z.infer<typeof contentPanelPartsSchema>
-
-export type TileAppearance = z.infer<typeof tileAppearanceSchema>
-
-export type PanelSize = {
-    w: number
-    h: number
-    minW: number
-    minH: number
-    /** A chart sized for a wide screen would fill a phone, so a stacked chart stays between these heights. */
-    stackedRows?: { min: number; max: number }
-}
-
-export type ContentPanel<Config> = Omit<z.infer<typeof contentPanelSchema>, 'config'> & { config: Config }
-
-/** A panel as saved. Its `config` is checked against its type's `configSchema` before the type's own code uses it. */
-export type SavedPanel = ContentPanel<z.infer<typeof contentPanelSchema>['config']>
 
 export type SectionPanel = z.infer<typeof sectionPanelSchema>
 
@@ -77,9 +55,6 @@ export type Panel = SavedPanel | SectionPanel
 
 /** A section's height follows its tiles, so `h` and `minH` only cover a new, empty one. */
 export const SECTION_SIZE: PanelSize = { w: 24, h: 6, minW: 8, minH: 3 }
-
-/** Looks up a content panel's size. Layout code takes it as an argument, so it never imports a panel. */
-export type SizeOf = (panel: SavedPanel) => PanelSize
 
 export function isSectionPanel(panel: Panel): panel is SectionPanel {
     return panel.type === 'section'

@@ -322,6 +322,10 @@ jobs:
         timeout-minutes: 30
 
         name: Python code quality (depot-ubuntu-24.04-4)
+        # The CI report sections this job posts (complexity, touched typing) write a PR comment.
+        permissions:
+            contents: read
+            pull-requests: write
         # 4 vCPU on every event, pull requests included. Every CPU-bound step here at least
         # halves on the wider machine: over the pull-request runs of 2026-11-23, ty went 55 s
         # to 27 s, ruff check 28 s to 7 s, ruff format 27 s to 7 s, the projections check 70 s
@@ -338,11 +342,15 @@ jobs:
             RUN_STAMPHOG: ${{ needs.changes.outputs.stamphog }}
             RUN_BIN_SCRIPTS: ${{ needs.changes.outputs.bin_scripts }}
             RUN_CREDENTIALS_DIGEST: ${{ needs.changes.outputs.credentials_digest }}
+            # From this day, an untyped function in a new file fails the job. Before it, the check only warns.
+            TOUCHED_TYPING_BLOCKING_FROM: '2026-12-07'
 
         steps:
+            # Depth 2 brings the merge commit's parents, so the touched-typing check can diff
+            # the merge commit against its first parent, which is master at merge time.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  fetch-depth: 1
+                  fetch-depth: 2
 
             - name: Mint setup-action GitHub token
               id: setup-gh-token
@@ -436,6 +444,31 @@ jobs:
                       node .github/scripts/post-complexity-section.mjs python complexity-findings-python.json
                   else
                       echo "Skipping the complexity report section: script or findings not on this branch"
+                  fi
+
+            # Warn-only here. The last step of the job fails it for untyped functions in new files,
+            # so that failure does not skip the checks in between.
+            - name: Check typing of touched functions
+              if: github.event_name == 'pull_request'
+              shell: bash
+              # A crash here must not fail the job. Without a report the new-file step below skips.
+              continue-on-error: true
+              run: |
+                  if [ ! -f .github/scripts/check_touched_typing.py ]; then
+                      echo "check_touched_typing.py not present on this branch yet — skipping (rebase to pick it up)"
+                      exit 0
+                  fi
+                  python3 .github/scripts/check_touched_typing.py --base HEAD^1 --report touched-typing.json --github --blocking-from "$TOUCHED_TYPING_BLOCKING_FROM"
+
+            - name: Post CI report — touched typing
+              if: ${{ !cancelled() && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/') }}
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+              run: |
+                  if [ -f .github/scripts/post-touched-typing-section.mjs ] && [ -f touched-typing.json ]; then
+                      node .github/scripts/post-touched-typing-section.mjs touched-typing.json
+                  else
+                      echo "Skipping the touched typing report section: script or findings not on this branch"
                   fi
 
             - parallel:
@@ -607,6 +640,13 @@ jobs:
                   name: junit-results-granian-shared-socket
                   if-no-files-found: ignore
                   path: junit-granian-shared-socket.xml
+
+            # Not on merge-queue runs: a PR that went green while the check only warned must not be
+            # kicked from the queue by the blocking date passing in between.
+            - name: Fail on untyped functions in new files
+              if: ${{ !cancelled() && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/') && hashFiles('touched-typing.json') != '' }}
+              shell: bash
+              run: python3 .github/scripts/check_touched_typing.py --enforce touched-typing.json
 
     # The whole-repo type check runs in its own job, beside code-quality instead of
     # inside it. mypy is CPU-bound and saturates both cores of the 2-vCPU runner, so

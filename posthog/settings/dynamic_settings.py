@@ -7,6 +7,9 @@ CONSTANCE_DATABASE_PREFIX = "constance:posthog:"
 # CONSTANCE_CONFIG: https://django-constance.readthedocs.io/en/latest/
 #
 # To edit, visit: ${SITE_URL}/admin/posthog/instancesetting/
+#
+# Do not add keys here. Use an environment variable or a feature flag instead.
+# The no-new-instance-settings semgrep rule blocks new keys; see .agents/architecture.md.
 
 CONSTANCE_CONFIG = {
     "STATIC_COHORT_RECONCILIATION_ENABLED": (

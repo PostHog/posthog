@@ -4,7 +4,8 @@ import time
 import uuid
 import asyncio
 import hashlib
-from collections.abc import Sequence
+import functools
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
@@ -39,6 +40,8 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
+from posthog.slack.block_actions import BlockActionHandler, block_action_handler_for
+from posthog.slack.channel_messages import ChannelMessage, dispatch_channel_message
 from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_instance_region
@@ -2587,6 +2590,79 @@ def _handle_app_uninstalled(request: HttpRequest, slack_team_id: str) -> str:
     return ROUTE_HANDLED_LOCALLY
 
 
+def _poster_user_ids(
+    slack_team_id: str, slack_user_id: str, channel: str, event_id: str | None
+) -> Callable[[], tuple[int, ...]]:
+    """Resolve the poster's PostHog accounts on the first call only, the same way a Slack command does."""
+
+    @functools.cache
+    def resolve() -> tuple[int, ...]:
+        workspace_result = load_integrations(
+            slack_team_id=slack_team_id,
+            kinds=[SLACK_INTEGRATION_KIND],
+            slack_user_id=slack_user_id,
+            channel=channel,
+        )
+        if not workspace_result.candidates:
+            return ()
+        resolution = resolve_user_for_workspace(
+            workspace_result=workspace_result,
+            slack_team_id=slack_team_id,
+            slack_user_id=slack_user_id,
+            event_id=event_id,
+        )
+        if resolution.user is None:
+            return ()
+        linked = linked_posthog_user_ids(slack_user_id=slack_user_id, slack_team_id=slack_team_id)
+        return tuple(dict.fromkeys((resolution.user.id, *linked)))
+
+    return resolve
+
+
+def _channel_post_tags_app(event: dict[str, Any], slack_team_id: str, slack_user_id: str, channel: str) -> bool:
+    """Whether the post tags the app, so the ``app_mention`` copy runs it as a command instead."""
+    if "<@" not in str(event.get("text") or ""):
+        return False
+    candidates = load_integrations(
+        slack_team_id=slack_team_id, kinds=[SLACK_INTEGRATION_KIND], slack_user_id=slack_user_id, channel=channel
+    ).candidates
+    return bool(candidates) and _message_tags_bot(event, candidates[0])
+
+
+def _offer_channel_post_to_hooks(
+    event: dict[str, Any], slack_team_id: str, event_id: str | None, *, is_ext_shared_channel: bool
+) -> bool:
+    """Offer a top-level channel post by a person to the products that registered a channel message handler.
+
+    Returns True when a product took the post. A reply in an externally shared channel would reach
+    people outside the organization, so those posts are not offered.
+    """
+    text, channel, slack_user_id, message_ts = (event.get(key) for key in ("text", "channel", "user", "ts"))
+    if not (
+        isinstance(text, str)
+        and isinstance(channel, str)
+        and isinstance(slack_user_id, str)
+        and isinstance(message_ts, str)
+    ):
+        return False
+    if is_ext_shared_channel or event.get("subtype") or event.get("channel_type") not in ("channel", "group"):
+        return False
+    if not _is_top_level_channel_post(event) or _thread_message_ignore_reason(event) is not None:
+        return False
+    if _channel_post_tags_app(event, slack_team_id, slack_user_id, channel):
+        return False
+    return dispatch_channel_message(
+        ChannelMessage(
+            slack_team_id=slack_team_id,
+            channel_id=channel,
+            message_ts=message_ts,
+            slack_user_id=slack_user_id,
+            text=text,
+            poster_user_ids=_poster_user_ids(slack_team_id, slack_user_id, channel, event_id),
+        )
+    )
+
+
 def _route_untagged_question(
     request: HttpRequest,
     event: dict[str, Any],
@@ -2883,6 +2959,11 @@ def route_posthog_code_event_to_relevant_region(
                     event_id=event_id,
                     is_ext_shared_channel=is_ext_shared_channel,
                 )
+                # The sending region offered the post only to the handlers of its own projects. The
+                # projects of this region exist only here, so this region offers the post again.
+                _offer_channel_post_to_hooks(
+                    event, slack_team_id, event_id, is_ext_shared_channel=is_ext_shared_channel
+                )
                 return ROUTE_HANDLED_LOCALLY
 
             should_try_other_region = request.headers.get(ALREADY_EMITTED_HEADER) != "1" and emit_slack_message_event(
@@ -2955,6 +3036,12 @@ def route_posthog_code_event_to_relevant_region(
             # Top-level channel posts dominate the wire volume, so they leave the shared pipeline
             # here and face cheap gates before any DB hit.
             if _is_top_level_channel_post(event):
+                # A post that a product took, such as a pull request link in a Broadcast channel, is not a
+                # question for the agent.
+                if _offer_channel_post_to_hooks(
+                    event, slack_team_id, event_id, is_ext_shared_channel=is_ext_shared_channel
+                ):
+                    return ROUTE_HANDLED_LOCALLY
                 return _route_untagged_question(
                     request,
                     event,
@@ -6111,6 +6198,32 @@ def _signals_report_state_action(payload: dict) -> tuple[str, dict] | None:
     return (action["action_id"], value) if isinstance(value, dict) else None
 
 
+def _registered_block_action(payload: dict) -> tuple[dict, BlockActionHandler] | None:
+    """The first action of the payload that a product registered a handler for, with that handler."""
+    for action in payload.get("actions", []):
+        action_id = action.get("action_id")
+        if isinstance(action_id, str) and (handler := block_action_handler_for(action_id)) is not None:
+            return action, handler
+    return None
+
+
+def _extract_registered_action_hints(payload: dict) -> int | None:
+    """Integration id that a registered product button carries in its JSON value, for region routing."""
+    registered = _registered_block_action(payload)
+    if registered is None:
+        return None
+    return _extract_action_value_hints(payload, registered[0]["action_id"])[0]
+
+
+def _handle_registered_block_action(payload: dict, action: dict, handler: BlockActionHandler) -> HttpResponse:
+    try:
+        handler(payload, action)
+    except Exception:
+        # The owning product failed, and a non-200 answer only makes Slack show an error icon on the button.
+        logger.exception("slack_app_registered_block_action_failed", action_id=action.get("action_id"))
+    return HttpResponse(status=200)
+
+
 def _extract_dismiss_hints(payload: dict) -> int | None:
     """Integration id carried by a signals report follow-up button, used for region-ownership routing."""
     clicked = _signals_report_state_action(payload)
@@ -6624,6 +6737,7 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
     alert_snooze_uuid = _extract_alert_snooze_hints(payload)
     inbox_integration_id = inbox_interactivity.extract_inbox_hints(payload)
     project_picker_integration_id = project_picker.picked_integration_id(payload)
+    registered_action_integration_id = _extract_registered_action_hints(payload)
     # Both controls a reply carries, the modal a thumbs-down opens, and the reply suggestions claim
     # the same workspace, so one hint serves all of them. The modal and the suggestions need their
     # own extractors: a view submission carries no action, and each suggestion has its own action id.
@@ -6687,6 +6801,10 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
         # settled in the fork activity, and a rating is matched to its run in the feedback
         # handler.
         local = workspace_integration_exists(reply_control_integration_id, slack_team_id)
+    elif slack_team_id and registered_action_integration_id:
+        # A button of another product, registered in posthog.slack.block_actions. Routing only claims
+        # the workspace. Who may click is decided by the product's handler.
+        local = workspace_integration_exists(registered_action_integration_id, slack_team_id)
 
     proxied = was_proxied(request)
     incoming_host = request.get_host()
@@ -6768,6 +6886,8 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
         return _handle_app_home_view_submission(payload)
 
     if payload_type == "block_actions":
+        if (registered := _registered_block_action(payload)) is not None:
+            return _handle_registered_block_action(payload, *registered)
         actions = payload.get("actions", [])
         for action in actions:
             action_id = action.get("action_id")

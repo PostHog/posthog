@@ -75,6 +75,8 @@ _LAZY = {
     "WebhookDeletionResult": "sources.common.base",
     "WebhookSource": "sources.common.base",
     "WebhookSyncResult": "sources.common.base",
+    "keep_flat_branch_copies": "sources.common.base",
+    "nest_flat_select_containers": "sources.common.base",
     "Config": "sources.common.config",
     "added_table_root": "sources.common.object_store.source_base",
     "define_added_table_metadata": "sources.common.object_store.source_base",
