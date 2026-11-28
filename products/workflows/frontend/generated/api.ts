@@ -9,6 +9,10 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    AdventCalendarAnswerApi,
+    AdventCalendarDoorOpenApi,
+    AdventCalendarDoorOpenRequestApi,
+    AdventCalendarResultsApi,
     AppMetricsResponseApi,
     AppMetricsTotalsResponseApi,
     ApplyUtmDefaultsRequestApi,
@@ -1633,6 +1637,63 @@ export const pushTokenImportsLatestRetrieve = async (
     options?: RequestInit
 ): Promise<PushTokenImportLatestApi> => {
     return apiMutator<PushTokenImportLatestApi>(getPushTokenImportsLatestRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWorkflowAdventCalendarAnswerUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workflow_advent_calendar/answer/`
+}
+
+/**
+ * How people open the doors of the Workflows advent calendar and answer its questions.
+ */
+export const workflowAdventCalendarAnswer = async (
+    projectId: string,
+    adventCalendarAnswerApi: AdventCalendarAnswerApi,
+    options?: RequestInit
+): Promise<AdventCalendarResultsApi> => {
+    return apiMutator<AdventCalendarResultsApi>(getWorkflowAdventCalendarAnswerUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(adventCalendarAnswerApi),
+    })
+}
+
+export const getWorkflowAdventCalendarOpenUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workflow_advent_calendar/open/`
+}
+
+/**
+ * How people open the doors of the Workflows advent calendar and answer its questions.
+ */
+export const workflowAdventCalendarOpen = async (
+    projectId: string,
+    adventCalendarDoorOpenRequestApi: AdventCalendarDoorOpenRequestApi,
+    options?: RequestInit
+): Promise<AdventCalendarDoorOpenApi> => {
+    return apiMutator<AdventCalendarDoorOpenApi>(getWorkflowAdventCalendarOpenUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(adventCalendarDoorOpenRequestApi),
+    })
+}
+
+export const getWorkflowAdventCalendarResultsUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/workflow_advent_calendar/results/`
+}
+
+/**
+ * How people open the doors of the Workflows advent calendar and answer its questions.
+ */
+export const workflowAdventCalendarResults = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<AdventCalendarResultsApi> => {
+    return apiMutator<AdventCalendarResultsApi>(getWorkflowAdventCalendarResultsUrl(projectId), {
         ...options,
         method: 'GET',
     })

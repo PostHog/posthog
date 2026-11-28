@@ -7045,8 +7045,10 @@ export interface ExperimentQueryResponse {
  * leaves the object out.
  */
 export interface ExperimentWarehouseNativeRowsLeftOut {
-    /** Exposure rows whose variant is not one the flag serves, counted by the value seen. */
+    /** Exposure rows whose variant is not one the flag serves, counted by the value seen. At most the 50 most common values. */
     unknown_variants?: Record<string, integer>
+    /** Exposure rows whose variant is not one the flag serves, in total, including the values that `unknown_variants` leaves out. */
+    unknown_variant_rows?: integer
     /** Exposure rows with an empty entity_id. */
     empty_id?: integer
     /** Exposed entities with no row of the metric query that counted, by variant. */
@@ -7178,6 +7180,7 @@ export type ExperimentExposureHealthFindingCode =
     | 'unserved_variant_exposures'
     | 'events_billing_limit'
     | 'feature_flags_billing_limit'
+    | 'exposure_rows_left_out'
 
 export type ExperimentExposureHealthFindingSeverity = 'critical' | 'warning' | 'info'
 
@@ -7221,6 +7224,7 @@ export type ExperimentExposureHealthCheckKey =
     | 'unserved_variant_exposures'
     | 'events_billing_limit'
     | 'feature_flags_billing_limit'
+    | 'exposure_rows_left_out'
 
 export type ExperimentExposureHealthCheckStatus = 'passed' | 'finding' | 'not_applicable' | 'not_checked'
 
@@ -7237,6 +7241,9 @@ export type ExperimentExposureHealthValueKey =
     | 'kept_by_test_account_filter_percentage'
     | 'unserved_exposed_count'
     | 'unserved_exposed_percentage'
+    | 'left_out_row_count'
+    | 'unknown_variant_row_count'
+    | 'empty_id_row_count'
 
 export type ExperimentExposureHealthRuleSide = 'above' | 'below'
 

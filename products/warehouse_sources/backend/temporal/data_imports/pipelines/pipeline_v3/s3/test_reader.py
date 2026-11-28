@@ -92,17 +92,21 @@ class TestReadParquetFirstValues:
             ("json_after_a_null_in_the_same_row_group", [None, '{"a": 1}', "x", "y"], "StringJSONDatabaseField"),
             ("all_null", [None, None, None, None], "StringDatabaseField"),
             ("no_rows", [], "StringDatabaseField"),
+            ("invalid_utf8_before_json", [None, b"\x90\x01", '{"a": 1}', None], "StringDatabaseField"),
+            ("json_with_invalid_utf8", [None, None, b'{"a": "\x90"}', "x"], "StringJSONDatabaseField"),
         ]
     )
     @patch(f"{_READER}.get_s3_client")
     def test_types_each_column_as_the_full_batch_does(
-        self, _name: str, payload: list[str | None], expected_payload_type: str, mock_get_client: MagicMock
+        self, _name: str, payload: list[str | bytes | None], expected_payload_type: str, mock_get_client: MagicMock
     ) -> None:
         rows = len(payload)
+        # Parquet reads skip UTF-8 validation, so a string column can carry raw bytes from the source.
+        raw_payload = [value.encode() if isinstance(value, str) else value for value in payload]
         table = pa.table(
             {
                 "id": pa.array(range(rows), pa.int64()),
-                "payload": pa.array(payload, pa.string()),
+                "payload": pa.array(raw_payload, pa.binary()).view(pa.string()),
                 "other": pa.array(["plain"] * rows, pa.string()),
                 "raw": pa.array([b"{"] * rows, pa.binary()),
                 "seen_at": pa.array([None] * rows, pa.timestamp("us")),

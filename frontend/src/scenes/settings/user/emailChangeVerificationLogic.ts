@@ -221,6 +221,8 @@ export const emailChangeVerificationLogic = kea<emailChangeVerificationLogicType
                         if (e.code === 'throttled') {
                             actions.resendLimitReached()
                             lemonToast.error('You have requested a new code too many times. Please try again later.')
+                        } else if (e.code === 'email_verification_code_undeliverable') {
+                            lemonToast.error(e.detail)
                         } else {
                             lemonToast.error('Requesting a new code failed. Please try again later.')
                         }
