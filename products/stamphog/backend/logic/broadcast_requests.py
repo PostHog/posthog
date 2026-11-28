@@ -824,8 +824,10 @@ def _set_reactions(card: BroadcastRequestCard, delivery: BroadcastRequestDeliver
 
 def _set_link_post_reactions(card: BroadcastRequestCard, delivery: BroadcastRequestDelivery, *, using: str) -> None:
     """👀 while anybody looks at one of the post's pull requests, and ✅ only when every one is approved or merged."""
+    # A post can link repositories of several projects that share the channel. Their cards are all in this thread,
+    # so reading every project's cards here shows nothing that the thread does not show.
     requests = (
-        BroadcastRequest.objects.for_team(card.team_id)
+        BroadcastRequest.objects.unscoped()
         .using(using)
         .filter(
             deliveries__kind=BroadcastRequestDeliveryKind.SLACK_MESSAGE,
@@ -838,7 +840,7 @@ def _set_link_post_reactions(card: BroadcastRequestCard, delivery: BroadcastRequ
     )
     statuses = set(requests.values_list("status", flat=True))
     looking = (
-        BroadcastRequestParticipant.objects.for_team(card.team_id)
+        BroadcastRequestParticipant.objects.unscoped()
         .using(using)
         .filter(broadcast_request__in=requests, looking=True)
         .exists()
