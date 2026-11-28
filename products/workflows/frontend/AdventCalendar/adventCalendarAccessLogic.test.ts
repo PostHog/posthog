@@ -196,7 +196,7 @@ const DECISION_TABLE: DecisionTableRow[] = [
     ['left out', 'not persisted', 'stored without it', 'answers on, then blocked', 'flags arrived', 'calendar'],
     ['left out', 'not persisted', 'stored on', 'not yet', 'before timeout', 'waiting'],
     ['left out', 'not persisted', 'stored on', 'not yet', 'after timeout', 'calendar'],
-    ['left out', 'not persisted', 'stored on', 'blocked', 'flags arrived', 'not found'],
+    ['left out', 'not persisted', 'stored on', 'blocked', 'flags arrived', 'calendar'],
     ['left out', 'not persisted', 'stored on', 'answers on', 'flags arrived', 'calendar'],
     ['left out', 'not persisted', 'stored on', 'answers off', 'flags arrived', 'not found'],
     ['left out', 'not persisted', 'stored on', 'unrelated error, answers on', 'flags arrived', 'calendar'],
@@ -216,6 +216,34 @@ const DECISION_TABLE: DecisionTableRow[] = [
     ['left out', 'not persisted', 'stored off', 'blocked, then answers off', 'flags arrived', 'not found'],
     ['left out', 'not persisted', 'stored off', 'answers off, then blocked', 'flags arrived', 'not found'],
     ['left out', 'not persisted', 'stored off', 'answers on, then blocked', 'flags arrived', 'calendar'],
+    ['left out', 'persisted', 'first visit', 'not yet', 'before timeout', 'waiting'],
+    ['left out', 'persisted', 'first visit', 'not yet', 'after timeout', 'calendar'],
+    ['left out', 'persisted', 'first visit', 'blocked', 'flags arrived', 'calendar'],
+    ['left out', 'persisted', 'first visit', 'answers on', 'flags arrived', 'calendar'],
+    ['left out', 'persisted', 'first visit', 'unrelated error, answers on', 'flags arrived', 'calendar'],
+    ['left out', 'persisted', 'first visit', 'blocked, then answers on', 'flags arrived', 'calendar'],
+    ['left out', 'persisted', 'first visit', 'answers on, then blocked', 'flags arrived', 'calendar'],
+    ['left out', 'persisted', 'stored without it', 'not yet', 'before timeout', 'waiting'],
+    ['left out', 'persisted', 'stored without it', 'not yet', 'after timeout', 'not found'],
+    ['left out', 'persisted', 'stored without it', 'blocked', 'flags arrived', 'calendar'],
+    ['left out', 'persisted', 'stored without it', 'answers on', 'flags arrived', 'calendar'],
+    ['left out', 'persisted', 'stored without it', 'unrelated error, answers on', 'flags arrived', 'calendar'],
+    ['left out', 'persisted', 'stored without it', 'blocked, then answers on', 'flags arrived', 'calendar'],
+    ['left out', 'persisted', 'stored without it', 'answers on, then blocked', 'flags arrived', 'calendar'],
+    ['left out', 'persisted', 'stored on', 'not yet', 'before timeout', 'waiting'],
+    ['left out', 'persisted', 'stored on', 'not yet', 'after timeout', 'calendar'],
+    ['left out', 'persisted', 'stored on', 'blocked', 'flags arrived', 'calendar'],
+    ['left out', 'persisted', 'stored on', 'answers on', 'flags arrived', 'calendar'],
+    ['left out', 'persisted', 'stored on', 'unrelated error, answers on', 'flags arrived', 'calendar'],
+    ['left out', 'persisted', 'stored on', 'blocked, then answers on', 'flags arrived', 'calendar'],
+    ['left out', 'persisted', 'stored on', 'answers on, then blocked', 'flags arrived', 'calendar'],
+    ['left out', 'persisted', 'stored off', 'not yet', 'before timeout', 'waiting'],
+    ['left out', 'persisted', 'stored off', 'not yet', 'after timeout', 'not found'],
+    ['left out', 'persisted', 'stored off', 'blocked', 'flags arrived', 'calendar'],
+    ['left out', 'persisted', 'stored off', 'answers on', 'flags arrived', 'calendar'],
+    ['left out', 'persisted', 'stored off', 'unrelated error, answers on', 'flags arrived', 'calendar'],
+    ['left out', 'persisted', 'stored off', 'blocked, then answers on', 'flags arrived', 'calendar'],
+    ['left out', 'persisted', 'stored off', 'answers on, then blocked', 'flags arrived', 'calendar'],
     ['absent', 'not persisted', 'first visit', 'not yet', 'before timeout', 'waiting'],
     ['absent', 'not persisted', 'first visit', 'not yet', 'after timeout', 'not found'],
     ['absent', 'not persisted', 'first visit', 'blocked', 'flags arrived', 'not found'],
@@ -435,7 +463,7 @@ describe('adventCalendarAccessLogic', () => {
                 const row: DecisionRow = { page, persisted, cached, load, timeout, sees: expected }
                 const onlyBlockedReplies =
                     load !== 'not yet' && load.split(', then ').every((reply) => reply === 'blocked')
-                const pageView: View | null = page === 'absent' ? null : page === 'on' ? 'calendar' : 'not found'
+                const pageView: View | null = page === 'on' ? 'calendar' : page === 'off' ? 'not found' : null
                 const openings =
                     load === 'not yet'
                         ? (['before the load'] as const)
@@ -538,9 +566,9 @@ describe('adventCalendarAccessLogic', () => {
             [true],
         ],
         [
-            'a failed load on a page that left the switched-off flag out hides the stored flag',
+            'a failed load on a page that left the flag out keeps the stored flag',
             { pageFlags: { 'other-flag': true }, steps: [failed({ [FLAG]: true })] },
-            [false],
+            [true],
         ],
         [
             'a failed load ignores a page value that is not a boolean',

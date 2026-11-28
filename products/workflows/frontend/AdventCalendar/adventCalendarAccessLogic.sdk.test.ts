@@ -122,12 +122,7 @@ describe('adventCalendarAccessLogic with posthog-js', () => {
     it.each<[string, PageDecision, Reply[], (boolean | undefined)[]]>([
         ['a blocked load shows the page decision on', 'on', ['blocked'], [true]],
         ['a bad gateway shows the page decision on', 'on', ['bad gateway'], [true]],
-        [
-            'a blocked load on a page that left the switched-off flag out hides the calendar',
-            'left out',
-            ['blocked'],
-            [false],
-        ],
+        ['a blocked load on a page that left the flag out follows the SDK', 'left out', ['blocked'], [false]],
         ['a successful load wins over the page decision', 'on', ['flag off'], [false]],
         ['a successful retry after a blocked load shows the loaded flag', 'on', ['blocked', 'flag off'], [true, false]],
         [
@@ -157,7 +152,14 @@ describe('adventCalendarAccessLogic with posthog-js', () => {
             'bad gateway',
             true,
         ],
-        ['a returning visitor stored with the flag on sees the switch-off', 'flag on', 'left out', 'blocked', false],
+        ['a returning visitor stored with the flag on sees the page decision off', 'flag on', 'off', 'blocked', false],
+        [
+            'a returning visitor stored with the flag on keeps it when the page leaves the flag out',
+            'flag on',
+            'left out',
+            'blocked',
+            true,
+        ],
     ])(
         '%s (earlier reply %s, page %s) when the next page gets %s',
         async (_name, earlierReply, page, failure, expected) => {

@@ -29,7 +29,7 @@ function pageDecision(): boolean | undefined {
     if (!pageFlags) {
         return undefined
     }
-    const decision = pageFlags[FLAG] ?? false
+    const decision = pageFlags[FLAG]
     return typeof decision === 'boolean' ? decision : undefined
 }
 
