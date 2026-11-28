@@ -266,31 +266,37 @@ describe('MessagingCtaChip', () => {
         expect(nextShowing.attempt_id).not.toBe(clicks[0].attempt_id)
     })
 
-    it("waits for this page load's flags before it shows or reports, even when the page bootstraps another arm", async () => {
-        let answerFlags: (flags: Record<string, string | boolean>) => void = () => {}
-        const flagsRequest = new Promise<Record<string, string | boolean>>((resolve) => {
-            answerFlags = resolve
-        })
-        const { renderChip, chip, sent, waitFor } = open('control', { flagsRequest })
-        renderChip()
+    test.each([
+        { bootstrapped: 'control', name: 'another arm' },
+        { bootstrapped: 'player_chip', name: 'the arm the server answers' },
+    ])(
+        "waits for this page load's flags before it shows or reports, when the page bootstraps $name",
+        async ({ bootstrapped }) => {
+            let answerFlags: (flags: Record<string, string | boolean>) => void = () => {}
+            const flagsRequest = new Promise<Record<string, string | boolean>>((resolve) => {
+                answerFlags = resolve
+            })
+            const { renderChip, chip, sent, waitFor } = open(bootstrapped, { flagsRequest })
+            renderChip()
 
-        expect(chip()).toBeNull()
-        expect(await sent('$feature_flag_called')).toEqual([])
+            expect(chip()).toBeNull()
+            expect(await sent('$feature_flag_called')).toEqual([])
 
-        answerFlags({
-            [FEATURE_FLAGS.XPM_REPLAY_PLACEMENT]: 'player_chip',
-            [FEATURE_FLAGS.WORKFLOWS_TRANSACTIONAL_EMAIL_API]: true,
-        })
-        await waitFor(async () =>
-            expect(await sent('$feature_flag_called')).toEqual([
-                expect.objectContaining({
-                    $feature_flag: FEATURE_FLAGS.XPM_REPLAY_PLACEMENT,
-                    $feature_flag_response: 'player_chip',
-                }),
-            ])
-        )
-        expect(chip()?.textContent).toContain('From an email?')
-    })
+            answerFlags({
+                [FEATURE_FLAGS.XPM_REPLAY_PLACEMENT]: 'player_chip',
+                [FEATURE_FLAGS.WORKFLOWS_TRANSACTIONAL_EMAIL_API]: true,
+            })
+            await waitFor(async () =>
+                expect(await sent('$feature_flag_called')).toEqual([
+                    expect.objectContaining({
+                        $feature_flag: FEATURE_FLAGS.XPM_REPLAY_PLACEMENT,
+                        $feature_flag_response: 'player_chip',
+                    }),
+                ])
+            )
+            expect(chip()?.textContent).toContain('From an email?')
+        }
+    )
 
     it('shows the copy its flag payload sets', () => {
         const { renderChip, chip } = open('player_chip', { payload: { label: 'Email from PostHog?' } })
