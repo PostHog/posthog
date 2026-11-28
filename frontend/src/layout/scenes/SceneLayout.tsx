@@ -11,6 +11,7 @@ import { cn } from 'lib/utils/css-classes'
 import { SceneConfig } from 'scenes/sceneTypes'
 
 import { SceneMenuBarSlotProvider } from './components/SceneMenuBarSlotProvider'
+import { useIsScenePeek } from './components/scenePeekContext'
 import { sceneLayoutLogic } from './sceneLayoutLogic'
 
 type SceneLayoutProps = {
@@ -19,7 +20,12 @@ type SceneLayoutProps = {
     sceneConfig?: SceneConfig | null
 }
 
-export function ScenePanel({ children }: { children: React.ReactNode }): JSX.Element {
+export function ScenePanel({ children }: { children: React.ReactNode }): JSX.Element | null {
+    // A peeked scene would otherwise fill the panel of the page under the drawer.
+    return useIsScenePeek() ? null : <ScenePanelPortal>{children}</ScenePanelPortal>
+}
+
+function ScenePanelPortal({ children }: { children: React.ReactNode }): JSX.Element {
     const { scenePanelElement } = useValues(sceneLayoutLogic)
     const { setScenePanelIsPresent } = useActions(sceneLayoutLogic)
     // HACKY: Show the panel only if this element in in the DOM
