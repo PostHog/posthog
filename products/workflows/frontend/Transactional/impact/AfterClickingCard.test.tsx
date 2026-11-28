@@ -61,6 +61,8 @@ interface FakeReplayVision {
     failedPolls: number
     pollFailure: [number, Record<string, string>]
     createGate: Promise<void>
+    pollGate: Promise<void>
+    polls: number
     answers: Map<string, string>
 }
 
@@ -105,6 +107,8 @@ describe('AfterClickingCard', () => {
             failedPolls: 0,
             pollFailure: [502, {}],
             createGate: Promise.resolve(),
+            pollGate: Promise.resolve(),
+            polls: 0,
             answers: new Map(),
         }
         useMocks({
@@ -123,10 +127,14 @@ describe('AfterClickingCard', () => {
                     }
                     const query = new URL(request.url).searchParams
                     const from = Date.parse(query.get('date_from') ?? '')
-                    const before = Date.parse(query.get('landed_before') ?? 'invalid')
+                    const landedBefore = query.get('landed_before')
+                    const before = landedBefore === null ? Infinity : Date.parse(landedBefore)
+                    if (Number.isNaN(before)) {
+                        return [400, { attr: 'landed_before', detail: 'Datetime has wrong format.' }]
+                    }
                     const landed = LANDINGS.filter(({ first_pageview_at }) => {
                         const at = Date.parse(first_pageview_at)
-                        return at >= from && !(at >= before)
+                        return at >= from && at < before
                     })
                     landed.sort(
                         (a, b) =>
@@ -139,7 +147,9 @@ describe('AfterClickingCard', () => {
                     }))
                     return [200, { sessions: sessions.slice(0, 200), has_more: sessions.length > 200 }]
                 },
-                '/api/projects/:team_id/vision/requests/:id/': ({ params }) => {
+                '/api/projects/:team_id/vision/requests/:id/': async ({ params }) => {
+                    vision.polls += 1
+                    await vision.pollGate
                     const scan = [...vision.scansByKey.values()].find(({ id }) => id === params.id)
                     if (!scan) {
                         return [404, { detail: 'Not found.' }]
@@ -205,7 +215,13 @@ describe('AfterClickingCard', () => {
     afterEach(() => {
         cleanup()
         jest.useRealTimers()
+        Object.defineProperty(document, 'hidden', { value: false, configurable: true })
     })
+
+    function setPageHidden(hidden: boolean): void {
+        Object.defineProperty(document, 'hidden', { value: hidden, configurable: true })
+        document.dispatchEvent(new Event('visibilitychange'))
+    }
 
     function renderTab(
         team: typeof MOCK_DEFAULT_TEAM,
@@ -317,6 +333,28 @@ describe('AfterClickingCard', () => {
         expect(await screen.findByText(ANSWER)).toBeInTheDocument()
         expect(vision.bodies).toHaveLength(1)
         expect(captured).toContain('transactional email impact scan failed')
+    })
+
+    it('sends one poll when the tab hides and shows while a poll is in flight', async () => {
+        jest.useFakeTimers({ now: NOW, doNotFake: ['queueMicrotask', 'nextTick', 'setImmediate'] })
+        vision.startsRunning = true
+        let releasePoll = (): void => {}
+        vision.pollGate = new Promise((resolve) => {
+            releasePoll = resolve
+        })
+        renderTab(REPLAY_ON)
+        const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime })
+
+        await user.click(await screen.findByText('Scan sessions'))
+        expect(await screen.findByText(/^0 of 1\ssession scanned$/)).toBeInTheDocument()
+        await act(() => jest.advanceTimersByTimeAsync(SCAN_POLL_INTERVAL_MS))
+        act(() => setPageHidden(true))
+        act(() => setPageHidden(false))
+        await act(() => jest.advanceTimersByTimeAsync(SCAN_POLL_INTERVAL_MS))
+        releasePoll()
+
+        expect(await screen.findByText(ANSWER)).toBeInTheDocument()
+        expect(vision.polls).toBe(1)
     })
 
     it('finds the scan it started when the answer to its start never arrived', async () => {
