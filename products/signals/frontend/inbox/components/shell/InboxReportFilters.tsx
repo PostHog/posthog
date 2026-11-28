@@ -49,7 +49,10 @@ export function InboxReportFilters({ layout = 'row' }: { layout?: 'row' | 'panel
         panel ? <PanelField label={label}>{control}</PanelField> : control
 
     return (
-        <div className={panel ? 'flex flex-col gap-2' : 'flex flex-wrap items-center gap-2'}>
+        // The row puts the controls straight into the parent's flex line, so the source trigger shrinks
+        // alongside the controls after it. A selected source puts its trigger in a wrapper div for the
+        // clear button, and that wrapper takes no class of its own.
+        <div className={panel ? 'flex flex-col gap-2' : 'contents *:flex *:min-w-0'}>
             {field('Status', <InboxStateFilter />)}
             {field('Priority', <InboxPriorityFilter />)}
             {timeWindowAvailable &&
@@ -60,16 +63,18 @@ export function InboxReportFilters({ layout = 'row' }: { layout?: 'row' | 'panel
                         value={createdWindow}
                         onChange={(window) => setCreatedWindow(window)}
                         options={CREATED_WINDOW_SELECT_OPTIONS}
-                        icon={<IconCalendar />}
+                        // The row has no room to spare, and the label already says what the select is.
+                        icon={panel ? <IconCalendar /> : undefined}
                         tooltip={panel ? undefined : `Created: ${createdWindowLabel(createdWindow)}`}
-                        // The window value ("7d") doubles as the short label in a narrow container.
+                        // The window value ("7d") doubles as the short label in the same widths where the
+                        // sort shows only its icon.
                         renderButtonContent={(leaf) =>
                             panel ? (
                                 (leaf?.label ?? 'Any time')
                             ) : (
                                 <>
-                                    <span className="@2xl:hidden">{leaf?.value ?? 'Any time'}</span>
-                                    <span className="hidden @2xl:inline">{leaf?.label ?? 'Any time'}</span>
+                                    <span className="@[52rem]:hidden">{leaf?.value ?? 'Any time'}</span>
+                                    <span className="hidden @[52rem]:inline">{leaf?.label ?? 'Any time'}</span>
                                 </>
                             )
                         }

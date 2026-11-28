@@ -44,6 +44,7 @@ export function InboxTagFilter(): JSX.Element {
                     type="secondary"
                     active={selected.length > 0}
                     aria-label={selected.length > 0 ? `Tags: ${selected.join(', ')}` : 'Tags: any'}
+                    tooltip={selected.length > 0 ? `Tags: ${selected.join(', ')}` : undefined}
                     data-attr="inbox-filter-tags"
                 >
                     {selected.length > 0 ? `Tags · ${selected.length}` : 'Tags'}
