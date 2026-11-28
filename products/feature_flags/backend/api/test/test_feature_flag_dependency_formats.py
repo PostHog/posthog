@@ -306,7 +306,9 @@ class TestFeatureFlagDependencyFormats(APIBaseTest):
         assert source.filters == filters
 
     @parameterized.expand(
-        [("person", False, 2, 8), ("group", True, 2, 2), ("wide_group", True, DEPENDENCY_BATCH_SIZE + 1, 3)]
+        # The person case allows one membership lookup for the read check on dependencies. The HTTP path reuses
+        # the view's cached membership, so the request-level cost is unchanged.
+        [("person", False, 2, 9), ("group", True, 2, 2), ("wide_group", True, DEPENDENCY_BATCH_SIZE + 1, 3)]
     )
     @override_settings(FEATURE_FLAG_FILTERS_ENFORCED_RULES=set())
     def test_diamond_preserves_dependency_query_bound(
@@ -326,7 +328,13 @@ class TestFeatureFlagDependencyFormats(APIBaseTest):
             groups[0]["aggregation_group_type_index"] = 0
             FeatureFlag.objects.filter(id=leaf.id).update(filters=dependency_filters(leaf))
         serializer = FeatureFlagSerializer(
-            data={"key": "source"}, context={"project_id": self.team.project_id, "request": ServiceRequest(self.user)}
+            data={"key": "source"},
+            context={
+                "team_id": self.team.id,
+                "project_id": self.team.project_id,
+                "get_team": lambda: self.team,
+                "request": ServiceRequest(self.user),
+            },
         )
         with CaptureQueriesContext(connection) as queries:
             filters = serializer.validate_filters(candidate)

@@ -1769,6 +1769,33 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             self.assertIn("flag_dependency_warnings", success)
             self.assertIn(expected_warning_substring, success["flag_dependency_warnings"][0])
 
+    def test_copy_feature_flag_fails_when_remapped_dependency_runtime_mismatches(self):
+        source_parent = FeatureFlag.objects.create(
+            team=self.team_1, created_by=self.user, key="parent-flag", active=True, evaluation_runtime="all"
+        )
+        FeatureFlag.objects.create(
+            team=self.team_2, created_by=self.user, key="parent-flag", active=True, evaluation_runtime="client"
+        )
+        dependent_flag = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key="dependent-flag",
+            active=True,
+            evaluation_runtime="server",
+            filters={
+                "groups": [{"rollout_percentage": 100, "properties": [self._flag_dependency_property(source_parent)]}]
+            },
+        )
+
+        response = self._post_copy_flag(dependent_flag, [self.team_2.id])
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["success"] == []
+        [failure] = response.json()["failed"]
+        assert failure["project_id"] == self.team_2.id
+        assert "dependency_runtime_mismatch" in failure["error_message"]
+        assert not FeatureFlag.objects.filter(team=self.team_2, key="dependent-flag").exists()
+
     def test_copy_feature_flag_drops_disabled_source_dependency_even_when_target_same_key_flag_is_active(self):
         source_parent = FeatureFlag.objects.create(
             team=self.team_1,
