@@ -2020,6 +2020,7 @@ class IntegrationKind(StrEnum):
     GOOGLE_PUBSUB = "google-pubsub"
     GOOGLE_CLOUD_SERVICE_ACCOUNT = "google-cloud-service-account"
     GOOGLE_CLOUD_STORAGE = "google-cloud-storage"
+    GOOGLE_ADMOB = "google-admob"
     GOOGLE_ADS = "google-ads"
     GOOGLE_ANALYTICS = "google-analytics"
     GOOGLE_CALENDAR = "google-calendar"

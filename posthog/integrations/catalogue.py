@@ -39,6 +39,7 @@ KINDS: Mapping[str, KindSpec] = {
     "firebase": KindSpec(label="Firebase", default=_CREDENTIALS),
     "github": KindSpec(label="GitHub", default=_OAUTH, others=frozenset({_TOKEN})),
     "gitlab": KindSpec(label="GitLab", default=_TOKEN, others=frozenset({_CREDENTIALS})),
+    "google-admob": KindSpec(label="Google AdMob", default=_OAUTH),
     "google-ads": KindSpec(label="Google Ads", default=_OAUTH),
     "google-analytics": KindSpec(label="Google Analytics", default=_OAUTH),
     "google-calendar": KindSpec(label="Google Calendar", default=_OAUTH, others=frozenset({_CREDENTIALS})),

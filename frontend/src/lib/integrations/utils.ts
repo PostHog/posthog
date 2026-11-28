@@ -18,6 +18,7 @@ import IconGoogleCloudStorage from 'public/services/google-cloud-storage.png'
 import IconGoogleCloud from 'public/services/google-cloud.png'
 import IconGoogleSearchConsole from 'public/services/google-search-console.svg'
 import IconGoogleSheets from 'public/services/google-sheets.svg'
+import IconGoogleAdMob from 'public/services/google_admob.png'
 import IconGoogleAnalytics from 'public/services/google_analytics.png'
 import IconGoogleCalendar from 'public/services/google_calendar.png'
 import IconHelpScout from 'public/services/helpscout.png'
@@ -98,6 +99,7 @@ export const ICONS: Record<IntegrationKind, any> = {
     'google-pubsub': IconGoogleCloud,
     'google-cloud-storage': IconGoogleCloudStorage,
     'google-cloud-service-account': IconGoogleCloud,
+    'google-admob': IconGoogleAdMob,
     'google-ads': IconGoogleAds,
     'google-analytics': IconGoogleAnalytics,
     'google-calendar': IconGoogleCalendar,
@@ -153,6 +155,8 @@ export const getIntegrationNameFromKind = (kind: string): string => {
             return 'Google Cloud Pub/Sub'
         case 'google-cloud-storage':
             return 'Google Cloud Storage'
+        case 'google-admob':
+            return 'Google AdMob'
         case 'google-ads':
             return 'Google Ads'
         case 'google-analytics':

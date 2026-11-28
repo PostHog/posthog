@@ -10877,6 +10877,7 @@ export namespace Schemas {
       GooglePubsub: 'google-pubsub',
       GoogleCloudServiceAccount: 'google-cloud-service-account',
       GoogleCloudStorage: 'google-cloud-storage',
+      GoogleAdmob: 'google-admob',
       GoogleAds: 'google-ads',
       GoogleAnalytics: 'google-analytics',
       GoogleCalendar: 'google-calendar',
@@ -69313,6 +69314,7 @@ export namespace Schemas {
      * * `firebase` - Firebase
      * * `github` - Github
      * * `gitlab` - Gitlab
+     * * `google-admob` - Google Admob
      * * `google-ads` - Google Ads
      * * `google-analytics` - Google Analytics
      * * `google-calendar` - Google Calendar
@@ -69371,6 +69373,7 @@ export namespace Schemas {
       Firebase: 'firebase',
       Github: 'github',
       Gitlab: 'gitlab',
+      GoogleAdmob: 'google-admob',
       GoogleAds: 'google-ads',
       GoogleAnalytics: 'google-analytics',
       GoogleCalendar: 'google-calendar',
@@ -69429,6 +69432,7 @@ export namespace Schemas {
        * * `firebase` - Firebase
        * * `github` - Github
        * * `gitlab` - Gitlab
+       * * `google-admob` - Google Admob
        * * `google-ads` - Google Ads
        * * `google-analytics` - Google Analytics
        * * `google-calendar` - Google Calendar
@@ -69598,6 +69602,7 @@ export namespace Schemas {
        * * `firebase` - Firebase
        * * `github` - Github
        * * `gitlab` - Gitlab
+       * * `google-admob` - Google Admob
        * * `google-ads` - Google Ads
        * * `google-analytics` - Google Analytics
        * * `google-calendar` - Google Calendar
@@ -150522,6 +150527,7 @@ export namespace Schemas {
      * * `firebase` - Firebase
      * * `github` - Github
      * * `gitlab` - Gitlab
+     * * `google-admob` - Google Admob
      * * `google-ads` - Google Ads
      * * `google-analytics` - Google Analytics
      * * `google-calendar` - Google Calendar
@@ -150591,6 +150597,7 @@ export namespace Schemas {
       Firebase: 'firebase',
       Github: 'github',
       Gitlab: 'gitlab',
+      GoogleAdmob: 'google-admob',
       GoogleAds: 'google-ads',
       GoogleAnalytics: 'google-analytics',
       GoogleCalendar: 'google-calendar',

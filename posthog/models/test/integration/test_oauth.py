@@ -2016,6 +2016,26 @@ class TestYouTubeAnalyticsIntegrationModel(SimpleTestCase):
             OauthIntegration.client_credentials_for_kind("youtube-analytics")
 
 
+@override_settings(GOOGLE_ADMOB_APP_CLIENT_ID="admob-client-id", GOOGLE_ADMOB_APP_CLIENT_SECRET="admob-client-secret")
+class TestGoogleAdMobIntegrationModel(SimpleTestCase):
+    def test_oauth_config(self):
+        config = OauthIntegration.oauth_config_for_kind("google-admob")
+
+        assert OauthIntegration.client_credentials_for_kind("google-admob") == OauthClientCredentials(
+            client_id="admob-client-id", client_secret="admob-client-secret"
+        )
+        # The sync reads reports, apps and ad units, which all accept the read-only scope.
+        assert "https://www.googleapis.com/auth/admob.readonly" in config.scope.split()
+        assert config.id_path == "sub"
+        # A refresh token only comes back when consent is forced, and the sync depends on one.
+        assert config.additional_authorize_params == {"access_type": "offline", "prompt": "consent"}
+
+    @override_settings(GOOGLE_ADMOB_APP_CLIENT_ID="", GOOGLE_ADMOB_APP_CLIENT_SECRET="")
+    def test_oauth_config_unconfigured_raises(self):
+        with pytest.raises(NotImplementedError, match="Google AdMob app not configured"):
+            OauthIntegration.client_credentials_for_kind("google-admob")
+
+
 _APPLE_ADS_APP_PRIVATE_KEY = (
     ec.generate_private_key(ec.SECP256R1())
     .private_bytes(

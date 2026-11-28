@@ -69,6 +69,11 @@ GOOGLE_ANALYTICS_APP_CLIENT_SECRET = get_from_env("GOOGLE_ANALYTICS_APP_CLIENT_S
 GOOGLE_CALENDAR_APP_CLIENT_ID = get_from_env("GOOGLE_CALENDAR_APP_CLIENT_ID", "")
 GOOGLE_CALENDAR_APP_CLIENT_SECRET = get_from_env("GOOGLE_CALENDAR_APP_CLIENT_SECRET", "")
 
+# Registered in the Google Cloud console with the AdMob API enabled. Empty defaults keep the
+# connector dormant until the client exists.
+GOOGLE_ADMOB_APP_CLIENT_ID = get_from_env("GOOGLE_ADMOB_APP_CLIENT_ID", "")
+GOOGLE_ADMOB_APP_CLIENT_SECRET = get_from_env("GOOGLE_ADMOB_APP_CLIENT_SECRET", "")
+
 # Registered in the Google Cloud console with the YouTube Analytics API and the YouTube Data API
 # enabled. Empty defaults keep the app importable and the connector dormant until the client exists.
 YOUTUBE_ANALYTICS_APP_CLIENT_ID = get_from_env("YOUTUBE_ANALYTICS_APP_CLIENT_ID", "")

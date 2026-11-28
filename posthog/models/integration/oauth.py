@@ -480,6 +480,11 @@ OAUTH_CLIENT_CREDENTIAL_KEYS: dict[str, _ClientCredentialKeys] = {
         client_secret="HUBSPOT_APP_CLIENT_SECRET",
         not_configured="Hubspot app not configured",
     ),
+    "google-admob": _ClientCredentialKeys(
+        client_id="GOOGLE_ADMOB_APP_CLIENT_ID",
+        client_secret="GOOGLE_ADMOB_APP_CLIENT_SECRET",
+        not_configured="Google AdMob app not configured",
+    ),
     "google-ads": _ClientCredentialKeys(
         client_id="GOOGLE_ADS_APP_CLIENT_ID",
         client_secret="GOOGLE_ADS_APP_CLIENT_SECRET",
@@ -605,6 +610,7 @@ class OauthIntegration:
         "salesforce",
         "hubspot",
         "apple-ads",
+        "google-admob",
         "google-ads",
         "google-analytics",
         "google-calendar",
@@ -785,6 +791,18 @@ class OauthIntegration:
                 },
                 id_path="hub_id",
                 name_path="hub_domain",
+            )
+        elif kind == "google-admob":
+            return OauthConfig(
+                authorize_url="https://accounts.google.com/o/oauth2/v2/auth",
+                # forces the consent screen, otherwise we won't receive a refresh token
+                additional_authorize_params={"access_type": "offline", "prompt": "consent"},
+                token_info_url="https://openidconnect.googleapis.com/v1/userinfo",
+                token_info_config_fields=["sub", "email"],
+                token_url="https://oauth2.googleapis.com/token",
+                scope="https://www.googleapis.com/auth/admob.readonly https://www.googleapis.com/auth/userinfo.email",
+                id_path="sub",
+                name_path="email",
             )
         elif kind == "google-ads":
             return OauthConfig(

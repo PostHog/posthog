@@ -150,6 +150,7 @@ export interface destinationModalLogicActions {
             | 'firebase'
             | 'github'
             | 'gitlab'
+            | 'google-admob'
             | 'google-ads'
             | 'google-analytics'
             | 'google-calendar'

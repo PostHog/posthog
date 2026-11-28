@@ -571,6 +571,7 @@ CREDENTIAL_AUTH_TYPES: Mapping[str, str] = {
     "google-ad-manager": "credentials",
     "google-ad-mob": "credentials",
     "google-ad-sense": "credentials",
+    "google-admob": "oauth",
     "google-ads": "oauth",
     "google-analytics": "oauth",
     "google-business-profile": "credentials",

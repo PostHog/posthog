@@ -4648,6 +4648,7 @@ export const IntegrationKindApi = {
     GooglePubsub: 'google-pubsub',
     GoogleCloudServiceAccount: 'google-cloud-service-account',
     GoogleCloudStorage: 'google-cloud-storage',
+    GoogleAdmob: 'google-admob',
     GoogleAds: 'google-ads',
     GoogleAnalytics: 'google-analytics',
     GoogleCalendar: 'google-calendar',

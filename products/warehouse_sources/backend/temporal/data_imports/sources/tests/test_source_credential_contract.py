@@ -116,6 +116,7 @@ NOT_CHECKABLE: dict[str, str] = {
     "GcpCloudBilling": "config",
     "Ghost": "config",
     "Github": "config",
+    "GoogleAdMob": "database",
     "GoogleAds": "driver",
     "GoogleAnalytics": "database",
     "GoogleCloudStorage": "config",

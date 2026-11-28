@@ -35,6 +35,7 @@ class IntegrationKind(StrEnum):
     FIREBASE = "firebase"
     GITHUB = "github"
     GITLAB = "gitlab"
+    GOOGLE_ADMOB = "google-admob"
     GOOGLE_ADS = "google-ads"
     GOOGLE_ANALYTICS = "google-analytics"
     GOOGLE_CALENDAR = "google-calendar"
@@ -184,6 +185,12 @@ class GitlabKind(KindAccessor):
     token = AuthAccessor(kind="gitlab", auth_type=AuthType.TOKEN)  # the default
     credentials = AuthAccessor(kind="gitlab", auth_type=AuthType.CREDENTIALS)
     any = IntegrationReader(kinds=frozenset({"gitlab"}))
+
+
+class GoogleAdmobKind(KindAccessor):
+    kind = "google-admob"
+    oauth = OAuthAccessor(kind="google-admob")  # the default
+    any = IntegrationReader(kinds=frozenset({"google-admob"}))
 
 
 class GoogleAdsKind(KindAccessor):
@@ -426,6 +433,7 @@ class GeneratedIntegrationManager(IntegrationManagerBase):
     firebase = FirebaseKind()
     github = GithubKind()
     gitlab = GitlabKind()
+    google_admob = GoogleAdmobKind()
     google_ads = GoogleAdsKind()
     google_analytics = GoogleAnalyticsKind()
     google_calendar = GoogleCalendarKind()

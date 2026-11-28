@@ -6,4 +6,6 @@ from products.warehouse_sources.sources.sdk import config
 
 @config.config
 class GoogleAdMobSourceConfig(config.Config):
-    pass
+    publisher_id: str
+    google_admob_integration_id: int = config.value(converter=config.str_to_int)
+    start_date: str | None = None

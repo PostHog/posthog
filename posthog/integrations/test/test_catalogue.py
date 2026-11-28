@@ -43,6 +43,7 @@ FROZEN_KIND_DEFAULTS: dict[str, str] = {
     "firebase": "credentials",
     "github": "oauth",
     "gitlab": "token",
+    "google-admob": "oauth",
     "google-ads": "oauth",
     "google-analytics": "oauth",
     "google-calendar": "oauth",
