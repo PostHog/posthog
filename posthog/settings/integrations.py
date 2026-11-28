@@ -238,6 +238,12 @@ HEATMAP_BROWSERLESS_TIMEOUT_MS = get_from_env("HEATMAP_BROWSERLESS_TIMEOUT_MS", 
 HEATMAP_BROWSERLESS_CONNECT_TIMEOUT_MS = get_from_env("HEATMAP_BROWSERLESS_CONNECT_TIMEOUT_MS", 30000, type_cast=int)
 HEATMAP_BROWSERLESS_BLOCK_ADS = get_from_env("HEATMAP_BROWSERLESS_BLOCK_ADS", False, type_cast=str_to_bool)
 
+# User journey runs drive a browser through a customer's own pages over CDP, so they need a fleet
+# that serves the CDP websocket route and sits where the customer pages, not PostHog's own app, are
+# reachable. Empty leaves journey runs switched off: each run ends as errored and says so.
+USER_JOURNEYS_BROWSERLESS_CDP_URL = get_from_env("USER_JOURNEYS_BROWSERLESS_CDP_URL", "")
+USER_JOURNEYS_BROWSERLESS_TOKEN = get_from_env("USER_JOURNEYS_BROWSERLESS_TOKEN", "")
+
 # Lighthouse audits run on the same Browserless fleet as the heatmap screenshots above, over the
 # `/performance` REST API rather than `/screenshot`. They get their own settings so one can be
 # repointed or switched off without touching the other, and default to the heatmap fleet because

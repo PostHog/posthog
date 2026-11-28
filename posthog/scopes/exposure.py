@@ -65,6 +65,9 @@ OAUTH_HIDDEN_SCOPE_OBJECTS: frozenset[catalog.APIScopeObject] = frozenset(
         "batch_import_support",
         # Its only route accepts project secret API keys alone, so only that key picker offers it.
         "messaging_preference",
+        # User journeys is unreleased and flag-gated. CI calls its deploy routes with a project
+        # secret API key or a personal API key that carries this scope.
+        "user_journey",
     }
 )
 

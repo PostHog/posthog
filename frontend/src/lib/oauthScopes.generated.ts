@@ -264,6 +264,8 @@ export const OAUTH_SCOPES_HIDDEN = [
     'messaging_preference:write',
     'query_performance:read',
     'query_performance:write',
+    'user_journey:read',
+    'user_journey:write',
     'wizard_run:read',
     'wizard_run:write',
     'wizard_session:read',

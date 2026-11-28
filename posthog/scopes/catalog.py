@@ -148,6 +148,7 @@ APIScopeObject = Literal[
     "uploaded_media",
     "usage_metric",
     "user",
+    "user_journey",
     "vision_action",  # Endpoints are gone; kept advertised until desktop OAuth clients stop requesting it.
     "vision_alert",
     "visual_review",

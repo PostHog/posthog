@@ -206,6 +206,8 @@ export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = [
     'logs:read',
     'logs:write',
     'business_knowledge:read',
+    'user_journey:read',
+    'user_journey:write',
 ] as const
 
 export type ProjectSecretAPIKeyAllowedScope = (typeof PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION)[number]

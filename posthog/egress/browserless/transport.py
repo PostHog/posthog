@@ -84,3 +84,14 @@ def browserless_request(
         session=session,
         **kwargs,
     )
+
+
+def consume_browserless_session(url: str, token: str, *, source: str, priority: Priority = Priority.NORMAL) -> bool:
+    """Draw one browser session from the fleet's budget for a caller that connects outside `browserless_request`.
+
+    A CDP caller holds a websocket for the whole session instead of making a REST call, so there is
+    no response to record. It still draws from the same fleet budget as the REST callers, keyed the
+    same way, because it holds one of the same workers. Returns False when the budget is spent; the
+    caller decides whether to back off or give up.
+    """
+    return consume_browserless_sync(fleet_scope(url, token), priority=priority, source=source)

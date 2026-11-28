@@ -52,4 +52,8 @@ PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[catalog.APIScopeObje
     # Lets a customer's own agent search and read business knowledge without a credential tied
     # to one person's account. Every write, and the sources, settings and playground routes, stay closed.
     ("business_knowledge", "read"),
+    # Lets CI announce a deploy, which runs the project's journeys against the new build, and poll
+    # the verdict. Journey create, edit and delete routes stay closed to these keys.
+    ("user_journey", "read"),
+    ("user_journey", "write"),
 ]
