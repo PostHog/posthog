@@ -1538,6 +1538,18 @@ export type BillingUsageExportRetrieveParams = {
     usage_types?: string | null
 }
 
+export type BillingOrganizationListParams = {
+    /**
+     * Whether to include usage forecasting.
+     * @nullable
+     */
+    include_forecasting?: boolean | null
+    /**
+     * Explicit organization to refresh after payment.
+     */
+    organization_id?: string
+}
+
 export type BillingAlertsListParams = {
     /**
      * Number of results to return per page.

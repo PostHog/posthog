@@ -1,6 +1,6 @@
 import re
 import json
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from datetime import timedelta
 from typing import Any, Literal, NoReturn, Optional, cast
@@ -22,6 +22,7 @@ from rest_framework.exceptions import APIException, NotFound, PermissionDenied, 
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.documentation import PostHogAutoSchema
 from posthog.api.fields import OptionalBooleanField
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import PARENT_LOOKUP_KWARG_PREFIX, TeamAndOrgViewSetMixin
@@ -687,6 +688,16 @@ class BillingAuthorizationStatusResponseSerializer(serializers.Serializer):
     )
 
 
+def _billing_period_response(organization: Organization) -> dict[str, Any]:
+    billing_period = organization.current_billing_period
+    return BillingPeriodResponseSerializer(
+        {
+            "current_period_start": billing_period.start if billing_period else None,
+            "current_period_end": billing_period.end if billing_period else None,
+        }
+    ).data
+
+
 @extend_schema(tags=["billing"])
 class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = BillingSerializer
@@ -710,6 +721,10 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             actions = {**actions, "patch": "update_limits"}
         return super().as_view(actions, **initkwargs)
 
+    @property
+    def _organization_in_path(self) -> bool:
+        return f"{PARENT_LOOKUP_KWARG_PREFIX}organization_id" in self.kwargs
+
     def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
         if self.action == "update_limits":
             # The router passes an action's permission_classes only to that action's own route, so the list route
@@ -719,7 +734,11 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         scoped_startup_application = self.action == "apply_startup_program" and bool(
             request.data.get("organization_id")
         )
-        if self.action in self.payment_actions or scoped_startup_application or scoped_billing_read:
+        if self._organization_in_path:
+            # The organization route names the organization, so no action follows the user's current project or an
+            # organization_id sent in the body or query.
+            self.param_derived_from_user_current_team = None
+        elif self.action in self.payment_actions or scoped_startup_application or scoped_billing_read:
             serializer = BillingPaymentOrganizationSerializer(
                 data=request.query_params if scoped_billing_read else request.data
             )
@@ -731,6 +750,24 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 serializer.validated_data["organization_id"]
             )
         super().initial(request, *args, **kwargs)
+        if self._organization_in_path:
+            self._refuse_another_organization(request)
+
+    def _refuse_another_organization(self, request: Request) -> None:
+        # The path can hold @current, so compare with the organization the route resolved.
+        path_organization_id = UUID(str(self.organization_id))
+        supplied = [request.query_params.get("organization_id")]
+        if isinstance(request.data, Mapping):
+            supplied.append(request.data.get("organization_id"))
+        for value in supplied:
+            if value is None:
+                continue
+            try:
+                matches = UUID(str(value)) == path_organization_id
+            except ValueError:
+                matches = False
+            if not matches:
+                raise ValidationError({"organization_id": "Does not match the organization in the path."})
 
     def get_billing_manager(self) -> BillingManager:
         license = get_cached_instance_license()
@@ -783,15 +820,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         required_scopes=["llm_gateway:read"],
     )
     def period(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        billing_period = self._get_org_required().current_billing_period
-        return Response(
-            BillingPeriodResponseSerializer(
-                {
-                    "current_period_start": billing_period.start if billing_period else None,
-                    "current_period_end": billing_period.end if billing_period else None,
-                }
-            ).data
-        )
+        return Response(_billing_period_response(self._get_org_required()))
 
     @extend_schema(exclude=True)
     @action(
@@ -1151,13 +1180,11 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if not isinstance(user, User):
             raise PermissionDenied("You must be logged in to apply for the startup program")
 
-        organization_id = request.data.get("organization_id")
-        if not organization_id:
+        # initial() scopes the request to the organization in the path, or on /api/billing/ to the body's
+        # organization_id. Without either, there is no organization to apply for.
+        if f"{PARENT_LOOKUP_KWARG_PREFIX}organization_id" not in self.kwargs:
             raise ValidationError({"organization_id": "This field is required."})
-
-        organization = Organization.objects.get(id=organization_id)
-        if not organization:
-            raise ValidationError({"organization_id": "Organization not found."})
+        organization = self.organization
 
         if not user_has_billing_access(user, organization):
             raise PermissionDenied("You need Billing access to apply for the startup program")
@@ -1167,6 +1194,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # Add user info to the request
         data = {
             **request.data,
+            "organization_id": str(organization.id),
             "email": user.email,
         }
 
@@ -1573,8 +1601,10 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return None
 
         try:
-            if self.action in self.payment_actions or (
-                self.action == "list" and "organization_id" in self.request.query_params
+            if (
+                self._organization_in_path
+                or self.action in self.payment_actions
+                or (self.action == "list" and "organization_id" in self.request.query_params)
             ):
                 return self.organization
             return self.team.organization
@@ -1588,3 +1618,61 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise Exception("You cannot interact with the billing service without an organization configured.")
 
         return org
+
+
+class _OrganizationPathBillingSchema(PostHogAutoSchema):
+    # /api/billing/ serves the same actions, so the organization route needs operation ids of its own.
+    def get_operation_id(self) -> str:
+        # The nested route would otherwise derive organizations_billing_list, which loses its organizations_ prefix
+        # in postprocessing and collides with /api/billing/'s billing_list.
+        return "billing_organization_" + super().get_operation_id().removeprefix("organizations_billing_")
+
+
+class OrganizationPathBillingViewset(BillingViewset):
+    """The billing API at /api/organizations/:organization_id/billing/, which names the organization instead of
+    following the user's current project.
+
+    It shares that prefix with OrganizationBillingViewSet, which serves usage, spend and their exports at the same
+    paths in its own shapes, so this viewset leaves those reads to it.
+    """
+
+    schema = _OrganizationPathBillingSchema()
+    # The project route serves the billing period too, for callers that know only the project.
+    schema_org_paths_are_not_duplicates = True
+    _actions_served_by_organization_billing = frozenset(
+        {"usage", "spend", "usage_export", "spend_export", "usage_team_options"}
+    )
+
+    @classmethod
+    def get_extra_actions(cls):
+        return [
+            action
+            for action in super().get_extra_actions()
+            if action.__name__ not in cls._actions_served_by_organization_billing
+        ]
+
+
+@extend_schema(tags=["billing"])
+class ProjectBillingPeriodViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """The billing period at /api/projects/:project_id/billing/period/, for callers that know the project but not
+    its organization."""
+
+    scope_object = "billing"
+    scope_object_read_actions: list[str] = []
+    scope_object_write_actions: list[str] = []
+    pagination_class = None
+
+    @extend_schema(
+        operation_id="billing_project_period_retrieve",
+        summary="Get the current billing period of the project's organization",
+        responses={200: BillingPeriodResponseSerializer},
+    )
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path="period",
+        permission_classes=[permissions.IsAuthenticated],
+        required_scopes=["llm_gateway:read"],
+    )
+    def period(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return Response(_billing_period_response(self.team.organization))

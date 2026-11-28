@@ -31,7 +31,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.streaming import streaming_response
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.models import Organization, OrganizationIntegration, Team, User
-from posthog.permissions import OrganizationMemberPermissions, PostHogFeatureFlagPermission
+from posthog.permissions import OrganizationMemberPermissions
 from posthog.rate_limit import BillingReadBurstRateThrottle, BillingReadSustainedRateThrottle
 from posthog.utils import get_trusted_client_ip
 
@@ -56,13 +56,7 @@ from ee.billing.exports import (
     _take_export_stream_slot,
     exportable_team_ids,
 )
-from ee.billing.grants import (
-    ORGANIZATION_BILLING_API_FLAG,
-    BillingEntitlement,
-    EffectiveBillingGrants,
-    effective_billing_grants,
-    visible_team_ids,
-)
+from ee.billing.grants import BillingEntitlement, EffectiveBillingGrants, effective_billing_grants, visible_team_ids
 
 BILLING_ACCESS_DENIED = "You do not have access to Billing for this organization."
 
@@ -586,20 +580,12 @@ class BillingInvoiceListParamsSerializer(serializers.Serializer):
     cursor = serializers.CharField(required=False, help_text="The cursor from a previous page.")
 
 
-BETA_NOTICE = (
-    "In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 "
-    "without it, so ask support for access. Its shapes may change while it is in beta."
-)
-
-
 class BillingReadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    """What the organization and project billing routes share. That is the flag, the throttles, the
-    grants in billing's token, the project scoping, and the series and export reads."""
+    """What the organization and project billing routes share. That is the throttles, the grants in
+    billing's token, the project scoping, and the series and export reads."""
 
     scope_object = "billing"
     scope_object_write_actions: list[str] = []
-    # Nothing here answers until the flag is on for the caller's organization.
-    posthog_feature_flag = ORGANIZATION_BILLING_API_FLAG
     throttle_classes = [BillingReadBurstRateThrottle, BillingReadSustainedRateThrottle]
     # Opt into the generated schema. The MCP scaffolding and generated clients read it from there.
     force_include_in_api_docs = True
@@ -845,14 +831,13 @@ class OrganizationBillingViewSet(BillingReadViewSet):
         "limits",
         "projects",
     ]
-    permission_classes = [permissions.IsAuthenticated, OrganizationMemberPermissions, PostHogFeatureFlagPermission]
+    permission_classes = [permissions.IsAuthenticated, OrganizationMemberPermissions]
     # The project billing routes share these paths' suffixes, but they read one project, not the organization.
     schema_org_paths_are_not_duplicates = True
 
     @extend_schema(
         operation_id="billing_subscription_retrieve",
         summary="Get the organization's subscription",
-        description=BETA_NOTICE,
         responses={200: OpenApiResponse(response=BillingSubscriptionSerializer)},
     )
     @action(methods=["GET"], detail=False, url_path="subscription")
@@ -902,7 +887,6 @@ class OrganizationBillingViewSet(BillingReadViewSet):
     @extend_schema(
         operation_id="billing_features_retrieve",
         summary="Get the features the organization's plans include",
-        description=BETA_NOTICE,
         responses={200: OpenApiResponse(response=BillingFeaturesSerializer)},
     )
     @action(methods=["GET"], detail=False, url_path="features")
@@ -915,7 +899,6 @@ class OrganizationBillingViewSet(BillingReadViewSet):
     @extend_schema(
         operation_id="billing_products_summary_retrieve",
         summary="Get every product in summary",
-        description=BETA_NOTICE,
         responses={200: OpenApiResponse(response=BillingProductsSummarySerializer)},
     )
     @action(methods=["GET"], detail=False, url_path="products/summary")
@@ -928,7 +911,6 @@ class OrganizationBillingViewSet(BillingReadViewSet):
     @extend_schema(
         operation_id="billing_products_list",
         summary="List the organization's products",
-        description=BETA_NOTICE,
         parameters=[INCLUDE_PLANS],
         responses={200: OpenApiResponse(response=BillingProductsSerializer)},
     )
@@ -944,7 +926,6 @@ class OrganizationBillingViewSet(BillingReadViewSet):
     @extend_schema(
         operation_id="billing_products_retrieve",
         summary="Get one product",
-        description=BETA_NOTICE,
         parameters=[
             OpenApiParameter("product_key", str, OpenApiParameter.PATH, description="The product's key."),
             INCLUDE_PLANS,
@@ -965,7 +946,6 @@ class OrganizationBillingViewSet(BillingReadViewSet):
     @extend_schema(
         operation_id="billing_spend_summary_retrieve",
         summary="Get spend so far this billing period",
-        description=BETA_NOTICE,
         responses={200: OpenApiResponse(response=BillingSpendSummarySerializer)},
     )
     @action(methods=["GET"], detail=False, url_path="spend")
@@ -979,7 +959,6 @@ class OrganizationBillingViewSet(BillingReadViewSet):
     @extend_schema(
         operation_id="billing_forecast_retrieve",
         summary="Get the forecast for the rest of the billing period",
-        description=BETA_NOTICE,
         responses={200: OpenApiResponse(response=BillingForecastSerializer)},
     )
     @action(methods=["GET"], detail=False, url_path="forecast")
@@ -999,7 +978,6 @@ class OrganizationBillingViewSet(BillingReadViewSet):
     @extend_schema(
         operation_id="billing_usage_timeseries_retrieve",
         summary="Usage over time",
-        description=BETA_NOTICE,
         parameters=[OrganizationUsageTimeseriesRequestSerializer],
         responses={200: OpenApiResponse(response=PaginatedBillingTimeSeriesPointListSerializer)},
     )
@@ -1010,7 +988,6 @@ class OrganizationBillingViewSet(BillingReadViewSet):
     @extend_schema(
         operation_id="billing_spend_timeseries_retrieve",
         summary="Spend over time",
-        description=BETA_NOTICE,
         parameters=[OrganizationTimeseriesRequestSerializer],
         responses={200: OpenApiResponse(response=PaginatedBillingSpendTimeSeriesListSerializer)},
     )
@@ -1021,7 +998,6 @@ class OrganizationBillingViewSet(BillingReadViewSet):
     @extend_schema(
         operation_id="billing_usage_export_download",
         summary="Export usage as CSV",
-        description=BETA_NOTICE,
         parameters=[OrganizationUsageExportRequestSerializer],
         responses={(200, "text/csv"): OpenApiResponse(response=bytes)},
     )
@@ -1038,7 +1014,6 @@ class OrganizationBillingViewSet(BillingReadViewSet):
     @extend_schema(
         operation_id="billing_spend_export_download",
         summary="Export spend as CSV",
-        description=BETA_NOTICE,
         parameters=[OrganizationExportRequestSerializer],
         responses={(200, "text/csv"): OpenApiResponse(response=bytes)},
     )
@@ -1055,7 +1030,6 @@ class OrganizationBillingViewSet(BillingReadViewSet):
     @extend_schema(
         operation_id="billing_invoices_list",
         summary="List the organization's invoices",
-        description=BETA_NOTICE,
         parameters=[BillingInvoiceListParamsSerializer],
         responses={200: OpenApiResponse(response=BillingInvoicesSerializer)},
     )
@@ -1089,7 +1063,6 @@ class OrganizationBillingViewSet(BillingReadViewSet):
         operation_id="billing_invoices_content_retrieve",
         parameters=[OpenApiParameter("invoice_id", str, OpenApiParameter.PATH, description="The invoice's id.")],
         summary="Download an invoice as PDF",
-        description=BETA_NOTICE,
         responses={(200, "application/pdf"): OpenApiResponse(response=bytes)},
     )
     @action(methods=["GET"], detail=False, url_path=r"invoices/(?P<invoice_id>[^/.]+)/content")
@@ -1116,7 +1089,6 @@ class OrganizationBillingViewSet(BillingReadViewSet):
         operation_id="billing_project_list",
         summary="List the projects with usage",
         description=(
-            f"{BETA_NOTICE} "
             "Every project the organization has reported usage for, deleted ones included, so a caller knows "
             "which ids a project breakdown or a team_ids filter can name. Below full billing access the list is "
             "the projects the caller can see."
@@ -1146,7 +1118,6 @@ class OrganizationBillingViewSet(BillingReadViewSet):
     @extend_schema(
         operation_id="billing_limits_retrieve",
         summary="Get the organization's spend limits",
-        description=BETA_NOTICE,
         responses={200: OpenApiResponse(response=BillingLimitsSerializer)},
     )
     @action(methods=["GET"], detail=False, url_path="limits")
@@ -1159,7 +1130,6 @@ class OrganizationBillingViewSet(BillingReadViewSet):
     @extend_schema(
         operation_id="billing_usage_summary_retrieve",
         summary="Get usage so far this billing period",
-        description=BETA_NOTICE,
         responses={200: OpenApiResponse(response=BillingUsageSummarySerializer)},
     )
     @action(methods=["GET"], detail=False, url_path="usage")
@@ -1195,7 +1165,6 @@ class OrganizationBillingViewSet(BillingReadViewSet):
     @extend_schema(
         operation_id="billing_usage_status_retrieve",
         summary="Get usage against limits, without the counts",
-        description=BETA_NOTICE,
         responses={200: OpenApiResponse(response=BillingUsageStatusSerializer)},
     )
     @action(methods=["GET"], detail=False, url_path="usage/status")

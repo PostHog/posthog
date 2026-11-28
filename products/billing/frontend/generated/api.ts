@@ -28,6 +28,7 @@ import type {
     BillingInvoicesListParams,
     BillingLimitsApi,
     BillingListParams,
+    BillingOrganizationListParams,
     BillingOverviewResponseApi,
     BillingPaymentOrganizationApi,
     BillingPeriodResponseApi,
@@ -454,6 +455,118 @@ export const billingUsageTeamOptionsRetrieve = async (
     })
 }
 
+export const getBillingOrganizationListUrl = (organizationId: string, params?: BillingOrganizationListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/organizations/${organizationId}/billing/?${stringifiedParams}`
+        : `/api/organizations/${organizationId}/billing/`
+}
+
+/**
+ * The billing API at /api/organizations/:organization_id/billing/, which names the organization instead of
+ * following the user's current project.
+ *
+ * It shares that prefix with OrganizationBillingViewSet, which serves usage, spend and their exports at the same
+ * paths in its own shapes, so this viewset leaves those reads to it.
+ */
+export const billingOrganizationList = async (
+    organizationId: string,
+    params?: BillingOrganizationListParams,
+    options?: RequestInit
+): Promise<BillingOverviewResponseApi> => {
+    return apiMutator<BillingOverviewResponseApi>(getBillingOrganizationListUrl(organizationId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBillingOrganizationActivateCreateUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/billing/activate/`
+}
+
+/**
+ * The billing API at /api/organizations/:organization_id/billing/, which names the organization instead of
+ * following the user's current project.
+ *
+ * It shares that prefix with OrganizationBillingViewSet, which serves usage, spend and their exports at the same
+ * paths in its own shapes, so this viewset leaves those reads to it.
+ */
+export const billingOrganizationActivateCreate = async (
+    organizationId: string,
+    billingActivationRequestApi: BillingActivationRequestApi,
+    options?: RequestInit
+): Promise<BillingActivationResponseApi> => {
+    return apiMutator<BillingActivationResponseApi>(getBillingOrganizationActivateCreateUrl(organizationId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(billingActivationRequestApi),
+    })
+}
+
+export const getBillingOrganizationActivateAuthorizeCreateUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/billing/activate/authorize/`
+}
+
+/**
+ * The billing API at /api/organizations/:organization_id/billing/, which names the organization instead of
+ * following the user's current project.
+ *
+ * It shares that prefix with OrganizationBillingViewSet, which serves usage, spend and their exports at the same
+ * paths in its own shapes, so this viewset leaves those reads to it.
+ */
+export const billingOrganizationActivateAuthorizeCreate = async (
+    organizationId: string,
+    billingPaymentOrganizationApi: BillingPaymentOrganizationApi,
+    options?: RequestInit
+): Promise<BillingAuthorizationResponseApi> => {
+    return apiMutator<BillingAuthorizationResponseApi>(
+        getBillingOrganizationActivateAuthorizeCreateUrl(organizationId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(billingPaymentOrganizationApi),
+        }
+    )
+}
+
+export const getBillingOrganizationActivateAuthorizeStatusCreateUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/billing/activate/authorize/status/`
+}
+
+/**
+ * The billing API at /api/organizations/:organization_id/billing/, which names the organization instead of
+ * following the user's current project.
+ *
+ * It shares that prefix with OrganizationBillingViewSet, which serves usage, spend and their exports at the same
+ * paths in its own shapes, so this viewset leaves those reads to it.
+ */
+export const billingOrganizationActivateAuthorizeStatusCreate = async (
+    organizationId: string,
+    billingAuthorizationStatusRequestApi: BillingAuthorizationStatusRequestApi,
+    options?: RequestInit
+): Promise<BillingAuthorizationStatusResponseApi> => {
+    return apiMutator<BillingAuthorizationStatusResponseApi>(
+        getBillingOrganizationActivateAuthorizeStatusCreateUrl(organizationId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(billingAuthorizationStatusRequestApi),
+        }
+    )
+}
+
 export const getBillingAlertsListUrl = (organizationId: string, params?: BillingAlertsListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -659,12 +772,130 @@ export const billingAlertsEventsList = async (
     })
 }
 
+export const getBillingOrganizationCouponsClaimCreateUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/billing/coupons/claim/`
+}
+
+/**
+ * The billing API at /api/organizations/:organization_id/billing/, which names the organization instead of
+ * following the user's current project.
+ *
+ * It shares that prefix with OrganizationBillingViewSet, which serves usage, spend and their exports at the same
+ * paths in its own shapes, so this viewset leaves those reads to it.
+ */
+export const billingOrganizationCouponsClaimCreate = async (
+    organizationId: string,
+    claimCouponApi?: ClaimCouponApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getBillingOrganizationCouponsClaimCreateUrl(organizationId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(claimCouponApi),
+    })
+}
+
+export const getBillingOrganizationCouponsOverviewRetrieveUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/billing/coupons/overview/`
+}
+
+/**
+ * The billing API at /api/organizations/:organization_id/billing/, which names the organization instead of
+ * following the user's current project.
+ *
+ * It shares that prefix with OrganizationBillingViewSet, which serves usage, spend and their exports at the same
+ * paths in its own shapes, so this viewset leaves those reads to it.
+ */
+export const billingOrganizationCouponsOverviewRetrieve = async (
+    organizationId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getBillingOrganizationCouponsOverviewRetrieveUrl(organizationId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBillingOrganizationCreditsOverviewRetrieveUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/billing/credits/overview/`
+}
+
+/**
+ * The billing API at /api/organizations/:organization_id/billing/, which names the organization instead of
+ * following the user's current project.
+ *
+ * It shares that prefix with OrganizationBillingViewSet, which serves usage, spend and their exports at the same
+ * paths in its own shapes, so this viewset leaves those reads to it.
+ */
+export const billingOrganizationCreditsOverviewRetrieve = async (
+    organizationId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getBillingOrganizationCreditsOverviewRetrieveUrl(organizationId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBillingOrganizationCreditsPurchaseCreateUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/billing/credits/purchase/`
+}
+
+/**
+ * The billing API at /api/organizations/:organization_id/billing/, which names the organization instead of
+ * following the user's current project.
+ *
+ * It shares that prefix with OrganizationBillingViewSet, which serves usage, spend and their exports at the same
+ * paths in its own shapes, so this viewset leaves those reads to it.
+ */
+export const billingOrganizationCreditsPurchaseCreate = async (
+    organizationId: string,
+    billingApi: BillingApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getBillingOrganizationCreditsPurchaseCreateUrl(organizationId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(billingApi),
+    })
+}
+
+export const getBillingOrganizationDeactivateCreateUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/billing/deactivate/`
+}
+
+/**
+ * The billing API at /api/organizations/:organization_id/billing/, which names the organization instead of
+ * following the user's current project.
+ *
+ * It shares that prefix with OrganizationBillingViewSet, which serves usage, spend and their exports at the same
+ * paths in its own shapes, so this viewset leaves those reads to it.
+ */
+export const billingOrganizationDeactivateCreate = async (
+    organizationId: string,
+    billingApi: BillingApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getBillingOrganizationDeactivateCreateUrl(organizationId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(billingApi),
+    })
+}
+
 export const getBillingFeaturesRetrieveUrl = (organizationId: string) => {
     return `/api/organizations/${organizationId}/billing/features/`
 }
 
 /**
- * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * Read billing state for an organization: subscription, products, features and usage.
+ *
+ * The schema attributes every operation here to the billing product. Without that the route
+ * puts them under organizations, and the MCP tool scaffold, which matches by product, drops
+ * the billing tools that name them.
  * @summary Get the features the organization's plans include
  */
 export const billingFeaturesRetrieve = async (
@@ -682,7 +913,11 @@ export const getBillingForecastRetrieveUrl = (organizationId: string) => {
 }
 
 /**
- * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * Read billing state for an organization: subscription, products, features and usage.
+ *
+ * The schema attributes every operation here to the billing product. Without that the route
+ * puts them under organizations, and the MCP tool scaffold, which matches by product, drops
+ * the billing tools that name them.
  * @summary Get the forecast for the rest of the billing period
  */
 export const billingForecastRetrieve = async (
@@ -690,6 +925,27 @@ export const billingForecastRetrieve = async (
     options?: RequestInit
 ): Promise<BillingForecastApi> => {
     return apiMutator<BillingForecastApi>(getBillingForecastRetrieveUrl(organizationId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBillingOrganizationGetInvoicesRetrieveUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/billing/get_invoices/`
+}
+
+/**
+ * The billing API at /api/organizations/:organization_id/billing/, which names the organization instead of
+ * following the user's current project.
+ *
+ * It shares that prefix with OrganizationBillingViewSet, which serves usage, spend and their exports at the same
+ * paths in its own shapes, so this viewset leaves those reads to it.
+ */
+export const billingOrganizationGetInvoicesRetrieve = async (
+    organizationId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getBillingOrganizationGetInvoicesRetrieveUrl(organizationId), {
         ...options,
         method: 'GET',
     })
@@ -712,7 +968,11 @@ export const getBillingInvoicesListUrl = (organizationId: string, params?: Billi
 }
 
 /**
- * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * Read billing state for an organization: subscription, products, features and usage.
+ *
+ * The schema attributes every operation here to the billing product. Without that the route
+ * puts them under organizations, and the MCP tool scaffold, which matches by product, drops
+ * the billing tools that name them.
  * @summary List the organization's invoices
  */
 export const billingInvoicesList = async (
@@ -731,7 +991,8 @@ export const getBillingInvoicesContentRetrieveUrl = (organizationId: string, inv
 }
 
 /**
- * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * The invoice document, streamed from the billing provider by PostHog under the same access
+ * check as the list. The provider's own link never reaches the client.
  * @summary Download an invoice as PDF
  */
 export const billingInvoicesContentRetrieve = async (
@@ -745,12 +1006,40 @@ export const billingInvoicesContentRetrieve = async (
     })
 }
 
+export const getBillingOrganizationLicensePartialUpdateUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/billing/license/`
+}
+
+/**
+ * The billing API at /api/organizations/:organization_id/billing/, which names the organization instead of
+ * following the user's current project.
+ *
+ * It shares that prefix with OrganizationBillingViewSet, which serves usage, spend and their exports at the same
+ * paths in its own shapes, so this viewset leaves those reads to it.
+ */
+export const billingOrganizationLicensePartialUpdate = async (
+    organizationId: string,
+    patchedBillingApi?: PatchedBillingApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getBillingOrganizationLicensePartialUpdateUrl(organizationId), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedBillingApi),
+    })
+}
+
 export const getBillingLimitsRetrieveUrl = (organizationId: string) => {
     return `/api/organizations/${organizationId}/billing/limits/`
 }
 
 /**
- * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * Read billing state for an organization: subscription, products, features and usage.
+ *
+ * The schema attributes every operation here to the billing product. Without that the route
+ * puts them under organizations, and the MCP tool scaffold, which matches by product, drops
+ * the billing tools that name them.
  * @summary Get the organization's spend limits
  */
 export const billingLimitsRetrieve = async (
@@ -758,6 +1047,49 @@ export const billingLimitsRetrieve = async (
     options?: RequestInit
 ): Promise<BillingLimitsApi> => {
     return apiMutator<BillingLimitsApi>(getBillingLimitsRetrieveUrl(organizationId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBillingOrganizationPeriodRetrieveUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/billing/period/`
+}
+
+/**
+ * The billing API at /api/organizations/:organization_id/billing/, which names the organization instead of
+ * following the user's current project.
+ *
+ * It shares that prefix with OrganizationBillingViewSet, which serves usage, spend and their exports at the same
+ * paths in its own shapes, so this viewset leaves those reads to it.
+ * @summary Get the current organization billing period
+ */
+export const billingOrganizationPeriodRetrieve = async (
+    organizationId: string,
+    options?: RequestInit
+): Promise<BillingPeriodResponseApi> => {
+    return apiMutator<BillingPeriodResponseApi>(getBillingOrganizationPeriodRetrieveUrl(organizationId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBillingOrganizationPortalRetrieveUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/billing/portal/`
+}
+
+/**
+ * The billing API at /api/organizations/:organization_id/billing/, which names the organization instead of
+ * following the user's current project.
+ *
+ * It shares that prefix with OrganizationBillingViewSet, which serves usage, spend and their exports at the same
+ * paths in its own shapes, so this viewset leaves those reads to it.
+ */
+export const billingOrganizationPortalRetrieve = async (
+    organizationId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getBillingOrganizationPortalRetrieveUrl(organizationId), {
         ...options,
         method: 'GET',
     })
@@ -780,7 +1112,11 @@ export const getBillingProductsListUrl = (organizationId: string, params?: Billi
 }
 
 /**
- * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * Read billing state for an organization: subscription, products, features and usage.
+ *
+ * The schema attributes every operation here to the billing product. Without that the route
+ * puts them under organizations, and the MCP tool scaffold, which matches by product, drops
+ * the billing tools that name them.
  * @summary List the organization's products
  */
 export const billingProductsList = async (
@@ -815,7 +1151,11 @@ export const getBillingProductsRetrieveUrl = (
 }
 
 /**
- * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * Read billing state for an organization: subscription, products, features and usage.
+ *
+ * The schema attributes every operation here to the billing product. Without that the route
+ * puts them under organizations, and the MCP tool scaffold, which matches by product, drops
+ * the billing tools that name them.
  * @summary Get one product
  */
 export const billingProductsRetrieve = async (
@@ -835,7 +1175,11 @@ export const getBillingProductsSummaryRetrieveUrl = (organizationId: string) => 
 }
 
 /**
- * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * Read billing state for an organization: subscription, products, features and usage.
+ *
+ * The schema attributes every operation here to the billing product. Without that the route
+ * puts them under organizations, and the MCP tool scaffold, which matches by product, drops
+ * the billing tools that name them.
  * @summary Get every product in summary
  */
 export const billingProductsSummaryRetrieve = async (
@@ -853,7 +1197,7 @@ export const getBillingProjectListUrl = (organizationId: string) => {
 }
 
 /**
- * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta. Every project the organization has reported usage for, deleted ones included, so a caller knows which ids a project breakdown or a team_ids filter can name. Below full billing access the list is the projects the caller can see.
+ * Every project the organization has reported usage for, deleted ones included, so a caller knows which ids a project breakdown or a team_ids filter can name. Below full billing access the list is the projects the caller can see.
  * @summary List the projects with usage
  */
 export const billingProjectList = async (
@@ -871,7 +1215,11 @@ export const getBillingSpendSummaryRetrieveUrl = (organizationId: string) => {
 }
 
 /**
- * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * Read billing state for an organization: subscription, products, features and usage.
+ *
+ * The schema attributes every operation here to the billing product. Without that the route
+ * puts them under organizations, and the MCP tool scaffold, which matches by product, drops
+ * the billing tools that name them.
  * @summary Get spend so far this billing period
  */
 export const billingSpendSummaryRetrieve = async (
@@ -901,7 +1249,11 @@ export const getBillingSpendExportDownloadUrl = (organizationId: string, params?
 }
 
 /**
- * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * Read billing state for an organization: subscription, products, features and usage.
+ *
+ * The schema attributes every operation here to the billing product. Without that the route
+ * puts them under organizations, and the MCP tool scaffold, which matches by product, drops
+ * the billing tools that name them.
  * @summary Export spend as CSV
  */
 export const billingSpendExportDownload = async (
@@ -935,7 +1287,11 @@ export const getBillingSpendTimeseriesRetrieveUrl = (
 }
 
 /**
- * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * Read billing state for an organization: subscription, products, features and usage.
+ *
+ * The schema attributes every operation here to the billing product. Without that the route
+ * puts them under organizations, and the MCP tool scaffold, which matches by product, drops
+ * the billing tools that name them.
  * @summary Spend over time
  */
 export const billingSpendTimeseriesRetrieve = async (
@@ -952,12 +1308,40 @@ export const billingSpendTimeseriesRetrieve = async (
     )
 }
 
+export const getBillingOrganizationStartupsApplyCreateUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/billing/startups/apply/`
+}
+
+/**
+ * The billing API at /api/organizations/:organization_id/billing/, which names the organization instead of
+ * following the user's current project.
+ *
+ * It shares that prefix with OrganizationBillingViewSet, which serves usage, spend and their exports at the same
+ * paths in its own shapes, so this viewset leaves those reads to it.
+ */
+export const billingOrganizationStartupsApplyCreate = async (
+    organizationId: string,
+    billingApi: BillingApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getBillingOrganizationStartupsApplyCreateUrl(organizationId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(billingApi),
+    })
+}
+
 export const getBillingSubscriptionRetrieveUrl = (organizationId: string) => {
     return `/api/organizations/${organizationId}/billing/subscription/`
 }
 
 /**
- * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * Read billing state for an organization: subscription, products, features and usage.
+ *
+ * The schema attributes every operation here to the billing product. Without that the route
+ * puts them under organizations, and the MCP tool scaffold, which matches by product, drops
+ * the billing tools that name them.
  * @summary Get the organization's subscription
  */
 export const billingSubscriptionRetrieve = async (
@@ -970,12 +1354,88 @@ export const billingSubscriptionRetrieve = async (
     })
 }
 
+export const getBillingOrganizationSubscriptionSwitchPlanCreateUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/billing/subscription/switch-plan/`
+}
+
+/**
+ * The billing API at /api/organizations/:organization_id/billing/, which names the organization instead of
+ * following the user's current project.
+ *
+ * It shares that prefix with OrganizationBillingViewSet, which serves usage, spend and their exports at the same
+ * paths in its own shapes, so this viewset leaves those reads to it.
+ */
+export const billingOrganizationSubscriptionSwitchPlanCreate = async (
+    organizationId: string,
+    billingApi: BillingApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getBillingOrganizationSubscriptionSwitchPlanCreateUrl(organizationId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(billingApi),
+    })
+}
+
+export const getBillingOrganizationTrialsActivateCreateUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/billing/trials/activate/`
+}
+
+/**
+ * The billing API at /api/organizations/:organization_id/billing/, which names the organization instead of
+ * following the user's current project.
+ *
+ * It shares that prefix with OrganizationBillingViewSet, which serves usage, spend and their exports at the same
+ * paths in its own shapes, so this viewset leaves those reads to it.
+ */
+export const billingOrganizationTrialsActivateCreate = async (
+    organizationId: string,
+    billingApi: BillingApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getBillingOrganizationTrialsActivateCreateUrl(organizationId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(billingApi),
+    })
+}
+
+export const getBillingOrganizationTrialsCancelCreateUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/billing/trials/cancel/`
+}
+
+/**
+ * The billing API at /api/organizations/:organization_id/billing/, which names the organization instead of
+ * following the user's current project.
+ *
+ * It shares that prefix with OrganizationBillingViewSet, which serves usage, spend and their exports at the same
+ * paths in its own shapes, so this viewset leaves those reads to it.
+ */
+export const billingOrganizationTrialsCancelCreate = async (
+    organizationId: string,
+    billingApi: BillingApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getBillingOrganizationTrialsCancelCreateUrl(organizationId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(billingApi),
+    })
+}
+
 export const getBillingUsageSummaryRetrieveUrl = (organizationId: string) => {
     return `/api/organizations/${organizationId}/billing/usage/`
 }
 
 /**
- * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * Read billing state for an organization: subscription, products, features and usage.
+ *
+ * The schema attributes every operation here to the billing product. Without that the route
+ * puts them under organizations, and the MCP tool scaffold, which matches by product, drops
+ * the billing tools that name them.
  * @summary Get usage so far this billing period
  */
 export const billingUsageSummaryRetrieve = async (
@@ -1005,7 +1465,11 @@ export const getBillingUsageExportDownloadUrl = (organizationId: string, params?
 }
 
 /**
- * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * Read billing state for an organization: subscription, products, features and usage.
+ *
+ * The schema attributes every operation here to the billing product. Without that the route
+ * puts them under organizations, and the MCP tool scaffold, which matches by product, drops
+ * the billing tools that name them.
  * @summary Export usage as CSV
  */
 export const billingUsageExportDownload = async (
@@ -1024,7 +1488,9 @@ export const getBillingUsageStatusRetrieveUrl = (organizationId: string) => {
 }
 
 /**
- * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * What any member may know about usage: per product and add-on, the limit in effect,
+ * whether usage is over or approaching it, and whether the resource is being limited right
+ * now. The counts themselves are on `usage` and need usage read access.
  * @summary Get usage against limits, without the counts
  */
 export const billingUsageStatusRetrieve = async (
@@ -1057,7 +1523,11 @@ export const getBillingUsageTimeseriesRetrieveUrl = (
 }
 
 /**
- * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * Read billing state for an organization: subscription, products, features and usage.
+ *
+ * The schema attributes every operation here to the billing product. Without that the route
+ * puts them under organizations, and the MCP tool scaffold, which matches by product, drops
+ * the billing tools that name them.
  * @summary Usage over time
  */
 export const billingUsageTimeseriesRetrieve = async (
@@ -1072,6 +1542,25 @@ export const billingUsageTimeseriesRetrieve = async (
             method: 'GET',
         }
     )
+}
+
+export const getBillingProjectPeriodRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/billing/period/`
+}
+
+/**
+ * The billing period at /api/projects/:project_id/billing/period/, for callers that know the project but not
+ * its organization.
+ * @summary Get the current billing period of the project's organization
+ */
+export const billingProjectPeriodRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<BillingPeriodResponseApi> => {
+    return apiMutator<BillingPeriodResponseApi>(getBillingProjectPeriodRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 export const getBillingProjectSpendExportDownloadUrl = (
@@ -1094,7 +1583,11 @@ export const getBillingProjectSpendExportDownloadUrl = (
 }
 
 /**
- * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * Read one project's usage and its share of the organization's spend.
+ *
+ * A credential reaches a project when it covers the project. An organization-wide session, personal
+ * key or OAuth token covers every project. A project-scoped key covers its projects, and a project
+ * secret key with `billing:read` covers its own project.
  * @summary Export a project's share of spend as CSV
  */
 export const billingProjectSpendExportDownload = async (
@@ -1128,7 +1621,11 @@ export const getBillingProjectSpendTimeseriesRetrieveUrl = (
 }
 
 /**
- * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * Read one project's usage and its share of the organization's spend.
+ *
+ * A credential reaches a project when it covers the project. An organization-wide session, personal
+ * key or OAuth token covers every project. A project-scoped key covers its projects, and a project
+ * secret key with `billing:read` covers its own project.
  * @summary A project's share of spend over time
  */
 export const billingProjectSpendTimeseriesRetrieve = async (
@@ -1150,7 +1647,11 @@ export const getBillingProjectUsageRetrieveUrl = (projectId: string) => {
 }
 
 /**
- * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * Read one project's usage and its share of the organization's spend.
+ *
+ * A credential reaches a project when it covers the project. An organization-wide session, personal
+ * key or OAuth token covers every project. A project-scoped key covers its projects, and a project
+ * secret key with `billing:read` covers its own project.
  * @summary Get a project's usage so far this billing period
  */
 export const billingProjectUsageRetrieve = async (
@@ -1183,7 +1684,11 @@ export const getBillingProjectUsageExportDownloadUrl = (
 }
 
 /**
- * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * Read one project's usage and its share of the organization's spend.
+ *
+ * A credential reaches a project when it covers the project. An organization-wide session, personal
+ * key or OAuth token covers every project. A project-scoped key covers its projects, and a project
+ * secret key with `billing:read` covers its own project.
  * @summary Export a project's usage as CSV
  */
 export const billingProjectUsageExportDownload = async (
@@ -1217,7 +1722,11 @@ export const getBillingProjectUsageTimeseriesRetrieveUrl = (
 }
 
 /**
- * In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.
+ * Read one project's usage and its share of the organization's spend.
+ *
+ * A credential reaches a project when it covers the project. An organization-wide session, personal
+ * key or OAuth token covers every project. A project-scoped key covers its projects, and a project
+ * secret key with `billing:read` covers its own project.
  * @summary A project's usage over time
  */
 export const billingProjectUsageTimeseriesRetrieve = async (
