@@ -937,7 +937,7 @@ describe('SesWebhookHandler', () => {
 
     describe('the SNS signing certificate', () => {
         const certUrl = 'https://sns.us-east-1.amazonaws.com/SimpleNotificationService-0123456789abcdef.pem'
-        const deliverSigned = (signingCertUrl = certUrl): ReturnType<SesWebhookHandler['handleWebhook']> => {
+        const signedEnvelope = (signingCertUrl = certUrl): Record<string, any> => {
             const envelope = {
                 Type: 'Notification',
                 MessageId: 'sns-msg-1',
@@ -948,8 +948,10 @@ describe('SesWebhookHandler', () => {
                 SigningCertURL: signingCertUrl,
             }
             signEnvelope(envelope)
-            return handler.handleWebhook({ body: envelope, headers: {}, verifySignature: true })
+            return envelope
         }
+        const deliverSigned = (signingCertUrl = certUrl): ReturnType<SesWebhookHandler['handleWebhook']> =>
+            handler.handleWebhook({ body: signedEnvelope(signingCertUrl), headers: {}, verifySignature: true })
 
         const otherCertUrls = (count: number): string[] =>
             Array.from(
@@ -1007,6 +1009,14 @@ describe('SesWebhookHandler', () => {
             expect((await deliverSigned()).status).toBe(403)
             snsAvailable = true
             expect((await deliverSigned()).status).toBe(200)
+        })
+
+        it('asks SNS to retry a delivery while it cannot be downloaded', async () => {
+            snsAvailable = false
+            expect(await handler.verifyDelivery(signedEnvelope())).toEqual({
+                status: 503,
+                body: { error: 'SNS signing certificate unavailable' },
+            })
         })
     })
 

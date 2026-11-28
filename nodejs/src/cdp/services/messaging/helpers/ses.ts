@@ -443,6 +443,10 @@ export class SesWebhookHandler extends SnsEnvelopeVerifier {
 
     async verifyDelivery(body: unknown): Promise<{ status: number; body: unknown } | { envelope: SnsEnvelope }> {
         const check = await this.verifyEnvelope(body, { verifySignature: true })
+        // SNS retries a 5xx but drops the delivery after a 403.
+        if (check.kind === 'reject' && check.certificateUnavailable) {
+            return { status: 503, body: { error: 'SNS signing certificate unavailable' } }
+        }
         if (check.kind === 'reject') {
             return { status: check.status, body: { error: check.error } }
         }
