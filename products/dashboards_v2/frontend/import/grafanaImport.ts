@@ -1,4 +1,4 @@
-import type { PanelQuery } from '../dashboard/dashboardSchema'
+import { type PanelQuery, panelQuerySchema } from '../dashboard/dashboardSchema'
 import { type Dashboard, GRID, type GridTab, type Tile } from '../dashboard/dashboardTypes'
 import type { ChartConfig } from '../panels/chart/chartSpec'
 import type { StatOptions } from '../panels/chart/viz/stat/statSpec'
@@ -8,6 +8,8 @@ import {
     type ImportedVariable,
     type ReportBuilder,
     type TileStatus,
+    MAX_LEGEND,
+    MAX_REF_ID,
     MAX_TARGETS,
     chartPanel,
     idMaker,
@@ -18,6 +20,7 @@ import {
 } from './importReport'
 import {
     fillVariables,
+    fixLogqlWindows,
     logqlLegend,
     logqlStreams,
     looksLikeLogql,
@@ -85,6 +88,19 @@ function statFormat(unit: unknown): StatOptions['format'] | undefined {
     return typeof unit === 'string' && unit.startsWith('currency') ? 'currency' : undefined
 }
 
+// The stat shows the latest value, which is what these Grafana reducers pick.
+const LATEST_REDUCERS = new Set(['last', 'lastNotNull'])
+
+// A Grafana LogQL panel picks its range window from the step. Imported queries need a fixed one.
+const LOGQL_WINDOW = '1m'
+
+/**
+ * Grafana's Prometheus and Loki escaping: a multi-value or All variable is a regex alternation, so each value's regex
+ * characters are escaped; a single value is a plain string. Both escape for the quoted string they land in.
+ */
+const escapeString = (value: string): string => value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+const escapeRegex = (value: string): string => escapeString(value.replace(/[$^*{}[\]'+?.()|\\]/g, '\\$&'))
+
 /** A variable's saved value, as text a query can hold. `All` becomes the variable's all value, or a match-all regex. */
 function variableValue(variable: Json): string | undefined {
     const current = variable.current?.value
@@ -99,8 +115,16 @@ function variableValue(variable: Json): string | undefined {
     if (values.includes('$__all')) {
         return variable.allValue || '.*'
     }
-    return values.length === 1 ? values[0] : values.join('|')
+    return variable.multi || variable.includeAll || values.length > 1
+        ? values.map(escapeRegex).join('|')
+        : escapeString(values[0])
 }
+
+/** Text for a markdown note's heading or inline code: one line, no backticks, so it can't open markup of its own. */
+const inline = (value: unknown): string =>
+    String(value)
+        .replace(/[`\r\n]+/g, ' ')
+        .trim()
 
 interface Converter {
     report: ReportBuilder
@@ -132,7 +156,7 @@ function convertPanel(panel: Json, converter: Converter, top: number): Tile {
     if (panel.libraryPanel && !panel.type) {
         const name = panel.libraryPanel.name ?? panel.libraryPanel.uid
         reasons.push(`Library panel "${name}" isn't part of the export.`)
-        return done(notePanel(title, `**Not supported yet:** library panel \`${name}\`.`, []), 'unsupported')
+        return done(notePanel(title, `**Not supported yet:** library panel \`${inline(name)}\`.`, []), 'unsupported')
     }
     if (panel.type === 'text') {
         return done(
@@ -148,6 +172,10 @@ function convertPanel(panel: Json, converter: Converter, top: number): Tile {
     const targets: { refId: string; query: PanelQuery; legend?: string }[] = []
     const skipped: { language: string; text: string }[] = []
     const panelType = converter.datasourceType(panel.datasource)
+    const viz = VIZ[panel.type]
+    const unit = panel.fieldConfig?.defaults?.unit ?? panel.format
+    // Grafana's `percent` is already 0 to 100, but the stat's percentage format multiplies by 100.
+    const scaleToFraction = viz?.type === 'stat' && unit === 'percent'
     for (const [index, target] of (Array.isArray(panel.targets) ? panel.targets : []).entries()) {
         if (!target || typeof target !== 'object' || target.hide) {
             continue
@@ -164,8 +192,17 @@ function convertPanel(panel: Json, converter: Converter, top: number): Tile {
         const legend = target.legendFormat && target.legendFormat !== '__auto' ? String(target.legendFormat) : undefined
         if (expr !== undefined && (PROMETHEUS.has(type ?? '') || type === 'loki')) {
             const loki = type === 'loki'
-            const cleaned = expr.replace(/\$\{DS_[A-Z0-9_]+\}/g, '')
-            const filled = fillVariables(loki ? cleaned : stripStepWindows(cleaned), converter.variables)
+            let cleaned = expr.replace(/\$\{DS_[A-Z0-9_]+\}/g, '')
+            if (loki) {
+                const windows = fixLogqlWindows(cleaned, LOGQL_WINDOW)
+                cleaned = windows.text
+                if (windows.replaced) {
+                    reasons.push(`${refId} uses a ${LOGQL_WINDOW} window where Grafana picked one from the time range.`)
+                }
+            } else {
+                cleaned = stripStepWindows(cleaned)
+            }
+            const filled = fillVariables(cleaned, converter.variables)
             for (const name of filled.unfilled) {
                 reasons.push(`$${name} has no saved value, so ${refId} keeps it as written and may not run.`)
             }
@@ -179,11 +216,24 @@ function convertPanel(panel: Json, converter: Converter, top: number): Tile {
             } else {
                 logqlStreams(filled.text).forEach((stream) => report.require('logStreams', rewriteLogql(stream)))
             }
-            const query: PanelQuery = loki
-                ? { language: 'logql', query: rewriteLogql(filled.text) }
-                : { language: 'promql', query: filled.text }
+            const text = loki ? rewriteLogql(filled.text) : filled.text
+            const query: PanelQuery = {
+                language: loki ? 'logql' : 'promql',
+                query: scaleToFraction ? `(${text}) / 100` : text,
+            }
+            if (!panelQuerySchema.safeParse(query).success) {
+                report.query(false)
+                skipped.push({ language: '', text: `-- ${refId}\n${expr}` })
+                reasons.push(`${refId} is too long for a board query once its variables are filled in.`)
+                continue
+            }
+            let targetLegend = legend && loki ? logqlLegend(legend) : legend
+            if (targetLegend && targetLegend.length > MAX_LEGEND) {
+                reasons.push(`${refId}'s legend is too long, so it uses the default.`)
+                targetLegend = undefined
+            }
             report.query(filled.unfilled.length === 0)
-            targets.push({ refId, query, legend: legend && loki ? logqlLegend(legend) : legend })
+            targets.push({ refId: refId.slice(0, MAX_REF_ID), query, legend: targetLegend })
             continue
         }
         const text =
@@ -196,18 +246,21 @@ function convertPanel(panel: Json, converter: Converter, top: number): Tile {
         reasons.push(`${refId} queries ${language}, which PostHog can't run.`)
     }
 
-    const viz = VIZ[panel.type]
     if (!viz) {
         reasons.unshift(`Grafana panel type "${panel.type}" has no equivalent yet.`)
         const original = [
             ...targets.map((t) => ({ language: t.query.language, text: String(t.query.query) })),
             ...skipped,
         ]
-        return done(notePanel(title, `**Not supported yet:** ${panel.type}`, original), 'unsupported')
+        return done(notePanel(title, `**Not supported yet:** ${inline(panel.type)}`, original), 'unsupported')
     }
     if (targets.length === 0) {
         return done(
-            notePanel(title, `**Not supported yet:** this ${panel.type} panel has no query PostHog can run.`, skipped),
+            notePanel(
+                title,
+                `**Not supported yet:** this ${inline(panel.type)} panel has no query PostHog can run.`,
+                skipped
+            ),
             'unsupported'
         )
     }
@@ -218,7 +271,15 @@ function convertPanel(panel: Json, converter: Converter, top: number): Tile {
         reasons.push(`Only the first ${MAX_TARGETS} of its ${targets.length} queries are kept.`)
         targets.length = MAX_TARGETS
     }
-    const format = viz.type === 'stat' ? statFormat(panel.fieldConfig?.defaults?.unit ?? panel.format) : undefined
+    if (Array.isArray(panel.transformations) && panel.transformations.some((t: Json) => t && !t.disabled)) {
+        const ids = panel.transformations.filter((t: Json) => t && !t.disabled).map((t: Json) => String(t.id))
+        reasons.push(`Grafana transformations (${[...new Set(ids)].join(', ')}) aren't applied.`)
+    }
+    const calcs = panel.options?.reduceOptions?.calcs
+    if (viz.type === 'stat' && Array.isArray(calcs) && calcs.length && !LATEST_REDUCERS.has(String(calcs[0]))) {
+        reasons.push(`It showed the ${calcs[0]} of each series in Grafana. Here it shows the latest value.`)
+    }
+    const format = viz.type === 'stat' ? statFormat(unit) : undefined
     const vizConfig: ChartConfig['viz'] = format
         ? { type: 'stat', options: { format } }
         : panel.fieldConfig?.defaults?.custom?.stacking?.mode === 'normal' && viz.type === 'bar'
