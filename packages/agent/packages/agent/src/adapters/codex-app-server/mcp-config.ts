@@ -1,5 +1,8 @@
 import type { McpServer } from "@agentclientprotocol/sdk";
-import { isPostHogExecDescriptor } from "@posthog/harness/extensions/posthog-mcp-policy";
+import {
+  isPostHogExecDescriptor,
+  POSTHOG_GATED_EXEC_TOOLS,
+} from "@posthog/harness/extensions/posthog-mcp-policy";
 import { sanitizeMcpServerName } from "../claude/mcp/tool-metadata";
 
 interface CodexMcpServerToolConfig {
@@ -101,7 +104,14 @@ export function toCodexMcpServers(
     });
     const policy: CodexMcpServerPolicyConfig = {
       ...(options?.gatePosthogExec && isPosthog
-        ? { tools: { exec: { approval_mode: "prompt" as const } } }
+        ? {
+            tools: Object.fromEntries(
+              POSTHOG_GATED_EXEC_TOOLS.map((tool) => [
+                tool,
+                { approval_mode: "prompt" as const },
+              ]),
+            ),
+          }
         : {}),
       // A required server that fails to start fails `thread/start`. Without it,
       // codex starts the thread anyway and the run has no `exec` tool.

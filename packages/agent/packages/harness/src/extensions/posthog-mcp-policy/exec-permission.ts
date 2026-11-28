@@ -1,9 +1,10 @@
 import { z } from "zod/v4";
 
 /**
- * The PostHog MCP exposes a single `exec` dispatcher tool that runs
+ * The PostHog MCP exposes an `exec` dispatcher tool, or `exec-read` and
+ * `exec-write` on a connection that splits writes. Each dispatcher runs
  * subcommands like `call [--flags] <tool-name> [json]`. These helpers identify
- * that dispatcher, extract the delegated tool, and apply the externally
+ * the dispatchers, extract the delegated tool, and apply the externally
  * configured permission regex at sub-tool granularity.
  */
 
@@ -16,7 +17,18 @@ import { z } from "zod/v4";
  * conforming name — a hyphenated or prefixed name (e.g. `posthog-eu`) is not
  * recognized and the exec guard silently won't apply.
  */
-const POSTHOG_EXEC_TOOL_RE = /^mcp__posthog(?:_[^_]+)*__exec$/;
+const POSTHOG_SERVER_PREFIX = "^mcp__posthog(?:_[^_]+)*__";
+
+/** `exec-read` is gated too: a Tasks regex can name cross-project reads, which the server allows there. */
+export const POSTHOG_GATED_EXEC_TOOLS = [
+  "exec",
+  "exec-read",
+  "exec-write",
+] as const;
+
+const POSTHOG_EXEC_TOOL_RE = new RegExp(
+  `${POSTHOG_SERVER_PREFIX}(?:${POSTHOG_GATED_EXEC_TOOLS.join("|")})$`,
+);
 
 // Skip every `--flag` token after `call` (`--json`, `--confirm`, future ones)
 // before capturing the sub-tool, and require the sub-tool to start with an
@@ -80,6 +92,13 @@ export function resolvePostHogExecPermissionRegex(
 
 export function isPostHogExecTool(toolName: string): boolean {
   return POSTHOG_EXEC_TOOL_RE.test(toolName);
+}
+
+/** `exec-read` and `exec-write` replace `exec` on a split connection, so a permission rule written for `exec` covers them. */
+export function postHogExecRuleName(toolName: string): string | undefined {
+  return isPostHogExecTool(toolName)
+    ? toolName.replace(/-(?:read|write)$/, "")
+    : undefined;
 }
 
 export function isPostHogExecDescriptor(descriptor: {

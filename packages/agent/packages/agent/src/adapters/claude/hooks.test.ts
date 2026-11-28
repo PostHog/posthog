@@ -10,6 +10,7 @@ vi.mock("@posthog/harness/extensions/enrichment", () => ({
 import { Logger } from "../../utils/logger";
 import type { TaskState } from "./conversion/task-state";
 import {
+  createPostToolUseHook,
   createPreToolUseHook,
   createReadEnrichmentHook,
   createReadImageGuardHook,
@@ -413,10 +414,57 @@ describe("createPreToolUseHook", () => {
   const posthogExecPermissionRegex =
     /(^|-)(partial-update|update|patch|delete|destroy)(-|$)/i;
 
-  test("defers destructive PostHog exec sub-tool to canUseTool via ask", async () => {
+  test.each(
+    [
+      "mcp__posthog__exec",
+      "mcp__posthog__exec-read",
+      "mcp__posthog__exec-write",
+    ].flatMap((toolName) => [
+      [
+        toolName,
+        "an allow rule",
+        {
+          decision: "allow" as const,
+          rule: toolName,
+          source: "allow" as const,
+        },
+      ],
+      [toolName, "no rule", { decision: "ask" as const }],
+    ]) as [string, string, PermissionCheckResult][],
+  )(
+    "defers destructive %s sub-tool to canUseTool via ask with %s",
+    async (toolName, _rule, permissionCheck) => {
+      const settingsManager = buildSettingsManagerStub(permissionCheck);
+      const hook = createPreToolUseHook(
+        settingsManager,
+        logger,
+        posthogExecPermissionRegex,
+      );
+      const result = await hook(
+        buildPreToolUseHookInput(toolName, {
+          command: 'call dashboard-update {"id": 1, "name": "x"}',
+        }),
+        undefined,
+        { signal: new AbortController().signal },
+      );
+
+      expect(result).toMatchObject({
+        continue: true,
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse",
+          permissionDecision: "ask",
+        },
+      });
+    },
+  );
+
+  test.each([
+    ["mcp__posthog__exec", "experiment-get"],
+    ["mcp__posthog__exec-read", "dashboard-get"],
+  ])("allows %s %s via settings rule", async (toolName, subTool) => {
     const settingsManager = buildSettingsManagerStub({
       decision: "allow",
-      rule: "mcp__posthog__exec",
+      rule: toolName,
       source: "allow",
     });
     const hook = createPreToolUseHook(
@@ -425,36 +473,8 @@ describe("createPreToolUseHook", () => {
       posthogExecPermissionRegex,
     );
     const result = await hook(
-      buildPreToolUseHookInput("mcp__posthog__exec", {
-        command: 'call dashboard-update {"id": 1, "name": "x"}',
-      }),
-      undefined,
-      { signal: new AbortController().signal },
-    );
-
-    expect(result).toMatchObject({
-      continue: true,
-      hookSpecificOutput: {
-        hookEventName: "PreToolUse",
-        permissionDecision: "ask",
-      },
-    });
-  });
-
-  test("allows non-destructive PostHog exec sub-tool via settings rule", async () => {
-    const settingsManager = buildSettingsManagerStub({
-      decision: "allow",
-      rule: "mcp__posthog__exec",
-      source: "allow",
-    });
-    const hook = createPreToolUseHook(
-      settingsManager,
-      logger,
-      posthogExecPermissionRegex,
-    );
-    const result = await hook(
-      buildPreToolUseHookInput("mcp__posthog__exec", {
-        command: 'call experiment-get {"id": 1}',
+      buildPreToolUseHookInput(toolName, {
+        command: `call ${subTool} {"id": 1}`,
       }),
       undefined,
       { signal: new AbortController().signal },
@@ -465,9 +485,32 @@ describe("createPreToolUseHook", () => {
       hookSpecificOutput: {
         hookEventName: "PreToolUse",
         permissionDecision: "allow",
-        permissionDecisionReason:
-          "Allowed by settings rule: mcp__posthog__exec",
+        permissionDecisionReason: `Allowed by settings rule: ${toolName}`,
       },
+    });
+  });
+
+  test("asks for exec-write through an exec ask rule", async () => {
+    const settingsManager = buildSettingsManagerStub({
+      decision: "ask",
+      rule: "mcp__posthog__exec",
+      source: "ask",
+    });
+    const hook = createPreToolUseHook(
+      settingsManager,
+      logger,
+      posthogExecPermissionRegex,
+    );
+    const result = await hook(
+      buildPreToolUseHookInput("mcp__posthog__exec-write", {
+        command: "call experiment-create {}",
+      }),
+      undefined,
+      { signal: new AbortController().signal },
+    );
+
+    expect(result).toMatchObject({
+      hookSpecificOutput: { permissionDecision: "ask" },
     });
   });
 
@@ -515,6 +558,33 @@ describe("createPreToolUseHook", () => {
     expect(result).toMatchObject({
       hookSpecificOutput: { permissionDecision: "ask" },
     });
+  });
+});
+
+describe("createPostToolUseHook", () => {
+  test.each([
+    "mcp__posthog__exec",
+    "mcp__posthog__exec-read",
+    "mcp__posthog__exec-write",
+  ])("reports the sub-tool a %s call used", async (toolName) => {
+    const onPostHogResourceUsed = vi.fn();
+    const hook = createPostToolUseHook({ onPostHogResourceUsed });
+    const command = 'call dashboard-get {"id": 1}';
+
+    await hook(
+      {
+        ...buildPreToolUseHookInput(toolName, { command }),
+        hook_event_name: "PostToolUse",
+        tool_response: {},
+      } as HookInput,
+      undefined,
+      { signal: new AbortController().signal },
+    );
+
+    expect(onPostHogResourceUsed).toHaveBeenCalledWith(
+      "dashboard-get",
+      command,
+    );
   });
 });
 

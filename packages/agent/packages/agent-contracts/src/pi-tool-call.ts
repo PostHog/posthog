@@ -55,6 +55,12 @@ const piMcpProxyInputSchema = z.object({
 });
 
 const posthogExecServerPattern = /^(?:plugin_)?posthog(?:_[^_]+)*$/;
+// Pi's `buildToolName` turns the hyphen in `exec-read`/`exec-write` into an underscore.
+const posthogDispatcherTool = "exec(?:[-_](?:read|write))?";
+const posthogDispatcherToolPattern = new RegExp(`^${posthogDispatcherTool}$`);
+const piPostHogDispatcherNamePattern = new RegExp(
+  `^(.+)_(${posthogDispatcherTool})$`,
+);
 
 function readPiMcpToolParts(
   name: string,
@@ -68,17 +74,19 @@ function readPiMcpToolParts(
     };
   }
 
-  if (withoutPrefix.endsWith("_exec")) {
-    return { server: withoutPrefix.slice(0, -5), tool: "exec" };
+  const [, server, tool] =
+    withoutPrefix.match(piPostHogDispatcherNamePattern) ?? [];
+  if (server && tool) {
+    return { server, tool: tool.replace("_", "-") };
   }
   return undefined;
 }
 
-function isPostHogExecToolName(name: string): boolean {
+function isPostHogDispatcherToolName(name: string): boolean {
   const parts = readPiMcpToolParts(name);
   return (
     !!parts &&
-    parts.tool === "exec" &&
+    posthogDispatcherToolPattern.test(parts.tool) &&
     posthogExecServerPattern.test(parts.server)
   );
 }
@@ -103,7 +111,7 @@ export function parsePiMcpCallDetails(
     return undefined;
   }
 
-  if (!isPostHogExecToolName(name)) return undefined;
+  if (!isPostHogDispatcherToolName(name)) return undefined;
   const parsed = z
     .object({ command: z.string() })
     .passthrough()

@@ -80,6 +80,48 @@ describe("SettingsManager per-repo persistence", () => {
     expect(manager.checkPermission("TodoWrite", {}).decision).toBe("allow");
   });
 
+  it.each([
+    [
+      "deny",
+      "mcp__posthog__exec",
+      "mcp__posthog__exec-write",
+      "mcp__posthog__exec",
+    ],
+    [
+      "deny",
+      "mcp__posthog__exec",
+      "mcp__posthog__exec-read",
+      "mcp__posthog__exec",
+    ],
+    [
+      "ask",
+      "mcp__posthog__exec",
+      "mcp__posthog__exec-write",
+      "mcp__posthog__exec",
+    ],
+    ["allow", "mcp__posthog__exec-read", "mcp__posthog__exec-write", undefined],
+  ])(
+    "matches a %s rule for %s on %s",
+    async (kind, ruleTool, calledTool, matchedRule) => {
+      await fs.promises.mkdir(path.join(worktree, ".claude"), {
+        recursive: true,
+      });
+      await fs.promises.writeFile(
+        path.join(worktree, ".claude", "settings.json"),
+        JSON.stringify({ permissions: { [kind]: [ruleTool] } }),
+      );
+      const manager = new SettingsManager(worktree);
+      await manager.initialize();
+
+      const { decision, rule } = manager.checkPermission(calledTool, {});
+
+      expect({ decision, rule }).toEqual({
+        decision: matchedRule ? kind : "ask",
+        rule: matchedRule,
+      });
+    },
+  );
+
   it("does not widen name-based matching when the rule has an argument", async () => {
     // A rule *with* an argument for a tool we don't have an accessor for must
     // not match regardless of the actual input — otherwise a deny rule like
@@ -131,7 +173,10 @@ describe("SettingsManager per-repo persistence", () => {
   it("persists PostHog exec approvals and sees them across worktrees", async () => {
     const writer = new SettingsManager(worktree);
     await writer.initialize();
-    await writer.addPostHogExecApproval("experiment-update");
+    await writer.addPostHogExecApproval(
+      "mcp__posthog__exec",
+      "experiment-update",
+    );
 
     const filePath = path.join(mainRepo, ".claude", "settings.local.json");
     const contents = JSON.parse(await fs.promises.readFile(filePath, "utf-8"));
@@ -141,23 +186,55 @@ describe("SettingsManager per-repo persistence", () => {
     runGit(mainRepo, ["worktree", "add", "-b", "other-ph", sibling]);
     const reader = new SettingsManager(sibling);
     await reader.initialize();
-    expect(reader.hasPostHogExecApproval("experiment-update")).toBe(true);
-    expect(reader.hasPostHogExecApproval("experiment-delete")).toBe(false);
+    expect(
+      reader.hasPostHogExecApproval("mcp__posthog__exec", "experiment-update"),
+    ).toBe(true);
+    expect(
+      reader.hasPostHogExecApproval("mcp__posthog__exec", "experiment-delete"),
+    ).toBe(false);
   });
 
-  it("dedupes repeated PostHog exec approvals", async () => {
+  it.each([
+    ["an exec-read approval", "mcp__posthog__exec-read"],
+    ["an approval stored before the split", "mcp__posthog__exec"],
+  ])(
+    "does not let %s run the sub-tool through exec-write",
+    async (_case, approvedOn) => {
+      const manager = new SettingsManager(worktree);
+      await manager.initialize();
+      await manager.addPostHogExecApproval(
+        approvedOn,
+        "posthog-connection-call",
+      );
+
+      expect(
+        manager.hasPostHogExecApproval(approvedOn, "posthog-connection-call"),
+      ).toBe(true);
+      expect(
+        manager.hasPostHogExecApproval(
+          "mcp__posthog__exec-write",
+          "posthog-connection-call",
+        ),
+      ).toBe(false);
+    },
+  );
+
+  it("dedupes repeated PostHog exec approvals and names the split dispatcher", async () => {
     const manager = new SettingsManager(worktree);
     await manager.initialize();
 
-    await manager.addPostHogExecApproval("foo-update");
-    await manager.addPostHogExecApproval("foo-update");
-    await manager.addPostHogExecApproval("bar-delete");
+    await manager.addPostHogExecApproval("mcp__posthog__exec", "foo-update");
+    await manager.addPostHogExecApproval("mcp__posthog__exec", "foo-update");
+    await manager.addPostHogExecApproval(
+      "mcp__posthog__exec-write",
+      "bar-delete",
+    );
 
     const filePath = path.join(mainRepo, ".claude", "settings.local.json");
     const contents = JSON.parse(await fs.promises.readFile(filePath, "utf-8"));
     expect(contents.posthogApprovedExecTools).toEqual([
       "foo-update",
-      "bar-delete",
+      "exec-write:bar-delete",
     ]);
   });
 
@@ -166,9 +243,9 @@ describe("SettingsManager per-repo persistence", () => {
     await manager.initialize();
 
     await Promise.all([
-      manager.addPostHogExecApproval("a-update"),
-      manager.addPostHogExecApproval("b-delete"),
-      manager.addPostHogExecApproval("c-destroy"),
+      manager.addPostHogExecApproval("mcp__posthog__exec", "a-update"),
+      manager.addPostHogExecApproval("mcp__posthog__exec", "b-delete"),
+      manager.addPostHogExecApproval("mcp__posthog__exec", "c-destroy"),
     ]);
 
     const filePath = path.join(mainRepo, ".claude", "settings.local.json");

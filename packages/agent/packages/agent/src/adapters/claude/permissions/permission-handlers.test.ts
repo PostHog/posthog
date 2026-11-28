@@ -393,7 +393,10 @@ describe("canUseTool MCP approval enforcement", () => {
     const result = await canUseTool(context);
 
     expect(result.behavior).toBe("allow");
-    expect(addPostHogExecApproval).toHaveBeenCalledWith("notebooks-destroy");
+    expect(addPostHogExecApproval).toHaveBeenCalledWith(
+      "mcp__posthog__exec",
+      "notebooks-destroy",
+    );
   });
 
   it("does not gate a nonmatching PostHog sub-tool", async () => {
