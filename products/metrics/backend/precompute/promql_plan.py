@@ -170,6 +170,7 @@ class _Parser:
     def __init__(self, text: str) -> None:
         self.tokens: list[Token] = [token for token in tokenize(text) if token.kind != "space"]
         self.index = 0
+        self.operators = 0
 
     def peek(self) -> Token | None:
         return self.tokens[self.index] if self.index < len(self.tokens) else None
@@ -408,7 +409,9 @@ def _operand(parser: _Parser, parentheses: int) -> PromQLNode:
             raise _Unsupported
     leaf = _histogram_quantile(parser) if token.text == "histogram_quantile" else _sum_over_time(parser)
     # An operand is one series, so the arithmetic combines values by step and never matches labels.
-    if leaf.rank is not None or any(label != "le" for label in leaf.group_by):
+    # Only a quantile folds `le` away; `sum by (le)` alone is one series per bucket.
+    foldable = ("le",) if leaf.quantile is not None else ()
+    if leaf.rank is not None or any(label not in foldable for label in leaf.group_by):
         raise _Unsupported
     return leaf
 
@@ -419,6 +422,10 @@ def _binary(
     node = operand(parser, parentheses)
     while (token := parser.peek()) is not None and token.text in operators:
         parser.take()
+        # The tree walks after parsing recurse once per level, so bound the tree while it is built.
+        parser.operators += 1
+        if parser.operators > _MAX_EXPRESSION_NODES:
+            raise _Unsupported
         node = PromQLBinary(op=token.text, left=node, right=operand(parser, parentheses))
     return node
 
@@ -655,9 +662,9 @@ def _touch(precomputed_metric: MetricPrecomputedMetric) -> None:
         )
 
 
-def read_promql_entries(plan: PromQLPlan) -> dict[EntryKey, Entry]:
-    """The stored buckets that the planned steps read. Raises `TooManyStoredPointsError` past `MAX_STORED_POINTS`."""
-    return read_entries(plan.precomputed_metric, plan.first_step - plan.window, plan.cut, max_points=MAX_STORED_POINTS)
+def read_promql_entries(plan: PromQLPlan, max_points: int = MAX_STORED_POINTS) -> dict[EntryKey, Entry]:
+    """The stored buckets that the planned steps read. Raises `TooManyStoredPointsError` past `max_points`."""
+    return read_entries(plan.precomputed_metric, plan.first_step - plan.window, plan.cut, max_points=max_points)
 
 
 def read_raw_tail_entries(team: Team, plan: PromQLPlan) -> dict[EntryKey, Entry]:
@@ -787,14 +794,26 @@ def evaluate_plan(team: Team, plan: "PromQLPlan | PromQLExpressionPlan") -> list
     Raises `TooManyStoredPointsError` past the stored data budget."""
     if isinstance(plan, PromQLPlan):
         return _evaluate_leaf(team, plan)
-    series = {
-        leaf: {
+    entries_by_read: dict[tuple[int, dt.datetime, dt.datetime, dt.datetime], dict[EntryKey, Entry]] = {}
+    stored = 0
+    series: dict[PromQLLeafQuery, dict[float, float]] = {}
+    for leaf, leaf_plan in plan.plans.items():
+        read = (
+            leaf_plan.precomputed_metric.pk,
+            leaf_plan.first_step - leaf_plan.window,
+            leaf_plan.cut,
+            leaf_plan.last_step,
+        )
+        if read not in entries_by_read:
+            entries = read_promql_entries(leaf_plan, max_points=MAX_STORED_POINTS - stored)
+            stored += sum(len(entry.points) for entry in entries.values())
+            merge_entries(entries, read_raw_tail_entries(team, leaf_plan))
+            entries_by_read[read] = entries
+        series[leaf] = {
             float(timestamp): float(value)
-            for result in _evaluate_leaf(team, leaf_plan)
+            for result in evaluate_stored(leaf_plan, entries_by_read[read])
             for timestamp, value in result["values"]
         }
-        for leaf, leaf_plan in plan.plans.items()
-    }
     combined = _combine(plan.tree, series)
     assert isinstance(combined, dict)
     return [{"metric": {}, "values": [[step, value] for step, value in sorted(combined.items())]}] if combined else []
@@ -834,6 +853,8 @@ def _combine(node: PromQLNode, series: dict[PromQLLeafQuery, dict[float, float]]
         assert isinstance(left, dict) and isinstance(right, dict)
         return {**right, **left}
     apply = _ARITHMETIC[node.op]
+    if not isinstance(left, dict) and not isinstance(right, dict):
+        return apply(left, right)
     if isinstance(left, dict) and isinstance(right, dict):
         return {step: apply(left[step], right[step]) for step in left.keys() & right.keys()}
     if isinstance(left, dict):

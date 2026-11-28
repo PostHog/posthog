@@ -28,12 +28,15 @@ from products.metrics.backend.precompute.promql_plan import (
     DELTA_HISTOGRAM_BUCKET,
     Matcher,
     PromQLBinary,
+    PromQLExpressionPlan,
     PromQLLeafQuery,
     PromQLNumber,
     _is_delta_histogram,
     histogram_quantile,
     parse_promql,
     parse_promql_expression,
+    plan_promql,
+    read_promql_entries,
 )
 from products.metrics.backend.precompute.shadow import SHADOW_EVENT
 from products.metrics.backend.promql import run_promql_range
@@ -139,6 +142,8 @@ class TestParsePromQL(SimpleTestCase):
             ("too_many_operands", " + ".join(f"sum(sum_over_time(m{i}[1h]))" for i in range(5))),
             ("too_deeply_nested", "(" * 9 + "sum(sum_over_time(m[1h])) / 1" + ")" * 9),
             ("a_single_operand", "sum(sum_over_time(m[1h]))"),
+            ("operand_with_a_series_per_bucket", "sum by (le) (sum_over_time(m[1h])) / 2"),
+            ("operator_chain_past_the_node_budget", "sum(sum_over_time(m[1h]))" + " + 1" * 1100),
         ]
     )
     def test_other_arithmetic_runs_raw(self, _name, text):
@@ -480,6 +485,7 @@ class TestPrecomputedPromQL(APIBaseTest):
                 2,
                 "hour",
             ),
+            ("arithmetic_over_numbers_alone", "sum(sum_over_time(llm_cost_usd[$__interval])) * (1 + 2)", 2, "hour"),
         ]
     )
     def test_arithmetic_over_planned_sums_matches_raw(self, _name: str, promql: str, days: int, interval: str):
@@ -491,6 +497,22 @@ class TestPrecomputedPromQL(APIBaseTest):
         assert _max_relative_difference(result.series, self._raw(promql, days, interval)) == pytest.approx(
             0.0, abs=EXACT
         )
+
+    def test_operands_of_one_stored_metric_share_one_read_and_one_budget(self):
+        promql = 'sum(sum_over_time(llm_cost_usd{model="slow"}[$__interval])) / sum(sum_over_time(llm_cost_usd[$__interval]))'
+        self._precompute(promql, 2, "hour")
+        plan = plan_promql(self.team, promql, NOW - dt.timedelta(days=2), NOW, "hour", record_use=False)
+        assert isinstance(plan, PromQLExpressionPlan)
+        stored = read_promql_entries(next(iter(plan.plans.values())))
+        queried_before = len(self.snuffle.queries)
+
+        # One operand's stored points fit the budget, two operands' would not.
+        budget = sum(len(entry.points) for entry in stored.values()) + 1
+        with patch("products.metrics.backend.precompute.promql_plan.MAX_STORED_POINTS", budget):
+            result = self._run(promql, 2, "hour")
+
+        assert result.provenance.mode == MetricQueryProvenanceMode.MIXED, result.provenance
+        assert len(self.snuffle.queries) - queried_before == 1, self.snuffle.queries[queried_before:]
 
     def test_a_sampled_tile_queues_a_shadow_check_that_measures_how_far_apart_the_answers_are(self):
         promql = "sum by (model) (sum_over_time(llm_cost_usd[$__interval]))"

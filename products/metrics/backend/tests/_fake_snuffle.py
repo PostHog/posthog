@@ -163,13 +163,16 @@ class FakeSnuffle:
         if node.op == "or":
             assert isinstance(left, dict) and isinstance(right, dict)
             return {time: left[time] if time in left else right[time] for time in left.keys() | right.keys()}
+        operations = {"+": numpy.add, "-": numpy.subtract, "*": numpy.multiply, "/": numpy.divide}
         vectors = [operand for operand in (left, right) if isinstance(operand, dict)]
+        if not vectors:
+            with numpy.errstate(all="ignore"):
+                return float(operations[node.op](numpy.float64(left), numpy.float64(right)))
         times = set.intersection(*(set(vector) for vector in vectors))
 
         def at(operand: dict[float, float] | float, time: float) -> float:
             return operand[time] if isinstance(operand, dict) else operand
 
-        operations = {"+": numpy.add, "-": numpy.subtract, "*": numpy.multiply, "/": numpy.divide}
         with numpy.errstate(all="ignore"):
             return {
                 time: float(operations[node.op](numpy.float64(at(left, time)), numpy.float64(at(right, time))))
