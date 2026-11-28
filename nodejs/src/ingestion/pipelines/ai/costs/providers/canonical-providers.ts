@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-11-26 20:01:53 UTC
+// Generated at: 2026-11-27 20:02:09 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -120,6 +120,7 @@ export type CanonicalProvider =
     | 'io-net-nvfp4'
     | 'ionstream'
     | 'ionstream-fp8'
+    | 'krea-fp8'
     | 'kt'
     | 'liquid'
     | 'makora'
