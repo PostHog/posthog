@@ -3,12 +3,12 @@
     "properties": {
         "compare": {
             "default": true,
-            "description": "When true (default), include period-over-period change for each metric comparing against the prior equal-length period. Set to false to skip the comparison query (faster).",
+            "description": "When true (default), include period-over-period change for each metric comparing against the `days` complete days before the window. Set to false to skip the comparison query (faster).",
             "type": "boolean"
         },
         "days": {
             "default": 7,
-            "description": "Lookback window in days (1–90). Defaults to 7.",
+            "description": "Number of complete days to summarize (1–90), ending yesterday in the project timezone. Defaults to 7.",
             "type": "number"
         }
     },

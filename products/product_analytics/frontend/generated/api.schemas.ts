@@ -4424,6 +4424,8 @@ export interface Response8Api {
 }
 
 export interface WebVitalsPathBreakdownResultItemApi {
+    /** Number of `$web_vitals` samples for this metric and page in the period. Unset when served from precomputed buckets. */
+    count?: number | null
     path: string
     value: number
 }
@@ -4682,6 +4684,7 @@ export const IntegrationKindApi = {
     AppleAds: 'apple-ads',
     Postgresql: 'postgresql',
     AwsS3: 'aws-s3',
+    AwsWarehouseSources: 'aws-warehouse-sources',
     AwsRedshift: 'aws-redshift',
     S3Compatible: 's3-compatible',
     Snowflake: 'snowflake',
@@ -6818,6 +6821,8 @@ export interface WebVitalsPathBreakdownQueryApi {
     interval?: IntervalTypeApi | null
     kind?: 'WebVitalsPathBreakdownQuery'
     metric: WebVitalsMetricApi
+    /** Drop pages with fewer samples than this in the period, so a page with a handful of slow loads does not outrank a busy page with a real problem. No floor when omitted. */
+    minSamples?: number | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     orderBy?: (WebAnalyticsOrderByFieldsApi | WebAnalyticsOrderByDirectionApi)[] | null

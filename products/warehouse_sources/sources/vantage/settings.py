@@ -120,6 +120,9 @@ VANTAGE_ENDPOINTS: dict[str, VantageEndpointConfig] = {
     "business_metrics": VantageEndpointConfig(
         name="business_metrics", path="/business_metrics", data_key="business_metrics"
     ),
+    "virtual_tag_configs": VantageEndpointConfig(
+        name="virtual_tag_configs", path="/virtual_tag_configs", data_key="virtual_tag_configs"
+    ),
     # These lookups take `workspace_token`, which Vantage requires when the API token can see more
     # than one workspace, so they fan out over workspaces. An account has few workspaces, so they
     # stay on by default.
@@ -273,6 +276,52 @@ VANTAGE_ENDPOINTS: dict[str, VantageEndpointConfig] = {
             resolve_field="token",
             include_from_parent=["token"],
             parent_field_renames={"token": "network_flow_report_token"},
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
+    ),
+    "cost_alert_events": VantageEndpointConfig(
+        name="cost_alert_events",
+        path="/cost_alerts/{cost_alert_token}/events",
+        data_key="cost_alert_events",
+        partition_key="created_at",
+        should_sync_default=False,
+        fanout=DependentEndpointConfig(
+            parent_name="cost_alerts",
+            resolve_param="cost_alert_token",
+            resolve_field="token",
+            include_from_parent=["token"],
+            parent_field_renames={"token": "cost_alert_token"},
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
+    ),
+    "forecasted_costs": VantageEndpointConfig(
+        name="forecasted_costs",
+        path="/cost_reports/{cost_report_token}/forecasted_costs",
+        data_key="forecasted_costs",
+        primary_keys=None,
+        should_sync_default=False,
+        fanout=DependentEndpointConfig(
+            parent_name="cost_reports",
+            resolve_param="cost_report_token",
+            resolve_field="token",
+            include_from_parent=["token"],
+            parent_field_renames={"token": "cost_report_token"},
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
+    ),
+    "recommendation_resources": VantageEndpointConfig(
+        name="recommendation_resources",
+        path="/recommendations/{recommendation_token}/resources",
+        data_key="resources",
+        primary_keys=["recommendation_token", "token"],
+        should_sync_default=False,
+        page_size=500,
+        fanout=DependentEndpointConfig(
+            parent_name="recommendations",
+            resolve_param="recommendation_token",
+            resolve_field="token",
+            include_from_parent=["token"],
+            parent_field_renames={"token": "recommendation_token"},
             child_response_actions=[{"status_code": 404, "action": "ignore"}],
         ),
     ),

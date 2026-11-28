@@ -146,6 +146,7 @@ export function QuillObjectAccessRules({
             ) : (
                 <ObjectRuleRowEditingContext.Provider value={rowEditing}>
                     <DataTable
+                        className="rounded-md border border-border"
                         columns={COLUMNS}
                         data={objects}
                         getRowId={(rule) => `${rule.resource}:${rule.resource_id}`}

@@ -1,0 +1,17 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "new_topic": {
+            "description": "The new name. It may differ from the old one only in letter case, to fix its spelling. Fails with 409 when another topic already has the name: merge the two instead.",
+            "maxLength": 200,
+            "type": "string"
+        },
+        "topic": {
+            "description": "The topic to rename, as listed by GET aeo_prompts/topics/. Letter case is ignored.",
+            "maxLength": 200,
+            "type": "string"
+        }
+    },
+    "required": ["topic", "new_topic"],
+    "type": "object"
+}

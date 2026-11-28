@@ -19,6 +19,7 @@ from ..facade.contracts import (
     PresignedUpload,
     StartUploadInput,
     SubmissionNotFound,
+    TranscriptFile,
     UploadRejected,
 )
 from ..facade.enums import SubmissionAction, SubmissionStatus, UploadRejectionReason
@@ -48,7 +49,8 @@ def list_submissions(*, status: SubmissionStatus | None, page: PageRequest) -> P
     return select_page(queryset, page)
 
 
-def get_download_url(organization_id: UUID) -> str | None:
+def _with_available_file(organization_id: UUID) -> tuple[AgentTranscriptSubmission, str] | None:
+    """The submission and its storage key, or None when it has no file staff may still read."""
     submission = get_for_organization(organization_id)
     if submission is None or submission.storage_key is None:
         return None
@@ -59,10 +61,33 @@ def get_download_url(organization_id: UUID) -> str | None:
         submitted_at=submission.submitted_at,
         now=timezone.now(),
     )
-    if not file_available:
+    return (submission, submission.storage_key) if file_available else None
+
+
+def get_download_url(organization_id: UUID) -> str | None:
+    found = _with_available_file(organization_id)
+    if found is None:
         return None
 
-    return storage.presign_download(submission.storage_key, submission.original_filename)
+    submission, storage_key = found
+    return storage.presign_download(storage_key, submission.original_filename)
+
+
+def read_file(organization_id: UUID) -> TranscriptFile | None:
+    found = _with_available_file(organization_id)
+    if found is None:
+        return None
+
+    submission, storage_key = found
+    data = storage.read(storage_key)
+    if data is None:
+        return None
+
+    return TranscriptFile(
+        filename=content.storage_filename(submission.original_filename),
+        content_type=content.content_type_for(submission.original_filename),
+        content=data,
+    )
 
 
 def start_upload(data: StartUploadInput) -> PresignedUpload:

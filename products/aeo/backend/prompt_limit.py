@@ -18,9 +18,17 @@ def read(team_id: int) -> PromptLimit:
 
 
 def lock(team_id: int) -> PromptLimit:
+    config = lock_project(team_id)
+    return PromptLimit(max_active_prompts=config.max_active_prompts, active_prompts=active_prompt_count(config.team_id))
+
+
+def lock_project(team_id: int) -> AEOTeamConfig:
+    """Lock the project's config row for the rest of the transaction. Every write that turns prompts on or sets a
+    topic takes it before it locks any prompt row, so those writes run one at a time per project and never
+    lock prompt rows in an order that deadlocks."""
     canonical = resolve_effective_team_id(team_id)
     config, _ = AEOTeamConfig.objects.for_team(canonical).select_for_update().get_or_create(team_id=canonical)
-    return PromptLimit(max_active_prompts=config.max_active_prompts, active_prompts=active_prompt_count(canonical))
+    return config
 
 
 def check_room(limit: PromptLimit, adding: int) -> None:

@@ -111,6 +111,9 @@ def upsert_prompts(team: Team, candidates: list[PromptCandidate], *, fit_to_limi
     held_back: list[str] = []
     with team_scope(team_id), transaction.atomic():
         limit = prompt_limit.lock(team_id) if any(row.active for row in rows.values()) else None
+        if limit is None and any(row.topic for row in rows.values()):
+            # Prompts that bring a topic run one at a time with the topic edits, which read topic names under this lock.
+            prompt_limit.lock_project(team_id)
         # Locked in hash order, so a concurrent import cannot overwrite evidence this one merged.
         existing = {
             key: (archived_at, evidence)

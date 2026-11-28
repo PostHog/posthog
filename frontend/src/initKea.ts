@@ -142,7 +142,7 @@ const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     // The prompts view shows its own error
     loadAeoPrompts: 'products.webAnalytics.contentAutopilot.contentAutopilotPromptsLogic',
     // The AI visibility filter bar shows a retry in place of the topic filter
-    loadPromptTopics: 'products.webAnalytics.contentAutopilot.contentAutopilotFilterBarLogic',
+    loadPromptTopics: 'products.webAnalytics.contentAutopilot.aiVisibilityTopicsLogic',
     // The prompt detail modal shows an error state for each section it loads
     loadAeoPrompt: 'products.webAnalytics.contentAutopilot.contentAutopilotPromptDetailLogic',
     loadAeoPromptStats: 'products.webAnalytics.contentAutopilot.contentAutopilotPromptDetailLogic',

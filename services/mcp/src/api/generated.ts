@@ -576,6 +576,20 @@ export namespace Schemas {
       prompts: AEOPromptImport[];
     }
 
+    export interface AEOPromptBulkSetTopicRequest {
+      /**
+         * Ids of the prompts to change, from GET aeo_prompts/. At most 500. Archived prompts are refused.
+         * @minItems 1
+         * @maxItems 500
+         */
+      prompt_ids: string[];
+      /**
+         * The topic to set. A name that matches an existing topic in another letter case takes that topic's spelling. An empty string removes the topic.
+         * @maxLength 200
+         */
+      topic: string;
+    }
+
     export interface AEOPromptCheck {
       /** The sentences of 'answer_text' that name the brand, each with its own sentiment, in answer order. 'brand_sentiment' is their average. Empty when 'brand_sentiment' is null, and on checks scored before sentences were stored. */
       brand_sentiment_sentences: AEOBrandSentimentSentence[];
@@ -1089,7 +1103,7 @@ export namespace Schemas {
          */
       previous_visibility: number | null;
       /**
-         * For the project's own brand, the share (0-1) of scored answers whose sentiment toward it was positive. Null for competitors and when nothing was scored.
+         * The share (0-1) of scored answers naming the brand whose sentences about it were positive. Null when none of them was scored yet.
          * @nullable
          */
       positive_share: number | null;
@@ -1170,6 +1184,47 @@ export namespace Schemas {
       answers: number;
       /** Whether the competitors are the ones confirmed in the brand catalog (matched by name and aliases). False means they were derived from the most cited domains. */
       competitors_confirmed: boolean;
+    }
+
+    export interface AEOPromptSetRelatedSearch {
+      /** Another web search the engines ran in the same answers, normalized the same way. */
+      query: string;
+      /** Answers that ran both searches in the window. */
+      answers: number;
+      /** Share (0-1) of the answers that ran the requested search and ran this one too. */
+      share_of_answers: number;
+    }
+
+    export interface AEOPromptSetSearchDetail {
+      /** The 10 domains cited most by the answers that ran the search, most cited first, then the best-ranked own domain when it ranks lower. 'share_of_answers' is over those answers. An answer usually runs several searches, and a citation is not tied to one of them, so a domain may come from another search of the same answer. */
+      domains: AEOPromptSetDomain[];
+      /** Up to 8 other searches the same answers ran most, most common first. */
+      related_searches: AEOPromptSetRelatedSearch[];
+      /** Up to 10 prompts whose answers ran the search, the ones that ran it most first. */
+      top_prompts: AEOPromptSetSearchPrompt[];
+      /** The search, lowercased with whitespace collapsed, as in the overview's top_searches. */
+      query: string;
+      /** First day of the window, in the project's timezone. */
+      window_from: string;
+      /** Last day of the window, in the project's timezone. */
+      window_to: string;
+      /** Answered web-search checks in the window that ran the search. The base of every share. */
+      answers: number;
+      /** Distinct prompts whose answers ran the search. */
+      prompts: number;
+      /** Of those answers, how many cited a URL on the project's own domains. */
+      cited: number;
+      /** Answer engines that ran the search, ordered by engine. */
+      engines: string[];
+      /** Distinct registrable domains those answers cited. */
+      domains_cited: number;
+      /**
+         * Place of the best-ranked own domain among the domains those answers cited, from 1. Null when none of them cited it.
+         * @nullable
+         */
+      target_rank: number | null;
+      /** The project's tracked keywords that appear in the search, alphabetical. */
+      keywords: string[];
     }
 
     export interface AEOPromptStats {
@@ -1316,6 +1371,47 @@ export namespace Schemas {
       topic: string;
       /** How many prompts in the set have this topic. */
       prompts: number;
+    }
+
+    export interface AEOPromptTopicChange {
+      /** How many prompts now have the new topic, archived prompts included. */
+      prompts: number;
+      /** How many past checks were relabeled with the new topic. Always 0 when setting a topic on chosen prompts, because their past checks keep the topic they ran with. */
+      checks: number;
+    }
+
+    export interface AEOPromptTopicMergeRequest {
+      /**
+         * The topic to merge away. Its prompts move to 'into_topic'. Letter case is ignored.
+         * @maxLength 200
+         */
+      topic: string;
+      /**
+         * The topic to keep, as listed by GET aeo_prompts/topics/. It keeps its current spelling. Letter case is ignored.
+         * @maxLength 200
+         */
+      into_topic: string;
+    }
+
+    export interface AEOPromptTopicRemoveRequest {
+      /**
+         * The topic to remove. Its prompts are kept and are left with no topic. Letter case is ignored.
+         * @maxLength 200
+         */
+      topic: string;
+    }
+
+    export interface AEOPromptTopicRenameRequest {
+      /**
+         * The topic to rename, as listed by GET aeo_prompts/topics/. Letter case is ignored.
+         * @maxLength 200
+         */
+      topic: string;
+      /**
+         * The new name. It may differ from the old one only in letter case, to fix its spelling. Fails with 409 when another topic already has the name: merge the two instead.
+         * @maxLength 200
+         */
+      new_topic: string;
     }
 
     export interface AEOPromptVersion {
@@ -10556,6 +10652,8 @@ export namespace Schemas {
     }
 
     export interface WebVitalsPathBreakdownResultItem {
+      /** Number of `$web_vitals` samples for this metric and page in the period. Unset when served from precomputed buckets. */
+      count?: number | null;
       path: string;
       value: number;
     }
@@ -10815,6 +10913,7 @@ export namespace Schemas {
       AppleAds: 'apple-ads',
       Postgresql: 'postgresql',
       AwsS3: 'aws-s3',
+      AwsWarehouseSources: 'aws-warehouse-sources',
       AwsRedshift: 'aws-redshift',
       S3Compatible: 's3-compatible',
       Snowflake: 'snowflake',
@@ -11738,6 +11837,8 @@ export namespace Schemas {
       interval?: IntervalType | null;
       kind?: 'WebVitalsPathBreakdownQuery';
       metric: WebVitalsMetric;
+      /** Drop pages with fewer samples than this in the period, so a page with a handful of slow loads does not outrank a busy page with a real problem. No floor when omitted. */
+      minSamples?: number | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       orderBy?: (WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection)[] | null;
@@ -41999,7 +42100,7 @@ export namespace Schemas {
       date_to: string;
       /** Project timezone for the period boundaries. */
       timezone: string;
-      /** True when the headline metrics, top pages and top sources exclude events from test accounts. Goal conversions include them. */
+      /** True when the headline metrics, top pages and top sources exclude events from test accounts. Follows the project's "Filter out internal and test users" default, like the query-web-* tools. Goal conversions include them either way. */
       filter_test_accounts: boolean;
       /** Metric definitions to use when you compare the digest with a direct query. */
       notes: string[];
@@ -69185,6 +69286,7 @@ export namespace Schemas {
      * * `apns` - Apple Push
      * * `aws-redshift` - Aws Redshift
      * * `aws-s3` - Aws S3
+     * * `aws-warehouse-sources` - Aws Warehouse Sources
      * * `azure-blob` - Azure Blob
      * * `bing-ads` - Bing Ads
      * * `clickup` - Clickup
@@ -69242,6 +69344,7 @@ export namespace Schemas {
       Apns: 'apns',
       AwsRedshift: 'aws-redshift',
       AwsS3: 'aws-s3',
+      AwsWarehouseSources: 'aws-warehouse-sources',
       AzureBlob: 'azure-blob',
       BingAds: 'bing-ads',
       Clickup: 'clickup',
@@ -69299,6 +69402,7 @@ export namespace Schemas {
        * * `apns` - Apple Push
        * * `aws-redshift` - Aws Redshift
        * * `aws-s3` - Aws S3
+       * * `aws-warehouse-sources` - Aws Warehouse Sources
        * * `azure-blob` - Azure Blob
        * * `bing-ads` - Bing Ads
        * * `clickup` - Clickup
@@ -69467,6 +69571,7 @@ export namespace Schemas {
        * * `apns` - Apple Push
        * * `aws-redshift` - Aws Redshift
        * * `aws-s3` - Aws S3
+       * * `aws-warehouse-sources` - Aws Warehouse Sources
        * * `azure-blob` - Azure Blob
        * * `bing-ads` - Bing Ads
        * * `clickup` - Clickup
@@ -141177,11 +141282,11 @@ export namespace Schemas {
      */
     domain?: string;
     /**
-     * Only list answers from this answer engine, for example 'claude-web-search'.
-     * @minLength 1
+     * Only count checks from this answer engine, for example 'claude-web-search'. Omit to count every engine.
      * @maxLength 64
+     * @nullable
      */
-    engine?: string;
+    engine?: string | null;
     /**
      * Set to true to return each engine's answer in answer_text. Left out by default to keep pages small.
      */
@@ -141201,6 +141306,12 @@ export namespace Schemas {
      * @maxLength 1000
      */
     search?: string;
+    /**
+     * Only count checks that ran with this prompt topic. A prompt moved to another topic keeps its past checks under the old one. An empty value counts the checks of prompts that had no topic. Omit to count every topic.
+     * @maxLength 200
+     * @nullable
+     */
+    topic?: string | null;
     /**
      * List the answers that cited this exact URL, as it appears in cited_urls or the rankings' top_pages.
      * @minLength 1
@@ -141356,6 +141467,57 @@ export namespace Schemas {
 
 
     export const AeoPromptsRankingsBranded = {
+      All: 'all',
+      Branded: 'branded',
+      NonBranded: 'non_branded',
+    } as const;
+
+    export type AeoPromptsSearchDetailParams = {
+    /**
+     * Which checks to count, by the prompt as it ran: 'all' (default), 'branded' (the prompt names the brand) or 'non_branded'. Every count, the window before included, uses the same checks. Use 'non_branded' to judge visibility, since a prompt that names the brand almost always gets an answer that mentions it. A prompt is branded when its text names the brand: the registrable name of a target domain as a word, case ignored, so 'example' and 'example.com' both name example.com. Branded prompts almost always get answers that mention the brand.
+     *
+     * * `all` - All
+     * * `branded` - Branded
+     * * `non_branded` - Non-branded
+     * @minLength 1
+     */
+    branded?: AeoPromptsSearchDetailBranded;
+    /**
+     * First day of the window. Takes a date such as '2026-11-01' or a relative day such as '-30d' (30 days ago), '-2w', 'mStart' (first day of this month) or 'yStart'. Days are whole days in the project's timezone. Default '-30d'. The window from date_from to date_to can cover at most 91 days.
+     * @maxLength 32
+     * @nullable
+     */
+    date_from?: string | null;
+    /**
+     * Last day of the window, included. Takes a date such as '2026-11-01' or a relative day such as '-30d' (30 days ago), '-2w', 'mStart' (first day of this month) or 'yStart'. Days are whole days in the project's timezone. Default today. A later day is read as today.
+     * @maxLength 32
+     * @nullable
+     */
+    date_to?: string | null;
+    /**
+     * Only count checks from this answer engine, for example 'claude-web-search'. Omit to count every engine.
+     * @maxLength 64
+     * @nullable
+     */
+    engine?: string | null;
+    /**
+     * The web search to describe. Case and repeated spaces are ignored, as in the overview's top_searches.
+     * @minLength 1
+     * @maxLength 1000
+     */
+    search: string;
+    /**
+     * Only count checks that ran with this prompt topic. A prompt moved to another topic keeps its past checks under the old one. An empty value counts the checks of prompts that had no topic. Omit to count every topic.
+     * @maxLength 200
+     * @nullable
+     */
+    topic?: string | null;
+    };
+
+    export type AeoPromptsSearchDetailBranded = typeof AeoPromptsSearchDetailBranded[keyof typeof AeoPromptsSearchDetailBranded];
+
+
+    export const AeoPromptsSearchDetailBranded = {
       All: 'all',
       Branded: 'branded',
       NonBranded: 'non_branded',
@@ -150312,6 +150474,7 @@ export namespace Schemas {
      * * `apns` - Apple Push
      * * `aws-redshift` - Aws Redshift
      * * `aws-s3` - Aws S3
+     * * `aws-warehouse-sources` - Aws Warehouse Sources
      * * `azure-blob` - Azure Blob
      * * `bing-ads` - Bing Ads
      * * `clickup` - Clickup
@@ -150380,6 +150543,7 @@ export namespace Schemas {
       AppleAds: 'apple-ads',
       AwsRedshift: 'aws-redshift',
       AwsS3: 'aws-s3',
+      AwsWarehouseSources: 'aws-warehouse-sources',
       AzureBlob: 'azure-blob',
       BingAds: 'bing-ads',
       Clickup: 'clickup',
@@ -157627,11 +157791,11 @@ export namespace Schemas {
 
     export type WebAnalyticsWeeklyDigestParams = {
     /**
-     * When true (default), include period-over-period change for each metric comparing against the prior equal-length period. Set to false to skip the comparison query (faster).
+     * When true (default), include period-over-period change for each metric comparing against the `days` complete days before the window. Set to false to skip the comparison query (faster).
      */
     compare?: boolean;
     /**
-     * Lookback window in days (1–90). Defaults to 7.
+     * Number of complete days to summarize (1–90), ending yesterday in the project timezone. Defaults to 7.
      */
     days?: number;
     };

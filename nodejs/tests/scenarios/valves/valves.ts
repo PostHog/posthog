@@ -22,6 +22,7 @@ export type ValveContext = {
     seed?: number
     startedAt?: number
     endsAt?: number
+    terminationGraceMs?: number
 }
 
 type EntryContext = ValveContext & { pick?: string }
@@ -73,18 +74,27 @@ export const roleKill: ValveDefinition = {
     apply: ({ environment }, target) => environment.actuate({ kind: 'kill', role: CdpRole.parse(target) }),
 }
 
-const Grace = z.object({ grace: TerminationGrace }).strict()
+const Grace = z.object({ grace: TerminationGrace.optional() }).strict()
+
+const graceMsOf = (dose: unknown, { terminationGraceMs }: ValveContext): number => {
+    const { grace } = Grace.parse(dose)
+    const graceMs = grace === undefined ? terminationGraceMs : durationMs(grace)
+    if (graceMs === undefined) {
+        throw new Error('role.terminate needs a grace: give dose.grace or terminationGrace in the profile')
+    }
+    return graceMs
+}
 
 export const roleTerminate: ValveDefinition = {
     name: 'role.terminate',
     params: Grace,
     target: CdpRole,
     strandsRunningJobs: false,
-    apply: ({ environment }, target, dose) =>
-        environment.actuate({
+    apply: async (context, target, dose) =>
+        context.environment.actuate({
             kind: 'terminate',
             role: CdpRole.parse(target),
-            graceMs: durationMs(Grace.parse(dose).grace),
+            graceMs: graceMsOf(dose, context),
         }),
 }
 
@@ -183,18 +193,27 @@ export const destAmbiguous: ValveDefinition = {
     },
 }
 
+export const FailoverDose = z.object({ warmReader: z.literal(true).optional() }).strict()
+
 export const pgFailover: ValveDefinition = {
     name: 'pg.failover',
-    params: z.object({}).strict(),
+    params: FailoverDose,
     target: z.literal('cyclotron'),
     strandsRunningJobs: false,
     roleExitGraceMs: 5000,
     restarts: CdpRole.exclude(['cdp-ses-webhooks']).options,
     journalsIntent: true,
-    apply: ({ environment, commits, manifest }, _target, _dose, holdMs, signal) =>
+    apply: ({ environment, commits, manifest }, _target, dose, holdMs, signal) =>
         manifest === undefined
             ? Promise.reject(new Error('pg.failover runs only on a run host'))
-            : environment.actuate({ kind: 'rds.failover', manifest, holdMs, commits, signal }),
+            : environment.actuate({
+                  kind: 'rds.failover',
+                  manifest,
+                  holdMs,
+                  commits,
+                  signal,
+                  warmReader: FailoverDose.parse(dose).warmReader === true,
+              }),
 }
 
 const Dose = z.union([
