@@ -4,9 +4,7 @@ Only rules a cohort matches exactly are translated: person attribute comparisons
 is not translated at all, because a cohort built from part of its rules would hold a different audience.
 """
 
-import sys
 import json
-import functools
 from typing import Any
 
 from products.workflows.backend.facade.contracts import SegmentCohortFilters
@@ -18,7 +16,6 @@ from products.workflows.backend.services.customerio_import import conditions
 _COHORT_OPERATORS = {"eq", "!eq", "contains", "!contains", "gt", "lt", "exists", "!exists", "bw"}
 _ABSOLUTE_DATE_OPERATORS = {"timestamp_gta", "timestamp_lta", "timestamp_bw"}
 _GROUP_TYPES = {"and": "AND", "or": "OR"}
-_REGEX_SYNTAX = set("\\.^$|?*+()[]{}")
 
 
 def segment_cohort_filters(segment_conditions: Any) -> SegmentCohortFilters:
@@ -102,7 +99,7 @@ class _Translation:
         if filters is None or (len(filters) > 1 and group_type == "OR"):
             self.untranslated.append(description)
             return []
-        return [_with_set_value(_ignoring_case(item)) for item in filters]
+        return [_with_set_value(item) for item in filters]
 
 
 def _current_attribute(node: dict[str, Any]) -> dict[str, Any] | None:
@@ -197,37 +194,6 @@ def _change_detail(filters: Any) -> str:
 def _days(seconds: int) -> str:
     days = seconds / 86400
     return f"{days:g} days" if days >= 1 else f"{seconds // 3600 or 1} hours"
-
-
-def _ignoring_case(item: dict[str, Any]) -> dict[str, Any]:
-    # Customer.io compares segment values without case: it saves "DE" as "de" and still matches "DE".
-    if item["operator"] not in ("exact", "is_not") or not isinstance(item.get("value"), str):
-        return item
-    pattern = "".join(_any_case(character) for character in item["value"])
-    return {**item, "operator": "regex" if item["operator"] == "exact" else "not_regex", "value": f"^{pattern}$"}
-
-
-def _any_case(character: str) -> str:
-    # A character class rather than an (?i) flag, which the JavaScript HogVM can't read.
-    lower = character.lower()
-    variants = _case_variants().get(lower) if len(lower) == 1 else None
-    if variants:
-        return f"[{lower}{variants}]"
-    # Only the characters every engine reads as syntax: Rust's regex rejects some escapes Python's re.escape adds.
-    return f"\\{character}" if character in _REGEX_SYNTAX else character
-
-
-@functools.cache
-def _case_variants() -> dict[str, str]:
-    """Each lowercase character to the other characters that lowercase to it, such as "ß" to "ẞ"."""
-    # Built from lower() rather than upper(), which turns "ß" into the two characters "SS".
-    variants: dict[str, set[str]] = {}
-    for code_point in range(sys.maxunicode + 1):
-        character = chr(code_point)
-        lower = character.lower()
-        if len(lower) == 1 and lower != character:
-            variants.setdefault(lower, set()).add(character)
-    return {lower: "".join(sorted(characters)) for lower, characters in variants.items()}
 
 
 def _with_set_value(item: dict[str, Any]) -> dict[str, Any]:
