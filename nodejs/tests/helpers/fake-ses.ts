@@ -22,6 +22,8 @@ export type FakeSesConfigurationSet = { opens: boolean; clicks: boolean }
 
 export type FakeSesDelivery = {
     to: string[]
+    cc: string[]
+    bcc: string[]
     subject: string
     html: string
     configurationSetName: string
@@ -120,6 +122,8 @@ export class FakeSes {
         }
         this.deliveries.push({
             to: request.Destination?.ToAddresses ?? [],
+            cc: request.Destination?.CcAddresses ?? [],
+            bcc: request.Destination?.BccAddresses ?? [],
             subject,
             html: this.track(simple?.Body?.Html?.Data ?? '', configurationSet, mail),
             configurationSetName: request.ConfigurationSetName ?? '',

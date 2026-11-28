@@ -48,8 +48,9 @@ MIN_NEGATIVE_EXAMPLES = 20
 # identified-only scope the anonymous remainder is silently excluded, so flag it.
 MIN_IDENTIFIED_FRACTION = 0.5
 
-# Cap the user_window CTE during live wizard estimates — sampled base rate is
-# unbiased for the same quantity the trainer computes unsampled.
+# Cap the user_window CTE during live wizard estimates. The window is a hash-ordered
+# sample of the labeler's candidates, so the share of it the labeler keeps, and the base
+# rate of those rows, are unbiased for the quantities the trainer computes unsampled.
 LIVE_ESTIMATE_SAMPLE_LIMIT = 5_000
 
 
@@ -210,9 +211,8 @@ def _run_validation(
 
     tag_queries(product=Product.AUTORESEARCH, feature=Feature.QUERY)
 
-    # Headline eligible count — true number of users that would be labeled by the
-    # random-T0 labeler, no sampling. Used for the UI's "Training rows" metric and
-    # volume warnings.
+    # The labeler's candidates, unsampled: the people its user_window holds before the
+    # per-user-at-T0 population rules apply.
     eligible_sql, eligible_values = build_eligible_count_sql(
         horizon_days=horizon_days,
         lookback_days=training_lookback_days,
@@ -226,19 +226,19 @@ def _run_validation(
         query=HogQLQuery(query=eligible_sql, values=eligible_values, modifiers=LABELER_QUERY_MODIFIERS),
         user=user,
     )
-    # eligible = identified-only headline (v1); eligible_all = same count without the
+    # eligible = identified candidates (v1); eligible_all = same count without the
     # identified restriction, used to detect a mostly-anonymous population.
-    total_users = 0
-    total_users_all = 0
+    candidates = 0
+    candidates_all = 0
     if eligible_rows:
         row = eligible_rows[0]
-        total_users = int(row[0] or 0)
-        total_users_all = int(row[1] or 0) if len(row) > 1 else total_users
+        candidates = int(row[0] or 0)
+        candidates_all = int(row[1] or 0) if len(row) > 1 else candidates
 
-    # Sampled random-T0 labeler — each user is assigned a deterministic random T0 in
-    # their history and labeled by whether target_event fires in [T0, T0 + horizon).
-    # Sampled at LIVE_ESTIMATE_SAMPLE_LIMIT for fast wizard feedback; the resulting
-    # base_rate is an unbiased estimator of the trainer's unsampled rate.
+    # Sampled random-T0 labeler — each candidate is assigned a deterministic random T0 in
+    # their history, kept when they are in the population at T0, and labeled by whether
+    # target_event fires in [T0, T0 + horizon). Sampled at LIVE_ESTIMATE_SAMPLE_LIMIT
+    # candidates for fast wizard feedback.
     label_sql, label_values = build_random_t0_labeler_sql(
         target_event=target_event,
         target_definition=target_definition,
@@ -253,17 +253,21 @@ def _run_validation(
         query=HogQLQuery(query=label_sql, values=label_values, modifiers=LABELER_QUERY_MODIFIERS),
         user=user,
     )
-    sampled_users = 0
+    sampled_rows = 0
     sampled_positives = 0
     if label_rows:
         row = label_rows[0]
-        sampled_users = int(row[0] or 0)
+        sampled_rows = int(row[0] or 0)
         sampled_positives = int(row[1] or 0)
 
-    base_rate = sampled_positives / sampled_users if sampled_users > 0 else 0.0
-    # Extrapolate sample-rate to the full eligible population for the headline counts.
-    positives = round(base_rate * total_users) if total_users > 0 else 0
-    negatives = total_users - positives
+    base_rate = sampled_positives / sampled_rows if sampled_rows > 0 else 0.0
+    if candidates <= LIVE_ESTIMATE_SAMPLE_LIMIT:
+        # The sample held every candidate, so the labeler's counts are the trainer's.
+        training_rows, positives = sampled_rows, sampled_positives
+    else:
+        training_rows = round(candidates * sampled_rows / LIVE_ESTIMATE_SAMPLE_LIMIT)
+        positives = round(base_rate * training_rows)
+    negatives = training_rows - positives
 
     # Count the scorer's own anchor query at today's cutoff, so the preview cannot drift from what gets scored.
     anchors_sql, anchors_values = build_inference_anchors_sql(
@@ -283,8 +287,9 @@ def _run_validation(
     inference_size = int(inf_rows[0][0] or 0) if inf_rows else 0
 
     warnings = _build_warnings(
-        total_users=total_users,
-        total_users_all=total_users_all,
+        total_users=training_rows,
+        candidates=candidates,
+        candidates_all=candidates_all,
         positives=positives,
         negatives=negatives,
         base_rate=base_rate,
@@ -298,7 +303,7 @@ def _run_validation(
     return ValidationResult(
         can_proceed=not has_errors,
         requires_acknowledgement=has_hard_warnings and not has_errors,
-        estimated_training_rows=total_users,
+        estimated_training_rows=training_rows,
         positive_count=positives,
         negative_count=negatives,
         base_rate=base_rate,
@@ -310,7 +315,8 @@ def _run_validation(
 def _build_warnings(
     *,
     total_users: int,
-    total_users_all: int,
+    candidates: int,
+    candidates_all: int,
     positives: int,
     negatives: int,
     base_rate: float,
@@ -342,10 +348,10 @@ def _build_warnings(
     # Mostly-anonymous population — under the v1 identified-only scope the anonymous
     # remainder is excluded from training and scoring, which can shrink the population
     # well below what the user expects. Warn so the exclusion is visible.
-    if IDENTIFIED_USERS_ONLY and total_users_all > 0:
-        identified_fraction = total_users / total_users_all
+    if IDENTIFIED_USERS_ONLY and candidates_all > 0:
+        identified_fraction = candidates / candidates_all
         if identified_fraction < MIN_IDENTIFIED_FRACTION:
-            excluded = total_users_all - total_users
+            excluded = candidates_all - candidates
             warnings.append(
                 ValidationWarning(
                     code=ValidationWarningCode.MOSTLY_ANONYMOUS_POPULATION,

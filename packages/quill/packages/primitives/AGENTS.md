@@ -1325,6 +1325,9 @@ toast.dismiss(id)
 toast({ title: 'Item archived', action: { label: 'Undo', onClick: () => restore() } })
 ```
 
+Several toasts stack: the newest in front, older ones peeking out behind it, spread apart on hover.
+`<ToastProvider placement="top-center">` puts the stack at the top of the screen, clear of a phone's bottom tab bar; the default is `bottom-right`.
+
 The title and description are selectable, so a user can copy an error message out of a toast, while the rest of the card is not, so a drag across it still reads as swipe-to-dismiss.
 Custom content you put inside a `ToastCard` needs `data-base-ui-swipe-ignore` for the same treatment, or Base UI takes a drag on it as a swipe and suppresses the selection.
 

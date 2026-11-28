@@ -137,7 +137,7 @@ describe('AdventStage', () => {
         logic.unmount()
     })
 
-    it('shows the share of the pick on the plaque and both shares in the door card', async () => {
+    it('shows the share of the pick on the plaque and both shares in a pinned door card that is no dialog', async () => {
         window.localStorage.setItem(
             'workflows-advent-calendar-progress',
             JSON.stringify({ [UUID]: { opened: [1, 2], answers: { 2: 'tim' } } })
@@ -168,7 +168,8 @@ describe('AdventStage', () => {
         fireEvent.click(container.querySelector('[data-attr="advent-hog-2"]')!)
         await findByText('How people answered')
         const shares = container.querySelector('[data-attr="advent-door-shares"]')?.textContent
-        expect(shares).toBe('How people answeredJames38%Tim62%')
+        const role = container.querySelector('[data-attr="advent-door-card"]')?.getAttribute('role')
+        expect([shares, role]).toEqual(['How people answeredJames38%Tim62%', null])
 
         unmount()
         logic.unmount()
