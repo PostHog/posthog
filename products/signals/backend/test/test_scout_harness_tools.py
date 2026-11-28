@@ -292,19 +292,77 @@ class TestSearchRecentRuns(BaseTest):
 
         assert len(hits) == 2
 
-    @parameterized.expand([("emitted_true", True), ("emitted_false", False)])
-    def test_emitted_filter_counts_report_only_runs(self, _name: str, emitted: bool) -> None:
-        # A run that only authored a report (emitted_count stays 0) must still read as "emitted",
-        # so the report channel isn't invisible to the emitted-run history/dedupe view.
-        report_run = _create_run(self.team, emitted_report_ids=["r-1"])
-        quiet = _create_run(self.team)
+    @parameterized.expand(
+        [
+            ("authored_emitted_true", "emitted_report_ids", True),
+            ("authored_emitted_false", "emitted_report_ids", False),
+            ("edited_emitted_true", "edited_report_ids", True),
+            ("edited_emitted_false", "edited_report_ids", False),
+        ]
+    )
+    def test_emitted_filter_counts_report_only_runs(self, _name: str, report_field: str, emitted: bool) -> None:
+        # A run that only authored or edited a report (emitted_count stays 0) must still read as
+        # "emitted", so the report channel isn't invisible to the emitted-run history/dedupe view.
+        report_run = _create_run(self.team, **{report_field: ["r-1"]})
+        quiet = _create_run(self.team, **{report_field: None})
 
         hits = search_recent_runs(team_id=self.team.id, emitted=emitted)
 
         expected = report_run if emitted else quiet
         assert [h.run_id for h in hits] == [str(expected.id)]
         if emitted:
-            assert hits[0].emitted_report_ids == ["r-1"]
+            assert getattr(hits[0], report_field) == ["r-1"]
+
+    @parameterized.expand([("touched", True), ("untouched", False)])
+    def test_touched_report_filter_keeps_runs_that_authored_or_edited_a_report(
+        self, _name: str, touched_report: bool
+    ) -> None:
+        authored = _create_run(self.team, emitted_report_ids=["r-1"])
+        edited = _create_run(self.team, edited_report_ids=["r-2"])
+        finding_only = _create_run(self.team, emitted_count=1, emitted_finding_ids=["f-x"])
+        quiet = _create_run(self.team)
+
+        hits = search_recent_runs(team_id=self.team.id, touched_report=touched_report)
+
+        expected = {authored.id, edited.id} if touched_report else {finding_only.id, quiet.id}
+        assert {h.run_id for h in hits} == {str(run_id) for run_id in expected}
+
+    @parameterized.expand(
+        [
+            ("completed", {"completed"}),
+            ("failed", {"failed", "cancelled"}),
+            ("running", {"in_progress"}),
+            ("queued", {"queued", "not_started"}),
+        ]
+    )
+    def test_status_filter_keeps_runs_in_one_state(self, status: str, expected_statuses: set[str]) -> None:
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        for task_run_status in TaskRun.Status.values:
+            _create_run(self.team, task_run_status=task_run_status)
+
+        hits = search_recent_runs(team_id=self.team.id, status=status)
+
+        assert {h.status for h in hits} == expected_statuses
+
+    def test_cursor_with_before_id_keeps_runs_sharing_the_boundary_timestamp(self) -> None:
+        shared_ts = timezone.now() - timedelta(hours=1)
+        runs = [_create_run(self.team) for _ in range(3)]
+        older = _create_run(self.team)
+        SignalScoutRun.objects.filter(id__in=[run.id for run in runs]).update(created_at=shared_ts)
+        SignalScoutRun.objects.filter(id=older.id).update(created_at=shared_ts - timedelta(minutes=5))
+        expected_order = [str(run_id) for run_id in sorted((run.id for run in runs), reverse=True)]
+
+        first_page = search_recent_runs(team_id=self.team.id, limit=2)
+        boundary = first_page[-1]
+        second_page = search_recent_runs(
+            team_id=self.team.id,
+            date_to=datetime.fromisoformat(boundary.created_at),
+            before_id=uuid.UUID(boundary.run_id),
+            limit=2,
+        )
+
+        assert [h.run_id for h in first_page] == expected_order[:2]
+        assert [h.run_id for h in second_page] == [expected_order[2], str(older.id)]
 
     def test_skill_name_filter_scopes_to_one_scout(self) -> None:
         errors = _create_run(self.team, skill_name="signals-scout-errors")

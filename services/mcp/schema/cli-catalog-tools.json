@@ -45199,6 +45199,11 @@
             "fallbacks": [],
             "query": [
                 {
+                    "param": "before_id",
+                    "key": "before_id",
+                    "csv": false
+                },
+                {
                     "param": "date_from",
                     "key": "date_from",
                     "csv": false
@@ -45234,8 +45239,18 @@
                     "csv": false
                 },
                 {
+                    "param": "status",
+                    "key": "status",
+                    "csv": false
+                },
+                {
                     "param": "text",
                     "key": "text",
+                    "csv": false
+                },
+                {
+                    "param": "touched_report",
+                    "key": "touched_report",
                     "csv": false
                 }
             ],
@@ -47341,6 +47356,11 @@
             "fallbacks": [],
             "query": [
                 {
+                    "param": "before_id",
+                    "key": "before_id",
+                    "csv": false
+                },
+                {
                     "param": "date_from",
                     "key": "date_from",
                     "csv": false
@@ -47376,8 +47396,18 @@
                     "csv": false
                 },
                 {
+                    "param": "status",
+                    "key": "status",
+                    "csv": false
+                },
+                {
                     "param": "text",
                     "key": "text",
+                    "csv": false
+                },
+                {
+                    "param": "touched_report",
+                    "key": "touched_report",
                     "csv": false
                 }
             ],

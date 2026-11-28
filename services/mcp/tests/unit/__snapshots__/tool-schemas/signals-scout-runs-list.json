@@ -1,6 +1,10 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "before_id": {
+            "description": "The `run_id` of the oldest run from the prior page. Requires `date_to`. With it, runs created at exactly `date_to` are kept when their id sorts below this one, so runs that share a timestamp at a page boundary are not skipped.",
+            "type": "string"
+        },
         "date_from": {
             "description": "ISO-8601 inclusive lower bound on `created_at`. Omit to skip the lower bound.",
             "format": "date-time",
@@ -8,7 +12,7 @@
             "type": "string"
         },
         "date_to": {
-            "description": "ISO-8601 exclusive upper bound on `created_at`. Pass to walk back past the result cap on subsequent calls (cursor-style: set to the `created_at` of the oldest run from the prior page).",
+            "description": "ISO-8601 exclusive upper bound on `created_at`. Pass to walk back past the result cap on subsequent calls (cursor-style: set to the `created_at` of the oldest run from the prior page, and `before_id` to its `run_id`).",
             "format": "date-time",
             "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
             "type": "string"
@@ -22,7 +26,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Filter by emit outcome. `true` returns only runs that emitted at least one finding (`emitted_count > 0`); `false` returns only runs that emitted nothing. Omit for both."
+            "description": "Filter by output. `true` returns only runs that emitted at least one finding, authored a report, or edited a report; `false` returns only runs that did none of those. Omit for both."
         },
         "exclude_skill_name": {
             "description": "Leave out the runs of this scout skill (e.g. your own `skill_name`), before `limit` applies. Use it on a fleet-wide `text` search, so your own runs don't fill the page.",
@@ -45,10 +49,26 @@
             "minimum": 1,
             "type": "number"
         },
+        "status": {
+            "description": "Keep runs in one state: `completed`, `failed` (failed or cancelled), `running`, or `queued` (queued or not started). Omit for every state.\n\n* `completed` - Completed\n* `failed` - Failed or cancelled\n* `running` - Running\n* `queued` - Queued or not started",
+            "enum": ["completed", "failed", "running", "queued"],
+            "type": "string"
+        },
         "text": {
             "description": "Case-insensitive substring match on the scout's end-of-run `summary`. Omit to skip the filter.",
             "minLength": 1,
             "type": "string"
+        },
+        "touched_report": {
+            "anyOf": [
+                {
+                    "type": "boolean"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "`true` returns only runs that authored or edited an inbox report; `false` returns only runs that did neither. Omit for both."
         }
     },
     "type": "object"

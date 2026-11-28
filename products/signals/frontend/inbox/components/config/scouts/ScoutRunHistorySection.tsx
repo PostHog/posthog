@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { memo, useMemo, useState } from 'react'
 
 import { IconArrowRight, IconChevronDown, IconExternal } from '@posthog/icons'
@@ -9,7 +9,6 @@ import { pluralize } from 'lib/utils/strings'
 
 import { captureScoutAction } from '../../../inboxAnalytics'
 import { scoutDetailLogic } from '../../../logics/scoutDetailLogic'
-import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import { SignalScoutRunSummary } from '../../../types'
 import { useInboxReportDetailUrl } from '../../../utils/inboxReportUrls'
 import {
@@ -28,9 +27,9 @@ import {
     scoutRunReportLabel,
     SCOUT_NO_RECENT_RUNS,
     SCOUT_RUN_HISTORY_UNAVAILABLE,
-    SCOUT_RUNS_PER_SCOUT_LABEL,
 } from '../../../utils/scoutRunsWindow'
 import { RecordedSpend } from '../../spend/RecordedSpend'
+import { ScoutLoadOlderButton } from './ScoutLoadOlderButton'
 import { ScoutTimestamp } from './ScoutTimestamp'
 
 // This pill matches any run that produced output, either a signal finding or report activity, so its
@@ -358,31 +357,14 @@ const ScoutRunRow = memo(function ScoutRunRow({
     )
 })
 
-/** This scout's runs in the recent window, newest first. */
-function useScoutRuns(skillName: string): SignalScoutRunSummary[] {
-    const { rollups } = useValues(scoutFleetLogic)
-    return useMemo(() => {
-        // Newest first for a history list; the rollup keeps runs oldest-first for the header timeline.
-        const windowRuns = rollups.get(skillName)?.runs ?? []
-        return [...windowRuns].reverse()
-    }, [rollups, skillName])
-}
-
 /**
- * The All / Found something / Quiet / Failed pills, each with its match count. They live in the Runs
- * tab bar's right slot rather than above the list, so the tab bar carries both what you are looking
- * at and how it is narrowed.
+ * The All / Found something / Quiet / Failed pills, each with its match count among the loaded runs.
+ * They live in the Runs tab bar's right slot rather than above the list, so the tab bar carries both
+ * what you are looking at and how it is narrowed.
  */
-export function ScoutRunFilterPills({
-    skillName,
-    filter,
-    onChange,
-}: {
-    skillName: string
-    filter: ScoutRunFilter
-    onChange: (filter: ScoutRunFilter) => void
-}): JSX.Element {
-    const runs = useScoutRuns(skillName)
+export function ScoutRunFilterPills({ skillName }: { skillName: string }): JSX.Element {
+    const { historyRuns: runs, runFilter: filter } = useValues(scoutDetailLogic({ skillName }))
+    const { setRunFilter } = useActions(scoutDetailLogic({ skillName }))
     const filterCounts = useMemo(() => {
         const counts = new Map<ScoutRunFilter, number>()
         for (const entry of FILTERS) {
@@ -409,7 +391,7 @@ export function ScoutRunFilterPills({
                                 filter_match_count: filterCounts.get(entry.value) ?? 0,
                             },
                         })
-                        onChange(entry.value)
+                        setRunFilter(entry.value)
                     }}
                 >
                     {entry.label} {filterCounts.get(entry.value) ?? 0}
@@ -420,23 +402,21 @@ export function ScoutRunFilterPills({
 }
 
 /**
- * The Runs tab on the scout detail surface: this scout's runs in the recent window, newest first,
- * with consecutive quiet runs and consecutive failures each folded into one entry. Runs come from
- * `scoutFleetLogic`'s already-polled per-scout rollup (oldest-first timeline order, reversed here);
- * the tab bar's filter pills narrow that set client-side.
+ * The Runs tab on the scout detail surface: this scout's runs, newest first, with consecutive quiet
+ * runs and consecutive failures each folded into one entry. The first runs come from
+ * `scoutFleetLogic`'s already-polled per-scout rollup, and "Load older" adds older pages that match the
+ * open filter pill. The pill narrows the polled runs client-side.
  *
  * Folding is skipped while a filter is on: a list of nothing but quiet runs folded into one row
  * would hide what the reader just asked to see.
  */
-export function ScoutRunHistorySection({
-    skillName,
-    filter,
-}: {
-    skillName: string
-    filter: ScoutRunFilter
-}): JSX.Element {
-    const { scoutRunsLoadedOnce, scoutRunsCoverScout } = useValues(scoutDetailLogic({ skillName }))
-    const runs = useScoutRuns(skillName)
+export function ScoutRunHistorySection({ skillName }: { skillName: string }): JSX.Element {
+    const {
+        scoutRunsLoadedOnce,
+        scoutRunsCoverScout,
+        historyRuns: runs,
+        runFilter: filter,
+    } = useValues(scoutDetailLogic({ skillName }))
 
     const filteredRuns = useMemo(() => runs.filter((run) => runMatchesFilter(run, filter)), [runs, filter])
     const groups = useMemo(
@@ -453,15 +433,18 @@ export function ScoutRunHistorySection({
 
     if (groups.length === 0) {
         return (
-            <div className="rounded border border-dashed border-primary bg-surface-primary px-4 py-6 text-center text-sm text-muted">
-                {runs.length > 0
-                    ? `No runs match this filter in the ${SCOUT_RUNS_PER_SCOUT_LABEL}.`
-                    : // Past the fleet the per-scout response covers, this scout was never read, so
-                      // reporting it as a scout with no recent runs would hide history rather than
-                      // report it.
-                      scoutRunsCoverScout
-                      ? SCOUT_NO_RECENT_RUNS
-                      : SCOUT_RUN_HISTORY_UNAVAILABLE}
+            <div className="flex flex-col gap-2">
+                <div className="rounded border border-dashed border-primary bg-surface-primary px-4 py-6 text-center text-sm text-muted">
+                    {runs.length > 0
+                        ? 'No loaded runs match this filter.'
+                        : // Past the fleet the per-scout response covers, this scout was never read, so
+                          // reporting it as a scout with no recent runs would hide history rather than
+                          // report it.
+                          scoutRunsCoverScout
+                          ? SCOUT_NO_RECENT_RUNS
+                          : SCOUT_RUN_HISTORY_UNAVAILABLE}
+                </div>
+                <ScoutLoadOlderButton skillName={skillName} tab="runs" />
             </div>
         )
     }
@@ -481,7 +464,7 @@ export function ScoutRunHistorySection({
                     )
                 )}
             </div>
-            <span className="text-[11px] text-muted">From the {SCOUT_RUNS_PER_SCOUT_LABEL}.</span>
+            <ScoutLoadOlderButton skillName={skillName} tab="runs" />
         </div>
     )
 }

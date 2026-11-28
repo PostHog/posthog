@@ -26,7 +26,7 @@ import { ScoutStatusDot } from './ScoutStatusDot'
 
 /**
  * One labelled group of the strip. The window each group describes is not the same — run counts
- * cover the last 25 runs, cost covers the last 7 days — so each carries the definition its tile
+ * cover the last 100 runs, cost covers the last 7 days — so each carries the definition its tile
  * label used to carry, as a tooltip.
  */
 function Segment({ tooltip, children }: { tooltip: string; children: React.ReactNode }): JSX.Element {

@@ -10,7 +10,10 @@ import { scoutDisplayName } from '@posthog/agent-contracts/scout-names'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { pluralize } from 'lib/utils/strings'
 
-import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals/frontend/generated/api.schemas'
+import type {
+    SignalScoutConfigApi as SignalScoutConfig,
+    SignalsScoutRunsListParams,
+} from 'products/signals/frontend/generated/api.schemas'
 
 import { SignalScoutRunStatus, SignalScoutRunSummary } from '../types'
 import { formatCredits, usdToCredits } from './credits'
@@ -34,14 +37,14 @@ export {
  * that gets shorter the busier the rest of the fleet is. Counting per scout gives each the same
  * depth whatever its cadence.
  */
-export const SCOUT_RUNS_PER_SCOUT = 25
+export const SCOUT_RUNS_PER_SCOUT = 100
 
-/** Label for per-scout stats, e.g. "last 25 runs". */
+/** Label for per-scout stats, e.g. "last 100 runs". */
 export const SCOUT_RUNS_PER_SCOUT_LABEL = `last ${SCOUT_RUNS_PER_SCOUT} runs`
 
 /**
  * The span every fleet-level number on the roster describes: runs, reports filed and edited, and
- * scratchpad entries learned. Per-scout depth is a run count, but summing "last 25 each" across a
+ * scratchpad entries learned. Per-scout depth is a run count, but summing "last 100 each" across a
  * fleet is bounded by fleet size, so the fleet headline needs a common time span - and a week is
  * the shortest one that gives a daily scout enough runs to say anything.
  */
@@ -318,8 +321,8 @@ export type ScoutRunFilter = 'all' | 'emitted' | 'quiet' | 'failed'
 /**
  * Whether a run belongs under a given filter chip. Emitted/Quiet split completed runs by whether they
  * produced any output — a weak finding OR report-channel activity (authored/edited a report); Failed is
- * any failed/cancelled run. There is no server-side `status` filter yet (api gap 1), so the detail view
- * filters its window client-side.
+ * any failed/cancelled run. The detail view filters its polled window with this, and asks the runs list
+ * for older pages with `runFilterQuery`, which must keep the same meaning.
  */
 export function runMatchesFilter(run: SignalScoutRunSummary, filter: ScoutRunFilter): boolean {
     const status = normalizeRunStatus(run.status)
@@ -333,6 +336,38 @@ export function runMatchesFilter(run: SignalScoutRunSummary, filter: ScoutRunFil
         case 'failed':
             return status === 'failed'
     }
+}
+
+/** The runs list filters that return the same runs `runMatchesFilter` keeps for a chip. */
+export function runFilterQuery(filter: ScoutRunFilter): Pick<SignalsScoutRunsListParams, 'emitted' | 'status'> {
+    switch (filter) {
+        case 'all':
+            return {}
+        case 'emitted':
+            return { emitted: true }
+        case 'quiet':
+            return { emitted: false, status: 'completed' }
+        case 'failed':
+            return { status: 'failed' }
+    }
+}
+
+/**
+ * The oldest of these runs by `(created_at, run_id)`, the order the runs list pages in. Its two fields
+ * are the `date_to` / `before_id` cursor for the next older page.
+ */
+export function oldestRun(runs: SignalScoutRunSummary[]): SignalScoutRunSummary | null {
+    let oldest: SignalScoutRunSummary | null = null
+    for (const run of runs) {
+        if (
+            oldest === null ||
+            run.created_at < oldest.created_at ||
+            (run.created_at === oldest.created_at && run.run_id < oldest.run_id)
+        ) {
+            oldest = run
+        }
+    }
+    return oldest
 }
 
 export function scoutRunOutcomeLabel(run: SignalScoutRunSummary, now: Date): string {

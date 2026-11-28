@@ -40,6 +40,8 @@ const meta: Meta<typeof ScoutDetailView> = {
             get: {
                 '/api/projects/:id/signals/scout/configs/': () => [200, mockScoutConfigs],
                 '/api/projects/:id/signals/scout/runs/recent-per-scout/': () => [200, mockScoutRuns(mockScoutConfigs)],
+                '/api/projects/:id/signals/scout/runs/': () => [200, []],
+                '/api/projects/:id/signals/scout/runs/emissions/recent/': () => [200, []],
                 '/api/projects/:id/signals/scout/runs/findings/summary/': () => [200, null],
                 '/api/projects/:id/signals/scout/metadata/current/': () => [200, null],
                 '/api/projects/:id/signals/scout/scratchpad/': () => [200, []],
@@ -94,7 +96,7 @@ export const ScoutPageNewNavigation: Story = {
     ),
 }
 
-// A scout that filed nothing: no reports segment, and Runs leads the tabs.
+// A scout that filed nothing: no reports segment, and the Reports tab leads with its empty state.
 export const ScoutPageNoReports: Story = {
     args: { skillName: mockScoutConfigs[1].skill_name },
 }

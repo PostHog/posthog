@@ -3,13 +3,14 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import replace
 from datetime import datetime
+from uuid import UUID
 
 from django.utils import timezone
 
 from pydantic import TypeAdapter
 
 from products.signals.backend.scout_harness.tools.notes import MAX_NOTES_LIST_LIMIT, ScoutNote
-from products.signals.backend.scout_harness.tools.runs import MAX_RUN_SEARCH_LIMIT, RunSummary
+from products.signals.backend.scout_harness.tools.runs import MAX_RUN_SEARCH_LIMIT, RUN_STATUS_FILTERS, RunSummary
 from products.signals.backend.scout_harness.trial_launch import TrialContext
 
 
@@ -68,8 +69,11 @@ class SavedScoutReads:
         *,
         date_from: datetime | None = None,
         date_to: datetime | None = None,
+        before_id: UUID | None = None,
         text: str | None = None,
         emitted: bool | None = None,
+        touched_report: bool | None = None,
+        status: str | None = None,
         skill_name: str | None = None,
         skill_version: int | None = None,
         limit: int = 20,
@@ -83,12 +87,23 @@ class SavedScoutReads:
                 continue
             if skill_version is not None and row.skill_version != skill_version:
                 continue
-            if not _within_dates(row.created_at, date_from, date_to):
+            at_cursor = (
+                date_to is not None
+                and before_id is not None
+                and datetime.fromisoformat(row.created_at) == date_to
+                and row.run_id < str(before_id)
+            )
+            if not at_cursor and not _within_dates(row.created_at, date_from, date_to):
                 continue
             if text and text.casefold() not in row.summary.casefold():
                 continue
-            if emitted is not None and bool(row.emitted_count or row.emitted_report_ids) != emitted:
+            touched = bool(row.emitted_report_ids or row.edited_report_ids)
+            if emitted is not None and bool(row.emitted_count or touched) != emitted:
+                continue
+            if touched_report is not None and touched != touched_report:
+                continue
+            if status is not None and row.status not in RUN_STATUS_FILTERS[status]:
                 continue
             selected.append(row)
-        selected.sort(key=lambda row: row.created_at, reverse=True)
+        selected.sort(key=lambda row: (row.created_at, row.run_id), reverse=True)
         return selected[: max(1, min(limit, MAX_RUN_SEARCH_LIMIT))]

@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 
 import { IconArrowLeft } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTabs } from '@posthog/lemon-ui'
@@ -17,13 +17,14 @@ import { scoutDetailLogic } from '../../../logics/scoutDetailLogic'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import { scoutNotesLogic } from '../../../logics/scoutNotesLogic'
 import { entriesForSkill, scratchpadLogic } from '../../../logics/scratchpadLogic'
-import { ScoutRunFilter, SCOUT_RUNS_PER_SCOUT_LABEL, scoutDisplayName } from '../../../utils/scoutRunsWindow'
+import { scoutDisplayName } from '../../../utils/scoutRunsWindow'
 import { QuillScoutDetailSummary } from './QuillScoutDetailSummary'
 import { ScoutAskAiComposer } from './ScoutAskAiComposer'
 import { ScoutAttentionBanner, ScoutDetailHeader } from './ScoutDetailHeader'
 import { ScoutDialogs } from './ScoutDialogs'
 import { ScoutEmissionCard } from './ScoutEmissionCard'
 import { ScoutLearnedPanel } from './ScoutLearnedPanel'
+import { ScoutLoadOlderButton } from './ScoutLoadOlderButton'
 import { ScoutNotesPanel } from './ScoutNotesPanel'
 import { ScoutReportCard } from './ScoutReportCard'
 import { ScoutRunFilterPills, ScoutRunHistorySection } from './ScoutRunHistorySection'
@@ -46,11 +47,12 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
     const { scoutEntries } = useValues(scratchpadLogic)
     const { loadScoutEntries } = useActions(scratchpadLogic)
     const { toldCount } = useValues(scoutNotesLogic({ skillName }))
-    const { touchedReports, emissionRows, scoutRunsLoadedOnce } = useValues(scoutDetailLogic({ skillName }))
+    const { touchedReportCount, emissionRows, historyRuns, scoutHasSignals, olderHistoryMayExist } = useValues(
+        scoutDetailLogic({ skillName })
+    )
     const { scoutDetailTab, isStaff } = useValues(inboxSceneLogic)
     const { currentTeamId } = useValues(teamLogic)
     const { setScoutDetailTab } = useActions(inboxSceneLogic)
-    const [runFilter, setRunFilter] = useState<ScoutRunFilter>('all')
 
     // Deep-linking straight to a scout (or a narrow viewport where the roster isn't mounted)
     // means nobody else is polling the runs window, so the header + rollup would read empty
@@ -67,13 +69,10 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
     const config = scoutConfigs?.find((c) => c.skill_name === skillName) ?? null
     const rollup = rollups.get(skillName)
     const learnedCount = entriesForSkill(scoutEntries, skillName)?.length ?? 0
-    const reportCount = touchedReports.length
     const canAccessTrials = isStaff && currentTeamId === 2
-    // Reports leads for a scout that files them, because that is what the scout is for; Runs leads
-    // for the rest. Held until the runs window settles, so the default doesn't move under a reader
-    // a beat after the page opens.
-    const defaultTab: ScoutDetailTab = !scoutRunsLoadedOnce || reportCount > 0 ? 'reports' : 'runs'
-    const tab = (scoutDetailTab === 'trials' && !canAccessTrials ? null : scoutDetailTab) ?? defaultTab
+    // Reports always leads, because what a scout filed is what the page is for. A scout whose recent
+    // runs filed nothing may still have older reports, so the tab never depends on the window.
+    const tab = (scoutDetailTab === 'trials' && !canAccessTrials ? null : scoutDetailTab) ?? 'reports'
     const scoutName = config ? scoutDisplayName(config) : null
 
     // Registered by the page as well as the AI panel, so the scout is already attached when the
@@ -100,13 +99,12 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
         })
     }, [skillName, config, rollup])
 
-    // A scout that files nothing opens Runs with no click, so counting switch_detail_tab alone
-    // would miss the pane most readers land on. Held until the runs window settles, because the
-    // default reads Reports until then. Same property key as the switch, so one breakdown covers
-    // both ways of arriving at a pane.
+    // The page opens a pane with no click, so counting switch_detail_tab alone would miss the pane
+    // most readers land on. Same property key as the switch, so one breakdown covers both ways of
+    // arriving at a pane.
     const openTabCapturedForRef = useRef<string | null>(null)
     useEffect(() => {
-        if (!config || !scoutRunsLoadedOnce || openTabCapturedForRef.current === skillName) {
+        if (!config || openTabCapturedForRef.current === skillName) {
             return
         }
         openTabCapturedForRef.current = skillName
@@ -116,7 +114,7 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
             skillName,
             extra: { filter: tab },
         })
-    }, [skillName, config, scoutRunsLoadedOnce, tab])
+    }, [skillName, config, tab])
 
     if (scoutConfigs === null) {
         // Configs unresolved — never an empty fleet, which is `[]`. While the fetch is in flight
@@ -160,8 +158,8 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
     }
 
     const signalCount = emissionRows.length
-    const runCount = rollup?.runs.length ?? 0
     const windowEmittedCount = rollup?.emittedCount ?? 0
+    const countLabel = (count: number, mayContinue: boolean): string => `${count}${mayContinue && count > 0 ? '+' : ''}`
 
     const switchTab = (next: ScoutDetailTab): void => {
         captureScoutAction({
@@ -173,23 +171,20 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
         setScoutDetailTab(next)
     }
 
-    // Reports and Signals hide once the window has settled and says the scout has none of them —
-    // the same rule the stacked sections used, now applied to the tab rather than the section.
-    // Signals asks the runs window, not the emissions fetched per run: those land a beat later and
-    // can fail outright, and hiding the tab then would say the scout emitted nothing while its
-    // panel is the only place that reports the failed fetch. Whichever pane is open also keeps its
+    // Signals hides only once a check says this scout never emitted a finding, so a failed check or
+    // a failed emissions fetch never reads as "no signals". Whichever pane is open also keeps its
     // tab, so a link naming a pane this scout has none of still has a tab to select.
     const tabs = [
-        (!scoutRunsLoadedOnce || reportCount > 0 || tab === 'reports') && {
+        {
             key: 'reports' as ScoutDetailTab,
-            label: `Reports ${reportCount}`,
+            label: `Reports ${countLabel(touchedReportCount, olderHistoryMayExist.reports)}`,
         },
-        { key: 'runs' as ScoutDetailTab, label: `Runs ${runCount}` },
-        (!scoutRunsLoadedOnce || windowEmittedCount > 0 || tab === 'signals') && {
+        { key: 'runs' as ScoutDetailTab, label: `Runs ${countLabel(historyRuns.length, olderHistoryMayExist.runs)}` },
+        (windowEmittedCount > 0 || scoutHasSignals !== false || tab === 'signals') && {
             key: 'signals' as ScoutDetailTab,
             // The window's count stands in until the rows land, so a failed fetch is not labelled
             // zero beside a panel that says the fetch failed.
-            label: `Signals ${signalCount > 0 ? signalCount : windowEmittedCount}`,
+            label: `Signals ${countLabel(signalCount > 0 ? signalCount : windowEmittedCount, olderHistoryMayExist.signals)}`,
         },
         { key: 'told' as ScoutDetailTab, label: `Told ${toldCount}` },
         { key: 'learned' as ScoutDetailTab, label: `Learned ${learnedCount}` },
@@ -200,7 +195,7 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
         },
     ]
 
-    const runFilterPills = <ScoutRunFilterPills skillName={skillName} filter={runFilter} onChange={setRunFilter} />
+    const runFilterPills = <ScoutRunFilterPills skillName={skillName} />
 
     return (
         <div className="@container flex min-h-0 flex-1 flex-col overflow-auto">
@@ -236,7 +231,7 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
                 </div>
 
                 {tab === 'runs' ? (
-                    <ScoutRunHistorySection skillName={skillName} filter={runFilter} />
+                    <ScoutRunHistorySection skillName={skillName} />
                 ) : tab === 'trials' && canAccessTrials ? (
                     <ScoutTrials configId={config.id} />
                 ) : tab === 'signals' ? (
@@ -264,14 +259,14 @@ function BackToScouts(): JSX.Element {
 
 /**
  * The Reports tab: the inbox reports this scout authored or edited directly via the report channel
- * (`emit_report` / `edit_report`) in the recent window, newest-updated first. The list is never
- * trimmed for length, because the tab keeps it from pushing anything away, but the per-id fetch
- * behind it is capped, so the panel says how many of the tab's count it is holding.
+ * (`emit_report` / `edit_report`). The window's reports come first, newest-updated first, then each
+ * older page in the order the scout touched them. The list is never trimmed for length, because the
+ * tab keeps it from pushing anything away, but the per-id fetch behind it is capped, so the panel
+ * says how many of the tab's count it is holding.
  */
 function ScoutReportsPanel({ skillName }: { skillName: string }): JSX.Element {
-    const { reportRows, touchedReports, scoutReportsLoading, scoutRunsLoadedOnce } = useValues(
-        scoutDetailLogic({ skillName })
-    )
+    const { reportRows, touchedReports, touchedReportCount, scoutReportsLoading, scoutRunsLoadedOnce, olderReports } =
+        useValues(scoutDetailLogic({ skillName }))
     const { loadScoutReports } = useActions(scoutDetailLogic({ skillName }))
 
     if (!scoutRunsLoadedOnce || (scoutReportsLoading && reportRows.length === 0)) {
@@ -297,8 +292,13 @@ function ScoutReportsPanel({ skillName }: { skillName: string }): JSX.Element {
             )
         }
         return (
-            <div className="rounded border border-dashed border-primary bg-surface-primary px-4 py-6 text-center text-sm text-muted">
-                {`No reports filed or added to in the ${SCOUT_RUNS_PER_SCOUT_LABEL}.`}
+            <div className="flex flex-col gap-2">
+                <div className="rounded border border-dashed border-primary bg-surface-primary px-4 py-6 text-center text-sm text-muted">
+                    {olderReports.exhausted
+                        ? "This scout hasn't filed or added to any reports."
+                        : 'No reports filed or added to in the loaded runs.'}
+                </div>
+                <ScoutLoadOlderButton skillName={skillName} tab="reports" />
             </div>
         )
     }
@@ -308,25 +308,26 @@ function ScoutReportsPanel({ skillName }: { skillName: string }): JSX.Element {
             {/* The tab counts every report the runs name, while this list holds the ones a bounded
                 by-id fetch resolved. Say so when they differ, rather than leaving the reader to
                 count the cards against the tab. */}
-            {!scoutReportsLoading && reportRows.length < touchedReports.length && (
+            {!scoutReportsLoading && reportRows.length < touchedReportCount && (
                 <span className="text-xs text-muted">
-                    {`Showing ${reportRows.length} of ${touchedReports.length} reports.`}
+                    {`Showing ${reportRows.length} of ${touchedReportCount} reports.`}
                 </span>
             )}
             {reportRows.map(({ report, action }) => (
                 <ScoutReportCard key={report.id} report={report} action={action} />
             ))}
+            <ScoutLoadOlderButton skillName={skillName} tab="reports" />
         </div>
     )
 }
 
 /**
- * The Signals tab: every finding this scout emitted in the recent window, newest first. Emissions
- * are fetched per emitted run by `scoutDetailLogic` (keyed by skill) off the fleet's already-polled
- * runs window.
+ * The Signals tab: every finding this scout emitted, newest first. The window's emissions are fetched
+ * per emitted run by `scoutDetailLogic` (keyed by skill) off the fleet's already-polled runs window,
+ * and "Load older" adds older findings the same way.
  */
 function ScoutSignalsPanel({ skillName }: { skillName: string }): JSX.Element {
-    const { emissionRows, emissionsLoading, emissionsLoadFailed, scoutRunsLoadedOnce } = useValues(
+    const { emissionRows, emissionsLoading, emissionsLoadFailed, scoutRunsLoadedOnce, olderSignals } = useValues(
         scoutDetailLogic({ skillName })
     )
     const { loadEmissions } = useActions(scoutDetailLogic({ skillName }))
@@ -360,8 +361,13 @@ function ScoutSignalsPanel({ skillName }: { skillName: string }): JSX.Element {
             )
         }
         return (
-            <div className="rounded border border-dashed border-primary bg-surface-primary px-4 py-6 text-center text-sm text-muted">
-                {`No signals emitted in the ${SCOUT_RUNS_PER_SCOUT_LABEL}.`}
+            <div className="flex flex-col gap-2">
+                <div className="rounded border border-dashed border-primary bg-surface-primary px-4 py-6 text-center text-sm text-muted">
+                    {olderSignals.exhausted
+                        ? "This scout hasn't emitted any signals."
+                        : 'No signals emitted in the loaded runs.'}
+                </div>
+                <ScoutLoadOlderButton skillName={skillName} tab="signals" />
             </div>
         )
     }
@@ -385,6 +391,7 @@ function ScoutSignalsPanel({ skillName }: { skillName: string }): JSX.Element {
                     isDeepLinked={emission.id === deepLinkedEmissionId}
                 />
             ))}
+            <ScoutLoadOlderButton skillName={skillName} tab="signals" />
         </div>
     )
 }

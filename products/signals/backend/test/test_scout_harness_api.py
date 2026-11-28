@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
@@ -421,6 +422,33 @@ class TestScoutHarnessRunsAPI(APIBaseTest):
         ids = [row["run_id"] for row in response.json()]
         expected = emitting if emitted_param == "true" else quiet
         assert ids == [str(expected.id)]
+
+    def test_list_passes_report_status_and_cursor_filters_through(self) -> None:
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        cursor = _make_run(self.team, task_run_status=TaskRun.Status.FAILED, edited_report_ids=["r-1"])
+        older = _make_run(self.team, task_run_status=TaskRun.Status.CANCELLED, emitted_report_ids=["r-2"])
+        _make_run(self.team, task_run_status=TaskRun.Status.FAILED)
+        _make_run(self.team, task_run_status=TaskRun.Status.COMPLETED, edited_report_ids=["r-3"])
+        cursor.refresh_from_db()
+        SignalScoutRun.objects.filter(id=older.id).update(created_at=cursor.created_at)
+        newer_id, older_id = sorted([cursor.id, older.id], reverse=True)
+
+        response = self.client.get(
+            self._list_url(),
+            {
+                "touched_report": "true",
+                "status": "failed",
+                "date_to": cursor.created_at.isoformat(),
+                "before_id": str(newer_id),
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["run_id"] for row in response.json()] == [str(older_id)]
+
+    def test_list_rejects_before_id_without_date_to(self) -> None:
+        response = self.client.get(self._list_url(), {"before_id": str(uuid.uuid4())})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_list_skill_name_filter_scopes_to_one_scout(self) -> None:
         errors = _make_run(self.team, skill_name="signals-scout-errors")
