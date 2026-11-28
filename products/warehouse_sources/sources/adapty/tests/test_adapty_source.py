@@ -34,6 +34,7 @@ def test_invalid_config_stops_before_any_request(start_date: str, api_key: str, 
     [
         (None, 200, {"data": {"revenue": {"data": [], "value": 0}}}, True, None),
         ("Paywalls", 200, {"data": []}, True, None),
+        ("Placements", 200, {"paywall_placements": []}, True, None),
         ("Conversions", 200, {"data": [], "value": 0}, True, None),
         (
             None,
@@ -65,6 +66,10 @@ def test_credential_probe_uses_table_request_and_maps_failures(
     if schema == "Paywalls":
         assert request.method == "GET"
         assert request.param("page[size]") == "1"
+    elif schema == "Placements":
+        assert request.method == "POST"
+        assert request.path == "/api/v1/client-api/exports/placements/"
+        assert request.json() == {"filters": {"placement_type": "paywall"}}
     else:
         assert request.method == "POST"
         assert request.json()["filters"] == {"date": ["2024-01-01", "2024-01-01"]}

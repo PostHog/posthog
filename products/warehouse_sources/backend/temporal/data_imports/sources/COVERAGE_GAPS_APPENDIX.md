@@ -169,7 +169,7 @@ Today (7): `Analytics`, `Cohorts`, `Conversions`, `Funnels`, `LTV`, `Paywalls`, 
 
 Diffed against: <https://adapty.io/docs/api-export-analytics/operations/retrievePlacementInfo.md>
 
-- [ ] `Placement info (POST /api/v1/client-api/exports/placements/)` — shows the audiences, A/B tests and paywall each placement serves, to join with paywalls and analytics (medium)
+- [x] `Placement info (POST /api/v1/client-api/exports/placements/)`: `Placements` is a full-refresh table for paywall, onboarding, and flow placement settings.
 
 Note: Parsed llms.txt and the OpenAPI of the export-analytics and server-side API operations. The six analytics tables and paywalls are covered. Excluded profile, access level and purchase validation calls, which are per-profile reads or writes. Virtual currency balances and transactions need a profile ID and have no account-wide list. Placement info is a POST with a placement_type filter, 2 requests per second.
 
