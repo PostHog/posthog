@@ -10,7 +10,6 @@ from posthog.hogql.visitor import clone_expr
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 from posthog.models.person.util import get_person_by_distinct_id
 
@@ -248,12 +247,7 @@ def _sessions(
 def _clicks(
     team: Team, user: User | None, detail: TransactionalEmailLogDetail, click_times: list[datetime]
 ) -> list[TransactionalEmailClick]:
-    try:
-        links = _links_by_click_time(team, user, detail, click_times)
-    except Exception as error:
-        # Links only add to the clicks, so a failed lookup lists the clicks without them rather than failing the activity.
-        capture_exception(error)
-        links = {}
+    links = _links_by_click_time(team, user, detail, click_times)
     return [TransactionalEmailClick(at=at, link_url=links.get(at.astimezone(UTC))) for at in click_times]
 
 
