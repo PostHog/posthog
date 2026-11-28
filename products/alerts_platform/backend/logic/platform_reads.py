@@ -12,6 +12,7 @@ from typing import Any, cast
 from uuid import UUID
 
 from django.db.models import Case, Exists, FloatField, Max, OuterRef, Prefetch, Q, QuerySet, Subquery, Value, When
+from django.db.models.fields.json import KeyTransform, KeyTransformIn
 from django.db.models.functions import Coalesce
 
 from posthog.helpers.full_text_search import build_rank
@@ -31,6 +32,7 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertEvents,
     PlatformAlertHistory,
     PlatformAlertListHistory,
+    PlatformAlertReader,
     PlatformAlertRuntime,
     PlatformAlertSnapshot,
     PlatformCheckEntry,
@@ -40,13 +42,14 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformControlHistory,
     PlatformLastCheck,
     RuleMetadata,
+    SourceKind,
 )
 from products.alerts_platform.backend.facade.enums import (
     PlatformAlertCheckStatus,
     PlatformAlertOwner,
     PlatformAlertState,
 )
-from products.alerts_platform.backend.logic import platform_alert_events
+from products.alerts_platform.backend.logic import platform_alert_events, source_configs
 from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration, PlatformAlertThread
 
 
@@ -111,19 +114,51 @@ def _configuration_view(configuration: PlatformAlertConfiguration) -> PlatformAl
 _HELD = Q(legacy_configuration_id__isnull=True) | Q(owner=PlatformAlertOwner.PLATFORM)
 
 
-def _readable(team_id: int, source_kinds: Sequence[str]) -> QuerySet[PlatformAlertConfiguration]:
-    """Configurations of the given kinds belonging to `team_id`, instances prefetched.
+def _readable(
+    team_id: int,
+    source_kinds: Sequence[str],
+    where: Q,
+    reader: PlatformAlertReader | None,
+) -> QuerySet[PlatformAlertConfiguration]:
+    """Configurations of the given kinds belonging to `team_id` that match `where`, instances prefetched.
 
     The caller resolves which kinds it may read, because that depends on the caller's grants
     rather than on anything this product knows.
     """
     instances = PlatformAlert.objects.for_team(team_id, canonical=True).order_by("grouping_key")
-    return (
-        PlatformAlertConfiguration.objects.for_team(team_id, canonical=True)
-        .filter(source_kind__in=list(source_kinds))
-        .prefetch_related(Prefetch("alerts", queryset=instances))
-        .order_by("-created_at", "-id")
+    rows = PlatformAlertConfiguration.objects.for_team(team_id, canonical=True).filter(
+        where, source_kind__in=list(source_kinds)
     )
+    if reader is not None:
+        rows = rows.filter(_held_if_read_only(source_kinds))
+        rows = rows.filter(_viewable_objects(rows, team_id, source_kinds, reader))
+    return rows.prefetch_related(Prefetch("alerts", queryset=instances)).order_by("-created_at", "-id")
+
+
+def _held_if_read_only(source_kinds: Sequence[str]) -> Q:
+    read_only = [kind for kind in source_kinds if (spec := source_configs.spec(SourceKind(kind))) and spec.read_only]
+    return (~Q(source_kind__in=read_only) | _HELD) if read_only else Q()
+
+
+def _viewable_objects(
+    rows: QuerySet[PlatformAlertConfiguration],
+    team_id: int,
+    source_kinds: Sequence[str],
+    reader: PlatformAlertReader,
+) -> Q:
+    viewable = Q()
+    for source_kind in source_kinds:
+        registered = source_configs.spec(SourceKind(source_kind))
+        access = registered.object_access if registered is not None else None
+        if access is None:
+            continue
+        key = access.source_config_key
+        configs = rows.filter(source_kind=source_kind).values_list("source_config", flat=True)
+        watched = {config.get(key) for config in configs}
+        allowed = access.viewable(team_id=team_id, object_ids=watched, reader=reader) if watched else ()
+        watched_in = Q(KeyTransformIn(KeyTransform(key, "source_config"), list(allowed))) if allowed else Q(pk__in=[])
+        viewable &= ~Q(source_kind=source_kind) | watched_in
+    return viewable
 
 
 def list_configurations(
@@ -136,6 +171,7 @@ def list_configurations(
     configuration_ids: Collection[UUID] | None = None,
     created_by_uuid: UUID | None = None,
     held_only: bool = False,
+    reader: PlatformAlertReader | None = None,
 ) -> PlatformAlertConfigurationPage:
     """One page of configurations, newest first, with the total behind it. With a
     `legacy_configuration_id`, only the copy of that source row. With `configuration_ids`, only those.
@@ -144,17 +180,20 @@ def list_configurations(
 
     The page is taken in the database rather than in the caller, so a team with many alerts
     costs one page rather than all of them. Slicing keeps the prefetch, which resolves over the
-    page's rows alone.
+    page's rows alone. With a `reader`, a kind whose source checks each alert's object asks the
+    source about the objects of every alert that matches the filters, not only the page's, so the
+    total counts only what the reader may view.
     """
-    readable = _readable(team_id, source_kinds)
+    where = Q()
     if legacy_configuration_id is not None:
-        readable = readable.filter(legacy_configuration_id=legacy_configuration_id)
+        where &= Q(legacy_configuration_id=legacy_configuration_id)
     if configuration_ids is not None:
-        readable = readable.filter(id__in=list(configuration_ids))
+        where &= Q(id__in=list(configuration_ids))
     if created_by_uuid is not None:
-        readable = readable.filter(created_by__uuid=created_by_uuid)
+        where &= Q(created_by__uuid=created_by_uuid)
     if held_only:
-        readable = readable.filter(_HELD)
+        where &= _HELD
+    readable = _readable(team_id, source_kinds, where, reader)
     return PlatformAlertConfigurationPage(
         configurations=tuple(_configuration_view(row) for row in readable[offset : offset + limit]),
         total=readable.count(),
@@ -553,13 +592,18 @@ def _configurations_matching(
 
 
 def get_configuration(
-    *, team_id: int, source_kinds: Sequence[str], configuration_id: UUID, lock: bool = False
+    *,
+    team_id: int,
+    source_kinds: Sequence[str],
+    configuration_id: UUID,
+    lock: bool = False,
+    reader: PlatformAlertReader | None = None,
 ) -> PlatformAlertConfigurationView | None:
-    """One configuration, or None when it does not exist or the caller may not read its kind.
+    """One configuration, or None when it does not exist or the caller may not read it.
 
     With `lock`, the row stays locked until the caller's transaction ends, so a delete waits for it.
     """
-    rows = _readable(team_id, source_kinds).filter(id=configuration_id)
+    rows = _readable(team_id, source_kinds, Q(id=configuration_id), reader)
     if lock:
         rows = rows.select_for_update(no_key=True)
     row = rows.first()
