@@ -29,6 +29,10 @@ export interface SearchItem {
     id: string
     name: string
     displayName?: string
+    /** Muted label rendered before the name: a ticket's number, or the ID of a row a number query found by ID. */
+    leadingLabel?: string
+    /** The row was found by the ID a number query names, not by its name. */
+    idMatch?: boolean
     category: string
     productCategory?: string | null
     href?: string
@@ -132,8 +136,16 @@ export const fileSystemEntryToSearchItem = (
     }
 }
 
-/** Maps one unified search result to a search item. */
-export const unifiedSearchResultToSearchItem = (result: SearchResponse['results'][number]): SearchItem => {
+/** The types whose rows a number query also finds by ID: `match_id` in posthog/api/search.py and `ID_MATCH_TYPES` in
+ *  posthog/api/file_system/ranked_search.py. */
+export const ID_MATCH_TYPES = new Set(['experiment', 'feature_flag', 'cohort'])
+
+/** Maps one unified search result to a search item. `searchedId` is the ID a number query names, from
+ *  `idFromNumberQuery`. */
+export const unifiedSearchResultToSearchItem = (
+    result: SearchResponse['results'][number],
+    searchedId: string | null = null
+): SearchItem => {
     let name = result.result_id
     let href = ''
     let itemType: string = result.type
@@ -199,9 +211,14 @@ export const unifiedSearchResultToSearchItem = (result: SearchResponse['results'
             break
     }
 
+    // A row whose ID is the number typed shows that ID before its name. Without it, a person who pasted
+    // an ID cannot tell the match from a row whose name holds the same number.
+    const isIdMatch = searchedId !== null && ID_MATCH_TYPES.has(result.type) && result.result_id === searchedId
+
     return {
         id: `${result.type}-${result.result_id}`,
         name,
+        ...(isIdMatch ? { idMatch: true, leadingLabel: `#${result.result_id}` } : {}),
         category: result.type,
         href,
         itemType,
@@ -255,13 +272,14 @@ const ticketStatus = (ticket: TicketApi): string | null =>
     ticket.status ? capitalizeFirstLetter(ticket.status.replace(/_/g, ' ')) : null
 
 export const ticketToSearchItem = (ticket: TicketApi): SearchItem => {
-    // The number leads either way: it is how support refers to a ticket everywhere else, and
-    // it is what someone who typed a number is looking to confirm.
-    const displayName = `#${ticket.ticket_number} ${ticketSubject(ticket)}`
+    // The number leads either way, as a muted label: it is how support refers to a ticket everywhere else, and
+    // it is what someone who typed a number is looking to confirm. `name` keeps it for matching and sorting.
+    const subject = ticketSubject(ticket)
     return {
         id: `ticket-${ticket.id}`,
-        name: displayName,
-        displayName,
+        name: `#${ticket.ticket_number} ${subject}`,
+        displayName: subject,
+        leadingLabel: `#${ticket.ticket_number}`,
         category: 'tickets',
         // The detail scene redirects a UUID to the ticket-number URL, so linking
         // there directly saves the row a redirect.
@@ -282,11 +300,11 @@ export const ticketResultToSearchItem = (ticket: TicketApi): SearchItem => {
         id: `ticket-${ticket.id}`,
         name: subject,
         displayName: subject,
+        leadingLabel: `#${ticket.ticket_number}`,
         category: 'results',
         href: urls.supportTicketDetail(ticket.ticket_number),
         itemType: 'conversations',
         productCategory: [
-            `#${ticket.ticket_number}`,
             safeString(person.name) || safeString(person.email) || safeString(traits.name) || safeString(traits.email),
             ticketStatus(ticket),
         ]

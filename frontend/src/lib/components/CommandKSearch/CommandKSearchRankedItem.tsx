@@ -52,6 +52,9 @@ export function CommandKSearchRankedItem({ row }: { row: Extract<CommandKRow, { 
     return (
         <>
             {getIconForItem(item)}
+            {item.leadingLabel && (
+                <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{item.leadingLabel}</span>
+            )}
             <span className="truncate" translate="no">
                 {highlightSegments(String(item.displayName || item.name), row.highlightWords ?? []).map(
                     (segment, index) =>

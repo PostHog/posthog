@@ -106,6 +106,13 @@ const TICKET_SEARCH_MAX_LENGTH = 200
  */
 export const isTicketNumberQuery = (query: string): boolean => TICKET_NUMBER_QUERY.test(query.trim())
 
+/** The ID a number query names, read by the ticket-number rule, or null for any other query. Leading
+ *  zeros go because the backend reads the digits as an integer, so "04821" finds ID 4821. */
+export const idFromNumberQuery = (query: string): string | null => {
+    const trimmed = query.trim()
+    return TICKET_NUMBER_QUERY.test(trimmed) ? trimmed.replace(/^#/, '').replace(/^0+(?=\d)/, '') : null
+}
+
 export const shouldSearchTickets = (query: string): boolean => {
     const trimmed = query.trim()
     if (trimmed.length > TICKET_SEARCH_MAX_LENGTH) {

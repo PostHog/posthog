@@ -256,7 +256,8 @@ describe('settleRequest', () => {
             expect(result?.results.results?.items).toEqual([
                 expect.objectContaining({
                     name: 'Refund not received',
-                    productCategory: '#42 · Jane Doe · On hold',
+                    leadingLabel: '#42',
+                    productCategory: 'Jane Doe · On hold',
                     href: '/support/tickets/42',
                 }),
             ])
@@ -300,13 +301,13 @@ describe('settleRequest', () => {
                 'the identified person before older traits',
                 { properties: { name: 'Jane Smith', email: 'jane@example.com' } },
                 { name: 'Jane Doe' },
-                '#42 · Jane Smith · On hold',
+                'Jane Smith · On hold',
             ],
             [
                 "the person's email when traits are empty",
                 { properties: { email: 'sam@example.org' } },
                 {},
-                '#42 · sam@example.org · On hold',
+                'sam@example.org · On hold',
             ],
         ])('labels the ticket customer with %s', async (_, person, traits, productCategory) => {
             jest.mocked(conversationsTicketsList).mockResolvedValue({
@@ -402,5 +403,41 @@ describe('settleRequest', () => {
                 'hog_function/destination',
             ])
         })
+    })
+
+    // The server puts the row it found by ID first, but only the client can show which row that was. An insight's
+    // ref is a short ID, so an insight whose ref equals the number matched on its name and stays unlabelled.
+    test.each([
+        ['4821', ['#4821', undefined]],
+        ['#4821', ['#4821', undefined]],
+        ['type:experiment 4821', ['#4821', undefined]],
+        ['4821 checkout', [undefined, undefined]],
+    ])('labels only the entry found by its ID for %s', async (query, labels) => {
+        const entry = (type: string, ref: string, path: string): Record<string, unknown> => ({
+            id: `${type}-${ref}`,
+            type,
+            ref,
+            path,
+            created_at: '2026-01-01T00:00:00Z',
+        })
+        jest.mocked(fileSystemSearchRetrieve).mockResolvedValue({
+            results: [
+                {
+                    entry: entry('experiment', '4821', 'Unfiled/Checkout redesign'),
+                    rank: [-1, 0, 0, 0, -1, 0, 0, 0, -1],
+                },
+                { entry: entry('insight', '4821', 'Unfiled/Checkout 4821'), rank: [-1, 0, 0, 0, -1, 0, 0, 0, -2] },
+            ],
+            type_counts: [],
+            matched_all_words: true,
+            matched_words: [],
+            counts_capped: false,
+            matched_with_typos: false,
+        } as any)
+        const objects = REMOTE_REQUESTS.find((request) => request.id === 'objects') as RemoteRequest
+
+        const result = await settleRequest(objects, query, new AbortController().signal, context)
+
+        expect(result?.results.results?.items.map((item) => item.leadingLabel)).toEqual(labels)
     })
 })

@@ -5,7 +5,21 @@ from collections.abc import Mapping
 from functools import reduce
 from typing import Any, Literal, Protocol, TypedDict, cast
 
-from django.db.models import BigIntegerField, CharField, F, Model, OuterRef, Q, QuerySet, Subquery, Value
+from django.db.models import (
+    BigIntegerField,
+    Case,
+    CharField,
+    Expression,
+    F,
+    FloatField,
+    Model,
+    OuterRef,
+    Q,
+    QuerySet,
+    Subquery,
+    Value,
+    When,
+)
 from django.db.models.functions import Cast, JSONObject, Lower
 from django.db.models.lookups import Contains
 from django.http import HttpResponse
@@ -17,7 +31,7 @@ from rest_framework.response import Response
 
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.helpers.full_text_search import build_rank, process_query
+from posthog.helpers.full_text_search import build_rank, integer_id_query, process_query
 from posthog.models.team import Team
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, model_to_resource
@@ -46,6 +60,7 @@ class EntityConfig(TypedDict, total=False):
     annotations: dict[str, Any]
     filters: dict[str, Any]
     excludes: list[dict[str, Any]]
+    match_id: bool
 
 
 FEATURE_FLAG_SEARCH_CONFIG: EntityConfig = {
@@ -94,8 +109,10 @@ ENTITY_MAP: dict[str, EntityConfig] = {
         "klass": Experiment,
         "search_fields": {"name": "A", "description": "C"},
         "extra_fields": ["name", "description"],
+        "match_id": True,
     },
-    "feature_flag": FEATURE_FLAG_SEARCH_CONFIG,
+    # PostHog AI's entity search shares FEATURE_FLAG_SEARCH_CONFIG, so ID matching is set here for this search only.
+    "feature_flag": {**FEATURE_FLAG_SEARCH_CONFIG, "match_id": True},
     "notebook": {
         "klass": Notebook,
         "search_fields": {"title": "A", "text_content": "C"},
@@ -105,6 +122,7 @@ ENTITY_MAP: dict[str, EntityConfig] = {
         "klass": Cohort,
         "search_fields": {"name": "A", "description": "C"},
         "extra_fields": ["name", "description"],
+        "match_id": True,
     },
     "event_definition": {
         "klass": EventDefinition,
@@ -287,6 +305,7 @@ def search_entities(
             annotations=entity_meta.get("annotations"),
             filters=entity_meta.get("filters"),
             excludes=entity_meta.get("excludes"),
+            match_id=entity_meta.get("match_id", False),
         )
         qs = qs.union(klass_qs)
         if include_counts:
@@ -384,8 +403,13 @@ def class_queryset(
     annotations: dict[str, Any] | None = None,
     filters: dict[str, Any] | None = None,
     excludes: list[dict[str, Any]] | None = None,
+    match_id: bool = False,
 ):
-    """Builds a queryset for the class."""
+    """Builds a queryset for the class.
+
+    With `match_id`, a query that is a bare integer also matches the row with that primary key, ranked
+    above every text match, so a user can paste an ID from a URL or an API response.
+    """
     entity_type = entity_type or class_to_entity_name(klass)
     values = ["type", "result_id", "extra_fields", "_sort_name", "_pk", "_created_by_id"]
 
@@ -459,7 +483,11 @@ def class_queryset(
             words = re.findall(r"[^\W_]+", query)
             if words:
                 qs = qs.filter(reduce(operator.or_, (Q(Contains(Lower("name"), Lower(Value(word)))) for word in words)))
-        qs = qs.annotate(rank=build_rank(search_fields, query, config="simple"))
+        rank: Expression | None = build_rank(search_fields, query, config="simple")
+        exact_id = integer_id_query(query) if match_id else None
+        if exact_id is not None:
+            rank = Case(When(pk=exact_id, then=Value(EXACT_ID_RANK)), default=rank, output_field=FloatField())
+        qs = qs.annotate(rank=rank)
         qs = qs.filter(rank__gt=0.05)
         values.append("rank")
         qs.annotate(rank=F("rank"))
@@ -468,6 +496,10 @@ def class_queryset(
     qs = qs.values(*values)
 
     return qs, entity_type
+
+
+# `ts_rank` with the default weights stays below 1, so an exact ID match sorts above every text match.
+EXACT_ID_RANK = 1.0
 
 
 def class_to_entity_name(klass: type[Model]):

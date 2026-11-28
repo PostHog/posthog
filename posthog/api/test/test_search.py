@@ -12,11 +12,13 @@ from posthog.helpers.full_text_search import build_search_vector, process_query
 from posthog.models import OrganizationMembership, Team, User
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.data_modeling.backend.facade.models import DAG, DataWarehouseSavedQuery, Node, NodeType
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.endpoints.backend.facade.models import Endpoint
 from products.event_definitions.backend.models import EventDefinition, PropertyDefinition
+from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
@@ -304,6 +306,35 @@ class TestSearch(APIBaseTest):
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["type"], "hog_flow")
         self.assertEqual(results[0]["extra_fields"]["name"], "second workflow")
+
+    @parameterized.expand(
+        [
+            ("own experiment", "experiment", "own", True),
+            ("own experiment with a leading #", "experiment", "#own", True),
+            ("another project's experiment", "experiment", "other_project", False),
+            ("number past the integer primary key range", "experiment", "99999999999", False),
+            ("own feature flag", "feature_flag", "own", True),
+            ("own cohort", "cohort", "own", True),
+        ]
+    )
+    def test_entity_found_by_exact_id(self, _name: str, entity: str, query: str, expect_match: bool) -> None:
+        def create_entity(team: Team, key: str) -> Experiment | FeatureFlag | Cohort:
+            if entity == "cohort":
+                return Cohort.objects.create(team=team, name="Checkout redesign")
+            flag = FeatureFlag.objects.create(team=team, key=key, created_by=self.user)
+            if entity == "feature_flag":
+                return flag
+            return Experiment.objects.create(team=team, name="Checkout redesign", feature_flag=flag)
+
+        own = create_entity(self.team, "checkout-redesign")
+        other = create_entity(Team.objects.create(organization=self.organization), "other")
+        q = query.replace("own", str(own.id)).replace("other_project", str(other.id))
+
+        response = self.client.get("/api/projects/@current/search", {"q": q, "entities": entity})
+
+        assert response.status_code == 200
+        result_ids = [result["result_id"] for result in response.json()["results"]]
+        assert result_ids == ([str(own.id)] if expect_match else [])
 
     def test_build_search_vector_requires_search_fields(self):
         with pytest.raises(ValueError, match="search_fields cannot be empty"):

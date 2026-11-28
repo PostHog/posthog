@@ -385,4 +385,40 @@ describe('searchLogic', () => {
 
         expect(cancelledQueryIds).toEqual([])
     })
+
+    // A row the backend found by its ID can carry a name with no sign of the number, so without the
+    // label a person who pasted an ID cannot tell which row matched. An action has an integer ID too,
+    // but the backend never matches actions on it, so an action whose ID equals the number only
+    // matched on text and must stay unlabelled.
+    it.each([
+        ['a bare number', '4821', { 'experiment-4821': '#4821' }],
+        ['a number with a leading #', '#4821', { 'experiment-4821': '#4821' }],
+        ['a number with leading zeros', '04821', { 'experiment-4821': '#4821' }],
+        ['text', 'checkout', {}],
+    ])('labels only the row found by its ID, for %s', async (_label, search, expectedLabels) => {
+        personListMock.mockResolvedValue({ results: [] })
+        useMocks({
+            get: {
+                '/api/environments/:team_id/search/': {
+                    results: [
+                        { type: 'experiment', result_id: '4821', rank: 1, extra_fields: { name: 'Checkout redesign' } },
+                        { type: 'experiment', result_id: '17', rank: 0.6, extra_fields: { name: 'Checkout 4821' } },
+                        { type: 'action', result_id: '4821', rank: 0.5, extra_fields: { name: 'Checkout 4821' } },
+                    ],
+                },
+            },
+        })
+
+        await expectLogic(logic, () => logic.actions.setSearch(search)).toDispatchActions([
+            'loadUnifiedSearchResultsSuccess',
+        ])
+
+        const labels = Object.fromEntries(
+            Object.values(logic.values.unifiedSearchItems)
+                .flat()
+                .filter((item) => item.leadingLabel)
+                .map((item) => [item.id, item.leadingLabel])
+        )
+        expect(labels).toEqual(expectedLabels)
+    })
 })

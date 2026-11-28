@@ -12,6 +12,7 @@ from django.db.models import Case, Q, QuerySet, Value, When
 from rapidfuzz.distance import OSA
 
 from posthog.dataclasses import frozen
+from posthog.helpers.full_text_search import integer_id_query
 from posthog.models.file_system.file_system import SEARCH_NAME, SEARCH_TEXT, FileSystem, split_path
 from posthog.models.file_system.file_system_view_log import FileSystemViewLog
 
@@ -23,6 +24,9 @@ FRECENCY_HALF_LIFE_DAYS = 14
 MAX_TOKENS = 8
 MIN_NAME_ORDER_TOKEN_LENGTH = 3
 CANDIDATE_FIELDS = ("id", "path", "type", "ref", "created_at")
+# Types whose `ref` is the object's integer ID, so a number query also finds the entry with that ID. The same
+# types set `match_id` in posthog/api/search.py.
+ID_MATCH_TYPES = ("experiment", "feature_flag", "cohort")
 
 EQUAL, STARTS_WITH, WORD_STARTS_WITH, CONTAINS, ACRONYM, NO_MATCH = range(6)
 
@@ -132,6 +136,19 @@ class RankedSearchResult:
                     kept.add(index)
         return [self.entries[index] for index in sorted(kept)]
 
+    def with_id_matches(self, id_entries: list[RankedEntry]) -> "RankedSearchResult":
+        """Puts the entries found by ID first, ahead of the name matches, which stay."""
+        id_entry_ids = {ranked.entry.id for ranked in id_entries}
+        entries = [*id_entries, *(ranked for ranked in self.entries if ranked.entry.id not in id_entry_ids)]
+        return RankedSearchResult(
+            entries=entries,
+            matched_all_words=True,
+            # An ID match is exact, so the palette has no typo notice to show.
+            matched_with_typos=False,
+            type_counts=dict(Counter(ranked.entry.type for ranked in entries)),
+            counts_capped=self.counts_capped,
+        )
+
 
 @contextmanager
 def search_session(using: str) -> Iterator[None]:
@@ -191,6 +208,39 @@ class FileSystemRankedSearch:
             .only(*CANDIDATE_FIELDS)
             .alias(search_text=SEARCH_TEXT, search_name=SEARCH_NAME)
         )
+        result = self.search_names(queryset)
+        id_entries = self.id_matches(queryset)
+        return result.with_id_matches(id_entries) if id_entries else result
+
+    def id_matches(self, queryset: QuerySet[FileSystem]) -> list[RankedEntry]:
+        entry_id = integer_id_query(self.query)
+        if entry_id is None:
+            return []
+        entries = list(queryset.filter(type__in=ID_MATCH_TYPES, ref=str(entry_id)))
+        frecency = self.frecency(entries)
+        ranked = [
+            RankedEntry(
+                entry=entry,
+                # Every word matched with no typos, so the palette keeps the name matches beside this entry.
+                # The frecency and created_at positions match `rank_entry`, because the palette reads them.
+                rank=(
+                    -len(self.tokens),
+                    0,
+                    0,
+                    0,
+                    -len(self.tokens),
+                    0,
+                    EQUAL,
+                    -int(frecency.get(FileRef(type=entry.type, ref=entry.ref or ""), 0.0) * 1000),
+                    -int(entry.created_at.timestamp()),
+                ),
+                matched_tokens=self.tokens,
+            )
+            for entry in entries
+        ]
+        return sorted(ranked, key=lambda ranked_entry: ranked_entry.rank)
+
+    def search_names(self, queryset: QuerySet[FileSystem]) -> RankedSearchResult:
         found = self.fetch(queryset, self.every_word(typos=False), [])
         result = self.rank(found)
         if len(result.entries) >= TYPO_TOKENS_THRESHOLD:

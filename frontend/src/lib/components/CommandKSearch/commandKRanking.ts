@@ -301,6 +301,16 @@ export function rankCandidate(query: string, candidate: RankCandidate, strict = 
 }
 
 // The server matched words the browser cannot find, so the result ranks as a folder or type match.
+// Sorts before MatchTier.Exact, because a row found by the exact ID a person pasted is the row they want.
+const ID_MATCH_TIER = -1
+
+/** Ranks a row the server found by ID. Its name need not hold the query, so `rankCandidate` would miss it. */
+export function idMatchRank(serverRank: RankKey, candidate: RankCandidate): RankKey {
+    const rank = serverOnlyRank(serverRank, candidate)
+    rank[2] = ID_MATCH_TIER
+    return rank
+}
+
 export function serverOnlyRank(serverRank: RankKey, candidate: RankCandidate): RankKey {
     const frecency = candidate.frecency ?? 0
     return [

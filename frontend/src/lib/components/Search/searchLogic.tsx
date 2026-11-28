@@ -38,7 +38,7 @@ import {
     unifiedSearchResultToSearchItem,
 } from './searchItems'
 import { searchListsLogic } from './searchListsLogic'
-import { SEARCH_TAB_CATEGORY, filterSearchItems, shouldSearchTickets } from './utils'
+import { SEARCH_TAB_CATEGORY, filterSearchItems, idFromNumberQuery, shouldSearchTickets } from './utils'
 
 export interface SearchCategory {
     key: string
@@ -319,7 +319,10 @@ export interface searchLogicMeta {
             ticketItems: SearchItem[]
         }
         playlistItems: (playlistSearchResults: FileSystemEntry[]) => SearchItem[]
-        unifiedSearchItems: (unifiedSearchResults: SearchResponse | null) => Record<string, SearchItem[]>
+        unifiedSearchItems: (
+            unifiedSearchResults: SearchResponse | null,
+            search: string
+        ) => Record<string, SearchItem[]>
         loadingStates: (
             unifiedSearchResultsLoading: boolean,
             recentsHasLoaded: boolean,
@@ -762,11 +765,15 @@ export const searchLogic = kea<searchLogicType>([
             },
         ],
         unifiedSearchItems: [
-            (s) => [s.unifiedSearchResults],
-            (unifiedSearchResults: SearchResponse | null): Record<string, SearchItem[]> => {
+            (s) => [s.unifiedSearchResults, s.search],
+            (unifiedSearchResults: SearchResponse | null, search: string): Record<string, SearchItem[]> => {
                 if (!unifiedSearchResults) {
                     return {}
                 }
+
+                // Read from the input rather than the query that fetched these results: the ID label states
+                // that a row's ID equals what is typed, which holds for any results still on screen.
+                const searchedId = idFromNumberQuery(search)
 
                 const categoryItems: Record<string, SearchItem[]> = {}
 
@@ -775,7 +782,7 @@ export const searchLogic = kea<searchLogicType>([
                     if (!categoryItems[category]) {
                         categoryItems[category] = []
                     }
-                    categoryItems[category].push(unifiedSearchResultToSearchItem(result))
+                    categoryItems[category].push(unifiedSearchResultToSearchItem(result, searchedId))
                 }
 
                 return categoryItems
