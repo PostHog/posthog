@@ -70,9 +70,9 @@
 
 **Driver checked:** [what the driver read, ran or decided, or "Not yet checked by the driver"]
 
-<!-- Check every PR against "Requesting a security review" in .agents/security.md. Write "needed" if the PR matches the list and "not needed" if it does not. When the PR is ready for review, a check adds the `security-review` label to a PR marked "needed". -->
+<!-- Check every PR against "Requesting a security review" in .agents/security.md. Write "needed: <list item>" if the PR matches the list, and "not needed: <reason>" if it does not. Write "needed" when you cannot decide. When the PR is ready for review, a check adds the `security-review` label to a PR marked "needed". -->
 
-**Security review:** [needed or not needed]
+**Security review:** [needed: list item - or - not needed: reason]
 
 <!-- Definition of done (agents): not done until each gate below holds. Verify against the named artifact or skill — don't assume. Add gates as the PR touches more areas.
      - No duplicate: when this PR fixes something believed to be live on master, no open PR already fixes it. A broken master attracts parallel agents, so search before opening — `gh pr list --state open --search "<keywords>" --limit 20`, which lists drafts too, and most agent PRs start as drafts. Say here which PR you found and why this one is still needed, or that the search found nothing.

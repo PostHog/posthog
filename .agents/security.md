@@ -42,18 +42,21 @@ The patterns miss a change whose risk is in what it means, so the author's answe
 
 Every PR that matches the list below carries the `security-review` label when it is ready for review.
 Check every PR against the list when you open it, not only a PR in a security area.
-Write the result on the `**Security review:**` line of the PR template's Agent context section: `needed` or `not needed`.
+Write the result on the `**Security review:**` line of the PR template's Agent context section.
+Write `needed: <list item>` when the PR matches, and name the item.
+Write `not needed: <reason>` when it does not, and say why no item applies.
+When you cannot decide, write `needed`: an extra review costs minutes, and a missed one can cost an incident.
 
 - **Authentication:** login, signup, SSO, SAML, OIDC, OAuth grants and scopes, client registration, 2FA, passkeys, sessions, password or email changes, impersonation, invites, or account linking.
 - **Credentials:** a change that mints, scopes, stores, rotates, or revokes a key, token, JWT, or secret, or that changes encryption or signing.
 - **Authorization:** permission classes, API scopes, access control, object-level checks, sharing links, membership, or staff and admin gates. This includes a query or action that resolves an object ID from request input.
-- **New attack surface:** a new API, viewset, route, or action for a product, a public or unauthenticated endpoint, a webhook or ingress, or a new MCP or agent tool.
+- **New attack surface:** a new API, viewset, route, or action for a product, a public or unauthenticated endpoint, a webhook or ingress, or a new MCP or agent tool. A read-only endpoint, an endpoint behind a feature flag, and an endpoint that wraps an existing query all count.
 - **Untrusted input in a dangerous call:** raw SQL or HogQL built from strings, HTML rendering, redirects, file paths or archives, subprocesses, or deserialization.
-- **Outbound requests:** a request to a URL that a user controls, such as an integration, a warehouse source, a webhook, an MCP server, or a proxy, or a change to egress or URL validation.
-- **Agents and sandboxes:** what an agent or sandbox can run, read, or reach, which credentials it gets, untrusted text in its prompt, or logic that approves an action automatically.
+- **Outbound requests:** a request to a URL or host that a user controls or configures, such as an integration, a warehouse source, a webhook, an MCP server, or a proxy, a new client for a third-party API, or a change to egress or URL validation.
+- **Agents and sandboxes:** what an agent or sandbox can run, read, or reach, which credentials it gets, a new source of untrusted text in its prompt, or logic that approves an action automatically. A change to prompt wording alone does not count.
 - **Browser boundary:** the Content Security Policy, CORS, CSRF, cookies, framing, `postMessage`, or trusted proxy headers.
-- **CI and supply chain:** `pull_request_target` or `workflow_run` triggers, secrets, write tokens, publish or deploy jobs, CODEOWNERS, or the dev sandbox profile.
-- **Tenant data paths:** a query or background task that takes a team or project ID from its input, reads across projects, or reads a system table.
+- **CI and supply chain:** `pull_request_target` or `workflow_run` triggers, a new secret or a wider token scope in a workflow, write tokens, publish or deploy jobs, CODEOWNERS, or the dev sandbox profile.
+- **Tenant data paths:** a query, background task, management command, or backfill that takes a team or project ID from its input, reads across teams or projects, or reads a system table.
 - **A security fix** of any severity.
 
 Do not add the label to a PR that only changes tests, docs, copy, or styling, to a dependency bump with no security advisory, or to a file move with no other change.
