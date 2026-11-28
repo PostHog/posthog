@@ -312,6 +312,7 @@ class TestPromptJevQuery(ClickhouseTestMixin, APIBaseTest):
             ("SELECT jev(NULL, 'Refund?') AS p", [(None,)]),
             ("SELECT decide('refund', 'Refund?', model := 'jevk5') AS p", [(0.9,)]),
             ("SELECT jev('hello', 'Refund?') AS p LIMIT 0", []),
+            ("SELECT jev('hello', 'Route?', choice := ['billing', 'other']) AS p, tuple(1, 'a') AS t LIMIT 0", []),
             (
                 "SELECT " + ", ".join(f"jev('refund', 'Refund?') AS p{i}" for i in range(10)) + " LIMIT 100",
                 [(0.9,) * 10],
