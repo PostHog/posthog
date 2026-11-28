@@ -44,6 +44,23 @@ Modes (request `mode`):
     pulling segments are named) or `none`. `small_base` flags a segment under 20 units: for a sum
     set `count_basis` when the measure is a count, or give each segment a `base_count`.
 
+  - "concentrate": whether a few entities carry a move, on a table with one row per entity
+    and period (a customer-month view), where no low-cardinality dimension exists.
+      {"mode": "concentrate", "total_cur": 64000, "total_base": 50000,
+       "entities": [{"name": "acct_17", "cur": 9500, "base": 900}, ...]}
+    `entities` holds the top 20 by absolute delta; the totals cover every entity. The verdict is
+    `driver` when at most 5 entities moving with the move carry 60% of it, else `none`, the same
+    words as `decompose`, so it copies into the record unchanged.
+
+`rate: true` on a judge request marks a rate (a retention, a conversion, a margin): its bars
+scale with its own swing above small floors (step 3%, drift 2% per period; 5% and 3% daily),
+because a rate moving 20% in one period is a collapse, not the first sign of one. A request may
+carry a `name`, echoed on its result.
+
+`clears_report_bar` at the top level is either lens; `report_lens` names the one that clears it,
+and each lens block carries `windows`, the `cur` and `base` ranges it compared, half-open
+(`[start, end)`, the end being the start of the next period), which the decomposition reads.
+
 The product-analytics `investigate-metric` skill ships `scripts/breakdown_attribution.py`, which
 attributes a trends breakdown with its own thresholds (top-1 at 50%, top-3 at 70%). This script
 takes table rows and ratios too, so the two stay separate; a change to one bar should visit both.
@@ -63,11 +80,19 @@ PERIOD_DRIFT_BAR = 0.10
 STEP_SWING_FACTOR = 2.0
 DRIFT_SWING_FACTOR = 1.5
 REPORT_BAR_FACTOR = 1.5
+# A rate (a retention, a conversion, a margin) moves a few percent when something real happens,
+# so its bars scale with its own swing above these small floors instead of the count bars.
+RATE_STEP_BAR = 0.05
+RATE_DRIFT_BAR = 0.03
+RATE_PERIOD_BAR = 0.03
+RATE_PERIOD_DRIFT_BAR = 0.02
+RATE_DAILY_SWING_FACTOR = 3.0
 UNIT_FLOOR = 20
 BASE_PERIODS = {"weekly": 8, "monthly": 6, "quarterly": 4}
 # Periods back to the same period a year earlier. Weekly has none: a 13-week window cannot hold one.
 SEASON_PERIODS = {"monthly": 12, "quarterly": 4}
 DRIVER_SHARE = 0.60
+CONCENTRATION_ENTITIES = 5
 
 
 def _pct(value: float) -> float:
@@ -107,19 +132,44 @@ def _insufficient(reason: str) -> dict:
     return {"verdict": "insufficient history", "reason": reason}
 
 
+def _next_period(day: date, grain: str) -> date:
+    if grain == "daily":
+        return day + timedelta(days=1)
+    if grain == "weekly":
+        return day + timedelta(days=7)
+    months = 3 if grain == "quarterly" else 1
+    month = day.month - 1 + months
+    return date(day.year + month // 12, month % 12 + 1, 1)
+
+
+def _window(start: date, last: date, grain: str) -> list[str]:
+    """A half-open range, the first period's start to the start of the period after the last one,
+    so the end drops straight into a `< end` predicate."""
+    return [start.isoformat(), _next_period(last, grain).isoformat()]
+
+
 def _combine(result: dict, step: dict, drift: dict) -> dict:
-    """The step lens is the headline, mirrored at the top level; the drift lens is the second opinion."""
+    """The step fields are mirrored at the top level, so a record reads the same at every grain.
+
+    `clears_report_bar` is either lens: a slide that only the drift lens sees is as reportable as
+    a step. `report_lens` names the lens that clears it, step first, and its `windows` are the
+    ones the decomposition must read, so two runs attribute the same move over the same periods.
+    """
     result["step"] = step
     result["drift"] = drift
-    for key in ("expected", "deviation_pct", "bar_pct", "report_bar_pct", "clears_report_bar"):
+    for key in ("expected", "deviation_pct", "bar_pct", "report_bar_pct"):
         if key in step:
             result[key] = step[key]
+    step_clears = bool(step.get("clears_report_bar"))
+    drift_clears = bool(drift.get("clears_report_bar"))
+    result["clears_report_bar"] = step_clears or drift_clears
+    result["report_lens"] = "step" if step_clears else "drift" if drift_clears else None
     result["step_verdict"] = step["verdict"]
     result["verdict"] = "move" if "move" in (step["verdict"], drift["verdict"]) else "within"
     return result
 
 
-def judge_daily(series: list[tuple[date, float]], counts: dict[date, float] | None) -> dict:
+def judge_daily(series: list[tuple[date, float]], counts: dict[date, float] | None, rate: bool = False) -> dict:
     by_day = dict(series)
     day, value = series[-1]
     result: dict = {"grain": "daily", "period": day.isoformat(), "value": value}
@@ -130,14 +180,29 @@ def judge_daily(series: list[tuple[date, float]], counts: dict[date, float] | No
     median_28d = _median([by_day[d] for d in prior_days])
     same_weekdays = [day - timedelta(days=7 * k) for k in (1, 2, 3, 4) if day - timedelta(days=7 * k) in by_day]
     median_same_weekday = _median([by_day[d] for d in same_weekdays]) if len(same_weekdays) >= 3 else median_28d
+    step_bar, drift_bar, swing = STEP_BAR, DRIFT_BAR, None
+    if rate and median_28d:
+        # The median absolute deviation of the 28 days, relative to their median: the rate's daily noise.
+        swing = _median([abs(by_day[d] - median_28d) for d in prior_days]) / median_28d
+        step_bar = max(RATE_STEP_BAR, RATE_DAILY_SWING_FACTOR * swing)
+        drift_bar = max(RATE_DRIFT_BAR, DRIFT_SWING_FACTOR * swing)
     step_pass = (
         median_28d > 0
         and median_same_weekday > 0
-        and abs(value - median_28d) >= STEP_BAR * median_28d
-        and abs(value - median_same_weekday) >= STEP_BAR * median_same_weekday
+        and abs(value - median_28d) >= step_bar * median_28d
+        and abs(value - median_same_weekday) >= step_bar * median_same_weekday
         and _floor_ok(counts, day, prior_days)
     )
-    step = _lens(value, median_28d, STEP_BAR, step_pass, median_same_weekday=round(median_same_weekday, 2))
+    step_base = same_weekdays if len(same_weekdays) >= 3 else prior_days
+    step = _lens(
+        value,
+        median_28d,
+        step_bar,
+        step_pass,
+        median_same_weekday=round(median_same_weekday, 2),
+        windows={"cur": _window(day, day, "daily"), "base": _window(min(step_base), max(step_base), "daily")},
+        **({"swing_pct": _pct(swing)} if swing is not None else {}),
+    )
 
     weeks = []
     for k in range(5):
@@ -147,6 +212,9 @@ def judge_daily(series: list[tuple[date, float]], counts: dict[date, float] | No
     if any(w is None for w in weeks):
         drift = _insufficient("fewer than 5 complete weeks")
     else:
+        if rate:
+            # A rate's week is its daily average, not a sum, so the drift reads in rate points.
+            weeks = [w / 7 for w in weeks]
         current, base = weeks[0], sum(weeks[1:]) / 4
         deviation = current / base - 1 if base else 0.0
         # The 4 week-over-week changes, newest first, the current week included: a move that
@@ -154,8 +222,21 @@ def judge_daily(series: list[tuple[date, float]], counts: dict[date, float] | No
         changes = [weeks[i] / weeks[i + 1] - 1 for i in range(4) if weeks[i + 1]]
         same_direction = sum(1 for c in changes if c != 0 and (c > 0) == (deviation > 0))
         long_trend = len(changes) == 4 and same_direction >= 3
-        drift_pass = bool(base) and abs(deviation) >= DRIFT_BAR and not long_trend and _floor_ok(counts, day, prior_days)
-        drift = _lens(current, base, DRIFT_BAR, drift_pass, last_7_days=round(current, 2), long_trend=long_trend)
+        drift_pass = (
+            bool(base) and abs(deviation) >= drift_bar and not long_trend and _floor_ok(counts, day, prior_days)
+        )
+        drift = _lens(
+            current,
+            base,
+            drift_bar,
+            drift_pass,
+            last_7_days=round(current, 2),
+            long_trend=long_trend,
+            windows={
+                "cur": _window(day - timedelta(days=6), day, "daily"),
+                "base": _window(day - timedelta(days=34), day - timedelta(days=7), "daily"),
+            },
+        )
     return _combine(result, step, drift)
 
 
@@ -180,7 +261,9 @@ def _seasonal_match(series: list[tuple[date, float]], grain: str, value: float) 
     return (current_change > 0) == (year_ago_change > 0) and abs(year_ago_change) >= abs(current_change) / 2
 
 
-def judge_period(grain: str, series: list[tuple[date, float]], counts: dict[date, float] | None) -> dict:
+def judge_period(
+    grain: str, series: list[tuple[date, float]], counts: dict[date, float] | None, rate: bool = False
+) -> dict:
     n_base = BASE_PERIODS[grain]
     period, value = series[-1]
     result: dict = {"grain": grain, "period": period.isoformat(), "value": value}
@@ -196,9 +279,10 @@ def judge_period(grain: str, series: list[tuple[date, float]], counts: dict[date
     level = _median(base[-3:])
     expected = level * (1 + growth) ** 2
     deviation = value / expected - 1 if expected else 0.0
-    bar = max(PERIOD_BAR, STEP_SWING_FACTOR * swing)
+    bar = max(RATE_PERIOD_BAR if rate else PERIOD_BAR, STEP_SWING_FACTOR * swing)
+    trend_bar = bar if rate else PERIOD_BAR
     recent = changes[-3:]
-    long_trend = len(recent) == 3 and all((c >= PERIOD_BAR) if deviation > 0 else (c <= -PERIOD_BAR) for c in recent)
+    long_trend = len(recent) == 3 and all((c >= trend_bar) if deviation > 0 else (c <= -trend_bar) for c in recent)
     step_pass = abs(deviation) >= bar and not long_trend and _floor_ok(counts, period, base_days)
     step = _lens(
         value,
@@ -211,17 +295,28 @@ def judge_period(grain: str, series: list[tuple[date, float]], counts: dict[date
         swing_pct=_pct(swing),
         long_trend=long_trend,
         seasonal_match=_seasonal_match(series, grain, value),
+        windows={"cur": _window(period, period, grain), "base": _window(base_days[-3], base_days[-1], grain)},
     )
 
     # Period drift: the last 3 periods against the 3 before, grown at the trend for 3 periods, so a
     # slow slide that never clears the step bar in one period still surfaces.
-    drift_bar = max(PERIOD_DRIFT_BAR, DRIFT_SWING_FACTOR * swing)
+    drift_bar = max(RATE_PERIOD_DRIFT_BAR if rate else PERIOD_DRIFT_BAR, DRIFT_SWING_FACTOR * swing)
     if len(base) >= 5:
         last3_avg = (sum(base[-2:]) + value) / 3
         expected_avg = (sum(base[-5:-2]) / 3) * (1 + growth) ** 3
         drift_deviation = last3_avg / expected_avg - 1 if expected_avg else 0.0
         drift_pass = abs(drift_deviation) >= drift_bar and _floor_ok(counts, period, base_days)
-        drift = _lens(last3_avg, expected_avg, drift_bar, drift_pass, last_3_average=round(last3_avg, 2))
+        drift = _lens(
+            last3_avg,
+            expected_avg,
+            drift_bar,
+            drift_pass,
+            last_3_average=round(last3_avg, 2),
+            windows={
+                "cur": _window(base_days[-2], period, grain),
+                "base": _window(base_days[-5], base_days[-3], grain),
+            },
+        )
     else:
         drift = _insufficient("fewer than 6 periods for the drift lens")
     return _combine(result, step, drift)
@@ -230,18 +325,23 @@ def judge_period(grain: str, series: list[tuple[date, float]], counts: dict[date
 def judge(request: dict) -> dict:
     grain = request.get("grain", "daily")
     series = _parse_series(request["series"])
-    if not series:
-        return _insufficient("no periods with a value")
     counts: dict[date, float] | None = None
     if request.get("counts"):
         counts = dict(_parse_series(request["counts"]))
     elif request.get("count_basis"):
         counts = dict(series)
-    if grain == "daily":
-        return judge_daily(series, counts)
-    if grain in BASE_PERIODS:
-        return judge_period(grain, series, counts)
-    raise ValueError(f"unknown grain {grain!r}")
+    rate = bool(request.get("rate", False))
+    if not series:
+        result = _insufficient("no periods with a value")
+    elif grain == "daily":
+        result = judge_daily(series, counts, rate)
+    elif grain in BASE_PERIODS:
+        result = judge_period(grain, series, counts, rate)
+    else:
+        raise ValueError(f"unknown grain {grain!r}")
+    if "name" in request:
+        result = {"name": request["name"], **result}
+    return result
 
 
 def _driver_verdict(rows: list[dict], total: float, ratio_base: float | None = None) -> dict:
@@ -384,12 +484,57 @@ def decompose(request: dict) -> dict:
     raise ValueError(f"unknown kind {kind!r}")
 
 
+def concentrate(request: dict) -> dict:
+    """Whether a handful of entities (customers, accounts) carry a move on a table with one row per entity.
+
+    `entities` are the top entities by absolute delta, at most 20; `total_cur` and `total_base` are
+    the whole measure in the same windows, so the entities not listed still count toward the move.
+    """
+    total = float(request["total_cur"]) - float(request["total_base"])
+    rows = [
+        {
+            "name": e["name"],
+            "cur": float(e["cur"]),
+            "base": float(e["base"]),
+            "delta": float(e["cur"]) - float(e["base"]),
+        }
+        for e in request["entities"]
+    ]
+    rows.sort(key=lambda r: abs(r["delta"]), reverse=True)
+    if not total or not rows:
+        return {"kind": "concentration", "verdict": "none", "reason": "no move to attribute"}
+    for r in rows:
+        r["share_pct"] = _pct(r["delta"] / total)
+    with_move = [r for r in rows if r["delta"] and (r["delta"] > 0) == (total > 0)]
+    top = with_move[:CONCENTRATION_ENTITIES]
+    top_share = sum(r["delta"] for r in top) / total
+    running, needed = 0.0, None
+    for i, r in enumerate(with_move, start=1):
+        running += r["delta"]
+        if running / total >= DRIVER_SHARE:
+            needed = i
+            break
+    concentrated = needed is not None and needed <= CONCENTRATION_ENTITIES
+    return {
+        "kind": "concentration",
+        "total_delta": round(total, 2),
+        "entities": rows,
+        "verdict": "driver" if concentrated else "none",
+        "top_entities": [r["name"] for r in with_move[:needed]] if concentrated else [],
+        "entities_for_60_pct": needed,
+        "top1_share_pct": _pct(with_move[0]["delta"] / total) if with_move else None,
+        "top5_share_pct": _pct(top_share),
+    }
+
+
 def handle(request: dict) -> dict:
     mode = request.get("mode", "judge")
     if mode == "judge":
         return judge(request)
     if mode == "decompose":
         return decompose(request)
+    if mode == "concentrate":
+        return concentrate(request)
     raise ValueError(f"unknown mode {mode!r}")
 
 

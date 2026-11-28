@@ -9,7 +9,7 @@ Two things specific to this scout:
 - A SQL chart (`DataVisualizationNode`) draws in the inbox but not in a Slack delivery, so the summary's prose must carry the numbers on its own.
 
 The examples below are daily.
-For a weekly, monthly or quarterly measure, the series window is the 13 (or 9) closed periods the lens read, the x axis is the period start (`toStartOfMonth(...)`), and chart 2 compares the latest closed period with the average of the base periods.
+For a weekly, monthly or quarterly measure, the series window is the 13 (or 9) closed periods the lens read, the x axis is the period start (`toStartOfMonth(...)`), and chart 2 compares the `cur` and `base` windows of the lens result, the same windows the decomposition read.
 Reuse the canonical run's SQL from `metric-describe` when the metric carries its own dimension column, so the chart draws the same rows the decomposition read.
 
 ## 1. The measure per day with its baseline
