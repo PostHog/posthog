@@ -8,7 +8,7 @@ import { parseNumberFromEnv } from '~/common/config'
 import { getDefaultConfig } from '~/common/config/config'
 
 import { durationMs } from '../duration'
-import { EMAIL_ACTION, TRAFFIC } from '../generator/traffic'
+import { EMAIL_ACTION, TRAFFIC, TrafficKind } from '../generator/traffic'
 import { MIN_BASELINE_SECONDS, SAMPLE_INTERVAL_MS, SCRAPE_TIMEOUT_MS } from '../judge/measurements'
 import { roleFreeze, roleKill, roleTerminate } from '../valves/valves'
 import { DEFINITIONS, Definition, Definitions } from './definitions'
@@ -175,6 +175,8 @@ function checkProfile(card: Card, profile: Profile, definitions: Definitions, de
 // the queue.
 const RATE_LIMIT_SHARE = 0.8
 
+const RATE_LIMITED_INTAKES: readonly TrafficKind['intake'][] = ['event', 'capture']
+
 // The card may load on a machine other than the run host, so only the profile can set the limit its roles run with.
 function settingOf(profile: Profile, defaults: Settings, key: string): number {
     const fallback = Number(defaults[key])
@@ -190,7 +192,7 @@ function checkWorkflowRate(card: Card, profile: Profile, defaults: Settings): st
     return card.drive.traffic.flatMap(({ name }) => {
         const kind = TRAFFIC.find((traffic) => traffic.name === name)
         const shape = kind?.profile.safeParse(profile.traffic[name])
-        if (kind === undefined || kind.intake === 'transactional' || !shape?.success) {
+        if (kind === undefined || !RATE_LIMITED_INTAKES.includes(kind.intake) || !shape?.success) {
             return []
         }
         const perWorkflow = (shape.data.ratePerSecond * topScale) / card.setup.teams

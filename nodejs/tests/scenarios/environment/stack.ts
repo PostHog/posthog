@@ -29,7 +29,7 @@ export const STACK = {
     personhogReadinessUrl: 'http://127.0.0.1:9101/_readiness',
     kafkaContainer: 'posthog-kafka-1',
     composeProject: 'posthog',
-    templates: ['template-email', 'template-webhook'],
+    templates: ['template-email', 'template-webhook', 'template-source-webhook'],
 }
 
 export type Hogli = { command: string; cwd: string }

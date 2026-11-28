@@ -20,7 +20,7 @@ export type FollowUpAnswer = IntakeAnswer | { notSent: string }
 
 export type JournalEntry = {
     unitId: string
-    kind: 'event' | 'capture' | 'transactional'
+    kind: 'event' | 'capture' | 'transactional' | 'webhook'
     teamId: number
     offeredAt: number
     step?: number

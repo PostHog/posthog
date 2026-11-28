@@ -48,6 +48,8 @@ export type TrafficKind = Omit<TrafficDefinition, 'profile'> & {
 
 export const SENDER = { email: 'flows@www.example.com', name: 'Scenario runner', domain: 'www.example.com' }
 
+export const WEBHOOK_TRIGGER_TEMPLATE = 'template-source-webhook'
+
 export const EMAIL_ACTION = 'email'
 export const WEBHOOK_ACTION = 'webhook'
 
@@ -267,17 +269,24 @@ export const REAL_CLOCK: SendClock = {
 const withRetries = (answer: IntakeAnswer, retries: number): JournalEntry['answer'] =>
     retries === 0 ? answer : { ...answer, retries }
 
-async function sendTransactional(
+function sendTransactional(
     unit: Unit,
     cdpApi: NonNullable<OfferContext['cdpApi']>,
     signal: AbortSignal
 ): Promise<JournalEntry['answer']> {
-    const { backoffMs, maxWaitMs, deadlineMs } = SEND_RETRY
-    const clock = cdpApi.clock ?? REAL_CLOCK
     const request = { to: unitAddress(unit), distinct_id: unit.unitId, variables: {}, idempotency_key: unit.unitId }
+    return sendWithRetries(() => postTransactional(unit, cdpApi, request), cdpApi.clock ?? REAL_CLOCK, signal)
+}
+
+async function sendWithRetries(
+    post: () => Promise<IntakeAnswer>,
+    clock: SendClock,
+    signal: AbortSignal
+): Promise<JournalEntry['answer']> {
+    const { backoffMs, maxWaitMs, deadlineMs } = SEND_RETRY
     const deadline = clock.now() + deadlineMs
     for (let retry = 0; ; retry += 1) {
-        const answer = await postTransactional(unit, cdpApi, request)
+        const answer = await post()
         const waitMs = Math.min(backoffMs * 2 ** retry, maxWaitMs)
         if (!('status' in answer) || answer.status < 500 || clock.now() + waitMs > deadline) {
             return withRetries(answer, retry)
@@ -290,30 +299,86 @@ async function sendTransactional(
     }
 }
 
-async function postTransactional(
+function postTransactional(
     unit: Unit,
     cdpApi: NonNullable<OfferContext['cdpApi']>,
     request: object
 ): Promise<IntakeAnswer> {
+    return postToIntake(() => ({
+        url: `${cdpApi.nextUrl()}/api/projects/${unit.teamId}/hog_flows/${unit.flowId}/transactional_email`,
+        headers: { authorization: `Bearer ${cdpApi.jwt.mint({ team_id: unit.teamId, hog_flow_id: unit.flowId })}` },
+        body: request,
+    }))
+}
+
+type IntakeRequest = { url: string; headers: Record<string, string>; body: object }
+
+async function postToIntake(requestOf: () => IntakeRequest): Promise<IntakeAnswer> {
     try {
-        const response = await internalFetch(
-            `${cdpApi.nextUrl()}/api/projects/${unit.teamId}/hog_flows/${unit.flowId}/transactional_email`,
-            {
-                method: 'POST',
-                headers: {
-                    'content-type': 'application/json',
-                    authorization: `Bearer ${cdpApi.jwt.mint({ team_id: unit.teamId, hog_flow_id: unit.flowId })}`,
-                },
-                body: JSON.stringify(request),
-            }
-        )
-        const body = await response.text()
+        const { url, headers, body } = requestOf()
+        const response = await internalFetch(url, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', ...headers },
+            body: JSON.stringify(body),
+        })
+        const text = await response.text()
         return response.status >= 200 && response.status < 300
             ? { accepted: true }
-            : { accepted: false, status: response.status, outcome: errorOf(body) }
+            : { accepted: false, status: response.status, outcome: errorOf(text) }
     } catch (error) {
         return { accepted: false, transportError: String(error) }
     }
+}
+
+const WEBHOOK_TRIGGER_EVENT = 'scenario_webhook_trigger'
+
+const fromRequest = async (template: string): Promise<CyclotronInputType> => ({
+    value: template,
+    bytecode: await compileHog(`return f'${template}'`),
+})
+
+const webhookTrigger = async (): Promise<object> => ({
+    type: 'webhook',
+    template_id: WEBHOOK_TRIGGER_TEMPLATE,
+    inputs: {
+        event: await fromRequest(WEBHOOK_TRIGGER_EVENT),
+        distinct_id: await fromRequest('{request.body.unit_id}'),
+        properties: {
+            value: { unit_id: '{request.body.unit_id}' },
+            bytecode: { unit_id: await compileHog(`return f'{request.body.unit_id}'`) },
+        },
+        method: await fromRequest('POST'),
+    },
+})
+
+function postWebhookTrigger(unit: Unit, cdpApi: NonNullable<OfferContext['cdpApi']>): Promise<IntakeAnswer> {
+    return postToIntake(() => ({
+        url: `${cdpApi.nextUrl()}/public/webhooks/${unit.flowId}`,
+        headers: { 'idempotency-key': unit.unitId },
+        body: { unit_id: unit.unitId },
+    }))
+}
+
+export const workflowWebhook: TrafficKind = {
+    name: 'workflow_webhook',
+    params: z.object({}).strict(),
+    profile: Shape,
+    intake: 'webhook',
+    deliveries: [WEBHOOK_ACTION],
+    needsLocal: true,
+    unitLoad: (parks) => ({ claims: { hogflow: 1 + parks, email: 0 }, newJobs: 1 }),
+    flow: async (teamId, _emailIntegrationId, parks) =>
+        parkedFlow(teamId, {
+            name: 'Scenario workflow webhook',
+            trigger: await webhookTrigger(),
+            actionId: WEBHOOK_ACTION,
+            step: await webhookStep(),
+            parks,
+        }),
+    offer: (unit, { cdpApi }, signal) => {
+        const api = localOnly(cdpApi, 'CDP API')
+        return sendWithRetries(() => postWebhookTrigger(unit, api), api.clock ?? REAL_CLOCK, signal)
+    },
 }
 
 const CAPTURE_EVENT = 'scenario_offer'
@@ -328,4 +393,11 @@ export const captureWebhook: TrafficKind = {
     offer: (unit, { emit }) => emit(unit, CAPTURE_EVENT, { unit_id: unit.unitId }),
 }
 
-export const TRAFFIC: TrafficKind[] = [eventEmail, eventWebhook, transactionalEmail, bounceFollowup, captureWebhook]
+export const TRAFFIC: TrafficKind[] = [
+    eventEmail,
+    eventWebhook,
+    transactionalEmail,
+    bounceFollowup,
+    captureWebhook,
+    workflowWebhook,
+]
