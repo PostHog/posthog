@@ -2,16 +2,30 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import posthog from 'posthog-js'
+
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
 
 import type { TransactionalEmailImpactApi } from 'products/messaging/frontend/generated/api.schemas'
+import type {
+    CreateObservationRequestApi,
+    ObservationRequestApi,
+} from 'products/replay_vision/frontend/generated/api.schemas'
 
+import { SCAN_POLL_INTERVAL_MS, SCAN_QUESTION } from './afterClickingScanLogic'
 import { EmailImpactTab } from './EmailImpactTab'
 
 const WORKFLOW_ID = '0192c3a4-5b6c-7d8e-9f01-23456789abcd'
+const REPLAY_ON = { ...MOCK_DEFAULT_TEAM, session_recording_opt_in: true }
+const READY = 'Ask Replay vision about these sessions'
+const ANSWER = "They opened the invoice page, but the page didn't show whether they found the download."
 
 const IMPACT: TransactionalEmailImpactApi = {
     sent: 10,
@@ -32,24 +46,269 @@ const IMPACT: TransactionalEmailImpactApi = {
 const REPLAY_OFF_COPY =
     'Replay vision will watch the sessions this email starts and group what people did. It needs session replay to record those sessions.'
 
+interface FakeReplayVision {
+    bodies: CreateObservationRequestApi[]
+    scansByKey: Map<string, ObservationRequestApi>
+    startsRunning: boolean
+    lostCreateAnswers: number
+    failedPolls: number
+    createGate: Promise<void>
+}
+
+function finished(scan: ObservationRequestApi): ObservationRequestApi {
+    return {
+        ...scan,
+        status: 'completed',
+        sessions: [
+            {
+                ...scan.sessions[0],
+                state: 'succeeded',
+                scanner_result: {
+                    model_output: { scanner_type: 'monitor', verdict: 'inconclusive', reasoning: ANSWER },
+                    signals_count: 0,
+                },
+            },
+            ...scan.sessions.slice(1),
+        ],
+    }
+}
+
 describe('AfterClickingCard', () => {
+    let vision: FakeReplayVision
+    let sessionsDateFroms: (string | null)[]
+    let failedSessionLists: number
+    let captured: string[]
+
+    beforeEach(() => {
+        captured = []
+        jest.spyOn(posthog, 'capture').mockImplementation((event) => {
+            captured.push(event)
+            return undefined
+        })
+        sessionsDateFroms = []
+        failedSessionLists = 0
+        vision = {
+            bodies: [],
+            scansByKey: new Map(),
+            startsRunning: false,
+            lostCreateAnswers: 0,
+            failedPolls: 0,
+            createGate: Promise.resolve(),
+        }
+        useMocks({
+            get: {
+                '/api/projects/:team_id/transactional_email_log/impact/': () => [200, IMPACT],
+                '/api/projects/:team_id/transactional_email_log/impact_sessions/': ({ request }) => {
+                    sessionsDateFroms.push(new URL(request.url).searchParams.get('date_from'))
+                    if (failedSessionLists > 0) {
+                        failedSessionLists -= 1
+                        return [500, {}]
+                    }
+                    return [
+                        200,
+                        {
+                            sessions: ['session-a', 'session-b'].map((session_id) => ({
+                                session_id,
+                                message_id: `message-${session_id}`,
+                                first_pageview_at: '2026-11-26T10:00:00Z',
+                            })),
+                            has_more: false,
+                        },
+                    ]
+                },
+                '/api/projects/:team_id/vision/requests/:id/': ({ params }) => {
+                    const scan = [...vision.scansByKey.values()].find(({ id }) => id === params.id)
+                    if (!scan) {
+                        return [404, { detail: 'Not found.' }]
+                    }
+                    if (vision.failedPolls > 0) {
+                        vision.failedPolls -= 1
+                        return [502, {}]
+                    }
+                    return [200, finished(scan)]
+                },
+            },
+            post: {
+                '/api/projects/:team_id/vision/requests/': async ({ request }) => {
+                    const body = (await request.json()) as CreateObservationRequestApi
+                    vision.bodies.push(body)
+                    await vision.createGate
+                    const key = body.idempotency_key ?? ''
+                    const existing = vision.scansByKey.get(key)
+                    const scan: ObservationRequestApi = existing ?? {
+                        id: `request-${vision.scansByKey.size + 1}`,
+                        status: 'running',
+                        scanner_id: 'scanner-1',
+                        reference: body.reference ?? '',
+                        created_at: '2026-11-27T10:00:00Z',
+                        sessions: body.session_ids.map((session_id, index) => ({
+                            session_id,
+                            scan_outcome: index === 0 ? 'started' : 'skipped_limit',
+                            state: index === 0 ? 'running' : 'skipped',
+                            observation_id: null,
+                            scanner_result: null,
+                        })),
+                    }
+                    vision.scansByKey.set(key, scan)
+                    if (vision.lostCreateAnswers > 0) {
+                        vision.lostCreateAnswers -= 1
+                        return [504, {}]
+                    }
+                    return [existing ? 200 : 202, vision.startsRunning ? scan : finished(scan)]
+                },
+            },
+        })
+    })
+
     afterEach(() => {
         cleanup()
+        jest.useRealTimers()
+    })
+
+    function renderTab(
+        team: typeof MOCK_DEFAULT_TEAM,
+        { replayVision = true, scannerAccess = AccessControlLevel.Editor } = {}
+    ): void {
+        initKeaTests(true, team)
+        window.POSTHOG_APP_CONTEXT = {
+            ...window.POSTHOG_APP_CONTEXT,
+            resource_access_control: {
+                ...window.POSTHOG_APP_CONTEXT?.resource_access_control,
+                [AccessControlResourceType.ReplayScanner]: scannerAccess,
+                [AccessControlResourceType.SessionRecording]: AccessControlLevel.Viewer,
+            },
+        } as AppContext
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags(
+            replayVision ? [FEATURE_FLAGS.WORKFLOWS_EMAIL_IMPACT_REPLAY_VISION] : [],
+            { [FEATURE_FLAGS.WORKFLOWS_EMAIL_IMPACT_REPLAY_VISION]: replayVision }
+        )
+        render(<EmailImpactTab workflowId={WORKFLOW_ID} alwaysSensitive={false} />)
+    }
+
+    async function selectPeriod(label: string): Promise<void> {
+        await userEvent.click(document.querySelector('[data-attr="email-impact-date-range"]') as HTMLElement)
+        await userEvent.click(await screen.findByText(label))
+    }
+
+    test.each([
+        { replay: false, replayVision: false, shows: REPLAY_OFF_COPY },
+        { replay: true, replayVision: false, shows: null },
+        { replay: false, replayVision: true, shows: REPLAY_OFF_COPY },
+        { replay: true, replayVision: true, shows: READY },
+    ])(
+        'shows what the card can do with session replay on: $replay and Replay vision on: $replayVision',
+        async ({ replay, replayVision, shows }) => {
+            renderTab({ ...MOCK_DEFAULT_TEAM, session_recording_opt_in: replay }, { replayVision })
+
+            await screen.findByText('Sent')
+            if (shows) {
+                await screen.findByText(shows)
+            }
+            expect(screen.queryByText('What people did after clicking') !== null).toBe(shows !== null)
+        }
+    )
+
+    it("lists the period's sessions again after the list fails to load", async () => {
+        failedSessionLists = 1
+        renderTab(REPLAY_ON)
+
+        await userEvent.click(await screen.findByText('Try again'))
+
+        expect(await screen.findByText(READY)).toBeInTheDocument()
+    })
+
+    it("asks the fixed question about the period's sessions and shows each answer", async () => {
+        renderTab(REPLAY_ON)
+
+        await userEvent.click(await screen.findByText('Scan sessions'))
+
+        expect(await screen.findByText(ANSWER)).toBeInTheDocument()
+        expect(screen.getByText('Inconclusive')).toBeInTheDocument()
+        expect(screen.getByText('Watch session').closest('a')).toHaveAttribute(
+            'href',
+            expect.stringMatching(/\/replay\/session-a$/)
+        )
+        expect(screen.getByText(/^1\ssession has no answer\.$/)).toBeInTheDocument()
+        expect(vision.bodies).toEqual([
+            expect.objectContaining({
+                session_ids: ['session-a', 'session-b'],
+                inline: {
+                    prompt: expect.stringContaining(SCAN_QUESTION),
+                    scanner_config: { allow_inconclusive: true },
+                },
+                reference: `workflows-email:${WORKFLOW_ID}`,
+            }),
+        ])
+        expect(captured).toEqual(
+            expect.arrayContaining([
+                'transactional email impact scan started',
+                'transactional email impact scan completed',
+            ])
+        )
+    })
+
+    it('resumes the same scan after a poll fails', async () => {
+        jest.useFakeTimers({ doNotFake: ['queueMicrotask', 'nextTick', 'setImmediate'] })
+        vision.startsRunning = true
+        vision.failedPolls = 1
+        renderTab(REPLAY_ON)
+        const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime })
+
+        await user.click(await screen.findByText('Scan sessions'))
+        expect(await screen.findByText(/^0 of 1\ssession scanned$/)).toBeInTheDocument()
+        await act(() => jest.advanceTimersByTimeAsync(SCAN_POLL_INTERVAL_MS))
+        await user.click(await screen.findByText('Try again'))
+
+        expect(await screen.findByText(ANSWER)).toBeInTheDocument()
+        expect(vision.bodies).toHaveLength(1)
+        expect(captured).toContain('transactional email impact scan failed')
+    })
+
+    it('finds the scan it started when the answer to its start never arrived', async () => {
+        vision.lostCreateAnswers = 1
+        renderTab(REPLAY_ON)
+
+        await userEvent.click(await screen.findByText('Scan sessions'))
+        await userEvent.click(await screen.findByText('Try again'))
+
+        expect(await screen.findByText(ANSWER)).toBeInTheDocument()
+        expect(vision.bodies).toHaveLength(2)
+        expect(vision.scansByKey.size).toBe(1)
+    })
+
+    it("drops a scan when its period changes, even if the period's scan answers after the switch back", async () => {
+        let answerCreate = (): void => {}
+        vision.createGate = new Promise((resolve) => {
+            answerCreate = resolve
+        })
+        renderTab(REPLAY_ON)
+        await userEvent.click(await screen.findByText('Scan sessions'))
+        await screen.findByText('Scanning sessions')
+
+        await selectPeriod('Last 7 days')
+        await screen.findByText(READY)
+        await selectPeriod('Last 30 days')
+        await screen.findByText(READY)
+        answerCreate()
+        await userEvent.click(screen.getByText('Scan sessions'))
+
+        expect(await screen.findByText(ANSWER)).toBeInTheDocument()
+        expect(vision.scansByKey.size).toBe(2)
+        expect(captured.filter((event) => event === 'transactional email impact scan completed')).toHaveLength(1)
+        expect(sessionsDateFroms).toHaveLength(3)
     })
 
     test.each([
-        { replay: false, shown: true },
-        { replay: true, shown: false },
-    ])('shows the card only while session replay is off (replay on: $replay)', async ({ replay, shown }) => {
-        useMocks({
-            get: { '/api/projects/:team_id/transactional_email_log/impact/': () => [200, IMPACT] },
-        })
-        initKeaTests(true, { ...MOCK_DEFAULT_TEAM, session_recording_opt_in: replay })
+        { case: 'a scanner viewer', team: REPLAY_ON, scannerAccess: AccessControlLevel.Viewer },
+        {
+            case: 'another environment of the project',
+            team: { ...REPLAY_ON, id: 998, project_id: REPLAY_ON.id },
+            scannerAccess: AccessControlLevel.Editor,
+        },
+    ])("doesn't offer a scan to $case", async ({ team, scannerAccess }) => {
+        renderTab(team, { scannerAccess })
 
-        render(<EmailImpactTab workflowId={WORKFLOW_ID} alwaysSensitive={false} />)
-
-        await screen.findByText('Sent')
-        expect(screen.queryByText('What people did after clicking') !== null).toBe(shown)
-        expect(screen.queryByText(REPLAY_OFF_COPY) !== null).toBe(shown)
+        expect((await screen.findByText('Scan sessions')).closest('button')).toHaveAttribute('aria-disabled', 'true')
     })
 })

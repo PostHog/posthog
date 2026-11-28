@@ -1,20 +1,35 @@
-import { useValues } from 'kea'
+import { BindLogic, useMountedLogic, useValues } from 'kea'
 
 import { IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonCard } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { urls } from 'scenes/urls'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
 import { crossSellLinkProps } from '../../workflowsCrossSell'
+import { afterClickingScanLogic } from './afterClickingScanLogic'
+import { AfterClickingScanPanel } from './AfterClickingScanPanel'
 import { emailImpactLogic } from './emailImpactLogic'
 
 export function AfterClickingCard(): JSX.Element | null {
-    const { replayEnabled } = useValues(emailImpactLogic)
+    const impactLogic = useMountedLogic(emailImpactLogic)
+    const { replayEnabled, days } = useValues(impactLogic)
+    const replayVisionEnabled = useFeatureFlag('WORKFLOWS_EMAIL_IMPACT_REPLAY_VISION')
 
-    if (replayEnabled) {
+    if (replayEnabled && !replayVisionEnabled) {
         return null
+    }
+    if (replayEnabled) {
+        return (
+            <LemonCard hoverEffect={false} className="flex flex-col gap-3 p-4">
+                <h3 className="m-0 text-base font-semibold">What people did after clicking</h3>
+                <BindLogic logic={afterClickingScanLogic} props={{ workflowId: impactLogic.props.workflowId, days }}>
+                    <AfterClickingScanPanel />
+                </BindLogic>
+            </LemonCard>
+        )
     }
 
     return (
