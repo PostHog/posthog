@@ -257,6 +257,10 @@ pub struct CopyButton {
     id: ElementId,
     label: SharedString,
     value: SharedString,
+    size: f32,
+    icon_size: f32,
+    radius: f32,
+    group: Option<SharedString>,
 }
 #[track_caller]
 pub fn copy_button(
@@ -268,6 +272,23 @@ pub fn copy_button(
         id: id.into(),
         label: label.into(),
         value: value.into(),
+        size: HIT_TARGET,
+        icon_size: 14.,
+        radius: ICON_RADIUS,
+        group: None,
+    }
+}
+impl CopyButton {
+    pub fn compact(mut self, size: f32, icon_size: f32, radius: f32) -> Self {
+        self.size = size;
+        self.icon_size = icon_size;
+        self.radius = radius;
+        self
+    }
+
+    pub fn contextual(mut self, group: impl Into<SharedString>) -> Self {
+        self.group = Some(group.into());
+        self
     }
 }
 impl RenderOnce for CopyButton {
@@ -281,11 +302,13 @@ impl RenderOnce for CopyButton {
         let value = self.value.clone();
         let state = copied.clone();
         let label = self.label.clone();
-        Button::new(self.id)
+        let icon_size = self.icon_size;
+        let button = Button::new(self.id)
             .small()
             .ghost()
-            .size(px(HIT_TARGET))
-            .rounded(px(ICON_RADIUS))
+            .size(px(self.size))
+            .p(px(0.))
+            .rounded(px(self.radius))
             .accessibility_label(label.clone())
             .tooltip(if generation > 0 {
                 "Copied".into()
@@ -294,13 +317,13 @@ impl RenderOnce for CopyButton {
             })
             .child(if generation > 0 {
                 div()
-                    .size(px(14.))
+                    .size(px(icon_size))
                     .flex()
                     .items_center()
                     .justify_center()
                     .child(
                         Icon::new(IconName::Check)
-                            .size(px(14.))
+                            .size(px(icon_size))
                             .text_color(rgb(theme::named("positive").unwrap_or(0x2f9e5b))),
                     )
                     .with_animation(
@@ -311,7 +334,9 @@ impl RenderOnce for CopyButton {
                     )
                     .into_any_element()
             } else {
-                Icon::new(IconName::Copy).size(px(14.)).into_any_element()
+                Icon::new(IconName::Copy)
+                    .size(px(icon_size))
+                    .into_any_element()
             })
             .on_click(move |_, _, cx| {
                 cx.write_to_clipboard(ClipboardItem::new_string(value.to_string()));
@@ -334,7 +359,14 @@ impl RenderOnce for CopyButton {
                     });
                 })
                 .detach();
-            })
+            });
+        match self.group {
+            Some(group) => button
+                .opacity(if generation > 0 { 1. } else { 0. })
+                .group_hover(group, |style| style.opacity(1.))
+                .focus_visible(|style| style.opacity(1.)),
+            None => button,
+        }
     }
 }
 

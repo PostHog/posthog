@@ -184,19 +184,13 @@ pub trait TranscriptHost: Sized + 'static {
                 .pr(px(2.))
                 .when(!copy.is_empty(), |el| {
                     el.child(
-                        ui::contextual_icon_button(
+                        ui::copy_button(
                             SharedString::from(format!("copy-message-{message_key}")),
-                            Glyph::Copy,
                             "Copy message",
-                            group.clone(),
-                            false,
+                            copy,
                         )
-                        .size(px(20.))
-                        .rounded(px(4.))
-                        .icon(icon(Glyph::Copy).size(px(12.)))
-                        .on_click(move |_, _, cx| {
-                            cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()))
-                        }),
+                        .compact(20., 12., 4.)
+                        .contextual(group.clone()),
                     )
                 })
                 .when_some(message_time(message.created_at), |el, time| {
@@ -282,17 +276,12 @@ pub trait TranscriptHost: Sized + 'static {
         }
         let copy = response.clone();
         let copy_button = (!response.is_empty()).then(|| {
-            ui::contextual_icon_button(
+            ui::copy_button(
                 SharedString::from(format!("copy-response-{message_key}")),
-                Glyph::Copy,
                 "Copy response",
-                group.clone(),
-                false,
+                copy,
             )
-            .tooltip("Copy response")
-            .on_click(move |_, _, cx| {
-                cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()))
-            })
+            .contextual(group.clone())
         });
         // Without a heading, copy floats over the reply's top corner on hover.
         let (copy_in_heading, floating_copy) = if show_heading {
@@ -529,17 +518,14 @@ pub trait TranscriptHost: Sized + 'static {
                                 .line_height(relative(1.5))
                                 .into_any_element()
                         });
-                    let copy_button = ui::icon_button(
-                        SharedString::from(format!("copy-{key}")),
-                        Glyph::Copy,
-                        "Copy details",
-                    )
-                    .h(px(22.))
-                    .w(px(22.))
-                    .flex_shrink_0()
-                    .on_click(move |_, _, cx| {
-                        cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()))
-                    });
+                    let copy_button = div().flex_shrink_0().child(
+                        ui::copy_button(
+                            SharedString::from(format!("copy-{key}")),
+                            "Copy details",
+                            copy,
+                        )
+                        .compact(22., 14., ui::ICON_RADIUS),
+                    );
                     let details = col()
                         .w_full()
                         .min_w_0()
@@ -934,14 +920,12 @@ pub fn chat_markdown(id: SharedString, body: String) -> TextView {
             ),
         )
         .code_block_actions(|block, _, _| {
-            let code = block.code().to_string();
-            row().w_full().justify_end().child(
-                ui::icon_button("copy-response-code", Glyph::Copy, "Copy code")
-                    .tooltip("Copy code")
-                    .on_click(move |_, _, cx| {
-                        cx.write_to_clipboard(ClipboardItem::new_string(code.clone()))
-                    }),
-            )
+            let id = block.span.map_or(0, |span| span.start);
+            row().w_full().justify_end().child(ui::copy_button(
+                SharedString::from(format!("copy-code-{id}")),
+                "Copy code",
+                block.code(),
+            ))
         })
 }
 
