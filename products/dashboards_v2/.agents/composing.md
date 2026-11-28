@@ -71,11 +71,12 @@ export function ServiceHealth(): JSX.Element | null {
 - `dashboard` is null only when the JSON does not have the shape of a dashboard. A panel that fails its own type's check still renders, and its tile says why.
 - `problems` lists each problem with its `path`, such as `tabs[0].tiles[1].panel.config.query`. Assert it is empty in a test of your JSON, so a typo fails CI instead of showing a broken tile.
 - `query.language` is `hogql`, `query` (a `QuerySchema` node), `promql` or `logql`. Your runner decides which languages it runs.
+- `config.project`, or `project` on one of `config.targets`, is the id of the project a query reads. Left out, the query reads the project your runner was made for. `createQueryBatchRunner` runs a query in another project only when its `allowsProject` option accepts it, so pass a check that keeps queries inside the viewer's organization. A refused project, or one the viewer cannot access, shows an error on that tile only.
 - With no `runQuery`, nothing runs. `createChartPanel({ sampleData: true })` draws made-up data, for a story or an empty project.
 
 ## Run your own queries
 
-A runner gets the panel's query, the time range around it and the filters with a value, and returns frames.
+A runner gets the panel's query, the time range around it, the filters with a value and the `project` when the panel names one, and returns frames.
 The dashboard never fetches data itself.
 
 ```tsx
@@ -162,6 +163,31 @@ const errorRate = {
 A chart's query and its drawing are separate: `config.viz.type` picks a kind of chart, and every kind draws the same `DataFrame`s.
 Add a kind when your product needs a chart no built-in kind draws, such as a heatmap with its own latency buckets. `DEFAULT_VIZ_TYPES` in `panels/chart/createChartPanel.tsx` lists the built-in kinds.
 Add a panel type instead only when the content is not a query result, such as a list of traces with its own loading. Use `/adding-dashboard-v2-panel-types` for that.
+
+## Your own component in a tile
+
+Use `/adding-dashboard-v2-custom-content` to add one or to migrate an existing component.
+
+To show your product's own React components in tiles, put them in a content package in your product's own folder, pass `createCustomPanel({ packages })` in the panel list, and name a content in the tile's `config.content` as `<namespace>/<name>`:
+
+```ts
+// products/web_analytics/frontend/dashboard/webAnalyticsContents.ts
+export const webAnalyticsContents = defineContentPackage('web-analytics', {
+  'browser-filter': { Component: BrowserFilter, size: { w: 8, h: 8, minW: 6, minH: 6 } },
+})
+
+const panels = [createChartPanel({ runQuery }), createCustomPanel({ packages: [webAnalyticsContents] })]
+// A tile names it as { type: 'custom', config: { content: 'web-analytics/browser-filter' } }
+```
+
+- Documents save the full name, so renaming a namespace or a content breaks saved dashboards.
+- Two packages with one namespace throw when the panel type is made.
+- Load each `Component` with `React.lazy`, so code that only checks documents never loads it.
+- By default a content has no menu entries and cannot be dragged, resized, moved or removed. Set `movable` or `menuActions` to opt in. Neither is a permission: anyone who can edit the dashboard's JSON can still move or remove the tile.
+- Set `showOnInteractiveOnly` to leave the tile out of images and printed pages.
+- Set `keepMounted` when the component holds state a person would lose when the tile scrolls out of view.
+- A content that differs between tiles takes props. Wrap it in `defineContent({ propsSchema, Component })`, and a tile saves the values as `config: { content: 'apm/slow-spans', props: { service: 'checkout' } }`. The props are checked against the schema before the component gets them.
+- A component reads the dashboard's filters from `FiltersContext`, and changes them through the controllers in `FilterControlsContext`.
 
 Split the kind in two files, as `panels/chart/viz/metric/` does. The spec has no component, so code outside the browser can validate a document without loading React.
 

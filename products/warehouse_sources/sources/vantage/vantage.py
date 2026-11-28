@@ -1,6 +1,7 @@
 from typing import Any, Optional, cast
 from urllib.parse import quote, urlparse
 
+import structlog
 from requests import Response
 
 from products.warehouse_sources.sources.sdk import (
@@ -20,6 +21,9 @@ from products.warehouse_sources.sources.vantage.settings import VANTAGE_ENDPOINT
 
 VANTAGE_HOST = "api.vantage.sh"
 VANTAGE_BASE_URL = f"https://{VANTAGE_HOST}/v2"
+MAX_CHILD_PAGES = 1000
+
+logger = structlog.get_logger(__name__)
 
 
 class VantageUntrustedURLError(Exception):
@@ -61,6 +65,51 @@ class VantageTrustedJSONPaginator(JSONResponsePaginator):
             raise VantageUntrustedURLError(
                 f"Refusing to fetch untrusted Vantage URL: host must be {VANTAGE_HOST} over HTTPS"
             )
+
+
+class VantageBoundedChildPaginator(VantageTrustedJSONPaginator):
+    def __init__(self, endpoint: str) -> None:
+        super().__init__()
+        self._endpoint = endpoint
+        self._pages_fetched = 0
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        super().update_state(response, data)
+        self._pages_fetched += 1
+        if self._pages_fetched >= MAX_CHILD_PAGES and self.has_next_page:
+            logger.warning(
+                "vantage.child_page_limit_reached",
+                endpoint=self._endpoint,
+                parent_path=urlparse(response.url).path.rsplit("/", 1)[0],
+                page_limit=MAX_CHILD_PAGES,
+            )
+            raise RuntimeError(f"Vantage {self._endpoint} exceeded its {MAX_CHILD_PAGES}-page limit for one parent.")
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        state = super().get_resume_state()
+        if state is not None:
+            state["pages_fetched"] = self._pages_fetched
+        return state
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        super().set_resume_state(state)
+        self._pages_fetched = state.get("pages_fetched", 0)
+
+
+class VantageForecastPaginator(VantageBoundedChildPaginator):
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        super().update_state(response, data)
+        if data:
+            currency = response.json()["currency"]
+            for row in data:
+                row["currency"] = currency
+
+
+_BOUNDED_CHILD_PAGINATORS: dict[str, type[VantageBoundedChildPaginator]] = {
+    "cost_alert_events": VantageBoundedChildPaginator,
+    "forecasted_costs": VantageForecastPaginator,
+    "recommendation_resources": VantageBoundedChildPaginator,
+}
 
 
 @frozen
@@ -176,6 +225,7 @@ def _fanout_resource(
 ) -> Resource:
     assert config.fanout is not None
     parent_config = VANTAGE_ENDPOINTS[config.fanout.parent_name]
+    bounded_paginator = _BOUNDED_CHILD_PAGINATORS.get(config.name)
 
     initial_paginator_state: Optional[dict[str, Any]] = None
     if resumable_source_manager.can_resume():
@@ -205,11 +255,12 @@ def _fanout_resource(
                 "data_selector": config.data_key,
                 # A path that ends in a placeholder (`/costs?cost_report_token={...}`) reads as a
                 # single-entity path to the framework, which then fetches only one page.
-                "paginator": VantageTrustedJSONPaginator(),
+                "paginator": bounded_paginator(config.name) if bounded_paginator else VantageTrustedJSONPaginator(),
             },
             parent_data_map=_PARENT_DATA_MAPS.get(config.name),
             resume_hook=save_checkpoint,
             initial_paginator_state=initial_paginator_state,
+            resume_parent_pagination=bounded_paginator is not None,
         ),
     )
 

@@ -85,7 +85,10 @@ _INEXACT_PROPERTY_KEYS = frozenset(
 # dimensional tables keep every path, so past a month a page tile can read slower than today's path. A "last 30 days"
 # range spans 31 calendar days, because it includes today.
 DIMENSIONAL_PAGE_TILES_MAX_RANGE = timedelta(days=31)
-_PAGE_BREAKDOWNS = frozenset({WebStatsBreakdown.PAGE, WebStatsBreakdown.INITIAL_PAGE, WebStatsBreakdown.EXIT_PAGE})
+# The path breakdowns group every path of the range, while the page directory reads only the paths under the
+# requested keys, so on a team with many paths a month of a path breakdown outruns the query timeout.
+DIMENSIONAL_PATH_BREAKDOWNS_MAX_RANGE = timedelta(days=8)
+_PATH_BREAKDOWNS = frozenset({WebStatsBreakdown.PAGE, WebStatsBreakdown.INITIAL_PAGE, WebStatsBreakdown.EXIT_PAGE})
 
 
 class DimensionalIneligibleReason(StrEnum):
@@ -95,6 +98,7 @@ class DimensionalIneligibleReason(StrEnum):
     MODIFIER_OVERRIDE = "modifier_override"
     PARTIAL_HOUR_RANGE = "partial_hour_range"
     PAGE_TILE_RANGE = "page_tile_range"
+    PATH_BREAKDOWN_RANGE = "path_breakdown_range"
     RETENTION_FLOOR = "retention_floor"
     SESSIONS_COVERAGE_FLOOR = "sessions_coverage_floor"
     NOT_READY = "not_ready"
@@ -148,8 +152,9 @@ def _ready_job_ids_or_reason(
     if not all(_fits_whole_hour_buckets(period.date_from(), period.date_to()) for period in periods):
         return None, DimensionalIneligibleReason.PARTIAL_HOUR_RANGE
 
-    if _page_tile_stays_live(runner, periods):
-        return None, DimensionalIneligibleReason.PAGE_TILE_RANGE
+    page_tile_reason = _page_tile_range_reason(runner, periods)
+    if page_tile_reason is not None:
+        return None, page_tile_reason
 
     start = min(period.date_from() for period in periods)
     if _crosses_events_retention_floor(runner, start):
@@ -252,20 +257,26 @@ def _query_modifiers_flag_enabled(runner: "DimensionalReadRunner") -> bool:
     )
 
 
-def _page_tile_stays_live(runner: "DimensionalReadRunner", periods: list["QueryDateRange"]) -> bool:
-    if not _reads_page_tile(runner):
-        return False
-    return any(period.date_to() - period.date_from() > DIMENSIONAL_PAGE_TILES_MAX_RANGE for period in periods)
-
-
-def _reads_page_tile(runner: "DimensionalReadRunner") -> bool:
+def _page_tile_range_reason(
+    runner: "DimensionalReadRunner", periods: list["QueryDateRange"]
+) -> DimensionalIneligibleReason | None:
     if runner.query.kind == "WebPageDirectoryQuery":
-        return True
+        max_range, reason = DIMENSIONAL_PAGE_TILES_MAX_RANGE, DimensionalIneligibleReason.PAGE_TILE_RANGE
+    elif _reads_path_breakdown(runner):
+        max_range, reason = DIMENSIONAL_PATH_BREAKDOWNS_MAX_RANGE, DimensionalIneligibleReason.PATH_BREAKDOWN_RANGE
+    else:
+        return None
+    if any(period.date_to() - period.date_from() > max_range for period in periods):
+        return reason
+    return None
+
+
+def _reads_path_breakdown(runner: "DimensionalReadRunner") -> bool:
     if runner.query.kind != "WebStatsTableQuery":
         return False
     # The stats runner can remap the requested breakdown, and the remapped one decides what the query groups by.
     effective_breakdown = getattr(runner, "_effective_breakdown", None)
-    return effective_breakdown is not None and effective_breakdown() in _PAGE_BREAKDOWNS
+    return effective_breakdown is not None and effective_breakdown() in _PATH_BREAKDOWNS
 
 
 def _has_inexact_property_filter(runner: "DimensionalReadRunner") -> bool:
