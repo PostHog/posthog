@@ -83,25 +83,66 @@ function containerLength(text: string): number {
     return text.length
 }
 
+// An HTTP status or a database error code is diagnostic output. A one-time code or an authorization code has four digits or more.
+// The number must be the complete value, because an authorization code can start with a short number, for example `4/0A...`.
+// A second group of digits on the same line marks a one-time code printed in groups, for example `123 456`.
+const NO_SECOND_DIGIT_GROUP = '(?!(?:[ \\t\\u00a0]|\\\\[nrt])*\\d)'
+const QUOTED_DIAGNOSTIC_CODE = /^(["'])\d{1,3}\1/
+// A `=` value runs to the next whitespace, so only whitespace or `;` can end the number.
+const EQUALS_DIAGNOSTIC_CODE = new RegExp(`^\\d{1,3}(?:$|(?=[\\s;]))${NO_SECOND_DIGIT_GROUP}`)
+// A `:` value runs to the end of the line, so prose can follow the number: `Code: 60. DB::Exception`.
+// A serialized exception carries its line break as the two characters `\n`.
+const COLON_DIAGNOSTIC_CODE = new RegExp(`^\\d{1,3}(?:[,}\\]]|[.;)]?(?:$|(?=\\s|\\\\[nrt])))${NO_SECOND_DIGIT_GROUP}`)
+
+function isDiagnosticCodeText(
+    name: string,
+    precedingCharacter: string | undefined,
+    separator: string,
+    rest: string
+): boolean {
+    // A `code` URL parameter is an authorization code, not a status. `;` covers `&amp;` and matrix parameters.
+    if (!/^code$/i.test(name) || (precedingCharacter && '?&;'.includes(precedingCharacter))) {
+        return false
+    }
+    return (
+        QUOTED_DIAGNOSTIC_CODE.test(rest) ||
+        (separator === '=' ? EQUALS_DIAGNOSTIC_CODE : COLON_DIAGNOSTIC_CODE).test(rest)
+    )
+}
+
+function isDiagnosticCodeAttribute(name: string, value: unknown): boolean {
+    return (
+        /^code$/i.test(name) &&
+        ((typeof value === 'number' && Number.isInteger(value) && value >= 0 && value < 1000) ||
+            (typeof value === 'string' && /^\d{1,3}$/.test(value)))
+    )
+}
+
 function findCredentialRanges(text: string, rule: CredentialNameRule): RedactionRange[] {
     const ranges: RedactionRange[] = []
     for (const match of text.matchAll(ASSIGNMENT_PATTERN)) {
-        if (!isCredentialName(match[1] ?? match[2] ?? match[3]!, rule)) {
+        const name = match[1] ?? match[2] ?? match[3]!
+        if (!isCredentialName(name, rule)) {
             continue
         }
         const start = match.index + match[0].length
         const rest = text.slice(start)
         const quoted = rest.match(QUOTED_VALUE_PATTERN)
+        const diagnostic = isDiagnosticCodeText(name, text[match.index - 1], match[4]!, rest)
         if (quoted) {
-            ranges.push({ start: start + 1, end: start + quoted[0].length - 1 })
+            if (!diagnostic) {
+                ranges.push({ start: start + 1, end: start + quoted[0].length - 1 })
+            }
         } else if (/^[{[]/.test(rest)) {
             ranges.push({ start, end: start + containerLength(rest) })
         } else {
             const value = rest.startsWith(REDACTED_VALUE)
                 ? REDACTED_VALUE
                 : rest.match(match[4] === '=' ? /^(?:\\(?!["'])|[^&;\s"'\\#<>])+/ : /^[^\r\n,}\]]+/)?.[0].trimEnd()
-            if (value) {
-                ranges.push({ start, end: start + value.length })
+            // Only the number is diagnostic. The text after it can hold a secret that no other pattern finds.
+            const kept = diagnostic ? rest.match(/^\d+[.;)]?[ \t]*/)![0].length : 0
+            if (value && value.length > kept) {
+                ranges.push({ start: start + kept, end: start + value.length })
             }
         }
     }
@@ -200,7 +241,9 @@ export function redactCredentials(value: unknown, rule: CredentialNameRule = isL
             assignKey(
                 redacted,
                 redactCredentialsInText(key, rule),
-                isCredentialName(key, rule) ? REDACTED_VALUE : redactCredentials(entry, rule)
+                isCredentialName(key, rule) && !isDiagnosticCodeAttribute(key, entry)
+                    ? REDACTED_VALUE
+                    : redactCredentials(entry, rule)
             )
         }
         return redacted

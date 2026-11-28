@@ -170,6 +170,52 @@ describe('credential redaction', () => {
         expect(redactCredentialsInText(input)).toBe(expected)
     })
 
+    it.each([
+        { name: 'a status code in a JSON log line', input: '{"event": "request_finished", "code": 302}' },
+        { name: 'a status code in a key-value log line', input: 'event=request_finished code=500 request=GET' },
+        { name: 'a status code in parentheses', input: 'request failed (code: 500)' },
+        { name: 'a status code before a line that starts with a digit', input: 'code: 200\n2026-01-01 next line' },
+        { name: 'a status code attribute', input: { code: 404 } },
+        { name: 'a status code attribute stored as text', input: { code: '404' } },
+        { name: 'a quoted status code', input: '{"event": "request_finished", "code": "302"}' },
+    ])('keeps $name', ({ input }) => {
+        expect(redactCredentials(input)).toEqual(input)
+    })
+
+    it.each([
+        { input: `/callback?code=${OTHER_SECRET}&state=1`, expected: '/callback?code=[REDACTED]&state=1' },
+        { input: 'verification code: 123456', expected: 'verification code: [REDACTED]' },
+        { input: 'verification code=4821 sent', expected: 'verification code=[REDACTED] sent' },
+        { input: { code: 4821 }, expected: { code: '[REDACTED]' } },
+        { input: `/callback?code=4/${OTHER_SECRET}&state=1`, expected: '/callback?code=[REDACTED]&state=1' },
+        { input: `/callback?code=4%2F${OTHER_SECRET}&state=1`, expected: '/callback?code=[REDACTED]&state=1' },
+        { input: '/callback?state=1&code=302', expected: '/callback?state=1&code=[REDACTED]' },
+        { input: `code=12.${OTHER_SECRET} next=1`, expected: 'code=[REDACTED] next=1' },
+        { input: `code="12 ${OTHER_SECRET}"`, expected: 'code="[REDACTED]"' },
+        { input: { code: `4/${OTHER_SECRET}` }, expected: { code: '[REDACTED]' } },
+        { input: `code=4,${OTHER_SECRET} next=1`, expected: 'code=[REDACTED] next=1' },
+        { input: `code: 302)${OTHER_SECRET}`, expected: 'code: [REDACTED]' },
+        { input: 'verification code: 123 456', expected: 'verification code: [REDACTED]' },
+        { input: 'verification code=123 456', expected: 'verification code=[REDACTED] 456' },
+        { input: '/callback?state=1&amp;code=123', expected: '/callback?state=1&amp;code=[REDACTED]' },
+        { input: { code: [302, OTHER_SECRET] }, expected: { code: '[REDACTED]' } },
+        { input: { code: { toString: 'text' } }, expected: { code: '[REDACTED]' } },
+        { input: { code: OTHER_SECRET }, expected: { code: '[REDACTED]' } },
+        { input: 'your code: 123\\n456 expires soon', expected: 'your code: [REDACTED]' },
+    ])('still masks a code that is not a short number: $input', ({ input, expected }) => {
+        expect(redactCredentials(input)).toEqual(expected)
+    })
+
+    it.each([
+        { input: 'Code: 241. DB::Exception: Memory limit exceeded', expected: 'Code: 241. [REDACTED]' },
+        { input: 'Code: 241.\\nDB::Exception: Memory limit exceeded', expected: 'Code: 241.[REDACTED]' },
+        { input: 'request failed (code: 500) after 3 retries', expected: 'request failed (code: 500) [REDACTED]' },
+        { input: `code: 404 ${OTHER_SECRET}`, expected: 'code: 404 [REDACTED]' },
+        { input: `code: 404\\n${OTHER_SECRET}`, expected: 'code: 404[REDACTED]' },
+    ])('keeps a short code and masks the text after it: $input', ({ input, expected }) => {
+        expect(redactCredentials(input)).toEqual(expected)
+    })
+
     it('parses an unclosed private key label in linear time', () => {
         // A backtracking header pattern takes tens of seconds on this input, far past the test timeout.
         const input = `-----BEGIN ${'PRIVATE KEY '.repeat(100_000)}`
