@@ -28,10 +28,9 @@ import collections
 import dataclasses
 from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 from urllib.parse import urlencode
 
-import duckdb
 import pyarrow as pa
 import structlog
 
@@ -59,6 +58,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     MotherduckSourceConfig,
 )
 from products.warehouse_sources.backend.types import IncrementalFieldType
+
+if TYPE_CHECKING:
+    import duckdb
 
 __all__ = [
     "MOTHERDUCK_TRANSIENT_ERRORS",
@@ -159,6 +161,8 @@ def connect(access_token: str, database: Optional[str] = None, *, read_only: boo
     Read-only by default: neither imports nor direct queries write, so DuckDB rejects every
     write statement engine-side regardless of what the token is granted.
     """
+    import duckdb  # noqa: PLC0415
+
     connection_string = build_motherduck_connection_string(database, access_token)
     config = dict(DUCKDB_LOCAL_CONFIG)
     # Extension autoload runs as the connection opens, so the store has to exist by then. Creating

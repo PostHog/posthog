@@ -467,7 +467,7 @@ def test_copy_data_imports_to_ducklake_activity_via_duckdb(monkeypatch):
         MagicMock(return_value=True),
     )
     monkeypatch.setattr(
-        "products.managed_warehouse.backend.temporal.ducklake_copy_data_imports_workflow.duckdb.connect",
+        "duckdb.connect",
         MagicMock(return_value=mock_conn),
     )
     monkeypatch.setattr(
@@ -735,7 +735,7 @@ def test_verify_data_imports_ducklake_copy_activity_uses_duckdb_in_dev(monkeypat
         MagicMock(return_value=True),
     )
     monkeypatch.setattr(
-        "products.managed_warehouse.backend.temporal.ducklake_copy_data_imports_workflow.duckdb.connect",
+        "duckdb.connect",
         MagicMock(return_value=mock_conn),
     )
     mock_configure_connection = MagicMock()
@@ -835,7 +835,7 @@ def test_verify_data_imports_ducklake_copy_activity_executes_configured_query(mo
         mock_setup_session,
     )
     monkeypatch.setattr(
-        "products.managed_warehouse.backend.temporal.ducklake_copy_data_imports_workflow.duckdb.connect",
+        "duckdb.connect",
         MagicMock(side_effect=AssertionError("duckdb.connect should not be used outside dev mode")),
     )
     monkeypatch.setattr(

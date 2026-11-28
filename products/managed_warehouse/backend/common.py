@@ -23,7 +23,6 @@ from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING, TypedDict
 from uuid import UUID
 
-import duckdb
 import psycopg
 from psycopg import sql
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
@@ -35,6 +34,7 @@ from products.warehouse_sources.backend.facade.duckgres import (
 )
 
 if TYPE_CHECKING:
+    import duckdb
     from clickhouse_driver import Client
 
     from posthog.clickhouse.cluster import ClickhouseCluster
@@ -474,6 +474,8 @@ def initialize_ducklake(config: dict[str, str] | None = None, *, alias: str = "d
 
     In dev mode, automatically resets the catalog database on version mismatch.
     """
+    import duckdb  # noqa: PLC0415
+
     if config is None:
         config = get_config()
 

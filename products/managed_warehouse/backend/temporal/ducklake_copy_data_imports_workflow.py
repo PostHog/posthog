@@ -7,12 +7,12 @@ import typing
 import asyncio
 import datetime as dt
 import dataclasses
+from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
 from django.conf import settings
 from django.db import close_old_connections
 
-import duckdb
 import deltalake
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
@@ -86,6 +86,9 @@ from products.managed_warehouse.backend.temporal.metrics import (
 )
 from products.managed_warehouse.backend.temporal.source_job_state import record_managed_warehouse_source_job_activity
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
+
+if TYPE_CHECKING:
+    import duckdb
 
 LOGGER = get_logger(__name__)
 DATA_IMPORTS_DUCKLAKE_WORKFLOW_PREFIX = "data_imports"
@@ -454,6 +457,8 @@ def _copy_data_imports_via_duckdb(
     inputs: DuckLakeCopyDataImportsActivityInputs, logger: typing.Any
 ) -> DeltaTableSnapshotWorkload:
     """Create the DuckLake table directly from Delta using the local DuckDB client."""
+    import duckdb  # noqa: PLC0415
+
     workload = get_delta_table_snapshot_workload(inputs.model.source_table_uri, team_id=inputs.team_id)
     alias = "ducklake"
     with duckdb.connect() as conn:
@@ -695,6 +700,8 @@ def _fetch_delta_partition_columns(table_uri: str, *, team_id: int) -> list[str]
 
 def _attach_ducklake_catalog(conn: duckdb.DuckDBPyConnection, config: dict[str, str], alias: str) -> None:
     """Attach the DuckLake catalog, swallowing the error if already attached."""
+    import duckdb  # noqa: PLC0415
+
     try:
         attach_catalog(conn, config, alias=alias)
     except duckdb.CatalogException as exc:
@@ -746,6 +753,8 @@ def _verify_data_imports_ducklake_copy(
 def _verify_data_imports_ducklake_copy_via_duckdb(
     inputs: DuckLakeCopyDataImportsActivityInputs, logger: typing.Any
 ) -> list[DuckLakeCopyDataImportsVerificationResult]:
+    import duckdb  # noqa: PLC0415
+
     alias = "ducklake"
     config = get_config()
 

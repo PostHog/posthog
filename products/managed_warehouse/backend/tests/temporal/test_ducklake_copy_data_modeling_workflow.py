@@ -284,7 +284,7 @@ def test_verify_ducklake_copy_activity_runs_queries(monkeypatch):
             self.closed = True
 
     fake_conn = FakeDuckDBConnection(rows=[(0,)])
-    monkeypatch.setattr(ducklake_module.duckdb, "connect", lambda: fake_conn)
+    monkeypatch.setattr(duckdb, "connect", lambda: fake_conn)
     monkeypatch.setattr(ducklake_module, "_run_schema_verification", lambda *args, **kwargs: None)
     monkeypatch.setattr(ducklake_module, "_run_partition_verification", lambda *args, **kwargs: None)
 
@@ -433,7 +433,7 @@ def test_verify_ducklake_copy_activity_reports_failures(monkeypatch):
             self.closed = True
 
     fake_conn = FakeDuckDBConnection(rows=[(10,)])
-    monkeypatch.setattr(ducklake_module.duckdb, "connect", lambda: fake_conn)
+    monkeypatch.setattr(duckdb, "connect", lambda: fake_conn)
     monkeypatch.setattr(ducklake_module, "_run_schema_verification", lambda *args, **kwargs: None)
     monkeypatch.setattr(ducklake_module, "_run_partition_verification", lambda *args, **kwargs: None)
 
@@ -589,7 +589,7 @@ def test_verify_ducklake_copy_activity_respects_tolerance(monkeypatch, observed,
             self.closed = True
 
     fake_conn = FakeDuckDBConnection(observed)
-    monkeypatch.setattr(ducklake_module.duckdb, "connect", lambda: fake_conn)
+    monkeypatch.setattr(duckdb, "connect", lambda: fake_conn)
     monkeypatch.setattr(ducklake_module, "_run_schema_verification", lambda *args, **kwargs: None)
     monkeypatch.setattr(ducklake_module, "_run_partition_verification", lambda *args, **kwargs: None)
 
@@ -672,7 +672,7 @@ def test_verify_ducklake_copy_activity_includes_additional_checks(monkeypatch):
             self.closed = True
 
     fake_conn = FakeDuckDBConnection()
-    monkeypatch.setattr(ducklake_module.duckdb, "connect", lambda: fake_conn)
+    monkeypatch.setattr(duckdb, "connect", lambda: fake_conn)
 
     mock_heartbeater = MagicMock()
     mock_heartbeater.__enter__ = MagicMock(return_value=mock_heartbeater)
