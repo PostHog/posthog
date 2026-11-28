@@ -113,8 +113,9 @@ describe('AdventRaffleFlowStage', () => {
         expect([
             beforeTheEnd,
             screen.queryByRole('dialog') === card,
+            card.getAttribute('data-open'),
             !!within(card).queryByText('Open each door on its day to enter the raffle.'),
-        ]).toEqual([null, true, true])
+        ]).toEqual([null, true, 'true', true])
     })
 
     it('holds the ticket flight while the door card covers the phone column', async () => {

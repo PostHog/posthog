@@ -519,11 +519,13 @@ describe('AdventFlowStage', () => {
         ],
     ])('captions the exit %s', (_, size, note, lines, isButton) => {
         renderStage(size, { exitNote: note })
+        const exit = document.querySelector('[data-attr="advent-exit"]')
 
         expect([
             lines.map((line) => !!screen.queryByText(line)),
-            screen.queryByLabelText(/^Exit\s*Raffle draw$/) instanceof HTMLButtonElement,
-        ]).toEqual([lines.map(() => true), isButton])
+            exit instanceof HTMLButtonElement,
+            !!exit && screen.queryByLabelText(/^Exit\s*Raffle draw$/) === exit,
+        ]).toEqual([lines.map(() => true), isButton, isButton])
     })
 
     it('opens the exit note on a click', () => {
