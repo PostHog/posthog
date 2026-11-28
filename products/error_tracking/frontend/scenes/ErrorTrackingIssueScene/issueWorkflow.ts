@@ -22,11 +22,14 @@ function issueWorkflowTrigger(issueId: string): WorkflowTriggerConfig {
 
 /** Opens a new workflow that emails people each time they hit this issue. */
 export function openIssueWorkflow(issueId: string): void {
-    captureMessageAudienceClicked(SOURCE, 'workflow')
+    const attemptId = captureMessageAudienceClicked(SOURCE, 'workflow')
     router.actions.push(
-        urlForNewWorkflowWithTrigger(issueWorkflowTrigger(issueId), SOURCE, draftMessage({ kind: 'issue_hit' }), {
-            source: 'error_tracking',
-            source_id: issueId,
-        })
+        urlForNewWorkflowWithTrigger(
+            issueWorkflowTrigger(issueId),
+            SOURCE,
+            draftMessage({ kind: 'issue_hit' }),
+            { source: 'error_tracking', source_id: issueId },
+            attemptId
+        )
     )
 }
