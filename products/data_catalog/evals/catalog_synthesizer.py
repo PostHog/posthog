@@ -453,6 +453,39 @@ CHURNED_ACCOUNTS_METRIC = CatalogMetric(
     },
 )
 
+# A guardrail for any change that pushes upgrades. A question about one experiment does not name it.
+EARLY_DOWNGRADE_METRIC = CatalogMetric(
+    name="early_downgrade_rate",
+    display_name="Early downgrade rate",
+    description=(
+        "Share of users who upgraded their plan in the trailing 90 days and downgraded within 7 days after "
+        "one of those upgrades."
+    ),
+    definition={
+        "kind": "HogQLQuery",
+        "query": (
+            "SELECT round(100 * countIf(downgraded_early) / count(), 2) AS early_downgrade_pct\n"
+            "FROM (\n"
+            "    SELECT u.person_id AS person_id,\n"
+            "        countIf(d.timestamp > u.timestamp AND d.timestamp <= u.timestamp + INTERVAL 7 DAY) > 0"
+            " AS downgraded_early\n"
+            "    FROM (\n"
+            "        SELECT person_id, timestamp\n"
+            "        FROM events\n"
+            "        WHERE event = 'upgraded_plan' AND timestamp >= now() - INTERVAL 90 DAY\n"
+            "    ) AS u\n"
+            "    LEFT JOIN (\n"
+            "        SELECT person_id, timestamp\n"
+            "        FROM events\n"
+            "        WHERE event = 'downgraded_plan' AND timestamp >= now() - INTERVAL 90 DAY\n"
+            "    ) AS d ON d.person_id = u.person_id\n"
+            "    GROUP BY u.person_id\n"
+            ")"
+        ),
+    },
+    unit="percent",
+)
+
 # Both churn branches read Hedgebox events, so the markdown cases need no warehouse table.
 CHURN_RISK_DOWNGRADE_BRANCH = "downgraded_plan"
 CHURN_RISK_DELETION_BRANCH = "deleted_file"

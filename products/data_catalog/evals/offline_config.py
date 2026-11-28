@@ -21,6 +21,7 @@ _SCORERS: dict[str, OfflineScorer] = {
         kind="numeric", version=UUID("01a15a28-0f80-7d6e-b0bb-0573fcb583fa")
     ),
     "hypothesis_evidence_queried": OfflineScorer(kind="boolean", version=UUID("01a1893a-a1ae-770b-b78b-a9293065ecef")),
+    "implied_context_queried": OfflineScorer(kind="boolean", version=UUID("01a2187c-5e09-7f38-b8c9-fdb11ab0f046")),
     "insight_shape": OfflineScorer(kind="boolean", version=UUID("01a1ef1b-84c9-79cc-a91a-6983f2f7e544")),
     "metric_create_called": OfflineScorer(kind="boolean", version=UUID("01a15a28-47d2-7eea-ba8a-55266556d782")),
     "metric_describe_before_adapted_sql": OfflineScorer(

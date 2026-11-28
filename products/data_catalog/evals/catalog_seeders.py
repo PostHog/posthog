@@ -46,6 +46,7 @@ from products.data_catalog.evals.catalog_synthesizer import (
     DEALS_TABLE_DESCRIPTION,
     DEALS_V3_TABLE,
     DEALS_V3_TABLE_DESCRIPTION,
+    EARLY_DOWNGRADE_METRIC,
     FILES_PAGE_ACTIONS_METRIC,
     LOCAL_AMOUNT_DESCRIPTION,
     LOCAL_AMOUNT_ROWS,
@@ -194,6 +195,10 @@ def seed_catalog_for_account_spend(context: CustomPromptSandboxContext) -> dict[
 
 def seed_catalog_for_account_check_in(context: CustomPromptSandboxContext) -> dict[str, Any]:
     return _catalog(context, CHURN_RISK_METRIC, MRR_METRIC, ACCOUNT_ENGAGEMENT_METRIC)
+
+
+def seed_catalog_with_early_downgrades(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    return _catalog(context, EARLY_DOWNGRADE_METRIC, MRR_METRIC)
 
 
 def seed_mrr_metric(context: CustomPromptSandboxContext) -> dict[str, Any]:

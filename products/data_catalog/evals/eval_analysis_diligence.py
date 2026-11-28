@@ -7,6 +7,9 @@ The two no-metric cases seed only metrics that do not fit, so the agent must che
 match, and then define the measure itself.
 The alert cases quote an alert and ask what caused it. Only the alert names the measure, so the agent must
 find the alert's metric in the catalog before it looks for a cause.
+The implied-need cases name one thing and need another. A renewal needs the churn risk, an Enterprise pitch needs
+the seat and bill history, a launch check needs the errors, and an experiment read needs the guardrails that the
+experiment does not track. Each planted truth shows only in that unnamed context.
 
 To run the suite, once per surface:
 
@@ -24,6 +27,8 @@ from products.data_catalog.evals.catalog_seeders import (
 )
 from products.data_catalog.evals.catalog_synthesizer import (
     ACCOUNT_ENGAGEMENT_METRIC,
+    CHURN_RISK_METRIC,
+    EARLY_DOWNGRADE_METRIC,
     MRR_METRIC,
     NEW_SIGNUPS_METRIC,
     PAYING_CUSTOMERS_METRIC,
@@ -31,17 +36,21 @@ from products.data_catalog.evals.catalog_synthesizer import (
 )
 from products.data_catalog.evals.offline_config import offline_suite
 from products.data_catalog.evals.scenario_seeder import (
+    seed_expansion_account_in_catalog,
     seed_flat_wau,
     seed_health_check_mix,
     seed_mcp_tool_shipped,
     seed_org_grain_metric,
     seed_preview_adoption,
+    seed_preview_launch_in_catalog,
+    seed_renewal_account_in_catalog,
     seed_revenue_rep_outlier,
     seed_share_dau,
     seed_share_drop_flag,
     seed_signup_spike_in_catalog,
     seed_slack_pretax_note,
     seed_tool_failures_in_catalog,
+    seed_upgrade_banner_in_catalog,
     seed_upload_double_count,
     seed_upload_double_count_in_catalog,
     seed_wau_bot_spike,
@@ -51,6 +60,7 @@ from products.data_catalog.evals.scenario_synthesizer import (
     CAMPAIGN_ANNOTATION_CONTENT,
     CAMPAIGN_UTM_SOURCE,
     CRM_OUTLIER_REP_NAME,
+    EXPANSION_ACCOUNT_NAME,
     MCP_EXPORT_FIRST_SEEN_DAYS_AGO,
     MCP_EXPORT_TOOL,
     MCP_FAILING_TOOL,
@@ -60,8 +70,12 @@ from products.data_catalog.evals.scenario_synthesizer import (
     POST_TAX_MULTIPLIER,
     PREVIEW_EVENT,
     PREVIEW_FIRST_SEEN_DAYS_AGO,
+    PREVIEW_RENDER_ERROR_TYPE,
+    PREVIEW_RENDER_ISSUE_NAME,
+    RENEWAL_ACCOUNT_NAME,
     SHARE_DAU_DAILY_SHARERS,
     SHARE_FLAG_KEY,
+    UPGRADE_BANNER_EXPERIMENT_NAME,
     UPLOAD_DUPLICATE_LIB_VERSION,
     WAU_BOT_BROWSER,
     build_revenue_rep_outlier,
@@ -104,6 +118,12 @@ _SPIKE_CAUSE = r"referr|utm_|\$browser|\$device_type|\$pathname|\$current_url|ma
 
 # The noise catalog's approved daily uploads metric, which the uploads alert is named after.
 _DAILY_UPLOADS_METRIC = "file_uploads_daily"
+
+_ERROR_TRACKING_TOOLS = [
+    "query-error-tracking-issues-list",
+    "query-error-tracking-issue",
+    "query-error-tracking-issue-events",
+]
 
 _CRM_TABLE = synced_table_names(crm_deals_table(build_revenue_rep_outlier()).table_name)
 _SLACK_TABLE = synced_table_names(build_slack_export().table.table_name)
@@ -505,6 +525,90 @@ async def eval_analysis_diligence(ctx: EvalContext) -> None:
             },
             setup=seed_catalog_for_board_update,
         ),
+        SandboxedEvalCase(
+            name="implied_renewal_risk",
+            prompt=f"I have a renewal call with {RENEWAL_ACCOUNT_NAME} tomorrow. Anything I should know?",
+            expected={
+                "metric_found": {"metric_name": CHURN_RISK_METRIC.name},
+                "implied_context_queried": {"patterns": [r"removed_team_member", r"downgraded_plan"]},
+                "analysis_diligence": {
+                    "expected_behavior": (
+                        f"Treat the renewal as a churn question. Find {CHURN_RISK_METRIC.name} in the catalog, read "
+                        f"its steps, and apply them to the {RENEWAL_ACCOUNT_NAME} account through $group_0: the "
+                        "downgrade branch flags it, because it moved from business/enterprise to business/standard "
+                        "about 3 weeks ago. Find that the account removed 4 of its 10 members in the last 6 weeks, "
+                        "that its weekly active members fell from about 10 to 6, and that its monthly bill fell from "
+                        "$200 to $60. Lead with this risk, not with a plain usage summary."
+                    )
+                },
+            },
+            setup=seed_renewal_account_in_catalog,
+        ),
+        SandboxedEvalCase(
+            name="implied_expansion_readiness",
+            prompt=f"I want to pitch {EXPANSION_ACCOUNT_NAME} on the Enterprise plan. Do they look ready?",
+            expected={
+                "metric_found": {"metric_name": MRR_METRIC.name},
+                "implied_context_queried": {"patterns": [r"invited_team_member", r"from_invite"]},
+                "analysis_diligence": {
+                    "expected_behavior": (
+                        f"Check the {EXPANSION_ACCOUNT_NAME} account through $group_0. Find that it is on "
+                        "business/standard, that its seats doubled from 5 to 10 through invites in the last 8 weeks, "
+                        f"and that its monthly bill rose from $50 to $100 (from {MRR_METRIC.name}'s paid_bill "
+                        "definition). Break the activity down by member and find that the 5 invited members logged "
+                        "in once when they joined and did nothing after, so all file activity comes from the first "
+                        "5 members. Conclude that Enterprise, at twice the price per seat, would charge for 5 idle "
+                        "seats, so the account needs adoption by its new members before an upgrade pitch."
+                    )
+                },
+            },
+            setup=seed_expansion_account_in_catalog,
+        ),
+        SandboxedEvalCase(
+            name="implied_launch_quality",
+            prompt="We launched file previews a few weeks ago. Is it working?",
+            expected={
+                "implied_context_queried": {
+                    "patterns": [r"\$exception", PREVIEW_RENDER_ERROR_TYPE],
+                    "tools": _ERROR_TRACKING_TOOLS,
+                },
+                "analysis_diligence": {
+                    "expected_behavior": (
+                        f"Report the adoption: the {PREVIEW_EVENT} event first appears about "
+                        f"{PREVIEW_FIRST_SEEN_DAYS_AGO} days ago, and the share of active users who preview a file "
+                        "grew to roughly a quarter. Then check the quality, which the question also asks about: find "
+                        f"the '{PREVIEW_RENDER_ISSUE_NAME}' {PREVIEW_RENDER_ERROR_TYPE} issue, or the preview render "
+                        "error metrics in the catalog, and find that the errors rose with the launch. About 1 in 4 "
+                        "PDF previews fails, and previews of other file types do not fail. Conclude that users adopt "
+                        "previews, but PDF previews often break."
+                    )
+                },
+            },
+            setup=seed_preview_launch_in_catalog,
+        ),
+        SandboxedEvalCase(
+            name="implied_experiment_guardrails",
+            prompt=f"Can you tell me how the {UPGRADE_BANNER_EXPERIMENT_NAME.lower()} experiment is doing?",
+            expected={
+                "metric_found": {"metric_name": EARLY_DOWNGRADE_METRIC.name},
+                "implied_context_queried": {
+                    "patterns": [r"downgraded_plan"],
+                    "metrics": [EARLY_DOWNGRADE_METRIC.name],
+                },
+                "analysis_diligence": {
+                    "expected_behavior": (
+                        f"Read the '{UPGRADE_BANNER_EXPERIMENT_NAME}' experiment: its primary metric is upgrades, and "
+                        "test converts about twice as often as control (about 18% against 8% of exposed users). "
+                        f"Then check a guardrail that the experiment does not track: find {EARLY_DOWNGRADE_METRIC.name} "
+                        "in the catalog and apply it per variant. More than half of the test upgraders downgrade "
+                        "within a week, against about 1 in 12 in control, so the upgrades that stay are about the "
+                        "same in both variants (about 8% and 7%). Do not recommend shipping test from the primary "
+                        "metric alone."
+                    )
+                },
+            },
+            setup=seed_upgrade_banner_in_catalog,
+        ),
     ]
     await SandboxedEval(
         experiment_name="sandboxed-analysis-diligence-cli",
@@ -517,6 +621,7 @@ async def eval_analysis_diligence(ctx: EvalContext) -> None:
             AnnotationsRead(),
             EvidenceQueried(),
             EvidenceQueried(name="claim_measured"),
+            EvidenceQueried(name="implied_context_queried"),
             FirstSeenChecked(),
             AnalysisDiligence(),
             ContextApplied(),
@@ -539,6 +644,7 @@ async def eval_analysis_diligence(ctx: EvalContext) -> None:
                 "annotations_read",
                 "hypothesis_evidence_queried",
                 "claim_measured",
+                "implied_context_queried",
                 "first_seen_checked",
                 "analysis_diligence",
                 "context_applied",

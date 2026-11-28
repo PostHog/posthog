@@ -12,7 +12,7 @@ import re
 import json
 from typing import Any
 
-from products.data_catalog.evals.scorers import chain_judge_input, final_answer
+from products.data_catalog.evals.scorers import METRIC_RUN_TOOL, chain_judge_input, final_answer
 from products.posthog_ai.eval_harness.log_parser import LogParser, ToolCall, is_schema_discovery_call
 from products.posthog_ai.eval_harness.scorers import (
     BINARY_CHOICE_SCORES,
@@ -57,10 +57,12 @@ def _data_calls(parser: LogParser) -> list[ToolCall]:
 class EvidenceQueried(Scorer):
     """Binary: did a successful call query the evidence that tests a hypothesis or a claim?
 
-    ``expected[name]`` holds ``patterns`` (case-insensitive regexes matched against a data call's query)
-    and ``tools`` (tool names that count on their own, such as feature flag tools), or either one. One
-    class serves several named checks, so a case can grade "measured the claim", "tested the hypothesis",
-    and "read the metric definition" separately.
+    ``expected[name]`` holds one or more of ``patterns`` (case-insensitive regexes matched against a data
+    call's query), ``tools`` (tool names that count on their own, such as feature flag tools), and
+    ``metrics`` (catalog metric names). A successful ``data-catalog-metric-run`` of a listed metric counts,
+    because the server runs the metric's query and the call input holds only the name. One class serves
+    several named checks, so a case can grade "measured the claim", "tested the hypothesis", and "read
+    the metric definition" separately.
     """
 
     def __init__(self, *, name: str = "hypothesis_evidence_queried"):
@@ -75,12 +77,18 @@ class EvidenceQueried(Scorer):
             return Score(name=self._name(), score=None, metadata={"reason": "not requested"})
         patterns = [re.compile(pattern, re.IGNORECASE) for pattern in spec.get("patterns", [])]
         tools = set(spec.get("tools", []))
-        if not patterns and not tools:
+        metrics = set(spec.get("metrics", []))
+        if not patterns and not tools and not metrics:
             return Score(name=self._name(), score=0.0, metadata={"reason": "invalid expected metadata"})
         parser = parser_for(output)
         if parser is None:
             return Score(name=self._name(), score=0.0, metadata={"reason": "No raw log"})
         tool_hits = [call.name for call in parser.get_tool_calls() if not call.is_error and call.name in tools]
+        metric_hits = [
+            call.input.get("name")
+            for call in parser.get_tool_calls(METRIC_RUN_TOOL)
+            if not call.is_error and call.input.get("name") in metrics
+        ]
         query_hits = [
             _call_text(call)
             for call in _data_calls(parser)
@@ -88,8 +96,8 @@ class EvidenceQueried(Scorer):
         ]
         return Score(
             name=self._name(),
-            score=1.0 if tool_hits or query_hits else 0.0,
-            metadata={"tool_hits": tool_hits, "query_hits": query_hits},
+            score=1.0 if tool_hits or metric_hits or query_hits else 0.0,
+            metadata={"tool_hits": tool_hits, "metric_hits": metric_hits, "query_hits": query_hits},
         )
 
 

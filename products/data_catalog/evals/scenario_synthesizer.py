@@ -14,8 +14,9 @@ from __future__ import annotations
 
 import uuid
 import random
+import hashlib
 from collections import deque
-from collections.abc import Collection, Sequence
+from collections.abc import Collection, Iterable, Sequence
 from typing import Any
 
 from posthog.dataclasses import frozen
@@ -158,6 +159,60 @@ ORG_GRAIN_METRIC_DEFINITION: dict[str, Any] = {
         "    GROUP BY account\n"
         ")"
     ),
+}
+
+BUSINESS_STANDARD_PLAN = "business/standard"
+BUSINESS_ENTERPRISE_PLAN = "business/enterprise"
+PERSONAL_FREE_PLAN = "personal/free"
+PERSONAL_PRO_PLAN = "personal/pro"
+_SEAT_PRICE_USD = {BUSINESS_STANDARD_PLAN: 10.0, BUSINESS_ENTERPRISE_PLAN: 20.0, PERSONAL_PRO_PLAN: 10.0}
+ACCOUNT_ACTIVE_DAY_RATE = 0.6
+"""The chance that a member of a planted account uses Hedgebox on a given day."""
+
+# ACCOUNT_RENEWAL: a business account that shrank before its renewal. A question about the renewal names none of it.
+RENEWAL_ACCOUNT_NAME = "Larkspur Engineering"
+RENEWAL_START_MEMBERS = 10
+RENEWAL_REMOVAL_DAYS_AGO = (40, 33, 26, 12)
+RENEWAL_DOWNGRADE_DAYS_AGO = 21
+RENEWAL_BILL_DAYS_AGO = (95, 65, 35, 5)
+RENEWAL_WINDOW_DAYS = 100
+
+# ACCOUNT_EXPANSION: a business account that doubled its seats through invites, but no invited member uses Hedgebox.
+EXPANSION_ACCOUNT_NAME = "Wrenfield Robotics"
+EXPANSION_CORE_MEMBERS = 5
+EXPANSION_INVITE_DAYS_AGO = (52, 45, 38, 31, 24)
+EXPANSION_BILL_DAYS_AGO = (80, 50, 20)
+EXPANSION_WINDOW_DAYS = 90
+
+# PREVIEW_LAUNCH: file previews that users adopt, while about a quarter of the PDF previews fail to render.
+PREVIEW_FAILING_FILE_TYPE = "application/pdf"
+PREVIEW_PDF_FAILURE_SHARE = 0.25
+# These match the Hedgebox demo issue, so the planted errors join that issue when the case team has it.
+PREVIEW_RENDER_ISSUE_NAME = "File preview render failure"
+PREVIEW_RENDER_ISSUE_DESCRIPTION = (
+    "Preview rendering fails for some uploaded PDFs, leaving customers unable to inspect files before sharing them."
+)
+PREVIEW_RENDER_ERROR_TYPE = "RenderError"
+PREVIEW_RENDER_ERROR_VALUE = "Failed to render PDF preview"
+PREVIEW_RENDER_FINGERPRINT = f"{PACK_TOKEN}-preview-render-pdf"
+PREVIEW_RENDER_URL = "https://app.hedgebox.test/app/files"
+PREVIEW_RENDER_SOURCE = "https://app.hedgebox.test/static/js/file-preview.js"
+PREVIEW_RENDER_FUNCTION = "renderPdfPreview"
+
+# UPGRADE_BANNER: an experiment whose test banner doubles upgrades, but most of the extra upgraders downgrade again.
+UPGRADE_BANNER_EXPERIMENT_NAME = "Pro plan banner"
+UPGRADE_BANNER_FLAG_KEY = f"pro-plan-banner-{PACK_TOKEN}"
+UPGRADE_BANNER_START_DAYS_AGO = 21
+UPGRADE_BANNER_PERSONS_PER_VARIANT = 150
+UPGRADE_BANNER_DOWNGRADE_WITHIN_DAYS = 7
+UPGRADE_BANNER_RETURN_RATE = 0.3
+UPGRADE_BANNER_METRIC: dict[str, Any] = {
+    "kind": "ExperimentMetric",
+    "metric_type": "funnel",
+    "uuid": "6f1d2c3a-4b5e-4f60-8a71-92b3c4d5e6f7",
+    "name": "Upgrade to a paid plan",
+    "series": [{"kind": "EventsNode", "event": "upgraded_plan"}],
+    "goal": "increase",
 }
 
 _FIRST_NAMES = (
@@ -782,4 +837,298 @@ def build_slack_export() -> SlackExport:
             rows=tuple(rows),
             date_column="ts",
         ),
+    )
+
+
+def stable_share(key: str) -> float:
+    """A value in [0, 1) that depends only on ``key``, so a planted choice does not depend on the order of rows."""
+    return int(hashlib.sha256(key.encode()).hexdigest()[:8], 16) / 0x1_0000_0000
+
+
+@frozen
+class PlantedAccount:
+    group_key: str
+    properties: dict[str, Any]
+    """The account group properties at the end of the window, with the keys that the Hedgebox simulation sets."""
+
+
+@frozen
+class AccountNeedle:
+    account: PlantedAccount
+    members: EventNeedle
+
+
+_FILE_TYPES = ("image/png", "image/jpeg", "application/pdf", "text/plain")
+_MEMBER_FILE_EVENTS = (UPLOAD_EVENT, "downloaded_file", SHARE_EVENT)
+
+
+def _account_properties(account_key: str) -> dict[str, Any]:
+    return {"$group_0": account_key, "$groups": {"account": account_key}}
+
+
+def _member_days(
+    rng: random.Random, member: PlantedPerson, account_key: str, client: dict[str, Any], days: Iterable[int]
+) -> list[PlantedEvent]:
+    """On each active day, the member logs in, opens the files page, and does one file action."""
+    group = _account_properties(account_key)
+    events: list[PlantedEvent] = []
+    for day in days:
+        if rng.random() >= ACCOUNT_ACTIVE_DAY_RATE:
+            continue
+        minute = rng.randrange(480, 1080)
+        session = _uuid(rng)
+        file_action = rng.choice(_MEMBER_FILE_EVENTS)
+        file_properties = {"file_type": rng.choice(_FILE_TYPES), "file_size_b": rng.randrange(10**5, 5 * 10**7)}
+        for offset, (event, pathname, extra) in enumerate(
+            (("logged_in", "/login/", {}), ("$pageview", "/files/", {}), (file_action, "/files/", file_properties))
+        ):
+            events.append(
+                PlantedEvent(
+                    event=event,
+                    distinct_id=member.distinct_id,
+                    days_ago=day,
+                    minute_of_day=minute + offset,
+                    properties=_web_event(client, pathname, session, **group, **extra),
+                )
+            )
+    return events
+
+
+def _bill(payer: PlantedPerson, days_ago: int, *, plan: str, seats: int, account_key: str | None) -> PlantedEvent:
+    # Hedgebox bills from its server, so a bill carries the Python library and no browser properties.
+    group = _account_properties(account_key) if account_key else {}
+    return PlantedEvent(
+        event="paid_bill",
+        distinct_id=payer.distinct_id,
+        days_ago=days_ago,
+        minute_of_day=60,
+        properties={"$lib": "posthog-python", "amount_usd": _SEAT_PRICE_USD[plan] * seats, "plan": plan, **group},
+    )
+
+
+def _account(key: str, name: str, *, plan: str, team_size: int, events: Sequence[PlantedEvent]) -> PlantedAccount:
+    uploads = [event for event in events if event.event == UPLOAD_EVENT]
+    # Hedgebox stores the byte sum of the account's files in used_mb, despite the name.
+    return PlantedAccount(
+        group_key=key,
+        properties={
+            "name": name,
+            "industry": "technology",
+            "plan": plan,
+            "team_size": team_size,
+            "file_count": len(uploads),
+            "used_mb": sum(event.properties["file_size_b"] for event in uploads),
+        },
+    )
+
+
+def build_renewal_account() -> AccountNeedle:
+    rng = random.Random(PACK_SEED + 7)
+    key = _uuid(rng)
+    group = _account_properties(key)
+    members = tuple(_person("larkspur", index) for index in range(RENEWAL_START_MEMBERS))
+    admin = members[0]
+    clients = {member.distinct_id: _web_client(rng) for member in members}
+    # The newest members leave first. The admin removes the others, so the admin stays.
+    removal_day = {member.distinct_id: day for member, day in zip(reversed(members), RENEWAL_REMOVAL_DAYS_AGO)}
+    events: list[PlantedEvent] = []
+    for member in members:
+        # A removed member is active up to the day before the removal.
+        last_day = removal_day.get(member.distinct_id, 0)
+        events += _member_days(rng, member, key, clients[member.distinct_id], range(RENEWAL_WINDOW_DAYS, last_day, -1))
+    admin_client = clients[admin.distinct_id]
+    for day in RENEWAL_REMOVAL_DAYS_AGO:
+        events.append(
+            PlantedEvent(
+                event="removed_team_member",
+                distinct_id=admin.distinct_id,
+                days_ago=day,
+                minute_of_day=600,
+                properties=_web_event(admin_client, "/account/team/", _uuid(rng), **group),
+            )
+        )
+    events.append(
+        PlantedEvent(
+            event="downgraded_plan",
+            distinct_id=admin.distinct_id,
+            days_ago=RENEWAL_DOWNGRADE_DAYS_AGO,
+            minute_of_day=610,
+            properties=_web_event(
+                admin_client,
+                "/account/billing/",
+                _uuid(rng),
+                previous_plan=BUSINESS_ENTERPRISE_PLAN,
+                new_plan=BUSINESS_STANDARD_PLAN,
+                **group,
+            ),
+        )
+    )
+    for day in RENEWAL_BILL_DAYS_AGO:
+        plan = BUSINESS_ENTERPRISE_PLAN if day > RENEWAL_DOWNGRADE_DAYS_AGO else BUSINESS_STANDARD_PLAN
+        seats = RENEWAL_START_MEMBERS - sum(removal > day for removal in RENEWAL_REMOVAL_DAYS_AGO)
+        events.append(_bill(admin, day, plan=plan, seats=seats, account_key=key))
+    return AccountNeedle(
+        account=_account(
+            key,
+            RENEWAL_ACCOUNT_NAME,
+            plan=BUSINESS_STANDARD_PLAN,
+            team_size=RENEWAL_START_MEMBERS - len(RENEWAL_REMOVAL_DAYS_AGO),
+            events=events,
+        ),
+        members=EventNeedle(name="renewal_account", persons=members, events=tuple(events)),
+    )
+
+
+def build_expansion_account() -> AccountNeedle:
+    rng = random.Random(PACK_SEED + 8)
+    key = _uuid(rng)
+    group = _account_properties(key)
+    team_size = EXPANSION_CORE_MEMBERS + len(EXPANSION_INVITE_DAYS_AGO)
+    members = tuple(_person("wrenfield", index) for index in range(team_size))
+    core, invited = members[:EXPANSION_CORE_MEMBERS], members[EXPANSION_CORE_MEMBERS:]
+    admin = core[0]
+    clients = {member.distinct_id: _web_client(rng) for member in members}
+    events: list[PlantedEvent] = []
+    for member in core:
+        events += _member_days(rng, member, key, clients[member.distinct_id], range(EXPANSION_WINDOW_DAYS, 0, -1))
+    for member, day in zip(invited, EXPANSION_INVITE_DAYS_AGO):
+        events.append(
+            PlantedEvent(
+                event="invited_team_member",
+                distinct_id=admin.distinct_id,
+                days_ago=day,
+                minute_of_day=600,
+                properties=_web_event(clients[admin.distinct_id], "/account/team/", _uuid(rng), **group),
+            )
+        )
+        session = _uuid(rng)
+        join_steps: tuple[tuple[str, str, dict[str, Any]], ...] = (
+            ("$pageview", f"/invite/{_uuid(rng)}/", {}),
+            ("signed_up", "/signup/", {"from_invite": True}),
+            ("logged_in", "/files/", {}),
+            ("$pageview", "/files/", {}),
+        )
+        for offset, (event, pathname, extra) in enumerate(join_steps):
+            events.append(
+                PlantedEvent(
+                    event=event,
+                    distinct_id=member.distinct_id,
+                    days_ago=day,
+                    minute_of_day=640 + offset,
+                    properties=_web_event(clients[member.distinct_id], pathname, session, **group, **extra),
+                )
+            )
+    for day in EXPANSION_BILL_DAYS_AGO:
+        seats = EXPANSION_CORE_MEMBERS + sum(invite > day for invite in EXPANSION_INVITE_DAYS_AGO)
+        events.append(_bill(admin, day, plan=BUSINESS_STANDARD_PLAN, seats=seats, account_key=key))
+    return AccountNeedle(
+        account=_account(key, EXPANSION_ACCOUNT_NAME, plan=BUSINESS_STANDARD_PLAN, team_size=team_size, events=events),
+        members=EventNeedle(name="expansion_account", persons=members, events=tuple(events)),
+    )
+
+
+@frozen
+class PreviewLaunchSpec:
+    """The file preview adoption, with one file type per preview and render errors for a share of one type."""
+
+    adoption: AdoptionSpec
+    file_types: tuple[str, ...]
+    failing_file_type: str
+    failure_share: float
+
+    def file_type_for(self, distinct_id: str, days_ago: int) -> str:
+        return self.file_types[int(stable_share(f"{distinct_id}:{days_ago}:type") * len(self.file_types))]
+
+    def fails(self, distinct_id: str, days_ago: int) -> bool:
+        return (
+            self.file_type_for(distinct_id, days_ago) == self.failing_file_type
+            and stable_share(f"{distinct_id}:{days_ago}:render") < self.failure_share
+        )
+
+
+PREVIEW_LAUNCH = PreviewLaunchSpec(
+    adoption=PREVIEW_ADOPTION,
+    file_types=_FILE_TYPES,
+    failing_file_type=PREVIEW_FAILING_FILE_TYPE,
+    failure_share=PREVIEW_PDF_FAILURE_SHARE,
+)
+
+
+@frozen
+class BannerArm:
+    variant: str
+    upgraders: int
+    downgraders: int
+    """Upgraders who downgrade again within ``UPGRADE_BANNER_DOWNGRADE_WITHIN_DAYS`` days of the upgrade."""
+
+
+# About 8% of control and 18% of test upgrade. After the early downgrades, about 7% and 8% stay upgraded.
+UPGRADE_BANNER_ARMS = (
+    BannerArm(variant="control", upgraders=12, downgraders=1),
+    BannerArm(variant="test", upgraders=27, downgraders=15),
+)
+
+
+def build_upgrade_banner() -> FlagNeedle:
+    rng = random.Random(PACK_SEED + 9)
+    persons: list[PlantedPerson] = []
+    events: list[PlantedEvent] = []
+    for arm in UPGRADE_BANNER_ARMS:
+        flag = {f"$feature/{UPGRADE_BANNER_FLAG_KEY}": arm.variant}
+        exposure = {"$feature_flag": UPGRADE_BANNER_FLAG_KEY, "$feature_flag_response": arm.variant, **flag}
+        cohort = tuple(_person(f"banner{arm.variant}", index) for index in range(UPGRADE_BANNER_PERSONS_PER_VARIANT))
+        persons += cohort
+        for index, person in enumerate(cohort):
+            client = _web_client(rng)
+            # Exposures start the day after the experiment starts and run to yesterday. A downgrader is exposed
+            # early enough for the upgrade, up to 2 days later, and the downgrade, up to 6 days after that.
+            last_exposure = UPGRADE_BANNER_DOWNGRADE_WITHIN_DAYS + 2 if index < arm.downgraders else 1
+            exposed = rng.randint(last_exposure, UPGRADE_BANNER_START_DAYS_AGO - 1)
+            visits = [exposed, *(day for day in range(exposed - 1, 0, -1) if rng.random() < UPGRADE_BANNER_RETURN_RATE)]
+            for day in visits:
+                minute = rng.randrange(480, 1200)
+                session = _uuid(rng)
+                steps = [("logged_in", "/login/", flag), ("$pageview", "/files/", flag)]
+                if day == exposed:
+                    steps.insert(1, ("$feature_flag_called", "/files/", exposure))
+                for offset, (event, pathname, extra) in enumerate(steps):
+                    events.append(
+                        PlantedEvent(
+                            event=event,
+                            distinct_id=person.distinct_id,
+                            days_ago=day,
+                            minute_of_day=minute + offset,
+                            properties=_web_event(client, pathname, session, **extra),
+                        )
+                    )
+            if index >= arm.upgraders:
+                continue
+            # Plan changes happen late in the day, after the day's exposure.
+            upgraded = max(1, exposed - rng.randint(0, 2))
+            plan_changes = [(upgraded, PERSONAL_FREE_PLAN, PERSONAL_PRO_PLAN)]
+            if index < arm.downgraders:
+                downgraded = upgraded - rng.randint(2, UPGRADE_BANNER_DOWNGRADE_WITHIN_DAYS - 1)
+                plan_changes.append((downgraded, PERSONAL_PRO_PLAN, PERSONAL_FREE_PLAN))
+            for day, previous_plan, new_plan in plan_changes:
+                events.append(
+                    PlantedEvent(
+                        event="upgraded_plan" if new_plan == PERSONAL_PRO_PLAN else "downgraded_plan",
+                        distinct_id=person.distinct_id,
+                        days_ago=day,
+                        minute_of_day=1300,
+                        properties=_web_event(
+                            client,
+                            "/account/billing/",
+                            _uuid(rng),
+                            previous_plan=previous_plan,
+                            new_plan=new_plan,
+                            **flag,
+                        ),
+                    )
+                )
+            events.append(_bill(person, upgraded, plan=PERSONAL_PRO_PLAN, seats=1, account_key=None))
+    return FlagNeedle(
+        key=UPGRADE_BANNER_FLAG_KEY,
+        variants=tuple(arm.variant for arm in UPGRADE_BANNER_ARMS),
+        events=EventNeedle(name="upgrade_banner", persons=tuple(persons), events=tuple(events)),
     )

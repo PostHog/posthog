@@ -7,12 +7,12 @@ ids and emails, and nothing the Hedgebox simulation wrote is changed or removed.
 
 from __future__ import annotations
 
+import copy
 import json
 import uuid
-import hashlib
 from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Final
 
 from django.utils import timezone
 
@@ -21,20 +21,28 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
+from posthog.dataclasses import frozen
 from posthog.models.event.util import bulk_create_events
 from posthog.models.group import Group
-from posthog.models.group.util import get_groups_by_identifiers
+from posthog.models.group.util import get_groups_by_identifiers, raw_create_group_ch
 from posthog.models.person import Person
 from posthog.models.person.sql import BULK_INSERT_PERSON_DISTINCT_ID2, INSERT_PERSON_BULK_SQL
 from posthog.models.person.util import get_persons_mapped_by_distinct_id
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.persons_db import persons_db_connection
-from posthog.persons_seed import insert_seed_distinct_id, insert_seed_person
+from posthog.persons_seed import insert_seed_distinct_id, insert_seed_group, insert_seed_person
 
 from products.annotations.backend.facade.api import create_project_annotation
 from products.data_catalog.backend.facade.api import approve_metric, upsert_metric
-from products.data_catalog.evals.catalog_seeders import seed_catalog_noise_only, seed_catalog_with_new_signups
+from products.data_catalog.evals.catalog_seeders import (
+    seed_catalog_for_account_check_in,
+    seed_catalog_for_account_spend,
+    seed_catalog_noise_only,
+    seed_catalog_with_early_downgrades,
+    seed_catalog_with_new_signups,
+    seed_operations_catalog,
+)
 from products.data_catalog.evals.catalog_synthesizer import TOOL_FAILURE_RATE_METRIC
 from products.data_catalog.evals.scenario_synthesizer import (
     CAMPAIGN_ANNOTATION_CONTENT,
@@ -51,6 +59,15 @@ from products.data_catalog.evals.scenario_synthesizer import (
     ORG_GRAIN_METRIC_NAME,
     POST_TAX_MULTIPLIER,
     PREVIEW_ADOPTION,
+    PREVIEW_LAUNCH,
+    PREVIEW_RENDER_ERROR_TYPE,
+    PREVIEW_RENDER_ERROR_VALUE,
+    PREVIEW_RENDER_FINGERPRINT,
+    PREVIEW_RENDER_FUNCTION,
+    PREVIEW_RENDER_ISSUE_DESCRIPTION,
+    PREVIEW_RENDER_ISSUE_NAME,
+    PREVIEW_RENDER_SOURCE,
+    PREVIEW_RENDER_URL,
     SHARE_BLOCK_FROM_DAYS_AGO,
     SHARE_DAU_DAILY_SHARERS,
     SHARE_DAU_WINDOW_DAYS,
@@ -58,23 +75,32 @@ from products.data_catalog.evals.scenario_synthesizer import (
     SHARE_FLAG_BLOCKED_VARIANT,
     SHARE_FLAG_CONTROL_VARIANT,
     SLACK_PRETAX_TEXT,
+    UPGRADE_BANNER_EXPERIMENT_NAME,
+    UPGRADE_BANNER_METRIC,
+    UPGRADE_BANNER_START_DAYS_AGO,
     UPLOAD_DOUBLE_COUNT,
     WAU_BOT_BROWSER,
     WAU_SPIKE_DAYS_AGO,
+    AccountNeedle,
+    AdoptionSpec,
     EventNeedle,
     FlagNeedle,
     TableNeedle,
+    build_expansion_account,
     build_flat_wau,
     build_mcp_tool_failures,
     build_mcp_tool_shipped,
+    build_renewal_account,
     build_revenue_rep_outlier,
     build_share_dau,
     build_share_drop_flag,
     build_slack_export,
+    build_upgrade_banner,
     build_wau_bot_spike,
     build_wau_spike,
     crm_deals_table,
     initial_person_properties,
+    stable_share,
 )
 from products.data_catalog.evals.seeders import (
     FLOAT_COLUMN,
@@ -83,26 +109,42 @@ from products.data_catalog.evals.seeders import (
     synced_table_names,
     team_and_user,
 )
+from products.error_tracking.backend.facade.api import list_issues, resolve_fingerprints
+from products.error_tracking.backend.facade.testing import (
+    create_issue,
+    create_issue_fingerprint,
+    sync_issue_to_clickhouse,
+)
+from products.experiments.backend.facade.api import create_experiment
+from products.experiments.backend.facade.contracts import CreateExperimentInput
 from products.feature_flags.backend.facade.api import create_flag
+from products.posthog_ai.evals.error_tracking.seeders import _build_exception_properties
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 if TYPE_CHECKING:
     from products.tasks.backend.facade.agents import CustomPromptSandboxContext
 
 __all__ = [
+    "seed_expansion_account_in_catalog",
     "seed_flat_wau",
     "seed_health_check_mix",
     "seed_mcp_tool_shipped",
     "seed_org_grain_metric",
     "seed_preview_adoption",
+    "seed_preview_launch_in_catalog",
+    "seed_renewal_account_in_catalog",
     "seed_revenue_rep_outlier",
     "seed_share_dau",
     "seed_share_drop_flag",
     "seed_slack_pretax_note",
+    "seed_upgrade_banner_in_catalog",
     "seed_upload_double_count",
     "seed_wau_bot_spike",
     "seed_wau_spike_with_annotation",
 ]
+
+# Hedgebox registers the account group type first.
+_ACCOUNT_GROUP_TYPE_INDEX: Final = 0
 
 # Agents count active users from page views, often with the file events added, so the planted share uses both.
 _PREVIEW_ACTIVITY_EVENTS = ("$pageview", "logged_in", "uploaded_file", "downloaded_file", "shared_file_link")
@@ -484,14 +526,15 @@ def seed_revenue_rep_outlier(context: CustomPromptSandboxContext) -> dict[str, A
     }
 
 
-def _adoption_threshold(distinct_id: str) -> float:
-    return int(hashlib.sha256(distinct_id.encode()).hexdigest()[:8], 16) / 0x1_0000_0000
+@frozen
+class _PreviewAdopter:
+    distinct_id: str
+    person_id: Any
+    days_ago: int
 
 
-def seed_preview_adoption(context: CustomPromptSandboxContext) -> dict[str, Any]:
-    team, user = team_and_user(context)
-    spec = PREVIEW_ADOPTION
-    now = timezone.now()
+def _preview_adopters(team: Team, user: User, spec: AdoptionSpec) -> list[_PreviewAdopter]:
+    """Each active day of each user who previews a file on that day."""
     response = execute_hogql_query(
         f"SELECT distinct_id, any(person_id), {_UTC_DAYS_AGO} AS days_ago FROM events "
         # The timestamp bound only prunes the scan, so the time of day cannot change the result.
@@ -510,24 +553,36 @@ def seed_preview_adoption(context: CustomPromptSandboxContext) -> dict[str, Any]
             active_by_day.setdefault(int(days_ago), []).append((distinct_id, person_id))
     if spec.first_seen_days_ago not in active_by_day:
         raise RuntimeError("No active users on the preview launch day; the Hedgebox master data is too old.")
-    events = []
-    for days_ago, users in active_by_day.items():
-        share = spec.share_on(days_ago)
-        # A user adopts once the day's share passes the user's fixed hash value, and previews on every
-        # active day after that. Then a daily and a weekly share of active users both end near the end share.
-        for distinct_id, person_id in users:
-            if _adoption_threshold(distinct_id) >= share:
-                continue
-            events.append(
-                {
-                    "event": spec.event,
-                    "team": team,
-                    "distinct_id": distinct_id,
-                    "timestamp": _at(now, days_ago, 780),
-                    "properties": {"file_type": "application/pdf", "file_size_b": 1_048_576},
-                    "person_id": person_id,
-                }
-            )
+    # A user adopts once the day's share passes the user's fixed hash value, and previews on every
+    # active day after that. Then a daily and a weekly share of active users both end near the end share.
+    return [
+        _PreviewAdopter(distinct_id=distinct_id, person_id=person_id, days_ago=days_ago)
+        for days_ago, users in active_by_day.items()
+        for distinct_id, person_id in users
+        if stable_share(distinct_id) < spec.share_on(days_ago)
+    ]
+
+
+def _preview_event(
+    team: Team, now: datetime, spec: AdoptionSpec, adopter: _PreviewAdopter, file_type: str
+) -> dict[str, Any]:
+    return {
+        "event": spec.event,
+        "team": team,
+        "distinct_id": adopter.distinct_id,
+        "timestamp": _at(now, adopter.days_ago, 780),
+        "properties": {"file_type": file_type, "file_size_b": 1_048_576},
+        "person_id": adopter.person_id,
+    }
+
+
+def seed_preview_adoption(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    team, user = team_and_user(context)
+    spec = PREVIEW_ADOPTION
+    now = timezone.now()
+    events = [
+        _preview_event(team, now, spec, adopter, "application/pdf") for adopter in _preview_adopters(team, user, spec)
+    ]
     _write_events(team, events, _person_mapping(team, (event["distinct_id"] for event in events)))
     return {
         "preview_adoption": {
@@ -537,6 +592,78 @@ def seed_preview_adoption(context: CustomPromptSandboxContext) -> dict[str, Any]
             "end_share": spec.end_share,
             "events": len(events),
         }
+    }
+
+
+@frozen
+class _IssueFingerprint:
+    issue_id: str
+    fingerprint: str
+
+
+def _preview_render_issue(team: Team, now: datetime) -> _IssueFingerprint:
+    """The Hedgebox preview render issue of the case team. A team without it gets the issue from the seed."""
+    issue = next((issue for issue in list_issues(team.id) if issue.name == PREVIEW_RENDER_ISSUE_NAME), None)
+    if issue is not None:
+        fingerprints = resolve_fingerprints(team.id, [str(issue.id)])
+        if fingerprints:
+            return _IssueFingerprint(issue_id=str(issue.id), fingerprint=fingerprints[0])
+    first_seen = _at(now, PREVIEW_LAUNCH.adoption.first_seen_days_ago, 0)
+    issue_id = (
+        issue.id
+        if issue is not None
+        else create_issue(
+            team_id=team.id,
+            name=PREVIEW_RENDER_ISSUE_NAME,
+            description=PREVIEW_RENDER_ISSUE_DESCRIPTION,
+            created_at=first_seen,
+        )
+    )
+    create_issue_fingerprint(
+        team_id=team.id, issue_id=issue_id, fingerprint=PREVIEW_RENDER_FINGERPRINT, first_seen=first_seen
+    )
+    sync_issue_to_clickhouse(team_id=team.id, issue_id=issue_id)
+    return _IssueFingerprint(issue_id=str(issue_id), fingerprint=PREVIEW_RENDER_FINGERPRINT)
+
+
+def _plant_preview_launch(team: Team, user: User, now: datetime) -> dict[str, Any]:
+    spec = PREVIEW_LAUNCH
+    issue = _preview_render_issue(team, now)
+    error = {
+        "url": PREVIEW_RENDER_URL,
+        "fingerprint": issue.fingerprint,
+        "type": PREVIEW_RENDER_ERROR_TYPE,
+        "value": PREVIEW_RENDER_ERROR_VALUE,
+        "source": PREVIEW_RENDER_SOURCE,
+        "function": PREVIEW_RENDER_FUNCTION,
+    }
+    previews: list[dict[str, Any]] = []
+    errors: list[dict[str, Any]] = []
+    for adopter in _preview_adopters(team, user, spec.adoption):
+        preview = _preview_event(
+            team, now, spec.adoption, adopter, spec.file_type_for(adopter.distinct_id, adopter.days_ago)
+        )
+        previews.append(preview)
+        if spec.fails(adopter.distinct_id, adopter.days_ago):
+            errors.append(
+                {
+                    "event": "$exception",
+                    "team": team,
+                    "distinct_id": adopter.distinct_id,
+                    "timestamp": preview["timestamp"] + timedelta(seconds=2),
+                    "properties": _build_exception_properties(error, issue.issue_id, str(uuid.uuid4())),
+                    "person_id": adopter.person_id,
+                }
+            )
+    events = previews + errors
+    _write_events(team, events, _person_mapping(team, (event["distinct_id"] for event in events)))
+    return {
+        "event": spec.adoption.event,
+        "first_seen_days_ago": spec.adoption.first_seen_days_ago,
+        "previews": len(previews),
+        "render_errors": len(errors),
+        "failing_file_type": spec.failing_file_type,
+        "issue_id": issue.issue_id,
     }
 
 
@@ -614,3 +741,85 @@ def seed_org_grain_metric(context: CustomPromptSandboxContext) -> dict[str, Any]
     )
     approve_metric(metric, user)
     return {"metric": {"name": ORG_GRAIN_METRIC_NAME, "status": "approved", "grain": "account"}}
+
+
+def _plant_account(team: Team, needle: AccountNeedle, now: datetime) -> dict[str, Any]:
+    """Create the account group before the members' events, so each event finds the group by its $group_0 key."""
+    account = needle.account
+    created_at = _at(now, max(event.days_ago for event in needle.members.events), 0) - timedelta(days=1)
+    with persons_db_connection(writer=True, autocommit=True) as conn:
+        insert_seed_group(
+            conn,
+            team_id=team.id,
+            group_key=account.group_key,
+            group_type_index=_ACCOUNT_GROUP_TYPE_INDEX,
+            group_properties=account.properties,
+            created_at=created_at,
+        )
+    # The persons database row exists now, so only the ClickHouse row is left. The demo data writes groups the same way.
+    raw_create_group_ch(team.id, _ACCOUNT_GROUP_TYPE_INDEX, account.group_key, account.properties, created_at)
+    return {
+        "name": account.properties["name"],
+        "group_key": account.group_key,
+        "members": len(needle.members.persons),
+        "events": _plant_needle(team, needle.members, now),
+    }
+
+
+def _plant_upgrade_banner(team: Team, user: User, now: datetime) -> dict[str, Any]:
+    needle = build_upgrade_banner()
+    share = 100 // len(needle.variants)
+    experiment = create_experiment(
+        team=team,
+        user=user,
+        input_dto=CreateExperimentInput(
+            name=UPGRADE_BANNER_EXPERIMENT_NAME,
+            feature_flag_key=needle.key,
+            description="Show a banner on the files page that offers the pro plan.",
+            feature_flag_config={
+                "filters": {
+                    "groups": [{"properties": [], "rollout_percentage": 100}],
+                    "multivariate": {
+                        "variants": [
+                            {"key": variant, "name": variant.capitalize(), "rollout_percentage": share}
+                            for variant in needle.variants
+                        ]
+                    },
+                }
+            },
+            # The service stamps a fingerprint on each metric, so it gets a copy of the shared constant.
+            metrics=[copy.deepcopy(UPGRADE_BANNER_METRIC)],
+            start_date=_at(now, UPGRADE_BANNER_START_DAYS_AGO, 0),
+        ),
+    )
+    return {
+        "experiment_id": experiment.id,
+        "experiment_name": UPGRADE_BANNER_EXPERIMENT_NAME,
+        "flag_key": needle.key,
+        "events": _plant_needle(team, needle.events, now),
+    }
+
+
+# The implied-need cases also install the catalog, so the unnamed context is one catalog search away.
+def seed_renewal_account_in_catalog(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    team, _ = team_and_user(context)
+    account = _plant_account(team, build_renewal_account(), timezone.now())
+    return {**seed_catalog_for_account_check_in(context), "renewal_account": account}
+
+
+def seed_expansion_account_in_catalog(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    team, _ = team_and_user(context)
+    account = _plant_account(team, build_expansion_account(), timezone.now())
+    return {**seed_catalog_for_account_spend(context), "expansion_account": account}
+
+
+def seed_preview_launch_in_catalog(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    team, user = team_and_user(context)
+    launch = _plant_preview_launch(team, user, timezone.now())
+    return {**seed_operations_catalog(context), "preview_launch": launch}
+
+
+def seed_upgrade_banner_in_catalog(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    team, user = team_and_user(context)
+    banner = _plant_upgrade_banner(team, user, timezone.now())
+    return {**seed_catalog_with_early_downgrades(context), "upgrade_banner": banner}

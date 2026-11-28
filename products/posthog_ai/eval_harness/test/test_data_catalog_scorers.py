@@ -1071,6 +1071,8 @@ def test_verified_before_explaining(
             1.0,
         ),
         ("tool_counts_alone", [("feature-flag-get-all", {}, "completed")], 1.0),
+        ("metric_run_counts_alone", [("data-catalog-metric-run", {"name": "sdk_version_share"}, "completed")], 1.0),
+        ("other_metric_run", [("data-catalog-metric-run", {"name": "mrr"}, "completed")], 0.0),
         ("failed_call", [("execute-sql", {"query": "SELECT properties.$lib_version FROM events"}, "failed")], 0.0),
         (
             "schema_lookup_is_not_evidence",
@@ -1088,7 +1090,13 @@ def test_verified_before_explaining(
 def test_evidence_queried(_name: str, calls: list[tuple[str, dict[str, Any], str]], expected_score: float) -> None:
     score = EvidenceQueried()._run_eval_sync(
         {"raw_log": _tool_log(calls)},
-        {"hypothesis_evidence_queried": {"patterns": [r"\$lib_version"], "tools": ["feature-flag-get-all"]}},
+        {
+            "hypothesis_evidence_queried": {
+                "patterns": [r"\$lib_version"],
+                "tools": ["feature-flag-get-all"],
+                "metrics": ["sdk_version_share"],
+            }
+        },
     )
 
     assert score.score == expected_score

@@ -18,6 +18,9 @@ from products.data_catalog.evals import scenario_synthesizer as pack
         ("mcp_tool_failures", pack.build_mcp_tool_failures),
         ("revenue_rep_outlier", pack.build_revenue_rep_outlier),
         ("slack_export", pack.build_slack_export),
+        ("renewal_account", pack.build_renewal_account),
+        ("expansion_account", pack.build_expansion_account),
+        ("upgrade_banner", pack.build_upgrade_banner),
     ]
 )
 def test_needles_are_deterministic(_name: str, build: Callable[[], object]) -> None:
@@ -32,6 +35,9 @@ def test_planted_people_carry_the_pack_token_and_a_reserved_domain() -> None:
         + pack.build_mcp_tool_shipped().persons
         + pack.build_mcp_tool_failures().persons
         + pack.build_share_dau().persons
+        + pack.build_renewal_account().members.persons
+        + pack.build_expansion_account().members.persons
+        + pack.build_upgrade_banner().events.persons
     )
     assert all(pack.PACK_TOKEN in person.distinct_id for person in persons)
     assert all(person.email.endswith(f"@{pack.PACK_EMAIL_DOMAIN}") for person in persons if person.email)
@@ -164,3 +170,73 @@ def test_adoption_share_grows_linearly_to_the_end_share(
         event="previewed_file", first_seen_days_ago=first_seen_days_ago, start_share=0.0, end_share=0.25
     )
     assert spec.share_on(days_ago) == expected_share
+
+
+def _bills(needle: pack.AccountNeedle) -> list[float]:
+    bills = sorted((event for event in needle.members.events if event.event == "paid_bill"), key=lambda e: -e.days_ago)
+    return [event.properties["amount_usd"] for event in bills]
+
+
+def test_renewal_account_loses_members_and_most_of_its_bill() -> None:
+    needle = pack.build_renewal_account()
+    assert _bills(needle) == [200.0, 200.0, 180.0, 60.0]
+    assert needle.account.properties["team_size"] == pack.RENEWAL_START_MEMBERS - len(pack.RENEWAL_REMOVAL_DAYS_AGO)
+    assert {event.properties["$group_0"] for event in needle.members.events} == {needle.account.group_key}
+    removed = dict(zip(reversed(needle.members.persons), pack.RENEWAL_REMOVAL_DAYS_AGO))
+    for person, removal_day in removed.items():
+        member_days = [event.days_ago for event in needle.members.events if event.distinct_id == person.distinct_id]
+        assert min(member_days) > removal_day
+    downgrades = [event for event in needle.members.events if event.event == "downgraded_plan"]
+    assert [(event.days_ago, event.properties["new_plan"]) for event in downgrades] == [
+        (pack.RENEWAL_DOWNGRADE_DAYS_AGO, pack.BUSINESS_STANDARD_PLAN)
+    ]
+
+
+def test_expansion_account_doubles_its_bill_while_invited_members_stay_idle() -> None:
+    needle = pack.build_expansion_account()
+    assert _bills(needle) == [50.0, 60.0, 100.0]
+    core = {person.distinct_id for person in needle.members.persons[: pack.EXPANSION_CORE_MEMBERS]}
+    file_actors = {
+        event.distinct_id
+        for event in needle.members.events
+        if event.event in ("uploaded_file", "downloaded_file", "shared_file_link")
+    }
+    assert file_actors == core
+    for person, invite_day in zip(
+        needle.members.persons[pack.EXPANSION_CORE_MEMBERS :], pack.EXPANSION_INVITE_DAYS_AGO
+    ):
+        assert {event.days_ago for event in needle.members.events if event.distinct_id == person.distinct_id} == {
+            invite_day
+        }
+
+
+def test_upgrade_banner_doubles_upgrades_and_most_extra_upgraders_downgrade_within_a_week() -> None:
+    needle = pack.build_upgrade_banner()
+    events = needle.events.events
+    exposed_on = {
+        event.distinct_id: (event.properties["$feature_flag_response"], event.days_ago)
+        for event in events
+        if event.event == "$feature_flag_called"
+    }
+    upgraded_on = {event.distinct_id: event.days_ago for event in events if event.event == "upgraded_plan"}
+    downgraded_on = {event.distinct_id: event.days_ago for event in events if event.event == "downgraded_plan"}
+    assert min(event.days_ago for event in events) >= 1
+    assert all(day < pack.UPGRADE_BANNER_START_DAYS_AGO for _, day in exposed_on.values())
+    for arm in pack.UPGRADE_BANNER_ARMS:
+        arm_ids = {distinct_id for distinct_id, (variant, _) in exposed_on.items() if variant == arm.variant}
+        assert len(arm_ids) == pack.UPGRADE_BANNER_PERSONS_PER_VARIANT
+        assert len(arm_ids & upgraded_on.keys()) == arm.upgraders
+        assert len(arm_ids & downgraded_on.keys()) == arm.downgraders
+    for distinct_id, upgrade_day in upgraded_on.items():
+        assert upgrade_day <= exposed_on[distinct_id][1]
+    for distinct_id, downgrade_day in downgraded_on.items():
+        assert 0 < upgraded_on[distinct_id] - downgrade_day < pack.UPGRADE_BANNER_DOWNGRADE_WITHIN_DAYS
+
+
+def test_preview_launch_fails_a_quarter_of_one_file_type_and_no_other() -> None:
+    spec = pack.PREVIEW_LAUNCH
+    previews = [(f"user-{index}", day) for index in range(500) for day in range(1, 21)]
+    failing = Counter(spec.file_type_for(user, day) for user, day in previews if spec.fails(user, day))
+    of_type = Counter(spec.file_type_for(user, day) for user, day in previews)
+    assert set(failing) == {spec.failing_file_type}
+    assert abs(failing[spec.failing_file_type] / of_type[spec.failing_file_type] - spec.failure_share) < 0.03
