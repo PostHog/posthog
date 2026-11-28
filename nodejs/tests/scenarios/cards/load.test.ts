@@ -326,6 +326,17 @@ describe('load', () => {
             undefined,
             'valves.0.dose.share: ',
         ],
+        ...(
+            [
+                ['s3.status', { code: 503, op: 'put', share: 1 }],
+                ['s3.stall', { op: 'put', share: 1 }],
+            ] as const
+        ).map(([valve, dose]): [string, object, undefined, string] => [
+            `an ${valve} on uploads, which the edge would answer only after reading the body`,
+            { ...card, valves: [{ valve, target: 's3', dose, at: '30s', for: '30s' }] },
+            undefined,
+            'valves.0.dose: ',
+        ]),
         [
             'a terminate armed on running_on_queue',
             { ...card, valves: [{ ...emailWorkerKill, valve: 'role.terminate', dose: { grace: '20s' } }] },

@@ -13,6 +13,7 @@ import type { WriterSample } from '../probe/writer-probe'
 import {
     AmbiguousParams,
     FaultRule,
+    S3BodylessOp,
     S3Op,
     S3SlowParams,
     SesRejectParams,
@@ -193,8 +194,8 @@ export const sesStatus: ValveDefinition = {
 const S3_TARGET = z.literal('s3')
 
 const S3StatusDose = z.union([
-    z.object({ code: ServerErrorCode, op: S3Op.optional(), count: z.number().int().min(1) }).strict(),
-    z.object({ code: ServerErrorCode, op: S3Op.optional(), share: z.number().gt(0).max(1) }).strict(),
+    z.object({ code: ServerErrorCode, op: S3BodylessOp.optional(), count: z.number().int().min(1) }).strict(),
+    z.object({ code: ServerErrorCode, op: S3BodylessOp.optional(), share: z.number().gt(0).max(1) }).strict(),
 ])
 
 export const s3Status: ValveDefinition = {
@@ -210,8 +211,8 @@ export const s3Status: ValveDefinition = {
 }
 
 const S3StallDose = z.union([
-    z.object({ op: S3Op.optional(), count: z.number().int().min(1) }).strict(),
-    z.object({ op: S3Op.optional(), share: z.number().gt(0).max(1) }).strict(),
+    z.object({ op: S3BodylessOp.optional(), count: z.number().int().min(1) }).strict(),
+    z.object({ op: S3BodylessOp.optional(), share: z.number().gt(0).max(1) }).strict(),
 ])
 
 export const s3Stall: ValveDefinition = {
