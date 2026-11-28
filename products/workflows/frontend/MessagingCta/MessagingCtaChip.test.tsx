@@ -54,7 +54,7 @@ function fillStorage(): void {
     }
 }
 
-function openFreshPageLoad(replayArm: string | boolean | undefined, sendsFromCode: boolean): Page {
+function openFreshPageLoad(replayArm: string | boolean | undefined, sendsFromCode: boolean, payload?: unknown): Page {
     let page: Page | undefined
     jest.isolateModules(() => {
         const { createElement }: typeof import('react') = require('react')
@@ -73,6 +73,14 @@ function openFreshPageLoad(replayArm: string | boolean | undefined, sendsFromCod
             advanced_disable_flags: true,
             autocapture: false,
             capture_pageview: false,
+            ...(payload === undefined
+                ? {}
+                : {
+                      bootstrap: {
+                          featureFlags: { [FEATURE_FLAGS.XPM_REPLAY_PLACEMENT]: replayArm as string },
+                          featureFlagPayloads: { [FEATURE_FLAGS.XPM_REPLAY_PLACEMENT]: payload as any },
+                      },
+                  }),
         })
         const pageLoad = ++pageLoads
         posthog.register({ test_page_load: pageLoad })
@@ -118,9 +126,9 @@ describe('MessagingCtaChip', () => {
     let page: Page | undefined
     let otherTab: Page | undefined
 
-    function open(replayArm: string | boolean | undefined, sendsFromCode = true): Page {
+    function open(replayArm: string | boolean | undefined, sendsFromCode = true, payload?: unknown): Page {
         page?.close()
-        page = openFreshPageLoad(replayArm, sendsFromCode)
+        page = openFreshPageLoad(replayArm, sendsFromCode, payload)
         return page
     }
 
@@ -224,6 +232,14 @@ describe('MessagingCtaChip', () => {
             )
         )
         expect(new Set(clicks.map((properties) => properties.attempt_id)).size).toBe(4)
+    })
+
+    it('shows the copy its flag payload sets', () => {
+        const { renderChip, chip } = open('player_chip', true, { label: 'Email from PostHog?' })
+        renderChip()
+
+        expect(chip()?.textContent).toContain('Email from PostHog?')
+        expect(chip()?.textContent).not.toContain('From an email?')
     })
 
     it('shows its copy without a link when the host gives a reason it is disabled, and the reason on focus', async () => {
