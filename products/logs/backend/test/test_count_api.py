@@ -15,8 +15,14 @@ from rest_framework import status
 from posthog.api.query import CONCURRENCY_LIMIT_USER_MESSAGE
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.limit import get_logs_api_team_rate_limiter
+from posthog.errors import CHQueryErrorTooManyBytes
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.utils import hash_key_value
+
+from products.logs.backend.count_query_runner import CountQueryRunner
+from products.logs.backend.count_ranges_query_runner import CountRangesQueryRunner
+from products.logs.backend.impact_query_runner import ImpactQueryRunner
+from products.logs.backend.log_facet_values_query_runner import LogFacetValuesQueryRunner
 
 _FIXTURE_WINDOW = {"date_from": "2025-12-14T00:00:00Z", "date_to": "2025-12-19T00:00:00Z"}
 
@@ -98,6 +104,30 @@ class TestCountApi(ClickhouseTestMixin, APIBaseTest):
         # AttributeError on the first `.get()` call instead of a clean 400.
         response = self.client.post(f"/api/projects/{self.team.id}/logs/count", data={"query": "not-an-object"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @parameterized.expand(
+        [
+            ("count", "count", CountQueryRunner, {}),
+            ("count_ranges", "count-ranges", CountRangesQueryRunner, {}),
+            ("impact", "impact", ImpactQueryRunner, {}),
+            ("facet_values", "facet_values", LogFacetValuesQueryRunner, {"facetField": "severity_text"}),
+        ]
+    )
+    @time_machine.travel("2025-12-18T12:00:00Z", tick=False)
+    def test_aggregate_that_hits_the_read_bytes_cap_returns_400(self, _name, path, runner_class, extra_query):
+        with patch.object(
+            runner_class,
+            "_calculate",
+            side_effect=CHQueryErrorTooManyBytes("Limit for (uncompressed) bytes to read exceeded", code=307),
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/logs/{path}",
+                data={"query": {"dateRange": _FIXTURE_WINDOW, **extra_query}},
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "too_many_bytes")
 
     @parameterized.expand(
         [
