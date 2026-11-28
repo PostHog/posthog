@@ -23,7 +23,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 
-import { logsConfigLogic } from 'products/logs/frontend/logsConfigLogic'
+import { MAX_LOGS_PATTERN_MESSAGE_KEYS, logsConfigLogic } from 'products/logs/frontend/logsConfigLogic'
 
 export function LogsPatternMessageKeys(): JSX.Element {
     const {
@@ -87,7 +87,7 @@ export function LogsPatternMessageKeys(): JSX.Element {
                                 id={id}
                                 value={value}
                                 onChange={onChange}
-                                limit={10}
+                                limit={MAX_LOGS_PATTERN_MESSAGE_KEYS}
                                 placeholder="Add a message key"
                                 disabledReason={
                                     restrictedReason ||
@@ -96,7 +96,8 @@ export function LogsPatternMessageKeys(): JSX.Element {
                                 dataAttr="logs-pattern-message-keys-select"
                             />
                             <FieldDescription>
-                                Drag keys to change their priority. Clear all keys to disable message extraction.
+                                Drag keys to change their priority. Use a dot to read a nested key, for example
+                                fields.message. Clear all keys to disable message extraction.
                             </FieldDescription>
                             {keysError && <FieldError>{keysError}</FieldError>}
                         </Field>
@@ -119,13 +120,13 @@ export function LogsPatternMessageKeys(): JSX.Element {
             <LemonField
                 name="keys"
                 label="Message keys"
-                help="Drag keys to change their priority. Clear all keys to disable message extraction."
+                help="Drag keys to change their priority. Use a dot to read a nested key, for example fields.message. Clear all keys to disable message extraction."
             >
                 <LemonInputSelect
                     mode="multiple"
                     allowCustomValues
                     sortable={!restrictedReason && !logsConfigLoading && !isPatternMessageKeysSubmitting}
-                    limit={10}
+                    limit={MAX_LOGS_PATTERN_MESSAGE_KEYS}
                     disableCommaSplitting
                     bulkActions="clear-all"
                     placeholder="Add a message key"

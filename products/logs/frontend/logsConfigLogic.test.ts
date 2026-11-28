@@ -32,7 +32,7 @@ describe('logsConfigLogic pattern message keys', () => {
         logic = logsConfigLogic()
         logic.mount()
         await expectLogic(logic)
-            .toDispatchActions(['loadLogsConfigSuccess'])
+            .toDispatchActions(['loadLogsConfigSuccess', 'resetPatternMessageKeys'])
             .toMatchValues({
                 patternMessageKeys: { keys: config.logs_pattern_message_keys },
                 patternMessageKeysChanged: false,
@@ -65,7 +65,7 @@ describe('logsConfigLogic pattern message keys', () => {
         [['message', ' message '], 'Keys must be unique.'],
         [[' '], 'Keys cannot be blank.'],
         [['x'.repeat(201)], 'Each key must be 200 characters or fewer.'],
-        [Array.from({ length: 11 }, (_, index) => `key${index}`), 'Use at most 10 keys.'],
+        [Array.from({ length: 21 }, (_, index) => `key${index}`), 'Use at most 20 keys.'],
     ])('rejects invalid keys %j before saving', async (keys, error) => {
         logic.actions.setPatternMessageKeysValue('keys', keys)
         await expectLogic(logic, () => logic.actions.submitPatternMessageKeys()).toMatchValues({
