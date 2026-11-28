@@ -6,13 +6,15 @@ from unittest.mock import AsyncMock, patch
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 
 from posthog.constants import AvailableFeature
 from posthog.models import ActivityLog, User
 from posthog.models.organization import OrganizationMembership
 
+from products.access_control.backend.facade.testing import set_member_property_access
 from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.data_modeling.backend.facade import api
 from products.data_modeling.backend.facade.contracts import (
     IncrementalConfig,
@@ -26,6 +28,7 @@ from products.data_modeling.backend.models.datawarehouse_saved_query import Data
 from products.data_modeling.backend.models.edge import Edge
 from products.data_modeling.backend.models.node import Node, NodeType
 from products.data_modeling.backend.test.helpers import warehouse_source_node
+from products.event_definitions.backend.models import PropertyDefinition
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 GET_V2_DAG_IDS = "products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids"
@@ -281,6 +284,41 @@ class TestEnableSavedQueryMaterialization(BaseTest):
         schedule_materialization.assert_not_called()
         assert self.saved_query.is_materialized is False
         assert self.saved_query.incremental_config is None
+
+
+class TestReadAccessCheckOnPropertyRules(BaseTest):
+    @parameterized.expand(
+        [
+            (table, rule)
+            for table in ("events", "log_entries", "logs AS l(x)", "posthog.hog_invocation_results")
+            for rule in ("team_default", "granted", "member_only")
+        ]
+    )
+    def test_only_rules_a_materialized_copy_keeps_allow_materializing(self, table: str, rule: str) -> None:
+        set_member_property_access(
+            team=self.team,
+            membership=self.organization_membership,
+            access="restricted" if rule == "team_default" else "granted",
+        )
+        if rule == "member_only":
+            definition = PropertyDefinition.objects.create(
+                team=self.team, name="member_note", type=PropertyDefinition.Type.EVENT
+            )
+            PropertyAccessControl.objects.create(
+                team=self.team,
+                property_definition=definition,
+                organization_member=self.organization_membership,
+                access_level="none",
+            )
+        saved_query = DataWarehouseSavedQuery(
+            team_id=self.team.id, name="copy", query={"kind": "HogQLQuery", "query": f"SELECT 1 FROM {table}"}
+        )
+
+        if rule == "member_only":
+            with self.assertRaises(PermissionDenied):
+                assert_user_can_read_saved_query(saved_query, self.user)
+        else:
+            assert_user_can_read_saved_query(saved_query, self.user)
 
 
 class TestReadAccessCheckOnAnIncompleteQuery(SimpleTestCase):

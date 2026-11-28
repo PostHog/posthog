@@ -12,6 +12,7 @@ from rest_framework.throttling import BaseThrottle
 
 from posthog.hogql.errors import ExposedHogQLError
 
+from posthog.api.cdp_permissions import CDPLogPropertyAccessPermission
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
@@ -349,6 +350,7 @@ def _to_file_download_request(validated_data: dict[str, Any]) -> contracts.FileD
 
 @extend_schema(tags=["batch_exports"])
 class FileDownloadBatchExportOnDemandViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.GenericViewSet):
+    permission_classes = [CDPLogPropertyAccessPermission]
     path_parameters = {"pk": PathParameter(type=UUID, description="A UUID string identifying this batch export run.")}
     scope_object = "batch_export"
     # batch_export is not an access-control resource, so no rule names one run.

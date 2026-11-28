@@ -1,5 +1,6 @@
 import re
 import json
+import uuid
 import typing as t
 import datetime as dt
 from zoneinfo import ZoneInfo
@@ -18,6 +19,7 @@ from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership
 from posthog.models.integration import Integration
 
+from products.access_control.backend.facade.testing import PropertyAccess, set_member_property_access
 from products.access_control.backend.models.access_control import AccessControl
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportSource
 from products.batch_exports.backend.tests.api.conftest import (
@@ -342,6 +344,57 @@ def test_create_batch_export_with_different_intervals_timezones_and_interval_off
         )
     # For hour and "every 5 minutes" intervals, timezone and offset have no effect
     # so we don't need to check for a specific time
+
+
+@pytest.mark.parametrize(
+    "access,expected", [("restricted", status.HTTP_403_FORBIDDEN), ("granted", status.HTTP_201_CREATED)]
+)
+def test_create_batch_export_follows_property_access(
+    client: HttpClient, temporal, organization, team, user, s3_compatible_integration, access: PropertyAccess, expected
+):
+    membership = OrganizationMembership.objects.get(organization=organization, user=user)
+    set_member_property_access(team=team, membership=membership, access=access)
+    client.force_login(user)
+
+    response = create_batch_export(
+        client,
+        team.pk,
+        {
+            "name": "events-to-s3",
+            "interval": "hour",
+            "destination": {
+                "type": "S3Compatible",
+                "config": {"bucket_name": "events-bucket", "region": "us-east-1", "prefix": "events/"},
+                "integration": s3_compatible_integration.id,
+            },
+        },
+    )
+
+    assert response.status_code == expected, response.json()
+    assert BatchExport.objects.filter(team=team).exists() == (expected == status.HTTP_201_CREATED)
+
+
+@pytest.mark.parametrize(
+    "method,path",
+    [
+        ("post", "batch_exports/{id}/backfills/"),
+        ("post", "batch_exports/{id}/runs/{id}/retry/"),
+        ("post", "file_download_batch_exports/"),
+        ("get", "file_download_batch_exports/"),
+    ],
+)
+def test_restricted_member_cannot_start_or_read_exports_from_sibling_routes(
+    client: HttpClient, organization, team, user, method: str, path: str
+):
+    membership = OrganizationMembership.objects.get(organization=organization, user=user)
+    set_member_property_access(team=team, membership=membership, access="restricted")
+    client.force_login(user)
+
+    url = f"/api/projects/{team.pk}/" + path.format(id=uuid.uuid4())
+    response = getattr(client, method)(url, {}, content_type="application/json")
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+    assert "property access" in response.json()["detail"].lower()
 
 
 def test_cannot_create_a_batch_export_for_another_organization(client: HttpClient, temporal, organization, user):
