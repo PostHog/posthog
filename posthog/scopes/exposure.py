@@ -22,9 +22,8 @@ INTERNAL_API_SCOPE_OBJECTS: frozenset[catalog.APIScopeObject] = frozenset(
         # is chosen by the customer rather than by us.
         "interactive_run",
         # Provenance marker on tokens minted server-side for a sandbox/agent run
-        # (never via the consent flow or a personal API key). The LLM gateway requires
-        # it on the internal products that share the PostHog Desktop OAuth app so a user's
-        # own credential can't reach them — see services/llm-gateway products/config.py.
+        # (never via the consent flow or a personal API key). It marks the internal products
+        # that share the PostHog Desktop OAuth app so a user's own credential can't reach them.
         "internal_run",
         # Marks a sandbox OAuth token as belonging to a trusted built-in agent.
         # MCP Store uses it to deny the human/member control plane and force the

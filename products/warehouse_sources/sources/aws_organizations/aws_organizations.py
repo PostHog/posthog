@@ -6,7 +6,6 @@ from collections.abc import Callable, Iterator
 from typing import Any, Optional
 
 import requests
-from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
 from botocore.credentials import Credentials
 from structlog.types import FilteringBoundLogger
@@ -34,9 +33,11 @@ from products.warehouse_sources.sources.sdk import (
     BoundedRetry,
     ResumableSourceManager,
     SourceResponse,
+    aws_redact_values,
     flatten_nested,
     make_tracked_session,
     retry_with_deadline,
+    sign_aws_request,
 )
 
 # Organizations is a POST-only JSON RPC and the tracked session's default policy only retries
@@ -95,9 +96,13 @@ def result_key(endpoint_config: AwsOrganizationsEndpointConfig) -> str:
     return endpoint_config.result_key
 
 
-def _parse_timestamp(value: Any) -> Any:
-    """Organizations serializes timestamps as epoch seconds; leave anything else untouched."""
+def _parse_timestamp(value: Any, *, accept_epoch_milliseconds: bool) -> Any:
+    """AWS uses epoch seconds, but its billing transfer example uses millisecond strings."""
+    if accept_epoch_milliseconds and isinstance(value, str) and value.isdecimal():
+        value = int(value)
     if isinstance(value, int | float) and not isinstance(value, bool):
+        if accept_epoch_milliseconds and value >= 10**11:
+            value /= 1000
         return dt.datetime.fromtimestamp(value, tz=dt.UTC)
     if isinstance(value, str) and value:
         try:
@@ -114,7 +119,9 @@ def normalize_row(endpoint_config: AwsOrganizationsEndpointConfig, obj: dict[str
     row = flatten_nested(kept)
     for column in endpoint_config.timestamp_columns:
         if column in row:
-            row[column] = _parse_timestamp(row[column])
+            row[column] = _parse_timestamp(
+                row[column], accept_epoch_milliseconds=endpoint_config.accept_epoch_milliseconds
+            )
     return row
 
 
@@ -159,19 +166,12 @@ class AwsOrganizationsClient:
     in our HTTP logs and metrics.
     """
 
-    def __init__(
-        self,
-        access_key_id: str,
-        secret_access_key: str,
-        session_token: Optional[str] = None,
-        api_version: Optional[str] = None,
-    ) -> None:
+    def __init__(self, credentials: Credentials, api_version: Optional[str] = None) -> None:
         self.target_prefix = target_prefix(api_version)
-        self._credentials = Credentials(access_key_id, secret_access_key, session_token or None)
-        self._signer = SigV4Auth(self._credentials, SIGNING_NAME, SIGNING_REGION)
+        self._credentials = credentials
         self._session = make_tracked_session(
             retry=TRANSPORT_RETRY,
-            redact_values=tuple(value for value in (secret_access_key, session_token) if value),
+            redact_values=aws_redact_values(credentials),
         )
 
     def _signed_headers(self, operation: str, body: bytes) -> dict[str, str]:
@@ -184,7 +184,7 @@ class AwsOrganizationsClient:
                 "X-Amz-Target": f"{self.target_prefix}.{operation}",
             },
         )
-        self._signer.add_auth(request)
+        sign_aws_request(request, self._credentials, SIGNING_NAME, SIGNING_REGION)
         return dict(request.headers)
 
     def send(self, operation: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -309,7 +309,7 @@ def _list_rows(
     if start_token:
         logger.debug(f"Resuming from a saved page token. endpoint={endpoint_config.name}")
 
-    payload: dict[str, Any] = {}
+    payload: dict[str, Any] = dict(endpoint_config.request_params)
     if endpoint_config.page_size is not None:
         payload["MaxResults"] = endpoint_config.page_size
 
@@ -690,18 +690,14 @@ def _resource_tag_rows(
 
 
 def get_rows(
-    aws_access_key_id: str,
-    aws_secret_access_key: str,
-    aws_session_token: Optional[str],
+    credentials: Credentials,
     endpoint: str,
     api_version: Optional[str],
     resumable_source_manager: ResumableSourceManager[AwsOrganizationsResumeConfig],
     logger: FilteringBoundLogger,
 ) -> Iterator[list[dict[str, Any]]]:
     endpoint_config = AWS_ORGANIZATIONS_ENDPOINTS[endpoint]
-    client = AwsOrganizationsClient(
-        aws_access_key_id, aws_secret_access_key, aws_session_token, api_version=api_version
-    )
+    client = AwsOrganizationsClient(credentials, api_version=api_version)
 
     if endpoint_config.object_key is not None:
         yield from _single_object_rows(client, endpoint_config)
@@ -813,7 +809,7 @@ def endpoint_permission_reason(client: AwsOrganizationsClient, endpoint: str) ->
                     client.request("ListTagsForResource", {"ResourceId": account_id})
                 break
         else:
-            client.request(endpoint_config.operation, {"MaxResults": 1})
+            client.request(endpoint_config.operation, {**endpoint_config.request_params, "MaxResults": 1})
     except AwsOrganizationsError as error:
         return _permission_reason(error)
     except Exception:
@@ -822,31 +818,20 @@ def endpoint_permission_reason(client: AwsOrganizationsClient, endpoint: str) ->
 
 
 def probe_endpoint_permissions(
-    aws_access_key_id: str,
-    aws_secret_access_key: str,
-    aws_session_token: Optional[str],
+    credentials: Credentials,
     endpoints: list[str],
     api_version: Optional[str] = None,
 ) -> dict[str, str | None]:
-    client = AwsOrganizationsClient(
-        aws_access_key_id, aws_secret_access_key, aws_session_token, api_version=api_version
-    )
+    client = AwsOrganizationsClient(credentials, api_version=api_version)
     return {endpoint: endpoint_permission_reason(client, endpoint) for endpoint in endpoints}
 
 
 def validate_credentials(
-    aws_access_key_id: str,
-    aws_secret_access_key: str,
-    aws_session_token: Optional[str],
+    credentials: Credentials,
     schema_name: Optional[str] = None,
     api_version: Optional[str] = None,
 ) -> tuple[bool, Optional[str]]:
-    if not aws_access_key_id or not aws_secret_access_key:
-        return False, "AWS access key ID and secret access key are required"
-
-    client = AwsOrganizationsClient(
-        aws_access_key_id, aws_secret_access_key, aws_session_token, api_version=api_version
-    )
+    client = AwsOrganizationsClient(credentials, api_version=api_version)
 
     if schema_name is not None and schema_name in AWS_ORGANIZATIONS_ENDPOINTS:
         reason = endpoint_permission_reason(client, schema_name)
@@ -864,7 +849,7 @@ def validate_credentials(
         if error.code == "AWSOrganizationsNotInUseException":
             return (
                 False,
-                "This AWS account isn't a member of an organization. Connect a key from an account in an AWS organization.",
+                "This AWS account isn't a member of an organization. Connect credentials from an account in an AWS organization.",
             )
         return False, str(error)
     except Exception:
@@ -874,9 +859,7 @@ def validate_credentials(
 
 
 def aws_organizations_source(
-    aws_access_key_id: str,
-    aws_secret_access_key: str,
-    aws_session_token: Optional[str],
+    credentials: Credentials,
     endpoint: str,
     api_version: Optional[str],
     resumable_source_manager: ResumableSourceManager[AwsOrganizationsResumeConfig],
@@ -887,9 +870,7 @@ def aws_organizations_source(
     return SourceResponse(
         name=endpoint,
         items=lambda: get_rows(
-            aws_access_key_id=aws_access_key_id,
-            aws_secret_access_key=aws_secret_access_key,
-            aws_session_token=aws_session_token,
+            credentials=credentials,
             endpoint=endpoint,
             api_version=api_version,
             resumable_source_manager=resumable_source_manager,

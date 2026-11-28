@@ -52,6 +52,8 @@ export type RequestProperties = {
     // Resource groups to advertise in `resources/list`; `none` advertises nothing.
     resources?: string[] | undefined
     clientIp?: string | undefined
+    // Names only, never values: they show which identifiers a client sends before we read any.
+    requestHeaderNames?: string[] | undefined
 }
 
 export type ClientInfo = {
@@ -98,6 +100,27 @@ export function sanitizeToolFilterNames(names: readonly string[] | undefined): s
         }
     }
     return unique.length > 0 ? unique : undefined
+}
+
+// Identifier-shaped only, so an email or a `key=value` pasted into a name is dropped.
+const OBSERVED_NAME = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,63}$/
+const MAX_OBSERVED_NAMES = 64
+
+// Protocol names are short words. A long word, or one mixing letters with digits, is shaped like a
+// token or an id a client put in the name, and the name would carry that value into analytics.
+// A secret split by `/`, `.` or `-` leaves short words, so the name is also judged with its separators removed.
+function hasValueShapedWord(name: string): boolean {
+    const words = name.match(/[A-Za-z0-9]+/g) ?? []
+    const joined = words.join('')
+    return (
+        (joined.length >= 16 && /\d/.test(joined)) ||
+        words.some((word) => word.length > 32 || (word.length >= 8 && /\d/.test(word)))
+    )
+}
+
+export function observedNames(names: Iterable<string>): string[] | undefined {
+    const valid = [...new Set(names)].filter((name) => OBSERVED_NAME.test(name) && !hasValueShapedWord(name)).sort()
+    return valid.length > 0 ? valid.slice(0, MAX_OBSERVED_NAMES) : undefined
 }
 
 function parseBooleanParam(value: string | undefined): boolean | undefined {
@@ -177,5 +200,6 @@ export function parseRequestProperties(
         transport,
         requestStartTime: Date.now(),
         featureFlagOverrides: header(request, 'x-posthog-flag-overrides') || params.get('flag_overrides') || undefined,
+        requestHeaderNames: observedNames(request.headers.keys()),
     }
 }

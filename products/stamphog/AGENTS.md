@@ -103,6 +103,8 @@ A broadcast request's Slack message never shows a verdict or a finding that GitH
 It reads a run's outcome only when `verdict_posted_at` is set, or `may_publish()` allows a failure, so a silent run's withheld verdict stays hidden.
 Every read that decides what the message shows, or whether to post it, is writer-pinned.
 A broadcast ask reviews a head whose newest run is a delivered engine WAIT again at most `_BROADCAST_REVISITS_PER_HEAD` times, so repeated asks cannot start an unbounded series of LLM reviews.
+A stamphog approval ends a request only while GitHub still shows it, because a maintainer dismissing it by hand updates nothing in the product DB.
+A request from a pull request link posted in the Broadcast channel (`requested_via=slack_link`) starts no review and waits for none. A run that has not decided reads as OPEN, so the only stamphog outcome that changes the request is an approval.
 
 ## Sandbox credentials and egress
 

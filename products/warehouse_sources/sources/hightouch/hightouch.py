@@ -1,5 +1,5 @@
 import dataclasses
-from collections.abc import Callable, Iterable
+from collections.abc import Callable
 from typing import Any, Optional, cast
 
 from requests import Response
@@ -15,6 +15,7 @@ from products.warehouse_sources.sources.sdk import (
     EndpointResource,
     IncrementalConfig,
     OffsetPaginator,
+    Resource,
     RESTAPIConfig,
     ResumableSourceManager,
     SourceResponse,
@@ -35,9 +36,8 @@ class HightouchResumeConfig:
 class HightouchPaginator(OffsetPaginator):
     """Limit/offset paginator that also honors Hightouch's `hasMore` response flag.
 
-    Every Hightouch list response is `{"data": [...], "hasMore": bool}`, so a full page
-    with `hasMore: false` stops immediately instead of paying one extra empty-page request.
-    The inherited empty/short-page checks still terminate if `hasMore` is ever absent.
+    A full page with `hasMore: false` saves an empty-page request. If the response omits
+    `hasMore`, as the event contracts schema permits, use the page length instead.
     """
 
     def __init__(self, limit: int) -> None:
@@ -189,7 +189,7 @@ def hightouch_source(
 
     if endpoint_config.fanout:
         dependent_resource = cast(
-            Iterable[Any],
+            Resource,
             build_dependent_resource(
                 endpoint_configs=HIGHTOUCH_ENDPOINTS,
                 child_endpoint=endpoint,
@@ -213,11 +213,13 @@ def hightouch_source(
                     "paginator": HightouchPaginator(limit=endpoint_config.page_size),
                     "data_selector": "data",
                 },
-                child_params_extra={"orderBy": "id"},
                 resume_hook=save_checkpoint,
                 initial_paginator_state=initial_paginator_state,
+                resume_parent_pagination=endpoint_config.resume_parent_pagination,
             ),
         )
+        if endpoint_config.strip_fields:
+            dependent_resource.add_map(_drop_fields(endpoint_config.strip_fields))
         return _make_source_response(endpoint_config, lambda: dependent_resource)
 
     config: RESTAPIConfig = {

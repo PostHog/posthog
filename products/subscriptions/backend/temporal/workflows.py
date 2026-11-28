@@ -2,6 +2,7 @@ import json
 import uuid
 import asyncio
 import datetime as dt
+import itertools
 from collections.abc import Callable, Coroutine
 from enum import StrEnum
 from typing import Any
@@ -21,11 +22,13 @@ from posthog.temporal.common.errors import (
     truncate_for_temporal_payload,
     unwrap_temporal_cause,
 )
-from posthog.temporal.exports.activities import export_asset_activity
+from posthog.temporal.exports.activities import export_asset_activity, export_assets_batch_activity
 from posthog.temporal.exports.retry_policy import EXPORT_RETRY_POLICY
 from posthog.temporal.exports.types import (
     ExportAssetActivityInputs,
     ExportAssetResult,
+    ExportAssetsBatchActivityInputs,
+    ExportAssetsBatchResult,
     ExportError,
     extract_error_details,
     is_user_query_export_error,
@@ -108,6 +111,56 @@ def _to_recipient_dicts(recipient_results: list[RecipientResult]) -> list[dict]:
         }
         for r in recipient_results
     ]
+
+
+def _export_one_asset(asset_id: int) -> Coroutine[Any, Any, ExportAssetResult]:
+    return temporalio.workflow.execute_activity(
+        export_asset_activity,
+        ExportAssetActivityInputs(
+            exported_asset_id=asset_id,
+            source=EventSource.SUBSCRIPTION,
+        ),
+        start_to_close_timeout=dt.timedelta(hours=1),
+        heartbeat_timeout=dt.timedelta(minutes=2),
+        retry_policy=EXPORT_RETRY_POLICY,
+    )
+
+
+async def _export_assets_batched(asset_ids: list[int], chunk_size: int) -> list[ExportAssetResult | BaseException]:
+    chunks = [list(chunk) for chunk in itertools.batched(asset_ids, chunk_size, strict=False)]
+    batch_results: list[ExportAssetsBatchResult | BaseException] = await asyncio.gather(
+        *[
+            temporalio.workflow.execute_activity(
+                export_assets_batch_activity,
+                ExportAssetsBatchActivityInputs(exported_asset_ids=chunk, source=EventSource.SUBSCRIPTION),
+                start_to_close_timeout=dt.timedelta(hours=1),
+                heartbeat_timeout=dt.timedelta(minutes=2),
+                retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
+            )
+            for chunk in chunks
+        ],
+        return_exceptions=True,
+    )
+
+    results: dict[int, ExportAssetResult | BaseException] = {}
+    for chunk, batch_result in zip(chunks, batch_results):
+        if isinstance(batch_result, BaseException):
+            temporalio.workflow.logger.warning(
+                "process_subscription.batch_render_failed",
+                extra={"exported_asset_ids": chunk, "error": str(batch_result)},
+            )
+            continue
+        results.update({result.exported_asset_id: result for result in batch_result.settled})
+
+    handed_back = [asset_id for asset_id in asset_ids if asset_id not in results]
+    if handed_back:
+        retried = await asyncio.gather(
+            *[_export_one_asset(asset_id) for asset_id in handed_back],
+            return_exceptions=True,
+        )
+        results.update(zip(handed_back, retried))
+
+    return [results[asset_id] for asset_id in asset_ids]
 
 
 def _build_outcome_assets(
@@ -420,28 +473,21 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
 
             # Phase 2: Fan-out export — one activity per insight, independent retry
             failure_stage = SubscriptionFailureStage.ASSET_GENERATION
-            export_tasks = []
-            for asset_id in prepare_result.exported_asset_ids:
-                task = temporalio.workflow.execute_activity(
-                    export_asset_activity,
-                    ExportAssetActivityInputs(
-                        exported_asset_id=asset_id,
-                        source=EventSource.SUBSCRIPTION,
-                    ),
-                    start_to_close_timeout=dt.timedelta(hours=1),
-                    heartbeat_timeout=dt.timedelta(minutes=2),
-                    retry_policy=EXPORT_RETRY_POLICY,
+            asset_ids = list(prepare_result.exported_asset_ids)
+            export_results: list[ExportAssetResult | BaseException]
+            if (
+                temporalio.workflow.patched("subscription-batch-render-2026-11")
+                and prepare_result.batch_render_chunk_size > 0
+            ):
+                export_results = await _export_assets_batched(asset_ids, prepare_result.batch_render_chunk_size)
+            else:
+                # Gather results — continue on failure (partial success OK)
+                export_results = await asyncio.gather(
+                    *[_export_one_asset(asset_id) for asset_id in asset_ids],
+                    return_exceptions=True,
                 )
-                export_tasks.append((asset_id, task))
-
-            # Gather results — continue on failure (partial success OK)
-            export_results: list[ExportAssetResult | BaseException] = await asyncio.gather(
-                *[task for _, task in export_tasks],
-                return_exceptions=True,
-            )
 
             # Classify export results
-            asset_ids = [aid for aid, _ in export_tasks]
             outcome_assets, successful_asset_ids = _build_outcome_assets(asset_ids, export_results)
             assets_with_content = len(successful_asset_ids)
             total_assets = len(outcome_assets)

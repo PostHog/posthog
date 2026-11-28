@@ -1,8 +1,8 @@
 import uuid
 import hashlib
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
-from django.contrib.auth import BACKEND_SESSION_KEY
+from django.contrib.auth import BACKEND_SESSION_KEY, SESSION_KEY
 from django.core.cache import cache
 from django.db import transaction
 from django.db.models import F
@@ -13,10 +13,15 @@ from loginas.utils import is_impersonated_session
 
 from posthog.constants import AUTH_BACKEND_KEYS
 from posthog.geoip import get_geoip_properties
+from posthog.ip_restrictions import get_restriction_client_ip
 from posthog.models import User
 from posthog.models.activity_logging.utils import ActivityCredential
+from posthog.ph_client import self_hosted_capture_reaches_posthog
 from posthog.session.models import Session
 from posthog.utils import _is_valid_ip_address, get_ip_address, get_short_user_agent
+
+if TYPE_CHECKING:
+    from rest_framework.request import Request
 
 # Fixed, arbitrary namespace for deriving a session's public id. We expose `uuid5(namespace, key)`
 # rather than the session key itself so the key — which can revoke a session — is never leaked, while
@@ -44,6 +49,35 @@ def session_activity_credential(request: HttpRequest, impersonated_by_id: int | 
         id=str(session_public_id(session_key)) if session_key else None,
         impersonated_by_id=impersonated_by_id,
     )
+
+
+def client_attribution_properties(request: "HttpRequest | Request", user: User) -> dict[str, str]:
+    """`$ip` and `session_public_id` for an event captured server-side about `user`, so an investigator
+    can tell where the request came from and find the login session to revoke it.
+
+    Without an explicit `$ip`, server-side capture records this server's egress address. An MCP call uses
+    the end-user IP that the MCP server signed. The session id is left out when a token authenticated the
+    request, or when the session is not logged in as `user` yet, because login() then replaces its key.
+    A self-hosted install gets nothing, because its capture reaches PostHog's own project.
+    """
+    if self_hosted_capture_reaches_posthog():
+        return {}
+    from posthog.auth import SessionAuthentication  # noqa: PLC0415 — keeps posthog.auth off the model import path
+
+    authenticator = getattr(request, "successful_authenticator", None)
+    token_authenticated = authenticator is not None and not isinstance(authenticator, SessionAuthentication)
+    request = getattr(request, "_request", request)
+    properties: dict[str, str] = {}
+    if ip := get_restriction_client_ip(request):
+        properties["$ip"] = ip
+    session = getattr(request, "session", None)
+    if token_authenticated or session is None or session.get(SESSION_KEY) != str(user.pk):
+        return properties
+    if session.session_key is None:
+        # login() over another account's session flushes it, and the new session has a key only once saved.
+        session.save()
+    properties["session_public_id"] = str(session_public_id(session.session_key))
+    return properties
 
 
 def _location_from_ip(ip: Optional[str]) -> Optional[str]:

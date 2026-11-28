@@ -25,6 +25,7 @@ from urllib.parse import urlparse
 from django.conf import settings
 
 import requests
+import structlog
 
 from posthog.dataclasses import frozen
 from posthog.llm.gateway_client import AIGatewayConfig, ai_gateway_headers, resolve_ai_gateway_config
@@ -36,6 +37,8 @@ from posthog.security.llm_prompt_sanitization import (
 
 from products.aeo.backend.brand import names_brand
 from products.aeo.backend.facade.contracts import CheckMode
+
+logger = structlog.get_logger(__name__)
 
 GATEWAY_TIMEOUT_SECONDS = 420  # web-search turns routinely take 10-60s, and multi-search answers several minutes
 AI_VISIBILITY_AI_PRODUCT = "ai_visibility"
@@ -647,6 +650,8 @@ class OpenAIWebSearchEngine:
         }
         if self.mode == CheckMode.WEB_SEARCH:
             payload["tools"] = [{"type": "web_search"}]
+            # The same search budget as the Claude engine's max_uses, so the two engines' citation rates compare.
+            payload["max_tool_calls"] = MAX_WEB_SEARCHES_PER_PROMPT
         try:
             body = _post_gateway_responses(
                 self._gateway, self._sessions, payload, trace_id=trace_id, custom_properties=custom_properties
@@ -655,7 +660,20 @@ class OpenAIWebSearchEngine:
             return self._check(trace_id, error=_request_error(e))
         if (error := openai_response_error(body)) is not None:
             return self._check(trace_id, error=error)
+        self._warn_over_search_cap(body)
         return _answered_check(self, trace_id, parse_openai_responses_citations(body))
+
+    def _warn_over_search_cap(self, body: dict[str, Any]) -> None:
+        # OpenAI does not always enforce max_tool_calls, and each search over the cap is billed.
+        searches = sum(1 for item in body.get("output") or [] if item.get("type") == "web_search_call")
+        if searches > MAX_WEB_SEARCHES_PER_PROMPT:
+            logger.warning(
+                "aeo_openai_search_cap_exceeded",
+                engine=self.name,
+                model=self.model,
+                count=searches,
+                cap=MAX_WEB_SEARCHES_PER_PROMPT,
+            )
 
     def _check(self, trace_id: str, *, error: str) -> CitationCheck:
         return CitationCheck(engine=self.name, model=self.model, mode=self.mode, trace_id=trace_id, error=error)

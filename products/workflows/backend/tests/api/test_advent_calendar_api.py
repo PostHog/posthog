@@ -224,9 +224,12 @@ class TestAdventCalendarAPI(APIBaseTest):
                 for _ in range(29):
                     self._results()
                 over_budget = self.client.get(self._url(self.team, "results"))
-                open_over_budget = self.client.post(
-                    self._url(self.team, "open"), {"day": 24, "hoggy": "hoggy-santa", "utc_offset_minutes": 0}
-                )
+                opens_over_budget = [
+                    self.client.post(
+                        self._url(self.team, "open"), {"day": 24, "hoggy": "hoggy-santa", "utc_offset_minutes": 0}
+                    ).status_code
+                    for _ in range(61)
+                ]
                 teammate_answer = self._answer_as(teammate, self.team, 2, "james")
             finally:
                 for alias in ("default", "throttle_history"):
@@ -236,7 +239,7 @@ class TestAdventCalendarAPI(APIBaseTest):
                 is_rate_limit_enabled.cache_clear()
 
         assert over_budget.status_code == status.HTTP_429_TOO_MANY_REQUESTS
-        assert open_over_budget.status_code == status.HTTP_200_OK
+        assert opens_over_budget == [status.HTTP_200_OK] * 60 + [status.HTTP_429_TOO_MANY_REQUESTS]
         assert teammate_answer["questions"][0]["shares"] == [
             {"option": "james", "share": 50},
             {"option": "tim", "share": 50},

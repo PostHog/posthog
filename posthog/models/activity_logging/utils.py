@@ -246,6 +246,9 @@ class ActivityLoggingStorage:
         """
         self._local.credential_resolver = resolver
 
+    def get_credential_resolver(self) -> Optional[Callable[[], Optional[ActivityCredential]]]:
+        return getattr(self._local, "credential_resolver", None)
+
     def get_credential(self) -> Optional[ActivityCredential]:
         resolver = getattr(self._local, "credential_resolver", None)
         if resolver is None:

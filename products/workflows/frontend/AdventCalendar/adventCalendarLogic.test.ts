@@ -222,7 +222,6 @@ describe('adventCalendarLogic', () => {
     it.each<[string, Reply, (day: number) => string, number | null | undefined, number[]]>([
         ['first opened each door on its day', 200, (day) => `2026-12-0${day}T12:00:00Z`, undefined, [1, 2, 3]],
         ['first opened each door a day late', 200, (day) => `2026-12-0${day + 1}T12:00:00Z`, undefined, []],
-        ['failed every open', 500, (day) => `2026-12-0${day}T12:00:00Z`, undefined, []],
         [
             'first opened each door on its day five hours behind UTC',
             200,
@@ -251,24 +250,94 @@ describe('adventCalendarLogic', () => {
         }
     )
 
-    it('keeps a ticket the server confirms after the calendar closed', async () => {
+    const LATE = { openedAt: () => '2026-12-04T09:00:00Z' }
+    const OLD_FORMAT = (): void => {
+        window.localStorage.setItem(
+            KEY,
+            JSON.stringify({ [UUID]: { opened: [1, 2, 3], answers: { 2: 'james' }, onTime: [3] } })
+        )
+        window.localStorage.setItem(TICKETS_KEY, JSON.stringify({ [UUID]: 3 }))
+    }
+
+    it.each<
+        [
+            string,
+            Parameters<typeof calendarApi>[0],
+            'reload' | 'close' | 'another tab',
+            Parameters<typeof calendarApi>[0],
+            number,
+        ]
+    >([
+        ['the reply confirms the open, and the server refuses opens after the reload', {}, 'reload', { open: 403 }, 1],
+        ['the reply puts the first open on another day', LATE, 'reload', {}, 0],
+        ['the server refuses the open', { open: 403 }, 'reload', {}, 0],
+        [
+            'the reply is lost on the network, and the server confirms it after the reload',
+            { open: 'network error' },
+            'reload',
+            {},
+            1,
+        ],
+        ['the server fails, and puts the first open on another day after the reload', { open: 500 }, 'reload', LATE, 0],
+        [
+            'the page reloads before the reply, and the server confirms it after the reload',
+            { openHeld: new Promise(() => {}) },
+            'reload',
+            {},
+            1,
+        ],
+        [
+            'the page reloads before the reply, and the server has it on another day',
+            { openHeld: new Promise(() => {}) },
+            'reload',
+            LATE,
+            0,
+        ],
+        ['the calendar closes before the reply comes back', {}, 'close', {}, 1],
+        [
+            'another tab saves its tickets without this one, and the server refuses opens after the reload',
+            {},
+            'another tab',
+            { open: 403 },
+            1,
+        ],
+    ])('shows the right tickets after a reload when %s', async (_, first, between, afterReload, tickets) => {
         let reply: () => void = () => {}
-        useMocks(calendarApi({ openHeld: new Promise((resolve) => (reply = resolve)) }).mocks)
+        const held = between === 'close' ? new Promise<void>((resolve) => (reply = resolve)) : first?.openHeld
+        const firstApi = calendarApi({ ...first, openHeld: held })
+        useMocks(firstApi.mocks)
         logic.actions.activateDoor('door-1')
         logic.actions.finishReveal()
         logic.actions.answerDoor('door-2', 'james')
         logic.actions.finishReveal()
         logic.actions.activateDoor('door-3-upper')
-        logic.unmount()
+        await waitFor(() => expect(firstApi.opens).toHaveLength(3))
+        await jest.advanceTimersByTimeAsync(100)
 
-        reply()
-        await waitFor(() =>
-            expect(JSON.parse(window.localStorage.getItem(TICKETS_KEY) ?? '{}')).toEqual({ [UUID]: [3] })
-        )
+        if (between === 'another tab') {
+            window.localStorage.setItem(TICKETS_KEY, JSON.stringify({ [UUID]: [] }))
+            window.dispatchEvent(new StorageEvent('storage', { key: TICKETS_KEY }))
+        }
+        logic.unmount()
+        if (between === 'close') {
+            reply()
+            await jest.advanceTimersByTimeAsync(100)
+        }
+        useMocks(calendarApi(afterReload).mocks)
+        logic = adventCalendarLogic()
+        logic.mount()
+        await jest.advanceTimersByTimeAsync(100)
+
+        expect(logic.values.tickets).toBe(tickets)
+    })
+
+    it('counts no ticket from a stored format no release wrote', () => {
+        OLD_FORMAT()
+        logic.unmount()
         logic = adventCalendarLogic()
         logic.mount()
 
-        expect(logic.values.tickets).toBe(1)
+        expect([doorOf(logic, 'door-3-upper')?.status, logic.values.tickets]).toEqual(['open', 0])
     })
 
     it('earns a ticket for every door a preview opens, and saves none of them', async () => {
@@ -487,33 +556,45 @@ describe('adventCalendarLogic', () => {
         expect(logic.values.pollShares).toEqual(shares)
     })
 
-    it.each<[string, object]>([
-        ['without the answer', { ...DAY_TWO_ANSWERED, answer: null }],
-        [
-            'with the answer at older shares',
-            {
-                ...DAY_TWO_ANSWERED,
-                shares: [
-                    { option: 'james', share: 50 },
-                    { option: 'tim', share: 50 },
-                ],
-            },
+    const OLDER_DAY_TWO = {
+        ...DAY_TWO_ANSWERED,
+        shares: [
+            { option: 'james', share: 50 },
+            { option: 'tim', share: 50 },
         ],
+    }
+
+    it.each<[string, object, 'answer' | 'read' | 'remount']>([
+        ['an answer save, without the answer', { ...DAY_TWO_ANSWERED, answer: null }, 'answer'],
+        ['an answer save, with the answer at older shares', OLDER_DAY_TWO, 'answer'],
+        ['a newer results read, with the answer at older shares', OLDER_DAY_TWO, 'read'],
+        ['the calendar opened again, with the answer at older shares', OLDER_DAY_TWO, 'remount'],
     ])(
-        'keeps the shares of a saved answer when the results the calendar loaded first arrive later %s',
-        async (_, lateQuestion) => {
+        'keeps the newer shares when the results the calendar loaded first arrive after %s',
+        async (_, lateQuestion, overtakenBy) => {
             let release = (): void => {}
             const api = calendarApi({}, resultsOf(lateQuestion), new Promise((done) => (release = done)))
             useMocks(api.mocks)
+            if (overtakenBy === 'read') {
+                window.localStorage.setItem(KEY, JSON.stringify({ [UUID]: { opened: [1, 2], answers: { 2: 'tim' } } }))
+            }
             logic.unmount()
             logic = adventCalendarLogic()
             logic.mount()
             await waitFor(() => expect(api.reads).toEqual([1]))
             useMocks(calendarApi().mocks)
-            logic.actions.activateDoor('door-1')
-            logic.actions.finishReveal()
-
-            logic.actions.answerDoor('door-2', 'tim')
+            if (overtakenBy === 'remount') {
+                logic.unmount()
+                window.localStorage.setItem(KEY, JSON.stringify({ [UUID]: { opened: [1, 2], answers: { 2: 'tim' } } }))
+                logic = adventCalendarLogic()
+                logic.mount()
+            } else if (overtakenBy === 'read') {
+                logic.actions.loadPollResults()
+            } else {
+                logic.actions.activateDoor('door-1')
+                logic.actions.finishReveal()
+                logic.actions.answerDoor('door-2', 'tim')
+            }
             await waitFor(() => expect(logic.values.pollShares).toEqual({ 2: { james: 38, tim: 62 } }))
             release()
             await expectLogic(logic).toFinishAllListeners()
@@ -521,6 +602,27 @@ describe('adventCalendarLogic', () => {
             expect(logic.values.pollShares).toEqual({ 2: { james: 38, tim: 62 } })
         }
     )
+
+    it('drops the results a read started before the calendar was opened again, when the new read fails', async () => {
+        let release = (): void => {}
+        const api = calendarApi({}, resultsOf(OLDER_DAY_TWO), new Promise((done) => (release = done)))
+        useMocks(api.mocks)
+        logic.unmount()
+        logic.mount()
+        await waitFor(() => expect(api.reads).toEqual([1]))
+        const failing = calendarApi({ results: 500 })
+        useMocks(failing.mocks)
+        logic.unmount()
+        logic.mount()
+        await waitFor(() => expect(failing.reads).toEqual([1]))
+        signIn({ uuid: UUID, is_staff: false })
+        logic.actions.openDoor(UUID, 1, null, true, false)
+        logic.actions.openDoor(UUID, 2, 'tim', true, false)
+        release()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.pollShares).toEqual({})
+    })
 
     it.each(['before', 'after'])(
         'shows the shares of both answers when the server reply to the first is held %s it saves the answer',
@@ -542,6 +644,7 @@ describe('adventCalendarLogic', () => {
                     saved.includes(5) ? dayFive : { ...dayFive, answer: null }
                 )
             useMocks({
+                get: { [`${CALENDAR_API}/results/`]: () => [200, snapshot()] },
                 post: {
                     [`${CALENDAR_API}/answer/`]: async ({ request }) => {
                         const { day } = (await request.json()) as { day: number }
@@ -576,6 +679,146 @@ describe('adventCalendarLogic', () => {
 
             expect([...saved].sort()).toEqual([2, 5])
             expect(logic.values.pollShares).toEqual({ 2: { james: 38, tim: 62 }, 5: { no: 30, yes: 70 } })
+        }
+    )
+
+    type PollRequest = 'read' | 'save 2' | 'save 5'
+
+    const permutations = <T>(items: T[]): T[][] =>
+        items.length <= 1
+            ? [items]
+            : items.flatMap((item, index) =>
+                  permutations([...items.slice(0, index), ...items.slice(index + 1)]).map((rest) => [item, ...rest])
+              )
+
+    const POLL_REQUEST_SETS: PollRequest[][] = [
+        ['read', 'save 2'],
+        ['read', 'save 5'],
+        ['save 2', 'save 5'],
+        ['read', 'save 2', 'save 5'],
+    ]
+
+    const POLL_INTERLEAVINGS = POLL_REQUEST_SETS.flatMap((requests) =>
+        permutations(requests).flatMap((started) =>
+            permutations(requests).flatMap((served) =>
+                permutations(requests).map((replied): [string, PollRequest[], PollRequest[], PollRequest[]] => [
+                    `started ${started.join(', ')}; served ${served.join(', ')}; replied ${replied.join(', ')}`,
+                    started,
+                    served,
+                    replied,
+                ])
+            )
+        )
+    )
+
+    it.each(POLL_INTERLEAVINGS)(
+        "shows the server's latest shares once every request settled: %s",
+        async (_, started, served, replied) => {
+            const PICKS = { 2: 'tim', 5: 'yes' } as const
+            const dayOf = (request: PollRequest): 2 | 5 => (request === 'save 2' ? 2 : 5)
+            const answered = new Set<number>()
+            let version = 0
+            const snapshot = (): { questions: object[] } =>
+                resultsOf(
+                    ...[2, 5].map((day) => ({
+                        day,
+                        answer: answered.has(day) ? PICKS[day as 2 | 5] : null,
+                        shares:
+                            day === 2
+                                ? [
+                                      { option: 'james', share: 40 - version },
+                                      { option: 'tim', share: 60 + version },
+                                  ]
+                                : [
+                                      { option: 'no', share: 30 - version },
+                                      { option: 'yes', share: 70 + version },
+                                  ],
+                    }))
+                )
+            const serve = (request: PollRequest): object => {
+                version += 1
+                if (request !== 'read') {
+                    answered.add(dayOf(request))
+                }
+                return snapshot()
+            }
+            const gate = (): { open: () => void; opened: Promise<void> } => {
+                let open = (): void => {}
+                const opened = new Promise<void>((done) => (open = done))
+                return { open, opened }
+            }
+            const held = new Map<PollRequest, { serve: ReturnType<typeof gate>; reply: ReturnType<typeof gate> }>()
+            const bodies = new Map<PollRequest, object>()
+            const arrived = new Set<PollRequest>()
+            let sent = 0
+            const handle = async (request: PollRequest): Promise<[number, object]> => {
+                sent += 1
+                const gates = held.get(request)
+                if (!gates || arrived.has(request)) {
+                    return [200, serve(request)]
+                }
+                arrived.add(request)
+                await gates.serve.opened
+                bodies.set(request, serve(request))
+                await gates.reply.opened
+                return [200, bodies.get(request)!]
+            }
+            window.localStorage.setItem(KEY, JSON.stringify({ [UUID]: { opened: [1, 2, 3, 4, 5], answers: PICKS } }))
+            useMocks({
+                get: { [`${CALENDAR_API}/results/`]: () => handle('read') },
+                post: {
+                    [`${CALENDAR_API}/answer/`]: async ({ request }) =>
+                        handle(`save ${((await request.json()) as { day: number }).day}` as PollRequest),
+                },
+            })
+            logic.unmount()
+            logic = adventCalendarLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            sent = 0
+            for (const request of started) {
+                held.set(request, { serve: gate(), reply: gate() })
+            }
+
+            for (const request of started) {
+                if (request === 'read') {
+                    logic.actions.loadPollResults()
+                } else {
+                    logic.actions.savePollAnswer({ day: dayOf(request), option: PICKS[dayOf(request)] })
+                }
+            }
+            await waitFor(() => expect(sent).toBe(started.length))
+            for (const request of served) {
+                held.get(request)!.serve.open()
+                await waitFor(() => expect(bodies.has(request)).toBe(true))
+            }
+            for (const request of replied) {
+                held.get(request)!.reply.open()
+                const body = JSON.stringify(bodies.get(request))
+                await expectLogic(logic).toDispatchActions([
+                    (action) =>
+                        action.type === logic.actionTypes.receivePollResults &&
+                        JSON.stringify(action.payload.results) === body,
+                ])
+            }
+            await expectLogic(logic).toFinishAllListeners()
+
+            const latest = snapshot().questions as {
+                day: number
+                answer: string | null
+                shares: { option: string; share: number }[]
+            }[]
+            expect(logic.values.pollShares).toEqual(
+                Object.fromEntries(
+                    latest
+                        .filter((question) => question.answer)
+                        .map((question) => [
+                            question.day,
+                            Object.fromEntries(question.shares.map((share) => [share.option, share.share])),
+                        ])
+                )
+            )
+            expect(sent).toBeLessThanOrEqual(started.length + 1)
         }
     )
 
@@ -725,9 +968,26 @@ describe('adventCalendarLogic', () => {
         })
     })
 
-    it('reports a tip click with its day', () => {
+    it.each<[string, boolean, unknown[][]]>([
+        [
+            'live',
+            false,
+            [
+                ['workflows advent tip clicked', { day: 7 }],
+                ['workflows advent shared', {}],
+            ],
+        ],
+        ['in a staff preview of another day', true, []],
+    ])('reports a tip click with its day and a share %s', (_, isPreview, sent) => {
+        if (isPreview) {
+            preflightLogic.actions.loadPreflightSuccess({ ...preflightLogic.values.preflight!, is_debug: false })
+            signIn({ is_staff: true })
+            router.actions.push('/workflows/advent', { day: '2' })
+        }
+        capture.mockClear()
         logic.actions.clickTip(7)
+        logic.actions.share()
 
-        expect(capture).toHaveBeenCalledWith('workflows advent tip clicked', { day: 7 })
+        expect(capture.mock.calls).toEqual(sent)
     })
 })

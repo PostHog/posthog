@@ -3,6 +3,7 @@ from typing import Optional, cast
 from products.warehouse_sources.sources.appfollow._config import AppfollowSourceConfig
 from products.warehouse_sources.sources.appfollow.appfollow import (
     AppfollowResumeConfig,
+    AppfollowScanCursor,
     appfollow_source,
     check_credentials,
 )
@@ -14,6 +15,7 @@ from products.warehouse_sources.sources.appfollow.settings import (
 )
 from products.warehouse_sources.sources.sdk import (
     CanonicalDescriptions,
+    CursorSource,
     DataWarehouseSourceCategory,
     ExternalDataSourceType,
     FieldType,
@@ -32,7 +34,7 @@ from products.warehouse_sources.sources.sdk import (
 
 
 @SourceRegistry.register
-class AppfollowSource(ResumableSource[AppfollowSourceConfig, AppfollowResumeConfig]):
+class AppfollowSource(ResumableSource[AppfollowSourceConfig, AppfollowResumeConfig], CursorSource[AppfollowScanCursor]):
     codebase_detection = detect(env=("^APPFOLLOW_",))
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -105,7 +107,7 @@ Note that AppFollow bills API usage against a credit balance (reviews and rating
                 name=endpoint,
                 supports_incremental=has_incremental,
                 # A dated fan-out re-reads its lookback window, which append would store twice.
-                supports_append=has_incremental and endpoint_config.kind != "dated_fanout",
+                supports_append=has_incremental and endpoint_config.kind not in ("dated_fanout", "console_ratings"),
                 incremental_fields=endpoint_config.incremental_fields,
                 should_sync_default=endpoint_config.should_sync_default,
                 detected_primary_keys=endpoint_config.primary_keys,
@@ -140,6 +142,15 @@ Note that AppFollow bills API usage against a credit balance (reviews and rating
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[AppfollowResumeConfig]:
         return ResumableSourceManager[AppfollowResumeConfig](inputs, AppfollowResumeConfig)
 
+    def cursor_class(self) -> type[AppfollowScanCursor]:
+        return AppfollowScanCursor
+
+    def merge_cursors(self, current: AppfollowScanCursor, candidate: AppfollowScanCursor) -> AppfollowScanCursor:
+        completed = dict(current.completed_through)
+        for key, scanned in candidate.completed_through.items():
+            completed[key] = max(completed.get(key, scanned), scanned)
+        return AppfollowScanCursor(completed_through=completed)
+
     def source_for_pipeline(
         self,
         config: AppfollowSourceConfig,
@@ -156,4 +167,5 @@ Note that AppFollow bills API usage against a credit balance (reviews and rating
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
             else None,
+            cursor_manager=self.get_cursor_manager(inputs) if inputs.schema_name == "console_ratings" else None,
         )

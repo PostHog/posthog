@@ -937,6 +937,19 @@ class AEOSetupSustainedRateThrottle(_TeamBucketRateThrottle):
 # on each request, matching each keyword against each answer text in Postgres or scanning every search in
 # Python. The project-global Burst/Sustained pair never throttles the session-authenticated UI, so this
 # team bucket bounds how often a browser or a script can start that work. The two endpoints share it.
+class AEOTopicRelabelBurstRateThrottle(_TeamBucketRateThrottle):
+    """A topic rename, merge or removal rewrites the label on every past check of the topic, so the project's
+    rewrites are capped, whoever sends them."""
+
+    scope = "aeo_topic_relabel_burst"
+    rate = "10/minute"
+
+
+class AEOTopicRelabelSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "aeo_topic_relabel_sustained"
+    rate = "60/hour"
+
+
 class AEOKeywordReportBurstRateThrottle(_TeamBucketRateThrottle):
     scope = "aeo_keyword_report_burst"
     rate = "30/minute"
@@ -945,6 +958,19 @@ class AEOKeywordReportBurstRateThrottle(_TeamBucketRateThrottle):
 class AEOKeywordReportSustainedRateThrottle(_TeamBucketRateThrottle):
     scope = "aeo_keyword_report_sustained"
     rate = "300/hour"
+
+
+# An AEO search detail runs one aggregation over the window's searches per distinct search, and each
+# distinct search is a new cache entry. Expanding rows is a click per request, so the rates clear a
+# person reading the overview while bounding a loop of searches that start cold reads.
+class AEOSearchDetailBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "aeo_search_detail_burst"
+    rate = "60/minute"
+
+
+class AEOSearchDetailSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "aeo_search_detail_sustained"
+    rate = "600/hour"
 
 
 # The batch session-context endpoint computes experiment context for up to 20 recordings per

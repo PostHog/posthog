@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import posthog from 'posthog-js'
 import { useState } from 'react'
 
 import { IconBolt, IconPerson } from '@posthog/icons'
@@ -8,12 +7,10 @@ import { Button, Switch } from '@posthog/quill'
 import { LiveUserCount } from 'lib/components/LiveUserCount'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { teamLogic } from 'scenes/teamLogic'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 import { WebAnalyticsMenu } from 'scenes/web-analytics/WebAnalyticsMenu'
@@ -33,10 +30,6 @@ export function WebAnalyticsHeaderButtons(): JSX.Element {
 
     const hasFeatureFlag = featureFlags[FEATURE_FLAGS.SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES]
     const isUsingNewEngine = currentTeam?.modifiers?.useWebAnalyticsPreAggregatedTables
-    const showLiveUserCount =
-        featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2] || featureFlags[FEATURE_FLAGS.CONDENSED_FILTER_BAR]
-    const showShareButton =
-        !featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2] && !featureFlags[FEATURE_FLAGS.CONDENSED_FILTER_BAR]
 
     // AI visibility reads answer engines, not events, so the event controls don't apply to it.
     if (productTab === ProductTab.CONTENT_AUTOPILOT) {
@@ -46,11 +39,6 @@ export function WebAnalyticsHeaderButtons(): JSX.Element {
                 <WebAnalyticsMenu />
             </div>
         )
-    }
-
-    const handleShare = (): void => {
-        void copyToClipboard(window.location.href, 'link')
-        posthog.capture('web analytics share link copied', { source: 'header_button' })
     }
 
     const handleToggleEngine = (checked: boolean): void => {
@@ -64,35 +52,10 @@ export function WebAnalyticsHeaderButtons(): JSX.Element {
 
     return (
         <div className="flex flex-wrap items-center justify-end gap-2">
-            {showLiveUserCount && (
-                <LiveUserCount
-                    docLink="https://posthog.com/docs/web-analytics/faq#i-am-online-but-the-online-user-count-is-not-reflecting-my-user"
-                    dataAttr="web-analytics-live-user-count"
-                />
-            )}
-            {showShareButton &&
-                (todayRailNav ? (
-                    <Button
-                        variant="outline"
-                        size="icon"
-                        aria-label="Share"
-                        tooltip="Share"
-                        onClick={handleShare}
-                        data-attr="web-analytics-share-button"
-                    >
-                        <IconLink />
-                    </Button>
-                ) : (
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        icon={<IconLink fontSize="16" />}
-                        tooltip="Share"
-                        tooltipPlacement="top"
-                        onClick={handleShare}
-                        data-attr="web-analytics-share-button"
-                    />
-                ))}
+            <LiveUserCount
+                docLink="https://posthog.com/docs/web-analytics/faq#i-am-online-but-the-online-user-count-is-not-reflecting-my-user"
+                dataAttr="web-analytics-live-user-count"
+            />
             {todayRailNav ? (
                 <Button
                     variant="outline"
