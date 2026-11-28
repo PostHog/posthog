@@ -428,14 +428,15 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("a_token_without_workflow_access", ["person:read"], True, False, None),
-            ("a_token_with_it", ["person:read", "hog_flow:read"], True, False, True),
-            ("a_project_without_the_log", ["person:read", "hog_flow:read"], False, False, None),
-            ("a_member_denied_workflows_who_made_this_one", ["person:read", "hog_flow:read"], True, True, None),
+            ("a_token_without_workflow_access", ["person:read"], True, None, None),
+            ("a_token_with_it", ["person:read", "hog_flow:read"], True, None, True),
+            ("a_project_without_the_log", ["person:read", "hog_flow:read"], False, None, None),
+            ("a_member_denied_workflows_who_made_this_one", ["person:read", "hog_flow:read"], True, "none", None),
+            ("a_member_denied_workflows_but_granted_this_one", ["person:read", "hog_flow:read"], True, "viewer", True),
         ]
     )
     def test_a_persons_emails_say_what_the_log_keeps_only_to_a_reader_of_the_log(
-        self, _flag, _name, scopes, log_enabled, workflows_denied, expected
+        self, _flag, _name, scopes, log_enabled, access_to_this_workflow, expected
     ):
         own_workflow = create_workflow_for_test(team_id=self.team.id, name="Mine", created_by_id=self.user.id).id
         message_id = self._send(10, "jane@example.com", [("sent", 1, "")], workflow_id=own_workflow)
@@ -443,13 +444,23 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         key = generate_random_token_personal()
         PersonalAPIKey.objects.create(label="scoped", user=self.user, secure_value=hash_key_value(key), scopes=scopes)
         _flag.return_value = log_enabled
-        if workflows_denied:
+        if access_to_this_workflow is not None:
             self._deny_member("hog_flow")
+        if access_to_this_workflow == "viewer":
+            create_access_control(
+                team_id=self.team.id,
+                resource="hog_flow",
+                resource_id=own_workflow,
+                access_level="viewer",
+                organization_member_id=self.organization_membership.id,
+            )
 
         response = self.client.get(url, headers={"authorization": f"Bearer {key}"})
+        detail = self.client.get(self._url(f"{message_id}/"), headers={"authorization": f"Bearer {key}"})
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert [row["in_transactional_email_log"] for row in response.json()] == [expected]
+        assert (detail.status_code == status.HTTP_200_OK) == (expected is True), detail.json()
 
     def test_shows_the_latest_attempt_of_a_key_refused_the_day_before(self, _flag):
         message_id = self._send(60 * 24, "jane@example.com", [("failed", 1, "recipient_suppressed")], keyed=True)

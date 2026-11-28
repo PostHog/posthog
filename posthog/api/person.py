@@ -75,7 +75,7 @@ from posthog.models.person.util import (
     get_persons_by_uuids,
     get_persons_mapped_by_distinct_id,
 )
-from posthog.permissions import is_authenticated_via_project_secret_api_key, scopes_caller_lacks
+from posthog.permissions import is_authenticated_via_project_secret_api_key, request_subject, scopes_caller_lacks
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
@@ -100,6 +100,9 @@ from posthog.uuidt import UUIDT
 
 from products.access_control.backend.facade.api import property_key_overlaps_restriction, redact_restricted_properties
 from products.ai_training.backend.facade.api import queue_person_training_deletion
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import get_all_cohort_ids_by_person_uuid
 from products.messaging.backend.facade.transactional_email_log import (
@@ -1903,6 +1906,15 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return response.Response(MessageAssetSerializer(enriched, many=True).data)
         return response.Response(PersonEmailSerializer(self._with_transactional_log(enriched), many=True).data)
 
+    def _reads_workflows(self) -> bool:
+        # The log's endpoints admit a reader of workflows as a whole, or of at least one workflow by a grant on it.
+        workflows = Resource(type=ResourceType.HOG_FLOW, project_id=self.team_id)
+        subject = request_subject(self.request)
+        if authorization.check(resource=workflows, action=Action.VIEW, subject=subject):
+            return True
+        granted = authorization.list_objects(resource=workflows, action=Action.VIEW, subject=subject)
+        return granted.complete and not granted.excluded and bool(granted.ids)
+
     def _with_transactional_log(self, rows: Sequence[MessageAsset]) -> Sequence[MessageAsset]:
         sends = {
             row.invocation_id: row.function_id
@@ -1912,8 +1924,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # The log's own endpoints need hog_flow:read, so a token without it learns nothing of what the log keeps.
         if not sends or scopes_caller_lacks(self.request, ["hog_flow:read"]):
             return rows
-        # The log's endpoints check access to workflows as a whole, which a grant on one workflow does not give.
-        if not self.user_access_control.check_access_level_for_resource("hog_flow", "viewer"):
+        if not self._reads_workflows():
             return rows
         try:
             if not transactional_email_log_enabled(self.team):
