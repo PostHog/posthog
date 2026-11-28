@@ -115,6 +115,19 @@ def is_shared_channel(channel: dict) -> bool:
     return any(channel.get(flag) for flag in SHARED_CHANNEL_FLAGS)
 
 
+def is_internal_channel(channel: dict) -> bool:
+    """Whether a conversations.info channel belongs to this workspace alone.
+
+    Stricter than not being shared: a DM is refused too, and so is a payload that does not say it
+    is a channel (is_group marks a private channel created before Slack's 2021 id change). A
+    caller that posts internal content uses this to fail closed, because a post cannot be taken
+    back once someone outside the workspace has read it.
+    """
+    if is_shared_channel(channel) or channel.get("is_org_shared") or channel.get("is_im") or channel.get("is_mpim"):
+        return False
+    return bool(channel.get("is_channel") or channel.get("is_group"))
+
+
 def fetch_channel_map(integration: IntegrationRecord, *, source: str) -> dict[str, SlackChannel]:
     """Public channel name -> channel, for one Slack integration.
 

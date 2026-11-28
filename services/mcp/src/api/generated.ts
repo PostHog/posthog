@@ -72202,6 +72202,26 @@ export namespace Schemas {
       lead_step_id: string;
     }
 
+    export interface LinkSlackThread {
+      /**
+         * Resource type the discussion is attached to (e.g. Ticket).
+         * @maxLength 79
+         */
+      scope: string;
+      /**
+         * ID of the resource the discussion is attached to.
+         * @maxLength 72
+         */
+      item_id: string;
+      /** ID of the Slack integration (kind='slack') whose bot reads and replies in the thread. */
+      integration_id: number;
+      /**
+         * Slack message link (Copy link in Slack) to the thread's first message or any reply in it. The bot must be a member of the channel.
+         * @maxLength 2048
+         */
+      url: string;
+    }
+
     /**
      * * `part_of` - Part of
      * * `plan` - Plan

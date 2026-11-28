@@ -164,6 +164,18 @@ def invalidate_slack_integration_auth_state(team_id: int, integration_id: int) -
         invalidate_workspace_bot_user_id(slack_team_id)
 
 
+def slack_thread_has_agent_task(*, slack_workspace_id: str, channel: str, thread_ts: str) -> bool:
+    """Whether someone started a PostHog agent task in this Slack thread.
+
+    The agent then owns the thread's replies, so another feature that reads them gets none.
+    """
+    # Filtered by integration rather than workspace id so the lookup uses the mapping's unique index.
+    integration_ids = [row.id for row in IntegrationManager.slack.oauth.list_by_external_id(slack_workspace_id)]
+    return SlackThreadTaskMapping.objects.filter(
+        integration_id__in=integration_ids, channel=channel, thread_ts=thread_ts
+    ).exists()
+
+
 def slack_shared_channel_allows_replies(integration: IntegrationRecord, slack_channel_id: str) -> bool:
     """Whether PostHog may reply in this externally shared channel: someone in it approved PostHog, and the
     workspace did not turn shared channels off.

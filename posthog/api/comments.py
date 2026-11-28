@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
 
 from django.core import exceptions as django_exceptions
-from django.db import transaction
+from django.db import connection, transaction
 from django.db.models import Q, QuerySet
 from django.utils import timezone
 
@@ -16,16 +16,18 @@ from rest_framework.exceptions import ErrorDetail
 from rest_framework.generics import get_object_or_404
 from rest_framework.request import Request
 from rest_framework.response import Response
+from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.integration import take_slack_channels_info_budget
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.pagination import StableCursorPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
 from posthog.comment.access import task_comment_target_is_accessible
-from posthog.event_usage import groups
+from posthog.event_usage import groups, report_user_action
 from posthog.exceptions import Conflict
 from posthog.helpers.slack_thread_mirror import post_comment_to_slack_thread, slack_author_from_user
 from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
@@ -52,16 +54,29 @@ from posthog.models.comment.utils import (
 from posthog.models.integration import SlackIntegration
 from posthog.oauth_provenance import get_oauth_access_token, is_sandbox_oauth_request
 from posthog.permissions import is_scout_sandbox_request
-from posthog.slack.channels import is_shared_channel
-from posthog.tasks.comment_slack_sync import backfill_comment_slack_thread
+from posthog.slack.channels import is_internal_channel, is_shared_channel
+from posthog.slack.identity import resolve_slack_user
+from posthog.slack.permalinks import SlackMessageLink, parse_message_link
+from posthog.tasks.comment_slack_sync import (
+    SLACK_IMPORT_STATE_KEY,
+    SLACK_MESSAGE_TS_KEY,
+    backfill_comment_slack_thread,
+    fetch_slack_thread_page,
+    import_linked_slack_thread,
+    slack_author_fields,
+    slack_message_comment_content,
+    slack_ts_to_datetime,
+)
 from posthog.tasks.email import send_discussions_mentioned
 
 from products.conversations.backend import reply_dedupe
+from products.conversations.backend.facade.api import slack_thread_is_ticket_thread
 from products.replay_vision.backend.facade.api import (
     can_view_observation,
     observation_note_write_rejection,
     observation_viewer_user_ids,
 )
+from products.slack_app.backend.facade.api import slack_thread_has_agent_task
 
 if TYPE_CHECKING:
     from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -120,7 +135,14 @@ STALE_SLACK_RESERVATION_GRACE = timedelta(minutes=2)
 # caller can't forge sync state (suppress mirroring of a reply, block ingestion of a real Slack
 # message by squatting on its ts, or spoof a Slack author identity in the discussion UI).
 RESERVED_ITEM_CONTEXT_KEYS = frozenset(
-    {"from_slack", "slack_synced_ts", "slack_message_ts", "slack_author_name", "slack_author_avatar"}
+    {
+        "from_slack",
+        "slack_synced_ts",
+        "slack_message_ts",
+        "slack_author_name",
+        "slack_author_avatar",
+        SLACK_IMPORT_STATE_KEY,
+    }
 )
 
 
@@ -131,6 +153,15 @@ def _release_slack_reservation(slack_thread: "CommentSlackThread") -> None:
     except Exception:
         # The stale-reservation grace period will unblock a retry even if this row lingers.
         logger.exception("comment_slack_reservation_release_failed", slack_thread_id=str(slack_thread.id))
+
+
+# Scopes a Slack thread can't be linked to. Customer ticket threads reach Slack through the support
+# product instead. Task and canvas comments hang off their task through item_context, which a Slack
+# message can't supply, so a linked root would not show up under the task.
+_UNLINKABLE_COMMENT_SCOPES = frozenset({"conversations_ticket", *DESKTOP_COMMENT_SCOPES, *OBSERVATION_COMMENT_SCOPES})
+
+# The egress label for the link request's Slack calls, so their rate-limit pressure shows apart.
+LINK_SLACK_THREAD_SOURCE = "discussion_slack_link"
 
 
 def _slack_thread_url(thread: CommentSlackThread) -> str:
@@ -625,6 +656,13 @@ class CommentSerializer(serializers.ModelSerializer):
                 raise exceptions.PermissionDenied("You can only modify your own comments")
 
             updated_instance = locked_instance
+            # The server sets these keys, and the Slack sync reads them (a linked thread's outbound checks
+            # key off from_slack), so replacing item_context on an edit must not drop them. Read from the
+            # locked row, so an import that finished while this request ran isn't rolled back.
+            if "item_context" in validated_data and isinstance(locked_instance.item_context, dict):
+                kept = {k: v for k, v in locked_instance.item_context.items() if k in RESERVED_ITEM_CONTEXT_KEYS}
+                if kept:
+                    validated_data["item_context"] = {**(validated_data["item_context"] or {}), **kept}
             if validated_data.keys():
                 if validated_data.get("content"):
                     validated_data["version"] = locked_instance.version + 1
@@ -761,6 +799,19 @@ class SendCommentToSlackSerializer(serializers.Serializer):
     )
 
 
+class LinkSlackThreadSerializer(serializers.Serializer):
+    scope = serializers.CharField(max_length=79, help_text="Resource type the discussion is attached to (e.g. Ticket).")
+    item_id = serializers.CharField(max_length=72, help_text="ID of the resource the discussion is attached to.")
+    integration_id = serializers.IntegerField(
+        help_text="ID of the Slack integration (kind='slack') whose bot reads and replies in the thread."
+    )
+    url = serializers.CharField(
+        max_length=2048,
+        help_text="Slack message link (Copy link in Slack) to the thread's first message or any reply in it. "
+        "The bot must be a member of the channel.",
+    )
+
+
 @extend_schema(extensions={"x-product": "platform_features"})
 class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     queryset = Comment.objects.all()
@@ -777,6 +828,8 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
         "patch",
         "destroy",
         "send_to_slack",
+        "link_slack_thread",
+        "unlink_slack_thread",
     ]
 
     def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
@@ -1412,6 +1465,289 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
         backfill_comment_slack_thread.delay(comment_slack_thread_id=str(slack_thread.id))
 
         return Response(CommentSlackThreadSerializer(slack_thread).data)
+
+    @validated_request(
+        request_serializer=LinkSlackThreadSerializer,
+        responses={201: CommentSerializer},
+        description=(
+            "Start a discussion from a Slack thread that already exists. The thread's first message "
+            "becomes the discussion's opening comment, and its replies are imported shortly after. "
+            "From then on, replies on either side sync across, as for a discussion sent with "
+            "send_to_slack. A Slack thread can back only one discussion, so linking a thread that "
+            "already syncs is a 400. 404 when the feature is not enabled for the team."
+        ),
+    )
+    @action(methods=["POST"], detail=False)
+    def link_slack_thread(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        team = self.team
+        if not self._slack_mirror_flag_enabled():
+            raise exceptions.NotFound("Linking Slack threads isn't available for your account yet.")
+
+        scope = canonical_comment_scope(request.validated_data["scope"])
+        item_id = request.validated_data["item_id"]
+        if scope in COMMENT_SCOPES_BLOCKED_FROM_GENERIC_API:
+            raise exceptions.PermissionDenied("Email thread messages cannot be managed through the comments API")
+        if scope in _UNLINKABLE_COMMENT_SCOPES:
+            raise exceptions.ValidationError("A Slack thread can't be linked to this kind of discussion")
+        if scope in TICKET_COMMENT_SCOPES:
+            # The serializer holds scouts to the ticket reply endpoint; linking writes the comment directly.
+            if is_scout_sandbox_request(request):
+                raise exceptions.PermissionDenied("Scouts can't link Slack threads to tickets.")
+            _require_ticket_editor_access(
+                team_id=team.id, item_id=item_id, user_access_control=self.user_access_control
+            )
+
+        link = parse_message_link(request.validated_data["url"])
+        if link is None:
+            raise exceptions.ValidationError(
+                "That isn't a link to a Slack message. In Slack, use Copy link on a message in the thread."
+            )
+        try:
+            integration = IntegrationManager.slack.oauth.get(team.id, request.validated_data["integration_id"])
+        except IntegrationNotFound:
+            raise exceptions.ValidationError("Slack integration not found")
+
+        user = cast(User, request.user)
+        # The timeout keeps a slow Slack workspace from pinning the request worker.
+        slack = SlackIntegration(integration, source=LINK_SLACK_THREAD_SOURCE, timeout_seconds=10)
+        client = slack.client
+        # Spent before the first Slack call, so a refused request still counts against the workspace's quota.
+        take_slack_channels_info_budget(integration.id)
+        # Linking reads the thread with the bot's access, which reaches every channel the bot is in.
+        # Only someone who could read the thread in Slack themselves may bring it into PostHog.
+        self._require_full_slack_member(slack, user)
+        channel_name = self._require_linkable_channel(slack, link.channel_id)
+        root_message = self._fetch_slack_thread_root(client, link)
+
+        thread_ts = str(root_message["ts"])
+        # A support ticket raised from Slack lives in its own thread, which the support product syncs
+        # with the customer. Linking that thread too would post internal discussion replies to the
+        # customer, and copy each customer reply into the discussion as well.
+        if slack_thread_is_ticket_thread(
+            organization_id=str(team.organization_id), slack_channel_id=link.channel_id, slack_thread_ts=thread_ts
+        ):
+            raise exceptions.ValidationError(
+                "That thread is a support ticket's conversation with the customer, so it can't also be a "
+                "team discussion. Start a separate thread for the team instead."
+            )
+        # Someone asked the PostHog agent for something in this thread, so the agent receives its
+        # replies and a linked discussion would never get one.
+        if slack_thread_has_agent_task(
+            slack_workspace_id=integration.integration_id or "", channel=link.channel_id, thread_ts=thread_ts
+        ):
+            raise exceptions.ValidationError(
+                "The PostHog agent is working in that thread, so its replies go to the agent. Start a "
+                "separate thread for the team instead."
+            )
+        converted = slack_message_comment_content(
+            str(root_message.get("text") or ""),
+            root_message.get("blocks") if isinstance(root_message.get("blocks"), list) else None,
+            root_message.get("files") if isinstance(root_message.get("files"), list) else None,
+        )
+        content, rich_content = converted if converted is not None else ("_(No text in Slack)_", None)
+        author = self._slack_message_author(client, integration, root_message)
+        posthog_user, author_context = slack_author_fields(author, workspace_id=integration.integration_id, team=team)
+
+        with transaction.atomic():
+            # Inbound replies route to the first mirror that matches (workspace, channel, thread ts),
+            # so a second mirror of the same thread would never receive a reply. The check spans every
+            # team on the workspace for that reason, and the lock stops two requests from both
+            # passing it before either inserts.
+            lock_key = f"comment-slack-thread:{integration.integration_id}:{link.channel_id}:{thread_ts}"
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", [lock_key])
+            thread_mirrors = CommentSlackThread.objects.unscoped().filter(
+                slack_team_id=integration.integration_id, slack_channel_id=link.channel_id, slack_thread_ts=thread_ts
+            )
+            # A deleted discussion keeps its mirror, as one sent with send_to_slack does, so linking its
+            # thread again frees it here rather than refusing it as already syncing.
+            thread_mirrors.filter(source_comment__deleted=True).delete()
+            if thread_mirrors.exists():
+                raise exceptions.ValidationError(
+                    "This Slack thread already syncs to a PostHog discussion. A thread can sync to only one."
+                )
+
+            root = Comment.objects.create(
+                team=team,
+                scope=scope,
+                item_id=item_id,
+                content=content,
+                rich_content=rich_content,
+                created_by=posthog_user,
+                item_context={**author_context, SLACK_MESSAGE_TS_KEY: thread_ts, SLACK_IMPORT_STATE_KEY: "pending"},
+            )
+            # Date the discussion from the Slack message, so it sits where the conversation started.
+            # created_at is auto_now_add, which ignores a value given to create().
+            started_at = slack_ts_to_datetime(thread_ts)
+            if started_at is not None:
+                Comment.objects.filter(id=root.id).update(created_at=started_at)
+                root.created_at = started_at
+            slack_thread = CommentSlackThread.objects.for_team(team.id).create(
+                team=team,
+                scope=root.scope,
+                item_id=root.item_id,
+                source_comment=root,
+                integration_id=integration.id,
+                slack_channel_id=link.channel_id,
+                slack_channel_name=channel_name,
+                slack_thread_ts=thread_ts,
+                slack_team_id=integration.integration_id,
+                created_by=user,
+            )
+            # robust: the link has committed, so a broker blip mustn't turn it into a 500 that sends the
+            # person to retry into "already syncs". The import state stays "pending"; unlinking clears it.
+            transaction.on_commit(
+                lambda: import_linked_slack_thread.delay(comment_slack_thread_id=str(slack_thread.id)), robust=True
+            )
+
+        report_user_action(user, "discussion slack thread linked", {"scope": scope}, team=team, request=request)
+        context = {**self.get_serializer_context(), "slack_thread_by_comment": {str(root.id): slack_thread}}
+        return Response(CommentSerializer(root, context=context).data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(
+        request=None,
+        responses={204: OpenApiResponse(description="The thread is unlinked and its discussion removed.")},
+        description=(
+            "Undo link_slack_thread on a discussion's opening comment: stop syncing the Slack thread and "
+            "remove the discussion it created, opening comment and replies. The thread stays in Slack and "
+            "can be linked again. 400 for a discussion that wasn't linked from an existing thread. 403 for "
+            "anyone but the person who linked it. 404 when the feature is not enabled for the team."
+        ),
+    )
+    @action(methods=["POST"], detail=True)
+    def unlink_slack_thread(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        if not self._slack_mirror_flag_enabled():
+            raise exceptions.NotFound("Linking Slack threads isn't available for your account yet.")
+        root = self.get_object()
+        if root.scope in TICKET_COMMENT_SCOPES:
+            if is_scout_sandbox_request(request):
+                raise exceptions.PermissionDenied("Scouts can't unlink Slack threads from tickets.")
+            _require_ticket_editor_access(
+                team_id=self.team_id, item_id=root.item_id, user_access_control=self.user_access_control
+            )
+        context = root.item_context if isinstance(root.item_context, dict) else {}
+        mirror = CommentSlackThread.objects.for_team(self.team_id).filter(source_comment=root).first()
+        # Only a linked discussion came from Slack; one sent there was written here and isn't a copy.
+        if root.source_comment_id is not None or mirror is None or context.get("from_slack") is not True:
+            raise exceptions.ValidationError("Only a discussion linked from an existing Slack thread can be unlinked")
+        user = cast(User, request.user)
+        # Unlinking removes everyone's replies, so it is the linker's call, as sending to Slack is the author's.
+        if mirror.created_by_id != user.id:
+            raise exceptions.PermissionDenied("Only the person who linked this Slack thread can unlink it.")
+        with transaction.atomic():
+            # Root before mirror, the order a Slack reply is saved in, so the two can't deadlock.
+            list(Comment.objects.filter(team_id=self.team_id, id=root.id).select_for_update().values_list("id"))
+            mirror.delete()
+            # The discussion is a copy of the thread, so removing it loses nothing the thread doesn't keep.
+            Comment.objects.filter(team_id=self.team_id).filter(Q(id=root.id) | Q(source_comment_id=root.id)).update(
+                deleted=True
+            )
+        report_user_action(
+            user,
+            "discussion slack thread unlinked",
+            {"scope": root.scope},
+            team=self.team,
+            request=request,
+        )
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @staticmethod
+    def _require_full_slack_member(slack: SlackIntegration, user: User) -> None:
+        """Refuse anyone Slack doesn't confirm as a full member of the connected workspace.
+
+        Matched by email, as Slack replies are matched to PostHog users. A guest can't read every
+        public channel, and someone outside the workspace can read none of them.
+        """
+        try:
+            member = slack.get_member_by_email(user.email)
+        except SlackApiError as e:
+            slack_error = (e.response.get("error") if e.response else None) or "unknown error"
+            raise exceptions.ValidationError(f"Couldn't check your Slack membership ({slack_error})")
+        if member is None or not member.get("id"):
+            raise exceptions.PermissionDenied(
+                f"Only full members of the connected Slack workspace can link its threads, and "
+                f"{user.email} isn't one. Ask a teammate who is."
+            )
+
+    @staticmethod
+    def _require_linkable_channel(slack: SlackIntegration, channel_id: str) -> str:
+        """The channel's name, once it is a public channel inside the workspace.
+
+        Every reply on the discussion is posted back into the thread, so a channel anyone outside the
+        workspace can read would carry internal discussion to them. A private channel's history would
+        become readable by everyone in the project, most of whom aren't in the channel.
+        """
+        try:
+            channel = slack.client.conversations_info(channel=channel_id)["channel"]
+        except SlackApiError as e:
+            slack_error = (e.response.get("error") if e.response else None) or "unknown error"
+            raise exceptions.ValidationError(f"Could not look up the Slack channel ({slack_error})")
+        if not is_internal_channel(channel):
+            raise exceptions.ValidationError(
+                "Only threads in internal Slack channels can be linked, because replies on the discussion "
+                "are posted back into the thread."
+            )
+        if channel.get("is_private"):
+            raise exceptions.ValidationError(
+                "Only threads in public Slack channels can be linked, because everyone in the project can read "
+                "the discussion."
+            )
+        if channel.get("is_archived"):
+            raise exceptions.ValidationError(
+                "That Slack channel is archived, so replies on the discussion couldn't be posted to it."
+            )
+        return channel.get("name") or ""
+
+    @staticmethod
+    def _fetch_slack_thread_root(client: WebClient, link: SlackMessageLink) -> dict[str, Any]:
+        try:
+            messages, _ = fetch_slack_thread_page(
+                client, channel=link.channel_id, thread_ts=link.thread_ts or link.message_ts, limit=1
+            )
+            first = messages[0] if messages else None
+            # A link copied from a reply does not always carry thread_ts, but the reply itself does.
+            root_ts = first.get("thread_ts") if first else None
+            if first is not None and root_ts and root_ts != first.get("ts"):
+                messages, _ = fetch_slack_thread_page(client, channel=link.channel_id, thread_ts=root_ts, limit=1)
+                first = messages[0] if messages else None
+        except SlackApiError as e:
+            slack_error = (e.response.get("error") if e.response else None) or "unknown error"
+            if slack_error == "not_in_channel":
+                raise exceptions.ValidationError(
+                    "PostHog's Slack app isn't in that channel, so it can't read the thread. Only threads in "
+                    "internal channels the app is already in can be linked."
+                )
+            if slack_error == "thread_not_found":
+                raise exceptions.ValidationError(
+                    "Couldn't find that Slack message. It may have been deleted, so check the link and try again."
+                )
+            raise exceptions.ValidationError(f"Couldn't read the Slack thread ({slack_error})")
+        if first is None or not first.get("ts"):
+            raise exceptions.ValidationError(
+                "Couldn't find that Slack message. It may have been deleted, so check the link and try again."
+            )
+        return first
+
+    @staticmethod
+    def _slack_message_author(client: WebClient, integration: IntegrationRecord, message: dict[str, Any]) -> dict:
+        """The author of a message, in resolve_slack_user's shape.
+
+        A thread that an app started (an alert or a bot notification) has no Slack user to look up,
+        so the app gets the credit under the name it posted with.
+        """
+        slack_user_id = message.get("user")
+        if slack_user_id and not (message.get("bot_id") or message.get("bot_profile")):
+            return resolve_slack_user(client, str(slack_user_id), workspace=integration.integration_id or "")
+        bot_profile = message.get("bot_profile")
+        bot: dict[str, Any] = bot_profile if isinstance(bot_profile, dict) else {}
+        bot_icons = bot.get("icons")
+        icons: dict[str, Any] = bot_icons if isinstance(bot_icons, dict) else {}
+        return {
+            "name": bot.get("name") or message.get("username") or "Slack app",
+            "email": None,
+            "avatar": icons.get("image_72"),
+            "team_id": None,
+        }
 
     @staticmethod
     def _log_task_state_change(comment: Comment, request: Request, *, completed: bool) -> None:
