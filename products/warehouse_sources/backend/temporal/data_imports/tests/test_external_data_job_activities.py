@@ -142,13 +142,14 @@ class TestCustomerFacingError(SimpleTestCase):
 
 @pytest.mark.django_db(transaction=True)
 class TestTimeoutFinalization:
-    @pytest.mark.parametrize(
-        "timeout_type,expected_failed_runs",
-        [(TimeoutType.HEARTBEAT, 1), (TimeoutType.START_TO_CLOSE, 2)],
-        ids=["stalled", "over_budget"],
+    @parameterized.expand(
+        [
+            ("stalled", TimeoutType.HEARTBEAT, 1),
+            ("over_budget", TimeoutType.START_TO_CLOSE, 2),
+        ]
     )
     def test_only_import_budget_timeouts_count_as_source_failures(
-        self, timeout_type: TimeoutType, expected_failed_runs: int
+        self, _name: str, timeout_type: TimeoutType, expected_failed_runs: int
     ) -> None:
         org = Organization.objects.create(name="org")
         team = Team.objects.create(organization=org, name="team")
