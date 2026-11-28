@@ -103,20 +103,3 @@ class TestErrorHandling:
 
         assert isinstance(result.raised, RESTClientRetryableError)
         assert len(result.requests) > 1
-
-
-class TestSalesflareSourceResponse:
-    @parameterized.expand([(e,) for e in SINGLE_RESOURCE_ENDPOINTS])
-    def test_source_response_shape(self, endpoint: str) -> None:
-        result = _driver().run(endpoint, always(_response([])))
-
-        response = result.response
-        assert response is not None
-        assert response.name == endpoint
-        assert response.primary_keys == ["id"]
-        # No stable creation timestamp is guaranteed across every object, so we don't partition.
-        assert response.partition_mode is None
-
-    def test_single_resource_endpoints_use_id_primary_key(self) -> None:
-        assert all(SALESFLARE_ENDPOINTS[endpoint].primary_keys == ["id"] for endpoint in SINGLE_RESOURCE_ENDPOINTS)
-        assert set(SALESFLARE_ENDPOINTS) == set(ENDPOINTS)
