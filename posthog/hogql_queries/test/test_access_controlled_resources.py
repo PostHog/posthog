@@ -93,6 +93,7 @@ class TestQueriedAccessControlledResources(BaseTest):
             # Activity-log rows for canvases are limited to the canvases in `system.canvases`, so the
             # rows follow the caller's canvas grants as well as their activity-log access.
             ("activity_logs", "select * from system.activity_logs", {"activity_log", "canvas"}),
+            ("file_system", "select * from system.file_system", {"canvas"}),
             ("account_tagged_items", "select * from system._account_tagged_items", {"account"}),
             ("account_resource_notebooks", "select * from system._account_resource_notebooks", {"account"}),
             ("ticket_tagged_items", "select * from system._ticket_tagged_items", {"ticket"}),

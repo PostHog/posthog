@@ -68,6 +68,7 @@ _ACCOUNT_COMMUNICATION_LAZY_FIELDS = frozenset({"email_threads", "support_ticket
 # one cache key, and the narrower one is served the wider one's Canvas rows.
 _TRANSITIVE_SYSTEM_TABLE_SCOPES: dict[str, frozenset[str]] = {
     "system.activity_logs": frozenset({"canvas"}),
+    "system.file_system": frozenset({"canvas"}),
     # These predicates resolve scoped parents at execution, after a cache hit would return.
     # Keep row filtering on the parent so its creator exemption also applies to junction rows.
     "system._account_tagged_items": frozenset({"account"}),

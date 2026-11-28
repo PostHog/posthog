@@ -1,3 +1,4 @@
+import hashlib
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -56,6 +57,7 @@ from posthog.models import User
 from posthog.models.activity_logging.retention import get_activity_log_lookback_restriction
 from posthog.utils import relative_date_parse
 
+from products.canvas.backend.facade.access import public_canvas_ids
 from products.managed_warehouse.backend.facade import query_labels as managed_warehouse_query_labels
 from products.managed_warehouse.backend.facade.query_execution import (
     execute_managed_trino_query,
@@ -66,6 +68,7 @@ from products.warehouse_sources.backend.facade.types import ManagedWarehouseSQLM
 
 _INFORMATION_SCHEMA_PREFIX = "system.information_schema."
 _ACTIVITY_LOGS_TABLE = "system.activity_logs"
+_FILE_SYSTEM_TABLE = "system.file_system"
 API_SQL_WINDOW_CACHE_AGE_FLAG = "api-sql-window-cache-age"
 
 _range_freshness: ContextVar[bool] = ContextVar("hogql_range_freshness", default=False)
@@ -301,6 +304,10 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             floor = get_activity_log_lookback_restriction(self.team.organization)
             if floor is not None:
                 payload["activity_log_retention_floor_hour"] = floor.strftime("%Y-%m-%dT%H")
+
+        if _FILE_SYSTEM_TABLE in self._queried_table_names:
+            readable_canvases = ",".join(public_canvas_ids(self.team.pk))
+            payload["file_system_canvas_rows"] = hashlib.sha256(readable_canvases.encode()).hexdigest()
 
         return payload
 

@@ -63,6 +63,10 @@ def visible_canvas_ids(team_id: int, user_id: int | None) -> set[str]:
     return visibility.visible_canvas_ids(team_id, user_id)
 
 
+def public_canvas_ids(team_id: int) -> list[str]:
+    return visibility.public_canvas_ids(team_id)
+
+
 def visible_canvas_user_ids(*, team_id: int, canvas_id: str, user_ids: Iterable[int]) -> set[int]:
     """User IDs from the given list that can access the specified canvas.
 

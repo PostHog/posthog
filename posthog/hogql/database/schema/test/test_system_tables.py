@@ -11,7 +11,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.schema import HogQLQuery
+from posthog.schema import CachedHogQLQueryResponse, CacheMissResponse, HogQLQuery
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -26,6 +26,8 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.auth import ProjectSecretAPIKeyUser
 from posthog.constants import AvailableFeature
 from posthog.hogql_queries.access_controlled_resources import queried_access_controlled_resources
+from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
+from posthog.hogql_queries.query_runner import ExecutionMode as QueryExecutionMode
 from posthog.models import (
     DataDeletionRequest,
     Group,
@@ -1728,6 +1730,70 @@ class TestSystemTablesCanvasDeletedExclusionIsolation(NonAtomicBaseTest):
 
         assert str(live_canvas_id) in ids
         assert str(deleted_canvas_id) not in ids
+
+
+class TestSystemTablesFileSystemCanvasVisibility(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def _canvas_refs(self, user: User) -> set[str]:
+        response = execute_hogql_query(
+            "SELECT ref FROM system.file_system WHERE type = 'canvas'", team=self.team, user=user
+        )
+        return {row[0] for row in response.results}
+
+    def test_canvas_rows_follow_canvas_visibility(self):
+        other = User.objects.create_and_join(self.organization, "file-system-other@example.com", "pwd")
+        with team_scope(self.team.pk):
+            public = Channel.objects.create(team=self.team, name="general", created_by=self.user)
+            personal = Channel.objects.create(
+                team=self.team, name="me", channel_type=Channel.ChannelType.PERSONAL, created_by=self.user
+            )
+        public_canvas = canvas_testing.create_canvas(
+            team_id=self.team.pk, channel_id=public.id, name="Shared", created_by_id=self.user.pk
+        )
+        canvas_testing.create_canvas(
+            team_id=self.team.pk, channel_id=personal.id, name="Mine", created_by_id=self.user.pk
+        )
+
+        assert self._canvas_refs(other) == {str(public_canvas)}
+
+    def test_cached_canvas_rows_drop_a_canvas_moved_out_of_a_public_channel(self):
+        other = User.objects.create_and_join(self.organization, "file-system-cache@example.com", "pwd")
+        with team_scope(self.team.pk):
+            channel = Channel.objects.create(team=self.team, name="general", created_by=self.user)
+        canvas = canvas_testing.create_canvas(
+            team_id=self.team.pk, channel_id=channel.id, name="Shared", created_by_id=self.user.pk
+        )
+        query = HogQLQuery(query="SELECT ref FROM system.file_system WHERE type = 'canvas'")
+
+        cache_only = QueryExecutionMode.CACHE_ONLY_NEVER_CALCULATE
+        with time_machine.travel("2026-11-26T08:00:00Z", tick=False):
+            HogQLQueryRunner(query=query, team=self.team).run(user=other)
+            hit = HogQLQueryRunner(query=query, team=self.team).run(cache_only, user=other)
+            with team_scope(self.team.pk):
+                Channel.objects.filter(id=channel.id).update(channel_type=Channel.ChannelType.PERSONAL)
+            miss = HogQLQueryRunner(query=query, team=self.team).run(cache_only, user=other)
+
+        assert isinstance(hit, CachedHogQLQueryResponse)
+        assert ([row[0] for row in hit.results], type(miss)) == ([str(canvas)], CacheMissResponse)
+
+    def test_canvas_rows_are_dropped_for_a_key_without_canvas_scope(self):
+        with team_scope(self.team.pk):
+            public = Channel.objects.create(team=self.team, name="general", created_by=self.user)
+        canvas_testing.create_canvas(team_id=self.team.pk, channel_id=public.id, name="Shared")
+        _create_file_system(self.team, "task-row")
+        psak = ProjectSecretAPIKey.objects.create(
+            team=self.team, label="no canvas", secure_value="sha256$" + "e" * 64, scopes=["query:read"]
+        )
+        database = Database.create_for(team=self.team, user=ProjectSecretAPIKeyUser(psak))
+
+        response = execute_hogql_query(
+            "SELECT type, ref FROM system.file_system",
+            team=self.team,
+            context=HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=database),
+        )
+
+        assert {(row[0], row[1]) for row in response.results} == {("task", "task-row")}
 
 
 class TestSystemTablesReplayScannersInlineExclusion(NonAtomicBaseTest):
