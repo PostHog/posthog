@@ -1,5 +1,7 @@
 from typing import Any, Optional
 
+from unittest.mock import patch
+
 import requests
 from parameterized import parameterized
 
@@ -258,7 +260,7 @@ class TestFanOut:
                 "recommendations",
                 "?limit=1000",
                 [{"token": "rec_a"}, {"token": "rec_b"}],
-                f"{VANTAGE_BASE_URL}/recommendations/{{token}}/resources?limit=1000",
+                f"{VANTAGE_BASE_URL}/recommendations/{{token}}/resources?limit=500",
                 ["rec_a", "rec_b"],
                 "recommendation_token",
                 {"token": "resource_a", "resource_id": "example-1", "recommendation_actions": []},
@@ -402,6 +404,83 @@ class TestFanOut:
 
         assert isinstance(result.raised, VantageUntrustedURLError)
         assert result.urls[1:] == [first_child]
+
+    @parameterized.expand(
+        [
+            ("cost_alert_events", "cost_alerts", "/cost_alerts/parent_a/events", "cost_alert_events", 1000),
+            ("forecasted_costs", "cost_reports", "/cost_reports/parent_a/forecasted_costs", "forecasted_costs", 1000),
+            ("recommendation_resources", "recommendations", "/recommendations/parent_a/resources", "resources", 500),
+        ]
+    )
+    def test_child_page_limit_survives_resume(
+        self, endpoint: str, parent: str, child_path: str, data_key: str, page_size: int
+    ) -> None:
+        parent_url = f"{VANTAGE_BASE_URL}/{parent}?limit=1000"
+        parent_page = _response([{"token": "parent_a"}], data_key=parent)
+        first_child = f"{VANTAGE_BASE_URL}{child_path}?limit={page_size}"
+        second_page = f"{first_child}&page=2"
+        rows = [{"token": "child_a"}]
+        metadata = {"currency": "EUR"} if endpoint == "forecasted_costs" else None
+
+        with patch("products.warehouse_sources.sources.vantage.vantage.MAX_CHILD_PAGES", 2):
+            complete = _run(
+                _by_url(
+                    {
+                        parent_url: parent_page,
+                        first_child: _response(rows, data_key=data_key, next_url=second_page, metadata=metadata),
+                        second_page: _response(rows, data_key=data_key, metadata=metadata),
+                    }
+                ),
+                endpoint=endpoint,
+            )
+            assert complete.raised is None
+            assert len(complete.rows) == 2
+
+            resumed = _run(
+                _by_url(
+                    {
+                        parent_url: parent_page,
+                        second_page: _response(rows, data_key=data_key, next_url=first_child, metadata=metadata),
+                    }
+                ),
+                endpoint=endpoint,
+                resume_state=complete.committed_states[0],
+            )
+
+        assert isinstance(resumed.raised, RuntimeError)
+        assert "page limit" in str(resumed.raised)
+        assert resumed.urls == [parent_url, second_page]
+
+    def test_recommendation_resume_skips_earlier_parent_pages(self) -> None:
+        parent_urls = [f"{VANTAGE_BASE_URL}/recommendations?limit=1000"] + [
+            f"{VANTAGE_BASE_URL}/recommendations?page={page}&limit=1000" for page in range(2, 5)
+        ]
+        child_urls = [f"{VANTAGE_BASE_URL}/recommendations/rec_{page}/resources?limit=500" for page in range(1, 5)]
+        parent_pages = {
+            parent_url: _response(
+                [{"token": f"rec_{page}"}],
+                data_key="recommendations",
+                next_url=parent_urls[page] if page < len(parent_urls) else None,
+            )
+            for page, parent_url in enumerate(parent_urls, start=1)
+        }
+        child_pages = {
+            child_url: _response([{"token": f"resource_{page}"}], data_key="resources")
+            for page, child_url in enumerate(child_urls, start=1)
+        }
+
+        complete = _run(_by_url({**parent_pages, **child_pages}), endpoint="recommendation_resources")
+        assert complete.raised is None
+
+        resumed = _run(
+            _by_url({**parent_pages, child_urls[-1]: child_pages[child_urls[-1]]}),
+            endpoint="recommendation_resources",
+            resume_state=complete.committed_states[2],
+        )
+
+        assert resumed.raised is None
+        assert resumed.rows == [{"token": "resource_4", "recommendation_token": "rec_4"}]
+        assert resumed.urls == [*parent_urls[1:], child_urls[-1]]
 
 
 class TestValidateCredentials:

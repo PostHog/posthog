@@ -315,6 +315,7 @@ VANTAGE_ENDPOINTS: dict[str, VantageEndpointConfig] = {
         data_key="resources",
         primary_keys=["recommendation_token", "token"],
         should_sync_default=False,
+        page_size=500,
         fanout=DependentEndpointConfig(
             parent_name="recommendations",
             resolve_param="recommendation_token",
