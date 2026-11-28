@@ -46,6 +46,8 @@ export type SessionRecordingApiConfig = {
     CLICKHOUSE_PASSWORD: string | undefined
     CLICKHOUSE_PASSWORD_FILE: string
     CLICKHOUSE_SECURE: boolean
+    CLICKHOUSE_VERIFY: boolean
+    CLICKHOUSE_CA: string
 }
 
 export type SessionRecordingConfig = {

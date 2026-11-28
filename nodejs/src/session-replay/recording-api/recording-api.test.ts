@@ -1,5 +1,7 @@
 import { S3Client } from '@aws-sdk/client-s3'
+import { createClient as createClickHouseClient } from '@clickhouse/client'
 import { Server } from 'http'
+import https from 'https'
 import supertest from 'supertest'
 import express from 'ultimate-express'
 
@@ -144,6 +146,26 @@ describe('RecordingApi', () => {
             expect(getBlockDecryptor).toHaveBeenCalled()
             expect(RecordingService).toHaveBeenCalled()
         })
+
+        it.each([
+            { secure: false, verify: false, url: 'http://localhost:8123', rejectUnauthorized: undefined },
+            { secure: true, verify: false, url: 'https://localhost:8443', rejectUnauthorized: false },
+            { secure: true, verify: true, url: 'https://localhost:8443', rejectUnauthorized: true },
+        ])(
+            'should build the ClickHouse client for CLICKHOUSE_SECURE=$secure and CLICKHOUSE_VERIFY=$verify',
+            async ({ secure, verify, url, rejectUnauthorized }) => {
+                mockConfig.CLICKHOUSE_SECURE = secure
+                mockConfig.CLICKHOUSE_VERIFY = verify
+                const recordingApi = new RecordingApi(mockConfig as RecordingApiConfig, mockPostgres, mockOutputs)
+                await recordingApi.start()
+
+                const clientOptions = jest.mocked(createClickHouseClient).mock.calls[0][0]
+                expect(clientOptions?.url).toBe(url)
+                expect((clientOptions?.http_agent as https.Agent | undefined)?.options.rejectUnauthorized).toBe(
+                    rejectUnauthorized
+                )
+            }
+        )
 
         it('should use default region if not specified', async () => {
             mockConfig.SESSION_RECORDING_V2_S3_REGION = undefined

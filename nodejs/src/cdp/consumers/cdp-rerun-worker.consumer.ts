@@ -1,7 +1,7 @@
 import { ClickHouseClient, createClient as createClickHouseClient } from '@clickhouse/client'
-import https from 'https'
 import { Counter } from 'prom-client'
 
+import { createClickhouseHttpsAgent } from '~/common/clickhouse-config'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
@@ -77,9 +77,7 @@ export class CdpRerunWorkerConsumer extends CdpConsumerBase<PluginsServerConfig>
         await this.jobQueues.hog_function.startAsProducer()
         await this.jobQueues.hog_flow.startAsProducer()
 
-        // Dedicated ClickHouse client for the paginator. Internal ClickHouse
-        // uses self-signed certs with a hostname mismatch, same as the
-        // session-replay recording-api client.
+        // Dedicated ClickHouse client for the paginator.
         const chScheme = this.config.CLICKHOUSE_SECURE ? 'https' : 'http'
         const chPort = this.config.CLICKHOUSE_SECURE ? 8443 : 8123
         this.clickhouseClient = createClickHouseClient({
@@ -89,11 +87,7 @@ export class CdpRerunWorkerConsumer extends CdpConsumerBase<PluginsServerConfig>
             database: this.config.CLICKHOUSE_DATABASE,
             request_timeout: 60_000,
             max_open_connections: 10,
-            ...(this.config.CLICKHOUSE_SECURE
-                ? {
-                      http_agent: new https.Agent({ rejectUnauthorized: false, keepAlive: true, maxSockets: 10 }), // nosemgrep: problem-based-packs.insecure-transport.js-node.bypass-tls-verification.bypass-tls-verification
-                  }
-                : {}),
+            ...(this.config.CLICKHOUSE_SECURE ? { http_agent: createClickhouseHttpsAgent(this.config) } : {}),
         })
 
         this.paginator = new RerunPaginatorService(
