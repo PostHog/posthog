@@ -4,7 +4,7 @@ sidebar: Docs
 showTitle: true
 ---
 
-> **Note:** This page refers to our [main product repository](https://github.com/PostHog/posthog), not our website.
+> **Note:** This page refers to our [main product repository](https://github.com/PostHog/posthog) and the infrastructure that runs PostHog Cloud, not our website.
 
 ### Frontend
 
@@ -31,6 +31,15 @@ showTitle: true
 - Containerization: [Docker](https://www.docker.com/) and [Docker Compose](https://docs.docker.com/compose/)
 - Linter (frontend): [ESLint](https://eslint.org/)
 - Formatter (backend): [Black](https://pypi.org/project/black/)
+
+### Infrastructure
+
+- Cloud: [AWS](https://aws.amazon.com/), with production regions in the US and EU
+- Orchestration: [Kubernetes](https://kubernetes.io/) on [Amazon EKS](https://aws.amazon.com/eks/)
+- Infrastructure as code: [Terraform](https://www.terraform.io/)
+- Deployment: [Argo CD](https://argoproj.github.io/cd/)
+
+To get access, see [working with cloud providers](/handbook/engineering/cloud-providers).
 
 ### Workflow orchestration
 
