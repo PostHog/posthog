@@ -1,10 +1,10 @@
 import os
 import threading
 from collections.abc import Iterable, Mapping
-from itertools import batched
+from itertools import batched, chain
 from math import inf
 from time import monotonic
-from typing import Any
+from typing import Any, cast
 from urllib.parse import urlsplit
 
 from django.conf import settings
@@ -26,6 +26,42 @@ type QuotaRedisClient = Redis | RedisCluster
 
 QUOTA_WRITE_BATCH_SIZE = 5_000
 QUOTA_WRITE_BUDGET_SECONDS = 30.0
+ROWS_SYNCED_LIMIT_KEY = "@posthog/quota-limits/rows_synced"
+_ROWS_SYNCED_CLEARS_KEY = f"{{{ROWS_SYNCED_LIMIT_KEY}}}:clears"
+_ROWS_SYNCED_CLEAR_RETENTION_SECONDS = 86_400
+ROWS_SYNCED_WRITE_BATCH_SIZE = 1_000
+
+_QUOTA_REDIS_TIME = """
+local timestamp = redis.call('TIME')
+local now = timestamp[1] * 1000000 + timestamp[2]
+"""
+
+_CLEAR_ROWS_SYNCED_LIMITS = (
+    _QUOTA_REDIS_TIME
+    + """
+local retention = tonumber(ARGV[1])
+local oldest = string.format('%.0f', now - retention * 1000000)
+redis.call('ZREMRANGEBYSCORE', KEYS[2], '-inf', oldest)
+local score = string.format('%.0f', now)
+for index = 2, #ARGV do
+    local token = ARGV[index]
+    redis.call('ZADD', KEYS[2], score, token)
+    redis.call('ZREM', KEYS[1], token)
+end
+redis.call('EXPIRE', KEYS[2], retention)
+"""
+)
+
+_ADD_ROWS_SYNCED_LIMITS = """
+local cutoff = tonumber(ARGV[1])
+for index = 2, #ARGV, 2 do
+    local token = ARGV[index]
+    local cleared = redis.call('ZSCORE', KEYS[2], token)
+    if not cleared or tonumber(cleared) < cutoff then
+        redis.call('ZADD', KEYS[1], ARGV[index + 1], token)
+    end
+end
+"""
 
 _clients: dict[tuple[str, bool, bool, bool], QuotaRedisClient] = {}
 _initialization_locks: dict[tuple[str, bool, bool, bool], threading.Lock] = {}
@@ -159,6 +195,34 @@ def _check_quota_write_budget(deadline: float) -> None:
         raise RedisTimeoutError("Quota Redis write budget exceeded")
 
 
+def rows_synced_snapshot_cutoff(client: QuotaRedisClient, keys: Mapping[str, object]) -> int | None:
+    if ROWS_SYNCED_LIMIT_KEY not in keys:
+        return None
+    return cast(int, client.eval(_QUOTA_REDIS_TIME + "return now", 1, ROWS_SYNCED_LIMIT_KEY))
+
+
+def remove_quota_tokens(client: QuotaRedisClient, key: str, tokens: list[str]) -> None:
+    if key != ROWS_SYNCED_LIMIT_KEY:
+        client.zrem(key, *tokens)
+        return
+    for token_batch in batched(tokens, ROWS_SYNCED_WRITE_BATCH_SIZE, strict=False):
+        client.eval(
+            _CLEAR_ROWS_SYNCED_LIMITS,
+            2,
+            key,
+            _ROWS_SYNCED_CLEARS_KEY,
+            _ROWS_SYNCED_CLEAR_RETENTION_SECONDS,
+            *token_batch,
+        )
+
+
+def add_rows_synced_quota_batch(client: QuotaRedisClient, tokens: tuple[tuple[str, int], ...], cutoff: int) -> None:
+    """Check for explicit clears and write limits atomically, even if the token was absent at snapshot time."""
+    client.eval(
+        _ADD_ROWS_SYNCED_LIMITS, 2, ROWS_SYNCED_LIMIT_KEY, _ROWS_SYNCED_CLEARS_KEY, cutoff, *chain.from_iterable(tokens)
+    )
+
+
 def reconcile_quota_set(
     client: QuotaRedisClient,
     key: str,
@@ -166,6 +230,7 @@ def reconcile_quota_set(
     tokens: Mapping[str, int],
     now: float,
     run_deadline: float = inf,
+    rows_synced_cutoff: int | None = None,
 ) -> None:
     deadline = min(monotonic() + QUOTA_WRITE_BUDGET_SECONDS, run_deadline)
     _check_quota_write_budget(deadline)
@@ -174,6 +239,10 @@ def reconcile_quota_set(
     for stale_batch in batched(stale_tokens, QUOTA_WRITE_BATCH_SIZE, strict=False):
         _check_quota_write_budget(deadline)
         client.zrem(key, *stale_batch)
-    for token_batch in batched(tokens.items(), QUOTA_WRITE_BATCH_SIZE, strict=False):
+    batch_size = QUOTA_WRITE_BATCH_SIZE if rows_synced_cutoff is None else ROWS_SYNCED_WRITE_BATCH_SIZE
+    for token_batch in batched(tokens.items(), batch_size, strict=False):
         _check_quota_write_budget(deadline)
-        client.zadd(key, dict(token_batch))
+        if rows_synced_cutoff is None:
+            client.zadd(key, dict(token_batch))
+        else:
+            add_rows_synced_quota_batch(client, token_batch, rows_synced_cutoff)

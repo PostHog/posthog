@@ -34,6 +34,12 @@ from posthog.quota_migration import (
     run_secondary_quota_operation,
     snapshot_quota_stores,
 )
+from posthog.quota_redis import (
+    ROWS_SYNCED_LIMIT_KEY,
+    ROWS_SYNCED_WRITE_BATCH_SIZE,
+    add_rows_synced_quota_batch,
+    remove_quota_tokens,
+)
 from posthog.redis import get_client
 from posthog.tasks.usage_report import (
     combine_ai_credits,
@@ -254,7 +260,12 @@ def reconcile_limited_team_tokens(
     pipe.zremrangebyscore(key, "-inf", now)
     for stale_batch in batched(stale_tokens, REDIS_MAX_COMMAND_ARGUMENTS - 2, strict=False):
         pipe.zrem(key, *stale_batch)
-    _queue_zadd(pipe, key, tokens)
+    cutoff = store_snapshots.shared_rows_synced_cutoff if store_snapshots and key == ROWS_SYNCED_LIMIT_KEY else None
+    if cutoff is None:
+        _queue_zadd(pipe, key, tokens)
+    else:
+        for token_batch in batched(tokens.items(), ROWS_SYNCED_WRITE_BATCH_SIZE, strict=False):
+            add_rows_synced_quota_batch(pipe, token_batch, cutoff)
     pipe.execute()
 
 
@@ -277,10 +288,9 @@ def remove_limited_team_tokens(resource: QuotaResource, tokens: list[str], cache
     if not tokens:
         return
 
-    redis_client = get_client()
-    redis_client.zrem(f"{cache_key.value}{resource.value}", *tokens)
     key = f"{cache_key.value}{resource.value}"
-    run_secondary_quota_operation("remove", lambda client: client.zrem(key, *tokens), resource=key)
+    remove_quota_tokens(get_client(), key, tokens)
+    run_secondary_quota_operation("remove", lambda client: remove_quota_tokens(client, key, tokens), resource=key)
 
 
 @cache_for(timedelta(seconds=30), background_refresh=True)
