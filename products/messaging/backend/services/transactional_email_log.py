@@ -805,6 +805,7 @@ def transactional_email_impact_sessions(
     *,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
+    landed_before: datetime | None = None,
 ) -> TransactionalEmailImpactSessions:
     if not is_email_workflow_run_link_tag_enabled(team_id=team.id):
         return TransactionalEmailImpactSessions(sessions=(), has_more=False)
@@ -815,7 +816,7 @@ def transactional_email_impact_sessions(
         return TransactionalEmailImpactSessions(sessions=(), has_more=False)
     newest_sends = batches[0]
     sends_left_out = len(batches) > 1 or len(clicked) >= MAX_RESULTS_RECIPIENTS
-    landings = _session_landings_in_batch(team, user, newest_sends, period)
+    landings = _session_landings_in_batch(team, user, newest_sends, period, landed_before)
     newest = sorted(landings, key=lambda session: (session.first_pageview_at, session.session_id), reverse=True)
     return TransactionalEmailImpactSessions(
         sessions=tuple(newest[:MAX_IMPACT_SESSIONS]),
@@ -824,8 +825,9 @@ def transactional_email_impact_sessions(
 
 
 def _session_landings_in_batch(
-    team: Team, user: User | None, message_ids: list[str], period: _Period
+    team: Team, user: User | None, message_ids: list[str], period: _Period, landed_before: datetime | None
 ) -> list[TransactionalEmailImpactSession]:
+    end = period.end + timedelta(days=IMPACT_WINDOW_DAYS)
     response = execute_hogql_query(
         """
         SELECT
@@ -849,7 +851,7 @@ def _session_landings_in_batch(
         user=user,
         placeholders={
             "start": ast.Constant(value=period.start),
-            "end": ast.Constant(value=period.end + timedelta(days=IMPACT_WINDOW_DAYS)),
+            "end": ast.Constant(value=min(end, landed_before) if landed_before else end),
             "message_ids": ast.Constant(value=message_ids),
             "limit": ast.Constant(value=MAX_IMPACT_SESSIONS + 1),
         },

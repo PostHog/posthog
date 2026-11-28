@@ -986,6 +986,26 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             :199
         ]
 
+    def test_leaves_out_later_landings_before_the_session_cap(self, _flag):
+        clicked = [("sent", 1, ""), ("delivered", 2, ""), ("clicked", 60, "")]
+        message_id = self._send(120, "reader@example.com", clicked)
+        self._land("reader", "earlier-session", message_id, at=NOW - timedelta(minutes=100))
+        self._land("reader", "later-session", message_id, at=NOW - timedelta(minutes=10))
+        flush_persons_and_events()
+
+        with patch("products.messaging.backend.services.transactional_email_log.MAX_IMPACT_SESSIONS", 1):
+            listed = self._impact_sessions(
+                date_from=(NOW - timedelta(days=1)).isoformat(),
+                landed_before=(NOW - timedelta(hours=1)).isoformat(),
+            )
+
+        assert listed == {
+            "sessions": [
+                {"session_id": "earlier-session", "message_id": message_id, "first_pageview_at": "2026-06-15T10:20:00Z"}
+            ],
+            "has_more": False,
+        }
+
     def test_lists_only_the_sessions_of_the_sends_in_the_first_query(self, _flag):
         clicked = [("sent", 1, ""), ("delivered", 2, ""), ("clicked", 60, "")]
         message_ids = [
