@@ -21,13 +21,16 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertConfigurationEdit,
     SourceConfigSpec,
 )
+from products.error_tracking.backend.platform_alerts.flags import ERROR_TRACKING_ALERTS_FLAG
 from products.error_tracking.backend.platform_alerts.wording import ISSUE_ID_LABEL, alert_url
 
 CHECK_INTERVAL_MINUTES: Final = 1
 # Every due alert is loaded each minute, so the count per team bounds that read. Error tracking's
 # own alerts allow the same number.
 MAX_ALERTS_PER_TEAM: Final = 50
-ROLLOUT_FLAG: Final = "platform-alerts-source-error-tracking"
+# Issue fields the native filters read but a change's snapshot does not carry. A filter on one would
+# read it as unset, so a positive filter never matches and a negated one always does.
+UNSUPPORTED_FILTER_KEYS: Final = frozenset({"description", "issue_description", "fingerprint"})
 
 ISSUE_GROUPING: Final = Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=(ISSUE_ID_LABEL,))
 
@@ -86,6 +89,17 @@ def check_filters_in_team(*, team_id: int, edit: PlatformAlertConfigurationEdit)
     )
 
     properties = edit.source_config.get("filters", {}).get("properties") or []
+    unsupported = sorted(
+        {
+            key
+            for leaf in properties
+            if isinstance(leaf, dict) and isinstance(key := leaf.get("key"), str) and key in UNSUPPORTED_FILTER_KEYS
+        }
+    )
+    if unsupported:
+        raise InvalidPlatformAlertEdit(
+            "source_config", f"Error tracking alerts can't filter on {', '.join(unsupported)} yet."
+        )
     try:
         # The native alerts' own checks, so a leaf that would compile to match-all is refused here too.
         compile_alert_filters(team_id, {"properties": properties})
@@ -103,5 +117,5 @@ ERROR_TRACKING_ALERT_CONFIG: Final = SourceConfigSpec(
         max_per_team=MAX_ALERTS_PER_TEAM,
     ),
     alert_url=alert_url,
-    rollout_flag=ROLLOUT_FLAG,
+    rollout_flag=ERROR_TRACKING_ALERTS_FLAG,
 )
