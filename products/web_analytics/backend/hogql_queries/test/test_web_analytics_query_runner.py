@@ -437,6 +437,8 @@ class TestFlagCallConversionGoalOnFlagEvaluationsOnly(ClickhouseTestMixin, APIBa
             conversion_goal = CustomEventConversionGoal(customEventName="$feature_flag_called")
         date_range = DateRange(date_from="-7d")
 
+        # The fast database counts the flag_evaluations row, so the runner never falls back to the full build.
+        create_for = self.enterContext(mock.patch.object(Database, "create_for", wraps=Database.create_for))
         if kind in ("overview", "overview_joined"):
             # A session filter keeps the overview off the split conversion-goal path.
             properties = (
@@ -465,6 +467,8 @@ class TestFlagCallConversionGoalOnFlagEvaluationsOnly(ClickhouseTestMixin, APIBa
             total = row[stats.columns.index("context.columns.total_conversions")]
             unique = row[stats.columns.index("context.columns.unique_conversions")]
             assert (total[0], unique[0]) == (1, 1)
+
+        create_for.assert_not_called()
 
 
 class TestWebAnalyticsQueryExecutedEvent(ClickhouseTestMixin, APIBaseTest):

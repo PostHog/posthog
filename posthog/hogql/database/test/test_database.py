@@ -1,4 +1,5 @@
 import io
+import re
 import json
 import time
 import pickle
@@ -7,7 +8,7 @@ import dataclasses
 from collections.abc import Callable, Collection
 from contextlib import suppress
 from types import SimpleNamespace
-from typing import Any, Optional, cast
+from typing import Any, Literal, Optional, cast
 
 import pytest
 from posthog.test.base import BaseTest, FuzzyInt, QueryMatchingTest, snapshot_postgres_queries
@@ -587,61 +588,68 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
-            param("events_mode", FlagEvaluationsMode.EVENTS, False, table_in_catalog=False),
-            # DEBUG puts the table in the catalog on EVENTS, but events still holds every flag call.
-            param("events_mode_under_debug", FlagEvaluationsMode.EVENTS, False, debug=True),
-            param("events_mode_on_cloud", FlagEvaluationsMode.EVENTS, False, cloud=True),
-            param(
-                "events_mode_with_the_table_forced_in",
-                FlagEvaluationsMode.EVENTS,
-                False,
-                include_flag_evaluations_table=True,
-            ),
-            ("read_mode", FlagEvaluationsMode.READ_FLAG_EVALUATIONS, True),
-            param(
-                "read_mode_with_the_union_flag_off",
-                FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
-                True,
-                union_flag_enabled=False,
-            ),
-            param(
-                "read_mode_with_reads_forced_to_events",
-                FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
-                False,
-                reads_forced_to_events=True,
-            ),
-            ("only_mode", FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, True),
-            param(
-                "only_mode_with_the_union_flag_off",
-                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
-                True,
-                union_flag_enabled=False,
-            ),
-            param(
-                "only_mode_with_the_union_disabled",
-                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
-                True,
-                union_disabled=True,
-            ),
-            # The switch skips FLAG_EVALUATIONS_ONLY, whose flag calls are no longer in events.
-            param(
-                "only_mode_with_reads_forced_to_events",
-                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
-                True,
-                reads_forced_to_events=True,
-            ),
-            param(
-                "only_mode_without_the_table",
-                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
-                False,
-                include_flag_evaluations_table=False,
-                table_in_catalog=False,
-            ),
+            param(f"{case.args[0]}_{builder}", builder, *case.args[1:], **case.kwargs)
+            for case in [
+                param("events_mode", FlagEvaluationsMode.EVENTS, False, table_in_catalog=False),
+                # DEBUG puts the table in the catalog on EVENTS, but events still holds every flag call.
+                param("events_mode_under_debug", FlagEvaluationsMode.EVENTS, False, debug=True),
+                param("events_mode_on_cloud", FlagEvaluationsMode.EVENTS, False, cloud=True),
+                param(
+                    "events_mode_with_the_table_forced_in",
+                    FlagEvaluationsMode.EVENTS,
+                    False,
+                    include_flag_evaluations_table=True,
+                ),
+                param("read_mode", FlagEvaluationsMode.READ_FLAG_EVALUATIONS, True),
+                param(
+                    "read_mode_with_the_union_flag_off",
+                    FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+                    True,
+                    union_flag_enabled=False,
+                ),
+                param(
+                    "read_mode_with_reads_forced_to_events",
+                    FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+                    False,
+                    reads_forced_to_events=True,
+                ),
+                param("only_mode", FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, True),
+                param(
+                    "only_mode_with_the_union_flag_off",
+                    FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                    True,
+                    union_flag_enabled=False,
+                ),
+                param(
+                    "only_mode_with_the_union_disabled",
+                    FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                    True,
+                    union_disabled=True,
+                ),
+                # The switch skips FLAG_EVALUATIONS_ONLY, whose flag calls are no longer in events.
+                param(
+                    "only_mode_with_reads_forced_to_events",
+                    FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                    True,
+                    reads_forced_to_events=True,
+                ),
+                param(
+                    "only_mode_without_the_table",
+                    FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                    False,
+                    include_flag_evaluations_table=False,
+                    table_in_catalog=False,
+                ),
+            ]
+            for builder in ("full", "posthog_tables")
+            # The built-in-only database takes no override of the table gate.
+            if builder == "full" or "include_flag_evaluations_table" not in case.kwargs
         ]
     )
     def test_flag_call_reads_follow_the_read_mode_and_the_union_flag(
         self,
         _name: str,
+        builder: Literal["full", "posthog_tables"],
         mode: FlagEvaluationsMode,
         expected: bool,
         reads_forced_to_events: bool = False,
@@ -667,8 +675,10 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                 side_effect=lambda key, *args, **kwargs: key in enabled_flags,
             ),
         ):
-            database = Database.create_for(
-                team=self.team, include_flag_evaluations_table=include_flag_evaluations_table
+            database = (
+                Database.create_for(team=self.team, include_flag_evaluations_table=include_flag_evaluations_table)
+                if builder == "full"
+                else Database.create_for_posthog_tables(self.team)
             )
 
         assert database.organization_reads_flag_calls_from_flag_evaluations is expected
@@ -5509,14 +5519,23 @@ class TestSourcesCacheConcurrency(TestCase):
 
 
 class TestCreateForPosthogTables(BaseTest):
-    def test_builds_without_postgres_and_applies_modifiers(self):
+    def test_builds_without_the_full_fetch_and_applies_modifiers(self):
         modifiers = HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V2)
         with (
+            self.is_cloud(True),
             patch.object(Database, "_fetch_sources", side_effect=AssertionError("full database build")),
-            # One cached instance-setting read is fine; the full build issues a dozen queries.
-            self.assertNumQueries(FuzzyInt(0, 1)),
+            CaptureQueriesContext(connection) as queries,
         ):
             database = Database.create_for_posthog_tables(self.team, modifiers=modifiers)
+
+        # The query count varies with the mode and the settings cache, so the test checks which tables the build reads.
+        tables_read = {
+            table
+            for query in queries.captured_queries
+            for table in re.findall(r'(?:FROM|JOIN|INTO|UPDATE) "(\w+)"', query["sql"])
+        }
+        assert "feature_flags_organizationfeatureflagsconfig" in tables_read
+        assert tables_read <= {"feature_flags_organizationfeatureflagsconfig", "posthog_instancesetting"}
 
         assert isinstance(database.get_table("raw_sessions"), RawSessionsTableV2)
         assert "events" in database.get_posthog_table_names()

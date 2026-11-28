@@ -4,7 +4,7 @@ import json
 import uuid
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import pytest
 import time_machine
@@ -90,6 +90,7 @@ LAST_WEEK = "timestamp >= now() - INTERVAL 7 DAY"
 UNKEYED_FEATURE_PROPERTY = f"{FLAG_CALLS} AND properties.`$feature/new-checkout` = 'true'"
 UNKEYED_READ_MEMORY_CAP = "max_memory_usage=8589934592"
 KEYED_BOUNDED_FLAG_CALLS = f"{FLAG_CALLS} AND properties.$feature_flag = 'f' AND {LAST_WEEK}"
+COHORT_SCAN = "SELECT count() FROM events WHERE person_id IN COHORT {cohort}"
 
 
 def _performed_flag_call_cohort(team, flag_key: str) -> Cohort:
@@ -821,22 +822,32 @@ class TestReadFlagCallsWithUnion(BaseTest):
         inline_cohorts: bool = False,
         in_cohort_via: InCohortVia | None = None,
         rewrite_flag_calls: bool = True,
+        database: Literal["full", "posthog_tables"] = "full",
     ) -> str:
         _set_mode(self.organization, mode)
+        query_modifiers = (modifiers or HogQLQueryModifiers()).model_copy(
+            update={
+                "personIdPushdown": person_id_pushdown,
+                "personsOnEventsMode": persons_on_events,
+                "useNewEventsSchema": _events_schema_for(mode, new_events_schema),
+                **({"inlineCohortCalculation": InlineCohortCalculation.ALWAYS} if inline_cohorts else {}),
+                **({"inCohortVia": in_cohort_via} if in_cohort_via else {}),
+            },
+        )
         with _enabled_flags(union=union, union_flag=union_flag), _flag_evaluations_table_in_catalog():
             sql, context = HogQLQueryExecutor(
                 query=query,
                 team=self.team,
-                context=HogQLContext(team_id=self.team.pk, rewrite_flag_calls_to_flag_evaluations=rewrite_flag_calls),
-                modifiers=(modifiers or HogQLQueryModifiers()).model_copy(
-                    update={
-                        "personIdPushdown": person_id_pushdown,
-                        "personsOnEventsMode": persons_on_events,
-                        "useNewEventsSchema": _events_schema_for(mode, new_events_schema),
-                        **({"inlineCohortCalculation": InlineCohortCalculation.ALWAYS} if inline_cohorts else {}),
-                        **({"inCohortVia": in_cohort_via} if in_cohort_via else {}),
-                    },
+                context=HogQLContext(
+                    team_id=self.team.pk,
+                    rewrite_flag_calls_to_flag_evaluations=rewrite_flag_calls,
+                    database=(
+                        Database.create_for_posthog_tables(self.team, modifiers=query_modifiers)
+                        if database == "posthog_tables"
+                        else None
+                    ),
                 ),
+                modifiers=query_modifiers,
                 pretty=False,
             ).generate_clickhouse_sql()
         return substitute_params(sql, context.values)
@@ -1541,6 +1552,64 @@ class TestReadFlagCallsWithUnion(BaseTest):
 
         assert sql.count("SAMPLE 0.1") == 2
         assert "less(cityHash64(flag_evaluations.distinct_id), 1844674407370955161)" in sql
+
+    @parameterized.expand(
+        [
+            param("flag_call_scan_on_mode_0_legacy", FLAG_CALLS, EVENTS, new_events_schema=False),
+            # Mode 1 on the legacy table swaps only a scan with a flag key and a time bound.
+            param("flag_call_scan_on_mode_1_opted_in", KEYED_BOUNDED_FLAG_CALLS, READ, union_flag=True),
+            param("flag_call_scan_on_mode_2", FLAG_CALLS, ONLY, new_events_schema=False),
+            param("flag_call_scan_on_mode_0_native", FLAG_CALLS, EVENTS, new_events_schema=True),
+            param("mixed_scan_on_mode_1_opted_in", f"SELECT count() FROM events WHERE {MIXED}", READ, union_flag=True),
+            param("mixed_scan_on_mode_2", f"SELECT count() FROM events WHERE {MIXED}", ONLY, new_events_schema=False),
+            param("inline_cohort_on_mode_0_legacy", COHORT_SCAN, EVENTS, new_events_schema=False, cohort=True),
+            param(
+                "conjoined_inline_cohort_on_mode_1_opted_in",
+                COHORT_SCAN,
+                READ,
+                union_flag=True,
+                cohort=True,
+                in_cohort_via=InCohortVia.LEFTJOIN_CONJOINED,
+            ),
+            param("inline_cohort_on_mode_2", COHORT_SCAN, ONLY, new_events_schema=False, cohort=True),
+            param("inline_cohort_on_mode_0_native", COHORT_SCAN, EVENTS, new_events_schema=True, cohort=True),
+            param(
+                "conjoined_inline_cohort_on_mode_2",
+                COHORT_SCAN,
+                ONLY,
+                new_events_schema=False,
+                cohort=True,
+                in_cohort_via=InCohortVia.LEFTJOIN_CONJOINED,
+            ),
+            param(
+                "pageview_scan_on_mode_2",
+                "SELECT count() FROM events WHERE event = '$pageview'",
+                ONLY,
+                new_events_schema=False,
+            ),
+        ]
+    )
+    def test_built_in_only_database_reads_flag_calls_from_the_tables_the_full_database_reads(
+        self,
+        _name: str,
+        query: str,
+        mode: FlagEvaluationsMode,
+        new_events_schema: bool | None = None,
+        union_flag: bool | None = None,
+        cohort: bool = False,
+        in_cohort_via: InCohortVia | None = None,
+    ):
+        if cohort:
+            query = query.format(cohort=_performed_flag_call_cohort(self.team, "probe-flag").pk)
+        compile_options: dict[str, Any] = {
+            "mode": mode,
+            "new_events_schema": new_events_schema,
+            "union_flag": union_flag,
+            "inline_cohorts": cohort,
+            "in_cohort_via": in_cohort_via,
+        }
+
+        assert self._sql(query, database="posthog_tables", **compile_options) == self._sql(query, **compile_options)
 
     @parameterized.expand(
         [
