@@ -29,6 +29,7 @@ DATETIME_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "toSecond": HogQLFunctionMeta("toSecond", 1, 1),
     "toUnixTimestamp": HogQLFunctionMeta("toUnixTimestamp", 1, 2),
     "toUnixTimestamp64Milli": HogQLFunctionMeta("toUnixTimestamp64Milli", 1, 1),
+    "toUnixTimestamp64Micro": HogQLFunctionMeta("toUnixTimestamp64Micro", 1, 1),
     "fromUnixTimestamp64Milli": HogQLFunctionMeta("fromUnixTimestamp64Milli", 1, 1),
     "toStartOfInterval": HogQLFunctionMeta(
         "toStartOfInterval",
@@ -280,6 +281,14 @@ DATE_GENERATOR_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
 # Interval functions
 # Keep in sync with the posthog.com repository: contents/docs/sql/clickhouse-functions.mdx
 INTERVAL_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
+    "toIntervalMillisecond": HogQLFunctionMeta(
+        "toIntervalMillisecond",
+        1,
+        1,
+        signatures=[
+            ((IntegerType(),), IntervalType()),
+        ],
+    ),
     "toIntervalSecond": HogQLFunctionMeta(
         "toIntervalSecond",
         1,
