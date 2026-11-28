@@ -1608,9 +1608,24 @@ describe('EmailService', () => {
             })
 
             it.each([
-                { name: 'charges every to, cc and bcc copy', dailyCap: 4, left: 1 },
-                { name: 'charges the whole budget, and sends, when the copies outnumber it', dailyCap: 2, left: 0 },
-            ])('$name', async ({ dailyCap, left }) => {
+                { name: 'charges every to, cc and bcc copy', dailyCap: 4, left: 1, send: undefined },
+                {
+                    name: 'charges the whole budget, and sends, when the copies outnumber it',
+                    dailyCap: 2,
+                    left: 0,
+                    send: undefined,
+                },
+                {
+                    name: 'charges a marketing code send only for its recipient',
+                    dailyCap: 3,
+                    left: 2,
+                    send: {
+                        category: { id: 'newsletter', type: 'marketing' as const },
+                        tracking: { captureEngagement: true },
+                    },
+                },
+            ])('$name', async ({ dailyCap, left, send }) => {
+                invocation.state.send = send
                 invocation.queueParameters = createEmailParams({ cc: 'cc@example.com', bcc: 'bcc@example.com' })
                 const sender = budgetedService('enforce', dailyCap)
 
@@ -1620,20 +1635,6 @@ describe('EmailService', () => {
                 expect(result.finished).toBe(true)
                 expect(deliveredTo(ses, 'test@example.com')).toHaveLength(1)
                 expect(await sendsLeftInTheTeamBudget(sender)).toBe(left)
-            })
-
-            it('charges a marketing code send only for its recipient', async () => {
-                invocation.state.send = {
-                    category: { id: 'newsletter', type: 'marketing' },
-                    tracking: { captureEngagement: true },
-                }
-                invocation.queueParameters = createEmailParams({ cc: 'cc@example.com', bcc: 'bcc@example.com' })
-                const sender = budgetedService('enforce', 3)
-
-                const result = await sender.executeSendEmail(invocation)
-
-                expect(result.finished).toBe(true)
-                expect(await sendsLeftInTheTeamBudget(sender)).toBe(2)
             })
 
             const setSuspendedAt = async (suspendedAt: 'now()' | 'NULL'): Promise<void> => {
@@ -3873,54 +3874,57 @@ describe('EmailService', () => {
                 })
             })
 
-            it('sends only to its recipient and says the copies were not sent', async () => {
+            it('sends only to its recipient and warns that the copies were not sent', async () => {
                 const result = await service.executeSendEmail(invocation)
 
                 expect(ses.sent.map(({ to, cc, bcc }) => ({ to, cc, bcc }))).toEqual([
                     { to: [expect.stringContaining('test@example.com')], cc: undefined, bcc: undefined },
                 ])
-                expect(result.logs.map((l) => l.message)).toContainEqual(
-                    expect.stringContaining("Not sending this email's copies")
+                expect(result.logs).toContainEqual(
+                    expect.objectContaining({
+                        level: 'warn',
+                        message: expect.stringContaining("Not sending this email's copies"),
+                    })
                 )
             })
 
-            it('skips the send instead of moving a copy to To when its recipient is suppressed', async () => {
-                jest.spyOn(service['emailSuppressionService'], 'isSuppressed').mockImplementation((_teamId, email) =>
-                    Promise.resolve(email === 'test@example.com')
-                )
+            it('skips the send instead of moving a copy to To when its recipient hard bounced', async () => {
+                await service['emailSuppressionService'].recordHardBounces(team.id, ['test@example.com'], undefined, {
+                    throwOnFailure: true,
+                })
 
                 const result = await service.executeSendEmail(invocation)
 
                 expect(ses.sent).toEqual([])
                 expect(result.metrics.map((m) => m.metric_name)).toContain('email_suppressed')
+                expect(result.metrics.map((m) => m.metric_name)).not.toContain('email_sent')
             })
 
-            it("tracks by its recipient's consent alone, not a copy's opt-out", async () => {
-                jest.spyOn(
-                    (service as any).teamWorkflowsConfigService,
-                    'getEmailTrackingConsentMode'
-                ).mockResolvedValue('opt_out')
-                jest.spyOn((service as any).recipientsManager, 'get').mockImplementation(
-                    (options: unknown): Promise<any> => {
-                        const { identifier } = options as { identifier: string }
-                        return Promise.resolve(
-                            identifier === 'cc@example.com'
-                                ? {
-                                      id: 'pref-1',
-                                      team_id: team.id,
-                                      identifier,
-                                      preferences: { $email_tracking: 'OPTED_OUT' },
-                                      created_at: '',
-                                      updated_at: '',
-                                  }
-                                : null
-                        )
-                    }
+            it.each([
+                { optedOut: 'cc@example.com', tracked: true },
+                { optedOut: 'test@example.com', tracked: false },
+            ])("tracks by its recipient's consent when $optedOut opted out", async ({ optedOut, tracked }) => {
+                await hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    `INSERT INTO workflows_teamworkflowsconfig
+                        (team_id, capture_workflows_engagement_events, email_tracking_consent_mode,
+                         email_sending_suspension_reason, ses_tenant_sending_status, email_sending_tier)
+                     VALUES ($1, false, 'opt_out', '', '', 0)
+                     ON CONFLICT (team_id) DO UPDATE SET email_tracking_consent_mode = 'opt_out'`,
+                    [team.id],
+                    'test-set-tracking-consent-mode'
+                )
+                await hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    `INSERT INTO posthog_messagerecipientpreference (id, team_id, identifier, preferences, created_at, updated_at, deleted)
+                     VALUES ($1, $2, $3, $4, NOW(), NOW(), false)`,
+                    [new UUIDT().toString(), team.id, optedOut, JSON.stringify({ $email_tracking: 'OPTED_OUT' })],
+                    'test-opt-out-of-tracking'
                 )
 
                 await service.executeSendEmail(invocation)
 
-                expect(ses.sent[0].html).toContain('ses:tags="phl:')
+                expect(ses.sent).toEqual([expect.objectContaining({ tracked })])
             })
         })
 
