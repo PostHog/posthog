@@ -331,9 +331,18 @@ class TestRecordingRuleEvaluation(APIBaseTest):
 
         assert teams_with_recording_rules() == [other_team.id, self.team.id]
 
-    def test_nothing_is_recorded_until_ingestion_reports_how_far_it_has_reached(self) -> None:
+    @parameterized.expand(
+        [
+            ("no_checkpoint", None),
+            # Capture would store a minute this old as a current sample.
+            ("checkpoint_older_than_capture_accepts", timedelta(hours=23, minutes=1)),
+        ]
+    )
+    def test_nothing_is_recorded_until_ingestion_reports_how_far_it_has_reached(
+        self, _name: str, checkpoint_age: timedelta | None
+    ) -> None:
         self.checkpoint.side_effect = None
-        self.checkpoint.return_value = None
+        self.checkpoint.return_value = None if checkpoint_age is None else self.now - checkpoint_age
 
         assert self._evaluate() == 0
 

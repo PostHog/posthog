@@ -85,6 +85,7 @@ from products.alerts_platform.backend.facade.platform_metrics import (
     increment_checks_skipped,
     increment_state_transition,
     record_batch_duration,
+    record_ingestion_checkpoint_lag,
     safe_record,
 )
 from products.alerts_platform.backend.facade.scheduling import is_utc_datetime_blocked, parse_blocked_windows_tuples
@@ -193,6 +194,8 @@ def _evaluate_admitted(
         checkpoint=checkpoint,
         newest_point=None if checkpoint is not None else _read_instant(fetch_metrics_freshness, team),
     )
+    if checkpoint is not None:
+        safe_record(record_ingestion_checkpoint_lag, SOURCE.value, max(0, int((cutoff - checkpoint).total_seconds())))
     floors = read_floors(team.id, [str(check.id) for check in checks])
     deadline = started_at + BATCH_QUERY_BUDGET_SECONDS
     decided: list[Decision] = []
