@@ -570,10 +570,10 @@ Diffed against: <https://raw.githubusercontent.com/boto/botocore/develop/botocor
 - [x] `Metrics inventory (CloudWatch ListMetrics)` — lists namespaces, metric names and dimensions that exist, so users can see what to query with metric_data (high)
 - [x] `Log streams (CloudWatch Logs DescribeLogStreams)` — streams under each synced log group, with first and last event times and stored bytes (medium)
 - [x] `Metric filters (CloudWatch Logs DescribeMetricFilters)` — filters that turn log patterns into metrics, tied to the synced log groups (medium)
-- [ ] `Subscription filters (CloudWatch Logs DescribeSubscriptionFilters)` — where each synced log group streams its logs (low)
-- [ ] `Dashboards (CloudWatch ListDashboards)` — dashboard inventory with last modified time and size (low)
-- [ ] `Anomaly detectors (CloudWatch DescribeAnomalyDetectors)` — metric anomaly detection models configured for the account (low)
-- [ ] `Contributor Insights rules (CloudWatch DescribeInsightRules)` — rule inventory and state for log-based top-contributor analysis (low)
+- [x] `Subscription filters (CloudWatch Logs DescribeSubscriptionFilters)` — where each synced log group streams its logs (low) → `subscription_filters` (full refresh, one request series per synced log group)
+- [x] `Dashboards (CloudWatch ListDashboards)` — dashboard inventory with last modified time and size (low) → `dashboards` (full refresh)
+- [x] `Anomaly detectors (CloudWatch DescribeAnomalyDetectors)` — metric anomaly detection models configured for the account (low) → `anomaly_detectors` (full refresh, single metric and metric math detectors)
+- [x] `Contributor Insights rules (CloudWatch DescribeInsightRules)` — rule inventory and state for log-based top-contributor analysis (low) → `insight_rules` (full refresh)
 - [x] `Log anomalies (CloudWatch Logs ListAnomalies)` — anomalies found in log groups by the log anomaly detectors (low)
 
 Note: Parsed the botocore service models for cloudwatch (2010-08-01) and logs (2014-03-28) and listed every Describe, List and Get operation against the 5 tables. The vendor reference is the AWS JSON-over-HTTP API, so each item is an operation, not a REST path. Excluded tags, policies, delivery and integration config, export and import tasks, and GetMetricStatistics and GetLogEvents, which duplicate metric_data and log_events. Log stream and metric filter reads fan out over log groups, and each call is region scoped.

@@ -30,6 +30,8 @@ from tenacity import (
 from products.warehouse_sources.sources.amazon_cloudwatch.settings import (
     ALARMS_PAGE_SIZE,
     AMAZON_CLOUDWATCH_ENDPOINTS,
+    ANOMALY_DETECTORS_PAGE_SIZE,
+    INSIGHT_RULES_PAGE_SIZE,
     LOG_EVENTS_PAGE_SIZE,
     LOG_GROUPS_PAGE_SIZE,
     LOGS_DESCRIBE_PAGE_SIZE,
@@ -74,6 +76,8 @@ THROTTLING_ERROR_CODES = frozenset(
 
 
 ALARM_TYPES = ["CompositeAlarm", "MetricAlarm"]
+# DescribeAnomalyDetectors returns single metric detectors only unless asked for both types.
+ANOMALY_DETECTOR_TYPES = ["SINGLE_METRIC", "METRIC_MATH"]
 
 
 class AmazonCloudWatchError(Exception):
@@ -384,8 +388,10 @@ def send_operation(
 
 ACCESS_DENIED_MESSAGE = (
     "These AWS credentials cannot read CloudWatch. Grant logs:DescribeLogGroups, logs:DescribeLogStreams, "
-    "logs:DescribeMetricFilters, logs:FilterLogEvents, logs:ListAnomalies, cloudwatch:DescribeAlarms, "
-    "cloudwatch:DescribeAlarmHistory, cloudwatch:GetMetricData and cloudwatch:ListMetrics to the IAM user or role."
+    "logs:DescribeMetricFilters, logs:DescribeSubscriptionFilters, logs:FilterLogEvents, logs:ListAnomalies, "
+    "cloudwatch:DescribeAlarms, cloudwatch:DescribeAlarmHistory, cloudwatch:DescribeAnomalyDetectors, "
+    "cloudwatch:DescribeInsightRules, cloudwatch:GetMetricData, cloudwatch:ListDashboards and "
+    "cloudwatch:ListMetrics to the IAM user or role."
 )
 
 # AWS error code -> the message the setup wizard shows. A denial names the calling identity's
@@ -616,6 +622,47 @@ def anomaly_rows(body: dict[str, Any]) -> list[dict[str, Any]]:
     return rows
 
 
+def subscription_filter_rows(log_group_name: str, body: dict[str, Any]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for subscription_filter in body.get("subscriptionFilters") or []:
+        row = _snake_keys(subscription_filter)
+        row["log_group_name"] = log_group_name
+        row["creation_time"] = _from_millis(row.get("creation_time"))
+        rows.append(row)
+    return rows
+
+
+def dashboard_rows(body: dict[str, Any]) -> list[dict[str, Any]]:
+    return [_snake_keys(entry) for entry in body.get("DashboardEntries") or []]
+
+
+def _sorted_dimensions(dimensions: Any) -> list[dict[str, Any]]:
+    return sorted(dimensions or [], key=lambda d: (str(d.get("Name")), str(d.get("Value"))))
+
+
+def anomaly_detector_rows(body: dict[str, Any]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for detector in body.get("AnomalyDetectors") or []:
+        row = _snake_keys(detector)
+        # AWS can fill the deprecated top-level metric fields, SingleMetricAnomalyDetector, or both.
+        single = detector.get("SingleMetricAnomalyDetector") or {}
+        identity = [
+            single.get("AccountId"),
+            single.get("Namespace") or detector.get("Namespace"),
+            single.get("MetricName") or detector.get("MetricName"),
+            _sorted_dimensions(single.get("Dimensions") or detector.get("Dimensions")),
+            single.get("Stat") or detector.get("Stat"),
+            (detector.get("MetricMathAnomalyDetector") or {}).get("MetricDataQueries"),
+        ]
+        row["detector_key"] = hashlib.sha256(json.dumps(identity, sort_keys=True, default=str).encode()).hexdigest()
+        rows.append(row)
+    return rows
+
+
+def insight_rule_rows(body: dict[str, Any]) -> list[dict[str, Any]]:
+    return [_snake_keys(rule) for rule in body.get("InsightRules") or []]
+
+
 def metric_rows(body: dict[str, Any]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for metric in body.get("Metrics") or []:
@@ -730,7 +777,7 @@ def _params(
                 "endTime": _to_millis(window.end),
                 "limit": LOG_EVENTS_PAGE_SIZE,
             }
-        elif operation == "DescribeLogStreams":
+        elif endpoint_config.per_log_group:
             params = {"logGroupName": log_group, "limit": LOGS_DESCRIBE_PAGE_SIZE}
         else:
             # DescribeMetricFilters and ListAnomalies with no log group or detector list the whole region.
@@ -738,8 +785,12 @@ def _params(
         if next_token:
             params["nextToken"] = next_token
         return params
-    if operation == "ListMetrics":
+    if operation in ("ListMetrics", "ListDashboards"):
         params = {}
+    elif operation == "DescribeAnomalyDetectors":
+        params = {"AnomalyDetectorTypes": ANOMALY_DETECTOR_TYPES, "MaxResults": ANOMALY_DETECTORS_PAGE_SIZE}
+    elif operation == "DescribeInsightRules":
+        params = {"MaxResults": INSIGHT_RULES_PAGE_SIZE}
     elif operation == "DescribeAlarms":
         params = {"AlarmTypes": ALARM_TYPES, "MaxRecords": ALARMS_PAGE_SIZE}
     elif operation == "DescribeAlarmHistory":
@@ -779,6 +830,14 @@ def _rows(
         return log_stream_rows(log_group or "", body)
     if operation == "DescribeMetricFilters":
         return metric_filter_rows(body)
+    if operation == "DescribeSubscriptionFilters":
+        return subscription_filter_rows(log_group or "", body)
+    if operation == "ListDashboards":
+        return dashboard_rows(body)
+    if operation == "DescribeAnomalyDetectors":
+        return anomaly_detector_rows(body)
+    if operation == "DescribeInsightRules":
+        return insight_rule_rows(body)
     if operation == "ListAnomalies":
         return anomaly_rows(body)
     if operation == "ListMetrics":
