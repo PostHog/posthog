@@ -3,6 +3,7 @@ import uuid
 import asyncio
 import hashlib
 import dataclasses
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -72,6 +73,7 @@ from products.signals.backend.anomaly_scores.queue import (
     FirstTrainReport,
     InsightPick,
     QueryBudget,
+    ScoredDueBacklog,
     TeamCensus,
     _cooldown_key,
     _empty_train_key,
@@ -1628,6 +1630,68 @@ class TestDueList(ClickhouseTestMixin, BaseTest):
             scored.id,
         ]
         assert due_list.oldest_due_seconds == 10 * 24 * 3600
+
+    @parameterized.expand(
+        [
+            ("no_blob", lambda state: dataclasses.replace(state, artifact_key="")),
+            ("no_series", lambda state: dataclasses.replace(state, series_keys=())),
+            ("no_scored_bucket", lambda state: dataclasses.replace(state, scored_through=None)),
+            (
+                "older_fit_version",
+                lambda state: dataclasses.replace(
+                    state, identity=dataclasses.replace(state.identity, detector_version="older-fit")
+                ),
+            ),
+            ("past_model_age", lambda state: dataclasses.replace(state, trained_at=NOW - timedelta(days=60))),
+        ]
+    )
+    @time_machine.travel(NOW, tick=False)
+    def test_a_hard_train_backlog_larger_than_the_read_leaves_room_for_score_ready_rows(
+        self, _name: str, make_hard: Callable[[TrainedState], TrainedState]
+    ) -> None:
+        self.team.timezone = "UTC"
+        self.team.save()
+        config = dataclasses.replace(self._config(), train_score_split=True)
+        today = NOW.replace(hour=0)
+        scoring = interval_scoring(DEFAULT_PROFILE, IntervalType.DAY)
+
+        def trained(name: str, due: datetime, hard: bool) -> Insight:
+            insight = Insight.objects.create(team=self.team, name=name, query=_trends(interval="day"))
+            state = TrainedState(
+                identity=state_identity(trends_query_for(insight, DEFAULT_PROFILE), scoring, self.team, config.limits),
+                trained_at=NOW - timedelta(days=1),
+                scored_through=today - timedelta(days=2),
+                series_keys=("a",),
+                artifact_key=f"anomaly_models/{insight.id}",
+                scoring=local_scoring(scoring),
+            )
+            save_state(self.team, insight.id, DEFAULT_PROFILE.name, make_hard(state) if hard else state)
+            self._row(insight, due, {"a": today - timedelta(days=2)})
+            cache.delete(_cooldown_key(insight.id))
+            return insight
+
+        for index in range(3):
+            trained(f"hard_{index}", NOW - timedelta(days=10 - index), hard=True)
+        ready = trained("ready", NOW - timedelta(hours=1), hard=False)
+        for kind in ScoringRun:
+            cache.delete_many([_fleet_budget_key(NOW, kind), _project_budget_key(self.team.id, NOW, kind)])
+
+        with (
+            patch("products.signals.backend.anomaly_scores.queue.list_limited_team_attributes", return_value=[]),
+            patch("products.signals.backend.anomaly_scores.queue._MAX_DUE_ROWS", 2),
+        ):
+            with self.assertNumQueries(10):
+                load_due_list([self.team.id], (IntervalType.DAY,), NOW)
+            selection = select_insights(config, SelectionConfig(weighting=Weighting.UNIFORM), NOW)
+
+        assert [pick.insight_id for pick in selection.picks if pick.run == ScoringRun.SCORE] == [ready.id]
+        assert selection.picked_score == 1
+        assert selection.scored_due == ScoredDueBacklog(
+            score_ready=1,
+            score_ready_oldest_due_seconds=3600,
+            needs_train=3,
+            needs_train_oldest_due_seconds=10 * 24 * 3600,
+        )
 
     @parameterized.expand([("per_project_cap", 10, [1, 2], [0, 1]), ("fleet_cap", 2, [2], [0])])
     @time_machine.travel(NOW, tick=False)
