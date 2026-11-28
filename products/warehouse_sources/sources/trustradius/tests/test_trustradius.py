@@ -139,14 +139,7 @@ def read_rows(endpoint: str, **kwargs: Any) -> list[dict[str, Any]]:
 @time_machine.travel("2026-03-10T12:00:00Z", tick=False)
 @patch(f"{TRANSPORT}.PRODUCT_IDS_PER_REQUEST", 2)
 @patch(f"{TRANSPORT}.REPORT_PAGE_SIZE", 2)
-@pytest.mark.parametrize(
-    ("endpoint", "path", "sort"),
-    [
-        ("traffic_products", "/v1/reports/traffic/products", "date,productId,categoryId"),
-        ("traffic_pages", "/v1/reports/traffic/pages", "date,productId,url"),
-    ],
-)
-def test_traffic_reports_batch_product_ids_and_walk_pages(endpoint: str, path: str, sort: str) -> None:
+def test_traffic_products_batches_product_ids_and_walks_pages() -> None:
     def routes(path: str, params: dict[str, list[str]]) -> object:
         if path == "/v1/product-ids":
             return [{"_id": "p1"}, {"_id": "p2"}, {"_id": "p3"}]
@@ -157,78 +150,79 @@ def test_traffic_reports_batch_product_ids_and_walk_pages(endpoint: str, path: s
 
     requests: list[tuple[str, dict]] = []
     with patch("requests.adapters.HTTPAdapter.send", side_effect=routed_send(routes, requests)):
-        rows = read_rows(endpoint)
+        rows = read_rows("traffic_products")
 
     assert [(row["productId"], row["n"]) for row in rows] == [("p1", 0), ("p1", 1), ("p1", 2), ("p3", 0)]
     report_params = {
         "start-date": ["2025-03-10"],
         "end-date": ["2026-03-10"],
         "group": ["day"],
-        "sort": [sort],
+        "sort": ["date,productId,categoryId"],
         "format": ["json"],
         "limit": ["2"],
     }
     assert requests == [
         ("/v1/product-ids", {}),
-        (path, {**report_params, "products": ["p1,p2"], "skip": ["0"]}),
-        (path, {**report_params, "products": ["p1,p2"], "skip": ["2"]}),
+        ("/v1/reports/traffic/products", {**report_params, "products": ["p1,p2"], "skip": ["0"]}),
+        ("/v1/reports/traffic/products", {**report_params, "products": ["p1,p2"], "skip": ["2"]}),
         # A short first page ends the batch without an extra request.
-        (path, {**report_params, "products": ["p3"], "skip": ["0"]}),
+        ("/v1/reports/traffic/products", {**report_params, "products": ["p3"], "skip": ["0"]}),
     ]
 
 
 @time_machine.travel("2026-03-10T12:00:00Z", tick=False)
-@pytest.mark.parametrize("endpoint", ["traffic_products", "traffic_pages"])
-def test_traffic_reports_without_products_make_no_report_request(endpoint: str) -> None:
+def test_traffic_products_without_products_makes_no_report_request() -> None:
     requests: list[tuple[str, dict]] = []
     with patch("requests.adapters.HTTPAdapter.send", side_effect=routed_send(lambda path, params: [], requests)):
-        assert read_rows(endpoint) == []
+        assert read_rows("traffic_products") == []
     assert [path for path, _ in requests] == ["/v1/product-ids"]
 
 
 @time_machine.travel("2026-03-10T12:00:00Z", tick=False)
 @pytest.mark.parametrize(
-    ("should_use_incremental_field", "last_value", "expected_start"),
+    ("window_days", "should_use_incremental_field", "expected_windows"),
     [
-        (False, None, "2025-03-10"),
-        (False, "2026-03-01", "2025-03-10"),
-        (True, None, "2025-03-10"),
-        (True, "2026-03-01", "2026-03-01"),
-        (True, "2026-03-01T00:00:00.000Z", "2026-03-01"),
-        (True, "2020-01-01", "2025-03-10"),
+        (200, False, [("2025-03-10", "2025-09-26"), ("2025-09-26", "2026-03-10")]),
+        # The last window stops at today instead of running past it.
+        (2, True, [("2026-03-05", "2026-03-07"), ("2026-03-07", "2026-03-09"), ("2026-03-09", "2026-03-10")]),
     ],
 )
-@pytest.mark.parametrize(
-    "rows",
-    [
-        [],
-        [
-            {"date": "2026-03-05", "productId": "p1", "widgetId": "w1", "link": "https://example.com/a", "views": 3},
-            {"date": "2026-03-05", "productId": "p1", "widgetId": "w1", "link": "https://example.com/b", "views": 0},
-        ],
-    ],
-)
-def test_trustquotes_web_pages_reads_the_range_in_one_request(
-    should_use_incremental_field: bool, last_value: Any, expected_start: str, rows: list[dict[str, Any]]
+def test_trustquotes_web_pages_requests_one_date_window_at_a_time(
+    window_days: int, should_use_incremental_field: bool, expected_windows: list[tuple[str, str]]
 ) -> None:
+    def routes(path: str, params: dict[str, list[str]]) -> object:
+        first, end = params["start-date"][0], params["end-date"][0]
+        if first == "2026-03-07":
+            return []
+        # Under an inclusive end date the API also returns the end day, which the next window owns.
+        return [
+            {"date": first, "productId": "p1", "widgetId": "w1", "link": "https://example.com/a"},
+            {"date": f"{end}T00:00:00.000Z", "productId": "p1", "widgetId": "w1", "link": "https://example.com/a"},
+            {"date": None, "productId": "p1", "widgetId": "w1", "link": "https://example.com/b"},
+        ]
+
     requests: list[tuple[str, dict]] = []
-    with patch("requests.adapters.HTTPAdapter.send", side_effect=routed_send(lambda p, q: rows, requests)):
-        result = read_rows(
-            "trustquotes_web_pages", should_use_incremental_field=should_use_incremental_field, last_value=last_value
+    with (
+        patch(f"{TRANSPORT}.DATE_WINDOW_DAYS", window_days),
+        patch("requests.adapters.HTTPAdapter.send", side_effect=routed_send(routes, requests)),
+    ):
+        rows = read_rows(
+            "trustquotes_web_pages", should_use_incremental_field=should_use_incremental_field, last_value="2026-03-05"
         )
 
-    assert result == rows
-    # The report documents no skip or limit, so a second request would read the same rows again.
     assert requests == [
         (
             "/v1/reports/syndication/tqw/pages",
-            {
-                "start-date": [expected_start],
-                "end-date": ["2026-03-10"],
-                "date-group": ["day"],
-                "format": ["json"],
-            },
+            {"start-date": [first], "end-date": [end], "date-group": ["day"], "format": ["json"]},
         )
+        for first, end in expected_windows
+    ]
+    # A row with no readable date is kept rather than dropped silently.
+    assert [(row["date"], row["link"]) for row in rows] == [
+        row
+        for first, _ in expected_windows
+        if first != "2026-03-07"
+        for row in [(first, "https://example.com/a"), (None, "https://example.com/b")]
     ]
 
 

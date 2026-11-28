@@ -8,18 +8,18 @@ Official references:
 - [API reference](https://apidocs.trustradius.com/docs/public-api/YXBpOjUxMzgzNjA-trust-radius-api)
 - [Vendor OpenAPI export](https://stoplight.io/api/v1/projects/trustradius/public-api/nodes/reference/api.oas3.yml?fromExportButton=true&snapshotType=http_service)
 
-| Table                      | GET path                              | Response         | Key                                       | Sync                                  |
-| -------------------------- | ------------------------------------- | ---------------- | ----------------------------------------- | ------------------------------------- |
-| products                   | `/product-ids`                        | Array            | `_id`                                     | Full refresh                          |
-| product_scores             | `/product-scores`                     | `products` array | `id`                                      | Full refresh                          |
-| trustquotes                | `/trustquotes`                        | Array            | `id`                                      | Full refresh                          |
-| tags                       | `/tags`                               | Array            | `id`                                      | Full refresh                          |
-| traffic_products           | `/reports/traffic/products`           | Array            | `date`, `productId`, `categoryId`         | Full refresh or incremental on `date` |
-| traffic_pages              | `/reports/traffic/pages`              | Array            | `date`, `productId`, `url`                | Full refresh or incremental on `date` |
-| trustquotes_web_pages      | `/reports/syndication/tqw/pages`      | Array            | `date`, `productId`, `widgetId`, `link`   | Full refresh or incremental on `date` |
-| visitor_insights_companies | `/reports/visitor-insights/companies` | Array            | `date`, `productId`, `companyName`        | Full refresh or incremental on `date` |
-| visitor_insights_pages     | `/reports/visitor-insights/pages`     | Array            | `date`, `productId`, `companyName`, `url` | Full refresh or incremental on `date` |
-| intent                     | `/intent`                             | `accounts` array | `id`, `date`                              | Full refresh or incremental on `date` |
+| Table                      | GET path                              | Response         | Key                                                       | Sync                                  |
+| -------------------------- | ------------------------------------- | ---------------- | --------------------------------------------------------- | ------------------------------------- |
+| products                   | `/product-ids`                        | Array            | `_id`                                                     | Full refresh                          |
+| product_scores             | `/product-scores`                     | `products` array | `id`                                                      | Full refresh                          |
+| trustquotes                | `/trustquotes`                        | Array            | `id`                                                      | Full refresh                          |
+| tags                       | `/tags`                               | Array            | `id`                                                      | Full refresh                          |
+| traffic_products           | `/reports/traffic/products`           | Array            | `date`, `productId`, `categoryId`                         | Full refresh or incremental on `date` |
+| traffic_pages              | `/reports/traffic/pages`              | Array            | `date`, `productId`, `url`                                | Full refresh or incremental on `date` |
+| trustquotes_web_pages      | `/reports/syndication/tqw/pages`      | Array            | `date`, `productId`, `widgetId`, `domain`, `page`, `link` | Full refresh or incremental on `date` |
+| visitor_insights_companies | `/reports/visitor-insights/companies` | Array            | `date`, `productId`, `companyName`                        | Full refresh or incremental on `date` |
+| visitor_insights_pages     | `/reports/visitor-insights/pages`     | Array            | `date`, `productId`, `companyName`, `url`                 | Full refresh or incremental on `date` |
+| intent                     | `/intent`                             | `accounts` array | `id`, `date`                                              | Full refresh or incremental on `date` |
 
 The first four endpoints have no documented pagination parameters.
 The source makes one request per table and does not send a record limit.
@@ -43,9 +43,11 @@ A page shorter than the limit ends the walk.
 The traffic reports require product identifiers, so the source reads `/product-ids` first and sends them in groups of 50.
 
 The TrustQuotes for Web report documents no `skip` or `limit`, and it groups days with `date-group`.
-The source therefore sends `date-group=day` with the date range and reads the range in one request.
-Its `page`, `link` and `domain` fields are optional in the specification.
-The key uses `link`, because one widget can show on pages of more than one domain.
+The source therefore sends `date-group=day` and reads the range in windows of 30 days, one request per window.
+The specification calls `end-date` inclusive, but the intent API treats it as exclusive.
+Each window ends on the day the next one starts, and the source drops rows dated on or after that day, so neither reading loses or repeats a day.
+Its `domain`, `page` and `link` fields are optional in the specification.
+The merge treats missing key values as equal, so all three fields are in the key.
 The visitor insights reports accept no product filter from the source, so they cover every licensed product.
 The specification tags both visitor insights operations as Legacy, and they need the matching license.
 For all report tables, a full refresh and the first incremental run read the last 365 days, because the specification documents no retention.

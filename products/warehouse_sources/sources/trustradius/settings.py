@@ -17,8 +17,9 @@ class EndpointConfig(TypedDict):
     # Fields the request sorts by, so that `skip` paging is stable.
     sort: NotRequired[str]
     requires_products: NotRequired[bool]
-    # The TrustQuotes for Web report documents no `skip` or `limit` and groups days with `date-group`.
-    single_request: NotRequired[bool]
+    # The TrustQuotes for Web report documents no `skip` or `limit` and groups days with `date-group`,
+    # so the source sends one request per date window.
+    date_windows: NotRequired[bool]
 
 
 ENDPOINTS: dict[str, EndpointConfig] = {
@@ -67,10 +68,12 @@ ENDPOINTS: dict[str, EndpointConfig] = {
     "trustquotes_web_pages": {
         "path": "reports/syndication/tqw/pages",
         "data_selector": "",
-        "primary_keys": ["date", "productId", "widgetId", "link"],
+        # The spec marks `domain`, `page` and `link` optional, and the merge treats missing values as equal,
+        # so all three are in the key: a row that lacks one still differs from the others by the rest.
+        "primary_keys": ["date", "productId", "widgetId", "domain", "page", "link"],
         "partition_key": "date",
         "report": True,
-        "single_request": True,
+        "date_windows": True,
     },
     "visitor_insights_companies": {
         "path": "reports/visitor-insights/companies",
@@ -109,6 +112,7 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
 INCREMENTAL_LOOKBACK_SECONDS = dict.fromkeys(INCREMENTAL_FIELDS, 2 * 24 * 60 * 60)
 
 REPORT_PAGE_SIZE = 1000
+DATE_WINDOW_DAYS = 30
 # The reports document no retention, so a first sync reads one year of daily rows.
 REPORT_HISTORY_DAYS = 365
 # The intent API serves at most the 45 days before today.
