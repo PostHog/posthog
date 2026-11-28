@@ -1,4 +1,10 @@
+// TODO(2026-11-27): Replace with quill once it can; the app does not mount quill's ToastProvider yet.
+// oxlint-disable-next-line no-restricted-imports
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { downloadFile } from 'lib/utils/dom'
 import { lazyWithRetry } from 'lib/utils/retryImport'
+import { slugify } from 'lib/utils/strings'
 
 import type { MenuAction } from '../../menu/menuAction'
 import type { RunQuery } from '../../query/queryTypes'
@@ -6,9 +12,10 @@ import { type PanelType, type PanelMenuContext, definePanel } from '../core/pane
 import { type ContentPanel } from '../core/panelSchema'
 import { PanelLoading } from '../core/PanelView'
 import { chartMenuActions } from './chartMenuActions'
-import { ChartPanel } from './ChartPanel'
+import { type ChartBackgroundColor, ChartPanel, hasNoValues, shownFramesOf } from './ChartPanel'
 import { ChartSampleData } from './ChartSampleData'
 import { type ChartConfig, chartSpec } from './chartSpec'
+import { framesToCsv } from './data/framesToCsv'
 import { AreaLoading } from './viz/area/AreaLoading'
 import { areaSpec } from './viz/area/areaSpec'
 import { BarLoading } from './viz/bar/BarLoading'
@@ -98,6 +105,58 @@ export const DEFAULT_VIZ_TYPES: VizDefinition[] = [
     defineViz({ ...flameGraphSpec, Component: FlameGraphViz, Loading: FlameGraphLoading }),
 ]
 
+// The data the chart drew, so it matches the chart whatever runner, time range and filters gave it.
+function csvOf(panel: ContentPanel<ChartConfig>, delimiter?: ',' | '\t'): string | null {
+    const frames = shownFramesOf(panel)
+    if (!frames || hasNoValues(frames)) {
+        lemonToast.warning('This chart has no data to export.')
+        return null
+    }
+    return framesToCsv(frames, delimiter)
+}
+
+function downloadCsv(panel: ContentPanel<ChartConfig>): void {
+    const csv = csvOf(panel)
+    if (csv !== null) {
+        downloadFile(new File([csv], `${slugify(panel.title ?? '') || 'chart'}.csv`, { type: 'text/csv' }))
+    }
+}
+
+function copyCsv(panel: ContentPanel<ChartConfig>): void {
+    const csv = csvOf(panel, '\t')
+    if (csv !== null) {
+        void copyToClipboard(csv, 'chart data')
+    }
+}
+
+// CSV joins the image formats under the tile's `download` and `copy` entries, so a tile has one entry for each.
+function withCsv(action: MenuAction, panel: ContentPanel<ChartConfig>): MenuAction {
+    const csv = { label: '.csv', section: 'Data', disabledReason: null }
+    if (action.key === 'download' && action.submenu) {
+        const download = { ...csv, key: 'csv', dataAttr: 'dashboard-v2-chart-download-csv' }
+        return { ...action, submenu: [...action.submenu, { ...download, onSelect: () => downloadCsv(panel) }] }
+    }
+    if (action.key === 'copy' && action.onSelect) {
+        const { onSelect, ...copy } = action
+        return {
+            ...copy,
+            label: 'Copy as',
+            submenu: [
+                {
+                    key: 'png',
+                    label: '.png',
+                    section: 'Image',
+                    dataAttr: `${action.dataAttr}-png`,
+                    disabledReason: action.disabledReason,
+                    onSelect,
+                },
+                { ...csv, key: 'csv', dataAttr: 'dashboard-v2-chart-copy-csv', onSelect: () => copyCsv(panel) },
+            ],
+        }
+    }
+    return action
+}
+
 // A host's `states` replace the built-in kinds' own states, but not those of the host's own kinds.
 function withExtraVizTypes(extra: VizDefinition[], states: ChartStates | undefined): VizDefinition[] {
     const builtIn = DEFAULT_VIZ_TYPES.map(
@@ -112,6 +171,8 @@ function withExtraVizTypes(extra: VizDefinition[], states: ChartStates | undefin
  * - `runQuery` runs each chart's query. The host supplies it, so the dashboard never fetches data itself.
  * - `states` sets the loading, empty, error and sample data states for every chart, unless one of the host's own kinds sets its own.
  * - `sampleData` draws every chart from made-up data and runs no queries, such as in a project with no events yet.
+ * - `backgroundColor` colors a chart's tile from the data it drew, such as red while a number is past its limit. It wins
+ *   over the color a person picked.
  * - `menuActions` gets every chart's menu, with the chart's own entries added, so the host can add entries such as
  *   "Open in traces" or remove ones it does not want.
  */
@@ -120,12 +181,14 @@ export function createChartPanel({
     runQuery,
     states,
     sampleData = false,
+    backgroundColor,
     menuActions,
 }: {
     extraVizTypes?: VizDefinition[]
     runQuery?: RunQuery
     states?: ChartStates
     sampleData?: boolean
+    backgroundColor?: ChartBackgroundColor
     menuActions?: (actions: MenuAction[], context: PanelMenuContext<ChartConfig>) => MenuAction[]
 } = {}): PanelType {
     const vizTypes = withExtraVizTypes(extraVizTypes, states)
@@ -153,7 +216,15 @@ export function createChartPanel({
         if (sampleData) {
             return <ChartSample panel={panel} />
         }
-        return <ChartPanel panel={panel} vizTypes={vizTypes} runQuery={runQuery} states={states} />
+        return (
+            <ChartPanel
+                panel={panel}
+                vizTypes={vizTypes}
+                runQuery={runQuery}
+                states={states}
+                backgroundColor={backgroundColor}
+            />
+        )
     }
     const firstType = vizTypes.find((viz) => viz.type === 'line')?.type ?? vizTypes[0]?.type ?? 'line'
     return definePanel<ChartConfig, 'chart'>({
@@ -176,7 +247,12 @@ export function createChartPanel({
         Component: Chart,
         Loading: ChartLoading,
         menuActions: (actions, context) => {
-            const withChart = [...actions, ...chartMenuActions(vizTypes, context)]
+            // Without a runner the chart draws no data, or made-up data, so there is nothing to export.
+            const offersCsv = !!runQuery && !sampleData
+            const withChart = [
+                ...(offersCsv ? actions.map((action) => withCsv(action, context.panel)) : actions),
+                ...chartMenuActions(vizTypes, context),
+            ]
             return menuActions ? menuActions(withChart, context) : withChart
         },
     })

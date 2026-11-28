@@ -3,7 +3,7 @@ name: adding-dashboard-v2-custom-content
 description: >
   Guides putting a product's own React component in a dashboards v2 tile through the custom panel type:
   a content package in the product's folder (`defineContentPackage`), `createCustomPanel({ packages })`,
-  the off-by-default opt-ins (`movable`, `duplicable`, `menuActions`, `showOnInteractiveOnly`) and reading or changing
+  the off-by-default opt-ins (`movable`, `duplicable`, `backgroundColor`, `menuActions`, `showOnInteractiveOnly`) and reading or changing
   the dashboard's filters. Use when migrating an existing component, banner, list or prompt from a product
   page into a dashboards v2 tile, adding a new custom content, or reviewing a diff that touches a content
   package. Not for a new kind of chart or panel type (`adding-dashboard-v2-panel-types`).
@@ -47,7 +47,8 @@ Read `products/dashboards_v2/.agents/composing.md` ("Your own component in a til
 7. **Opt in only to what the product wants people to do.** By default a content cannot be moved and has an empty menu.
    - `movable: true` lets a person drag, resize, move and remove the tile.
    - `duplicable: true` adds Duplicate to the tile's menu.
-   - `menuActions(actions, context)` returns the built-in actions to show, such as `actions.filter((action) => action.key === 'download-image')`. Left out, the menu is empty.
+   - `backgroundColor: true` adds Background to the tile's menu, whatever `menuActions` returns. To color the tile from the component's own state instead, call `useTileBackground(color)` with one of `TILE_BACKGROUND_COLORS` or any CSS color.
+   - `menuActions(actions, context)` returns the built-in actions to show, such as `actions.filter((action) => action.key === 'download')`. Left out, the menu is empty.
    - `keepMounted: true` keeps the component mounted after it scrolls out of view. Set it when the component holds state a person would lose, such as a picked tab or a draft, and leave it out otherwise, because the tile then stays in memory.
    - `showOnInteractiveOnly: true` leaves the tile out of images and printed pages. Use it for prompts, buttons and live counters, which mean nothing in a snapshot.
 8. **Register the package** in the host's panel list, `createCustomPanel({ packages: [webAnalyticsContents] })`, and add the tile to the dashboard JSON. A product page passes only its own package: products never import another product's package.

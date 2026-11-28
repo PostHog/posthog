@@ -13,8 +13,8 @@ import { TILE_PLACEHOLDER_CLASS } from '../../tiles/core/TileContextMenu'
 export type ImageFormat = 'png' | 'webp'
 
 export const IMAGE_FORMATS: { format: ImageFormat; label: string }[] = [
-    { format: 'png', label: 'PNG' },
-    { format: 'webp', label: 'WebP' },
+    { format: 'png', label: '.png' },
+    { format: 'webp', label: '.webp' },
 ]
 
 const LEFT_OUT = `.TileActions, .${INTERACTIVE_ONLY_CLASS}, .react-resizable-handle, .TileGrid__drop-preview, .DashboardActions, [data-attr="dashboard-v2-add-tab"]`
@@ -65,7 +65,7 @@ export async function copyDashboardImage(root: HTMLElement): Promise<void> {
     }
 }
 
-/** `download-image` with a format submenu, then `copy-image` on a browser that can put an image on the clipboard. */
+/** `download` with a format submenu, which a panel type can add its own file formats to, then `copy` on a browser that can put an image on the clipboard. */
 export function imageActions({
     downloadLabel,
     copyLabel,
@@ -86,7 +86,7 @@ export function imageActions({
     const dataAttr = `${dataAttrPrefix}-download-image`
     const actions: MenuAction[] = [
         {
-            key: 'download-image',
+            key: 'download',
             label: downloadLabel,
             dataAttr,
             group: 'view',
@@ -95,6 +95,7 @@ export function imageActions({
             submenu: IMAGE_FORMATS.filter(({ format }) => canWriteImage(format)).map(({ format, label }) => ({
                 key: format,
                 label,
+                section: 'Image',
                 dataAttr: `${dataAttr}-${format}`,
                 disabledReason: waiting.disabledReason,
                 onSelect: () => download(format),
@@ -103,7 +104,7 @@ export function imageActions({
     ]
     if (canCopyImageToClipboard()) {
         actions.push({
-            key: 'copy-image',
+            key: 'copy',
             label: copyLabel,
             dataAttr: `${dataAttrPrefix}-copy-image`,
             group: 'view',
