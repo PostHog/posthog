@@ -38,6 +38,7 @@ const ERROR_FILTER_ALLOW_LIST = [
     'fetchSpans',
     'fetchSparkline',
     'loadInboxSummary', // The inbox summary has an inline retry control.
+    'loadReleaseWorkThread', // The release work thread card has an inline retry control.
     'loadOfflineExperiments', // Offline views provide inline retry states.
     'loadOfflineScorerOptions',
     'loadOfflineSuggestedScorers',

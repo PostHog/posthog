@@ -1,10 +1,16 @@
+import { useValues } from 'kea'
+
 import { Card, CardContent, Heading, Progress, ProgressLabel, Text } from '@posthog/quill'
 
 import { ReleaseLifecycle } from './ReleaseLifecycle'
+import { releaseLogic } from './releaseLogic'
 import { ReleaseNextSteps } from './ReleaseNextSteps'
 import { REVIEW_AFTER_DAYS, ReleaseRow, STAGE_COLOR } from './releaseUtils'
+import { ReleaseWorkThreadCard } from './ReleaseWorkThreadCard'
 
 export function ReleaseStatusCard({ row }: { row: ReleaseRow }): JSX.Element {
+    const { workThreadEnabled } = useValues(releaseLogic)
+
     return (
         <Card data-attr="release-status">
             <CardContent className="flex flex-col gap-5">
@@ -27,7 +33,7 @@ export function ReleaseStatusCard({ row }: { row: ReleaseRow }): JSX.Element {
                         </Text>
                     </Progress>
                 )}
-                <ReleaseNextSteps row={row} />
+                {workThreadEnabled ? <ReleaseWorkThreadCard row={row} /> : <ReleaseNextSteps row={row} />}
             </CardContent>
         </Card>
     )

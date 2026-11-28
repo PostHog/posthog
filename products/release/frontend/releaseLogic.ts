@@ -54,6 +54,7 @@ interface ReleaseLogicValues {
     featureFlags: FeatureFlagsSet
     releasesEnabled: boolean
     releasesAreaEnabled: boolean
+    workThreadEnabled: boolean
     user: UserType | null
     releases: ReleaseDTOApi[]
     releasesLoading: boolean
@@ -743,6 +744,10 @@ export const releaseLogic = kea<releaseLogicType>([
         releasesAreaEnabled: [
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.RELEASES_AREA],
+        ],
+        workThreadEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.WORK_THREAD],
         ],
         canEditReleases: [
             (s) => [s.releasesEnabled],
