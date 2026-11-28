@@ -437,6 +437,171 @@ class TestRegionWideLogCatalogs:
             assert result.rows[0][column] == dt.datetime(2024, 3, 8, 12, 13, 20, tzinfo=dt.UTC)
 
 
+class TestSubscriptionFilters:
+    def test_walks_every_page_of_each_log_group_and_keys_rows_by_their_group(self) -> None:
+        subscription_filter = {
+            "filterName": "to-firehose",
+            "logGroupName": "/aws/lambda/one",
+            "filterPattern": "",
+            "destinationArn": "arn:aws:firehose:us-east-1:000000000000:deliverystream/example",
+            "distribution": "ByLogStream",
+            "creationTime": 1709900000000,
+        }
+        result = driver().run(
+            "subscription_filters",
+            by_origin(
+                logs=[
+                    ScriptedResponse(json={"subscriptionFilters": [subscription_filter], "nextToken": "p2"}),
+                    ScriptedResponse(
+                        json={"subscriptionFilters": [{**subscription_filter, "filterName": "to-lambda"}]}
+                    ),
+                    ScriptedResponse(json={"subscriptionFilters": [{**subscription_filter, "logGroupName": None}]}),
+                ]
+            ),
+        )
+
+        assert result.raised is None
+        assert {r.headers["x-amz-target"] for r in result.requests} == {"Logs_20140328.DescribeSubscriptionFilters"}
+        assert [r.json() for r in result.requests] == [
+            {"logGroupName": "/aws/lambda/one", "limit": 50},
+            {"logGroupName": "/aws/lambda/one", "limit": 50, "nextToken": "p2"},
+            {"logGroupName": "/aws/lambda/two", "limit": 50},
+        ]
+        assert [(row["log_group_name"], row["filter_name"]) for row in result.rows] == [
+            ("/aws/lambda/one", "to-firehose"),
+            ("/aws/lambda/one", "to-lambda"),
+            ("/aws/lambda/two", "to-firehose"),
+        ]
+        assert result.rows[0]["creation_time"] == dt.datetime(2024, 3, 8, 12, 13, 20, tzinfo=dt.UTC)
+        assert result.rows[0]["destination_arn"] == subscription_filter["destinationArn"]
+
+
+class TestMonitoringCatalogs:
+    @staticmethod
+    def detector(dimensions: list[tuple[str, str]], nested: bool = True, deprecated: bool = True) -> str:
+        members = "".join(f"<member><Name>{n}</Name><Value>{v}</Value></member>" for n, v in dimensions)
+        metric = (
+            f"<Namespace>AWS/EC2</Namespace><MetricName>CPUUtilization</MetricName>"
+            f"<Dimensions>{members}</Dimensions><Stat>Average</Stat>"
+        )
+        return (
+            "<member>"
+            + (metric if deprecated else "")
+            + (f"<SingleMetricAnomalyDetector>{metric}</SingleMetricAnomalyDetector>" if nested else "")
+            + "<StateValue>TRAINED</StateValue></member>"
+        )
+
+    MATH_DETECTOR = (
+        "<member><MetricMathAnomalyDetector><MetricDataQueries><member><Id>m1</Id>"
+        "<Expression>SUM(METRICS())</Expression></member></MetricDataQueries></MetricMathAnomalyDetector>"
+        "<StateValue>PENDING_TRAINING</StateValue></member>"
+    )
+
+    @pytest.mark.parametrize(
+        ("endpoint", "action", "params", "items_tag", "item", "expected"),
+        [
+            (
+                "dashboards",
+                "ListDashboards",
+                {},
+                "DashboardEntries",
+                "<member><DashboardName>ops</DashboardName><DashboardArn>arn:aws:cloudwatch::000000000000:dashboard/ops"
+                "</DashboardArn><LastModified>2024-03-08T12:13:20Z</LastModified><Size>2048</Size></member>",
+                {
+                    "dashboard_name": "ops",
+                    "dashboard_arn": "arn:aws:cloudwatch::000000000000:dashboard/ops",
+                    "last_modified": dt.datetime(2024, 3, 8, 12, 13, 20, tzinfo=dt.UTC),
+                    "size": 2048,
+                },
+            ),
+            (
+                "anomaly_detectors",
+                "DescribeAnomalyDetectors",
+                {
+                    "AnomalyDetectorTypes.member.1": "SINGLE_METRIC",
+                    "AnomalyDetectorTypes.member.2": "METRIC_MATH",
+                    "MaxResults": "100",
+                },
+                "AnomalyDetectors",
+                MATH_DETECTOR,
+                {
+                    "metric_math_anomaly_detector": {
+                        "MetricDataQueries": [{"Id": "m1", "Expression": "SUM(METRICS())"}]
+                    },
+                    "state_value": "PENDING_TRAINING",
+                },
+            ),
+            (
+                "insight_rules",
+                "DescribeInsightRules",
+                {"MaxResults": "500"},
+                "InsightRules",
+                "<member><Name>top-ips</Name><State>ENABLED</State><Schema>CloudWatchLogRule</Schema>"
+                '<Definition>{"Schema":{"Name":"CloudWatchLogRule","Version":1}}</Definition>'
+                "<ManagedRule>false</ManagedRule></member>",
+                {
+                    "name": "top-ips",
+                    "state": "ENABLED",
+                    "schema": "CloudWatchLogRule",
+                    "definition": '{"Schema":{"Name":"CloudWatchLogRule","Version":1}}',
+                    "managed_rule": False,
+                },
+            ),
+        ],
+    )
+    def test_lists_the_catalog_page_by_page(
+        self,
+        endpoint: str,
+        action: str,
+        params: dict[str, str],
+        items_tag: str,
+        item: str,
+        expected: dict[str, Any],
+    ) -> None:
+        result = driver().run(
+            endpoint,
+            by_origin(
+                monitoring=[
+                    xml_response(action, f"<{items_tag}>{item}</{items_tag}><NextToken>n2</NextToken>"),
+                    xml_response(action, f"<{items_tag}>{item}</{items_tag}>"),
+                ]
+            ),
+        )
+
+        assert result.raised is None
+        sent = [form(r) for r in result.requests]
+        assert [request.pop("Version") for request in sent] == ["2010-08-01"] * 2
+        assert sent == [{"Action": action, **params}, {"Action": action, **params, "NextToken": "n2"}]
+        assert len(result.rows) == 2
+        row = {key: value for key, value in result.rows[0].items() if key != "detector_key"}
+        assert row == expected
+
+    def test_an_anomaly_detector_keeps_its_key_whichever_metric_fields_aws_fills(self) -> None:
+        result = driver().run(
+            "anomaly_detectors",
+            by_origin(
+                monitoring=[
+                    xml_response(
+                        "DescribeAnomalyDetectors",
+                        "<AnomalyDetectors>"
+                        + self.detector([("InstanceId", "i-1"), ("AutoScalingGroupName", "g")])
+                        + self.detector([("AutoScalingGroupName", "g"), ("InstanceId", "i-1")], deprecated=False)
+                        + self.detector([("InstanceId", "i-1"), ("AutoScalingGroupName", "g")], nested=False)
+                        + self.detector([("InstanceId", "i-2")])
+                        + self.MATH_DETECTOR
+                        + self.MATH_DETECTOR.replace("SUM(METRICS())", "AVG(METRICS())")
+                        + "</AnomalyDetectors>",
+                    )
+                ]
+            ),
+        )
+
+        assert result.raised is None
+        keys = [row["detector_key"] for row in result.rows]
+        assert keys[0] == keys[1] == keys[2]
+        assert len({keys[0], keys[3], keys[4], keys[5]}) == 4
+
+
 class TestMetrics:
     @staticmethod
     def metric(name: str, dimensions: list[tuple[str, str]]) -> str:
