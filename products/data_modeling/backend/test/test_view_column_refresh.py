@@ -11,11 +11,14 @@ from parameterized import parameterized
 
 from posthog.schema import RevenueAnalyticsEventItem
 
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.database.request_scope import SharedDatabases, sharing_databases
 from posthog.hogql.errors import QueryError
 from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.query import execute_hogql_query
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.data_modeling.backend.logic import view_column_refresh
 from products.data_modeling.backend.logic.saved_query_dag_sync import sync_saved_query_to_dag
 from products.data_modeling.backend.logic.view_column_refresh import refresh_view_columns
@@ -58,6 +61,25 @@ class TestViewColumnRefresh(ClickhouseTestMixin, BaseTest):
         for view in (middle, downstream):
             view.refresh_from_db()
             assert view.column_order == ["new_id"]
+
+    def test_query_in_a_batch_sharing_scope_retries_on_a_catalog_built_after_the_refresh(self) -> None:
+        upstream = self._create_view("upstream_view", "SELECT 1 AS old_id")
+        self._create_view("downstream_view", "SELECT * FROM upstream_view")
+        self._edit_view(upstream, "SELECT 1 AS new_id")
+        access = UserAccessControl(user=self.user, team=self.team)
+
+        def run_tile(sql: str) -> list:
+            # A batch tile's runner hands the executor a catalog from the share, built before the refresh.
+            shared = Database.create_for(team=self.team, user=self.user, user_access_control=access)
+            context = HogQLContext(team_id=self.team.pk, user=self.user, database=shared, user_access_control=access)
+            return execute_hogql_query(sql, team=self.team, user=self.user, context=context).results
+
+        with sharing_databases(SharedDatabases()):
+            first = run_tile("SELECT new_id FROM downstream_view")
+            later = run_tile("SELECT * FROM downstream_view")
+            unrelated = run_tile("SELECT 1")
+
+        assert (first, later, unrelated) == ([(1,)], [(1,)], [(1,)])
 
     def test_query_retries_when_another_request_already_refreshed_the_view(self) -> None:
         upstream = self._create_view("upstream_view", "SELECT 1 AS old_id")

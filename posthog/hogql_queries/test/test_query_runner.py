@@ -61,6 +61,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.database.request_scope import SharedDatabases, sharing_databases
 from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query_stats import get_active, notify_query_started, record
@@ -667,11 +668,15 @@ class TestQueryRunner(BaseTest):
         assert first_snapshot is not second_snapshot
         assert second_database.user_access_control is second_snapshot
 
-    def test_shared_database_kill_switch_disables_sharing(self):
+    @parameterized.expand([("alone", False), ("inside_a_batch_sharing_scope", True)])
+    def test_shared_database_kill_switch_disables_sharing(self, _name: str, in_batch: bool):
         TestQueryRunner = self.setup_test_query_runner_class()
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
 
-        with override_instance_config("HOGQL_SHARED_INSIGHT_DATABASE_ENABLED", False):
+        with (
+            override_instance_config("HOGQL_SHARED_INSIGHT_DATABASE_ENABLED", False),
+            sharing_databases(SharedDatabases()) if in_batch else nullcontext(),
+        ):
             first = runner.shared_database
             second = runner.shared_database
 

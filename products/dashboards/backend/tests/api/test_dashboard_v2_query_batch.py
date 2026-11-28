@@ -30,11 +30,14 @@ from parameterized import parameterized
 from prometheus_client import REGISTRY
 from rest_framework import status
 
+from posthog.hogql.database.database import Database
+
 from posthog.api.services.query import process_query_dict, run_planned_query
 from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags
 from posthog.constants import AvailableFeature
 from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.models import PersonalAPIKey
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.organization import OrganizationMembership
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.waiting import wait_until
@@ -656,6 +659,27 @@ class TestQueryBatchRuns(_QueryBatchMixin, NonAtomicAPIBaseTest):
             [["engine", "engine"], ["cache", "cache"]],
         )
         self.assertEqual({line["result"]["provenance"]["mode"] for line in first + second}, {"raw"})
+
+    def test_targets_with_the_same_schema_inputs_share_one_hogql_database(self) -> None:
+        def sql(n: int, engine: str | None = None) -> dict[str, Any]:
+            target = {"refId": f"s{n}", "language": "hogql", "query": f"select {n} as n"}
+            return {"target": {**target, "engine": engine} if engine else target, "time": _LAST_7_DAYS}
+
+        def builds(queries: list[dict[str, Any]]) -> tuple[int, list[dict]]:
+            with patch.object(Database, "_build_for", side_effect=Database._build_for) as build:
+                lines = self._lines(queries)
+            return build.call_count, lines
+
+        one, _ = builds([sql(0)])
+        three, lines = builds([sql(1), sql(2), sql(3)])
+        mixed, _ = builds([sql(4), sql(5), sql(6, engine="new")])
+
+        self.assertEqual([line["result"]["result"]["results"] for line in lines], [[[1]], [[2]], [[3]]])
+        self.assertEqual(three, one)
+        self.assertEqual(mixed, 2 * one)
+        with override_instance_config("HOGQL_SHARED_INSIGHT_DATABASE_ENABLED", False):
+            killed, _ = builds([sql(7), sql(8), sql(9)])
+        self.assertEqual(killed, 3 * one)
 
     def test_each_run_is_tagged_for_the_query_log_with_its_tile_target_and_traceparent(self) -> None:
         traceparent = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"

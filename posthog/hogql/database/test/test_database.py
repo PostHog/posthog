@@ -68,6 +68,7 @@ from posthog.hogql.database.models import (
     TableNode,
 )
 from posthog.hogql.database.postgres_table import PostgresTable
+from posthog.hogql.database.request_scope import SharedDatabases, sharing_databases
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
 from posthog.hogql.database.schema.sessions_v2 import RawSessionsTableV2
 from posthog.hogql.database.schema.traffic_type import (
@@ -3867,8 +3868,13 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert isinstance(activitylog_after_events, Table)
         assert activitylog_after_events.fields.get("team") is None
 
+        # A query that shares this catalog may be iterating a table's fields while the build wires its joins.
+        fields_walk = iter(activitylog_after_events.fields.items())
+        next(fields_walk)
+
         # The first warehouse-table access wires the whole graph — forward and reverse joins.
         activitylog = database.get_table("postgres.ph3.posthog_activitylog")
+        list(fields_walk)
         assert isinstance(activitylog.fields.get("team"), LazyJoin)
         assert isinstance(database.get_table("postgres.ph3.posthog_team").fields.get("posthog_activitylogs"), LazyJoin)
 
@@ -5162,6 +5168,199 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         else:
             with pytest.raises(TableAccessDeniedError):
                 database.get_table("system.data_deletion_requests")
+
+    def _access(self) -> UserAccessControl:
+        return UserAccessControl(user=self.user, team=self.team)
+
+    def test_a_sharing_scope_does_not_share_a_users_build_made_without_an_access_snapshot(self) -> None:
+        with sharing_databases(SharedDatabases()):
+            first = Database.create_for(team=self.team, user=self.user)
+            second = Database.create_for(team=self.team, user=self.user)
+
+        assert first is not second
+
+    def test_a_sharing_scope_stops_sharing_when_the_kill_switch_turns_off_mid_batch(self) -> None:
+        enabled = [True]
+        with sharing_databases(SharedDatabases(enabled=lambda: enabled[0])):
+            first = Database.create_for(team=self.team, user=self.user, user_access_control=self._access())
+            enabled[0] = False
+            after_off = Database.create_for(team=self.team, user=self.user, user_access_control=self._access())
+
+        assert after_off is not first
+
+    @parameterized.expand(
+        [
+            ("same_inputs", {}, True),
+            (
+                "persons_on_events_mode",
+                {"personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED},
+                False,
+            ),
+            ("session_table_version", {"sessionTableVersion": SessionTableVersion.V3}, False),
+            ("new_events_schema", {"useNewEventsSchema": True}, False),
+        ]
+    )
+    def test_a_sharing_scope_reuses_a_database_only_for_the_same_schema_modifiers(
+        self, _name: str, changed: dict[str, Any], shared: bool
+    ) -> None:
+        base = HogQLQueryModifiers(
+            personsOnEventsMode=PersonsOnEventsMode.DISABLED, sessionTableVersion=SessionTableVersion.V2
+        )
+
+        with sharing_databases(SharedDatabases()):
+            first = Database.create_for(
+                team=self.team, user=self.user, user_access_control=self._access(), modifiers=base
+            )
+            second = Database.create_for(
+                team=self.team,
+                user=self.user,
+                user_access_control=self._access(),
+                modifiers=base.model_copy(update=changed),
+            )
+
+        assert (first is second) is shared
+
+    def test_a_sharing_scope_still_rejects_a_team_id_that_does_not_match_the_team(self) -> None:
+        other_team = Team.objects.create(organization=self.organization)
+
+        with sharing_databases(SharedDatabases()):
+            Database.create_for(team=self.team, user=self.user, user_access_control=self._access())
+            with pytest.raises(ValueError):
+                Database.create_for(
+                    team_id=other_team.pk, team=self.team, user=self.user, user_access_control=self._access()
+                )
+
+    @parameterized.expand(
+        [
+            ("resource_denied", [], {"resource": "insight", "access_level": "none"}),
+            ("object_blocked", [], {"resource": "insight", "resource_id": "1", "access_level": "none"}),
+            (
+                # The resource is already denied, so the grant changes only the allowlist.
+                "object_allowlisted",
+                [{"resource": "insight", "access_level": "none"}],
+                {"resource": "insight", "resource_id": "1", "access_level": "viewer"},
+            ),
+            (
+                # A table grant that overrides its source's denial changes neither the blocked nor allowlisted ids.
+                "child_grant_under_a_blocked_source",
+                [{"resource": "external_data_source", "resource_id": "1", "access_level": "none"}],
+                {"resource": "warehouse_table", "resource_id": "2", "access_level": "viewer"},
+            ),
+        ]
+    )
+    def test_a_sharing_scope_rebuilds_a_database_when_the_users_access_changes(
+        self, _name: str, before_rows: list[dict[str, Any]], change: dict[str, Any]
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        for row in before_rows:
+            AccessControl.objects.create(team=self.team, organization_member=self.organization_membership, **row)
+
+        with sharing_databases(SharedDatabases()):
+            before = Database.create_for(team=self.team, user=self.user, user_access_control=self._access())
+            AccessControl.objects.create(team=self.team, organization_member=self.organization_membership, **change)
+            after = Database.create_for(team=self.team, user=self.user, user_access_control=self._access())
+
+        assert after is not before
+
+    @parameterized.expand(
+        [
+            ("enforcement_turns_on", [False, False]),
+            # The key reads the flag as on and the build reads it as off, so the build must not be stored.
+            ("build_reads_the_flag_differently_from_the_key", [True, False]),
+        ]
+    )
+    def test_a_sharing_scope_rebuilds_a_database_when_warehouse_access_control_turns_on(
+        self, _name: str, first_reads: list[bool]
+    ) -> None:
+        flag = "posthog.hogql.database.database._evaluate_warehouse_access_control_flag"
+
+        with sharing_databases(SharedDatabases()):
+            with patch(flag, side_effect=first_reads):
+                unenforced = Database.create_for(team=self.team, user=self.user, user_access_control=self._access())
+            with patch(flag, return_value=True):
+                enforced = Database.create_for(team=self.team, user=self.user, user_access_control=self._access())
+
+        assert enforced is not unenforced
+
+    def test_a_sharing_scope_rebuilds_a_database_past_its_age_so_revoked_access_applies(self) -> None:
+        with sharing_databases(SharedDatabases(max_age_seconds=30)):
+            with patch("posthog.hogql.database.request_scope.monotonic", side_effect=[0, 10, 40, 40, 40]):
+                first = Database.create_for(team=self.team, user=self.user, user_access_control=self._access())
+                assert Database.create_for(team=self.team, user=self.user, user_access_control=self._access()) is first
+                assert (
+                    Database.create_for(team=self.team, user=self.user, user_access_control=self._access()) is not first
+                )
+
+    @parameterized.expand([("root", False), ("nested_merge", True)])
+    def test_a_shared_database_survives_a_table_added_while_another_query_walks_it(
+        self, _name: str, nested: bool
+    ) -> None:
+        with sharing_databases(SharedDatabases()):
+            database = Database.create_for(team=self.team, user=self.user, user_access_control=self._access())
+        walked = (
+            next(node for node in database.tables.children.values() if node.children) if nested else database.tables
+        )
+        walk = iter(walked.children.items())
+        next(walk)
+
+        added = TableNode(name="added_mid_walk", hidden=True)
+        # A nested add goes through the merge path that deferred revenue views use to graft into an existing node.
+        database.tables.add_child(TableNode(name=walked.name, children={added.name: added}) if nested else added)
+
+        list(walk)
+        assert added.name in walked.children
+
+    def test_a_sharing_scope_stops_keeping_databases_past_its_limit(self) -> None:
+        modifiers = [
+            HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V2),
+            HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V3),
+        ]
+
+        with sharing_databases(SharedDatabases(max_databases=1)):
+            kept, over_limit = (
+                Database.create_for(team=self.team, user=self.user, user_access_control=self._access(), modifiers=m)
+                for m in modifiers
+            )
+            assert (
+                Database.create_for(
+                    team=self.team, user=self.user, user_access_control=self._access(), modifiers=modifiers[0]
+                )
+                is kept
+            )
+            assert (
+                Database.create_for(
+                    team=self.team, user=self.user, user_access_control=self._access(), modifiers=modifiers[1]
+                )
+                is not over_limit
+            )
+
+    @parameterized.expand([("member", False), ("member_with_preloaded_access_control", True)])
+    def test_a_sharing_scope_keeps_an_admins_tables_from_a_member(self, _name: str, preload: bool) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        member = self._create_user("member@posthog.com", level=OrganizationMembership.Level.MEMBER)
+
+        with sharing_databases(SharedDatabases()):
+            admin_database = Database.create_for(team=self.team, user=self.user)
+            member_database = Database.create_for(
+                team=self.team,
+                user=member,
+                user_access_control=UserAccessControl(user=member, team=self.team) if preload else None,
+            )
+
+        assert "system.data_deletion_requests" in admin_database.get_system_table_names()
+        assert "system.data_deletion_requests" not in member_database.get_system_table_names()
+        with pytest.raises(TableAccessDeniedError):
+            member_database.get_table("system.data_deletion_requests")
 
     @parameterized.expand(
         [

@@ -138,6 +138,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.database.request_scope import building_alone
 from posthog.hogql.modifiers import create_default_modifiers_for_user
 from posthog.hogql.printer import prepare_and_print_ast, to_printed_hogql
 from posthog.hogql.query import create_default_modifiers_for_team
@@ -2199,8 +2200,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         if not get_instance_setting("HOGQL_SHARED_INSIGHT_DATABASE_ENABLED"):
             # Kill switch: build per access so query threads never share schema state. No timings
             # measure here because concurrent threads reach this path and HogQLTimings is not
-            # thread-safe.
-            return self._create_database(trigger="shared_kill_switch")
+            # thread-safe. Built outside any batch scope too, so the switch also stops a running batch from sharing.
+            with building_alone():
+                return self._create_database(trigger="shared_kill_switch")
         if self._shared_database is None:
             # Concurrent query threads (funnels compare mode) can first-touch this property at the
             # same time. The lock makes the build run once, and keeps the measure on the single

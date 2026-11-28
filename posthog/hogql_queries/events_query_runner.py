@@ -28,6 +28,8 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.ast import Alias
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
+from posthog.hogql.database.request_scope import building_alone
 from posthog.hogql.database.schema.flag_evaluations import EVENTS_LIST_JOINED_FIELDS, join_persons_to_flag_evaluations
 from posthog.hogql.database.schema.util.null_sentinels import MAT_COL_NULL_SENTINELS
 from posthog.hogql.parser import parse_expr, parse_order_expr
@@ -40,6 +42,7 @@ from posthog.hogql.property import (
 )
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.restricted_properties import PERSON_PROPERTY_CONTAINERS
+from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.api.element import ElementSerializer
@@ -498,6 +501,13 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
         # properties. The activity list sends no mode. It must keep showing each person's current properties.
         modifiers = self.query.modifiers
         return modifiers is None or modifiers.personsOnEventsMode not in STORED_PERSON_PROPERTIES_MODES
+
+    def _create_database(self, *, timings: HogQLTimings | None = None, trigger: str) -> Database:
+        if not self._adds_persons_join(self._list_table):
+            return super()._create_database(timings=timings, trigger=trigger)
+        # _query_context changes this catalog, so it must not be one shared with other queries in a batch.
+        with building_alone():
+            return super()._create_database(timings=timings, trigger=trigger)
 
     def _query_context(self, table: EventsListTable) -> HogQLContext:
         context = self.build_hogql_context()

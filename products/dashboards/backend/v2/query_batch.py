@@ -33,6 +33,7 @@ from pydantic import BaseModel
 from posthog.schema import CacheMissResponse, IntervalType
 
 from posthog.hogql.constants import LimitContext
+from posthog.hogql.database.request_scope import SharedDatabases, sharing_databases
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 
 from posthog.api.services.query import (
@@ -53,6 +54,7 @@ from posthog.exceptions import ClickHouseEstimatedQueryExecutionTimeTooLong, Cli
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.dashboard_v2_batch_scope import DASHBOARD_V2_BATCH_ONLY_KINDS, dashboard_v2_batch_scope
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner, range_based_freshness
+from posthog.models.instance_setting import get_instance_setting
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.query_cache.results import decoded_size, prefetched_size
@@ -785,6 +787,11 @@ class QueryBatch:
         self._deadline = monotonic() + MAX_STREAM_SECONDS
         self._overflow: list[tuple[int, str, ResolvedQuery | QueryBatchInput]] = []
         self._shares = _share_keys(team.organization_id, user.pk)
+        # The kill switch keeps query threads from sharing schema state. It is read at the first build, not here,
+        # because the batch can be built on an event loop.
+        self._databases = SharedDatabases(
+            enabled=lambda: bool(get_instance_setting("HOGQL_SHARED_INSIGHT_DATABASE_ENABLED"))
+        )
         self._open = _OpenSlot(self._shares)
         # The request's trace context, captured while it is current, so the stream span joins the request's trace.
         self._trace = observability.StreamTrace(team_id=team.pk, dashboard_id=dashboard_id)
@@ -795,7 +802,7 @@ class QueryBatch:
         self._admission_wait_ms = (monotonic() - admission_started) * 1000
         weakref.finalize(self, _deferred_releases.append, self._open)
         try:
-            with dashboard_v2_batch_scope():
+            with dashboard_v2_batch_scope(), sharing_databases(self._databases):
                 self._read_cache(inputs)
         except BaseException:
             self._open.release()
@@ -1171,7 +1178,7 @@ class QueryBatch:
             return {"i": index, "error": _FAILED}
         started = monotonic()
         try:
-            with range_based_freshness(), observability.phase("execute"):
+            with range_based_freshness(), sharing_databases(self._databases), observability.phase("execute"):
                 response = process_query_dict(
                     self._team,
                     query.query,
@@ -1313,6 +1320,7 @@ class QueryBatch:
             self._cancelled = True
             self._logql_cancelled.set()
             self._shapes.clear()
+            self._databases.clear()
             active = tuple(self._active)
             admitted, self._admitted = self._admitted, False
         if self._pool is not None:
